@@ -48,7 +48,7 @@ const WITH_KEY = {
     providers: ["chatgpt", "api_key"], defaultPrompt: "Extrais les quantités.", promptMax: 50_000 }],
   chatgpt: { connected: true, model: "army-plan-model", reasoning_effort: null, message: null },
   api_key: { status: "saved", provider: "openai", suffix: "7K2F", place_label: "Sur ce Mac", message: null, ceiling_nano_usd: 1_000_000_000,
-    version: 3, models: [TERRA] },
+    connection_id: "8c3e2b1a-4d5f-4a6b-9c7d-0e1f2a3b4c5d", models: [TERRA] },
 } as unknown as LabState;
 
 import { LabEssaiScreen } from "@/components/takeoff/lab/LabEssaiScreen";
@@ -100,7 +100,7 @@ describe("LabEssaiScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Lancer/ }));
     await waitFor(() => expect(labApi.launch).toHaveBeenCalled());
     expect(vi.mocked(labApi.launch).mock.calls[0][0].configs).toEqual([
-      { provider: "api_key", apiProvider: "openai", model: "gpt-6.1-terra", reasoningEffort: null, connectionVersion: 3 }]);
+      { provider: "api_key", apiProvider: "openai", model: "gpt-6.1-terra", reasoningEffort: null, connectionId: "8c3e2b1a-4d5f-4a6b-9c7d-0e1f2a3b4c5d" }]);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -44,9 +44,10 @@ export const LabConfigInputSchema = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("chatgpt"), model: z.string().trim().min(1).max(200), reasoningEffort: chatGptReasoningEffortSchema.nullable() }).strict(),
   z.object({ provider: z.literal("decisions") }).strict(),
   // The API's provider is its own field: Anthropic joins this list without a new lab provider.
-  // `connectionVersion`: the key the page showed. A key replaced in another tab since then is refused, never billed.
+  // `connectionId`: the key the page showed, an opaque identity unique across owners and replacements. A key replaced in
+  // another tab, or the session of another member, is refused, never billed. The owner still comes from the session.
   z.object({ provider: z.literal("api_key"), apiProvider: aiApiProviderSchema, model: z.string().trim().min(1).max(200),
-    reasoningEffort: chatGptReasoningEffortSchema.nullable(), connectionVersion: z.number().int().positive() }).strict(),
+    reasoningEffort: chatGptReasoningEffortSchema.nullable(), connectionId: z.uuid() }).strict(),
 ]);
 export type LabConfigInput = z.infer<typeof LabConfigInputSchema>;
 
@@ -298,8 +299,8 @@ export type LabState = {
   /** The member's OpenAI key on this Mac: never the key, only whether it is there and its masked suffix. */
   api_key: { status: "saved" | "empty" | "unavailable"; provider: AiApiProvider; suffix: string | null; place_label: string | null;
     message: string | null; ceiling_nano_usd: number;
-    /** The saved key's version, sent back with a launch: a key replaced since this page was drawn is refused. */
-    version: number | null;
+    /** The saved key's opaque identity, sent back with a launch: a key replaced, or another member's, is refused. */
+    connection_id: string | null;
     /** The models the key listed when saved: the lab neither opens the Keychain nor calls OpenAI before a launch. */
     models: ApiKeyOfferedModel[] };
   campaigns: string[];

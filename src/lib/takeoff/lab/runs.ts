@@ -299,7 +299,7 @@ async function preflightApiKey(access: LabAccess, configs: readonly ApiKeyConfig
   // MergeOne's own record: neither the Keychain nor OpenAI is reached before the version and the models are checked.
   const state = await keyAccess.state(access.owner).catch(apiKeyConflict);
   if (state.status !== "saved") apiKeyConflict(new ApiKeyError(state.status === "unavailable" ? "AI_KEY_KEYCHAIN_UNAVAILABLE" : "AI_KEY_MISSING"));
-  if (configs.some((config) => config.connectionVersion !== state.connection.version)) apiKeyConflict(new ApiKeyError("AI_KEY_PAGE_STALE"));
+  if (configs.some((config) => config.connectionId !== state.connection.connectionId)) apiKeyConflict(new ApiKeyError("AI_KEY_PAGE_STALE"));
   for (const config of configs) {
     const model = state.connection.offeredModels.find((entry) => entry.id === config.model);
     if (!model || (config.reasoningEffort !== null && !model.reasoningEfforts.includes(config.reasoningEffort))) {

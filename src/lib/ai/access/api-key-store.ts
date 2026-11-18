@@ -26,6 +26,8 @@ export type AiAccessOwner = ChatGptOwner;
 
 const connectionSchema = z.object({
   provider: z.literal("openai"),
+  /** Random, new at every save: what a page that shows this key carries back (versions start at 1 for every owner). */
+  connection_id: z.uuid(),
   version: z.number().int().positive(),
   suffix: z.string().regex(/^[A-Za-z0-9_-]{4}$/),
   verification: z.enum(["models_listed", "model_tested"]),

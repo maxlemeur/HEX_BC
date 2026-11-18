@@ -38,6 +38,8 @@ export type ApiKeyConnectionView = {
   placeLabel: string;
   suffix: string;
   verification: ApiKeyVerification;
+  /** Opaque and unique across owners and replacements: a page sends it back with a launch. */
+  connectionId: string;
   version: number;
   savedAt: string;
   lastTest: { at: string; model: string } | null;

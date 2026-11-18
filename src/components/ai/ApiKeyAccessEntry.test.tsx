@@ -17,7 +17,7 @@ const MODELS: ApiKeyOfferedModel[] = [
   { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium", verified: true },
 ];
 const saved = (suffix: string, version = 1): ApiKeyAccessState => ({ status: "saved", connection: { provider: "openai", place: "local", placeLabel: "Sur ce Mac",
-  suffix, verification: "models_listed", version, savedAt: "2026-11-18T13:00:00.000Z", lastTest: null, lastUsedAt: null, offeredModels: MODELS } });
+  suffix, verification: "models_listed", connectionId: `8c3e2b1a-4d5f-4a6b-9c7d-0e1f2a3b4c${String(version).padStart(2, "0")}`, version, savedAt: "2026-11-18T13:00:00.000Z", lastTest: null, lastUsedAt: null, offeredModels: MODELS } });
 
 type Route = { method: string; path: string; body: Record<string, unknown> | null };
 let state: ApiKeyAccessState;

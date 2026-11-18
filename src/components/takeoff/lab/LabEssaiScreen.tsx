@@ -203,7 +203,7 @@ export function LabEssaiScreen() {
         documentId: document.id, campaign, taskId: task.id, crop, prompt, image,
         configs: configs.map((config): LabConfigInput => config.provider === "decisions" ? { provider: "decisions" }
           : config.provider === "api_key" ? { provider: "api_key", apiProvider: state.api_key.provider, model: config.model,
-            reasoningEffort: config.reasoningEffort, connectionVersion: state.api_key.version ?? 0 }
+            reasoningEffort: config.reasoningEffort, connectionId: state.api_key.connection_id ?? "" }
           : { provider: "chatgpt", model: config.model, reasoningEffort: config.reasoningEffort }),
       };
       const result = await labApi.launch(body);

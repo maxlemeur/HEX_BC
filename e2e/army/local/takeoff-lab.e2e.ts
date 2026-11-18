@@ -570,12 +570,12 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
         usage: { input: 2_400, cached_input: 400, cache_write: 0, output: 300, reasoning: 120, total: 2_700 } },
       score: { precision: 1, recall: 1, matched: 2 } });
 
-    // A page drawn before the key changed (version 1 shown, another in service) is refused before the Keychain or OpenAI is reached.
+    // A page that showed another key (its identity unknown to this member's record) is refused before the Keychain or OpenAI is reached.
     const session = await sessionCookies(member.email);
     const beforeStale = (await readTransport()).length;
     const stale = await rawRequest({ method: "POST", path: "/api/admin/takeoff/lab/runs", host: `127.0.0.1:${port}`, cookie: session.header, origin,
       body: { documentId: DOCUMENT, campaign: "cle-api-perimee", taskId: "extraction-niveau-c", crop: null, prompt: run.prompt.text, image: null,
-        configs: [{ provider: "api_key", apiProvider: "openai", model: "gpt-6.1-terra", reasoningEffort: "medium", connectionVersion: 2 }] } });
+        configs: [{ provider: "api_key", apiProvider: "openai", model: "gpt-6.1-terra", reasoningEffort: "medium", connectionId: randomUUID() }] } });
     expect([stale.status, JSON.parse(stale.body).error?.code]).toEqual([409, "AI_KEY_PAGE_STALE"]);
     expect((await readTransport()).slice(beforeStale)).toEqual([]);
 

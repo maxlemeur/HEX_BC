@@ -116,7 +116,7 @@ export async function readLabState(access: LabAccess): Promise<LabState> {
     api_key: {
       status: apiKey.status, provider: "openai", ceiling_nano_usd: LAB_API_KEY_CEILING_NANO_USD,
       suffix: apiKey.status === "saved" ? apiKey.connection.suffix : null,
-      version: apiKey.status === "saved" ? apiKey.connection.version : null,
+      connection_id: apiKey.status === "saved" ? apiKey.connection.connectionId : null,
       models: apiKey.status === "saved" ? apiKey.connection.offeredModels : [],
       place_label: apiKey.status === "saved" ? apiKey.connection.placeLabel : apiKey.status === "empty" ? apiKey.placeLabel : null,
       message: apiKey.status === "saved" ? null : apiKey.status === "empty" ? "Ajoutez votre clé API OpenAI dans Mon profil." : apiKey.message,

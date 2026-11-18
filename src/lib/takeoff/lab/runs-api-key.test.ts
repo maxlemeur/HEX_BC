@@ -99,6 +99,8 @@ const answer = (text: string, options: { usage?: Record<string, unknown>; model?
 
 let root: string;
 let key: string;
+/** The opaque identity of the key the lab page showed (random, per saved key and owner). */
+let shown: string;
 
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "lab-api-key-test-"));
@@ -115,7 +117,8 @@ beforeEach(async () => {
   subscription.calls = 0;
   key = `sk-proj-${randomBytes(30).toString("base64url")}`;
   const { openAiApiKeyAccess } = await import("@/lib/ai/access/openai-api");
-  await openAiApiKeyAccess().save(ACCESS.owner, { key });
+  const saved = await openAiApiKeyAccess().save(ACCESS.owner, { key });
+  shown = saved.outcome === "saved" && saved.state.status === "saved" ? saved.state.connection.connectionId : "";
   provider.sent = [];
 });
 
@@ -130,8 +133,8 @@ function essai(configs: LabConfigInput[], access = ACCESS) {
     prompt: task.defaultPrompt, configs, image: null });
 }
 type Effort = "medium" | "high" | "max";
-const keyed = (model: "gpt-6.1-terra" | "gpt-6.1-sol", effort: Effort = "medium", connectionVersion = 1): LabConfigInput =>
-  ({ provider: "api_key", apiProvider: "openai", model, reasoningEffort: effort, connectionVersion });
+const keyed = (model: "gpt-6.1-terra" | "gpt-6.1-sol", effort: Effort = "medium", connectionId?: string): LabConfigInput =>
+  ({ provider: "api_key", apiProvider: "openai", model, reasoningEffort: effort, connectionId: connectionId ?? shown });
 const terra = (effort: Effort = "medium") => keyed("gpt-6.1-terra", effort);
 
 async function storedRunTexts() {
@@ -251,16 +254,23 @@ describe("lab extraction on the member's API key", () => {
     expect([provider.sent.length, keychain.reads]).toEqual([0, 0]);
   });
 
-  it("refuses another member's or another tenant's essai on this key: their own record is empty", async () => {
+  // Review round 2, item D: every owner's first key is version 1; the page is bound to an identity unique across owners.
+  it("refuses a page that showed another member's key, even when both hold a version-1 key", async () => {
+    const { openAiApiKeyAccess } = await import("@/lib/ai/access/openai-api");
     for (const owner of [{ userId: "44444444-4444-4444-8444-444444444444", tenantId: ACCESS.owner.tenantId },
       { userId: ACCESS.owner.userId, tenantId: "55555555-5555-4555-8555-555555555555" }]) {
-      await expect(essai([terra()], { owner, email: null })).rejects.toMatchObject({ code: "AI_KEY_MISSING" });
+      const own = await openAiApiKeyAccess().save(owner, { key: `sk-proj-${randomBytes(30).toString("base64url")}` });
+      expect(own).toMatchObject({ state: { connection: { version: 1 } } });
+      provider.sent = [];
+      keychain.reads = 0;
+      // The session is now this owner; the open page still shows the first member's key.
+      await expect(essai([terra()], { owner, email: null })).rejects.toMatchObject({ code: "AI_KEY_PAGE_STALE" });
+      expect([provider.sent.length, keychain.reads]).toEqual([0, 0]);
     }
-    expect(provider.sent).toEqual([]);
   });
 
   it("refuses a model whose price this code does not know, even when the key lists it", async () => {
-    await expect(essai([{ provider: "api_key", apiProvider: "openai", model: "gpt-4o-mini", reasoningEffort: null, connectionVersion: 1 }]))
+    await expect(essai([{ provider: "api_key", apiProvider: "openai", model: "gpt-4o-mini", reasoningEffort: null, connectionId: shown }]))
       .rejects.toMatchObject({ code: "AI_KEY_PRICE_UNKNOWN" });
     expect(provider.sent).toEqual([]);
   });

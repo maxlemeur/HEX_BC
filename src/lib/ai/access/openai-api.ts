@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { ApiKeyError, isApiKeyError, type ApiKeyCallUsage, type ApiKeyErrorCode } from "@/lib/ai/access/api-key-errors";
@@ -442,7 +443,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
   function view(store: SecretStore, connection: StoredApiKeyConnection): ApiKeyAccessState {
     return { status: "saved", connection: {
       provider: "openai", place: "local", placeLabel: store.placeLabel, suffix: connection.suffix, verification: connection.verification,
-      version: connection.version, savedAt: connection.saved_at, lastTest: connection.last_test, lastUsedAt: connection.last_used_at,
+      connectionId: connection.connection_id, version: connection.version, savedAt: connection.saved_at, lastTest: connection.last_test, lastUsedAt: connection.last_used_at,
       offeredModels: offeredOpenAiModels(connection.models === null ? null : new Set(connection.models)),
     } };
   }
@@ -553,7 +554,8 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
           const previous = file.connections.openai;
           const switched: AiAccessFile = {
             ...file,
-            connections: { openai: { provider: "openai", version, suffix: candidate.suffix, verification, models, saved_at: deps.now().toISOString(),
+            connections: { openai: { provider: "openai", connection_id: randomUUID(), version, suffix: candidate.suffix, verification, models,
+              saved_at: deps.now().toISOString(),
               last_test: lastTest, last_used_at: null } },
             pending: file.pending.filter((ref) => ref.version !== version),
             retired: previous ? [...file.retired, { provider: "openai", version: previous.version }] : file.retired,
