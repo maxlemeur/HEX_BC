@@ -41,13 +41,50 @@ armyTest("COL01 personal column order and width survive reload and another estim
   await openDisplay();
   await ui.screen.getByRole("button", "Réinitialiser les colonnes et leurs largeurs", { exact: true }).click();
   await ui.screen.getByRole("button", "Personnalisé", { exact: true }).click();
-  for (const name of ["K FO", "Marque %", "Fournisseur"]) await ui.screen.getByRole("checkbox", name, { exact: true }).check();
+  for (const name of ["K FO", "Marque %", "Fournisseur"]) {
+    const checkbox = ui.screen.getByRole("checkbox", name, { exact: true });
+    const pointer = () => ui.browser.evaluate((labelText) => {
+      const panel = document.getElementById("estimate-editor-display-panel");
+      const label = Array.from(panel?.querySelectorAll("label") ?? [])
+        .find((candidate) => candidate.textContent?.trim() === labelText);
+      const input = label?.querySelector('input[type="checkbox"]');
+      if (!panel || !label || !input) throw new Error(`Display checkbox not found: ${labelText}`);
+
+      const box = input.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      const panelBox = panel.getBoundingClientRect();
+      const panelX = panelBox.left + panelBox.width / 2;
+      const panelY = (Math.max(0, panelBox.top) + Math.min(window.innerHeight, panelBox.bottom)) / 2;
+      return { actionable: hit !== null && label.contains(hit), panelX, panelY, deltaY: box.y + box.height / 2 - panelY };
+    }, name);
+    const target = await pointer();
+    if (!target.actionable) {
+      await ui.browser.mouse.move(target.panelX, target.panelY);
+      await ui.browser.mouse.wheel(0, Math.round(target.deltaY));
+      await expect.poll(async () => (await pointer()).actionable, {
+        message: `${name} receives pointer input inside the display panel after scrolling`,
+      }).toBe(true);
+    }
+    await checkbox.click();
+    await expect(checkbox).toBeChecked();
+  }
   await ui.screen.getByText("Ordre des colonnes, par groupe", { exact: true }).click();
   await ui.screen.getByRole("button", "Déplacer K FO vers la gauche", { exact: true }).click();
   await ui.screen.getByRole("button", "Déplacer K FO vers la gauche", { exact: true }).click();
   await display.click();
+  const designationWidth = () => ui.browser.evaluate(() =>
+    document.querySelector('[data-testid="estimate-editor-table-head"] [data-estimate-column="designation"]')
+      ?.getBoundingClientRect().width ?? 0);
+  const originalWidth = await designationWidth();
+  expect(originalWidth).toBeGreaterThan(0);
   await ui.screen.getByRole("button", "Ajuster la largeur de la colonne Désignation", { exact: true }).press("ArrowRight");
-  const headers = await ui.browser.evaluate(() => document.querySelector('[data-testid="estimate-editor-table-head"]')?.textContent ?? "");
+  await expect.poll(designationWidth, { message: "ArrowRight widens the rendered Désignation column" })
+    .toBeGreaterThan(originalWidth + 1);
+  const resizedWidth = await designationWidth();
+
+  const readHeaders = () => ui.browser.evaluate(() =>
+    document.querySelector('[data-testid="estimate-editor-table-head"]')?.textContent ?? "");
+  const headers = await readHeaders();
   expect(headers).toContain("Marque %"); expect(headers).toContain("Fournisseur");
   expect(headers.indexOf("K FO")).toBeGreaterThanOrEqual(0);
   expect(headers.indexOf("K FO")).toBeLessThan(headers.indexOf("PR FO"));
@@ -55,13 +92,11 @@ armyTest("COL01 personal column order and width survive reload and another estim
     const columns = (selector: string) => Array.from(document.querySelectorAll(`${selector} [data-estimate-column]`))
       .map((element) => element.getAttribute("data-estimate-column"));
     return {
-      grid: (document.querySelector('[data-testid="estimate-editor-table"]') as HTMLElement).style.getPropertyValue("--estimate-grid-desktop"),
       preferences: Object.fromEntries(Object.entries(localStorage).filter(([key]) => /^est-col-(vis|custom|override|widths-v1|order-v1):/.test(key))),
       footer: columns('[data-testid="estimate-editor-table-footer"]'),
       row: columns('[data-testid="estimate-line-row"]'),
     };
   });
-  expect(layout.grid.length).toBeGreaterThan(0);
   expect(Object.keys(layout.preferences).some((key) => key.startsWith("est-col-widths-v1:"))).toBe(true);
   expect(Object.keys(layout.preferences).every((key) => key.endsWith(`:${owner}`))).toBe(true);
   expect(layout.footer.indexOf("k_fo")).toBeGreaterThanOrEqual(0);
@@ -72,14 +107,19 @@ armyTest("COL01 personal column order and width survive reload and another estim
   await price.focus(); await price.press("ArrowRight");
   await expect(ui.browser.locator('[data-testid="estimate-line-row"] [data-cell-column-key="supplier"]')).toBeFocused();
   await expect(total).toHaveText(initialTotal);
-  const grid = () => ui.browser.evaluate(() => (document.querySelector('[data-testid="estimate-editor-table"]') as HTMLElement | null)?.style.getPropertyValue("--estimate-grid-desktop") ?? "");
   await ui.browser.reload();
   await expect(table).toBeVisible();
-  await expect.poll(grid).toBe(layout.grid);
+  await expect.poll(designationWidth, { message: "Désignation retains its rendered width after reload" })
+    .toBeCloseTo(resizedWidth, 0);
+  const reloadedWidth = await designationWidth();
+  await expect.poll(readHeaders).toBe(headers);
   await expect(total).toHaveText(initialTotal);
   await ui.app.open(`/dashboard/estimates/${second.versionId}/edit`);
   await expect(table).toBeVisible();
-  await expect.poll(grid).toBe(layout.grid);
+  await expect.poll(designationWidth, { message: "Désignation retains its rendered width on another estimate" })
+    .toBeCloseTo(resizedWidth, 0);
+  const secondEstimateWidth = await designationWidth();
+  await expect.poll(readHeaders).toBe(headers);
   await ui.app.open(`/dashboard/estimates/${first.versionId}/edit`);
   await expect(table).toBeVisible();
   await openDisplay();
@@ -90,6 +130,7 @@ armyTest("COL01 personal column order and width survive reload and another estim
   expect(financials(after)).toEqual(financials(before));
   await recordEvidence(ui.army, "personal-columns", {
     first, second, expected: { htCents: 4500, accountScoped: true, resetWidthKeys: 0 },
-    layout, before: financials(before), after: financials(after),
+    layout, designationWidthPx: { original: originalWidth, resized: resizedWidth, reloaded: reloadedWidth, secondEstimate: secondEstimateWidth },
+    before: financials(before), after: financials(after),
   });
 });
