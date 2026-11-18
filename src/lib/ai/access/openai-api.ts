@@ -6,7 +6,7 @@ import { z } from "zod";
 import { ApiKeyError, isApiKeyError, type ApiKeyCallUsage, type ApiKeyErrorCode } from "@/lib/ai/access/api-key-errors";
 import { ApiKeySecret } from "@/lib/ai/access/api-key-secret";
 import {
-  defaultAiAccessDirectory, readAiAccessFile, withAiAccessLock, writeAiAccessFile, type AiAccessFile, type AiAccessItemRef, type AiAccessOwner,
+  defaultAiAccessDirectory, readAiAccessFile, wasUnreadable, withAiAccessLock, writeAiAccessFile, type AiAccessFile, type AiAccessItemRef, type AiAccessOwner,
   type StoredApiKeyConnection,
 } from "@/lib/ai/access/api-key-store";
 import type { AiReasoningEffort, ApiKeyAccessState, ApiKeySaveResult, ApiKeyTestResult } from "@/lib/ai/access/contracts";
@@ -408,6 +408,8 @@ async function guarded<T>(effect: () => Promise<T>): Promise<T> {
   }
 }
 
+const UNREADABLE_RECORD = "Le descriptif local de la clé était illisible : aucune clé n’est considérée comme enregistrée. Enregistrez-la de nouveau.";
+
 const MODEL_TEST_SCHEMA = z.object({ connexion: z.literal("ok") }).strict();
 const MODEL_TEST_PROMPT = "Test de connexion de MergeOne, sans document : réponds exactement {\"connexion\":\"ok\"}.";
 if (Buffer.byteLength(MODEL_TEST_PROMPT) > MODEL_TEST_PROMPT_BYTES_MAX) throw new Error("The model test question exceeds its announced bound.");
@@ -453,7 +455,8 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     const store = deps.secretStore();
     if (!store) return { status: "unavailable", reason: "no_keychain", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message };
     const file = await readAiAccessFile(deps.directory(), owner);
-    return file.connections.openai ? view(store, file.connections.openai) : { status: "empty", placeLabel: store.placeLabel };
+    if (file.connections.openai) return view(store, file.connections.openai);
+    return wasUnreadable(file) ? { status: "empty", placeLabel: store.placeLabel, notice: UNREADABLE_RECORD } : { status: "empty", placeLabel: store.placeLabel };
   }
 
   /** Deletes items left by an interrupted replacement or removal (under the lock); one still locked waits for the next time. */

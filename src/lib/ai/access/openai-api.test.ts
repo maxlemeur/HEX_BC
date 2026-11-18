@@ -358,6 +358,23 @@ describe("replace and remove", () => {
     expect(await metadata()).toMatchObject({ retired: [], pending: [] });
   });
 
+  // Review round 2, item G: an unreadable record must not lock the member out.
+  it("treats an unreadable record as no key saved, says so, and lets a new save overwrite it", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const { createHash } = await import("node:crypto");
+    await mkdir(directory, { recursive: true });
+    const record = path.join(directory, `${createHash("sha256").update(JSON.stringify([OWNER.userId, OWNER.tenantId])).digest("hex")}.json`);
+    await writeFile(record, "{ not a record");
+    const { service } = access(fakeOpenAi(() => listed()).fetch);
+    const notice = "Le descriptif local de la clé était illisible : aucune clé n’est considérée comme enregistrée. Enregistrez-la de nouveau.";
+    expect(await service.state(OWNER)).toEqual({ status: "empty", placeLabel: "Sur ce Mac", notice });
+    expect(await service.remove(OWNER)).toMatchObject({ status: "empty" });
+    await writeFile(record, JSON.stringify({ schema_version: 1, next_version: "two", connections: {} }));
+    const key = fictionalKey();
+    expect(await service.save(OWNER, { key })).toMatchObject({ outcome: "saved", state: { connection: { suffix: key.slice(-4) } } });
+    expect(await service.state(OWNER)).toMatchObject({ status: "saved" });
+  });
+
   it("recovers a lock left by a process that stopped", async () => {
     const { mkdir, writeFile } = await import("node:fs/promises");
     const { createHash } = await import("node:crypto");

@@ -56,12 +56,32 @@ const ownerKey = (owner: AiAccessOwner) => createHash("sha256").update(JSON.stri
 
 const empty = (): AiAccessFile => ({ schema_version: 1, next_version: 1, connections: {}, pending: [], retired: [] });
 
+/** Records read back as empty because the stored one could not be read: the screen says so, and the next write replaces it. */
+const unreadableRecords = new WeakSet<AiAccessFile>();
+
+export function wasUnreadable(file: AiAccessFile) {
+  return unreadableRecords.has(file);
+}
+
+/**
+ * The member's record. One that cannot be read (damaged, or written by another format) counts as no key saved,
+ * so it never locks the member out: a new save or a removal writes a fresh one. Its Keychain items, if any, are
+ * no longer named by MergeOne.
+ */
 export async function readAiAccessFile(directory: string, owner: AiAccessOwner): Promise<AiAccessFile> {
+  let text: string;
   try {
-    return fileSchema.parse(JSON.parse(await readFile(path.join(directory, `${ownerKey(owner)}.json`), "utf8")));
+    text = await readFile(path.join(directory, `${ownerKey(owner)}.json`), "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return empty();
     throw new ApiKeyError("AI_KEY_UNEXPECTED");
+  }
+  try {
+    return fileSchema.parse(JSON.parse(text));
+  } catch {
+    const file = empty();
+    unreadableRecords.add(file);
+    return file;
   }
 }
 
