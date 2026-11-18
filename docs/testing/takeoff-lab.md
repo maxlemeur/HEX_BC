@@ -91,21 +91,29 @@ chaque configuration, jamais un repli.
   qualifiés et tarifés ; efforts du modèle, nommés en français. Dessiner le labo
   n'ouvre ni le Trousseau ni OpenAI. Le prompt et le schéma sont ceux du niveau C
   (mode JSON et schéma dans le message développeur, puis validation Zod et métier).
-- Le lancement envoie la version de la clé affichée : une clé remplacée dans un
-  autre onglet depuis est refusée avant l'ouverture du Trousseau (« Rechargez la
-  page »). Utilisateur et entreprise viennent de la session.
+- Le lancement renvoie l'identifiant aléatoire de la clé affichée (unique entre
+  membres et remplacements) : une clé remplacée dans un autre onglet, ou la
+  session d'un autre membre sur une page restée ouverte, est refusée avant
+  l'ouverture du Trousseau (« Rechargez la page »). Utilisateur et entreprise
+  viennent de la session.
 - Plafond : **1,00 $ US par essai**, partagé à parts égales entre ses
   configurations « clé ». Avant toute génération, OpenAI compte la requête exacte
   de chacune (`POST /v1/responses/input_tokens`, qui transmet le document, ce que
   le lancement accepte) ; l'entrée comptée est chiffrée à son pire tarif
-  (écriture en cache, contexte long) et la sortie autorisée est ce qui reste de la
+  (écriture en cache de 12 h, contexte long) et la sortie autorisée est ce qui reste de la
   part, au plus 32 000 jetons (64 000 pour `xhigh` et `max`), raisonnement
   compris. Moins de 8 000 jetons possibles, un comptage indisponible ou un modèle
   sans tarif connu refusent l'essai entier avant la première génération. La
   borne (entrée comptée + sortie autorisée) ne dépasse donc jamais la part.
-- Si l'usage annoncé coûte malgré tout plus que le plafond, l'essai l'écrit en
-  français (« Dépassement du plafond … ») et s'arrête : les configurations
-  suivantes ne partent pas.
+- Après chaque réponse, la configuration suivante ne part que si sa réservation
+  tient dans le plafond moins ce qu'OpenAI a annoncé ; sinon l'essai s'arrête en
+  distinguant le montant annoncé de la réservation. Une réponse dont le coût
+  n'est pas connu (niveau de service inattendu, usage absent) arrête l'essai
+  (« consommation à confirmer »). Si l'usage annoncé dépasse malgré tout le
+  plafond, l'essai l'écrit en français (« Dépassement du plafond : OpenAI a
+  annoncé … ») et s'arrête. Les refus de lancement ne sont jamais mis en cache.
+- La requête comptée est sérialisée une fois : la génération envoie ce même
+  texte, et une configuration préparée ne part qu'une fois.
 - Résultat : quantités et page source, modèle effectivement utilisé,
   consommation annoncée (jetons en cache, écrits et de raisonnement comptés une
   fois), entrée comptée, sortie autorisée et coût estimé en **$ US** avec le

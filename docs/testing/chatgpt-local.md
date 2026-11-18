@@ -162,22 +162,36 @@ clé refusée ne bascule jamais sur le forfait.
   (`127.0.0.1`, `localhost`) : depuis un hôte de `MERGEONE_DEV_HOSTS`, servi en
   HTTP, la clé traverserait le réseau en clair ; la page indique alors l’adresse
   à ouvrir sur le Mac, et la route refuse aussi une clé reçue par un autre hôte.
+  Limite : la page en décide d’après l’adresse affichée par le navigateur, et la
+  route d’après l’en-tête `Host` et le protocole transmis ; ni l’un ni l’autre ne
+  prouve l’interlocuteur réseau, et un proxy ou une redirection de port peut les
+  faire diverger. C’est la décision du navigateur qui garde la clé hors du réseau ;
+  un client qui forge ces en-têtes n’expose que sa propre clé. `npm run dev`
+  (Next seul) écoute sur toutes les interfaces, `npm run dev:chatgpt` sur
+  `127.0.0.1`.
   Le serveur lit le catalogue `GET /v1/models` (ni pièce jointe ni génération) ;
   accepté, l’état devient « Clé reconnue » et les modèles qualifiés que la clé
-  liste sont retenus. Une clé à qui manque seulement une permission (403, ou 401
-  dont le corps parle de permission ou de portée) n’est pas déclarée invalide :
-  l’écran propose de tester explicitement un modèle, et la clé n’est enregistrée
-  que si ce test réussit. Un refus définitif (`invalid_api_key`,
-  `ip_not_authorized`) reste « OpenAI a refusé cette clé ».
-- **Tester le modèle** : un petit appel facturable, annoncé avec son plafond, sans
-  document client. « Modèle testé le … » signifie seulement que cet appel a abouti.
+  liste sont retenus. Si OpenAI refuse la liste sans refuser la clé (403, ou 401
+  sans code de refus définitif), la clé n’est pas déclarée invalide : l’écran dit
+  qu’elle est peut-être restreinte, ou invalide, et propose le test annoncé d’un
+  modèle ; la clé n’est enregistrée que si ce test réussit. Un refus définitif
+  (`invalid_api_key`, `ip_not_authorized`, lus dans `error.code` comme dans
+  `error.type`) reste « OpenAI a refusé cette clé ».
+- **Tester le modèle** : un petit appel facturable, annoncé avec son plafond (au
+  plus 0,10 $ US), sans document client. « Modèle testé le … » signifie seulement
+  que cet appel a abouti.
 - **Remplacer** vérifie la nouvelle clé, l’écrit dans **son propre élément** du
   Trousseau et la relit ; seulement alors le descriptif local bascule sur elle,
   par un renommage atomique, puis l’ancien élément est supprimé. Une
   vérification refusée, un Trousseau verrouillé, une écriture interrompue ou un
-  échec du descriptif laissent la clé en service intacte et utilisable.
-  **Retirer** coupe les nouveaux appels ; révoquer la clé chez OpenAI reste à
-  faire dans le compte du fournisseur.
+  échec du descriptif laissent la clé en service intacte et utilisable. Si la clé
+  en service a été remplacée ou retirée pendant la vérification (autre onglet),
+  rien n’est enregistré. **Retirer** enregistre d’abord que la clé n’est plus
+  active, puis supprime son élément du Trousseau ; si cette suppression échoue,
+  l’écran le dit et elle est refaite à la prochaine ouverture du Trousseau.
+  Révoquer la clé chez OpenAI reste à faire dans le compte du fournisseur.
+- Un descriptif local illisible compte comme « aucune clé enregistrée » : l’écran
+  le dit, et un nouvel enregistrement le remplace.
 - Dessiner « Mon profil » ou le labo n’ouvre pas le Trousseau et n’appelle pas
   OpenAI : l’état et les modèles viennent du descriptif local.
 - Modèles proposés : l’intersection du catalogue de la clé et des modèles
@@ -191,8 +205,13 @@ clé refusée ne bascule jamais sur le forfait.
   modèle sans tarif connu n’est ni proposé ni appelé.
 - Chaque appel fixe `service_tier: "default"` (Standard) et demande
   `prompt_cache_options.mode: "explicit"` sans point de cache, donc aucune
-  écriture ; une écriture annoncée est tout de même comptée à son tarif. Un
-  niveau de service servi autre que Standard laisse le coût « à confirmer ».
+  écriture ; une écriture annoncée est tout de même comptée à son tarif, d’après
+  `cache_write_tokens_details.ttl_30m_tokens` (tout jeton écrit que ce compteur
+  ne couvre pas est compté au tarif 12 h). Un niveau de service servi autre que
+  Standard laisse le coût « à confirmer ».
+- Le texte d’une réponse est décodé avant d’être masqué : la clé exacte et toute
+  chaîne au format d’une clé OpenAI sont remplacées dans chaque valeur, rien
+  d’autre (un texte de plan comme « Bearer bracket » reste tel quel).
 
 Stockage et frontières de la clé :
 
@@ -205,9 +224,12 @@ Stockage et frontières de la clé :
   ou journal. Au délai dépassé, le processus est tué et sa fin attendue avant la
   réponse. L’installation est l’identifiant de `.private/chatgpt-local/host.json`.
 - Le descriptif nomme les éléments écrits pour une clé pas encore active
-  (`pending`) et ceux à supprimer (`retired`) : la prochaine opération qui ouvre
-  le Trousseau les nettoie. Un verrou laissé par un processus arrêté (ou orphelin
-  depuis 30 s) est repris.
+  (`pending`) et ceux à supprimer (`retired`) : toute opération qui ouvre le
+  Trousseau (enregistrement, retrait, test, labo) les nettoie. Chaque clé
+  enregistrée reçoit aussi un identifiant aléatoire, que les pages renvoient
+  (voir le labo). Un verrou laissé par un processus arrêté (ou orphelin depuis
+  30 s) est repris par un seul processus, qui vérifie d’abord qu’il s’agit bien
+  du verrou jugé mort ; chacun ne libère que le verrou qui porte son jeton.
 - Non vérifié sur un vrai Trousseau : les tests et le parcours utilisent un
   magasin en mémoire qui décode exactement ce que MergeOne écrit ; ils prouvent
   le câblage, pas le comportement de `security` (codes de sortie, mode
