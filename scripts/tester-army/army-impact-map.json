@@ -1058,7 +1058,8 @@
         "src/app/api/admin/takeoff/lab/**",
         "src/lib/navigation/dashboard-navigation-mode.ts",
         "e2e/army/local/takeoff-lab.e2e.ts",
-        "e2e/army/local/takeoff-lab-support.ts"
+        "e2e/army/local/takeoff-lab-support.ts",
+        "e2e/army/local/lab-fictional-key.ts"
       ],
       "journeys": [
         "e2e/army/local/takeoff-lab.e2e.ts"
