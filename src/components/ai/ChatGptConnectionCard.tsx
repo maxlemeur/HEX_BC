@@ -36,8 +36,14 @@ const effortLabels: Record<ReasoningEffort, string> = {
   max: "Maximum",
 };
 
+/**
+ * The ChatGPT subscription, first entry of « Accès IA » in Mon profil: the default source, with every command it
+ * had as its own card (« Mon forfait ChatGPT »).
+ */
 export function ChatGptConnectionCard() {
   const id = useId();
+  const section = { variant: "plain" as const, headingLevel: 3 as const, title: "Abonnement ChatGPT" };
+  const sectionActions = (actions?: React.ReactNode) => <><Badge variant="outline" size="sm">Par défaut</Badge>{actions}</>;
   const [connection, setConnection] = useState<Connection | null>(null);
   const [models, setModels] = useState<Models>([]);
   const [busy, setBusy] = useState(false);
@@ -113,9 +119,16 @@ export function ChatGptConnectionCard() {
   }
 
   if (!connection) {
-    if (!isLocal) return null;
+    // A hosted build: the subscription is connected from the Mac's own MergeOne.
+    if (!isLocal && process.env.NODE_ENV === "production") {
+      return (
+        <PageSection {...section} actions={sectionActions()}>
+          <p className="text-sm text-muted-foreground">L’abonnement ChatGPT se connecte depuis MergeOne lancé sur votre Mac.</p>
+        </PageSection>
+      );
+    }
     return (
-      <PageSection title="Mon forfait ChatGPT">
+      <PageSection {...section} actions={sectionActions()}>
         {error ? (
           <div className="space-y-3">
             <Alert variant="danger">{error}</Alert>
@@ -171,7 +184,7 @@ export function ChatGptConnectionCard() {
   );
 
   return (
-    <PageSection title="Mon forfait ChatGPT" actions={connectionInfo}>
+    <PageSection {...section} actions={sectionActions(connectionInfo)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">Compte actif</p>

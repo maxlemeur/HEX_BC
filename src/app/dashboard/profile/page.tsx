@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDownIcon, SaveIcon, UsersIcon } from "lucide-react";
 
 import { useUserContext } from "@/components/UserContext";
-import { ChatGptConnectionCard } from "@/components/ai/ChatGptConnectionCard";
+import { AiAccessCard } from "@/components/ai/AiAccessCard";
 import {GoogleDriveConnectionCard} from "@/components/affaires/GoogleDriveConnectionCard";
 import { DecisionsCapabilityCard } from "@/components/ai/DecisionsCapabilityCard";
 import { LoadingState } from "@/components/layout/loading-state";
@@ -339,7 +339,7 @@ export default function ProfilePage() {
         </PageSection>
         <div className="grid min-w-0 gap-6">
           <GoogleDriveConnectionCard key={`${contextProfile?.id}:${contextProfile?.tenant_id}`} />
-          <ChatGptConnectionCard />
+          <AiAccessCard />
           <DecisionsCapabilityCard />
         </div>
       </div>
