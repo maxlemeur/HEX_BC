@@ -147,6 +147,74 @@ describe("useTakeoffApplyConfirm", () => {
     expect(onApplied).not.toHaveBeenCalled();
   });
 
+  // The re-check of 0fd09a20 (finding 6): only the landing checked the call's identity; the refusal of a call another job
+  // superseded, and its « Envoi… », showed on the next review. Written before the fix.
+  describe("a call another job or version superseded", () => {
+    const OTHER_JOB = "11111111-1111-4111-8111-111111111112";
+    type Lock = Awaited<ReturnType<typeof ensureTakeoffApplyDraftLock>>;
+    const renderConfirm = () => renderHook(({ jobId }) => useTakeoffApplyConfirm({ jobId, versionId: VERSION_ID, onApplied: vi.fn() }),
+      { initialProps: { jobId: JOB_ID } });
+
+    it("never shows its sending nor its refusal on the review shown since, and still gives its lease back", async () => {
+      vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: true, shouldRelease: true, errorMessage: null });
+      vi.mocked(releaseEstimateDraftLock).mockResolvedValue({ released: true });
+      const application = deferred<TakeoffApplyResponse>();
+      vi.mocked(applyTakeoffJob).mockReturnValue(application.promise);
+      const { result, rerender } = renderConfirm();
+      let confirmed: Promise<void> = Promise.resolve();
+      act(() => { confirmed = result.current.confirm(PAYLOAD); });
+      await vi.waitFor(() => expect(applyTakeoffJob).toHaveBeenCalledTimes(1));
+      expect(result.current.submitting).toBe(true);
+      rerender({ jobId: OTHER_JOB });
+      expect(result.current.submitting).toBe(false);
+      await act(async () => { application.reject(new Error("refused")); await confirmed; });
+      expect(result.current.error).toBeNull();
+      expect(result.current.errorGuard).toBeNull();
+      expect(result.current.submitting).toBe(false);
+      expect(releaseEstimateDraftLock).toHaveBeenCalledWith(VERSION_ID);
+    });
+
+    it("never shows the refusal of an earlier visit to the same job (A → B → A)", async () => {
+      vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: true, shouldRelease: false, errorMessage: null });
+      const application = deferred<TakeoffApplyResponse>();
+      vi.mocked(applyTakeoffJob).mockReturnValue(application.promise);
+      const { result, rerender } = renderConfirm();
+      let confirmed: Promise<void> = Promise.resolve();
+      act(() => { confirmed = result.current.confirm(PAYLOAD); });
+      await vi.waitFor(() => expect(applyTakeoffJob).toHaveBeenCalledTimes(1));
+      rerender({ jobId: OTHER_JOB });
+      rerender({ jobId: JOB_ID });
+      expect(result.current.submitting).toBe(false);
+      await act(async () => { application.reject(new Error("refused")); await confirmed; });
+      expect(result.current.error).toBeNull();
+      expect(result.current.submitting).toBe(false);
+    });
+
+    it("never shows a lock refused after another job was shown", async () => {
+      const lock = deferred<Lock>();
+      vi.mocked(ensureTakeoffApplyDraftLock).mockReturnValue(lock.promise);
+      const { result, rerender } = renderConfirm();
+      let confirmed: Promise<void> = Promise.resolve();
+      act(() => { confirmed = result.current.confirm(PAYLOAD); });
+      rerender({ jobId: OTHER_JOB });
+      await act(async () => {
+        lock.resolve({ acquired: false, shouldRelease: false, errorMessage: "Un autre utilisateur modifie ce brouillon." });
+        await confirmed;
+      });
+      expect(result.current.error).toBeNull();
+      expect(applyTakeoffJob).not.toHaveBeenCalled();
+    });
+
+    it("still shows the refusal of the review's own call", async () => {
+      vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: false, shouldRelease: false,
+        errorMessage: "Un autre utilisateur modifie ce brouillon." });
+      const { result } = renderConfirm();
+      await act(() => result.current.confirm(PAYLOAD));
+      expect(result.current.error).toBe("Un autre utilisateur modifie ce brouillon.");
+      expect(result.current.submitting).toBe(false);
+    });
+  });
+
   it("runs one application for two confirmations in the same tick", async () => {
     vi.mocked(ensureTakeoffApplyDraftLock).mockResolvedValue({ acquired: true, shouldRelease: false, errorMessage: null });
     const onApplied = vi.fn();

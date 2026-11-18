@@ -1359,7 +1359,6 @@ export default function TakeoffReviewPage({
           jobVersionNumber !== null ? `V${jobVersionNumber}` : null
         }
         includedCount={includedItems.length}
-        excludedCount={items.length - includedItems.length}
         isSubmitting={applySubmitting}
         submitError={applyError}
         submitErrorGuard={applyErrorGuard}

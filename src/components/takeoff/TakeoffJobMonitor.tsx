@@ -483,7 +483,6 @@ export default function TakeoffJobMonitor({
 
   const wizardItems = applyItems ?? data?.items.data;
   const includedItemsCount = wizardItems?.filter((item) => !item.is_excluded).length ?? 0;
-  const excludedItemsCount = (wizardItems?.length ?? 0) - includedItemsCount;
 
   const handleApplyWizardOpenChange = useCallback(
     (open: boolean) => {
@@ -794,7 +793,6 @@ export default function TakeoffJobMonitor({
           data?.job.version_number != null ? `V${data.job.version_number}` : null
         }
         includedCount={includedItemsCount}
-        excludedCount={excludedItemsCount}
         isSubmitting={applyState === "loading"}
         submitError={applyError}
         submitErrorGuard={applyErrorGuard}

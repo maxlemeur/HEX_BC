@@ -19,6 +19,9 @@ const errorGuardOf = (details: unknown) => {
   return typeof guard === "string" ? guard : null;
 };
 
+/** One call of the review: whether it is pending, and its refusal. */
+type Outcome = { id: number; submitting: boolean; error: string | null; errorGuard: string | null };
+
 export const TAKEOFF_APPLY_SENT_TITLE = "Métré envoyé au tableau de chiffrage";
 
 const counted = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
@@ -47,6 +50,11 @@ export function useTakeoffLowConfidenceThreshold() {
  * (draft-lock-session-client.ts): the editor `onApplied` opens adopts a lease still held, and a release landing after
  * that would delete the editor's lease. So the release is awaited before `onApplied`. A failed release leaves a lease of
  * this page's identity, which the editor adopts as its own.
+ *
+ * What the review shows (`submitting`, `error`, `errorGuard`) belongs to its current call for the job and version shown:
+ * another job or version shown since, even the same one again, starts empty, and a call it superseded changes nothing
+ * there (the re-check of 0fd09a20, finding 6: a late refusal showed on the next review). The lease that call took is given
+ * back all the same.
  */
 export function useTakeoffApplyConfirm(input: {
   jobId: string;
@@ -56,10 +64,13 @@ export function useTakeoffApplyConfirm(input: {
   onSent?: (response: TakeoffApplyResponse) => void;
 }) {
   const { jobId, versionId, onApplied, onSent } = input;
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // TI-682 lot D: the guard of a refusal (a page decision refused): the wizard reads its proposal again.
-  const [errorGuard, setErrorGuard] = useState<string | null>(null);
+  // The call shown, for the job and version shown: emptied when another is shown (adjusted while rendering, before the
+  // render that would show the earlier one). TI-682 lot D: `errorGuard` is the guard of a refusal (a page decision
+  // refused): the wizard reads its proposal again.
+  const scope = `${jobId}\u0000${versionId}`;
+  const [shown, setShown] = useState<{ scope: string; call: Outcome | null }>({ scope, call: null });
+  if (shown.scope !== scope) setShown({ scope, call: null });
+  const outcome = shown.scope === scope ? shown.call : null;
   // Set synchronously, before any await: two clicks in the same frame start one application.
   const pending = useRef(false);
   // The review's current call; any other (the review left, another job or version shown) no longer lands.
@@ -68,19 +79,23 @@ export function useTakeoffApplyConfirm(input: {
     const call = current;
     return () => { call.current += 1; };
   }, [jobId, versionId]);
+  const setError = useCallback((error: string | null) => {
+    setShown((view) => ({ ...view, call: view.call ? { ...view.call, error, errorGuard: null } : null }));
+  }, []);
   const confirm = useCallback(async (payload: TakeoffApplyWizardSubmitPayload) => {
     if (pending.current) return;
     pending.current = true;
     const call = ++current.current;
-    setSubmitting(true);
-    setError(null);
-    setErrorGuard(null);
+    setShown({ scope, call: { id: call, submitting: true, error: null, errorGuard: null } });
+    // Only while this call is still the one shown.
+    const show = (next: Partial<Omit<Outcome, "id">>) =>
+      setShown((view) => (view.call?.id === call ? { ...view, call: { ...view.call, ...next } } : view));
     let shouldReleaseDraftLock = false;
     let response: TakeoffApplyResponse | null = null;
     try {
       const lockResult = await ensureTakeoffApplyDraftLock(versionId);
       if (!lockResult.acquired) {
-        setError(lockResult.errorMessage ?? "Impossible d'acquérir le verrou de brouillon de la version cible.");
+        show({ error: lockResult.errorMessage ?? "Impossible d'acquérir le verrou de brouillon de la version cible." });
         return;
       }
       shouldReleaseDraftLock = lockResult.shouldRelease;
@@ -94,19 +109,20 @@ export function useTakeoffApplyConfirm(input: {
         page_decisions: payload.pageDecisions,
       }, versionId);
     } catch (err) {
-      setError(isTakeoffApiError(err) ? err.message : "Erreur lors de l'envoi au tableau de chiffrage.");
-      setErrorGuard(isTakeoffApiError(err) ? errorGuardOf(err.details) : null);
+      show({ error: isTakeoffApiError(err) ? err.message : "Erreur lors de l'envoi au tableau de chiffrage.",
+        errorGuard: isTakeoffApiError(err) ? errorGuardOf(err.details) : null });
     } finally {
       // Whatever became of the review: a lease this call took is always given back.
       if (shouldReleaseDraftLock) {
         await releaseEstimateDraftLock(versionId).catch(() => false);
       }
       pending.current = false;
-      setSubmitting(false);
+      show({ submitting: false });
     }
     if (!response) return;
     onSent?.(response);
     if (current.current === call) onApplied(response, payload);
-  }, [jobId, onApplied, onSent, versionId]);
-  return { submitting, error, errorGuard, setError, confirm };
+  }, [jobId, onApplied, onSent, scope, versionId]);
+  return { submitting: outcome?.submitting ?? false, error: outcome?.error ?? null, errorGuard: outcome?.errorGuard ?? null, setError,
+    confirm };
 }

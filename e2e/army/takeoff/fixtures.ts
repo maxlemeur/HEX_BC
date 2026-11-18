@@ -135,7 +135,8 @@ export async function openTakeoffSend(ui: SendUi, sectionId: string, designation
   const section = dialog.getByLabel("Section cible", { exact: true });
   if (options.preselected) await expect(section).toHaveValue(sectionId);
   else await section.selectOption({ value: sectionId });
-  await expect(dialog.getByRole("list", "Lignes envoyées", { exact: true })).toContainText(designation, { timeout: 30_000 });
+  // A DPGF version names them as retained before its reconciliation (the out-of-scope ones are not sent).
+  await expect(dialog.getByRole("list", /^Lignes (envoyées|retenues avant le rapprochement DPGF)$/)).toContainText(designation, { timeout: 30_000 });
   // The strategies the four-step wizard offered are gone (« Pages déjà au devis » keeps its own radios).
   await expect(dialog.getByRole("button", "Suivant", { exact: true })).toHaveCount(0);
   await expect(dialog.getByRole("radio", /^(Ajouter sans effacer|Remplacer uniquement la section choisie|Fusionner avec l'existant)/)).toHaveCount(0);

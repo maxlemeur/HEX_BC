@@ -1,4 +1,4 @@
-import { cleanup,fireEvent,render,screen,waitFor,within } from "@testing-library/react";
+import { act,cleanup,fireEvent,render,screen,waitFor,within } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 vi.mock("@/lib/estimates/editor-read-client", () => ({
@@ -81,15 +81,18 @@ function withAction(action: "skip" | "apply_assembly" | "set_price") {
 
 const confirm = () => screen.getByRole("button", { name: "Confirmer l'envoi" });
 
+/** The lines listed: « Lignes envoyées », or on a DPGF version the lines retained before its reconciliation. */
+const LINES = /^Lignes (envoyées|retenues avant le rapprochement DPGF)$/;
+
 /** The one screen, once its impact preview is computed: no click needed. */
 async function reachConfirmation() {
   await waitFor(() => expect(screen.getByLabelText("Section cible")).toHaveValue(SECTION_ID));
-  await screen.findByRole("list", { name: "Lignes envoyées" });
+  await screen.findByRole("list", { name: LINES });
 }
 
 function renderRuleWizard() {
   render(
-    <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+    <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
       submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn().mockResolvedValue(undefined)}
       items={[RULE_ITEM]} jobLevel="C" />
   );
@@ -111,8 +114,8 @@ const NO_PAGE: TakeoffPageReplacementResponse = { job_id: JOB_ID, version_id: VE
 const DPGF_LINE = { id: "66666666-6666-4666-8666-666666666666", parent_id: SECTION_ID, item_type: "line", position: 1, title: "Cloison",
   source_provider: "dpgf" };
 const OTHER_JOB_ID = "11111111-1111-4111-8111-111111111112";
-const OUT_OF_SCOPE_NOTE = "Sur un devis avec DPGF, les lignes que le rapprochement a classées hors périmètre ne sont pas envoyées non plus : "
-  + "cette liste ne les distingue pas.";
+const OUT_OF_SCOPE_NOTE = "Ce compte inclut les lignes que le rapprochement DPGF a classées hors périmètre : elles ne sont pas "
+  + "envoyées, et cette liste ne les distingue pas.";
 const select = () => screen.getByLabelText("Section cible");
 
 describe("TakeoffApplyWizard", () => {
@@ -133,7 +136,7 @@ describe("TakeoffApplyWizard", () => {
     it("computes the impact preview without a click and confirms from the same screen, with no step and no strategy", async () => {
       const onConfirm = vi.fn().mockResolvedValue(undefined);
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} targetVersionLabel="V2" includedCount={1} excludedCount={0}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} targetVersionLabel="V2" includedCount={1}
           isSubmitting={false} submitError={null} onOpenChange={() => undefined} onConfirm={onConfirm} />
       );
       const dialog = screen.getByRole("dialog", { name: "Envoyer au tableau de chiffrage" });
@@ -158,7 +161,7 @@ describe("TakeoffApplyWizard", () => {
       vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...NO_PAGE, merge_required: true });
       const onConfirm = vi.fn().mockResolvedValue(undefined);
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={onConfirm} />
       );
       await reachConfirmation();
@@ -175,7 +178,7 @@ describe("TakeoffApplyWizard", () => {
     it("waits for a section: without one, says to create it and computes nothing", async () => {
       vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([] as never);
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
       );
       expect(await screen.findByText("Créez d'abord un lot ou un chapitre dans le devis pour y rattacher les lignes du métré.")).toBeInTheDocument();
@@ -193,7 +196,7 @@ describe("TakeoffApplyWizard", () => {
       vi.mocked(previewTakeoffConversion).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
       const onConfirm = vi.fn().mockResolvedValue(undefined);
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={onConfirm} />
       );
       await waitFor(() => expect(previewTakeoffConversion).toHaveBeenCalledTimes(1));
@@ -219,7 +222,7 @@ describe("TakeoffApplyWizard", () => {
       vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1),
         section(OTHER_SECTION_ID, "Section B", 2)] as never);
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
       );
       await reachConfirmation();
@@ -236,7 +239,7 @@ describe("TakeoffApplyWizard", () => {
     it("shows a failed preview with « Réessayer », and confirms nothing until it is computed", async () => {
       vi.mocked(previewTakeoffConversion).mockRejectedValueOnce(new Error("Le serveur ne répond pas."));
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
       );
       expect(await screen.findByText("Le serveur ne répond pas.")).toBeInTheDocument();
@@ -253,7 +256,7 @@ describe("TakeoffApplyWizard", () => {
     it("offers « Réessayer » when the sections cannot be read, then computes for the first section", async () => {
       vi.mocked(fetchEstimateItemsForVersion).mockRejectedValueOnce(new Error("Le devis est momentanément indisponible."));
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
       );
       expect(await screen.findByText("Le devis est momentanément indisponible.")).toBeInTheDocument();
@@ -267,7 +270,7 @@ describe("TakeoffApplyWizard", () => {
     it("offers « Réessayer » when the pages already in the estimate cannot be read, and waits for them", async () => {
       vi.mocked(fetchTakeoffPageReplacement).mockRejectedValueOnce(new Error("Lecture des pages impossible."));
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
       );
       const alert = await screen.findByRole("alert");
@@ -284,7 +287,7 @@ describe("TakeoffApplyWizard", () => {
       vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1),
         section(OTHER_SECTION_ID, "Section B", 2)] as never);
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} />
       );
       const status = () => within(screen.getByRole("region", { name: "Aperçu d’impact" })).getByRole("status");
@@ -320,7 +323,7 @@ describe("TakeoffApplyWizard", () => {
       const source = (id: string, designation: string, page: number | null) => ({ ...RULE_ITEM, id, designation, rule_results: [],
         source_file_name: "plan-r1.pdf", source_page: page });
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={6} excludedCount={1} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={6} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn()} jobLevel="B"
           items={[source(ids[0], "Tube cu 22", 3), source(ids[1], "Vanne d’arrêt", null)]} />
       );
@@ -364,7 +367,7 @@ describe("TakeoffApplyWizard", () => {
 
   // The independent review of eea9e030. Each test was written before its fix and failed on that commit.
   describe("what is computed is what is sent", () => {
-    const props = { open: true, versionId: VERSION_ID, includedCount: 1, excludedCount: 0, isSubmitting: false, submitError: null,
+    const props = { open: true, versionId: VERSION_ID, includedCount: 1, isSubmitting: false, submitError: null,
       onOpenChange: () => undefined };
 
     // A v3 linked import stamps its root section `source_provider: "dpgf"` (planV3LinkedDpgfImport); the server merges only
@@ -427,21 +430,42 @@ describe("TakeoffApplyWizard", () => {
       await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ targetSectionId: SECTION_ID })));
     });
 
-    it("never reads an answer computed for another job", async () => {
-      const { rerender } = render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={vi.fn()} />);
+    // The re-check of 0fd09a20 (finding 2): both reads answered for job A, then job B of the same version was shown and A
+    // again before any new answer: A's stored answers were current again and the confirmation enabled at once. Written
+    // before the fix.
+    it("never reads an answer computed for another job, nor one of an earlier visit to the same job (A → B → A)", async () => {
+      const onConfirm = vi.fn().mockResolvedValue(undefined);
+      const { rerender } = render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={onConfirm} />);
       await reachConfirmation();
       await waitFor(() => expect(confirm()).toBeEnabled());
       const preview = deferred<TakeoffPreviewConversionResponse>();
       const pages = deferred<TakeoffPageReplacementResponse>();
       vi.mocked(previewTakeoffConversion).mockReturnValueOnce(preview.promise);
       vi.mocked(fetchTakeoffPageReplacement).mockReturnValueOnce(pages.promise);
-      rerender(<TakeoffApplyWizard {...props} jobId={OTHER_JOB_ID} onConfirm={vi.fn()} />);
+      rerender(<TakeoffApplyWizard {...props} jobId={OTHER_JOB_ID} onConfirm={onConfirm} />);
       await waitFor(() => expect(previewTakeoffConversion).toHaveBeenLastCalledWith(OTHER_JOB_ID,
         { strategy: "append", target_section_id: SECTION_ID }));
       expect(confirm()).toBeDisabled();
+
+      const previewAgain = deferred<TakeoffPreviewConversionResponse>();
+      const pagesAgain = deferred<TakeoffPageReplacementResponse>();
+      vi.mocked(previewTakeoffConversion).mockReturnValueOnce(previewAgain.promise);
+      vi.mocked(fetchTakeoffPageReplacement).mockReturnValueOnce(pagesAgain.promise);
+      rerender(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={onConfirm} />);
+      await waitFor(() => expect(previewTakeoffConversion).toHaveBeenLastCalledWith(JOB_ID,
+        { strategy: "append", target_section_id: SECTION_ID }));
+      expect(confirm()).toBeDisabled();
+      expect(screen.queryByRole("list", { name: LINES })).toBeNull();
+      // B's late answers change nothing; A's new ones confirm.
       preview.resolve({ ...PREVIEW_RESPONSE, job_id: OTHER_JOB_ID });
       pages.resolve({ ...NO_PAGE, job_id: OTHER_JOB_ID });
+      previewAgain.resolve({ ...PREVIEW_RESPONSE, items: [{ ...PREVIEW_RESPONSE.items[0], transformed: state("Tube PVC Ø40") }] });
+      expect(await screen.findByText(/Tube PVC Ø40/)).toBeInTheDocument();
+      expect(confirm()).toBeDisabled();
+      pagesAgain.resolve(NO_PAGE);
       await waitFor(() => expect(confirm()).toBeEnabled());
+      fireEvent.click(confirm());
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
     });
 
     // The sections were read without a DPGF line; one appeared before the proposal was read (the server says the merge is
@@ -542,6 +566,161 @@ describe("TakeoffApplyWizard", () => {
     });
   });
 
+  // The re-check of 0fd09a20. Each test was written before its fix and failed on that commit.
+  describe("re-check of 0fd09a20", () => {
+    const props = { open: true, jobId: JOB_ID, versionId: VERSION_ID, includedCount: 1, isSubmitting: false, submitError: null,
+      onOpenChange: () => undefined };
+    const ORDINARY = { id: "66666666-6666-4666-8666-666666666668", parent_id: SECTION_ID, item_type: "line", position: 2,
+      title: "Tube PVC", unit_code: "ml", description: null, pricing_status: "priced", quantity: 17, source_provider: null };
+    const tube = (quantity: number) => ({ ...PREVIEW_RESPONSE, strategy: "merge" as const,
+      items: [{ ...PREVIEW_RESPONSE.items[0], original: state("Tube PVC", { quantity }),
+        transformed: state("Tube PVC", { quantity, unit_price_cents: 420 }) }] });
+    const OVERWRITE = "La fusion écraserait des lignes du devis";
+
+    // Finding 1 (high): an engine-3 version with a DPGF line elsewhere; under the destination section an ordinary line
+    // « Tube PVC » whose quantity was typed by hand (17); the takeoff sends « Tube PVC », same unit, 10. The screen sent
+    // « merge », the proposal had no earlier page to decide, and the writer overwrote 17 with 10 and its provenance.
+    describe("an ordinary line « Fusionner » would overwrite", () => {
+      beforeEach(() => {
+        vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1),
+          section(OTHER_SECTION_ID, "Section B", 2), { ...DPGF_LINE, parent_id: OTHER_SECTION_ID }, ORDINARY] as never);
+        vi.mocked(previewTakeoffConversion).mockResolvedValue(tube(10));
+        vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...NO_PAGE, merge_required: true });
+      });
+
+      it("refuses the send, names the line with its quantity and the one replacing it, and asks for another section", async () => {
+        const onConfirm = vi.fn().mockResolvedValue(undefined);
+        render(<TakeoffApplyWizard {...props} onConfirm={onConfirm} />);
+        const panel = await screen.findByRole("region", { name: OVERWRITE });
+        expect(within(panel).getByRole("listitem", { name: "Tube PVC" })).toHaveTextContent("« Tube PVC » : 17 ml → 10 ml");
+        expect(panel).toHaveTextContent("Choisissez une autre section de destination");
+        await screen.findByRole("list", { name: LINES });
+        expect(confirm()).toBeDisabled();
+
+        fireEvent.change(select(), { target: { value: OTHER_SECTION_ID } });
+        await waitFor(() => expect(confirm()).toBeEnabled());
+        expect(screen.queryByRole("region", { name: OVERWRITE })).toBeNull();
+        fireEvent.click(confirm());
+        await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ strategy: "merge",
+          targetSectionId: OTHER_SECTION_ID })));
+      });
+
+      it("withholds the administrator's forcing too", async () => {
+        render(<TakeoffApplyWizard {...props} onConfirm={vi.fn()} isAdmin jobLevel="C"
+          items={[{ ...RULE_ITEM, rule_results: [], evidence: null }]} />);
+        await screen.findByRole("region", { name: OVERWRITE });
+        const force = await screen.findByRole("button", { name: "Forcer l'application (1 ligne)" });
+        fireEvent.change(screen.getByLabelText("Motif de la sélection"), { target: { value: "additional_evidence" } });
+        fireEvent.change(screen.getByLabelText("Justification de la sélection"), { target: { value: "Relevé chantier joint au dossier." } });
+        fireEvent.click(screen.getByRole("button", { name: "Appliquer à la sélection" }));
+        expect(force).toBeDisabled();
+      });
+
+      it("lets through a line the proposal pairs by the merge: its page decision says what it becomes", async () => {
+        const document = { plan_file_id: null, content_hash: null, logical_document_id: null, file_name: "plan.pdf" };
+        vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...NO_PAGE, merge_required: true,
+          jobs: [{ id: OTHER_JOB_ID, created_at: "2026-11-10T09:30:00.000Z", level: "C", source_file_name: "plan.pdf" }],
+          pages: [{ key: "row-1", document, file_name: "plan.pdf", page: 1, earlier_job_ids: [OTHER_JOB_ID],
+            lines: [{ id: ORDINARY.id, item_ids: ["99999999-9999-4999-8999-999999999991"] }], new_line_ids: [ITEM_ID],
+            dpgf_fed_again: [], ambiguous_document: false, keep_both_refused: "merge_match" }],
+          lines: [{ id: ORDINARY.id, title: "Tube PVC", unit_key: "ml", quantity: 17, measured_quantity: 17, changed_by_hand: false,
+            updated_at: "2026-11-10T09:30:00.123456+00:00", unit_price_ht_cents: 2500, dpgf_target: false, assembly: false,
+            outside_pages: false, sources: [{ id: "99999999-9999-4999-8999-999999999991", quantity: 17 }], length_factor: 1 }],
+          new_lines: [{ id: ITEM_ID, designation: "Tube PVC", unit: "ml", quantity: 10, unit_key: "ml",
+            candidates: [{ key: "row-1", line_ids: [ORDINARY.id] }] }],
+          pairs: [{ takeoff_item_id: ITEM_ID, estimate_item_id: ORDINARY.id, reason: "merge", locked: true }] });
+        render(<TakeoffApplyWizard {...props} onConfirm={vi.fn()} />);
+        await screen.findByRole("region", { name: "Pages déjà au devis" });
+        await waitFor(() => expect(confirm()).toBeEnabled());
+        expect(screen.queryByRole("region", { name: OVERWRITE })).toBeNull();
+      });
+
+      it("never refuses an append: it matches no line", async () => {
+        vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1), ORDINARY] as never);
+        vi.mocked(previewTakeoffConversion).mockResolvedValue({ ...tube(10), strategy: "append" });
+        vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(NO_PAGE);
+        render(<TakeoffApplyWizard {...props} onConfirm={vi.fn()} />);
+        await reachConfirmation();
+        await waitFor(() => expect(confirm()).toBeEnabled());
+        expect(screen.queryByRole("region", { name: OVERWRITE })).toBeNull();
+      });
+    });
+
+    // Finding 3: « La validation DPGF a expiré ou n’est plus valable » (TAKEOFF_DPGF_APPLY_AUTHORIZATION_REQUIRED: a DPGF
+    // line appeared under the version's lock) left the « append » preview and proposal confirmable unchanged.
+    it("reads everything again after a refused DPGF authorization, and confirms nothing before the new reads answer", async () => {
+      const onConfirm = vi.fn().mockResolvedValue(undefined);
+      const { rerender } = render(<TakeoffApplyWizard {...props} onConfirm={onConfirm} />);
+      await reachConfirmation();
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      const sections = deferred<unknown>();
+      const preview = deferred<TakeoffPreviewConversionResponse>();
+      const pages = deferred<TakeoffPageReplacementResponse>();
+      vi.mocked(fetchEstimateItemsForVersion).mockReturnValueOnce(sections.promise as never);
+      vi.mocked(previewTakeoffConversion).mockReturnValueOnce(preview.promise);
+      vi.mocked(fetchTakeoffPageReplacement).mockReturnValueOnce(pages.promise);
+      rerender(<TakeoffApplyWizard {...props} onConfirm={onConfirm}
+        submitError="La validation DPGF a expiré ou n’est plus valable. Relancez l’application pour recalculer les contrôles."
+        submitErrorGuard="dpgf_authorization" />);
+      expect(confirm()).toBeDisabled();
+      await waitFor(() => expect(fetchEstimateItemsForVersion).toHaveBeenCalledTimes(2));
+      expect(confirm()).toBeDisabled();
+      sections.resolve([section(SECTION_ID, "Section A", 1), DPGF_LINE]);
+      await waitFor(() => expect(previewTakeoffConversion).toHaveBeenLastCalledWith(JOB_ID, { strategy: "merge", target_section_id: SECTION_ID }));
+      expect(confirm()).toBeDisabled();
+      preview.resolve({ ...PREVIEW_RESPONSE, strategy: "merge" });
+      pages.resolve({ ...NO_PAGE, merge_required: true });
+      await waitFor(() => expect(confirm()).toBeEnabled());
+      fireEvent.click(confirm());
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ strategy: "merge" })));
+    });
+
+    // Finding 4: with one in-scope and one out-of-scope line on a DPGF version, the heading read « Lignes envoyées (2) » and
+    // named both; the caveat came after the list.
+    it("names the list of a DPGF version as the lines retained before its reconciliation, the caveat beside the count", async () => {
+      vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([section(SECTION_ID, "Section A", 1), DPGF_LINE] as never);
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...NO_PAGE, merge_required: true });
+      vi.mocked(previewTakeoffConversion).mockResolvedValue({ ...PREVIEW_RESPONSE, strategy: "merge",
+        summary: { ...PREVIEW_RESPONSE.summary, total_count: 2, included_count: 2 },
+        items: [PREVIEW_RESPONSE.items[0], { ...PREVIEW_RESPONSE.items[0], item_id: "33333333-3333-4333-8333-333333333334", source_order: 1,
+          original: state("Plinthe bois"), transformed: state("Plinthe bois") }] });
+      render(<TakeoffApplyWizard {...props} onConfirm={vi.fn()} />);
+      const heading = await screen.findByRole("heading", { name: "Lignes retenues avant le rapprochement DPGF (2)" });
+      expect(screen.queryByRole("heading", { name: /Lignes envoyées/ })).toBeNull();
+      const list = screen.getByRole("list", { name: "Lignes retenues avant le rapprochement DPGF" });
+      const caveat = screen.getByText(OUT_OF_SCOPE_NOTE);
+      expect(heading.compareDocumentPosition(caveat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(caveat.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(list).toHaveAccessibleDescription(OUT_OF_SCOPE_NOTE);
+    });
+
+    // Finding 4: « Écartées » added the host's count of lines excluded at the review, read before the preview (another
+    // reviewer may have excluded one since), to the mapping's exclusions.
+    it("counts the lines excluded at the review from the current preview", async () => {
+      vi.mocked(previewTakeoffConversion).mockResolvedValue({ ...PREVIEW_RESPONSE,
+        summary: { ...PREVIEW_RESPONSE.summary, total_count: 4, included_count: 2, excluded_by_mapping_count: 1 } });
+      render(<TakeoffApplyWizard {...props} onConfirm={vi.fn()} />);
+      await reachConfirmation();
+      expect(screen.getByRole("region", { name: "Aperçu d’impact" })).toHaveTextContent("Écartées3");
+    });
+
+    // Finding 7: the zero-count case above also has a blocking guard, so it held even if the normal confirmation lost its
+    // count check.
+    it("withholds the confirmation when the preview retains no line, with no guard to block it", async () => {
+      vi.mocked(previewTakeoffConversion).mockResolvedValue({ ...PREVIEW_RESPONSE,
+        summary: { ...PREVIEW_RESPONSE.summary, included_count: 0, transformed_count: 0 },
+        items: [{ ...PREVIEW_RESPONSE.items[0], original: state("Tube PVC", { is_excluded: true }),
+          transformed: state("Tube PVC", { is_excluded: true }) }] });
+      render(<TakeoffApplyWizard {...props} onConfirm={vi.fn()} />);
+      await screen.findByText("Aucune ligne retenue à envoyer : réintégrez au moins une ligne dans la revue.");
+      await screen.findByRole("list", { name: LINES });
+      await waitFor(() => expect(fetchTakeoffPageReplacement).toHaveBeenCalledTimes(1));
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.queryByRole("region", { name: /Lignes à trancher/ })).toBeNull();
+      expect(confirm()).toBeDisabled();
+    });
+  });
+
   it.each(["skip", "apply_assembly"] as const)("does not block a failed line the mapping plan leaves out (%s), as the server does not", async (action) => {
     vi.mocked(previewTakeoffConversion).mockResolvedValue(withAction(action));
     renderRuleWizard();
@@ -559,7 +738,7 @@ describe("TakeoffApplyWizard", () => {
     const other = "33333333-3333-4333-8333-333333333332";
     const noProof = { ...RULE_ITEM, rule_results: [], evidence: null };
     render(
-      <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={2} excludedCount={0} isSubmitting={false}
+      <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={2} isSubmitting={false}
         submitError={null} onOpenChange={() => undefined} onConfirm={onConfirm} isAdmin
         items={[noProof, { ...noProof, id: other, designation: "Raccord PVC" }]} jobLevel="C" />
     );
@@ -586,7 +765,7 @@ describe("TakeoffApplyWizard", () => {
 
   it("shows the forcing of blocked lines to administrators only", async () => {
     render(
-      <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+      <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
         submitError={null} onOpenChange={() => undefined} onConfirm={vi.fn().mockResolvedValue(undefined)}
         items={[{ ...RULE_ITEM, rule_results: [], evidence: null }]} jobLevel="C" />
     );
@@ -635,7 +814,7 @@ describe("TakeoffApplyWizard", () => {
 
     function renderWizard(onConfirm = vi.fn().mockResolvedValue(undefined)) {
       render(
-        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} excludedCount={0} isSubmitting={false}
+        <TakeoffApplyWizard open jobId={JOB_ID} versionId={VERSION_ID} includedCount={1} isSubmitting={false}
           submitError={null} onOpenChange={() => undefined} onConfirm={onConfirm} items={[{ ...RULE_ITEM, rule_results: [] }]} jobLevel="C" />
       );
       return onConfirm;
@@ -716,7 +895,7 @@ describe("TakeoffApplyWizard", () => {
       const edited = "2026-11-18T08:00:00.000000+00:00";
       vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(proposal({}, { changed_by_hand: true, quantity: 14 }));
       const onConfirm = vi.fn().mockResolvedValue(undefined);
-      const props = { open: true, jobId: JOB_ID, versionId: VERSION_ID, includedCount: 1, excludedCount: 0, isSubmitting: false,
+      const props = { open: true, jobId: JOB_ID, versionId: VERSION_ID, includedCount: 1, isSubmitting: false,
         onOpenChange: () => undefined, onConfirm, items: [{ ...RULE_ITEM, rule_results: [] }], jobLevel: "C" };
       const { rerender } = render(<TakeoffApplyWizard {...props} submitError={null} />);
       const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
@@ -744,6 +923,31 @@ describe("TakeoffApplyWizard", () => {
       await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
       expect(onConfirm.mock.calls[1][0].pageDecisions[0].lines[0]).toMatchObject({ estimate_item_id: LINE_A, expected_updated_at: edited,
         take: "new" });
+    });
+
+    // The re-check of 0fd09a20 (finding 2): « Prendre la nouvelle mesure » chosen for job A was carried to job B of the same
+    // version, which proposed the same earlier line at the same revision. Written before the fix.
+    it("never carries a choice made for another job", async () => {
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(proposal({}, { changed_by_hand: true, quantity: 14 }));
+      const props = { open: true, versionId: VERSION_ID, includedCount: 1, isSubmitting: false, submitError: null,
+        onOpenChange: () => undefined, onConfirm: vi.fn().mockResolvedValue(undefined), items: [{ ...RULE_ITEM, rule_results: [] }],
+        jobLevel: "C" };
+      const { rerender } = render(<TakeoffApplyWizard {...props} jobId={JOB_ID} />);
+      const panel = await screen.findByRole("region", { name: "Pages déjà au devis" });
+      fireEvent.change(within(panel).getByLabelText("Choix pour Vanne d’arrêt"), { target: { value: "keep" } });
+      fireEvent.click(within(panel).getByRole("radio", { name: "Prendre la nouvelle mesure" }));
+      await waitFor(() => expect(confirm()).toBeEnabled());
+
+      vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue({ ...proposal({}, { changed_by_hand: true, quantity: 14 }), job_id: OTHER_JOB_ID });
+      vi.mocked(previewTakeoffConversion).mockResolvedValue({ ...PREVIEW_RESPONSE, job_id: OTHER_JOB_ID });
+      rerender(<TakeoffApplyWizard {...props} jobId={OTHER_JOB_ID} />);
+      await waitFor(() => expect(fetchTakeoffPageReplacement).toHaveBeenLastCalledWith(OTHER_JOB_ID, expect.anything(), expect.anything()));
+      const again = await screen.findByRole("region", { name: "Pages déjà au devis" });
+      const take = await within(again).findByRole("radio", { name: "Prendre la nouvelle mesure" });
+      await screen.findByRole("list", { name: LINES });
+      expect(take).not.toBeChecked();
+      expect(within(again).getByLabelText("Choix pour Vanne d’arrêt")).toHaveValue("");
+      expect(confirm()).toBeDisabled();
     });
 
     it("keeps both only with a reason, and a note for a complementary scope", async () => {
@@ -811,7 +1015,7 @@ describe("TakeoffApplyWizard", () => {
 
     it("reads the proposal again after the application refused a page decision", async () => {
       vi.mocked(fetchTakeoffPageReplacement).mockResolvedValue(proposal());
-      const props = { open: true, jobId: JOB_ID, versionId: VERSION_ID, includedCount: 1, excludedCount: 0, isSubmitting: false,
+      const props = { open: true, jobId: JOB_ID, versionId: VERSION_ID, includedCount: 1, isSubmitting: false,
         onOpenChange: () => undefined, onConfirm: vi.fn().mockResolvedValue(undefined), items: [{ ...RULE_ITEM, rule_results: [] }],
         jobLevel: "C" };
       const { rerender } = render(<TakeoffApplyWizard {...props} submitError={null} />);

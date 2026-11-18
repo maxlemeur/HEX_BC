@@ -404,17 +404,38 @@ confirmation) n'existe plus
   conditions). Chaque sélection (une section, même reprise après une autre ; une
   stratégie corrigée par le serveur ; une relecture après un refus) est une nouvelle
   génération : une réponse calculée pour une génération précédente, ou pour un autre
-  métré, n'est jamais montrée ni confirmée. Après un refus pour métré, devis ou
-  décisions périmés (`atomic_mapping_stale`, `page_decision`, `page_already_applied`,
-  `dpgf_quantities`), les sections sont relues, la section choisie gardée, puis les
-  deux calculs. Une lecture qui échoue (sections, aperçu ou pages déjà au devis)
-  propose « Réessayer » ; chaque aperçu recalculé est annoncé aux lecteurs d'écran.
+  métré, n'est jamais montrée ni confirmée. Tout ce que l'écran a lu et chaque choix
+  qui y est fait appartiennent à un métré d'une version : un autre métré ou une autre
+  version (même en revenant au premier) repart d'un écran vide. Après un refus pour
+  métré, devis ou décisions périmés (`atomic_mapping_stale`, `page_decision`,
+  `page_already_applied`, `dpgf_quantities`, `dpgf_authorization` : une ligne DPGF
+  apparue, ou une validation DPGF expirée), les sections sont relues, la section
+  choisie gardée, puis les deux calculs. Une lecture qui échoue (sections, aperçu ou
+  pages déjà au devis) propose « Réessayer » ; chaque aperçu recalculé est annoncé aux
+  lecteurs d'écran.
+- **Fusion sur une ligne ordinaire** (18 novembre 2026) : sur une version DPGF,
+  l'envoi fusionne, et l'écrivain rapproche une ligne du métré d'une ligne de la
+  section cible de même désignation et de même unité, puis remplace sa quantité et sa
+  provenance. L'écran rejoue ce rapprochement
+  ([`merge-overwrites.ts`](../../src/lib/takeoff/merge-overwrites.ts)) et refuse
+  l'envoi tant qu'une ligne ordinaire placée directement sous la section serait
+  écrasée, sauf quand la proposition des pages l'apparie par la fusion (une décision de
+  page dit alors ce qu'elle devient). Il nomme chaque ligne avec sa quantité et celle
+  qui la remplacerait, et demande une autre section ; la confirmation et le forçage
+  administrateur attendent. Là où la locale de la base décide (majuscule ou espace
+  hors ASCII), toutes les lignes de cette désignation comptent, jamais moins que
+  l'écrivain ; l'écran ne connaissant pas le moteur de la version, le rapprochement de
+  l'un ou l'autre écrivain compte. Le serveur ne revérifie pas encore ce rapprochement
+  sous le verrou de brouillon.
 - **Lignes envoyées** : la liste ne montre que ce qui part (une ligne remplacée par un
   ouvrage part comme cet ouvrage) ; les lignes qu'une règle laisse de côté sont
   listées à part, avec la règle. Sur une version DPGF, l'aperçu ne calcule pas les
   lignes que le rapprochement a classées hors périmètre (il lit les règles de
-  correspondance seules) : l'écran dit qu'elles ne partent pas et que la liste ne les
-  distingue pas. Les distinguer demanderait que le serveur les renvoie.
+  correspondance seules) : la liste s'appelle « Lignes retenues avant le rapprochement
+  DPGF », et l'écran dit, à côté de son compte, qu'elles ne partent pas et que la liste
+  ne les distingue pas. Les distinguer demanderait que le serveur les renvoie. Le
+  compte « Écartées » lit l'aperçu à jour (lignes exclues à la revue, laissées de côté
+  ou remplacées par un ouvrage), jamais un compte lu par la revue avant lui.
 - **Règles de correspondance** : celles de l'administrateur s'appliquent comme le
   serveur les lit. L'écran n'envoie plus d'ajustement par ligne (`overrides`, avec
   identifiants et prix en centimes) ; l'API les accepte toujours.
@@ -428,7 +449,9 @@ confirmation) n'existe plus
   effacerait le verrou de l'éditeur. Le verrou est rendu dans tous les cas ; la
   navigation n'a lieu que si la revue est encore affichée pour ce métré : quitter la
   revue pendant l'envoi (retour du navigateur) n'y ramène pas l'utilisateur depuis un
-  autre écran, seul le message s'affiche. Les sorties du panneau des lignes bloquées
+  autre écran, seul le message s'affiche. L'envoi en cours et son refus ne s'affichent
+  que sur la revue de ce métré et de cette version. L'éditeur rouvert sans ligne puis
+  sur la même ligne la met de nouveau en évidence. Les sorties du panneau des lignes bloquées
   sont désactivées pendant l'envoi, et deux clics dans la même image n'envoient qu'une
   fois.
 

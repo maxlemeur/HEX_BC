@@ -2,6 +2,7 @@
 
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import type { ForcedOverride } from "@/lib/takeoff/force-reasons";
+import type { MergeSentLine } from "@/lib/takeoff/merge-overwrites";
 import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
 import type { Database } from "@/types/database";
 
@@ -115,6 +116,20 @@ export function buildSectionOptions(items: EstimateItem[]): SectionOption[] {
  */
 export function takeoffApplyStrategyFor(input: { holdsDpgfLines: boolean }): TakeoffApplyStrategy {
   return input.holdsDpgfLines ? "merge" : "append";
+}
+
+/**
+ * The lines the application hands the writer, read from the impact preview: still included once the mapping plan left out
+ * what it skips or folds into an ouvrage (apply_takeoff_job_atomic excludes them before the writer runs), each with the
+ * designation a « rename » gave it and its source order. On a DPGF version the application also skips the lines the
+ * reconciliation decided out of scope, which the preview does not know: these are more lines than the writer is handed,
+ * never fewer (mergeOverwrites reaches no fewer lines for it).
+ */
+export function mergeSentLinesOf(preview: Pick<TakeoffPreviewConversionResponse, "items">): MergeSentLine[] {
+  return preview.items
+    .filter((item) => !item.transformed.is_excluded && item.action !== "skip" && item.action !== "apply_assembly")
+    .map((item) => ({ id: item.item_id, designation: item.transformed.designation, unit: item.transformed.unit,
+      quantity: item.transformed.quantity, sourceOrder: item.source_order }));
 }
 
 /** What the administrator's mapping rule did to a line, in words; null when no rule touched it. */

@@ -14,12 +14,13 @@ const plural = (count: number, singular: string, plural: string) => `${count} ${
  * The impact preview of the takeoff on the estimate, computed by the server for the chosen section: what is sent, what
  * stays out, what the mapping rules change. Computed without a click; on failure, said with « Réessayer ». Each new
  * computation is announced in a polite status, the section named, since nothing else tells a screen reader it changed.
+ * Every count is the preview's: the lines excluded at the review too (its lines less those it retains), never a count the
+ * review read before it (the re-check of 0fd09a20, finding 4: another reviewer may have excluded a line since).
  */
 export function TakeoffApplyImpact({
   previewData,
   previewError,
   isLoadingPreview,
-  excludedCount,
   sourceFileName,
   targetSectionLabel,
   isSubmitting,
@@ -28,8 +29,6 @@ export function TakeoffApplyImpact({
   previewData: TakeoffPreviewConversionResponse | null;
   previewError: string | null;
   isLoadingPreview: boolean;
-  /** The lines excluded at the review. */
-  excludedCount: number;
   sourceFileName?: string | null;
   targetSectionLabel: string;
   isSubmitting: boolean;
@@ -69,7 +68,8 @@ export function TakeoffApplyImpact({
             />
             <PreviewImpactCard
               label="Écartées"
-              value={excludedCount + previewData.summary.excluded_by_mapping_count}
+              value={previewData.summary.total_count - previewData.summary.included_count
+                + previewData.summary.excluded_by_mapping_count}
               hint="exclues à la revue, laissées de côté ou remplacées par un ouvrage"
             />
             <PreviewImpactCard

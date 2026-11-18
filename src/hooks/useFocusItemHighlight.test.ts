@@ -44,6 +44,20 @@ describe("useFocusItemHighlight", () => {
     expect(highlight.mock.calls).toEqual([[[LINE]], [[OTHER]]]);
   });
 
+  // The re-check of 0fd09a20 (finding 5): ?focusItemId=A, back to the editor's plain address, then a link to A again while
+  // the editor stayed mounted: the line was scrolled to, never highlighted. Written before the fix.
+  it("highlights a line again when it is asked for again after the editor was shown without one (A → none → A)", async () => {
+    const highlight = vi.fn();
+    const { rerender } = renderHook(({ line }) => useFocusItemHighlight(line, true, highlight),
+      { initialProps: { line: LINE as string | null } });
+    await flush();
+    rerender({ line: null });
+    await flush();
+    rerender({ line: LINE });
+    await flush();
+    expect(highlight.mock.calls).toEqual([[[LINE]], [[LINE]]]);
+  });
+
   it("highlights nothing without a line", async () => {
     const highlight = vi.fn();
     renderHook(() => useFocusItemHighlight(null, true, highlight));
