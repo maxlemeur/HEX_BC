@@ -58,10 +58,11 @@ export function normalizeReportedError(error: unknown): {
         ? error.digest
         : undefined;
     return {
-      name: error.name || "Error",
+      // A name is a class name; anything else (a provider could set one) is not repeated.
+      name: /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name) ? error.name : "Error",
       message: redactSecrets(error.message),
       stack: error.stack === undefined ? undefined : redactSecrets(error.stack),
-      digest,
+      digest: digest === undefined ? undefined : redactSecrets(digest),
     };
   }
 

@@ -138,6 +138,22 @@ describe("installProcessErrorHooks", () => {
     expect(logged.stack).toContain("error-reporter.test.ts");
   });
 
+  // Review round 2, item I: the name and the digest are sanitised like the message and the stack.
+  it("sanitises the name and the digest of an uncaught exception", async () => {
+    const target = new EventEmitter();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("ERROR_REPORTING_DSN", "");
+    const key = `sk-proj-${"Qw7_".repeat(10)}CD34`;
+    const error = Object.assign(new Error("failure"), { name: `ProviderError ${key}`, digest: `NEXT_ERROR;${key}` });
+    installProcessErrorHooks({ target: target as unknown as NodeJS.Process, exit: vi.fn() });
+    target.emit("uncaughtException", error);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const logged = JSON.stringify(vi.mocked(console.error).mock.calls.map((call) => call.map((argument) => (argument instanceof Error ? "[raw error]" : argument))));
+    expect(logged).not.toContain(key);
+    expect(logged).not.toContain("[raw error]");
+    expect(vi.mocked(console.error).mock.calls.find((call) => call[1] === "uncaughtException")?.[2]).toMatchObject({ name: "Error" });
+  });
+
   it("reports then exits the process on uncaughtException instead of swallowing it", async () => {
     const target = new EventEmitter();
     vi.spyOn(console, "error").mockImplementation(() => {});
