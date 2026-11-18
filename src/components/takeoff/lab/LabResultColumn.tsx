@@ -99,9 +99,10 @@ function BillingLines({ billing, apiProvider }: { billing: LabBilling; apiProvid
       </dl>
       <p className="mt-1 text-muted-foreground">
         {`Clé API ${apiProvider} · plafond ${formatUsdCeiling(billing.ceiling_nano_usd)}`}
-        {billing.bound_nano_usd !== null ? ` · borne ${formatUsdCeiling(billing.bound_nano_usd)}` : ""}
-        {billing.input_tokens_counted !== null ? ` (entrée comptée : ${formatInteger(billing.input_tokens_counted)} jetons` : ""}
-        {billing.input_tokens_counted !== null && billing.max_output_tokens !== null ? `, sortie limitée à ${formatInteger(billing.max_output_tokens)} jetons)` : ""}
+        {/* Absent (undefined) or null: unavailable. */}
+        {billing.bound_nano_usd != null ? ` · borne ${formatUsdCeiling(billing.bound_nano_usd)}` : ""}
+        {billing.input_tokens_counted != null ? ` (entrée comptée : ${formatInteger(billing.input_tokens_counted)} jetons` : ""}
+        {billing.input_tokens_counted != null ? (billing.max_output_tokens != null ? `, sortie limitée à ${formatInteger(billing.max_output_tokens)} jetons)` : ")") : ""}
         {` · ${table}`}
       </p>
     </div>
