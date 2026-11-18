@@ -497,7 +497,8 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     const keyEntry = accessCard.getByRole("region", "Clé API");
     await expect(keyEntry.getByText("Utilisée uniquement dans le labo métré. Vos autres analyses restent sur l’abonnement ChatGPT.", { exact: true })).toBeVisible();
     const field = keyEntry.getByLabel("Clé API OpenAI", { exact: true });
-    await expect(field).toHaveAttribute("type", "password");
+    // The SDK refuses any locator read of a secure field (value, text, attribute): the page answers for its type.
+    expect(await browser.evaluate(() => document.querySelector<HTMLInputElement>("input[name=openai-api-key]")?.type ?? null)).toBe("password");
     await field.fill(key);
     await keyEntry.getByRole("button", "Vérifier et enregistrer", { exact: true }).click();
     const masked = `OpenAI · •••• ${suffix} · Trousseau de test`;
@@ -545,7 +546,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     const spend = column.getByRole("group", "Dépense de la clé API");
     await expect(spend).toContainText(/Coût estimé\s*moins de 0,01 \$ US/);
     await expect(spend).toContainText("gpt-6.1-terra-2026-10-01");
-    await expect(spend).toContainText("2 400 entrée (dont 400 en cache) · 300 sortie (dont 120 raisonnement)");
+    await expect(spend).toContainText(/2\s400 entrée \(dont 400 en cache\) · 300 sortie \(dont 120 raisonnement\)/);
     const labScreenshot = await app.screenshot("lab05-essai-api-key-1440");
 
     const run = (await storedRuns()).map((entry) => entry.run).find((entry) => entry.campaign === campaign);
