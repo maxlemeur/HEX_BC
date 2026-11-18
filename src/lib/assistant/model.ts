@@ -86,9 +86,15 @@ export function createAssistantModel(options: {
           ...(access.reasoningEffort === null ? {} : { reasoning: { effort: access.reasoningEffort } }),
           // Nothing is stored at the provider: reasoning comes back encrypted and is replayed with the tool results.
           include: ["reasoning.encrypted_content"],
-          // The loop's closing words on the last request go with the rules, never among what was read.
-          instructions: request.finalInstruction ? `${options.instructions}\n\n${request.finalInstruction}` : options.instructions,
-          input: request.input,
+          // The rules open the input as its developer message: the provider caches that prefix from the second
+          // request on. The models from GPT-6.2 on send the top-level `instructions` field after the input and bill
+          // it uncached at every request, so nothing goes there. The loop's closing words on the last request are a
+          // developer message too, after everything read: said as the rules, and the cached prefix stays whole.
+          input: [
+            { role: "developer", content: options.instructions },
+            ...request.input,
+            ...(request.finalInstruction ? [{ role: "developer", content: request.finalInstruction }] : []),
+          ],
           tools,
           tool_choice: request.toolsAllowed ? "auto" : "none",
           parallel_tool_calls: false,

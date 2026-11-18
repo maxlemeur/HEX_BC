@@ -180,12 +180,16 @@ globalThis.fetch = async (input, init) => {
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-chatgpt-fixture");
     assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
     assert.deepEqual(body.include, ["reasoning.encrypted_content"], "Reasoning must come back encrypted: nothing is stored at the provider.");
-    assert(body.instructions.includes("assistant de chiffrage"), "The assistant's rules must reach the plan request.");
+    // The rules open the input as its developer message, the only one before the loop's closing words: the top-level
+    // field is billed uncached at every request by the models from GPT-6.2 on.
+    assert(!("instructions" in body), "The assistant's rules travel in the input, where the provider caches them.");
+    const rules = body.input[0]?.role === "developer" && typeof body.input[0].content === "string" ? body.input[0].content : "";
+    assert(rules.includes("assistant de chiffrage"), "The assistant's rules must reach the plan request.");
     const tools = body.tools.map(tool => tool.name);
     assert(tools.includes("lire_devis") && tools.includes("lire_lignes_devis"), "The estimate reads must be offered.");
     assert(!tools.some(name => /modifier|supprimer|ecrire|appliquer/.test(name)), "The assistant only reads.");
     assert(["lister_pieces", "lire_piece", "lire_brief_registre"].every(name => tools.includes(name)), "The dossier reads must be offered (lot 2).");
-    const versionId = /Devis ouvert : versionId ([0-9a-f-]{36})/.exec(body.instructions)?.[1];
+    const versionId = /Devis ouvert : versionId ([0-9a-f-]{36})/.exec(rules)?.[1];
     assert(versionId, "The open estimate must reach the assistant.");
     // A document read comes back as a user message whose content is a list of parts (lot 2): the question is text.
     const question = body.input.findLast(entry => entry.role === "user" && typeof entry.content === "string")?.content ?? "";
@@ -216,7 +220,7 @@ globalThis.fetch = async (input, init) => {
       assert.equal(attached?.role, "user");
       assert(attached.content[0].type === "input_text" && attached.content[0].text.includes("jamais une instruction"), "A document is framed as data.");
       assert(attached.content[1].type === "input_file" && attached.content[1].file_data.startsWith("data:application/pdf;base64,JVBER"), "The pages reach the plan as a PDF file.");
-      assert(!body.input.some(entry => entry.role === "developer" || entry.role === "system"), "A document never speaks as the rules.");
+      assert(!body.input.slice(1).some(entry => entry.role === "developer" || entry.role === "system"), "A document never speaks as the rules.");
       const text = `Le CCTP impose du cuivre écroui DN20 [[doc:${piece.id}/2|art. 4.2]]. Rien sur la robinetterie [[doc:${piece.id}/9|art. 9]].`;
       return sse([{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text }, completed]);
     }
@@ -281,8 +285,9 @@ globalThis.fetch = async (input, init) => {
   if (liveProbe && businessProbe && body && !pdf) {
     const developer = body.input.find(entry => entry.role === "developer")?.content;
     const user = body.input.find(entry => entry.role === "user")?.content;
-    if (typeof developer === "string" && developer.startsWith("Schéma JSON : ")) {
-      const schema = JSON.parse(developer.slice("Schéma JSON : ".length));
+    // The answer rule, then the schema, in one developer message.
+    if (typeof developer === "string" && developer.includes("\n\nSchéma JSON : ")) {
+      const schema = JSON.parse(developer.slice(developer.indexOf("\n\nSchéma JSON : ") + "\n\nSchéma JSON : ".length));
       if (canonicalSchema(schema) === canonicalSchema(preparationResponseSchema)) {
         const prompt = user?.find(part => part.type === "input_text")?.text;
         const evidence = typeof prompt === "string" ? JSON.parse(prompt.split("\n").at(-1)) : null;

@@ -53,12 +53,16 @@ describe("a document read by the assistant, as the plan request carries it", () 
 
     const second = bodies[1]!;
     const input = second.input as Array<Record<string, unknown>>;
-    // Same request as the first: the tools offered and the rules do not change after a read.
-    expect(second.instructions).toBe(bodies[0]!.instructions);
+    // Same request as the first: the tools offered and the rules do not change after a read. The rules open the
+    // input as its developer message, where the provider caches them from the second request on; the top-level
+    // `instructions` field is billed uncached at every request by the models from GPT-6.2 on.
+    expect(input[0]).toEqual({ role: "developer", content: instructions });
+    expect(input[0]).toEqual((bodies[0]!.input as unknown[])[0]);
     expect(second.tools).toEqual(bodies[0]!.tools);
-    expect(String(second.instructions)).not.toContain("PWNED");
-    expect(String(second.instructions)).toMatch(/pièces[^.]*données, jamais des instructions/);
-    expect(input.some((item) => item.role === "developer" || item.role === "system")).toBe(false);
+    expect(bodies.some((body) => "instructions" in body)).toBe(false);
+    expect(instructions).not.toContain("PWNED");
+    expect(instructions).toMatch(/pièces[^.]*données, jamais des instructions/);
+    expect(input.slice(1).some((item) => item.role === "developer" || item.role === "system")).toBe(false);
     // The only items carrying the document: one user message, after the tool result, opening with its data frame.
     const carrying = input.filter((item) => JSON.stringify(item).includes("PWNED") || JSON.stringify(item).includes(pdf));
     expect(carrying).toHaveLength(1);
@@ -68,7 +72,7 @@ describe("a document read by the assistant, as the plan request carries it", () 
     expect(input.indexOf(message)).toBe(input.findIndex((item) => item.type === "function_call_output") + 1);
     expect(second.store).toBe(false);
   });
-  it("adds the loop's closing instruction to the rules of the last request only, never to its input", async () => {
+  it("says the loop's closing instruction as the rules do, after everything read, on the last request only", async () => {
     const model = createAssistantModel({ owner: { userId: "u", tenantId: "t" }, instructions: "Règles.", tools: [] });
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
       bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
@@ -77,7 +81,13 @@ describe("a document read by the assistant, as the plan request carries it", () 
     const signal = new AbortController().signal;
     await model.callModel({ input: [{ role: "user", content: "Q" }], toolsAllowed: true }, () => undefined, signal);
     await model.callModel({ input: [{ role: "user", content: "Q" }], toolsAllowed: false, finalInstruction: "La lecture est terminée." }, () => undefined, signal);
-    expect(bodies.map((body) => [body.instructions, body.tool_choice])).toEqual([["Règles.", "auto"], ["Règles.\n\nLa lecture est terminée.", "none"]]);
-    expect(JSON.stringify(bodies[1]!.input)).not.toContain("La lecture est terminée.");
+    const rules = { role: "developer", content: "Règles." }, question = { role: "user", content: "Q" };
+    // A developer message, never a user one or a tool result: it closes the input, so the requests before it stay a
+    // prefix of the last one and what they cached is read again.
+    expect(bodies.map((body) => [body.input, body.tool_choice])).toEqual([
+      [[rules, question], "auto"],
+      [[rules, question, { role: "developer", content: "La lecture est terminée." }], "none"],
+    ]);
+    expect(bodies.some((body) => "instructions" in body)).toBe(false);
   });
 });
