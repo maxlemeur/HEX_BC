@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { aiApiProviderSchema, type AiApiProvider, type AiBillingSource, type AiExecutionPlace } from "@/lib/ai/access/contracts";
 import { chatGptReasoningEffortSchema, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 
 // Contracts of the takeoff lab (TI-661), shared by its routes and its screens.
@@ -33,12 +34,16 @@ export const DECISIONS_INSTRUCTIONS_MAX = 8000;
 export const DECISIONS_IMAGE_BASE64_MAX = 3 * 1024 * 1024;
 export const EXTRACTION_PROMPT_MAX = 50_000;
 
-export type LabProvider = "chatgpt" | "decisions";
+/** Who answers an essai's configuration: the ChatGPT subscription, Decisions, or the member's own API key (paid by them). */
+export type LabProvider = "chatgpt" | "decisions" | "api_key";
 export type LabTaskKind = "extraction" | "choice";
 
 export const LabConfigInputSchema = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("chatgpt"), model: z.string().trim().min(1).max(200), reasoningEffort: chatGptReasoningEffortSchema.nullable() }).strict(),
   z.object({ provider: z.literal("decisions") }).strict(),
+  // The API's provider is its own field: Anthropic joins this list without a new lab provider.
+  z.object({ provider: z.literal("api_key"), apiProvider: aiApiProviderSchema, model: z.string().trim().min(1).max(200),
+    reasoningEffort: chatGptReasoningEffortSchema.nullable() }).strict(),
 ]);
 export type LabConfigInput = z.infer<typeof LabConfigInputSchema>;
 
@@ -107,6 +112,27 @@ export type LabElement = {
 };
 
 export type LabConfigStatus = "ok" | "schema_error" | "partial" | "failed" | "not_run";
+
+/**
+ * A configuration paid with the member's API key: what it could cost before the call, what it cost after,
+ * in US dollars (nano-dollars, aggregated before rounding), with the dated price table that priced it.
+ * `cost_nano_usd` null: the call may have been billed and its usage is unknown (« consommation à confirmer »).
+ */
+export type LabBilling = {
+  source: Extract<AiBillingSource, "personal_api_key">;
+  provider: AiApiProvider;
+  place: AiExecutionPlace;
+  currency: "USD";
+  price_table: string;
+  /** The model the provider says answered (a dated snapshot, for instance); `model` keeps the one requested. */
+  model_used: string | null;
+  ceiling_nano_usd: number;
+  bound_nano_usd: number;
+  cost_nano_usd: number | null;
+  usage: { input: number; cached_input: number; output: number; reasoning: number; total: number } | null;
+  request_id: string | null;
+  connection_version: number;
+};
 export type LabConfigResult = {
   id: LabConfigId;
   provider: LabProvider;
@@ -123,9 +149,14 @@ export type LabConfigResult = {
   answers: LabAnswer[] | null;
   score: LabScore | null;
   elements: LabElement[];
+  /** API key only; absent from older runs. */
+  billing?: LabBilling | null;
+  /** API key only: the closed code of its failure (api-key-errors.ts), never provider text. */
+  error_code?: string | null;
 };
 
-export type LabStopReason = "quota" | "rate_limit" | "auth_required" | "account_missing" | "model_missing" | "selection_changed" | "decisions_failed" | "other";
+export type LabStopReason = "quota" | "rate_limit" | "auth_required" | "account_missing" | "model_missing" | "selection_changed" | "decisions_failed"
+  | "api_key_failed" | "other";
 
 export type LabRun = {
   schema_version: 1;
@@ -249,6 +280,9 @@ export type LabState = {
   tasks: LabTaskDescriptor[];
   decisions: { available: boolean; message: string; model: string; budget: LabDecisionsBudget };
   chatgpt: { connected: boolean; model: string | null; reasoning_effort: ChatGptReasoningEffort | null; message: string | null };
+  /** The member's OpenAI key on this Mac: never the key, only whether it is there and its masked suffix. */
+  api_key: { status: "saved" | "empty" | "unavailable"; provider: AiApiProvider; suffix: string | null; place_label: string | null;
+    message: string | null; ceiling_nano_usd: number };
   campaigns: string[];
   /** Campaign of the latest essai: the verdicts and stats open on it. */
   latest_campaign: string | null;
@@ -263,7 +297,8 @@ export type LabRunSummary = {
   crop: LabCrop | null;
   prompt_version: string;
   status: LabRun["status"];
-  configs: Array<Pick<LabConfigResult, "id" | "provider" | "model" | "reasoning_effort" | "status" | "latency_ms" | "usage" | "score"> & { elements: number }>;
+  configs: Array<Pick<LabConfigResult, "id" | "provider" | "model" | "reasoning_effort" | "status" | "latency_ms" | "usage" | "score"> & {
+    billing: LabBilling | null; elements: number }>;
 };
 
 export type LabCampaignElement = LabElement & {
@@ -319,7 +354,9 @@ export type LabBenchReportSummary = {
 // Labels shared by the screens
 
 export function configLabel(config: { provider: LabProvider; model: string; reasoning_effort: ChatGptReasoningEffort | null }) {
-  return config.provider === "decisions" ? `Decisions · ${config.model}` : `${config.model} · ${config.reasoning_effort ?? "auto"}`;
+  if (config.provider === "decisions") return `Decisions · ${config.model}`;
+  const label = `${config.model} · ${config.reasoning_effort ?? "auto"}`;
+  return config.provider === "api_key" ? `Clé API OpenAI · ${label}` : label;
 }
 
 /** « takeoff-c-v1 · 1a2b3c4d » or « questions · 1a2b3c4d ». */

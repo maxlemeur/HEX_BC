@@ -16,6 +16,9 @@ import { ConfigStatusBadge, LabResultColumn, scoreText } from "@/components/take
 import { LabPdfCanvas } from "@/components/takeoff/lab/LabPdfCanvas";
 import { errorMessage, formatInteger, formatLatency, labApi } from "@/components/takeoff/lab/lab-api";
 import { renderDecisionsImage } from "@/components/takeoff/lab/lab-pdf";
+import { aiAccessApi } from "@/components/ai/ai-access-api";
+import type { ApiKeyOfferedModel } from "@/lib/ai/access/contracts";
+import { boundOpenAiCall, formatUsd, formatUsdCeiling, labMaxOutputTokens } from "@/lib/ai/access/openai-pricing";
 import type { ChatGptAvailableModel, ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import {
   configLabel, defaultCampaignName, LAB_CAMPAIGN_ERROR, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
@@ -32,6 +35,23 @@ type DraftConfig = { provider: LabProvider; model: string; reasoningEffort: Chat
 const EFFORT_LABELS: Record<ChatGptReasoningEffort, string> = {
   none: "aucun", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max",
 };
+
+const PROVIDER_LABELS: Record<LabProvider, string> = { chatgpt: "ChatGPT local", decisions: "Decisions", api_key: "Clé API OpenAI" };
+
+const utf8 = new TextEncoder();
+
+/** The prudent bound of the essai's key configurations, as the server computes it before any call (openai-pricing.ts). */
+function apiKeyBound(configs: readonly DraftConfig[], prompt: string, pages: number) {
+  const keyed = configs.filter((config) => config.provider === "api_key");
+  if (keyed.length === 0) return null;
+  let total = 0;
+  for (const config of keyed) {
+    const bound = boundOpenAiCall({ model: config.model, promptBytes: utf8.encode(prompt).length, pages, maxOutputTokens: labMaxOutputTokens(config.reasoningEffort) });
+    if (bound.status !== "priced") return { status: "unknown_price" as const };
+    total += bound.nanoUsd;
+  }
+  return { status: "priced" as const, nanoUsd: total };
+}
 
 function Step({ index, title, aside, children }: Readonly<{ index: number; title: string; aside?: React.ReactNode; children: React.ReactNode }>) {
   return (
@@ -68,6 +88,8 @@ export function LabEssaiScreen() {
   const [promptOpen, setPromptOpen] = useState(false);
   const [models, setModels] = useState<ChatGptAvailableModel[] | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [apiModels, setApiModels] = useState<ApiKeyOfferedModel[] | null>(null);
+  const [apiModelsError, setApiModelsError] = useState<string | null>(null);
   const [configs, setConfigs] = useState<DraftConfig[]>([]);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -107,6 +129,22 @@ export function LabEssaiScreen() {
     });
     return () => { active = false; };
   }, [chatgptReady]);
+
+  const apiKeyReady = state.api_key.status === "saved";
+  // The key's models are listed (free, no generation) only when a task can use it.
+  const taskUsesApiKey = state.tasks.some((entry) => entry.id === taskId && entry.providers.includes("api_key"));
+  useEffect(() => {
+    if (!apiKeyReady || !taskUsesApiKey || apiModels) return;
+    let active = true;
+    void aiAccessApi.models().then((result) => {
+      if (!active) return;
+      setApiModels(result.models);
+      setConfigs((current) => current.map((config) => (config.provider === "api_key" && !config.model ? { ...config, model: result.models[0]?.id ?? "" } : config)));
+    }).catch((error) => {
+      if (active) setApiModelsError(errorMessage(error));
+    });
+    return () => { active = false; };
+  }, [apiKeyReady, taskUsesApiKey, apiModels]);
 
   const defaultConfig = useCallback((descriptor: LabTaskDescriptor | null): DraftConfig => {
     const providers = descriptor?.providers ?? ["chatgpt"];
@@ -149,9 +187,12 @@ export function LabEssaiScreen() {
     setConfigs((current) => current.map((config, position) => {
       if (position !== index) return config;
       const next = { ...config, ...patch };
-      if (patch.provider === "chatgpt" && !next.model) next.model = state.chatgpt.model ?? models?.[0]?.id ?? "";
+      if (patch.provider === "chatgpt" && (config.provider !== "chatgpt" || !next.model)) next.model = state.chatgpt.model ?? models?.[0]?.id ?? "";
+      // The key's own models: a subscription model is never carried over to the key, nor the reverse.
+      if (patch.provider === "api_key" && config.provider !== "api_key") next.model = apiModels?.[0]?.id ?? "";
       if (patch.model !== undefined || patch.provider !== undefined) {
-        const efforts = models?.find((model) => model.id === next.model)?.reasoningEfforts ?? [];
+        const listed = next.provider === "api_key" ? apiModels : models;
+        const efforts = listed?.find((model) => model.id === next.model)?.reasoningEfforts ?? [];
         if (next.reasoningEffort !== null && !efforts.includes(next.reasoningEffort)) next.reasoningEffort = null;
       }
       if (next.provider === "decisions") next.reasoningEffort = null;
@@ -169,6 +210,8 @@ export function LabEssaiScreen() {
   const decisionsPage = configs.some((config) => config.provider === "decisions") && (document?.pages ?? 1) > 1;
   const crop = box ? { page, box } : (pageOnly || decisionsPage) && (document?.pages ?? 1) > 1 ? { page, box: null } : null;
   const campaignInvalid = !LAB_NAME_PATTERN.test(campaign);
+  const apiBound = apiKeyBound(configs, prompt, crop ? 1 : document?.pages ?? 1);
+  const apiCeiling = state.api_key.ceiling_nano_usd;
   const blocked = !state.configured ? state.message ?? "Dataset non configuré."
     : !document ? "Choisissez un document."
     : !task ? "Choisissez une tâche."
@@ -177,6 +220,11 @@ export function LabEssaiScreen() {
     : prompt.length > task.promptMax ? `Le prompt dépasse ${formatInteger(task.promptMax)} caractères.`
     : configs.some((config) => config.provider === "chatgpt") && !chatgptReady ? state.chatgpt.message ?? "ChatGPT n’est pas prêt."
     : configs.some((config) => config.provider === "chatgpt" && !config.model) ? modelsError ?? "Choisissez un modèle ChatGPT."
+    : configs.some((config) => config.provider === "api_key") && !apiKeyReady ? state.api_key.message ?? "Ajoutez votre clé API OpenAI dans Mon profil."
+    : configs.some((config) => config.provider === "api_key" && !config.model) ? apiModelsError ?? "Choisissez un modèle pour la clé API."
+    : apiBound?.status === "unknown_price" ? "MergeOne ne connaît pas le tarif de ce modèle : la dépense ne peut pas être plafonnée."
+    : apiBound && apiBound.nanoUsd > apiCeiling
+      ? `Cette analyse pourrait dépasser votre plafond de ${formatUsdCeiling(apiCeiling)} (borne prudente : ${formatUsdCeiling(apiBound.nanoUsd)}). Réduisez la sélection.`
     : configs.some((config) => config.provider === "decisions") && !state.decisions.available ? state.decisions.message
     : configs.some((config) => config.provider === "decisions") && !planLoaded ? "Le plan se charge…"
     : null;
@@ -192,6 +240,7 @@ export function LabEssaiScreen() {
       const body = {
         documentId: document.id, campaign, taskId: task.id, crop, prompt, image,
         configs: configs.map((config): LabConfigInput => config.provider === "decisions" ? { provider: "decisions" }
+          : config.provider === "api_key" ? { provider: "api_key", apiProvider: "openai", model: config.model, reasoningEffort: config.reasoningEffort }
           : { provider: "chatgpt", model: config.model, reasoningEffort: config.reasoningEffort }),
       };
       const result = await labApi.launch(body);
@@ -284,9 +333,13 @@ export function LabEssaiScreen() {
             </Step>
             <Step index={3} title="Configurations" aside={`${configs.length} / ${LAB_MAX_CONFIGS}`}>
               {modelsError && chatgptReady ? <p className="text-xs text-danger">{modelsError}</p> : null}
-              {!chatgptReady && task?.providers.includes("chatgpt") ? <p className="text-xs text-warning">{state.chatgpt.message}</p> : null}
+              {!chatgptReady && configs.some((config) => config.provider === "chatgpt") ? <p className="text-xs text-warning">{state.chatgpt.message}</p> : null}
+              {!apiKeyReady && configs.some((config) => config.provider === "api_key") ? <p className="text-xs text-warning">{state.api_key.message}</p> : null}
+              {apiModelsError && configs.some((config) => config.provider === "api_key") ? <p className="text-xs text-danger">{apiModelsError}</p> : null}
               {configs.map((config, index) => {
-                const efforts = modelOptions.find((model) => model.id === config.model)?.reasoningEfforts ?? [];
+                const options = config.provider === "api_key" ? apiModels ?? [] : modelOptions;
+                const efforts = options.find((model) => model.id === config.model)?.reasoningEfforts ?? [];
+                const ready = config.provider === "api_key" ? apiKeyReady : chatgptReady;
                 const id = LAB_CONFIG_IDS[index];
                 return (
                   <fieldset key={id} className="relative space-y-1.5 rounded-md border border-border p-2">
@@ -301,25 +354,27 @@ export function LabEssaiScreen() {
                         <label htmlFor={`${fieldId}-${id}-provider`} className="block text-muted-foreground">Fournisseur</label>
                         <NativeSelect id={`${fieldId}-${id}-provider`} size="sm" value={config.provider} onChange={(event) => updateConfig(index, { provider: event.target.value as LabProvider })}>
                           {task.providers.map((provider) => (
-                            <option key={provider} value={provider} disabled={provider === "decisions" && !state.decisions.available}>
-                              {provider === "decisions" ? `Decisions (${state.decisions.model})` : "ChatGPT local"}
+                            <option key={provider} value={provider}
+                              disabled={(provider === "decisions" && !state.decisions.available) || (provider === "api_key" && !apiKeyReady)}>
+                              {provider === "decisions" ? `Decisions (${state.decisions.model})`
+                                : provider === "api_key" && state.api_key.suffix ? `${PROVIDER_LABELS.api_key} · •••• ${state.api_key.suffix}` : PROVIDER_LABELS[provider]}
                             </option>
                           ))}
                         </NativeSelect>
                       </div>
                     ) : null}
-                    {config.provider === "chatgpt" ? (
+                    {config.provider !== "decisions" ? (
                       <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-2">
                         <div className="space-y-1 text-xs">
                           <label htmlFor={`${fieldId}-${id}-model`} className="block text-muted-foreground">Modèle</label>
-                          <NativeSelect id={`${fieldId}-${id}-model`} size="sm" value={config.model} onChange={(event) => updateConfig(index, { model: event.target.value })} disabled={!chatgptReady}>
-                            {modelOptions.length === 0 ? <option value="">—</option> : null}
-                            {modelOptions.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
+                          <NativeSelect id={`${fieldId}-${id}-model`} size="sm" value={config.model} onChange={(event) => updateConfig(index, { model: event.target.value })} disabled={!ready}>
+                            {options.length === 0 ? <option value="">—</option> : null}
+                            {options.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
                           </NativeSelect>
                         </div>
                         <div className="space-y-1 text-xs">
                           <label htmlFor={`${fieldId}-${id}-effort`} className="block text-muted-foreground">Effort</label>
-                          <NativeSelect id={`${fieldId}-${id}-effort`} size="sm" value={config.reasoningEffort ?? "auto"} disabled={!chatgptReady}
+                          <NativeSelect id={`${fieldId}-${id}-effort`} size="sm" value={config.reasoningEffort ?? "auto"} disabled={!ready}
                             onChange={(event) => updateConfig(index, { reasoningEffort: event.target.value === "auto" ? null : event.target.value as ChatGptReasoningEffort })}>
                             <option value="auto">Automatique</option>
                             {efforts.map((effort) => <option key={effort} value={effort}>{EFFORT_LABELS[effort]}</option>)}
@@ -340,6 +395,12 @@ export function LabEssaiScreen() {
                 Ajouter une configuration
               </Button>
               <p className="text-xs text-muted-foreground">Même document et même prompt pour chaque configuration.</p>
+              {apiBound ? (
+                <p role="status" aria-label="Plafond de la clé API" className="rounded-md border border-border-subtle bg-surface-subtle p-2 text-xs text-foreground">
+                  Clé API OpenAI · facturé sur votre compte · plafond {formatUsdCeiling(apiCeiling)}
+                  {apiBound.status === "priced" ? ` · borne prudente ${formatUsdCeiling(apiBound.nanoUsd)}` : " · tarif inconnu"}
+                </p>
+              ) : null}
             </Step>
             <Step index={4} title="Prompt" aside={task ? (promptEdited ? "modifié" : "par défaut") : undefined}>
               <Button size="xs" variant="ghost" aria-expanded={promptOpen} rightIcon={promptOpen ? <ChevronUp /> : <ChevronDown />} onClick={() => setPromptOpen((value) => !value)}>
@@ -448,6 +509,7 @@ export function LabEssaiScreen() {
                               <ConfigStatusBadge status={config.status} />
                               <span className="text-muted-foreground tabular-nums">
                                 {config.usage ? `${formatInteger(config.usage.total)} jetons` : "—"} · {formatLatency(config.latency_ms)}
+                                {config.billing ? ` · ${formatUsd(config.billing.cost_nano_usd)}` : ""}
                                 {scoreText(config.score) ? ` · ${scoreText(config.score)}` : ""}
                               </span>
                             </li>

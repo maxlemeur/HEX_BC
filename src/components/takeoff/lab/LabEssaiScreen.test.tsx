@@ -30,6 +30,8 @@ const STATE = {
   tasks: [{ id: "tri-de-page", kind: "choice", label: "Tri de page", description: "", providers: ["decisions"], defaultPrompt: "Quel type de page ?", promptMax: 8000 }],
   decisions: { available: true, message: "", model: "gpt-6-luna", budget: { limit: 100000, used: 0, remaining: 100000, calls_without_usage: 0 } },
   chatgpt: { connected: false, model: null, reasoning_effort: null, message: "Connectez ChatGPT." },
+  api_key: { status: "empty", provider: "openai", suffix: null, place_label: "Sur ce Mac", message: "Ajoutez votre clé API OpenAI dans Mon profil.",
+    ceiling_nano_usd: 1_000_000_000 },
   campaigns: [],
   latest_campaign: null,
 } as unknown as LabState;

@@ -3,6 +3,11 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 
+import { ApiKeyError, apiKeyErrorMessage, isApiKeyError, type ApiKeyCallUsage, type ApiKeyErrorCode } from "@/lib/ai/access/api-key-errors";
+import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
+import {
+  boundOpenAiCall, costOfOpenAiUsage, formatUsdCeiling, LAB_API_KEY_CEILING_NANO_USD, labMaxOutputTokens, OPENAI_PRICE_TABLE,
+} from "@/lib/ai/access/openai-pricing";
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import {
   assertLocalChatGptOverride, callLocalChatGptStructured, listLocalChatGptModels, type LocalChatGptOverride, type LocalChatGptRawResult,
@@ -14,7 +19,7 @@ import { badRequest, conflict, notFound } from "@/lib/estimates/errors";
 import { classifyCallError, describeError } from "@/lib/takeoff/bench/run";
 import { TAKEOFF_C_TIMEOUT_MS_DEFAULT } from "@/lib/takeoff/constants";
 import {
-  LAB_CONFIG_IDS, LAB_VECTOR_TASK_ID, type LabAnswer, type LabConfigInput, type LabConfigResult, type LabDecisionsBudget, type LabElement,
+  LAB_CONFIG_IDS, LAB_VECTOR_TASK_ID, type LabAnswer, type LabBilling, type LabConfigInput, type LabConfigResult, type LabDecisionsBudget, type LabElement,
   type LabRun, type LabRunRequest, type LabRunSummary, type LabStopReason, type LabUsage,
 } from "@/lib/takeoff/lab/contracts";
 import { cropLabPdf } from "@/lib/takeoff/lab/crop";
@@ -44,6 +49,14 @@ import type { TakeoffExchange } from "@/lib/takeoff/types";
 // stored runs once the single-essai lock is taken (no other essai can still
 // write its usage); a failed call stops the essai. The run is written atomically,
 // stopped or not, before it is returned.
+// A configuration on the member's API key (provider "api_key", OpenAI here) is
+// paid by them: before the lock is released for any call, the essai's prudent
+// bound (openai-pricing.ts, every key configuration together) must fit 1,00 $ US
+// and each model must have a known price; the key must be saved and list the
+// model. It never needs, reads or calls the ChatGPT subscription, and a failure
+// of the key never falls back to it. Its amounts are stored in US dollars with
+// the dated price table; a call that may have been billed without known usage
+// stays « à confirmer ». Nothing is resent automatically.
 // « Classe de calque » (vectors.ts) is one Decisions configuration on a whole
 // page: no browser image, no zone, its fixed questions; its calls stop at the
 // first failure or at the cap's remainder, and its usage is their sum.
@@ -59,6 +72,15 @@ function newRunId(now: Date) {
 
 function usageOf(usage: { inputTokens: number; outputTokens: number; reasoningTokens: number; totalTokens: number }): LabUsage {
   return { input: usage.inputTokens, output: usage.outputTokens, reasoning: usage.reasoningTokens, total: usage.totalTokens };
+}
+
+/** The provider counts reasoning inside the output; the lab shows them apart, as for the subscription. */
+function apiKeyUsageOf(usage: ApiKeyCallUsage): LabUsage {
+  return { input: usage.input, output: Math.max(0, usage.output - usage.reasoning), reasoning: usage.reasoning, total: usage.total };
+}
+
+function billingUsageOf(usage: ApiKeyCallUsage | null): LabBilling["usage"] {
+  return usage ? { input: usage.input, cached_input: usage.cachedInput, output: usage.output, reasoning: usage.reasoning, total: usage.total } : null;
 }
 
 function choiceLabel(task: LabTask, value: unknown) {
@@ -148,7 +170,7 @@ export function summarizeLabRun(run: LabRun): LabRunSummary {
     prompt_version: run.prompt.version, status: run.status,
     configs: run.configs.map((config) => ({
       id: config.id, provider: config.provider, model: config.model, reasoning_effort: config.reasoning_effort, status: config.status,
-      latency_ms: config.latency_ms, usage: config.usage, score: config.score, elements: config.elements.length,
+      latency_ms: config.latency_ms, usage: config.usage, score: config.score, billing: config.billing ?? null, elements: config.elements.length,
     })),
   };
 }
@@ -186,11 +208,14 @@ export function decisionsBudget(runs: readonly LabRun[], cap: number | null): La
 // ---------------------------------------------------------------------------
 // Pre-flight: everything that can be refused is refused before the first call.
 
+const PROVIDER_NAMES: Record<LabConfigInput["provider"], string> = { chatgpt: "ChatGPT", decisions: "Decisions", api_key: "la clé API" };
+
 function checkConfigs(task: LabTask, configs: readonly LabConfigInput[]) {
   const seen = new Set<string>();
   for (const config of configs) {
-    if (!task.providers.includes(config.provider)) throw badRequest(`La tâche « ${task.label} » ne se lance pas sur ${config.provider === "decisions" ? "Decisions" : "ChatGPT"}.`);
-    const key = config.provider === "decisions" ? "decisions" : `${config.model}\u0000${config.reasoningEffort ?? "auto"}`;
+    if (!task.providers.includes(config.provider)) throw badRequest(`La tâche « ${task.label} » ne se lance pas sur ${PROVIDER_NAMES[config.provider]}.`);
+    const key = config.provider === "decisions" ? "decisions"
+      : `${config.provider === "api_key" ? "api_key\u0000" : ""}${config.model}\u0000${config.reasoningEffort ?? "auto"}`;
     if (seen.has(key)) throw badRequest("Deux configurations identiques : changez le modèle ou l’effort.");
     seen.add(key);
   }
@@ -238,6 +263,55 @@ async function preflightChatGpt(owner: ChatGptOwner, configs: readonly Extract<L
   return { overrides: checked, selection: { profileId: credential.profileId, model: credential.model, reasoningEffort: credential.reasoningEffort ?? null } };
 }
 
+type ApiKeyConfig = Extract<LabConfigInput, { provider: "api_key" }>;
+type LabApiKeyPreflight = { version: number; bounds: Map<string, number> };
+
+function apiKeyConfigKey(config: ApiKeyConfig) {
+  return `${config.model}\u0000${config.reasoningEffort ?? "auto"}`;
+}
+
+function apiKeyConflict(error: unknown): never {
+  const failure = isApiKeyError(error) ? error : new ApiKeyError("AI_KEY_UNEXPECTED");
+  throw conflict(failure.message, undefined, failure.code);
+}
+
+/**
+ * Refuses an essai on the member's key that could cost more than its ceiling, or whose price is unknown,
+ * before any request; then checks the saved key and that it lists every model. Never the subscription.
+ */
+async function preflightApiKey(access: LabAccess, configs: readonly ApiKeyConfig[], prompt: string, pages: number): Promise<LabApiKeyPreflight | null> {
+  if (configs.length === 0) return null;
+  const bounds = new Map<string, number>();
+  let total = 0;
+  for (const config of configs) {
+    const bound = boundOpenAiCall({ model: config.model, promptBytes: Buffer.byteLength(prompt), pages, maxOutputTokens: labMaxOutputTokens(config.reasoningEffort) });
+    if (bound.status !== "priced") apiKeyConflict(new ApiKeyError("AI_KEY_PRICE_UNKNOWN"));
+    bounds.set(apiKeyConfigKey(config), bound.nanoUsd);
+    total += bound.nanoUsd;
+  }
+  if (total > LAB_API_KEY_CEILING_NANO_USD) {
+    apiKeyConflict(new ApiKeyError("AI_KEY_CEILING", { detail: { ceiling: formatUsdCeiling(LAB_API_KEY_CEILING_NANO_USD), bound: formatUsdCeiling(total) } }));
+  }
+  const keyAccess = openAiApiKeyAccess();
+  const state = await keyAccess.state(access.owner).catch(apiKeyConflict);
+  if (state.status !== "saved") apiKeyConflict(new ApiKeyError(state.status === "unavailable" ? "AI_KEY_KEYCHAIN_UNAVAILABLE" : "AI_KEY_MISSING"));
+  const { models } = await keyAccess.models(access.owner).catch(apiKeyConflict);
+  for (const config of configs) {
+    const model = models.find((entry) => entry.id === config.model);
+    if (!model || (config.reasoningEffort !== null && !model.reasoningEfforts.includes(config.reasoningEffort))) {
+      apiKeyConflict(new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED"));
+    }
+  }
+  return { version: state.connection.version, bounds };
+}
+
+/** Failures refused at OpenAI's door or before it: nothing was billed. */
+const NOT_BILLED = new Set<ApiKeyErrorCode>(["AI_KEY_REFUSED", "AI_KEY_MODEL_FORBIDDEN", "AI_KEY_SPEND_LIMIT", "AI_KEY_RATE_LIMITED",
+  "AI_KEY_REQUEST_REJECTED", "AI_KEY_UNREACHABLE", "AI_KEY_CEILING", "AI_KEY_PRICE_UNKNOWN", "AI_KEY_MISSING", "AI_KEY_CHANGED",
+  "AI_KEY_KEYCHAIN_LOCKED", "AI_KEY_KEYCHAIN_UNAVAILABLE", "AI_KEY_KEYCHAIN_FAILED", "AI_KEY_MODEL_NOT_OFFERED", "AI_KEY_BUSY", "AI_KEY_LOCAL_ONLY"]);
+/** Failures of this configuration only: the next one may run. Every other failure stops the essai. */
+const CONFIGURATION_ONLY = new Set<ApiKeyErrorCode>(["AI_KEY_OUTPUT_LIMIT", "AI_KEY_REQUEST_REJECTED", "AI_KEY_MODEL_FORBIDDEN"]);
+
 /** Refuses a Decisions essai that cannot run; returns the tokens the cap still allows. */
 async function preflightDecisions(paths: LabPaths, request: LabRunRequest, task: LabTask) {
   const capability = getOpenAiDecisionsCapability();
@@ -264,6 +338,7 @@ const STOP_MESSAGES: Record<LabStopReason, string> = {
   model_missing: "Modèle ChatGPT indisponible : essai arrêté.",
   selection_changed: "Le profil ChatGPT a changé pendant l’essai : essai arrêté.",
   decisions_failed: "Decisions a échoué : essai arrêté, sans relance.",
+  api_key_failed: apiKeyErrorMessage("AI_KEY_UNEXPECTED"),
   other: "Erreur du fournisseur : essai arrêté, sans relance.",
 };
 
@@ -286,6 +361,7 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
   const crop = request.crop && (request.crop.box || document.summary.pages > 1) ? request.crop : null;
   const chatgpt = request.configs.filter((config): config is Extract<LabConfigInput, { provider: "chatgpt" }> => config.provider === "chatgpt");
   const decisions = request.configs.some((config) => config.provider === "decisions");
+  const apiKey = request.configs.filter((config): config is ApiKeyConfig => config.provider === "api_key");
   // Decisions sees one rendered page: on a multi-page document the essai names it, for every configuration.
   if (decisions && document.summary.pages > 1 && !crop) {
     throw badRequest("Decisions lit une seule page : cochez « Seulement la page » ou tracez une zone.");
@@ -298,9 +374,10 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
   if (running) throw conflict("Un essai est déjà en cours : attendez sa fin.", undefined, "TAKEOFF_LAB_BUSY");
   running = true;
   try {
+    const apiKeyPreflight = await preflightApiKey(access, apiKey, request.prompt, crop ? 1 : document.summary.pages);
     const chatGptPreflight = await preflightChatGpt(access.owner, chatgpt);
     const decisionsRemaining = decisions ? await preflightDecisions(paths, request, task) : null;
-    return await runEssai(paths, access, request, task, document, crop, chatGptPreflight, decisionsRemaining, clock);
+    return await runEssai(paths, access, request, task, document, crop, chatGptPreflight, decisionsRemaining, apiKeyPreflight, clock);
   } finally {
     running = false;
   }
@@ -308,7 +385,8 @@ export async function executeLabRun(access: LabAccess, request: LabRunRequest, c
 
 async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunRequest, task: LabTask,
   document: Awaited<ReturnType<typeof readLabDocument>>, crop: LabRunRequest["crop"],
-  { overrides, selection }: LabChatGptPreflight, decisionsRemaining: number | null, clock: () => number): Promise<LabRun> {
+  { overrides, selection }: LabChatGptPreflight, decisionsRemaining: number | null, apiKeyPreflight: LabApiKeyPreflight | null,
+  clock: () => number): Promise<LabRun> {
   const now = new Date();
   const runId = newRunId(now);
   const vectors = task.id === LAB_VECTOR_TASK_ID;
@@ -330,6 +408,8 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
     status: "complete", stop: null, configs: [],
   };
 
+  /** What the essai's key configurations may still spend: the ceiling less what each one cost, or its bound when unknown. */
+  let apiKeyRemaining = LAB_API_KEY_CEILING_NANO_USD;
   for (const [index, input] of request.configs.entries()) {
     const id = LAB_CONFIG_IDS[index];
     const base: LabConfigResult = {
@@ -370,6 +450,16 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
         raw: JSON.stringify(result, null, 2), answers, elements: failed ? [] : answerElements(runId, id, answers),
       });
       if (failed) run.stop = { reason: "decisions_failed", message: STOP_MESSAGES.decisions_failed };
+      continue;
+    }
+    if (input.provider === "api_key") {
+      const result = await runApiKeyConfig(access, base, input, apiKeyPreflight!, {
+        runId, configId: id, prompt: request.prompt, pdfBase64, pages: crop ? 1 : document.summary.pages, remaining: apiKeyRemaining, clock,
+        score: (items) => scoreLabExtraction(document.summary.id, truth, items),
+      });
+      run.configs.push(result.config);
+      apiKeyRemaining -= result.config.billing?.cost_nano_usd ?? result.config.billing?.bound_nano_usd ?? 0;
+      if (result.stop) run.stop = { reason: "api_key_failed", message: result.stop };
       continue;
     }
     const override = overrides.get(overrideKey(input.model, input.reasoningEffort))!;
@@ -421,4 +511,41 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
   if (run.stop) run.status = "stopped";
   await writeLabJson(runFile(paths, runId), run);
   return run;
+}
+
+/** One extraction on the member's key: priced, stored in US dollars, never resent, never on the subscription. */
+async function runApiKeyConfig(access: LabAccess, base: LabConfigResult, input: ApiKeyConfig, preflight: LabApiKeyPreflight, essai: {
+  runId: string; configId: string; prompt: string; pdfBase64: string; pages: number; remaining: number; clock: () => number;
+  score: (items: TakeoffExchange["items"]) => LabConfigResult["score"];
+}): Promise<{ config: LabConfigResult; stop: string | null }> {
+  const billing: LabBilling = {
+    source: "personal_api_key", provider: input.apiProvider, place: "local", currency: "USD", price_table: OPENAI_PRICE_TABLE.id, model_used: null,
+    ceiling_nano_usd: LAB_API_KEY_CEILING_NANO_USD, bound_nano_usd: preflight.bounds.get(apiKeyConfigKey(input))!, cost_nano_usd: null, usage: null,
+    request_id: null, connection_version: preflight.version,
+  };
+  const startedAt = essai.clock();
+  try {
+    const answer = await openAiApiKeyAccess().callStructured(access.owner, {
+      expectedVersion: preflight.version, model: input.model, reasoningEffort: input.reasoningEffort, prompt: essai.prompt, schema: TakeoffExchangeSchema,
+      files: [{ data: essai.pdfBase64, mimeType: "application/pdf" }], pages: essai.pages, maxOutputTokens: labMaxOutputTokens(input.reasoningEffort),
+      timeoutMs: TAKEOFF_C_TIMEOUT_MS_DEFAULT, ceilingNanoUsd: essai.remaining,
+    });
+    const result: LabConfigResult = { ...base, latency_ms: Math.round(essai.clock() - startedAt), usage: apiKeyUsageOf(answer.usage), raw: answer.rawText,
+      error_code: null, billing: { ...billing, model_used: answer.model, cost_nano_usd: answer.costNanoUsd, usage: billingUsageOf(answer.usage), request_id: answer.requestId } };
+    if (answer.schemaError) {
+      const issues = answer.refused ? ["Le modèle a refusé de répondre."] : schemaIssues(answer.schemaError);
+      return { config: { ...result, status: "schema_error", message: `Erreur de schéma : ${issues[0]}`, schema_error: { name: answer.schemaError.name, issues },
+        elements: [schemaErrorElement(essai.runId, essai.configId, "item", 0, answer.rawText, issues[0])] }, stop: null };
+    }
+    return { config: { ...result, status: "ok", score: essai.score(answer.data.items), elements: extractionElements(essai.runId, essai.configId, answer.data) }, stop: null };
+  } catch (error) {
+    const failure = isApiKeyError(error) ? error : new ApiKeyError("AI_KEY_UNEXPECTED");
+    const cost = failure.usage ? costOfOpenAiUsage(failure.model ?? input.model, failure.usage) : NOT_BILLED.has(failure.code) ? 0 : null;
+    return {
+      config: { ...base, status: "failed", latency_ms: Math.round(essai.clock() - startedAt), message: failure.message, error_code: failure.code,
+        usage: failure.usage ? apiKeyUsageOf(failure.usage) : null,
+        billing: { ...billing, model_used: failure.model, cost_nano_usd: cost, usage: billingUsageOf(failure.usage), request_id: failure.requestId } },
+      stop: CONFIGURATION_ONLY.has(failure.code) ? null : failure.message,
+    };
+  }
 }

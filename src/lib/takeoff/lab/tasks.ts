@@ -9,7 +9,8 @@ import { OTHER_CLASSES } from "@/lib/takeoff/vectors/vocabulary";
 import { TAKEOFF_PAGE_TYPE_LABELS, TAKEOFF_PAGE_TYPE_QUESTION } from "@/lib/takeoff/page-triage";
 
 // Task registry of the takeoff lab (TI-661). One task per essai. Adding a task
-// is one entry here: an extraction (TakeoffExchangeSchema on ChatGPT) or a
+// is one entry here: an extraction (TakeoffExchangeSchema on ChatGPT or on the
+// member's OpenAI API key, paid by them within the essai's ceiling) or a
 // generic « choice » question with fixed options (2 to 255, unique), answered
 // by Decisions (gpt-6-luna, with a probability per option) or by a ChatGPT
 // model asked for the same choice.
@@ -36,8 +37,8 @@ const extraction: LabTask = {
   kind: "extraction",
   screen: "essai",
   label: "Extraction ChatGPT (niveau C)",
-  description: "Quantités d’un plan PDF lues par ChatGPT avec le prompt et le schéma du métré (niveau C).",
-  providers: ["chatgpt"],
+  description: "Quantités d’un plan PDF lues avec le prompt et le schéma du métré (niveau C), par ChatGPT ou par votre clé API OpenAI.",
+  providers: ["chatgpt", "api_key"],
   defaultPrompt: getTakeoffPrompt("C", { fileType: "application/pdf", schemaVersion: "v1", sourceHint: EXTRACTION_SOURCE_HINT }),
   promptBase: getTakeoffPromptVersion("C"),
   promptMax: EXTRACTION_PROMPT_MAX,
