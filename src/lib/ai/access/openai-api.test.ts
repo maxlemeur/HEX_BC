@@ -429,8 +429,8 @@ describe("a structured call for the lab", () => {
     const generation = openai.sent.at(-1)!.body!;
     expect(generation).toMatchObject({ model: "gpt-6.1-terra", store: false, max_output_tokens: 32_000, reasoning: { effort: "medium" },
       service_tier: "default", prompt_cache_options: { mode: "explicit" }, text: { format: { type: "json_object" } } });
-    // The counted input is the sent input.
-    expect(generation.input).toEqual(count.body!.input);
+    // The counted request is the sent request: model, effort, output format and input.
+    for (const field of ["model", "reasoning", "text", "input"]) expect([field, generation[field]]).toEqual([field, count.body![field]]);
     expect(String((generation.input as Array<{ content: unknown }>)[0].content)).toContain("Schéma JSON : ");
     expect(result).toMatchObject({ model: "gpt-6.1-terra-2026-10-01", schemaError: null, requestId: "req_resp", serviceTier: "default",
       usage: { input: 1_200, cachedInput: 200, output: 300, reasoning: 100, total: 1_500 } });
@@ -438,6 +438,23 @@ describe("a structured call for the lab", () => {
       ["Tuyauterie cuivre DN20", 12.5, "m", 1], ["Vanne isolement DN20", 4, "u", 1]]);
     expect(result.costNanoUsd).toBe(1_000 * 1_000 + 200 * 50 + 300 * 5_000);
     expect(await service.state(OWNER)).toMatchObject({ connection: { lastUsedAt: NOW.toISOString() } });
+  });
+
+  // Review round 2, item C: what was counted is what is sent, once.
+  it("sends what was counted even if the caller changes its files afterwards, and only once", async () => {
+    const openai = fakeOpenAi(usual(JSON.stringify(items)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const files = [{ ...pdf }];
+    const prepared = await service.prepare(OWNER, { expectedVersion: 1, model: "gpt-6.1-terra", reasoningEffort: "medium", prompt: "Extrais.",
+      schema: TakeoffExchangeSchema, files, allotmentNanoUsd: 1_000_000_000, outputCap: 32_000, minOutputTokens: 8_000 });
+    const counted = openai.sent.at(-1)!.body!;
+    files[0].data = Buffer.from("%PDF-1.7 another, larger document").toString("base64");
+    files.push({ ...pdf });
+    await service.execute(OWNER, prepared, { timeoutMs: 60_000 });
+    expect(openai.sent.at(-1)!.body!.input).toEqual(counted.input);
+    expect((await failure(service.execute(OWNER, prepared, { timeoutMs: 60_000 }))).code).toBe("AI_KEY_UNEXPECTED");
+    expect(openai.sent.filter((request) => request.url.endsWith("/v1/responses"))).toHaveLength(1);
   });
 
   it("lowers the output budget to what the allotment leaves, and refuses below a useful answer", async () => {

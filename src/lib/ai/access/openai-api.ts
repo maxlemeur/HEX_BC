@@ -295,7 +295,7 @@ type GenerationRequest = {
   model: string; reasoningEffort: AiReasoningEffort | null; prompt: string; schema: z.ZodType; schemaName: string; files: ApiKeyStructuredFile[];
 };
 
-/** What the model reads: the developer rule (and schema), then the prompt and the documents. Counted, then sent, unchanged. */
+/** What the model reads: the developer rule (and schema), then the prompt and the documents. */
 function requestInput(request: GenerationRequest) {
   const strict = strictOpenAiSchema(request.schema);
   const content: Record<string, unknown>[] = [{ type: "input_text", text: request.prompt }];
@@ -314,9 +314,19 @@ function requestInput(request: GenerationRequest) {
   };
 }
 
-function generationBody(request: GenerationRequest, maxOutputTokens: number) {
+/**
+ * The request as one string, built once: the count and the generation send this very text, so a caller changing
+ * its files or prompt afterwards changes neither.
+ */
+type SerializedRequest = { model: string; text: string };
+
+function serializeRequest(request: GenerationRequest): SerializedRequest {
+  return { model: request.model, text: JSON.stringify(requestInput(request)) };
+}
+
+function generationBody(request: SerializedRequest, maxOutputTokens: number) {
   return JSON.stringify({
-    ...requestInput(request), store: false, max_output_tokens: maxOutputTokens,
+    ...JSON.parse(request.text) as Record<string, unknown>, store: false, max_output_tokens: maxOutputTokens,
     service_tier: OPENAI_PRICE_TABLE.serviceTier,
     // Explicit caching without breakpoints: no cache write. A write would still fit the bound (priced at its rate).
     prompt_cache_options: { mode: "explicit" },
@@ -324,9 +334,9 @@ function generationBody(request: GenerationRequest, maxOutputTokens: number) {
 }
 
 /** OpenAI's count of the exact input the call will send. No count, no generation. */
-async function countWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, request: GenerationRequest): Promise<number> {
+async function countWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, request: SerializedRequest): Promise<number> {
   const reply = await send(deps, secret, "/v1/responses/input_tokens", {
-    body: JSON.stringify(requestInput(request)), timeoutMs: COUNT_TIMEOUT_MS, lostCode: "AI_KEY_COUNT_UNAVAILABLE" });
+    body: request.text, timeoutMs: COUNT_TIMEOUT_MS, lostCode: "AI_KEY_COUNT_UNAVAILABLE" });
   if (reply.status !== 200) {
     const failure = failureOf(reply, deps.now());
     throw ["AI_KEY_PROVIDER_FAILED", "AI_KEY_REQUEST_REJECTED"].includes(failure.code)
@@ -350,7 +360,7 @@ function usageOf(usage: NonNullable<z.infer<typeof responsesReply>["usage"]>): A
 }
 
 /** One generation, never resent. A reply with usage but no answer throws with that usage: it was billed. */
-async function generateWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, request: GenerationRequest, maxOutputTokens: number, timeoutMs: number) {
+async function generateWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, request: SerializedRequest, maxOutputTokens: number, timeoutMs: number) {
   const reply = await send(deps, secret, "/v1/responses", { body: generationBody(request, maxOutputTokens), timeoutMs, lostCode: "AI_KEY_RESPONSE_LOST" });
   if (reply.status !== 200) throw failureOf(reply, deps.now());
   const parsed = responsesReply.safeParse(reply.body);
@@ -402,7 +412,7 @@ const MODEL_TEST_PROMPT = "Test de connexion de MergeOne, sans document : répon
 if (Buffer.byteLength(MODEL_TEST_PROMPT) > MODEL_TEST_PROMPT_BYTES_MAX) throw new Error("The model test question exceeds its announced bound.");
 
 /** The requests of prepared calls, kept here: a prepared call carries its bound, never its request. */
-const preparedRequests = new WeakMap<PreparedApiKeyCall, { owner: string; request: GenerationRequest; schema: z.ZodType }>();
+const preparedRequests = new WeakMap<PreparedApiKeyCall, { owner: string; request: SerializedRequest; schema: z.ZodType }>();
 const ownerScope = (owner: AiAccessOwner) => JSON.stringify([owner.userId, owner.tenantId]);
 
 export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = {}) {
@@ -483,8 +493,8 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     if (bound.nanoUsd > MODEL_TEST_CEILING_NANO_USD) {
       throw new ApiKeyError("AI_KEY_CEILING", { detail: { ceiling: formatUsdCeiling(MODEL_TEST_CEILING_NANO_USD), bound: formatUsdCeiling(bound.nanoUsd) } });
     }
-    const answer = await generateWith(deps, secret, { model, reasoningEffort: lowestEffort(model), prompt: MODEL_TEST_PROMPT, schema: MODEL_TEST_SCHEMA,
-      schemaName: "mergeone_model_test", files: [] }, MODEL_TEST_MAX_OUTPUT_TOKENS, 60_000);
+    const answer = await generateWith(deps, secret, serializeRequest({ model, reasoningEffort: lowestEffort(model), prompt: MODEL_TEST_PROMPT,
+      schema: MODEL_TEST_SCHEMA, schemaName: "mergeone_model_test", files: [] }), MODEL_TEST_MAX_OUTPUT_TOKENS, 60_000);
     const costNanoUsd = costOfOpenAiUsage(answer.model, answer.usage, answer.serviceTier);
     let valid = false;
     try {
@@ -599,8 +609,9 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       if (!price) throw new ApiKeyError("AI_KEY_PRICE_UNKNOWN");
       if (input.reasoningEffort !== null && !price.reasoningEfforts.includes(input.reasoningEffort)) throw new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED");
       const { secret, connection } = await resolveKey(owner, input.expectedVersion);
-      const request: GenerationRequest = { model: input.model, reasoningEffort: input.reasoningEffort, prompt: input.prompt, schema: input.schema,
-        schemaName: "mergeone_extraction", files: input.files };
+      // Serialized once: the count and the generation send this exact text.
+      const request = serializeRequest({ model: input.model, reasoningEffort: input.reasoningEffort, prompt: input.prompt, schema: input.schema,
+        schemaName: "mergeone_extraction", files: input.files });
       const inputTokens = await countWith(deps, secret, request);
       const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap: input.outputCap });
       if (maxOutputTokens < input.minOutputTokens) {
@@ -620,7 +631,10 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     execute: <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: { timeoutMs: number }): Promise<ApiKeyStructuredResult<T>> =>
       guarded(async () => {
         const held = preparedRequests.get(prepared);
-        if (!held || held.owner !== ownerScope(owner)) throw new ApiKeyError("AI_KEY_CHANGED");
+        if (!held) throw new ApiKeyError("AI_KEY_UNEXPECTED");
+        if (held.owner !== ownerScope(owner)) throw new ApiKeyError("AI_KEY_CHANGED");
+        // Single use: a prepared call is sent at most once.
+        preparedRequests.delete(prepared);
         const { secret, connection } = await resolveKey(owner, prepared.connectionVersion);
         const startedAt = Date.now();
         let answer: Awaited<ReturnType<typeof generateWith>>;
