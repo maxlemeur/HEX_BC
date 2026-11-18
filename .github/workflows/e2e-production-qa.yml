@@ -1,0 +1,46 @@
+name: TesterArmy production QA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: army-production-qa
+  cancel-in-progress: false
+
+jobs:
+  production-qa:
+    if: github.repository == 'maxlemeur/HEX_BC' && github.ref == 'refs/heads/main' && github.ref_protected && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      E2E_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - run: npm ci
+      - run: npx @e2e-dev/web install chromium
+      - name: Check QA login and estimate access
+        env:
+          E2E_LOGIN_EMAIL: ${{ secrets.E2E_LOGIN_EMAIL }}
+          E2E_LOGIN_PASSWORD: ${{ secrets.E2E_LOGIN_PASSWORD }}
+        shell: bash
+        run: |
+          status=0
+          result="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON e2e/production-qa/run.ts 2>/dev/null)" || status=$?
+          case "$result" in
+            QA_OK|QA_SECRETS|QA_ORIGIN|QA_LOGIN|QA_LOGIN_REJECTED|QA_TENANT|QA_ROLE|QA_MEMBERSHIP|QA_ESTIMATE|QA_RUNNER) ;;
+            *) result=QA_RUNNER; status=1 ;;
+          esac
+          if [[ "$result" != QA_OK || "$status" != 0 ]]; then
+            echo "::error::$result"
+            exit 1
+          fi
+          echo "QA_OK — Dedicated QA admin verified and the new estimate form is usable."
