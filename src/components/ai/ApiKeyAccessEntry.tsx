@@ -154,6 +154,7 @@ export function ApiKeyAccessEntry() {
   return (
     <PageSection variant="plain" headingLevel={3} title={title} actions={<>{badge}{help}</>}>
       <p className="text-sm text-muted-foreground">Utilisée uniquement dans le labo métré. Vos autres analyses restent sur l’abonnement ChatGPT.</p>
+      {state.status === "empty" && state.notice ? <Alert variant="warning" className="mt-4">{state.notice}</Alert> : null}
 
       {saved ? (
         <div className="mt-4 space-y-3">

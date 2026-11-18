@@ -27,6 +27,7 @@ export const API_KEY_ERROR_CODES = [
   "AI_KEY_KEYCHAIN_FAILED",
   "AI_KEY_MODEL_NOT_OFFERED",
   "AI_KEY_CHANGED",
+  "AI_KEY_CHANGED_DURING_SAVE",
   "AI_KEY_PAGE_STALE",
   "AI_KEY_BUSY",
   "AI_KEY_LOCAL_ONLY",
@@ -96,6 +97,8 @@ export function apiKeyErrorMessage(code: ApiKeyErrorCode, detail: ApiKeyErrorDet
       return "Ce modèle n’est pas proposé avec cette clé dans MergeOne. Choisissez un modèle de la liste.";
     case "AI_KEY_CHANGED":
       return "La clé a été remplacée ou retirée pendant la préparation. Relancez l’essai.";
+    case "AI_KEY_CHANGED_DURING_SAVE":
+      return "La clé a été remplacée ou retirée pendant la vérification de la nouvelle : rien n’a été enregistré. Rechargez la page et recommencez.";
     case "AI_KEY_PAGE_STALE":
       return "La clé API a changé depuis l’ouverture de cette page. Rechargez la page pour lancer avec la clé en service.";
     case "AI_KEY_BUSY":

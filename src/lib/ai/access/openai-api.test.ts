@@ -298,6 +298,66 @@ describe("replace and remove", () => {
     expect(await metadata()).toMatchObject({ connections: { openai: { version: 3 } }, pending: [], retired: [] });
   });
 
+  // Review round 2, item F: the removal is committed before the item is deleted; a crash in between leaves no key shown
+  // that no longer exists, only a retired item cleaned at the next Keychain opening.
+  it("commits the removal before deleting the Keychain item, and cleans the item later if its deletion fails", async () => {
+    const openai = fakeOpenAi((_key, pathname) => pathname === "/v1/models" ? listed() : answered(JSON.stringify({ connexion: "ok" })));
+    const { service, keychain } = access(openai.fetch);
+    const key = fictionalKey();
+    await service.save(OWNER, { key });
+    const remove = keychain.store.remove;
+    keychain.store.remove = async () => { throw new SecretStoreError("locked"); };
+    expect(await service.remove(OWNER)).toEqual({ status: "empty", placeLabel: "Sur ce Mac",
+      notice: "Clé retirée de MergeOne : aucun nouvel appel ne l’utilisera. Son élément du Trousseau sera supprimé à la prochaine ouverture du Trousseau." });
+    expect(await metadata()).toMatchObject({ connections: {}, retired: [{ version: 1 }] });
+    expect(keysIn(keychain)).toEqual([[itemName(1), key]]);
+    keychain.store.remove = remove;
+    await service.save(OWNER, { key: fictionalKey() });
+    expect(keysIn(keychain).map(([name]) => name)).toEqual([itemName(2)]);
+    expect(await metadata()).toMatchObject({ retired: [], pending: [] });
+  });
+
+  it("refuses a save whose starting key was replaced or removed while the candidate was being verified", async () => {
+    let releaseList!: () => void;
+    const listing = new Promise<void>((resolve) => { releaseList = resolve; });
+    let hold = false;
+    const openai = fakeOpenAi((_key, pathname) => pathname === "/v1/models"
+      ? (hold ? () => { throw new Error("replaced below"); } : listed()) : answered(JSON.stringify({ connexion: "ok" })));
+    const slowFetch: OpenAiApiKeyDeps["fetch"] = async (input, init) => {
+      if (hold && new URL(input).pathname === "/v1/models") { await listing; return listed(); }
+      return openai.fetch(input, init as RequestInit);
+    };
+    const { service, keychain } = access(slowFetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    hold = true;
+    const saving = service.save(OWNER, { key: fictionalKey() });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await service.remove(OWNER);
+    releaseList();
+    const error = await failure(saving);
+    expect([error.code, error.message]).toEqual(["AI_KEY_CHANGED_DURING_SAVE",
+      "La clé a été remplacée ou retirée pendant la vérification de la nouvelle : rien n’a été enregistré. Rechargez la page et recommencez."]);
+    expect(await service.state(OWNER)).toEqual({ status: "empty", placeLabel: "Sur ce Mac" });
+    expect(keychain.items.size).toBe(0);
+  });
+
+  it("cleans items left by a replacement when the key is next used, not only at the next save", async () => {
+    const openai = fakeOpenAi((_key, pathname) => pathname === "/v1/models" ? listed() : pathname === "/v1/responses/input_tokens" ? counted(1_000)
+      : answered(JSON.stringify({ connexion: "ok" })));
+    const { service, keychain } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    // The old item cannot be deleted during the replacement: it stays, retired.
+    const remove = keychain.store.remove;
+    keychain.store.remove = async () => { throw new SecretStoreError("locked"); };
+    const second = fictionalKey();
+    await service.save(OWNER, { key: second });
+    keychain.store.remove = remove;
+    expect(keysIn(keychain).map(([name]) => name)).toEqual([itemName(1), itemName(2)]);
+    await service.test(OWNER, "gpt-6.1-terra");
+    expect(keysIn(keychain)).toEqual([[itemName(2), second]]);
+    expect(await metadata()).toMatchObject({ retired: [], pending: [] });
+  });
+
   it("recovers a lock left by a process that stopped", async () => {
     const { mkdir, writeFile } = await import("node:fs/promises");
     const { createHash } = await import("node:crypto");
@@ -333,7 +393,7 @@ describe("replace and remove", () => {
     const { service, keychain } = access(openai.fetch);
     await service.save(OWNER, { key: fictionalKey() });
     keychain.state.locked = true;
-    for (const attempt of [() => service.save(OWNER, { key: fictionalKey() }), () => service.test(OWNER, "gpt-6.1-terra"), () => service.remove(OWNER)]) {
+    for (const attempt of [() => service.save(OWNER, { key: fictionalKey() }), () => service.test(OWNER, "gpt-6.1-terra")]) {
       const error = await failure(attempt());
       expect([error.code, error.message]).toEqual(["AI_KEY_KEYCHAIN_LOCKED", "Déverrouillez le Trousseau de ce Mac, puis réessayez."]);
     }

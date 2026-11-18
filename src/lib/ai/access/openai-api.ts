@@ -476,6 +476,14 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     await deps.writeMetadata(deps.directory(), owner, file);
   }
 
+  /** Whenever the Keychain is opened anyway: items left by an interrupted replacement or removal are deleted (best effort). */
+  async function sweep(store: SecretStore, owner: AiAccessOwner) {
+    const directory = deps.directory();
+    const file = await readAiAccessFile(directory, owner).catch(() => null);
+    if (!file || (file.pending.length === 0 && file.retired.length === 0)) return;
+    await withAiAccessLock(directory, owner, async () => recover(store, owner, await readAiAccessFile(directory, owner))).catch(() => undefined);
+  }
+
   /** The resolver: the saved key of this member, for this adapter only. */
   async function resolveKey(owner: AiAccessOwner, expectedVersion?: number) {
     const store = requireStore();
@@ -485,6 +493,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     const secret = await store.read(await itemOf(owner, connection.version));
     if (!secret) throw new ApiKeyError("AI_KEY_MISSING");
     if (secret.suffix !== connection.suffix) throw new ApiKeyError("AI_KEY_CHANGED");
+    await sweep(store, owner);
     return { secret, connection };
   }
 
@@ -528,6 +537,8 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     save: (owner: AiAccessOwner, input: { key: unknown; testModel?: string | null }): Promise<ApiKeySaveResult> => guarded(async () => {
       const candidate = ApiKeySecret.parseOpenAi(input.key);
       const store = requireStore();
+      // The key in service when the save started: if another tab replaces or removes it during the verification, nothing is saved.
+      const startedFrom = (await readAiAccessFile(deps.directory(), owner)).connections.openai?.connection_id ?? null;
       const listed = await listWith(deps, candidate);
       let verification: StoredApiKeyConnection["verification"] = "models_listed";
       let lastTest: StoredApiKeyConnection["last_test"] = null;
@@ -542,6 +553,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       const directory = deps.directory();
       await withAiAccessLock(directory, owner, async () => {
         const file = await readAiAccessFile(directory, owner);
+        if ((file.connections.openai?.connection_id ?? null) !== startedFrom) throw new ApiKeyError("AI_KEY_CHANGED_DURING_SAVE");
         await recover(store, owner, file);
         const version = file.next_version;
         const item = await itemOf(owner, version);
@@ -591,15 +603,29 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     remove: (owner: AiAccessOwner): Promise<ApiKeyAccessState> => guarded(async () => {
       const store = requireStore();
       const directory = deps.directory();
+      let deferred = false;
       await withAiAccessLock(directory, owner, async () => {
         const file = await readAiAccessFile(directory, owner);
         const active = file.connections.openai;
-        if (active) await store.remove(await itemOf(owner, active.version));
+        // The removal is committed first: the key is no longer active, its item marked retired. Then the item is deleted.
+        if (active) file.retired.push({ provider: "openai", version: active.version });
         delete file.connections.openai;
+        await deps.writeMetadata(directory, owner, file);
+        if (!active) return;
+        try {
+          await store.remove(await itemOf(owner, active.version));
+        } catch {
+          // Locked or unreachable: the item stays retired and is deleted at the next Keychain opening.
+          deferred = true;
+          return;
+        }
+        file.retired = file.retired.filter((ref) => ref.version !== active.version);
         await deps.writeMetadata(directory, owner, file);
         await recover(store, owner, file).catch(() => undefined);
       });
-      return state(owner);
+      const after = await state(owner);
+      return deferred && after.status === "empty" ? { ...after, notice: "Clé retirée de MergeOne : aucun nouvel appel ne l’utilisera. "
+        + "Son élément du Trousseau sera supprimé à la prochaine ouverture du Trousseau." } : after;
     }),
 
     /**
