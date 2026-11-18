@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ExternalLinkIcon } from "lucide-react";
 
 import { aiAccessApi, aiAccessErrorMessage, formatAccessDate } from "@/components/ai/ai-access-api";
+import { currentPageUrl, isLoopbackPage } from "@/components/ai/page-address";
 import { PageSection } from "@/components/layout/page-section";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -18,8 +19,11 @@ import { boundModelTest, formatUsd, formatUsdCeiling } from "@/lib/ai/access/ope
 
 // « Clé API » in « Mon profil › Accès IA ». The key is typed in a masked field,
 // sent once to the local server, and the field is emptied: the page then knows
-// only the provider, the masked suffix, the place and the dates. Nothing here
-// shows or copies a saved key. In this lot the key serves the takeoff lab only.
+// only the provider, the masked suffix, the place, the dates and the models the
+// key listed when saved (drawing the page opens neither the Keychain nor a call
+// to OpenAI). Nothing here shows or copies a saved key. The field exists only
+// on the loopback address: from another host the key would cross the network
+// in clear. In this lot the key serves the takeoff lab only.
 
 const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
 const OPENAI_USAGE_URL = "https://platform.openai.com/usage";
@@ -47,6 +51,8 @@ function ModelSelect({ id, models, value, onChange, disabled }: {
 export function ApiKeyAccessEntry() {
   const id = useId();
   const [isLocal, setIsLocal] = useState<boolean | null>(null);
+  /** The page's own address, read once mounted: the field is offered on the loopback address only. */
+  const [loopback, setLoopback] = useState<{ allowed: boolean; profileUrl: string } | null>(null);
   const [state, setState] = useState<ApiKeyAccessState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [candidate, setCandidate] = useState("");
@@ -54,17 +60,10 @@ export function ApiKeyAccessEntry() {
   const [confirmRemove, setConfirmRemove] = useState(false);
   /** A key that may not list models: its explicit model test before saving. */
   const [needsTest, setNeedsTest] = useState<ApiKeyOfferedModel[] | null>(null);
-  const [models, setModels] = useState<ApiKeyOfferedModel[]>([]);
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; revoke?: boolean } | null>(null);
-
-  const loadModels = useCallback(async () => {
-    const result = await aiAccessApi.models();
-    setModels(result.models);
-    setModel((current) => (result.models.some((entry) => entry.id === current) ? current : result.models[0]?.id ?? ""));
-  }, []);
 
   useEffect(() => {
     // A hosted build has no Keychain: no request, the entry says where the key works.
@@ -73,14 +72,14 @@ export function ApiKeyAccessEntry() {
       return;
     }
     setIsLocal(true);
+    const page = currentPageUrl();
+    setLoopback({ allowed: isLoopbackPage(page), profileUrl: `http://127.0.0.1${page.port ? `:${page.port}` : ""}/dashboard/profile` });
     void aiAccessApi.state().then(setState).catch((cause: unknown) => setLoadError(aiAccessErrorMessage(cause)));
   }, []);
 
-  const savedVersion = state?.status === "saved" ? state.connection.version : null;
-  useEffect(() => {
-    if (savedVersion === null) return;
-    void loadModels().catch((cause: unknown) => setError(aiAccessErrorMessage(cause)));
-  }, [loadModels, savedVersion]);
+  // The models the key listed when it was saved: no Keychain read, no call to OpenAI to draw them.
+  const models = state?.status === "saved" ? state.connection.offeredModels : [];
+  const selectedModel = models.some((entry) => entry.id === model) ? model : models[0]?.id ?? "";
 
   async function run(effect: () => Promise<void>) {
     setBusy(true);
@@ -146,7 +145,8 @@ export function ApiKeyAccessEntry() {
   }
 
   const saved = state.status === "saved" ? state.connection : null;
-  const showForm = !saved || replacing;
+  const keyEntryAllowed = loopback?.allowed === true;
+  const showForm = keyEntryAllowed && (!saved || replacing);
   const badge = saved
     ? <Badge variant="success" dot role="status">{saved.verification === "models_listed" ? "Clé reconnue" : "Modèle testé"}</Badge>
     : <Badge variant="neutral" dot role="status">Aucune clé</Badge>;
@@ -169,6 +169,15 @@ export function ApiKeyAccessEntry() {
             </div>
           </dl>
         </div>
+      ) : null}
+
+      {loopback && !keyEntryAllowed ? (
+        <Alert variant="info" className="mt-4">
+          <div className="space-y-1">
+            <p>{apiKeyErrorMessage("AI_KEY_LOOPBACK_ONLY")}</p>
+            <a href={loopback.profileUrl} className={linkClass}>{loopback.profileUrl}</a>
+          </div>
+        </Alert>
       ) : null}
 
       {showForm ? (
@@ -207,15 +216,15 @@ export function ApiKeyAccessEntry() {
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <div className="min-w-0 space-y-1.5">
               <FieldLabel htmlFor={`${id}-model`}>Modèle à tester</FieldLabel>
-              <ModelSelect id={`${id}-model`} models={models} value={model} onChange={setModel} disabled={busy} />
+              <ModelSelect id={`${id}-model`} models={models} value={selectedModel} onChange={setModel} disabled={busy} />
             </div>
-            <Button type="button" variant="outline" disabled={busy || !model} onClick={() => void run(async () => {
-              const result = await aiAccessApi.test(model);
+            <Button type="button" variant="outline" disabled={busy || !selectedModel} onClick={() => void run(async () => {
+              const result = await aiAccessApi.test(selectedModel);
               setState(result.state);
               setMessage({ text: `Modèle testé le ${formatAccessDate(result.at)} : ${result.model} a répondu. Coût estimé : ${formatUsd(result.costNanoUsd)}.` });
             })}>Tester le modèle</Button>
           </div>
-          {model ? <p className="text-xs text-muted-foreground">{testAnnouncement(model)}</p> : null}
+          {selectedModel ? <p className="text-xs text-muted-foreground">{testAnnouncement(selectedModel)}</p> : null}
           {confirmRemove ? (
             <Alert variant="warning">
               <div className="space-y-2">
@@ -224,7 +233,6 @@ export function ApiKeyAccessEntry() {
                   <Button type="button" variant="danger" disabled={busy} onClick={() => void run(async () => {
                     setState(await aiAccessApi.remove());
                     setConfirmRemove(false);
-                    setModels([]);
                     setMessage({ text: "Clé retirée de MergeOne. Révoquez-la aussi dans votre compte OpenAI : un appel déjà envoyé peut encore être facturé.", revoke: true });
                   })}>Retirer la clé</Button>
                   <Button type="button" variant="ghost" disabled={busy} onClick={() => setConfirmRemove(false)}>Annuler</Button>
@@ -233,7 +241,9 @@ export function ApiKeyAccessEntry() {
             </Alert>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" disabled={busy} onClick={() => { setReplacing(true); setMessage(null); setError(null); }}>Remplacer</Button>
+              {keyEntryAllowed ? (
+                <Button type="button" variant="outline" disabled={busy} onClick={() => { setReplacing(true); setMessage(null); setError(null); }}>Remplacer</Button>
+              ) : null}
               <Button type="button" variant="ghost" className="text-danger hover:text-danger" disabled={busy} onClick={() => setConfirmRemove(true)}>Retirer</Button>
             </div>
           )}

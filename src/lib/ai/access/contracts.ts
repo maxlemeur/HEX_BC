@@ -42,6 +42,8 @@ export type ApiKeyConnectionView = {
   savedAt: string;
   lastTest: { at: string; model: string } | null;
   lastUsedAt: string | null;
+  /** Qualified models the key listed when saved (all qualified, unverified, when it may not list): no Keychain read, no call. */
+  offeredModels: ApiKeyOfferedModel[];
 };
 
 export type ApiKeyAccessState =
@@ -57,8 +59,6 @@ export type ApiKeyOfferedModel = {
   defaultReasoningEffort: AiReasoningEffort | null;
   verified: boolean;
 };
-
-export type ApiKeyModelsResult = { models: ApiKeyOfferedModel[]; listing: "listed" | "forbidden" };
 
 /** The answer to « Vérifier et enregistrer »: saved, or a key that may not list models and needs one explicit model test. */
 export type ApiKeySaveResult =

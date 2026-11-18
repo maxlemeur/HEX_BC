@@ -51,35 +51,50 @@ const LABEL = "MergeOne-OpenAI-API-key";
 const LOCKED = new Set([36, 51, 128]);
 const NOT_FOUND = 44;
 
-/** The real process: a minimal environment, standard error discarded, killed at its deadline. */
-const runSecurity: SecurityRun = (args, stdin, timeoutMs) => new Promise((resolve) => {
-  let stdout = "";
-  let settled = false;
-  const finish = (result: SecurityRunResult) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    resolve(result);
-  };
-  const child = spawn(SECURITY, [...args], {
-    // Only what the tool needs to find the member's login Keychain; nothing of the server's own environment.
-    env: { NODE_ENV: process.env.NODE_ENV, HOME: process.env.HOME ?? "", USER: process.env.USER ?? "", LOGNAME: process.env.LOGNAME ?? "",
-      PATH: "/usr/bin:/bin", LANG: "C" },
-    stdio: ["pipe", "pipe", "ignore"],
+/** A SIGKILLed process closes at once; this only bounds a broken platform, never the normal path. */
+const CLOSE_AFTER_KILL_MS = 10_000;
+
+/**
+ * The real process: a minimal environment, standard error discarded. At its deadline it is killed, and the
+ * answer waits for it to close, so a later command never runs beside a write still in flight.
+ */
+export function createSecurityRunner(spawnProcess: typeof spawn = spawn): SecurityRun {
+  return (args, stdin, timeoutMs) => new Promise((resolve) => {
+    let stdout = "";
+    let timedOut = false;
+    let settled = false;
+    let backstop: ReturnType<typeof setTimeout> | undefined;
+    const finish = (result: SecurityRunResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(backstop);
+      resolve(result);
+    };
+    const child = spawnProcess(SECURITY, [...args], {
+      // Only what the tool needs to find the member's login Keychain; nothing of the server's own environment.
+      env: { NODE_ENV: process.env.NODE_ENV, HOME: process.env.HOME ?? "", USER: process.env.USER ?? "", LOGNAME: process.env.LOGNAME ?? "",
+        PATH: "/usr/bin:/bin", LANG: "C" },
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+      backstop = setTimeout(() => finish({ code: null, stdout: "", timedOut: true, spawnFailed: false }), CLOSE_AFTER_KILL_MS);
+    }, timeoutMs);
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      if (stdout.length < MAX_STDOUT) stdout += chunk;
+    });
+    child.on("error", () => finish({ code: null, stdout: "", timedOut, spawnFailed: !timedOut }));
+    child.on("close", (code: number | null) => finish(timedOut ? { code: null, stdout: "", timedOut: true, spawnFailed: false }
+      : { code, stdout, timedOut: false, spawnFailed: false }));
+    child.stdin?.on("error", () => undefined);
+    child.stdin?.end(stdin ?? "");
   });
-  const timer = setTimeout(() => {
-    child.kill("SIGKILL");
-    finish({ code: null, stdout: "", timedOut: true, spawnFailed: false });
-  }, timeoutMs);
-  child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => {
-    if (stdout.length < MAX_STDOUT) stdout += chunk;
-  });
-  child.on("error", () => finish({ code: null, stdout: "", timedOut: false, spawnFailed: true }));
-  child.on("close", (code: number | null) => finish({ code, stdout, timedOut: false, spawnFailed: false }));
-  child.stdin.on("error", () => undefined);
-  child.stdin.end(stdin ?? "");
-});
+}
+
+const runSecurity = createSecurityRunner();
 
 function checkItem(item: SecretItem) {
   if (!ITEM_WORD.test(item.service) || !ITEM_WORD.test(item.account)) throw new SecretStoreError("failed");
@@ -108,8 +123,9 @@ export function createMacosKeychainStore(run: SecurityRun = runSecurity): Secret
     async write(item, secret) {
       checkItem(item);
       const hex = Buffer.from(secret.reveal("keychain-write"), "utf8").toString("hex");
+      // -U: a leftover of an interrupted write of this same version is overwritten; the item in service is another version.
       const result = await run(["-i"], `add-generic-password -U -s ${item.service} -a ${item.account} -l ${LABEL} -X ${hex}\n`, TIMEOUT_MS);
-      if (result.timedOut || result.spawnFailed) throw failureOf(result);
+      if (result.code !== 0) throw failureOf(result);
       const stored = await read(item);
       if (!stored?.equals(secret)) throw new SecretStoreError("failed");
     },
@@ -127,10 +143,12 @@ export function createMacosKeychainStore(run: SecurityRun = runSecurity): Secret
 // journey's preload (e2e/army/local/api-key-provider-fixture.mjs, loaded with
 // NODE_OPTIONS --import into its own development server) puts an in-memory
 // store on this global. It is honoured only when all hold: not a production
-// build, the local integration enabled (development, never CI), E2E_ARMY=1 —
-// and the object exists, which takes code run inside the server process at
-// its start. No setting turns it on, it writes nothing to disk, and it is gone
-// when the process ends.
+// build, the local integration enabled (isLocalChatGptEnabled: any development
+// server, CI included, or an explicit opt-in outside CI), E2E_ARMY=1 — and the
+// object exists, which takes code run inside the server process at its start.
+// No setting alone turns it on, it writes nothing to disk, and it is gone when
+// the process ends. It decodes exactly what this code writes: it proves the
+// wiring, not the behaviour of the real Keychain.
 
 export const E2E_SECRET_STORE = Symbol.for("mergeone.e2e.aiSecretStore");
 

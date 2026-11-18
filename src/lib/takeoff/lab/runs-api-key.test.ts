@@ -13,13 +13,17 @@ import { findLabTask } from "@/lib/takeoff/lab/tasks";
 
 // An extraction of the takeoff lab paid with the member's OpenAI key, ChatGPT
 // disconnected. OpenAI is faked at its HTTP boundary, the Keychain in memory.
-// Failure modes, written before the lab knew the key:
-// - the essai needs the subscription (or calls it) to run on the key;
-// - a refused key falls back to the subscription, or a lost response is resent;
-// - the essai starts although its prudent bound passes 1,00 $ US, or with a
-//   model whose price is unknown;
+// Failure modes, the first round's and the review's:
+// - the essai needs the subscription (or calls it) to run on the key; a
+//   refused key falls back to the subscription; a lost response is resent;
+// - a bound guessed instead of counted, or a fixed output budget: the run
+//   accepts a document whose input alone passes the ceiling; two
+//   configurations each take the whole ceiling;
+// - an answer that costs more than the ceiling shown as a silent « Terminé »,
+//   with the next configurations still sent;
+// - a page drawn before the key was replaced in another tab launches on the new key;
 // - a run stores the amount without its currency, loses the usage of an answer
-//   the schema rejected, or stores the key or provider text.
+//   the schema rejected, stores the key or provider text, or omits the tenant.
 
 const subscription = vi.hoisted(() => ({ calls: 0 }));
 vi.mock("@/lib/ai/chatgpt-local-auth", async (importOriginal) => ({
@@ -48,15 +52,16 @@ vi.mock("@/lib/takeoff/lab/dataset", async (importOriginal) => ({
 type Sent = { path: string; authorization: string | null; body: Record<string, unknown> | null };
 const provider = vi.hoisted(() => ({
   sent: [] as Sent[],
+  counted: 40_000,
   reply: (() => new Response(null, { status: 500 })) as (path: string) => Response | Error,
 }));
-const keychain = vi.hoisted(() => ({ items: new Map<string, unknown>() }));
+const keychain = vi.hoisted(() => ({ items: new Map<string, unknown>(), reads: 0 }));
 let directory: string;
 vi.mock("@/lib/ai/access/openai-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/access/openai-api")>();
   const store: SecretStore = {
     kind: "macos-keychain", placeLabel: "Sur ce Mac",
-    read: async (item: SecretItem) => (keychain.items.get(`${item.service}|${item.account}`) as ApiKeySecret | undefined) ?? null,
+    read: async (item: SecretItem) => { keychain.reads += 1; return (keychain.items.get(`${item.service}|${item.account}`) as ApiKeySecret | undefined) ?? null; },
     write: async (item: SecretItem, secret: ApiKeySecret) => { keychain.items.set(`${item.service}|${item.account}`, secret); },
     remove: async (item: SecretItem) => { keychain.items.delete(`${item.service}|${item.account}`); },
   };
@@ -69,6 +74,7 @@ vi.mock("@/lib/ai/access/openai-api", async (importOriginal) => {
         body: typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null });
       const reply = url.pathname === "/v1/models"
         ? Response.json({ object: "list", data: [{ id: "gpt-6.1-terra" }, { id: "gpt-6.1-sol" }, { id: "gpt-4o-mini" }] })
+        : url.pathname === "/v1/responses/input_tokens" ? Response.json({ object: "response.input_tokens", input_tokens: provider.counted })
         : provider.reply(url.pathname);
       if (reply instanceof Error) throw reply;
       return reply;
@@ -82,10 +88,12 @@ const ITEMS = { items: [
   { designation: "Tuyauterie cuivre DN20", quantity: 12.5, unit: "m", source_page: 1, confidence: 0.99, evidence: "Cotes 5,00 m et 7,50 m" },
   { designation: "Vanne isolement DN20", quantity: 4, unit: "u", source_page: 1, confidence: 0.99, evidence: "Repères V1 à V4" },
 ], warnings: [], confidence: 0.99, metadata: { level: "C", prompt_version: "takeoff-c-v1", file_type: "pdf", schema_version: "v1" } };
-const answer = (text: string) => Response.json({ status: "completed", model: "gpt-6.1-terra-2026-10-01",
+const answer = (text: string, options: { usage?: Record<string, unknown>; model?: string; requestId?: string; tier?: string } = {}) => Response.json({
+  status: "completed", model: options.model ?? "gpt-6.1-terra-2026-10-01", service_tier: options.tier ?? "default",
   output: [{ type: "message", content: [{ type: "output_text", text }] }],
-  usage: { input_tokens: 4_000, input_tokens_details: { cached_tokens: 1_000 }, output_tokens: 900, output_tokens_details: { reasoning_tokens: 600 }, total_tokens: 4_900 },
-}, { headers: { "x-request-id": "req_lab" } });
+  usage: options.usage ?? { input_tokens: 4_000, input_tokens_details: { cached_tokens: 1_000, cache_write_tokens: 0 }, output_tokens: 900,
+    output_tokens_details: { reasoning_tokens: 600 }, total_tokens: 4_900 },
+}, { headers: { "x-request-id": options.requestId ?? "req_lab" } });
 
 let root: string;
 let key: string;
@@ -97,8 +105,10 @@ beforeEach(async () => {
   vi.stubEnv("TAKEOFF_LAB_OUTPUT_DIR", path.join(root, "output"));
   await mkdir(path.join(root, "output"), { recursive: true });
   provider.sent = [];
+  provider.counted = 40_000;
   provider.reply = () => answer(JSON.stringify(ITEMS));
   keychain.items.clear();
+  keychain.reads = 0;
   subscription.calls = 0;
   key = `sk-proj-${randomBytes(30).toString("base64url")}`;
   const { openAiApiKeyAccess } = await import("@/lib/ai/access/openai-api");
@@ -111,13 +121,15 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function essai(configs: LabConfigInput[]) {
+function essai(configs: LabConfigInput[], access = ACCESS) {
   const task = findLabTask("extraction-niveau-c")!;
-  return executeLabRun(ACCESS, { documentId: DOCUMENT.summary.id, campaign: "cle-api", taskId: task.id, crop: null,
+  return executeLabRun(access, { documentId: DOCUMENT.summary.id, campaign: "cle-api", taskId: task.id, crop: null,
     prompt: task.defaultPrompt, configs, image: null });
 }
-const terra = (effort: "medium" | "high" | "max" = "medium"): LabConfigInput =>
-  ({ provider: "api_key", apiProvider: "openai", model: "gpt-6.1-terra", reasoningEffort: effort });
+type Effort = "medium" | "high" | "max";
+const keyed = (model: "gpt-6.1-terra" | "gpt-6.1-sol", effort: Effort = "medium", connectionVersion = 1): LabConfigInput =>
+  ({ provider: "api_key", apiProvider: "openai", model, reasoningEffort: effort, connectionVersion });
+const terra = (effort: Effort = "medium") => keyed("gpt-6.1-terra", effort);
 
 async function storedRunTexts() {
   const runs = path.join(root, "output", "runs");
@@ -134,38 +146,86 @@ async function expectNoSecretStored() {
   }
 }
 
+const generations = () => provider.sent.filter((request) => request.path === "/v1/responses");
+
 describe("lab extraction on the member's API key", () => {
-  it("runs with ChatGPT disconnected and records quantities, source page, model used, usage and cost in US dollars", async () => {
+  it("runs with ChatGPT disconnected and records quantities, source page, model used, usage, tenant and cost in US dollars", async () => {
     const run = await essai([terra()]);
     expect(subscription.calls).toBe(0);
+    // Counted, then generated: no model list (the key's models were recorded when it was saved).
     expect(provider.sent.map((request) => [request.path, request.authorization])).toEqual([
-      ["/v1/models", `Bearer ${key}`], ["/v1/responses", `Bearer ${key}`]]);
-    expect(provider.sent[1].body).toMatchObject({ model: "gpt-6.1-terra", store: false, max_output_tokens: 32_000, reasoning: { effort: "medium" } });
+      ["/v1/responses/input_tokens", `Bearer ${key}`], ["/v1/responses", `Bearer ${key}`]]);
+    expect(provider.sent[1].body).toMatchObject({ model: "gpt-6.1-terra", store: false, max_output_tokens: 32_000, reasoning: { effort: "medium" },
+      service_tier: "default" });
+    expect(run.author).toEqual({ user_id: ACCESS.owner.userId, tenant_id: ACCESS.owner.tenantId, email: null });
     const [config] = run.configs;
-    expect(config).toMatchObject({ provider: "api_key", model: "gpt-6.1-terra", reasoning_effort: "medium", status: "ok", error_code: null,
-      usage: { input: 4_000, output: 300, reasoning: 600, total: 4_900 },
+    expect(config).toMatchObject({ provider: "api_key", api_provider: "openai", model: "gpt-6.1-terra", reasoning_effort: "medium", status: "ok",
+      error_code: null, message: null, usage: { input: 4_000, output: 300, reasoning: 600, total: 4_900 },
       billing: { source: "personal_api_key", provider: "openai", place: "local", currency: "USD", price_table: "openai-standard-2026-11-18",
-        model_used: "gpt-6.1-terra-2026-10-01", ceiling_nano_usd: 1_000_000_000, connection_version: 1, request_id: "req_lab",
-        usage: { input: 4_000, cached_input: 1_000, output: 900, reasoning: 600, total: 4_900 },
+        model_used: "gpt-6.1-terra-2026-10-01", service_tier: "default", ceiling_nano_usd: 1_000_000_000, allotment_nano_usd: 1_000_000_000,
+        input_tokens_counted: 40_000, max_output_tokens: 32_000, bound_nano_usd: 40_000 * 1_250 + 32_000 * 5_000,
+        connection_version: 1, request_id: "req_lab",
+        usage: { input: 4_000, cached_input: 1_000, cache_write: 0, output: 900, reasoning: 600, total: 4_900 },
         cost_nano_usd: 3_000 * 1_000 + 1_000 * 50 + 900 * 5_000 } });
-    expect(config.billing!.bound_nano_usd).toBeGreaterThan(config.billing!.cost_nano_usd!);
     expect(config.elements.map((element) => [element.label, element.detail, element.source_page])).toEqual([
       ["Tuyauterie cuivre DN20", "12.5 m", 1], ["Vanne isolement DN20", "4 u", 1]]);
     await expectNoSecretStored();
   });
 
-  it("refuses the essai before any call when its prudent bound passes 1,00 $ US", async () => {
-    const sol = { provider: "api_key", apiProvider: "openai", model: "gpt-6.1-sol", reasoningEffort: "max" } as const;
-    await expect(essai([sol, terra("max")])).rejects.toMatchObject({ status: 409, code: "AI_KEY_CEILING",
-      message: expect.stringMatching(/^Cette analyse pourrait dépasser votre plafond de 1,00 \$ US \(borne prudente : 1,\d\d \$ US\)/) });
-    expect(provider.sent.filter((request) => request.path === "/v1/responses")).toEqual([]);
+  it("refuses the essai before any generation when the counted input leaves too little of the ceiling", async () => {
+    // 300 000 counted tokens on Sol: the input alone costs 1,50 $.
+    provider.counted = 300_000;
+    await expect(essai([keyed("gpt-6.1-sol", "max")])).rejects.toMatchObject({ status: 409, code: "AI_KEY_CEILING",
+      message: expect.stringMatching(/^Cette analyse pourrait dépasser votre plafond de 1,00 \$ US \(borne prudente : \d+,\d\d \$ US\)/) });
+    expect(generations()).toEqual([]);
     expect(await storedRunTexts()).toEqual([]);
   });
 
+  it("splits the ceiling between key configurations: their bounds together never pass it", async () => {
+    const run = await essai([keyed("gpt-6.1-sol", "max"), terra("max")]);
+    const bounds = run.configs.map((config) => config.billing!.bound_nano_usd ?? Number.POSITIVE_INFINITY);
+    expect(run.configs.map((config) => config.billing!.allotment_nano_usd)).toEqual([500_000_000, 500_000_000]);
+    expect(bounds.reduce((sum, bound) => sum + bound, 0)).toBeLessThanOrEqual(1_000_000_000);
+    // Sol: 0,10 $ of counted input leaves 0,40 $, 40 000 output tokens; Terra keeps its cap of 64 000.
+    expect(generations().map((request) => request.body!.max_output_tokens)).toEqual([40_000, 64_000]);
+  });
+
+  it("says so in plain French and stops when an answer costs more than the ceiling, never a silent « Terminé »", async () => {
+    const costly = { input_tokens: 40_000, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens: 250_000,
+      output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 290_000 };
+    provider.reply = () => answer(JSON.stringify(ITEMS), { usage: costly });
+    const run = await essai([terra(), terra("high")]);
+    expect(run.status).toBe("stopped");
+    expect(run.stop).toEqual({ reason: "api_key_ceiling_exceeded", message: "Dépassement du plafond : cet essai a coûté 1,29 $ US, au-delà de votre "
+      + "plafond de 1,00 $ US. Les configurations suivantes n’ont pas été lancées ; vérifiez votre consommation OpenAI." });
+    expect(run.configs[0]).toMatchObject({ status: "ok", error_code: "AI_KEY_CEILING_EXCEEDED", message: run.stop!.message,
+      billing: { cost_nano_usd: 40_000 * 1_000 + 250_000 * 5_000 } });
+    expect(run.configs[1]).toMatchObject({ status: "not_run" });
+    expect(generations()).toHaveLength(1);
+  });
+
+  it("refuses a page drawn before the key was replaced, before reading the Keychain or calling OpenAI", async () => {
+    const { openAiApiKeyAccess } = await import("@/lib/ai/access/openai-api");
+    await openAiApiKeyAccess().save(ACCESS.owner, { key: `sk-proj-${randomBytes(30).toString("base64url")}` });
+    provider.sent = [];
+    keychain.reads = 0;
+    await expect(essai([terra()])).rejects.toMatchObject({ status: 409, code: "AI_KEY_PAGE_STALE",
+      message: "La clé API a changé depuis l’ouverture de cette page. Rechargez la page pour lancer avec la clé en service." });
+    expect([provider.sent.length, keychain.reads]).toEqual([0, 0]);
+  });
+
+  it("refuses another member's or another tenant's essai on this key: their own record is empty", async () => {
+    for (const owner of [{ userId: "44444444-4444-4444-8444-444444444444", tenantId: ACCESS.owner.tenantId },
+      { userId: ACCESS.owner.userId, tenantId: "55555555-5555-4555-8555-555555555555" }]) {
+      await expect(essai([terra()], { owner, email: null })).rejects.toMatchObject({ code: "AI_KEY_MISSING" });
+    }
+    expect(provider.sent).toEqual([]);
+  });
+
   it("refuses a model whose price this code does not know, even when the key lists it", async () => {
-    await expect(essai([{ provider: "api_key", apiProvider: "openai", model: "gpt-4o-mini", reasoningEffort: null }]))
+    await expect(essai([{ provider: "api_key", apiProvider: "openai", model: "gpt-4o-mini", reasoningEffort: null, connectionVersion: 1 }]))
       .rejects.toMatchObject({ code: "AI_KEY_PRICE_UNKNOWN" });
-    expect(provider.sent.filter((request) => request.path === "/v1/responses")).toEqual([]);
+    expect(provider.sent).toEqual([]);
   });
 
   it("stops on a refused key and never falls back to the subscription", async () => {
@@ -175,7 +235,7 @@ describe("lab extraction on the member's API key", () => {
     expect(run.stop).toEqual({ reason: "api_key_failed", message: "OpenAI a refusé cette clé. Remplacez-la dans Mon profil pour poursuivre." });
     expect(run.configs.map((config) => [config.status, config.error_code ?? null])).toEqual([["failed", "AI_KEY_REFUSED"], ["not_run", null]]);
     expect(run.configs[0].billing).toMatchObject({ cost_nano_usd: 0, usage: null });
-    expect(provider.sent.filter((request) => request.path === "/v1/responses")).toHaveLength(1);
+    expect(generations()).toHaveLength(1);
     expect(subscription.calls).toBe(0);
     await expectNoSecretStored();
   });
@@ -187,6 +247,21 @@ describe("lab extraction on the member's API key", () => {
     expect(config.raw).toBe(JSON.stringify({ items: "aucun" }));
   });
 
+  it("stores no key or credential a provider echoes in its answer, model id or request id", async () => {
+    const echoed = { ...ITEMS, items: [{ ...ITEMS.items[0], designation: `Tuyauterie ${key}` }, ITEMS.items[1]] };
+    provider.reply = () => answer(JSON.stringify(echoed), { model: key, requestId: key });
+    const run = await essai([terra()]);
+    expect(JSON.stringify(run)).not.toContain(key);
+    expect(run.configs[0]).toMatchObject({ billing: { model_used: "gpt-6.1-terra", request_id: null } });
+    await expectNoSecretStored();
+  });
+
+  it("leaves the cost « à confirmer » when OpenAI served another tier than Standard", async () => {
+    provider.reply = () => answer(JSON.stringify(ITEMS), { tier: "priority" });
+    const [config] = (await essai([terra()])).configs;
+    expect(config.billing).toMatchObject({ service_tier: "priority", cost_nano_usd: null });
+  });
+
   it("marks a response lost after sending « à confirmer » and never resends it", async () => {
     provider.reply = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
     const run = await essai([terra(), terra("high")]);
@@ -194,7 +269,7 @@ describe("lab extraction on the member's API key", () => {
       message: "La réponse n’a pas été reçue. Cet appel a pu être facturé : consommation à confirmer. MergeOne ne l’a pas renvoyé.",
       billing: { cost_nano_usd: null, usage: null } });
     expect(run.stop?.reason).toBe("api_key_failed");
-    expect(provider.sent.filter((request) => request.path === "/v1/responses")).toHaveLength(1);
+    expect(generations()).toHaveLength(1);
   });
 
   it("refuses the essai when no key is saved, without asking the subscription", async () => {

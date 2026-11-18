@@ -4,6 +4,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatInteger, formatLatency, formatPercent, formatRatio } from "@/components/takeoff/lab/lab-api";
+import { AI_API_PROVIDER_LABELS } from "@/lib/ai/access/contracts";
 import { formatUsd, formatUsdCeiling, OPENAI_PRICE_TABLE } from "@/lib/ai/access/openai-pricing";
 import { configLabel, type LabAnswer, type LabBilling, type LabConfigResult, type LabConfigStatus, type LabScore } from "@/lib/takeoff/lab/contracts";
 import { cn } from "@/lib/utils";
@@ -66,30 +67,42 @@ export function AnswerBars({ answer }: { answer: LabAnswer }) {
 }
 
 /** What a configuration on the member's key cost, in US dollars, and with which model. */
-function BillingLines({ billing }: { billing: LabBilling }) {
+function BillingLines({ billing, apiProvider }: { billing: LabBilling; apiProvider: string }) {
   const table = billing.price_table === OPENAI_PRICE_TABLE.id ? `barème OpenAI du ${new Date(`${OPENAI_PRICE_TABLE.verifiedOn}T12:00:00Z`).toLocaleDateString("fr-FR")}` : billing.price_table;
+  const usage = billing.usage;
   return (
     <div role="group" aria-label="Dépense de la clé API" className="rounded-md border border-border-subtle bg-surface-subtle p-2 text-xs">
-    <dl className="space-y-1">
-      <div className="flex flex-wrap justify-between gap-2">
-        <dt className="text-muted-foreground">Coût estimé</dt>
-        <dd className="font-mono tabular-nums text-foreground">{formatUsd(billing.cost_nano_usd)}</dd>
-      </div>
-      <div className="flex flex-wrap justify-between gap-2">
-        <dt className="text-muted-foreground">Modèle utilisé</dt>
-        <dd className="break-all font-mono text-foreground">{billing.model_used ?? "—"}</dd>
-      </div>
-      {billing.usage ? (
+      <dl className="space-y-1">
         <div className="flex flex-wrap justify-between gap-2">
-          <dt className="text-muted-foreground">Usage annoncé</dt>
-          <dd className="font-mono tabular-nums text-foreground">
-            {formatInteger(billing.usage.input)} entrée (dont {formatInteger(billing.usage.cached_input)} en cache) · {formatInteger(billing.usage.output)} sortie (dont {formatInteger(billing.usage.reasoning)} raisonnement)
-          </dd>
+          <dt className="text-muted-foreground">Coût estimé</dt>
+          <dd className="font-mono tabular-nums text-foreground">{formatUsd(billing.cost_nano_usd)}</dd>
         </div>
-      ) : null}
-    </dl>
+        <div className="flex flex-wrap justify-between gap-2">
+          <dt className="text-muted-foreground">Modèle utilisé</dt>
+          <dd className="break-all font-mono text-foreground">{billing.model_used ?? "—"}</dd>
+        </div>
+        {usage ? (
+          <div className="flex flex-wrap justify-between gap-2">
+            <dt className="text-muted-foreground">Consommation annoncée</dt>
+            <dd className="font-mono tabular-nums text-foreground">
+              {`${formatInteger(usage.input)} jetons d’entrée (dont ${formatInteger(usage.cached_input)} en cache) · `
+                + `${formatInteger(usage.output)} jetons de sortie (dont ${formatInteger(usage.reasoning)} de raisonnement)`}
+            </dd>
+          </div>
+        ) : null}
+        {billing.service_tier && billing.service_tier !== OPENAI_PRICE_TABLE.serviceTier ? (
+          <div className="flex flex-wrap justify-between gap-2">
+            <dt className="text-muted-foreground">Niveau de service</dt>
+            <dd className="text-warning">{`« ${billing.service_tier} » au lieu de Standard : consommation à confirmer`}</dd>
+          </div>
+        ) : null}
+      </dl>
       <p className="mt-1 text-muted-foreground">
-        Clé API OpenAI · plafond {formatUsdCeiling(billing.ceiling_nano_usd)} · borne prudente {formatUsdCeiling(billing.bound_nano_usd)} · {table}
+        {`Clé API ${apiProvider} · plafond ${formatUsdCeiling(billing.ceiling_nano_usd)}`}
+        {billing.bound_nano_usd !== null ? ` · borne ${formatUsdCeiling(billing.bound_nano_usd)}` : ""}
+        {billing.input_tokens_counted !== null ? ` (entrée comptée : ${formatInteger(billing.input_tokens_counted)} jetons` : ""}
+        {billing.input_tokens_counted !== null && billing.max_output_tokens !== null ? `, sortie limitée à ${formatInteger(billing.max_output_tokens)} jetons)` : ""}
+        {` · ${table}`}
       </p>
     </div>
   );
@@ -138,7 +151,7 @@ export function LabResultColumn({ config }: { config: LabConfigResult }) {
             <dd className="font-mono tabular-nums">{config.elements.length}</dd>
           </div>
         </dl>
-        {config.billing ? <BillingLines billing={config.billing} /> : null}
+        {config.billing ? <BillingLines billing={config.billing} apiProvider={AI_API_PROVIDER_LABELS[config.api_provider ?? "openai"]} /> : null}
         <p className="text-xs">
           <span className="text-muted-foreground">Score : </span>
           <span className="font-mono tabular-nums text-foreground">{score ?? "sans vérité (ou recadrage)"}</span>

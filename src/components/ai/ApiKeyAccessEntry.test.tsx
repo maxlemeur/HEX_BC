@@ -17,7 +17,7 @@ const MODELS: ApiKeyOfferedModel[] = [
   { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium", verified: true },
 ];
 const saved = (suffix: string, version = 1): ApiKeyAccessState => ({ status: "saved", connection: { provider: "openai", place: "local", placeLabel: "Sur ce Mac",
-  suffix, verification: "models_listed", version, savedAt: "2026-11-18T13:00:00.000Z", lastTest: null, lastUsedAt: null } });
+  suffix, verification: "models_listed", version, savedAt: "2026-11-18T13:00:00.000Z", lastTest: null, lastUsedAt: null, offeredModels: MODELS } });
 
 type Route = { method: string; path: string; body: Record<string, unknown> | null };
 let state: ApiKeyAccessState;
@@ -40,7 +40,6 @@ beforeEach(() => {
     // As the routes: a body is JSON and says so.
     if (route.body && new Headers(init?.headers).get("content-type") !== "application/json") return reply({ code: "AI_KEY_BODY", message: "Corps JSON requis." }, 400);
     if (route.path === "/api/ai-access/api-key" && route.method === "GET") return reply(state);
-    if (route.path === "/api/ai-access/api-key/models") return reply({ models: MODELS, listing: "listed" });
     if (route.path === "/api/ai-access/api-key" && route.method === "PUT") {
       const key = String(route.body?.key);
       if (refuse.has(key)) return reply({ code: "AI_KEY_REFUSED", message: "OpenAI a refusé cette clé. Remplacez-la dans Mon profil pour poursuivre." }, 409);
@@ -56,8 +55,18 @@ beforeEach(() => {
   }));
 });
 
+const page = vi.hoisted(() => ({ url: "http://127.0.0.1:3000/dashboard/profile" }));
+vi.mock("@/components/ai/page-address", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/ai/page-address")>();
+  return { ...actual, currentPageUrl: () => new URL(page.url), isLoopbackPage: (url?: URL) => actual.isLoopbackPage(url ?? new URL(page.url)) };
+});
+beforeEach(() => {
+  page.url = "http://127.0.0.1:3000/dashboard/profile";
+});
+
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -96,7 +105,8 @@ describe("ApiKeyAccessEntry", () => {
     expect(screen.queryByText(/refusé/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Tester le modèle et enregistrer" }));
     expect(await screen.findByText(/Clé enregistrée : le modèle a répondu. Coût estimé du test : moins de 0,01 \$ US./)).toBeTruthy();
-    expect(requests.at(-2)?.body).toMatchObject({ testModel: "gpt-6.1-terra" });
+    expect(requests.filter((request) => request.method === "PUT").at(-1)?.body).toMatchObject({ testModel: "gpt-6.1-terra" });
+    expect(requests.some((request) => request.path.endsWith("/models"))).toBe(false);
   });
 
   it("keeps the key in service on screen when a replacement is refused", async () => {
@@ -120,6 +130,28 @@ describe("ApiKeyAccessEntry", () => {
     expect(await screen.findByText(/Clé retirée de MergeOne. Révoquez-la aussi dans votre compte OpenAI/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Révoquer la clé chez OpenAI" }).getAttribute("href")).toBe("https://platform.openai.com/api-keys");
     await waitFor(() => expect(screen.getByLabelText("Clé API OpenAI")).toBeTruthy());
+  });
+
+  it("draws the saved key and its models without asking for the model list", async () => {
+    state = saved("7K2F");
+    render(<ApiKeyAccessEntry />);
+    expect(await screen.findByRole("option", { name: "GPT-6.1 Terra" })).toBeTruthy();
+    expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual(["GET /api/ai-access/api-key"]);
+  });
+
+  it("offers the field on the loopback address only: elsewhere the key would travel in clear", async () => {
+    page.url = "http://atelier-mac.local:3000/dashboard/profile";
+    render(<ApiKeyAccessEntry />);
+    expect(await screen.findByText(/ouvrez MergeOne sur ce Mac à l’adresse 127\.0\.0\.1 : la clé ne doit pas circuler en clair sur le réseau/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "http://127.0.0.1:3000/dashboard/profile" }).getAttribute("href")).toBe("http://127.0.0.1:3000/dashboard/profile");
+    expect(screen.queryByLabelText("Clé API OpenAI")).toBeNull();
+    // A saved key stays visible, testable and removable from there: none of these sends the key.
+    cleanup();
+    state = saved("7K2F");
+    render(<ApiKeyAccessEntry />);
+    expect(await screen.findByText("OpenAI · •••• 7K2F · Sur ce Mac")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remplacer" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Retirer" })).toBeTruthy();
   });
 
   it("offers no field in a hosted build: the key lives in the Mac's Keychain only", async () => {

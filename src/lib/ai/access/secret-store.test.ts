@@ -3,8 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiKeyError } from "@/lib/ai/access/api-key-errors";
 import { ApiKeySecret } from "@/lib/ai/access/api-key-secret";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+
 import {
-  createMacosKeychainStore, E2E_SECRET_STORE, resolveSecretStore, SecretStoreError, type SecurityRun, type SecurityRunResult,
+  createMacosKeychainStore, createSecurityRunner, E2E_SECRET_STORE, resolveSecretStore, SecretStoreError, type SecurityRun, type SecurityRunResult,
 } from "@/lib/ai/access/secret-store";
 
 // The macOS Keychain through /usr/bin/security, with the process injected: no
@@ -89,6 +92,15 @@ describe("macOS Keychain store", () => {
     for (const call of security.calls) expect(call.args.join(" ")).not.toContain(KEY);
   });
 
+  it("refuses a write whose interactive command exits non-zero, even if an item can be read back", async () => {
+    const security = keychainBackedSecurity();
+    const run: SecurityRun = async (args, stdin, timeoutMs) => {
+      const result = await security.run(args, stdin, timeoutMs);
+      return args[0] === "-i" ? { ...result, code: 1 } : result;
+    };
+    await expect(createMacosKeychainStore(run).write(ITEM, ApiKeySecret.parseOpenAi(KEY))).rejects.toMatchObject({ reason: "failed" });
+  });
+
   it("reports a write the Keychain did not keep as a failure, not a success", async () => {
     const store = createMacosKeychainStore(keychainBackedSecurity({ writeIgnored: true }).run);
     await expect(store.write(ITEM, ApiKeySecret.parseOpenAi(KEY))).rejects.toMatchObject({ reason: "failed" });
@@ -120,6 +132,47 @@ describe("macOS Keychain store", () => {
     const store = createMacosKeychainStore(security.run);
     await expect(store.write({ ...ITEM, account: "a -A" }, ApiKeySecret.parseOpenAi(KEY))).rejects.toMatchObject({ reason: "failed" });
     expect(security.calls).toEqual([]);
+  });
+});
+
+describe("security process", () => {
+  /** A child process that ignores SIGKILL until told to close, as a process stuck in a Keychain call would for a moment. */
+  function stuckChild() {
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), killed: [] as string[],
+      kill(signal: string) { this.killed.push(signal); return true; } });
+    return child;
+  }
+
+  it("waits for the killed process to close before answering a timeout", async () => {
+    const child = stuckChild();
+    const run = createSecurityRunner(() => child as never);
+    let settled = false;
+    const result = run(["find-generic-password"], null, 10).then((value) => { settled = true; return value; });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(child.killed).toEqual(["SIGKILL"]);
+    expect(settled).toBe(false);
+    child.emit("close", null);
+    await expect(result).resolves.toMatchObject({ timedOut: true, code: null });
+  });
+
+  it("passes the command on standard input, never in the arguments or the environment", async () => {
+    let seen: { args: readonly string[]; env: Record<string, string | undefined>; stdin: string } | null = null;
+    const run = createSecurityRunner(((_command: string, args: readonly string[], options: { env: Record<string, string | undefined> }) => {
+      const child = stuckChild();
+      let stdin = "";
+      child.stdin.on("data", (chunk) => { stdin += String(chunk); });
+      child.stdin.on("finish", () => {
+        seen = { args, env: options.env, stdin };
+        child.emit("close", 0);
+      });
+      return child as never;
+    }) as never);
+    const hex = Buffer.from(KEY).toString("hex");
+    await run(["-i"], `add-generic-password -X ${hex}\n`, 1_000);
+    expect(seen!.args).toEqual(["-i"]);
+    expect(seen!.stdin).toContain(hex);
+    expect(JSON.stringify(seen!.env)).not.toContain(hex);
+    expect(Object.keys(seen!.env).sort()).toEqual(["HOME", "LANG", "LOGNAME", "NODE_ENV", "PATH", "USER"]);
   });
 });
 

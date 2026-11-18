@@ -15,11 +15,16 @@ import { ApiError, badRequest, forbidden, toErrorResponse } from "@/lib/estimate
 // the server: MergeOne local (assertLocalChatGptHost), the session and its
 // active tenant (the key belongs to that member in that tenant), and for a
 // write the page's own origin, plus a JSON content type where a body is read
-// (a removal has none). The body is read once, never
+// (a removal has none). The key itself is accepted on the loopback address
+// only: a host listed in MERGEONE_DEV_HOSTS is reached over plain HTTP, and the
+// page does not offer the field there either. The body is read once, never
 // logged, and a malformed one is answered with a fixed message (a JSON
 // parser's message quotes the text it failed on).
 
-export async function requireApiKeyOwner(request: Request, options: { write: false } | { write: true; json: boolean }): Promise<AiAccessOwner> {
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+export async function requireApiKeyOwner(request: Request,
+  options: { write: false } | { write: true; json: boolean; keyInBody?: boolean }): Promise<AiAccessOwner> {
   const requestHeaders = await headers();
   let origin: string;
   try {
@@ -27,6 +32,7 @@ export async function requireApiKeyOwner(request: Request, options: { write: fal
   } catch {
     throw new ApiKeyError("AI_KEY_LOCAL_ONLY");
   }
+  if (options.write && options.keyInBody && !LOOPBACK.has(new URL(origin).hostname)) throw new ApiKeyError("AI_KEY_LOOPBACK_ONLY");
   const context = await getAuthenticatedContext();
   if (options.write) {
     if (request.headers.get("origin") !== origin) {
@@ -48,7 +54,7 @@ export async function readJsonBody(request: Request): Promise<unknown> {
 }
 
 const STATUS: Partial<Record<ApiKeyErrorCode, number>> = {
-  AI_KEY_FORMAT: 400, AI_KEY_LOCAL_ONLY: 403, AI_KEY_KEYCHAIN_LOCKED: 423, AI_KEY_RATE_LIMITED: 429, AI_KEY_UNEXPECTED: 500,
+  AI_KEY_FORMAT: 400, AI_KEY_LOCAL_ONLY: 403, AI_KEY_LOOPBACK_ONLY: 403, AI_KEY_KEYCHAIN_LOCKED: 423, AI_KEY_RATE_LIMITED: 429, AI_KEY_UNEXPECTED: 500,
   AI_KEY_RESPONSE_LOST: 502, AI_KEY_UNREACHABLE: 502, AI_KEY_PROVIDER_FAILED: 502, AI_KEY_OUTPUT_LIMIT: 502,
 };
 
@@ -64,7 +70,11 @@ export function apiKeyRouteError(error: unknown) {
     return NextResponse.json({ ok: false, error: { code: error.code, message: error.message,
       ...(error.retryAt ? { retryAt: error.retryAt } : {}) } }, { status: STATUS[error.code] ?? 409, headers: noStore });
   }
-  if (error instanceof ApiError) return toErrorResponse(error);
+  if (error instanceof ApiError) {
+    const response = toErrorResponse(error);
+    response.headers.set("cache-control", "no-store");
+    return response;
+  }
   console.error("[ai-access] unexpected failure", error instanceof Error ? error.name : typeof error);
   const unexpected = new ApiKeyError("AI_KEY_UNEXPECTED");
   return NextResponse.json({ ok: false, error: { code: unexpected.code, message: unexpected.message } }, { status: 500, headers: noStore });

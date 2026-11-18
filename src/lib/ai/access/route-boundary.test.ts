@@ -9,15 +9,20 @@ const host = vi.hoisted(() => ({ value: "127.0.0.1:3000" }));
 vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: host.value }) }));
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: async () => ({ userId: "user-1", tenantId: "tenant-1" }) }));
 
-const { requireApiKeyOwner } = await import("@/lib/ai/access/route-boundary");
+const { apiKeyRouteError, requireApiKeyOwner } = await import("@/lib/ai/access/route-boundary");
+const { badRequest } = await import("@/lib/estimates/errors");
 
 const request = (method: string, headers: Record<string, string>) => new Request("http://127.0.0.1:3000/api/ai-access/api-key", { method, headers });
 
 beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
   vi.stubEnv("NODE_ENV", "development");
   host.value = "127.0.0.1:3000";
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 describe("requireApiKeyOwner", () => {
   it("accepts a removal from the page's origin without a body", async () => {
@@ -33,6 +38,25 @@ describe("requireApiKeyOwner", () => {
       .rejects.toMatchObject({ code: "AI_KEY_BODY" });
     await expect(requireApiKeyOwner(request("PUT", { origin: "http://127.0.0.1:3000", "content-type": "application/json; charset=utf-8" }),
       { write: true, json: true })).resolves.toMatchObject({ userId: "user-1" });
+  });
+
+  it("accepts the key itself only on the loopback address, even from a host MERGEONE_DEV_HOSTS lists", async () => {
+    vi.stubEnv("MERGEONE_DEV_HOSTS", "atelier-mac.local");
+    host.value = "atelier-mac.local:3000";
+    const lan = { origin: "http://atelier-mac.local:3000", "content-type": "application/json" };
+    await expect(requireApiKeyOwner(request("PUT", lan), { write: true, json: true, keyInBody: true })).rejects.toMatchObject({ code: "AI_KEY_LOOPBACK_ONLY" });
+    // A removal or a test carries no key: the listed host keeps them.
+    await expect(requireApiKeyOwner(request("DELETE", { origin: "http://atelier-mac.local:3000" }), { write: true, json: false })).resolves.toMatchObject({ userId: "user-1" });
+    for (const loopback of ["127.0.0.1:3000", "localhost:3000", "[::1]:3000"]) {
+      host.value = loopback;
+      await expect(requireApiKeyOwner(request("PUT", { origin: `http://${loopback}`, "content-type": "application/json" }), { write: true, json: true, keyInBody: true }))
+        .resolves.toMatchObject({ userId: "user-1" });
+    }
+  });
+
+  it("answers every refusal with no-store, the shared API errors included", () => {
+    expect(apiKeyRouteError(badRequest("Corps JSON invalide.", undefined, "AI_KEY_BODY")).headers.get("cache-control")).toBe("no-store");
+    expect(apiKeyRouteError(new Error("unexpected")).headers.get("cache-control")).toBe("no-store");
   });
 
   it("refuses another host before reading the session", async () => {

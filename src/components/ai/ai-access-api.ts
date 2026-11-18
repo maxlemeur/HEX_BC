@@ -1,7 +1,7 @@
 "use client";
 
 import type {
-  ApiKeyAccessState, ApiKeyModelsResult, ApiKeySaveResult, ApiKeyTestResult,
+  ApiKeyAccessState, ApiKeySaveResult, ApiKeyTestResult,
 } from "@/lib/ai/access/contracts";
 
 // The browser side of « Mon profil › Clé API ». The key is sent once, in the
@@ -32,7 +32,6 @@ export const aiAccessApi = {
   save: (key: string, testModel: string | null = null) => request<ApiKeySaveResult>("", {
     method: "PUT", body: JSON.stringify({ provider: "openai", key, testModel }),
   }),
-  models: () => request<ApiKeyModelsResult>("/models"),
   test: (model: string) => request<ApiKeyTestResult>("/test", { method: "POST", body: JSON.stringify({ provider: "openai", model }) }),
   remove: () => request<ApiKeyAccessState>("", { method: "DELETE" }),
 };

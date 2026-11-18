@@ -36,7 +36,7 @@ const extraction: LabTask = {
   id: "extraction-niveau-c",
   kind: "extraction",
   screen: "essai",
-  label: "Extraction ChatGPT (niveau C)",
+  label: "Extraction des quantités (niveau C)",
   description: "Quantités d’un plan PDF lues avec le prompt et le schéma du métré (niveau C), par ChatGPT ou par votre clé API OpenAI.",
   providers: ["chatgpt", "api_key"],
   defaultPrompt: getTakeoffPrompt("C", { fileType: "application/pdf", schemaVersion: "v1", sourceHint: EXTRACTION_SOURCE_HINT }),

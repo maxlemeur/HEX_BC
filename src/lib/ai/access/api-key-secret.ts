@@ -45,6 +45,11 @@ export class ApiKeySecret {
     return this.#value;
   }
 
+  /** The text with every occurrence of this key replaced: provider text that echoes it never leaves the adapter. */
+  maskIn(text: string, mask: string): string {
+    return text.split(this.#value).join(mask);
+  }
+
   equals(other: ApiKeySecret) {
     const left = Buffer.from(this.#value);
     const right = Buffer.from(other.#value);

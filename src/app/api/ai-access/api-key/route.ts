@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 /** « Vérifier et enregistrer » and « Remplacer »: the candidate is checked with OpenAI before it replaces anything. */
 export async function PUT(request: Request) {
   try {
-    const owner = await requireApiKeyOwner(request, { write: true, json: true });
+    const owner = await requireApiKeyOwner(request, { write: true, json: true, keyInBody: true });
     const parsed = ApiKeySaveRequestSchema.safeParse(await readJsonBody(request));
     if (!parsed.success) throw badRequest("Demande invalide.", undefined, "AI_KEY_BODY");
     return apiKeyOk(await openAiApiKeyAccess().save(owner, { key: parsed.data.key, testModel: parsed.data.testModel ?? null }));

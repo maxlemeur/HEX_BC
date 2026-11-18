@@ -1,3 +1,5 @@
+import { redactSecrets } from "@/lib/observability/redaction";
+
 export const ERROR_REPORTER_LOG_PREFIX = "[error-reporter]";
 const ERROR_REPORT_TIMEOUT_MS = 2_000;
 
@@ -35,16 +37,7 @@ export function getErrorReportingDsn(): string | null {
 // A provider error, a stack or a context may quote a key or an Authorization
 // header (personal API keys, « Accès IA »). Every event is redacted before it is
 // logged or delivered: provider-shaped keys and bearer credentials only.
-const REDACTED = "[clé masquée]";
-const SECRET_PATTERNS = [
-  /\b(?:sk|sk-ant)-[A-Za-z0-9_-]{16,}/g,
-  /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{6,}/gi,
-];
-
-export function redactSecrets(text: string): string {
-  return SECRET_PATTERNS.reduce((value, pattern) => value.replace(pattern, (_match, scheme?: string) =>
-    typeof scheme === "string" ? `${scheme} ${REDACTED}` : REDACTED), text);
-}
+export { redactSecrets };
 
 function redactValue(value: unknown, depth = 0): unknown {
   if (typeof value === "string") return redactSecrets(value);
@@ -76,6 +69,17 @@ export function normalizeReportedError(error: unknown): {
     name: "Error",
     message: redactSecrets(String(error)),
   };
+}
+
+/**
+ * What a log line may show of an error: its name, a short code and digest, and its message and stack redacted.
+ * Never the raw object, whose own properties (a request, its headers) the console would print.
+ */
+function sanitizedForLog(error: unknown) {
+  const normalized = normalizeReportedError(error);
+  const code = typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "string"
+    && /^[A-Z0-9_]{1,64}$/.test((error as { code: string }).code) ? (error as { code: string }).code : undefined;
+  return { ...normalized, ...(code ? { code } : {}) };
 }
 
 function buildEvent(input: ReportErrorInput): ReportedErrorEvent {
@@ -237,7 +241,7 @@ export function installProcessErrorHooks(
       console.warn(ERROR_REPORTER_LOG_PREFIX, "client left before its request was answered; the server keeps serving");
       return;
     }
-    console.error(ERROR_REPORTER_LOG_PREFIX, "uncaughtException", error);
+    console.error(ERROR_REPORTER_LOG_PREFIX, "uncaughtException", sanitizedForLog(error));
     const report = reportErrorAndWait({
       error,
       source: "process.uncaughtException",

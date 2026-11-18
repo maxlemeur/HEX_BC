@@ -16,12 +16,10 @@ import { ConfigStatusBadge, LabResultColumn, scoreText } from "@/components/take
 import { LabPdfCanvas } from "@/components/takeoff/lab/LabPdfCanvas";
 import { errorMessage, formatInteger, formatLatency, labApi } from "@/components/takeoff/lab/lab-api";
 import { renderDecisionsImage } from "@/components/takeoff/lab/lab-pdf";
-import { aiAccessApi } from "@/components/ai/ai-access-api";
-import type { ApiKeyOfferedModel } from "@/lib/ai/access/contracts";
-import { boundOpenAiCall, formatUsd, formatUsdCeiling, labMaxOutputTokens } from "@/lib/ai/access/openai-pricing";
+import { formatUsd, formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 import type { ChatGptAvailableModel, ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import {
-  configLabel, defaultCampaignName, LAB_CAMPAIGN_ERROR, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
+  configLabel, defaultCampaignName, EFFORT_LABELS, LAB_CAMPAIGN_ERROR, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
   type LabConfigInput, type LabProvider, type LabRun, type LabRunSummary, type LabTaskDescriptor,
 } from "@/lib/takeoff/lab/contracts";
 import type { NormalizedBox } from "@/lib/takeoff/lab/geometry";
@@ -32,26 +30,7 @@ const RESULTS_MIN = 320;
 
 type DraftConfig = { provider: LabProvider; model: string; reasoningEffort: ChatGptReasoningEffort | null };
 
-const EFFORT_LABELS: Record<ChatGptReasoningEffort, string> = {
-  none: "aucun", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max",
-};
-
 const PROVIDER_LABELS: Record<LabProvider, string> = { chatgpt: "ChatGPT local", decisions: "Decisions", api_key: "Clé API OpenAI" };
-
-const utf8 = new TextEncoder();
-
-/** The prudent bound of the essai's key configurations, as the server computes it before any call (openai-pricing.ts). */
-function apiKeyBound(configs: readonly DraftConfig[], prompt: string, pages: number) {
-  const keyed = configs.filter((config) => config.provider === "api_key");
-  if (keyed.length === 0) return null;
-  let total = 0;
-  for (const config of keyed) {
-    const bound = boundOpenAiCall({ model: config.model, promptBytes: utf8.encode(prompt).length, pages, maxOutputTokens: labMaxOutputTokens(config.reasoningEffort) });
-    if (bound.status !== "priced") return { status: "unknown_price" as const };
-    total += bound.nanoUsd;
-  }
-  return { status: "priced" as const, nanoUsd: total };
-}
 
 function Step({ index, title, aside, children }: Readonly<{ index: number; title: string; aside?: React.ReactNode; children: React.ReactNode }>) {
   return (
@@ -88,8 +67,6 @@ export function LabEssaiScreen() {
   const [promptOpen, setPromptOpen] = useState(false);
   const [models, setModels] = useState<ChatGptAvailableModel[] | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
-  const [apiModels, setApiModels] = useState<ApiKeyOfferedModel[] | null>(null);
-  const [apiModelsError, setApiModelsError] = useState<string | null>(null);
   const [configs, setConfigs] = useState<DraftConfig[]>([]);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -131,20 +108,8 @@ export function LabEssaiScreen() {
   }, [chatgptReady]);
 
   const apiKeyReady = state.api_key.status === "saved";
-  // The key's models are listed (free, no generation) only when a task can use it.
-  const taskUsesApiKey = state.tasks.some((entry) => entry.id === taskId && entry.providers.includes("api_key"));
-  useEffect(() => {
-    if (!apiKeyReady || !taskUsesApiKey || apiModels) return;
-    let active = true;
-    void aiAccessApi.models().then((result) => {
-      if (!active) return;
-      setApiModels(result.models);
-      setConfigs((current) => current.map((config) => (config.provider === "api_key" && !config.model ? { ...config, model: result.models[0]?.id ?? "" } : config)));
-    }).catch((error) => {
-      if (active) setApiModelsError(errorMessage(error));
-    });
-    return () => { active = false; };
-  }, [apiKeyReady, taskUsesApiKey, apiModels]);
+  // The models the key listed when it was saved: the lab neither opens the Keychain nor calls OpenAI before a launch.
+  const apiModels = state.api_key.models;
 
   const defaultConfig = useCallback((descriptor: LabTaskDescriptor | null): DraftConfig => {
     const providers = descriptor?.providers ?? ["chatgpt"];
@@ -189,7 +154,7 @@ export function LabEssaiScreen() {
       const next = { ...config, ...patch };
       if (patch.provider === "chatgpt" && (config.provider !== "chatgpt" || !next.model)) next.model = state.chatgpt.model ?? models?.[0]?.id ?? "";
       // The key's own models: a subscription model is never carried over to the key, nor the reverse.
-      if (patch.provider === "api_key" && config.provider !== "api_key") next.model = apiModels?.[0]?.id ?? "";
+      if (patch.provider === "api_key" && config.provider !== "api_key") next.model = apiModels[0]?.id ?? "";
       if (patch.model !== undefined || patch.provider !== undefined) {
         const listed = next.provider === "api_key" ? apiModels : models;
         const efforts = listed?.find((model) => model.id === next.model)?.reasoningEfforts ?? [];
@@ -210,7 +175,7 @@ export function LabEssaiScreen() {
   const decisionsPage = configs.some((config) => config.provider === "decisions") && (document?.pages ?? 1) > 1;
   const crop = box ? { page, box } : (pageOnly || decisionsPage) && (document?.pages ?? 1) > 1 ? { page, box: null } : null;
   const campaignInvalid = !LAB_NAME_PATTERN.test(campaign);
-  const apiBound = apiKeyBound(configs, prompt, crop ? 1 : document?.pages ?? 1);
+  const keyConfigured = configs.some((config) => config.provider === "api_key");
   const apiCeiling = state.api_key.ceiling_nano_usd;
   const blocked = !state.configured ? state.message ?? "Dataset non configuré."
     : !document ? "Choisissez un document."
@@ -221,10 +186,7 @@ export function LabEssaiScreen() {
     : configs.some((config) => config.provider === "chatgpt") && !chatgptReady ? state.chatgpt.message ?? "ChatGPT n’est pas prêt."
     : configs.some((config) => config.provider === "chatgpt" && !config.model) ? modelsError ?? "Choisissez un modèle ChatGPT."
     : configs.some((config) => config.provider === "api_key") && !apiKeyReady ? state.api_key.message ?? "Ajoutez votre clé API OpenAI dans Mon profil."
-    : configs.some((config) => config.provider === "api_key" && !config.model) ? apiModelsError ?? "Choisissez un modèle pour la clé API."
-    : apiBound?.status === "unknown_price" ? "MergeOne ne connaît pas le tarif de ce modèle : la dépense ne peut pas être plafonnée."
-    : apiBound && apiBound.nanoUsd > apiCeiling
-      ? `Cette analyse pourrait dépasser votre plafond de ${formatUsdCeiling(apiCeiling)} (borne prudente : ${formatUsdCeiling(apiBound.nanoUsd)}). Réduisez la sélection.`
+    : configs.some((config) => config.provider === "api_key" && !config.model) ? "Choisissez un modèle pour la clé API."
     : configs.some((config) => config.provider === "decisions") && !state.decisions.available ? state.decisions.message
     : configs.some((config) => config.provider === "decisions") && !planLoaded ? "Le plan se charge…"
     : null;
@@ -240,7 +202,8 @@ export function LabEssaiScreen() {
       const body = {
         documentId: document.id, campaign, taskId: task.id, crop, prompt, image,
         configs: configs.map((config): LabConfigInput => config.provider === "decisions" ? { provider: "decisions" }
-          : config.provider === "api_key" ? { provider: "api_key", apiProvider: "openai", model: config.model, reasoningEffort: config.reasoningEffort }
+          : config.provider === "api_key" ? { provider: "api_key", apiProvider: state.api_key.provider, model: config.model,
+            reasoningEffort: config.reasoningEffort, connectionVersion: state.api_key.version ?? 0 }
           : { provider: "chatgpt", model: config.model, reasoningEffort: config.reasoningEffort }),
       };
       const result = await labApi.launch(body);
@@ -335,9 +298,8 @@ export function LabEssaiScreen() {
               {modelsError && chatgptReady ? <p className="text-xs text-danger">{modelsError}</p> : null}
               {!chatgptReady && configs.some((config) => config.provider === "chatgpt") ? <p className="text-xs text-warning">{state.chatgpt.message}</p> : null}
               {!apiKeyReady && configs.some((config) => config.provider === "api_key") ? <p className="text-xs text-warning">{state.api_key.message}</p> : null}
-              {apiModelsError && configs.some((config) => config.provider === "api_key") ? <p className="text-xs text-danger">{apiModelsError}</p> : null}
               {configs.map((config, index) => {
-                const options = config.provider === "api_key" ? apiModels ?? [] : modelOptions;
+                const options = config.provider === "api_key" ? apiModels : modelOptions;
                 const efforts = options.find((model) => model.id === config.model)?.reasoningEfforts ?? [];
                 const ready = config.provider === "api_key" ? apiKeyReady : chatgptReady;
                 const id = LAB_CONFIG_IDS[index];
@@ -395,10 +357,10 @@ export function LabEssaiScreen() {
                 Ajouter une configuration
               </Button>
               <p className="text-xs text-muted-foreground">Même document et même prompt pour chaque configuration.</p>
-              {apiBound ? (
+              {keyConfigured ? (
                 <p role="status" aria-label="Plafond de la clé API" className="rounded-md border border-border-subtle bg-surface-subtle p-2 text-xs text-foreground">
-                  Clé API OpenAI · facturé sur votre compte · plafond {formatUsdCeiling(apiCeiling)}
-                  {apiBound.status === "priced" ? ` · borne prudente ${formatUsdCeiling(apiBound.nanoUsd)}` : " · tarif inconnu"}
+                  {`Clé API OpenAI · facturé sur votre compte · plafond ${formatUsdCeiling(apiCeiling)}. `
+                    + "OpenAI compte l’entrée avant l’analyse ; la sortie est limitée à ce qui reste sous le plafond."}
                 </p>
               ) : null}
             </Step>
