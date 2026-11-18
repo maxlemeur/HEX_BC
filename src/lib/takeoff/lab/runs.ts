@@ -423,8 +423,8 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
     status: "complete", stop: null, configs: [],
   };
 
-  /** What the essai's key configurations spent: each one's cost, or its bound when unknown. */
-  let apiKeySpent = 0;
+  /** What OpenAI announced for the essai's key configurations so far: only verified amounts, never a reservation. */
+  let apiKeyAnnounced = 0;
   for (const [index, input] of request.configs.entries()) {
     const id = LAB_CONFIG_IDS[index];
     const base: LabConfigResult = {
@@ -470,13 +470,29 @@ async function runEssai(paths: LabPaths, access: LabAccess, request: LabRunReque
     }
     if (input.provider === "api_key") {
       const prepared = apiKeyPreflight!.prepared.get(apiKeyConfigKey(input))!;
+      const ceiling = formatUsdCeiling(LAB_API_KEY_CEILING_NANO_USD);
+      // Sent only if its whole reservation fits in the ceiling less what OpenAI verifiably announced so far.
+      if (apiKeyAnnounced + prepared.boundNanoUsd > LAB_API_KEY_CEILING_NANO_USD) {
+        const refused = new ApiKeyError("AI_KEY_RESERVATION_EXCEEDS", { detail: { cost: formatUsd(apiKeyAnnounced),
+          bound: formatUsdCeiling(prepared.boundNanoUsd), ceiling } });
+        run.configs.push({ ...base, message: refused.message, error_code: refused.code });
+        run.stop = { reason: "api_key_ceiling_exceeded", message: refused.message };
+        continue;
+      }
       const result = await runApiKeyConfig(access, base, input, prepared, {
         runId, configId: id, clock, score: (items) => scoreLabExtraction(document.summary.id, truth, items),
       });
-      apiKeySpent += result.config.billing?.cost_nano_usd ?? prepared.boundNanoUsd;
-      if (apiKeySpent > LAB_API_KEY_CEILING_NANO_USD) {
+      const cost = result.config.billing?.cost_nano_usd ?? null;
+      if (cost === null && !NOT_BILLED.has((result.config.error_code ?? "") as ApiKeyErrorCode)) {
+        // A reply that may have been billed for an unknown amount: nothing more is sent on a guess.
+        run.configs.push(result.config);
+        run.stop = { reason: "api_key_failed", message: result.stop ?? new ApiKeyError("AI_KEY_COST_UNKNOWN").message };
+        continue;
+      }
+      apiKeyAnnounced += cost ?? 0;
+      if (apiKeyAnnounced > LAB_API_KEY_CEILING_NANO_USD) {
         // Past the ceiling despite the bound: said in plain words, and nothing more is sent.
-        const exceeded = new ApiKeyError("AI_KEY_CEILING_EXCEEDED", { detail: { cost: formatUsd(apiKeySpent), ceiling: formatUsdCeiling(LAB_API_KEY_CEILING_NANO_USD) } });
+        const exceeded = new ApiKeyError("AI_KEY_CEILING_EXCEEDED", { detail: { cost: formatUsd(apiKeyAnnounced), ceiling } });
         run.configs.push({ ...result.config, error_code: exceeded.code, message: exceeded.message });
         run.stop = { reason: "api_key_ceiling_exceeded", message: exceeded.message };
         continue;

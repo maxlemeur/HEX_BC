@@ -53,6 +53,7 @@ type Sent = { path: string; authorization: string | null; body: Record<string, u
 const provider = vi.hoisted(() => ({
   sent: [] as Sent[],
   counted: 40_000,
+  countFails: (() => false) as () => boolean,
   reply: (() => new Response(null, { status: 500 })) as (path: string) => Response | Error,
 }));
 const keychain = vi.hoisted(() => ({ items: new Map<string, unknown>(), reads: 0 }));
@@ -74,7 +75,8 @@ vi.mock("@/lib/ai/access/openai-api", async (importOriginal) => {
         body: typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null });
       const reply = url.pathname === "/v1/models"
         ? Response.json({ object: "list", data: [{ id: "gpt-6.1-terra" }, { id: "gpt-6.1-sol" }, { id: "gpt-4o-mini" }] })
-        : url.pathname === "/v1/responses/input_tokens" ? Response.json({ object: "response.input_tokens", input_tokens: provider.counted })
+        : url.pathname === "/v1/responses/input_tokens" ? (provider.countFails() ? new Response("{}", { status: 500 })
+          : Response.json({ object: "response.input_tokens", input_tokens: provider.counted }))
         : provider.reply(url.pathname);
       if (reply instanceof Error) throw reply;
       return reply;
@@ -106,6 +108,7 @@ beforeEach(async () => {
   await mkdir(path.join(root, "output"), { recursive: true });
   provider.sent = [];
   provider.counted = 40_000;
+  provider.countFails = () => false;
   provider.reply = () => answer(JSON.stringify(ITEMS));
   keychain.items.clear();
   keychain.reads = 0;
@@ -196,12 +199,46 @@ describe("lab extraction on the member's API key", () => {
     provider.reply = () => answer(JSON.stringify(ITEMS), { usage: costly });
     const run = await essai([terra(), terra("high")]);
     expect(run.status).toBe("stopped");
-    expect(run.stop).toEqual({ reason: "api_key_ceiling_exceeded", message: "Dépassement du plafond : cet essai a coûté 1,29 $ US, au-delà de votre "
-      + "plafond de 1,00 $ US. Les configurations suivantes n’ont pas été lancées ; vérifiez votre consommation OpenAI." });
+    // Only what OpenAI announced is presented as spent.
+    expect(run.stop).toEqual({ reason: "api_key_ceiling_exceeded", message: "Dépassement du plafond : OpenAI a annoncé 1,29 $ US pour cet essai, "
+      + "au-delà de votre plafond de 1,00 $ US. Les configurations suivantes n’ont pas été lancées ; vérifiez votre consommation OpenAI." });
     expect(run.configs[0]).toMatchObject({ status: "ok", error_code: "AI_KEY_CEILING_EXCEEDED", message: run.stop!.message,
       billing: { cost_nano_usd: 40_000 * 1_000 + 250_000 * 5_000 } });
     expect(run.configs[1]).toMatchObject({ status: "not_run" });
     expect(generations()).toHaveLength(1);
+  });
+
+  // Review round 2, item A: the next configuration is sent only if its reservation fits what OpenAI verifiably announced.
+  it("does not send the next configuration when the announced spend leaves too little for its reservation", async () => {
+    // A announces 0,70 $ (140 000 output tokens at Terra's 5 $ / M) against a 0,50 $ share.
+    const overShare = { input_tokens: 4_000, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens: 140_000,
+      output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 144_000 };
+    provider.reply = () => answer(JSON.stringify(ITEMS), { usage: overShare });
+    // B (Sol, Maximum) reserves its whole 0,50 $ share: 0,70 $ + 0,50 $ would pass 1,00 $.
+    const run = await essai([terra(), keyed("gpt-6.1-sol", "max")]);
+    expect(generations()).toHaveLength(1);
+    expect(run.status).toBe("stopped");
+    expect(run.stop?.reason).toBe("api_key_ceiling_exceeded");
+    expect(run.stop?.message).toMatch(/^OpenAI a annoncé 0,70 \$ US pour les configurations précédentes ; la suivante réserve jusqu’à \d+,\d\d \$ US, ce qui dépasserait votre plafond de 1,00 \$ US\. Elle n’a pas été lancée\.$/);
+    expect(run.configs.map((config) => config.status)).toEqual(["ok", "not_run"]);
+  });
+
+  it("stops the remaining configurations when a reply's cost is unknown, as « consommation à confirmer »", async () => {
+    provider.reply = () => answer(JSON.stringify(ITEMS), { tier: "priority" });
+    const run = await essai([terra(), terra("high")]);
+    expect(generations()).toHaveLength(1);
+    expect(run.stop).toEqual({ reason: "api_key_failed", message: "Le coût de cet appel n’est pas connu : consommation à confirmer. "
+      + "Les configurations suivantes n’ont pas été lancées." });
+    expect(run.configs.map((config) => config.status)).toEqual(["ok", "not_run"]);
+  });
+
+  it("prepares every configuration before any generation: a count refused for the second sends nothing", async () => {
+    let counts = 0;
+    const failSecondCount = vi.fn(() => (counts += 1) === 2);
+    provider.countFails = failSecondCount;
+    await expect(essai([terra(), keyed("gpt-6.1-sol")])).rejects.toMatchObject({ code: "AI_KEY_COUNT_UNAVAILABLE" });
+    expect(generations()).toEqual([]);
+    expect(failSecondCount).toHaveBeenCalledTimes(2);
   });
 
   it("refuses a page drawn before the key was replaced, before reading the Keychain or calling OpenAI", async () => {

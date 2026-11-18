@@ -11,6 +11,8 @@ export const API_KEY_ERROR_CODES = [
   "AI_KEY_RATE_LIMITED",
   "AI_KEY_CEILING",
   "AI_KEY_CEILING_EXCEEDED",
+  "AI_KEY_RESERVATION_EXCEEDS",
+  "AI_KEY_COST_UNKNOWN",
   "AI_KEY_COUNT_UNAVAILABLE",
   "AI_KEY_PRICE_UNKNOWN",
   "AI_KEY_RESPONSE_LOST",
@@ -61,7 +63,11 @@ export function apiKeyErrorMessage(code: ApiKeyErrorCode, detail: ApiKeyErrorDet
     case "AI_KEY_CEILING":
       return `Cette analyse pourrait dépasser votre plafond de ${detail.ceiling ?? "1,00 $ US"}${detail.bound ? ` (borne prudente : ${detail.bound})` : ""}. Réduisez la sélection ou choisissez un modèle moins coûteux.`;
     case "AI_KEY_CEILING_EXCEEDED":
-      return `Dépassement du plafond : cet essai a coûté ${detail.cost ?? "plus que prévu"}, au-delà de votre plafond de ${detail.ceiling ?? "1,00 $ US"}. Les configurations suivantes n’ont pas été lancées ; vérifiez votre consommation OpenAI.`;
+      return `Dépassement du plafond : OpenAI a annoncé ${detail.cost ?? "plus que prévu"} pour cet essai, au-delà de votre plafond de ${detail.ceiling ?? "1,00 $ US"}. Les configurations suivantes n’ont pas été lancées ; vérifiez votre consommation OpenAI.`;
+    case "AI_KEY_RESERVATION_EXCEEDS":
+      return `OpenAI a annoncé ${detail.cost ?? "un montant"} pour les configurations précédentes ; la suivante réserve jusqu’à ${detail.bound ?? "sa borne"}, ce qui dépasserait votre plafond de ${detail.ceiling ?? "1,00 $ US"}. Elle n’a pas été lancée.`;
+    case "AI_KEY_COST_UNKNOWN":
+      return "Le coût de cet appel n’est pas connu : consommation à confirmer. Les configurations suivantes n’ont pas été lancées.";
     case "AI_KEY_COUNT_UNAVAILABLE":
       return "OpenAI n’a pas pu compter l’entrée avant l’analyse : la dépense ne peut pas être plafonnée, rien n’a été généré. Réessayez plus tard.";
     case "AI_KEY_PRICE_UNKNOWN":
