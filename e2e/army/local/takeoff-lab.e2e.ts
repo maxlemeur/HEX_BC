@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -32,6 +32,7 @@ let artifacts: string;
 let datasetDir: string;
 let outputDir: string;
 let transportLog: string;
+let apiKeyControl: string;
 let workspace: Awaited<ReturnType<typeof prepareChatGptServerWorkspace>> | undefined;
 const diagnostics: string[] = [];
 const DOCUMENT = "army-chatgpt-plan";
@@ -99,6 +100,7 @@ beforeAll(async () => {
   outputDir = path.join(artifacts, "output");
   transportLog = path.join(artifacts, "chatgpt-transport.jsonl");
   const decisionsControl = path.join(artifacts, "decisions-control.json");
+  apiKeyControl = path.join(artifacts, "api-key-control.json");
   const pdf = path.join(datasetDir, LAB_DATASET_LAYOUT.raw(DOCUMENT));
   const truth = path.join(datasetDir, LAB_DATASET_LAYOUT.lineTruth(DOCUMENT));
   await mkdir(path.dirname(pdf), { recursive: true });
@@ -119,6 +121,8 @@ beforeAll(async () => {
   const temporary = `${decisionsControl}.tmp`;
   await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false }));
   await rename(temporary, decisionsControl);
+  // LAB05's fictional key is generated in memory by the test; the fixture only ever gets its SHA-256.
+  await writeFile(apiKeyControl, JSON.stringify({ keySha256: "0".repeat(64), mode: "normal" }));
   // The owner's own ChatGPT profile, with a model and no effort (the lab never writes it).
   const key = createHash("sha256").update(JSON.stringify([owner.userId, owner.tenantId])).digest("hex");
   await mkdir(path.resolve(".private/chatgpt-local"), { recursive: true, mode: 0o700 });
@@ -129,8 +133,10 @@ beforeAll(async () => {
     expiresAt: Date.now() + 3_600_000, scopes: ["chatgpt.tokens.use.direct"] }] }), { mode: 0o600, flag: "wx" });
   server = spawn(process.execPath, ["scripts/dev-chatgpt-local.mjs", "--port", String(port), "--webpack"], {
     cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...workspace.environment,
-      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
-      ARMY_CHATGPT_TRANSPORT_LOG: transportLog, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
+      // The API key fixture wraps the subscription's: it answers only requests that carry a key (LAB05).
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`
+        + ` --import=${pathToFileURL(path.resolve("e2e/army/local/api-key-provider-fixture.mjs")).href}`,
+      ARMY_CHATGPT_TRANSPORT_LOG: transportLog, ARMY_API_KEY_CONTROL: apiKeyControl, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
       MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl,
       TAKEOFF_LAB_DATASET_DIR: datasetDir, TAKEOFF_LAB_OUTPUT_DIR: outputDir, TAKEOFF_LAB_DECISIONS_MAX_TOKENS: "",
       TAKEOFF_LAB_BENCH_REPORTS_DIR: "" },
@@ -149,7 +155,7 @@ beforeAll(async () => {
   const { header } = await sessionCookies(owner.email);
   const warm = await Promise.all([`${LAB}`, `${LAB}/verdicts`, `${LAB}/stats`, "/api/admin/takeoff/lab", "/api/admin/takeoff/lab/models",
     `/api/admin/takeoff/lab/documents/${DOCUMENT}`, "/api/admin/takeoff/lab/runs", "/api/admin/takeoff/lab/stats", "/api/admin/takeoff/lab/bench-reports",
-    `/api/admin/takeoff/lab/campaigns/${MAIN_CAMPAIGN}`, "/dashboard", "/login"]
+    `/api/admin/takeoff/lab/campaigns/${MAIN_CAMPAIGN}`, "/dashboard", "/dashboard/profile", "/api/ai-access/api-key", "/login"]
     // The login page is compiled anonymously: a signed-in session is redirected from it.
     .map((pathname) => fetch(new URL(pathname, origin), { headers: pathname === "/login" ? {} : { cookie: header }, redirect: "manual",
       signal: AbortSignal.timeout(120_000) }).then(async (response) => { await response.arrayBuffer(); return [pathname, response.status] as const; })));
@@ -454,4 +460,144 @@ test("LAB04 page triage records the Decisions type and confidence", {
   });
   expect(run?.configs[0].answers[0].probabilities).toHaveLength(10);
   await app.screenshot("lab04-tri-de-page");
+});
+
+/** Every text file the journey's campaign wrote, and the server's own output, as one string per source. */
+async function campaignTexts(directory: string): Promise<Array<{ file: string; text: string }>> {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  const texts: Array<{ file: string; text: string }> = [];
+  for (const entry of entries) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) texts.push(...await campaignTexts(file));
+    else if (/\.(?:json|jsonl|log|txt|md)$/.test(entry.name)) texts.push({ file, text: await readFile(file, "utf8") });
+  }
+  return texts;
+}
+
+test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction with ChatGPT disconnected, then is removed", {
+  tags: ["critical", "local", "chatgpt", "takeoff-lab"], session: "army", timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  await browser.setViewport({ width: 1440, height: 900 });
+  // A fresh admin of their own tenant: no ChatGPT subscription was ever connected for them.
+  const member = await createLocalChatGptOwner();
+  const memberOwner = { userId: member.userId, tenantId: await tenantOf(member.email) };
+  // A fictional key, generated in memory: the server, its logs, the stored files and the page must never hold it back.
+  const key = `sk-proj-army${randomBytes(30).toString("base64url")}`;
+  const suffix = key.slice(-4);
+  await writeFile(apiKeyControl, JSON.stringify({ keySha256: createHash("sha256").update(key).digest("hex"), mode: "normal" }));
+  const metadata = path.resolve(".private/ai-access", `${createHash("sha256").update(JSON.stringify([memberOwner.userId, memberOwner.tenantId])).digest("hex")}.json`);
+  const transportStart = (await readTransport()).length;
+  try {
+    await signIn({ app, screen, browser }, origin, member.email);
+    await app.open(`${origin}/dashboard/profile`);
+    await waitForHydration(browser);
+    const accessCard = screen.getByRole("region", "Accès IA");
+    await expect(accessCard.getByRole("heading", "Abonnement ChatGPT", { exact: true })).toBeVisible();
+    await expect(accessCard.getByRole("button", "Continue with ChatGPT", { exact: true })).toBeVisible();
+    const keyEntry = accessCard.getByRole("region", "Clé API");
+    await expect(keyEntry.getByText("Utilisée uniquement dans le labo métré. Vos autres analyses restent sur l’abonnement ChatGPT.", { exact: true })).toBeVisible();
+    const field = keyEntry.getByLabel("Clé API OpenAI", { exact: true });
+    await expect(field).toHaveAttribute("type", "password");
+    await field.fill(key);
+    await keyEntry.getByRole("button", "Vérifier et enregistrer", { exact: true }).click();
+    const masked = `OpenAI · •••• ${suffix} · Trousseau de test`;
+    await expect(keyEntry.getByText(masked, { exact: true })).toBeVisible();
+    await expect(keyEntry.getByText("Clé reconnue", { exact: true })).toBeVisible();
+    await expect(keyEntry.getByLabel("Clé API OpenAI", { exact: true })).toHaveCount(0);
+
+    await browser.reload();
+    await waitForHydration(browser);
+    await expect(keyEntry.getByText(masked, { exact: true })).toBeVisible();
+    await expect(keyEntry.getByText("Jamais", { exact: true })).toBeVisible();
+    await expect(keyEntry.getByRole("combobox", "Modèle à tester", { exact: true })).toHaveValue("gpt-6.1-terra");
+    await expect(keyEntry.getByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,02 \$ US, sans aucun document client/)).toBeVisible();
+    await keyEntry.getByRole("button", "Tester le modèle", { exact: true }).click();
+    await expect(keyEntry.getByText(/^Modèle testé le .* : gpt-6\.1-terra a répondu\. Coût estimé : moins de 0,01 \$ US\.$/)).toBeVisible();
+    const state = await apiRequest<{ data: unknown }>(browser, "GET", "/api/ai-access/api-key");
+    expect(state.body.data).toMatchObject({ status: "saved", connection: { provider: "openai", suffix, verification: "models_listed",
+      lastTest: { model: "gpt-6.1-terra" }, lastUsedAt: null } });
+    const profileScreenshot = await app.screenshot("lab05-profile-key-saved-1440");
+
+    // The lab, ChatGPT disconnected: the source is picked explicitly, its ceiling shown before launch.
+    await app.open(`${origin}${LAB}`);
+    await waitForHydration(browser);
+    await expect(screen.getByText("ChatGPT non prêt", { exact: true })).toBeVisible();
+    await expect(screen.getByText(`Clé API OpenAI · •••• ${suffix}`, { exact: true })).toBeVisible();
+    await screen.getByLabel("Document", { exact: true }).selectOption({ value: DOCUMENT });
+    const campaign = "cle-api-e2e";
+    await screen.getByLabel("Campagne", { exact: true }).fill(campaign);
+    const config = screen.getByRole("group", "Configuration A");
+    await config.getByLabel("Fournisseur").selectOption({ value: "api_key" });
+    await expect(config.getByLabel("Modèle")).toHaveValue("gpt-6.1-terra");
+    await config.getByLabel("Effort").selectOption({ value: "medium" });
+    await expect(screen.getByRole("status", "Plafond de la clé API"))
+      .toHaveText(/^Clé API OpenAI · facturé sur votre compte · plafond 1,00 \$ US · borne prudente 0,\d\d \$ US$/);
+    const [launched] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }),
+      screen.getByRole("button", "Lancer · 1 configuration").click()]);
+    expect(launched.status).toBe(201);
+    const column = screen.getByRole("region", "Configuration A · Clé API OpenAI · gpt-6.1-terra · medium");
+    await expect(column).toContainText("Terminé");
+    await expect(column).toContainText("Précision 1,00 · Rappel 1,00 · Quantités 1,00");
+    const items = column.getByRole("list", "Éléments A").getByRole("listitem");
+    await expect(items).toHaveCount(2);
+    await expect(items.nth(0)).toContainText(/Tuyauterie cuivre DN20\s*12\.5 m · p\.1/);
+    await expect(items.nth(1)).toContainText(/Vanne isolement DN20\s*4 u · p\.1/);
+    const spend = column.getByRole("group", "Dépense de la clé API");
+    await expect(spend).toContainText(/Coût estimé\s*moins de 0,01 \$ US/);
+    await expect(spend).toContainText("gpt-6.1-terra-2026-10-01");
+    await expect(spend).toContainText("2 400 entrée (dont 400 en cache) · 300 sortie (dont 120 raisonnement)");
+    const labScreenshot = await app.screenshot("lab05-essai-api-key-1440");
+
+    const run = (await storedRuns()).map((entry) => entry.run).find((entry) => entry.campaign === campaign);
+    expect(run.configs[0]).toMatchObject({ provider: "api_key", model: "gpt-6.1-terra", reasoning_effort: "medium", status: "ok", error_code: null,
+      usage: { input: 2_400, output: 180, reasoning: 120, total: 2_700 },
+      billing: { source: "personal_api_key", provider: "openai", place: "local", currency: "USD", model_used: "gpt-6.1-terra-2026-10-01",
+        cost_nano_usd: 2_000 * 1_000 + 400 * 50 + 300 * 5_000, ceiling_nano_usd: 1_000_000_000,
+        usage: { input: 2_400, cached_input: 400, output: 300, reasoning: 120, total: 2_700 } },
+      score: { precision: 1, recall: 1, matched: 2 } });
+    // The key's requests only, nothing on the subscription: model lists (free; the screens list them when they open), then
+    // exactly two billed calls, the model test without document and the plan.
+    const sent = (await readTransport()).slice(transportStart);
+    expect(sent.filter((entry) => entry.provider !== "api-key-fixture" || !["models", "responses"].includes(String(entry.operation)))).toEqual([]);
+    expect(sent[0]).toMatchObject({ operation: "models" });
+    expect(sent.filter((entry) => entry.operation === "responses").map((entry) => [entry.model, entry.reasoningEffort, entry.inputKind, entry.format,
+      entry.store, entry.maxOutputTokens])).toEqual([
+      ["gpt-6.1-terra", "none", "none", "json_schema", false, 1_024], ["gpt-6.1-terra", "medium", "pdf", "json_object", false, 32_000],
+    ]);
+
+    // Back to the profile: the use is dated; the key is removed, with the reminder to revoke it at OpenAI.
+    await app.open(`${origin}/dashboard/profile`);
+    await waitForHydration(browser);
+    await expect(keyEntry.getByText(masked, { exact: true })).toBeVisible();
+    await expect(keyEntry.getByText("Jamais", { exact: true })).toHaveCount(0);
+    await keyEntry.getByRole("button", "Retirer", { exact: true }).click();
+    await keyEntry.getByRole("button", "Retirer la clé", { exact: true }).click();
+    await expect(keyEntry.getByText(/^Clé retirée de MergeOne\. Révoquez-la aussi dans votre compte OpenAI/)).toBeVisible();
+    await expect(keyEntry.getByRole("link", "Révoquer la clé chez OpenAI", { exact: true })).toHaveAttribute("href", "https://platform.openai.com/api-keys");
+    await browser.reload();
+    await waitForHydration(browser);
+    await expect(keyEntry.getByLabel("Clé API OpenAI", { exact: true })).toBeVisible();
+    await expect(keyEntry.getByText("Aucune clé", { exact: true })).toBeVisible();
+    expect(JSON.parse(await readFile(metadata, "utf8")).connections).toEqual({});
+
+    // The routes keep their own boundary: another host, another origin, no session.
+    const session = await sessionCookies(member.email);
+    for (const host of [`192.168.1.20:${port}`]) {
+      const refused = await rawRequest({ method: "GET", path: "/api/ai-access/api-key", host, cookie: session.header });
+      expect([refused.status, JSON.parse(refused.body).error?.code]).toEqual([403, "AI_KEY_LOCAL_ONLY"]);
+    }
+    const foreign = await rawRequest({ method: "PUT", path: "/api/ai-access/api-key", host: `127.0.0.1:${port}`, cookie: session.header,
+      origin: `http://127.0.0.1:${port + 1}`, body: { provider: "openai", key } });
+    expect([foreign.status, JSON.parse(foreign.body).error?.code]).toEqual([403, "AI_KEY_ORIGIN"]);
+    const anonymous = await rawRequest({ method: "GET", path: "/api/ai-access/api-key", host: `127.0.0.1:${port}` });
+    expect(anonymous.status).toBe(401);
+    await writeFile(path.join(artifacts, "lab05-evidence.json"), JSON.stringify({ runId: run.id, suffix, transport: sent.length,
+      screenshots: { profileScreenshot, labScreenshot } }, null, 2));
+  } finally {
+    // The sentinel: the key is in no stored file, transport entry, evidence or server output, including the refusals above.
+    const leaks = [...await campaignTexts(artifacts), { file: "server output", text: diagnostics.join("") },
+      { file: metadata, text: await readFile(metadata, "utf8").catch(() => "") }].filter((entry) => entry.text.includes(key)).map((entry) => entry.file);
+    await rm(metadata, { force: true });
+    expect(leaks).toEqual([]);
+  }
 });

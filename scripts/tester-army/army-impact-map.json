@@ -1021,14 +1021,16 @@
     },
     {
       "id": "chatgpt-local",
-      "note": "Connexion personnelle locale : profil, consentement OAuth et refus récupérable, sans abonnement réel en CI.",
+      "note": "Connexion personnelle locale : profil (Accès IA : abonnement et clé API), consentement OAuth et refus récupérable, sans abonnement ni clé réels en CI.",
       "paths": [
         "src/lib/ai/**",
         "src/components/ai/**",
         "src/app/dashboard/_actions/chatgpt.ts",
         "src/app/dashboard/profile/**",
         "src/app/auth/chatgpt/**",
+        "src/app/api/ai-access/**",
         "e2e/army/local/chatgpt-provider-fixture.mjs",
+        "e2e/army/local/api-key-provider-fixture.mjs",
         "e2e/army/local/profile-provider-fixture.mjs",
         "scripts/dev-chatgpt-local.mjs",
         "e2e/army/local/chatgpt-server-support.ts",
@@ -1047,9 +1049,10 @@
     },
     {
       "id": "takeoff-lab",
-      "note": "Labo métré (TI-661) : essais, verdicts et stats sur ChatGPT local et Decisions en fixture ; mise en page outil de DashboardShell.",
+      "note": "Labo métré (TI-661) : essais, verdicts et stats sur ChatGPT local, Decisions et la clé API OpenAI en fixture ; mise en page outil de DashboardShell.",
       "paths": [
         "src/lib/takeoff/lab/**",
+        "e2e/army/local/api-key-provider-fixture.mjs",
         "src/components/takeoff/lab/**",
         "src/app/dashboard/admin/takeoff/lab/**",
         "src/app/api/admin/takeoff/lab/**",

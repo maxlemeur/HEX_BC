@@ -357,7 +357,7 @@ export function LabEssaiScreen() {
                             <option key={provider} value={provider}
                               disabled={(provider === "decisions" && !state.decisions.available) || (provider === "api_key" && !apiKeyReady)}>
                               {provider === "decisions" ? `Decisions (${state.decisions.model})`
-                                : provider === "api_key" && state.api_key.suffix ? `${PROVIDER_LABELS.api_key} · •••• ${state.api_key.suffix}` : PROVIDER_LABELS[provider]}
+                                : provider === "api_key" && state.api_key.suffix ? `${PROVIDER_LABELS.api_key} (•••• ${state.api_key.suffix})` : PROVIDER_LABELS[provider]}
                             </option>
                           ))}
                         </NativeSelect>

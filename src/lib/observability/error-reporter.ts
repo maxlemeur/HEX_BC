@@ -32,6 +32,27 @@ export function getErrorReportingDsn(): string | null {
   return value || null;
 }
 
+// A provider error, a stack or a context may quote a key or an Authorization
+// header (personal API keys, « Accès IA »). Every event is redacted before it is
+// logged or delivered: provider-shaped keys and bearer credentials only.
+const REDACTED = "[clé masquée]";
+const SECRET_PATTERNS = [
+  /\b(?:sk|sk-ant)-[A-Za-z0-9_-]{16,}/g,
+  /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{6,}/gi,
+];
+
+export function redactSecrets(text: string): string {
+  return SECRET_PATTERNS.reduce((value, pattern) => value.replace(pattern, (_match, scheme?: string) =>
+    typeof scheme === "string" ? `${scheme} ${REDACTED}` : REDACTED), text);
+}
+
+function redactValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (depth > 8 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((entry) => redactValue(entry, depth + 1));
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactValue(entry, depth + 1)]));
+}
+
 export function normalizeReportedError(error: unknown): {
   name: string;
   message: string;
@@ -45,15 +66,15 @@ export function normalizeReportedError(error: unknown): {
         : undefined;
     return {
       name: error.name || "Error",
-      message: error.message,
-      stack: error.stack,
+      message: redactSecrets(error.message),
+      stack: error.stack === undefined ? undefined : redactSecrets(error.stack),
       digest,
     };
   }
 
   return {
     name: "Error",
-    message: String(error),
+    message: redactSecrets(String(error)),
   };
 }
 
@@ -61,7 +82,7 @@ function buildEvent(input: ReportErrorInput): ReportedErrorEvent {
   return {
     source: input.source,
     ...normalizeReportedError(input.error),
-    context: input.context,
+    context: input.context === undefined ? undefined : redactValue(input.context) as Record<string, unknown>,
     timestamp: new Date().toISOString(),
   };
 }

@@ -69,7 +69,8 @@ export function AnswerBars({ answer }: { answer: LabAnswer }) {
 function BillingLines({ billing }: { billing: LabBilling }) {
   const table = billing.price_table === OPENAI_PRICE_TABLE.id ? `barème OpenAI du ${new Date(`${OPENAI_PRICE_TABLE.verifiedOn}T12:00:00Z`).toLocaleDateString("fr-FR")}` : billing.price_table;
   return (
-    <dl aria-label="Dépense de la clé API" className="space-y-1 rounded-md border border-border-subtle bg-surface-subtle p-2 text-xs">
+    <div role="group" aria-label="Dépense de la clé API" className="rounded-md border border-border-subtle bg-surface-subtle p-2 text-xs">
+    <dl className="space-y-1">
       <div className="flex flex-wrap justify-between gap-2">
         <dt className="text-muted-foreground">Coût estimé</dt>
         <dd className="font-mono tabular-nums text-foreground">{formatUsd(billing.cost_nano_usd)}</dd>
@@ -86,10 +87,11 @@ function BillingLines({ billing }: { billing: LabBilling }) {
           </dd>
         </div>
       ) : null}
-      <p className="text-muted-foreground">
+    </dl>
+      <p className="mt-1 text-muted-foreground">
         Clé API OpenAI · plafond {formatUsdCeiling(billing.ceiling_nano_usd)} · borne prudente {formatUsdCeiling(billing.bound_nano_usd)} · {table}
       </p>
-    </dl>
+    </div>
   );
 }
 
