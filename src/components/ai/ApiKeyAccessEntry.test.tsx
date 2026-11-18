@@ -101,7 +101,9 @@ describe("ApiKeyAccessEntry", () => {
     render(<ApiKeyAccessEntry />);
     await typeKey(KEY);
     fireEvent.click(screen.getByRole("button", { name: "Vérifier et enregistrer" }));
-    expect(await screen.findByText(/ne permet pas de lister les modèles, ce qui ne prouve pas qu’elle est invalide/)).toBeTruthy();
+    // Review round 2, item J: never stated as a fact that the key lacks the permission (a 401 may mean it is invalid).
+    expect(await screen.findByText("OpenAI n’a pas autorisé la liste des modèles avec cette clé : elle est peut-être restreinte, ou invalide. "
+      + "Le test annoncé ci-dessous le dira.")).toBeTruthy();
     expect(screen.queryByText(/refusé/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Tester le modèle et enregistrer" }));
     expect(await screen.findByText(/Clé enregistrée : le modèle a répondu. Coût estimé du test : moins de 0,01 \$ US./)).toBeTruthy();

@@ -196,7 +196,7 @@ export function ApiKeyAccessEntry() {
           {needsTest ? (
             <div className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle p-3">
               <p className="text-sm text-foreground">
-                Cette clé ne permet pas de lister les modèles, ce qui ne prouve pas qu’elle est invalide. Testez un modèle pour l’enregistrer.
+                OpenAI n’a pas autorisé la liste des modèles avec cette clé : elle est peut-être restreinte, ou invalide. Le test annoncé ci-dessous le dira.
               </p>
               <FieldLabel htmlFor={`${id}-candidate-model`}>Modèle à tester</FieldLabel>
               <ModelSelect id={`${id}-candidate-model`} models={needsTest} value={model} onChange={setModel} disabled={busy} />

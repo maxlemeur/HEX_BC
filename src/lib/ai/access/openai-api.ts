@@ -54,7 +54,7 @@ const PROVIDER_CODE = /^[a-z0-9_.-]{1,64}$/;
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 const SPEND_CODES = new Set(["insufficient_quota", "credit_balance_exhausted", "organization_spend_limit_exceeded",
-  "project_spend_limit_exceeded", "billing_hard_limit_reached", "billing_not_active"]);
+  "project_spend_limit_exceeded", "organization_usage_limit_exceeded", "billing_hard_limit_reached", "billing_not_active"]);
 /** Codes that say the key itself is refused (an IP allowlist refuses the key from this Mac as well). */
 const INVALID_KEY_CODES = new Set(["invalid_api_key", "ip_not_authorized"]);
 /** Codes and words that say the key lacks a permission, not that it is invalid. */
@@ -227,7 +227,8 @@ function errorFields(body: unknown) {
 function authRefusal(reply: Reply): "invalid" | "permission" | "unknown" | null {
   if (reply.status !== 401 && reply.status !== 403) return null;
   const { type, code, permissionWords } = errorFields(reply.body);
-  if ((code !== null && INVALID_KEY_CODES.has(code)) || type === "invalid_api_key") return "invalid";
+  // OpenAI puts these in error.code or error.type: both are read.
+  if ([code, type].some((value) => value !== null && (INVALID_KEY_CODES.has(value) || value === "invalid_api_key"))) return "invalid";
   if ((code !== null && PERMISSION_CODES.has(code)) || (type !== null && PERMISSION_CODES.has(type)) || permissionWords) return "permission";
   return reply.status === 403 ? "permission" : "unknown";
 }
@@ -248,7 +249,7 @@ function failureOf(reply: Reply, now: Date): ApiKeyError {
   if (refusal) return new ApiKeyError("AI_KEY_REFUSED", base);
   if (reply.status === 404) return new ApiKeyError("AI_KEY_MODEL_FORBIDDEN", base);
   if (reply.status === 429) {
-    if (type === "insufficient_quota" || (code !== null && SPEND_CODES.has(code))) return new ApiKeyError("AI_KEY_SPEND_LIMIT", base);
+    if ([code, type].some((value) => value !== null && SPEND_CODES.has(value))) return new ApiKeyError("AI_KEY_SPEND_LIMIT", base);
     return new ApiKeyError("AI_KEY_RATE_LIMITED", { ...base, retryAt: retryAtOf(reply.retryAfter, now) });
   }
   if ([400, 409, 413, 422].includes(reply.status)) return new ApiKeyError("AI_KEY_REQUEST_REJECTED", base);

@@ -157,7 +157,9 @@ describe("add and verify a key", () => {
   });
 
   it("refuses a key OpenAI refuses definitively, and keeps nothing", async () => {
-    for (const refusal of [providerError(401, { code: "invalid_api_key" }), providerError(401, { type: "invalid_request_error", code: "ip_not_authorized" })]) {
+    // Review round 2, item J: OpenAI's published example puts ip_not_authorized in error.type.
+    for (const refusal of [providerError(401, { code: "invalid_api_key" }), providerError(401, { type: "invalid_request_error", code: "ip_not_authorized" }),
+      providerError(401, { type: "ip_not_authorized", code: null })]) {
       const { service, keychain } = access(fakeOpenAi(() => refusal.clone()).fetch);
       const error = await failure(service.save(OWNER, { key: fictionalKey() }));
       expect([error.code, error.message]).toEqual(["AI_KEY_REFUSED", "OpenAI a refusé cette clé. Remplacez-la dans Mon profil pour poursuivre."]);
@@ -448,6 +450,8 @@ describe("failures of a paid call", () => {
     ["429 credit", providerError(429, { type: "insufficient_quota", code: "credit_balance_exhausted" }), "AI_KEY_SPEND_LIMIT",
       "Votre compte API a atteint sa limite de dépense. Les résultats déjà obtenus sont conservés."],
     ["429 project cap", providerError(429, { type: "invalid_request_error", code: "project_spend_limit_exceeded" }), "AI_KEY_SPEND_LIMIT",
+      "Votre compte API a atteint sa limite de dépense. Les résultats déjà obtenus sont conservés."],
+    ["429 organization usage limit", providerError(429, { type: "requests", code: "organization_usage_limit_exceeded" }), "AI_KEY_SPEND_LIMIT",
       "Votre compte API a atteint sa limite de dépense. Les résultats déjà obtenus sont conservés."],
     ["429 with delay", providerError(429, { code: "rate_limit_exceeded" }, { "retry-after": "1920" }), "AI_KEY_RATE_LIMITED",
       "OpenAI reçoit trop de demandes. Vous pourrez reprendre à 14 h 32."],
