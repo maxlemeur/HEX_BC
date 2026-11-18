@@ -19,6 +19,16 @@ const errorGuardOf = (details: unknown) => {
   return typeof guard === "string" ? guard : null;
 };
 
+export const TAKEOFF_APPLY_SENT_TITLE = "Métré envoyé au tableau de chiffrage";
+
+const counted = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
+
+/** The toast's counts once sent: « 2 lignes créées, 1 mise à jour, 0 ignorée. » */
+export function takeoffApplySentDescription(summary: Pick<TakeoffApplyResponse["summary"], "created_count" | "updated_count" | "ignored_count">) {
+  return `${counted(summary.created_count, "ligne créée", "lignes créées")}, ${counted(summary.updated_count, "mise à jour", "mises à jour")}, `
+    + `${counted(summary.ignored_count, "ignorée", "ignorées")}.`;
+}
+
 /** The tenant's low confidence threshold (feature flag), as the apply guard reads it. */
 export function useTakeoffLowConfidenceThreshold() {
   const { enabled, value } = useFeatureFlag(TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY);
@@ -26,8 +36,14 @@ export function useTakeoffLowConfidenceThreshold() {
 }
 
 /**
- * Applies a job from its review: takes the version's draft lock (or keeps the editor's), applies, then gives the lock
- * back when it took it. `onApplied` runs on success only; any refusal (the guard's 422, the lock) is `error`.
+ * Sends a job to the estimate table from its review: takes the version's draft lock (or keeps the editor's), applies,
+ * then gives the lock back when it took it. `onApplied` runs on success only, once that lock is given back; any refusal
+ * (the guard's 422, the lock) is `error`.
+ *
+ * The lease is scoped by version, user and page identity, and a client-side navigation keeps the identity
+ * (draft-lock-session-client.ts): the editor `onApplied` opens adopts a lease still held, and a release landing after
+ * that would delete the editor's lease. So the release is awaited before `onApplied`. A failed release leaves a lease of
+ * this page's identity, which the editor adopts as its own.
  */
 export function useTakeoffApplyConfirm(input: {
   jobId: string;
@@ -44,6 +60,7 @@ export function useTakeoffApplyConfirm(input: {
     setError(null);
     setErrorGuard(null);
     let shouldReleaseDraftLock = false;
+    let response: TakeoffApplyResponse | null = null;
     try {
       const lockResult = await ensureTakeoffApplyDraftLock(versionId);
       if (!lockResult.acquired) {
@@ -51,25 +68,25 @@ export function useTakeoffApplyConfirm(input: {
         return;
       }
       shouldReleaseDraftLock = lockResult.shouldRelease;
-      const response = await applyTakeoffJob(jobId, {
+      // The administrator's mapping rules apply as the server reads them: the screen sends no overrides.
+      response = await applyTakeoffJob(jobId, {
         strategy: payload.strategy,
         target_section_id: payload.targetSectionId,
-        overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
         override: payload.override,
         forced_justifications: payload.forced?.forced_justifications,
         forced_items: payload.forced?.forced_items,
         page_decisions: payload.pageDecisions,
       }, versionId);
-      onApplied(response, payload);
     } catch (err) {
-      setError(isTakeoffApiError(err) ? err.message : "Erreur lors de l'application.");
+      setError(isTakeoffApiError(err) ? err.message : "Erreur lors de l'envoi au tableau de chiffrage.");
       setErrorGuard(isTakeoffApiError(err) ? errorGuardOf(err.details) : null);
     } finally {
       if (shouldReleaseDraftLock) {
-        void releaseEstimateDraftLock(versionId).catch(() => false);
+        await releaseEstimateDraftLock(versionId).catch(() => false);
       }
       setSubmitting(false);
     }
+    if (response) onApplied(response, payload);
   }, [jobId, onApplied, versionId]);
   return { submitting, error, errorGuard, setError, confirm };
 }

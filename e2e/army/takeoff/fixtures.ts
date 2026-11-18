@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { expect, type JsonValue } from "e2e";
 import type { Browser } from "@e2e-dev/web";
 
-import { recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
+import { recordEvidence, type ArmyState, type createEstimateViaWizard, type OwnedEstimate } from "../critical/fixtures";
 
 export type TakeoffSeedItem = {
   designation: string;
@@ -114,4 +114,49 @@ export async function applyOwnedTakeoff(browser: Browser, versionId: string, job
     });
     return { status: response.status, body: await response.json() as JsonValue };
   }, { versionId, jobId, body: JSON.stringify(body), foreignSession });
+}
+
+type SendUi = Parameters<typeof createEstimateViaWizard>[0];
+
+/** The one screen that sends a reviewed takeoff to the estimate (2026-11-18), and the button that opens it. */
+export const TAKEOFF_SEND = "Envoyer au tableau de chiffrage";
+export const TAKEOFF_SEND_CONFIRM = "Confirmer l'envoi";
+export const TAKEOFF_SENT_TOAST = "Métré envoyé au tableau de chiffrage";
+
+/**
+ * Opens « Envoyer au tableau de chiffrage » from a review or the job page, chooses the section (or checks it is the one
+ * preselected, the first), and waits for the impact preview of that section: computed without a click, its lines listed
+ * (read-only), `designation` among them. No step, no strategy to pick: the version decides (merge with DPGF lines,
+ * append otherwise).
+ */
+export async function openTakeoffSend(ui: SendUi, sectionId: string, designation: string, options: { preselected?: boolean } = {}) {
+  await ui.screen.getByRole("button", TAKEOFF_SEND, { exact: true }).click();
+  const dialog = ui.screen.getByRole("dialog", TAKEOFF_SEND, { exact: true });
+  const section = dialog.getByLabel("Section cible", { exact: true });
+  if (options.preselected) await expect(section).toHaveValue(sectionId);
+  else await section.selectOption({ value: sectionId });
+  await expect(dialog.getByRole("list", "Lignes envoyées", { exact: true })).toContainText(designation, { timeout: 30_000 });
+  // The strategies the four-step wizard offered are gone (« Pages déjà au devis » keeps its own radios).
+  await expect(dialog.getByRole("button", "Suivant", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("radio", /^(Ajouter sans effacer|Remplacer uniquement la section choisie|Fusionner avec l'existant)/)).toHaveCount(0);
+  return dialog;
+}
+
+type SentSummary = { created_ids: string[]; item_links: Array<{ estimate_item_id: string }> };
+
+/**
+ * After « Confirmer l'envoi » from a review: the French toast with the counts, then the version's editor placed on the
+ * takeoff's line, the first it created, else the first it fed or updated (`focusItemId`), in view. Returns its id.
+ */
+export async function expectLandedOnTakeoffLine(ui: SendUi, versionId: string, summary: SentSummary) {
+  await expect(ui.browser.locator('[data-slot="toast"]').filter({ hasText: TAKEOFF_SENT_TOAST })).toBeVisible();
+  const lineId = summary.created_ids[0] ?? summary.item_links[0]?.estimate_item_id;
+  expect(lineId, "the application names a line of the estimate").toBeTruthy();
+  await expect(ui.browser).toHaveURL(new RegExp(`/dashboard/estimates/${versionId}/edit\\?focusItemId=${lineId}$`), { timeout: 60_000 });
+  await expect(ui.browser.locator(`[data-estimate-item-id="${lineId}"]`)).toBeVisible({ timeout: 60_000 });
+  await expect.poll(() => ui.browser.evaluate((id) => {
+    const box = document.querySelector(`[data-estimate-item-id="${id}"]`)?.getBoundingClientRect();
+    return Boolean(box && box.height > 0 && box.bottom > 0 && box.top < window.innerHeight);
+  }, lineId!), { timeout: 30_000 }).toBe(true);
+  return lineId!;
 }

@@ -58,66 +58,6 @@ export function TakeoffReviewErrorState({
 }
 
 // ---------------------------------------------------------------------------
-// Apply success banner (affaire context)
-// ---------------------------------------------------------------------------
-
-export function TakeoffApplySuccessBanner({
-  sourceFileName,
-  targetSectionLabel,
-  strategy,
-  createdCount,
-  updatedCount,
-  ignoredCount,
-  estimateHref,
-  activityHref,
-}: {
-  sourceFileName: string | null;
-  targetSectionLabel: string;
-  strategy: string;
-  createdCount: number;
-  updatedCount: number;
-  ignoredCount: number;
-  estimateHref: string;
-  activityHref: string;
-}) {
-  return (
-    <section
-      aria-labelledby="takeoff-apply-success-title"
-      className="rounded-2xl border border-success-border bg-success-subtle p-4"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-success">
-            Apply contrôlé confirmé
-          </p>
-          <h2
-            id="takeoff-apply-success-title"
-            className="mt-1 text-lg font-semibold text-foreground"
-          >
-            Le devis a été enrichi depuis le métré source
-          </h2>
-          <p className="mt-2 break-words text-sm text-foreground-secondary">
-            Source : {sourceFileName ?? "métré"} · Section : {targetSectionLabel}
-          </p>
-          <p className="mt-1 text-sm text-foreground-secondary">
-            Stratégie : {strategy} · créés {createdCount} · mis à jour {updatedCount} ·
-            ignorés {ignoredCount}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href={estimateHref} className={buttonVariants({ variant: "primary" })}>
-            Ouvrir le chiffrage
-          </Link>
-          <Link href={activityHref} className={buttonVariants({ variant: "outline" })}>
-            Centre d&apos;activité métrés
-          </Link>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Apply readiness bar (production mode)
 // ---------------------------------------------------------------------------
 
@@ -138,7 +78,7 @@ export function TakeoffApplyReadinessBar({
         {isApplyReady ? (
           <span className="flex items-center gap-2 text-success">
             <CircleCheckIcon aria-hidden="true" className="size-4" />
-            Prêt à appliquer ({includedCount} items)
+            Prêt à envoyer ({includedCount} ligne{includedCount > 1 ? "s" : ""})
           </span>
         ) : (
           <span className="text-muted-foreground">{readinessMessage}</span>
@@ -151,7 +91,7 @@ export function TakeoffApplyReadinessBar({
         aria-describedby="takeoff-apply-readiness"
         onClick={onOpenApplyWizard}
       >
-        Appliquer au chiffrage
+        Envoyer au tableau de chiffrage
       </Button>
     </div>
   );

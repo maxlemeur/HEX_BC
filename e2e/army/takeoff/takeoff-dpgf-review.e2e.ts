@@ -593,7 +593,13 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     ).toBeVisible();
   });
 
-  test("opens the controlled apply wizard with explicit strategy and provenance preview", async ({ ui: page }) => {
+  // 2026-11-18: the four-step wizard became one screen « Envoyer au tableau de chiffrage ». This journey used to pick
+  // « Fusionner avec l'existant » by hand on a version without DPGF lines; the strategy now follows the version (append
+  // here, merge with DPGF lines) and is no longer offered: the counterexample is the absent choice (no radio). The API
+  // still accepts the three strategies: « replace » stays covered through the route by TKD07 and TKD03's naive calls
+  // (page-decisions-contract.e2e.ts), in pgTAP by takeoff-atomic-apply.test.sql and takeoff-dpgf-accumulation.test.sql,
+  // and its refusal text by src/lib/takeoff/apply-errors.test.ts; « merge » by src/lib/takeoff/server.apply.test.ts.
+  test("opens « Envoyer au tableau de chiffrage » with its impact preview and provenance, without a strategy choice", async ({ ui: page }) => {
     const takeoffFileName = `plans-apply-${Date.now()}.pdf`;
     const { versionId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("V3010-APPLY"),
@@ -630,25 +636,26 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
     );
 
     await expect(
-      page.getByRole("button", { name: "Appliquer au chiffrage" })
+      page.getByRole("button", { name: "Envoyer au tableau de chiffrage" })
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Appliquer au chiffrage" }).click();
-    await expect(page.getByText("Cible d'application")).toBeVisible();
+    await page.getByRole("button", { name: "Envoyer au tableau de chiffrage" }).click();
+    const dialog = page.getByRole("dialog", { name: "Envoyer au tableau de chiffrage" });
+    await expect(dialog.getByRole("heading", { name: "Destination" })).toBeVisible();
     await expect(
-      page.getByRole("combobox", { name: "Section cible" })
+      dialog.getByRole("combobox", { name: "Section cible" })
     ).toHaveValue(/.+/);
+    await expect(dialog.getByText("Les lignes du métré arrivent dans cette section ; une page déjà mesurée met à jour ses lignes à leur place.")).toBeVisible();
 
-    await page.getByRole("button", { name: "Suivant" }).click();
-    await expect(page.getByRole("radio", { name: /Fusionner avec l'existant/i })).toBeVisible();
-    await page.getByRole("radio", { name: /Fusionner avec l'existant/i }).click();
-    await page.getByRole("button", { name: "Suivant" }).click();
-
-    await expect(page.getByText("Preview d'impact")).toBeVisible();
-    await expect(page.getByText(`Source du métré : ${takeoffFileName}`)).toBeVisible();
-    await expect(page.getByText(takeoffFileName).first()).toBeVisible();
-    await expect(page.getByText("page 7")).toBeVisible();
-    await expect(page.getByText("Hors mapping").first()).toBeVisible();
+    // Computed without a click, on the same screen: the impact, the provenance and the line sent with its page.
+    const impact = dialog.getByRole("region", { name: "Aperçu d’impact" });
+    await expect(impact.getByText(`Source du métré : ${takeoffFileName}`)).toBeVisible();
+    await expect(impact.getByText("Écartées").first()).toBeVisible();
+    const line = dialog.getByRole("list", { name: "Lignes envoyées" }).getByRole("listitem", { name: "Cloison BA13" });
+    await expect(line).toContainText(`8 m2 · ${takeoffFileName}, page 7`);
+    await expect(dialog.getByRole("radio")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Suivant" })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Confirmer l'envoi" })).toBeEnabled();
   });
 
   test("supports exceptions export and manual multi-linking", async ({ ui: page }) => {

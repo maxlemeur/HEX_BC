@@ -520,9 +520,9 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
     const line = `« ${refusal.designation} » (${quantityFormat.format(refusal.quantity)}${refusal.unit.trim() ? ` ${refusal.unit.trim()}` : ""}) de ce métré`;
     const why = "Une ligne DPGF ne reçoit une mesure que par le rapprochement, qui garde au moins sa quantité du DPGF : la base refuse cette fusion.";
     return refusal.linked
-      ? { text: `« Fusionner » enverrait ${line}, que le rapprochement relie à une autre ligne DPGF, aussi sur ${dpgf}, que ce métré n’alimente pas. ${why}`,
+      ? { text: `La fusion enverrait ${line}, que le rapprochement relie à une autre ligne DPGF, aussi sur ${dpgf}, que ce métré n’alimente pas. ${why}`,
         choose: [], elsewhere: ["link_in_dpgf_review" as const], exits: ["Vérifiez les rattachements DPGF de cette ligne dans le rapprochement."] }
-      : { text: `« Fusionner » enverrait ${line} sur ${dpgf}, ${refusal.fed ? "à laquelle le rapprochement ne la relie pas" : "que ce métré n’alimente pas"}. ${why}`,
+      : { text: `La fusion enverrait ${line} sur ${dpgf}, ${refusal.fed ? "à laquelle le rapprochement ne la relie pas" : "que ce métré n’alimente pas"}. ${why}`,
         choose: [], elsewhere: ["link_in_dpgf_review" as const, "exclude_at_review" as const],
         exits: ["Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité du DPGF gardée.",
           "Sinon, excluez-la à la revue du métré."] };

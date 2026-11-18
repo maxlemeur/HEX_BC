@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { expect } from "e2e";
 
 import { apiRequest, armyTest, createEstimateViaWizard, recordEvidence, type ArmyState } from "./fixtures";
-import { localTakeoffFixture, localTakeoffWorkerClient } from "../takeoff/fixtures";
+import {
+  TAKEOFF_SEND_CONFIRM, expectLandedOnTakeoffLine, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
+} from "../takeoff/fixtures";
 import type { TakeoffDpgfComparisonResponse } from "@/lib/takeoff/types";
 
 const cases: Array<{ name: string; reference: number | null; measured: number[]; priced: number }> = [
@@ -181,17 +183,26 @@ for (const fixture of cases) {
       expect(retained.status).toBe(200);
       await app.open(route);
     }
-    await screen.getByRole("button", "Appliquer au chiffrage", { exact: true }).click();
-    const dialog = screen.getByRole("dialog");
-    await expect(dialog.getByLabel("Section cible", { exact: true })).toHaveValue(sectionId);
-    await dialog.getByRole("button", "Suivant", { exact: true }).click();
-    await expect(dialog.getByRole("radio", /Fusionner avec l'existant/)).toBeChecked();
-    await dialog.getByRole("button", "Suivant", { exact: true }).click();
-    await expect(dialog.getByText("Preview d'impact", { exact: true })).toBeVisible();
-    await dialog.getByRole("button", "Suivant", { exact: true }).click();
+    // The version holds a DPGF line: the screen merges by itself (until 2026-11-18 « Fusionner » was checked and
+    // forced on a strategy step), the reconciled line keeping its place; the request says so, and carries no overrides.
+    const sent: unknown[] = [];
+    await browser.route(new RegExp(`/api/takeoff/jobs/${job.jobId}/apply$`), async (intercepted) => {
+      sent.push(JSON.parse(intercepted.request.postData ?? "{}"));
+      await intercepted.fallback();
+    });
+    const dialog = await openTakeoffSend(ui, sectionId, "EF cuivre DN 22", { preselected: true });
+    await expect(dialog).toContainText("Les lignes DPGF rapprochées gardent leur place ; cette section reçoit les nouvelles lignes.");
     const applied = browser.waitForResponse(`**/api/takeoff/jobs/${job.jobId}/apply`);
-    await dialog.getByRole("button", "Confirmer l'application", { exact: true }).click();
-    expect((await applied).status).toBe(200);
+    await dialog.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click();
+    const response = await applied;
+    expect(response.status).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ strategy: "merge", target_section_id: sectionId });
+    expect(sent[0]).not.toHaveProperty("overrides");
+    // Nothing created: the measure feeds the DPGF line, where the estimator lands in the estimate table.
+    const landed = await expectLandedOnTakeoffLine(ui, ids.versionId,
+      (await response.json<{ data: { summary: { created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } } }>()).data.summary);
+    expect(landed).toBe(lineId);
     const final = await owned.client.from("estimate_items").select("id,quantity,source_provider,source_file_name,source_page,source_metadata,line_total_ht_cents")
       .eq("version_id", ids.versionId).eq("item_type", "line");
     expect(final.error).toBeNull();

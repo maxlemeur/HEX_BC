@@ -213,7 +213,7 @@ armyTest("DES04 la revue assistée vivante confirme acceptation et rejet puis d�
   const { events } = state;
   try {
     await expect(screen.getByRole("heading", { name: "Revue assistée — fixture locale", exact: true })).toBeVisible();
-    const applyButton = screen.getByRole("button", { name: "Appliquer au chiffrage", exact: true });
+    const applyButton = screen.getByRole("button", { name: "Envoyer au tableau de chiffrage", exact: true });
     await expect(applyButton).toBeDisabled();
     await screen.getByRole("button", { name: "Accepter", exact: true }).nth(0).click();
     await expect(screen.getByRole("button", { name: "Accepté", exact: true })).toHaveCount(1);
@@ -250,7 +250,7 @@ armyTest("DES05 tout accepter réintègre la ligne exclue et conserve le marquag
     await expectNotStruckThrough(ui, "Tube PVC");
     await expect(screen.getByRole("button", { name: "Rejeté", exact: true })).toHaveCount(0);
     await expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "3");
-    await screen.getByRole("button", { name: "Appliquer au chiffrage", exact: true }).click();
+    await screen.getByRole("button", { name: "Envoyer au tableau de chiffrage", exact: true }).click();
     await expect(screen.getByRole("status", { name: "", exact: true }).filter({ hasText: "Application demandée localement" })).toBeVisible();
     expect(events).toEqual([
       { action: "include", ids: [VIS_ID] },

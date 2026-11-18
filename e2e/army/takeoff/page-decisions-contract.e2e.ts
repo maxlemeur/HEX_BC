@@ -18,7 +18,10 @@ import type { TakeoffPageDecision, TakeoffPageReplacementResponse } from "@/lib/
 import {
   apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, ownEstimate, readEstimate, recordEvidence, type ArmyState,
 } from "../critical/fixtures";
-import { applyOwnedTakeoff, localTakeoffFixture, type TakeoffSeedItem } from "./fixtures";
+import {
+  TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, expectLandedOnTakeoffLine, localTakeoffFixture, openTakeoffSend,
+  type TakeoffSeedItem,
+} from "./fixtures";
 import { localSqlTransport } from "./generated-prerequisites";
 
 // TI-682 lot D, PR 2: the contract between the « Pages déjà au devis » confirmation and the database.
@@ -40,6 +43,7 @@ import { localSqlTransport } from "./generated-prerequisites";
 // engine 2 versions, whose lines never carry two pages). Fictional plans and quantities only.
 
 const options = { session: "army", tags: ["critical", "takeoff", "local"], timeout: 900_000 };
+type Sent = { summary: { created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } };
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string; details?: unknown } };
 type Read = { line: string; quantity: number; unit: string; page: number | null; doc?: "A" | "B"; excluded?: boolean };
 type Context = {
@@ -372,14 +376,9 @@ commit;`);
       const released = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
       if (released.status >= 300) problem("the journey's draft lease is released", released.body);
       await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${ids.jobId}/review/targeted?versionId=${ids.versionId}`);
-      await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-      const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-      await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: ids.sectionId });
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      await wizard.getByRole("radio", /^Fusionner/).check();
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      await expect(wizard).toContainText("EF cuivre DN 22");
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
+      // A DPGF version: the screen merges by itself (no strategy to pick since 2026-11-18) and says the section's role.
+      const wizard = await openTakeoffSend(ui, ids.sectionId, "EF cuivre DN 22");
+      await expect(wizard).toContainText("Les lignes DPGF rapprochées gardent leur place ; cette section reçoit les nouvelles lignes.");
       const region = wizard.getByRole("region", "Pages déjà au devis", { exact: true });
       await expect(region.getByRole("radio", "Remplacer la mesure précédente (recommandé)", { exact: true })).toBeChecked();
       await expect(region).not.toContainText("ne se confirme ici");
@@ -391,11 +390,11 @@ commit;`);
       await expect(line.getByRole("status")).toContainText(fall);
       await expect(line).toContainText("40 → 30 (−10)");
       const screenshot = await ui.app.screenshot("ti682-dpgf-fall");
-      const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
+      const confirm = wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true });
       await expect(confirm).toBeEnabled();
       const [response] = await Promise.all([ui.browser.waitForResponse(`**/api/takeoff/jobs/${ids.jobId}/apply`), confirm.click()]);
       if (response.status !== 200) problem("the wizard's confirmation of the fall is refused", await response.json());
-      await expect(wizard).toBeHidden();
+      await expectLandedOnTakeoffLine(ui, ids.versionId, (await response.json<Envelope<Sent>>()).data.summary);
       const held = (await readEstimate(ui.browser, ids.versionId)).items.find((item) => item.source_provider === "dpgf")!;
       if (Number(held.quantity) !== 30) problem("the DPGF line does not hold what the wizard said (30)", held.quantity);
       return { applied: response.status === 200, screenshot, held: held.quantity };
@@ -856,24 +855,21 @@ commit;`);
 
     // The confirmation: before and after, its composition; no page already in the estimate (two pages).
     await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${second.jobId}/review/targeted?versionId=${versionId}`);
-    await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-    const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-    await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: sectionId });
-    await wizard.getByRole("button", "Suivant", { exact: true }).click();
-    await wizard.getByRole("radio", /^Fusionner/).check();
-    await wizard.getByRole("button", "Suivant", { exact: true }).click();
-    await expect(wizard).toContainText("EF cuivre DN 22");
-    await wizard.getByRole("button", "Suivant", { exact: true }).click();
+    const wizard = await openTakeoffSend(ui, sectionId, "EF cuivre DN 22");
     const target = wizard.getByRole("region", "Lignes DPGF", { exact: true }).getByRole("group", "Ligne DPGF EF cuivre DN 22", { exact: true });
     await expect(target).toContainText("EF cuivre DN 22 : 20 → 23 (+3) — alimentée par 2 métrés");
     await expect(target.getByRole("list", "Composition de EF cuivre DN 22", { exact: true })).toContainText("Ce métré : 10,2 (cumul-dpgf.pdf, page 2 : 10,2)");
     await expect(wizard.getByRole("region", "Pages déjà au devis", { exact: true })).toHaveCount(0);
     const confirmation = await ui.app.screenshot("ti682-dpgf-confirmation");
-    const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
+    const confirm = wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true });
     await expect(confirm).toBeEnabled();
     const [response] = await Promise.all([browser.waitForResponse(`**/api/takeoff/jobs/${second.jobId}/apply`), confirm.click()]);
     expect(response.status, "the confirmation applies").toBe(200);
-    await expect(wizard).toBeHidden();
+    // Nothing created: the takeoff feeds the DPGF line, where the estimator lands (the first line it links).
+    const sent = (await response.json<Envelope<Sent>>()).data.summary;
+    const landed = await expectLandedOnTakeoffLine(ui, versionId, sent);
+    expect((await readEstimate(browser, versionId)).items.find((item) => item.id === landed), "landed on the DPGF line it feeds")
+      .toMatchObject({ title: "EF cuivre DN 22", source_provider: "dpgf" });
 
     // The line holds the sum, rounded once, and its composition names both takeoffs (stored in the order of their
     // identifiers, random here: read by takeoff).
@@ -971,15 +967,7 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
 
     const openWizard = async (jobId: string) => {
       await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${jobId}/review/targeted?versionId=${versionId}`);
-      await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-      const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-      await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: sectionId });
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      await wizard.getByRole("radio", /^Fusionner/).check();
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      await expect(wizard).toContainText("EF cuivre DN 22");
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      return wizard;
+      return openTakeoffSend(ui, sectionId, "EF cuivre DN 22");
     };
 
     // The wizard says it before anything is sent: the line, the pages its part mixes, the way out recommended, the other.
@@ -991,7 +979,7 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
       + "le métré en lisant aussi ces autres pages, puis remplacez ces pages ensemble : la mesure précédente sort alors entière. Sinon, gardez "
       + `les deux mesures de ${file}, page 1 : la page comptera deux fois sur cette ligne, à corriger à la main.`;
     await expect(region).toContainText(advice);
-    await expect(stuck.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
+    await expect(stuck.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true })).toBeDisabled();
     const named = await ui.app.screenshot("ti716-dpgf-part-unknown-named");
     await stuck.getByRole("button", "Annuler", { exact: true }).click();
     await expect(stuck).toBeHidden();
@@ -1006,11 +994,11 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
     const target = wizard.getByRole("region", "Lignes DPGF", { exact: true }).getByRole("group", "Ligne DPGF EF cuivre DN 22", { exact: true });
     await expect(target).toContainText("EF cuivre DN 22 : 25 → 22 (−3)");
     const together = await ui.app.screenshot("ti716-dpgf-pages-replaced-together");
-    const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
+    const confirm = wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true });
     await expect(confirm).toBeEnabled();
     const [response] = await Promise.all([browser.waitForResponse(`**/api/takeoff/jobs/${bothPages.jobId}/apply`), confirm.click()]);
     expect(response.status, "the pages replaced together apply").toBe(200);
-    await expect(wizard).toBeHidden();
+    await expectLandedOnTakeoffLine(ui, versionId, (await response.json<Envelope<Sent>>()).data.summary);
 
     // Read again after a reload: the line holds max(20, 13 + 9), its composition the relaunch's two runs only.
     await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${bothPages.jobId}/review/targeted?versionId=${versionId}`);
@@ -1090,29 +1078,21 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
     expect(released.status, "the journey's draft lease is released").toBeLessThan(300);
     const openWizard = async () => {
       await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${takeoff.jobId}/review/targeted?versionId=${versionId}`);
-      await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-      const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-      await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: sectionId });
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      await wizard.getByRole("radio", /^Fusionner/).check();
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      await expect(wizard).toContainText("Robinet de puisage");
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      return wizard;
+      return openTakeoffSend(ui, sectionId, "Robinet de puisage");
     };
 
     // The wizard says it before anything is sent, withholds the confirmation and opens the reconciliation.
     const stuck = await openWizard();
     const region = stuck.getByRole("region", "Fusion sur une ligne DPGF", { exact: true });
-    await expect(region).toContainText("« Fusionner » enverrait « Robinet de puisage » (7 u) de ce métré sur la ligne DPGF « Robinet de "
+    await expect(region).toContainText("La fusion enverrait « Robinet de puisage » (7 u) de ce métré sur la ligne DPGF « Robinet de "
       + "puisage » (6 u), que ce métré n’alimente pas. Une ligne DPGF ne reçoit une mesure que par le rapprochement, qui garde au moins sa "
       + "quantité du DPGF : la base refuse cette fusion.");
     await expect(region).toContainText("Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité du DPGF gardée.");
-    await expect(stuck.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
+    await expect(stuck.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true })).toBeDisabled();
     const named = await ui.app.screenshot("ti723-dpgf-merge-named");
     await region.getByRole("link", "Ouvrir le rapprochement DPGF", { exact: true }).click();
     await expect(ui.screen.getByRole("heading", "Comparaison DPGF explicable", { exact: true })).toBeVisible();
-    await expect(ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true })).toHaveCount(0);
+    await expect(ui.screen.getByRole("dialog", TAKEOFF_SEND, { exact: true })).toHaveCount(0);
 
     // The way out: the takeoff line linked to the DPGF line in the reconciliation.
     await ui.screen.getByRole("region", "Lignes DPGF", { exact: true }).getByRole("button", /Robinet de puisage/).click();
@@ -1130,11 +1110,11 @@ from public.estimate_items item where item.version_id = '${versionId}' and item.
     await expect(wizard.getByRole("region", "Fusion sur une ligne DPGF", { exact: true })).toHaveCount(0);
     const target = wizard.getByRole("region", "Lignes DPGF", { exact: true }).getByRole("group", "Ligne DPGF Robinet de puisage", { exact: true });
     await expect(target).toContainText("Robinet de puisage : 6 → 7 (+1)");
-    const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
+    const confirm = wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true });
     await expect(confirm).toBeEnabled();
     const [response] = await Promise.all([browser.waitForResponse(`**/api/takeoff/jobs/${takeoff.jobId}/apply`), confirm.click()]);
     expect(response.status, "linked by the reconciliation, the application applies").toBe(200);
-    await expect(wizard).toBeHidden();
+    await expectLandedOnTakeoffLine(ui, versionId, (await response.json<Envelope<Sent>>()).data.summary);
 
     // Read again after a reload: max(6, 7) on the DPGF line by its composition, its DPGF reference kept; max(20, 24) on the other.
     await ui.app.open(`/dashboard/affaires/${base.projectId}/takeoff/${takeoff.jobId}/review/targeted?versionId=${versionId}`);

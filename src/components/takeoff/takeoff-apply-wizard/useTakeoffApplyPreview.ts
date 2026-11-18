@@ -1,95 +1,53 @@
 "use client";
 
-import { useCallback, useEffect, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   previewTakeoffConversion,
-  type TakeoffMappingOverride,
   type TakeoffPreviewConversionResponse,
 } from "@/lib/takeoff/client";
 
-import type { TakeoffApplyStrategy, WizardStep } from "./shared";
-import { serializeTakeoffOverrides, toOverrideList } from "./shared";
+import type { TakeoffApplyStrategy } from "./shared";
 
-type UseTakeoffApplyPreviewParams = {
-  open: boolean;
-  step: WizardStep;
-  isPreset: boolean;
-  jobId: string;
+export type TakeoffApplyPreviewRequest = {
   strategy: TakeoffApplyStrategy;
-  targetSectionId: string | null;
-  overridesRef: MutableRefObject<Record<string, TakeoffMappingOverride>>;
+  targetSectionId: string;
 };
 
-export function useTakeoffApplyPreview({
-  open,
-  step,
-  isPreset,
-  jobId,
-  strategy,
-  targetSectionId,
-  overridesRef,
-}: UseTakeoffApplyPreviewParams) {
-  const [previewData, setPreviewData] =
-    useState<TakeoffPreviewConversionResponse | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-  const [previewOverridesSignature, setPreviewOverridesSignature] = useState<string | null>(
-    null
-  );
+type PreviewResult = { key: string; data: TakeoffPreviewConversionResponse | null; error: string | null };
 
-  const refreshPreview = useCallback(
-    async (overridesSnapshot: Record<string, TakeoffMappingOverride>) => {
-      const overridesSignature = serializeTakeoffOverrides(overridesSnapshot);
-      setIsLoadingPreview(true);
-      setPreviewError(null);
-
-      try {
-        const response = await previewTakeoffConversion(jobId, {
-          strategy,
-          target_section_id: targetSectionId,
-          overrides:
-            toOverrideList(overridesSnapshot).length > 0
-              ? toOverrideList(overridesSnapshot)
-              : undefined,
-        });
-        setPreviewData(response);
-        setPreviewOverridesSignature(overridesSignature);
-      } catch (error) {
-        setPreviewData(null);
-        setPreviewOverridesSignature(null);
-        setPreviewError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de calculer la preview de conversion."
-        );
-      } finally {
-        setIsLoadingPreview(false);
-      }
-    },
-    [jobId, strategy, targetSectionId]
-  );
-
-  const resetPreview = useCallback(() => {
-    setPreviewData(null);
-    setPreviewError(null);
-    setPreviewOverridesSignature(null);
-  }, []);
+/**
+ * The impact preview of the screen « Envoyer au tableau de chiffrage », computed as soon as there is a request (the
+ * sections are read and one is chosen) and again for each new request, without a click. A result is only ever read
+ * under the request it was computed for: a late answer for an earlier section or strategy is dropped, never shown nor
+ * confirmed. `retry` computes the same request again (after a failure).
+ */
+export function useTakeoffApplyPreview({ jobId, request }: { jobId: string; request: TakeoffApplyPreviewRequest | null }) {
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<PreviewResult | null>(null);
+  const key = request ? JSON.stringify([request.strategy, request.targetSectionId, attempt]) : null;
 
   useEffect(() => {
-    if (!open) return;
-    const shouldRefresh = isPreset ? step === 4 : step === 3;
-    if (!shouldRefresh) return;
+    if (!key) return;
+    const [strategy, targetSectionId] = JSON.parse(key) as [TakeoffApplyStrategy, string, number];
+    let current = true;
+    previewTakeoffConversion(jobId, { strategy, target_section_id: targetSectionId }).then(
+      (data) => { if (current) setResult({ key, data, error: null }); },
+      (error: unknown) => {
+        if (current) setResult({ key, data: null,
+          error: error instanceof Error && error.message ? error.message : "Impossible de calculer l’aperçu d’impact." });
+      });
+    return () => { current = false; };
+  }, [jobId, key]);
 
-    void refreshPreview(overridesRef.current);
-  }, [isPreset, open, overridesRef, refreshPreview, step]);
-
+  const read = result && result.key === key ? result : null;
+  const retry = useCallback(() => setAttempt((count) => count + 1), []);
+  const reset = useCallback(() => setResult(null), []);
   return {
-    previewData,
-    previewError,
-    isLoadingPreview,
-    previewOverridesSignature,
-    refreshPreview,
-    resetPreview,
+    previewData: read?.data ?? null,
+    previewError: read?.error ?? null,
+    isLoadingPreview: key !== null && read === null,
+    retry,
+    reset,
   };
 }
