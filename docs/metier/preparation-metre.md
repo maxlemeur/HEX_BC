@@ -12,6 +12,8 @@ droits du tenant actif et de l'affaire.
 
 ## Parcours pris en charge
 
+Depuis « Métrés », choisissez une affaire dans la liste. Ouvrez ses plans ou ses métrés pour préparer une analyse. Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
+
 Le lancement propose quatre étapes dans
 [`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx) :
 
@@ -34,8 +36,7 @@ elle ne doit pas être écrasée silencieusement.
 À la réouverture, le parcours retrouve les réponses et affiche la première étape
 comportant un point à préciser. Les sources peuvent être ouvertes dans un aperçu
 ou un onglet sur leur fichier exact et, pour un PDF, sur la page concernée. Le
-serveur vérifie les droits avant de fournir un lien temporaire ; un fichier en
-cours de téléversement utilise son aperçu local.
+serveur vérifie les droits avant de fournir un lien temporaire.
 
 Le lancement réutilise la préparation confirmée. Il conserve les contrôles de la
 version de devis, du jeu de plans ou du fichier téléversé. L'analyse et la revue

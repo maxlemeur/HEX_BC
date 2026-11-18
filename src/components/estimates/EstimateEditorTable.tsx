@@ -224,6 +224,7 @@ export type EstimateSectionDuplicateTarget = {
 };
 
 type EstimateEditorTableProps = {
+  projectId?: string;
   versionId: string;
   currency?: SupportedEstimateCurrency;
   items: EstimateItem[];
@@ -808,6 +809,7 @@ export function resolveEstimateViewportColumns(
 }
 
 export function EstimateEditorTable({
+  projectId,
   versionId,
   currency = "EUR",
   items,
@@ -2102,6 +2104,7 @@ export function EstimateEditorTable({
 
       return (
         <EstimateEditorRow
+          projectId={projectId}
           versionId={versionId}
           estimateCurrency={currency}
           item={item}
@@ -2166,6 +2169,7 @@ export function EstimateEditorTable({
       supplyTypeById,
       currency,
       versionId,
+      projectId,
       sectionLevelById,
       resolvedMaxSectionDepth,
       collapsedSectionIds,

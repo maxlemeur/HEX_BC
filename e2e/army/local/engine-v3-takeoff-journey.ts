@@ -1,3 +1,4 @@
+import { submitPreparedCsv } from "../takeoff/prepared-csv";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect } from "e2e";
@@ -78,25 +79,13 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       const csvPath = path.resolve(".e2e/army/critical/artifacts/fixtures", csvName);
       await mkdir(path.dirname(csvPath), { recursive: true });
       await writeFile(csvPath, "designation;quantity;unit\nBloc beton;12;u");
-      await app.open(`/dashboard/estimates/${versionId}/takeoff/new`);
-      const upload = screen.getByLabel("Fichier source", { exact: true });
-      await expect(upload).toBeEnabled();
-      await upload.setInputFiles(csvPath);
-      const uploadPreparation = await fillTakeoffPreparation({ ...ui, army }, { sources: [csvName], objective: "extract_quantities", unit: "u",
-        inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "" }, browser.locator("form").last());
-      await expect(uploadPreparation.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
-      await expect(uploadPreparation.getByText("Le niveau enregistré n’est pas compatible avec les documents sélectionnés. Choisissez explicitement un niveau compatible dans les options avancées.", { exact: true })).toBeVisible();
-      await uploadPreparation.getByText("Options avancées", { exact: true }).click();
-      await uploadPreparation.getByRole("radio", /Niveau A/).check();
-      await expect(uploadPreparation.getByRole("radio", /Niveau A/)).toBeChecked();
-      await expect(uploadPreparation.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("chatgpt");
-      const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
-        screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click()]);
-      const uploaded = await created.json<{ error?: { code?: string; message?: string } }>();
-      const api = { status: created.status, code: uploaded.error?.code ?? null, message: uploaded.error?.message ?? null };
+      const api = await submitPreparedCsv(ui, estimate, csvPath, "chatgpt", actionManifest);
       // R1 : action serveur « Créer un brouillon depuis V… » du hub, sur la v3. La copie garde le moteur 3 (P-15) et
       // l'analyse du jeu de plans est lancée sur elle (niveau B).
-      await openPlanPreparation();
+      const pdfPreparation = await openPlanPreparation();
+      await pdfPreparation.getByRole("button", /Vérifier et lancer$/).click();
+      await expect(pdfPreparation.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
+      await expect(pdfPreparation.getByText(/Le niveau enregistré n’est pas compatible/)).toBeVisible();
       await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "chatgpt" } });
       await saveTakeoffPreparation({ ...ui, army });
       const preparationRevision = async () => {

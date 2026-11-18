@@ -1368,26 +1368,12 @@ export function AffaireFlowHierarchyPanel(
         </div>
       ) : null}
 
-      {model.legacyAction ? (
-        <div className="mt-4 rounded-2xl border border-warning/20 bg-warning/5 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-foreground">Reprise par l’ancien parcours</h3>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                {model.legacyAction.description}
-              </p>
-            </div>
-            <ActionButton action={model.legacyAction} />
-          </div>
-        </div>
-      ) : null}
     </>
   );
   const hasFollowUps =
     (!model.resultCard && Boolean(model.primaryAction) && !(props.hidePreparationAction && isPreparationCard)) ||
     model.blockers.length > 0 ||
-    model.aides.length > 0 ||
-    Boolean(model.legacyAction);
+    model.aides.length > 0;
 
   if (model.showEmptyUploadCard) {
     return (

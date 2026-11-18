@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { Badge } from "@/components/ui/badge";
 import type { BadgeProps } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { getBusinessStatusLabel } from "@/components/takeoff/takeoff-job-list-shared";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { fetchTakeoffActivityCenter } from "@/lib/takeoff/client";
 import {
@@ -31,7 +32,6 @@ export type AffaireHubPlansSummaryData = {
   planSetCount: number;
   planFileCount: number;
   totalSizeBytes: number;
-  hasLegacyFallback?: boolean;
   defaultPlanSetId: string | null;
   defaultPlanSetName?: string | null;
   defaultPlanSetSource?: string | null;
@@ -366,7 +366,7 @@ export function PlansMetresCard({
                     {entry.versionLabel}
                   </span>
                   <span className="text-sm text-foreground-secondary">
-                    {entry.statusLabel}
+                    {getBusinessStatusLabel(entry.statusRaw, entry.statusLabel)}
                   </span>
                 </div>
                 {entry.carriedOverFrom ? (

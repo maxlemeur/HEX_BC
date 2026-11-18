@@ -4,13 +4,13 @@ import { createRequire } from "node:module";
 import type { AxeResults } from "axe-core";
 import { expect } from "e2e";
 
-import { armyTest, recordEvidence } from "./fixtures";
+import { armyTest, createEstimateViaWizard, recordEvidence } from "./fixtures";
 
 const axeSource = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 const routes = [
   { path: "/dashboard", heading: "Accueil" },
   { path: "/dashboard/affaires", heading: "Affaires" },
-  { path: "/dashboard/takeoff", heading: "Métrés — Analyse de plans" },
+  { path: "affaire-takeoff", heading: "Métrés" },
   { path: "/dashboard/admin/flags", heading: "Fonctionnalités" },
   { path: "/dashboard/admin/anomaly-history", heading: "Historique des anomalies" },
   { path: "/dashboard/products", heading: "Produits & prix de référence" },
@@ -29,8 +29,11 @@ for (const [viewportIndex, viewport] of viewports.entries()) {
     const caseId = `UX${String(viewportIndex * routes.length + routeIndex + 1).padStart(2, "0")}`;
     armyTest(`${caseId} ${route.path} ${viewport.name} has no major Axe violation or overflow`, options, async ({ app, browser, screen, army }) => {
       await browser.setViewport({ width: viewport.width, height: viewport.height });
-      await app.open(route.path);
-      await expect(browser).toHaveURL(route.path);
+      const path = route.path === "affaire-takeoff"
+        ? `/dashboard/affaires/${(await createEstimateViaWizard({ app, browser, screen }, { projectName: army.projectName, title: "Accessibilité des métrés" }, army)).projectId}/takeoff`
+        : route.path;
+      await app.open(path);
+      await expect(browser).toHaveURL(path);
       await expect(screen.getByRole("main")).toBeVisible();
       await expect(screen.getByRole("heading", route.heading, { level: 1, exact: true })).toBeVisible();
       await expect.poll(() => browser.evaluate(() => document.readyState)).toBe("complete");

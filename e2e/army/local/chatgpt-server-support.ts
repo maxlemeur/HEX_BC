@@ -197,8 +197,8 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
     return [
       // A session would be redirected to the dashboard before the login page compiles.
       { path: "/login", anonymous: true, expected: [200] },
-      ...[`/dashboard/affaires/${absent}`, `/dashboard/estimates/${absent}/takeoff/new`,
-        `/dashboard/estimates/${absent}/takeoff/${absent}`].map(page),
+      ...[`/dashboard/affaires/${absent}`, `/dashboard/affaires/${absent}/takeoff`,
+        `/dashboard/affaires/${absent}/plans`].map(page),
       ...["/api/feature-flags", "/api/estimates", "/api/estimates/templates",
         ...["draft-versions", "outliers", "gating", "lock", "items", "batch"].map(name => `/api/estimates/${absent}/${name}`),
       ].map(route),

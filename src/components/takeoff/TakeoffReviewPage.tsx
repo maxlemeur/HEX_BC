@@ -31,7 +31,6 @@ import {
   TakeoffReviewErrorState,
   TakeoffReviewLoadingState,
 } from "@/components/takeoff/review/TakeoffReviewChrome";
-import { useUiMode } from "@/hooks/useUiMode";
 import {
   getBusinessLevelLabel,
   getStatusCss,
@@ -137,7 +136,7 @@ export type { ReviewItem } from "@/lib/takeoff/review-item-edits";
 type TakeoffReviewPageProps = {
   jobId: string;
   versionId: string;
-  projectId?: string;
+  projectId: string;
 };
 
 type ViewTab = "tables" | "items" | "compare" | "dpgf";
@@ -168,20 +167,11 @@ export default function TakeoffReviewPage({
   const searchParams = useSearchParams();
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
-  const { isSimplified } = useUiMode();
   const lowConfidenceThreshold = useTakeoffLowConfidenceThreshold();
 
   // ---- Review mode from URL (V3-012: Assisté / Production / Validation)
   const reviewModeParam = searchParams.get("reviewMode");
-  const fromParam = searchParams.get("from");
-  const isAffaireContext = typeof projectId === "string" && projectId.length > 0;
-  useAssistantScreen(isAffaireContext ? { projectId, screen: { screen: "takeoff_review", versionId, jobId } } : null);
-
-  const defaultReviewMode: ReviewMode = useMemo(() => {
-    if (fromParam === "approval") return "validation";
-    if (isAffaireContext) return "validation";
-    return isSimplified ? "assisted" : "production";
-  }, [fromParam, isAffaireContext, isSimplified]);
+  useAssistantScreen({ projectId, screen: { screen: "takeoff_review", versionId, jobId } });
 
   const currentReviewMode: ReviewMode = useMemo(() => {
     if (
@@ -191,22 +181,22 @@ export default function TakeoffReviewPage({
     ) {
       return reviewModeParam;
     }
-    return defaultReviewMode;
-  }, [reviewModeParam, defaultReviewMode]);
+    return "validation";
+  }, [reviewModeParam]);
 
   const isShowingSimplified = currentReviewMode === "assisted";
 
   const setReviewMode = useCallback(
     (mode: ReviewMode) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (mode === defaultReviewMode) {
+      if (mode === "validation") {
         params.delete("reviewMode");
       } else {
         params.set("reviewMode", mode);
       }
       router.replace(`?${params.toString()}`, { scroll: false });
     },
-    [defaultReviewMode, router, searchParams]
+    [router, searchParams]
   );
 
   const openProductionReview = useCallback(
@@ -431,7 +421,7 @@ export default function TakeoffReviewPage({
       } catch (err) {
         if (canceled || abortController.signal.aborted) return;
         setLoadError(
-          isTakeoffApiError(err) ? err.message : "Impossible de charger les items."
+          isTakeoffApiError(err) ? err.message : "Impossible de charger les lignes."
         );
       } finally {
         if (!canceled) setLoading(false);
@@ -642,7 +632,7 @@ export default function TakeoffReviewPage({
       const selected = items.find((item) => item.id === itemId);
       // A failure V settles only with a coded reason (network, scale, printed area) is justified in the targeted review.
       if (field === "is_verified" && value === true && requiresAcceptanceReason(selected?.rule_results)) {
-        if (!projectId || items.some((item) => item._dirty || item._saving)) {
+        if (items.some((item) => item._dirty || item._saving)) {
           toast.info({ title: "Enregistrez les modifications, puis ouvrez la revue ciblée pour justifier cette ligne." });
           return;
         }
@@ -655,8 +645,8 @@ export default function TakeoffReviewPage({
       if (field === "quantity" && selected && value !== selected.quantity
         && selected.rule_results?.some((result) => result.rule === "non_observable" && result.status === "fail")) {
         const message = "Une quantité à saisir se justifie dans la revue ciblée.";
-        if (!projectId || items.some((item) => item._dirty || item._saving)) {
-          toast.info({ title: message, ...(projectId ? { description: "Enregistrez les modifications, puis ouvrez-la." } : {}) });
+        if (items.some((item) => item._dirty || item._saving)) {
+          toast.info({ title: message, description: "Enregistrez les modifications, puis ouvrez-la." });
           return;
         }
         toast.info({ title: message });
@@ -762,8 +752,8 @@ export default function TakeoffReviewPage({
 
       if (failedCount > 0) {
         toast.warning({
-          title: `${failedCount} item(s) non sauvegardé(s)`,
-          description: "Vérifiez les items en erreur.",
+          title: `Échec de l’enregistrement de ${failedCount} ligne(s)`,
+          description: "Vérifiez les lignes en erreur.",
         });
       } else if (savedCount > 0) {
         toast.success({
@@ -885,8 +875,8 @@ export default function TakeoffReviewPage({
     (itemIds: string[]) => {
       setActiveTab("items");
       toast.info({
-        title: "Synchronisation vers items",
-        description: `${itemIds.length} item(s) synchronisé(s) dans la vue Items.`,
+        title: "Synchronisation des lignes",
+        description: `${itemIds.length} ligne(s) mise(s) à jour dans la revue.`,
         durationMs: 2500,
       });
     },
@@ -977,7 +967,7 @@ export default function TakeoffReviewPage({
           );
           toast.warning({
             title: "Sélection partielle",
-            description: "Certains items n'ont pas pu être synchronisés.",
+            description: "Certaines lignes n'ont pas pu être synchronisées.",
           });
         } else {
           toast.success({
@@ -1048,7 +1038,7 @@ export default function TakeoffReviewPage({
     !isDpgfValidationPending &&
     !hasDpgfValidationError &&
     !hasDpgfBlocks;
-  const isApplyReady = canOpenApplyWizard && !hasGuardBlocks;
+  const isApplyReady = canOpenApplyWizard && (!hasGuardBlocks || isAdmin);
   const applyReadinessMessage = useMemo(() => {
     if (hasAlreadyBeenApplied) {
       return "Ce métré a déjà été appliqué au chiffrage.";
@@ -1082,8 +1072,11 @@ export default function TakeoffReviewPage({
       return "Des rapprochements DPGF restent à trancher. Ouvrez la revue détaillée pour finaliser les liens manuels.";
     }
 
+    if (hasGuardBlocks && isAdmin) {
+      return "Ouvrez l’aperçu d’impact pour examiner les lignes bloquées et justifier chaque forçage.";
+    }
     if (hasGuardBlocks) {
-      return `Le contrôle de ${guardResult?.blocked_items.length ?? 0} item(s) reste incomplet : complétez les preuves localisées, tranchez les règles en échec ou validez les lignes avant l'application.`;
+      return `Le contrôle de ${guardResult?.blocked_items.length ?? 0} ligne(s) reste incomplet : complétez les preuves localisées, tranchez les règles en échec ou validez les lignes avant l'application.`;
     }
 
     return "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact avant de confirmer.";
@@ -1094,6 +1087,7 @@ export default function TakeoffReviewPage({
     hasDpgfValidationError,
     hasDirtyOrSaving,
     hasGuardBlocks,
+    isAdmin,
     hasIncluded,
     hasAlreadyBeenApplied,
     hasSaveErrors,
@@ -1130,23 +1124,15 @@ export default function TakeoffReviewPage({
     setApplyError(null);
   }, [isApplyReady, setApplyError]);
 
-  const reviewTitle = isAffaireContext
-    ? "Revue des exceptions & preuves"
-    : "Revue d’extraction";
-  const backHref = isAffaireContext
-    ? `/dashboard/affaires/${projectId}/takeoff`
-    : `/dashboard/estimates/${versionId}/takeoff/${jobId}`;
-  const backLabel = isAffaireContext
-    ? "Centre d'activité métrés"
-    : "Retour à l'extraction";
+  const reviewTitle = "Revue des exceptions & preuves";
+  const backHref = `/dashboard/affaires/${projectId}/takeoff`;
+  const backLabel = "Métrés de l’affaire";
   // TI-664 L5c: the lines the guard rejects or finds uncertain, settled one by one in the targeted review (affaire).
   // TI-682 D11: the hypotheses that arrived excluded are decided there too; a takeoff asked as an estimate has no
   // other line to review.
   const targetedReviewCount = (guardResult ? guardResult.blocked_items.length + guardResult.medium_items.length : 0)
     + items.filter(isUndecidedHypothesis).length;
-  const targetedReviewHref = isAffaireContext
-    ? `/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}`
-    : undefined;
+  const targetedReviewHref = `/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}`;
 
   if (loading) {
     return <TakeoffReviewLoadingState title={reviewTitle} />;
@@ -1170,35 +1156,16 @@ export default function TakeoffReviewPage({
         testId="takeoff-review-production-ribbon"
       >
         <ProductionRibbonHeader
-          breadcrumbs={
-            isAffaireContext
-              ? [
-                  { label: "Affaires", href: "/dashboard/affaires" },
-                  {
-                    label: "Métrés",
-                    href: `/dashboard/affaires/${projectId}/takeoff`,
-                  },
-                  {
-                    label:
-                      jobVersionNumber !== null
-                        ? `V${jobVersionNumber} · Revue`
-                        : "Revue",
-                  },
-                ]
-              : [
-                  { label: "Chiffrages", href: "/dashboard/estimates" },
-                  {
-                    label: "Métrés",
-                    href: `/dashboard/estimates/${versionId}/takeoff`,
-                  },
-                  { label: "Revue" },
-                ]
-          }
+          breadcrumbs={[
+            { label: "Affaires", href: "/dashboard/affaires" },
+            { label: "Métrés", href: backHref },
+            { label: jobVersionNumber !== null ? `V${jobVersionNumber} · Revue` : "Revue" },
+          ]}
           title={reviewTitle}
           description={
             <>
               {jobFileName ?? "Extraction"} · {tables.length} table
-              {tables.length > 1 ? "s" : ""} · {items.length} item
+              {tables.length > 1 ? "s" : ""} · {items.length} élément
               {items.length > 1 ? "s" : ""}
             </>
           }
@@ -1256,9 +1223,7 @@ export default function TakeoffReviewPage({
         className="space-y-4"
       >
       <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={hasAlreadyBeenApplied}
-        jobHref={(earlier) => isAffaireContext
-          ? `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`
-          : `/dashboard/estimates/${earlier.estimate_version_id}/takeoff/${earlier.id}/review`} />
+        jobHref={(earlier) => `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`} />
 
       {/* ---- Confidence header (Level C only) ---- */}
       {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}

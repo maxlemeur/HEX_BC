@@ -6,12 +6,11 @@ import { useState } from "react";
 import { getTakeoffPreparationSourcePreviewAction } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
 import { buttonVariants } from "@/components/ui/button";
 
-export function TakeoffPreparationSourcePreview({ projectId, documentId, name, page, localPreviewUrl }: {
+export function TakeoffPreparationSourcePreview({ projectId, documentId, name, page }: {
   projectId: string;
   documentId: string;
   name: string;
   page?: number | null;
-  localPreviewUrl?: string | null;
 }) {
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -20,11 +19,11 @@ export function TakeoffPreparationSourcePreview({ projectId, documentId, name, p
     setBusy(true);
     setError(null);
     try {
-      setPreview(localPreviewUrl ? { url: `${localPreviewUrl}${page ? `#page=${page}` : ""}`, name } : unwrapTakeoffActionResult(await getTakeoffPreparationSourcePreviewAction({ projectId, documentId, ...(page ? { page } : {}) })));
+      setPreview(unwrapTakeoffActionResult(await getTakeoffPreparationSourcePreviewAction({ projectId, documentId, ...(page ? { page } : {}) })));
     } catch (cause) { setError(cause instanceof TakeoffActionError ? cause.message : "L'aperçu n'est pas disponible. Les réponses sont conservées."); }
     finally { setBusy(false); }
   }
-  if (documentId.startsWith("upload:") && !localPreviewUrl) return null;
+  if (documentId.startsWith("upload:")) return null;
   return <div className="space-y-2">
     <button type="button" className={buttonVariants({ variant: "ghost", size: "sm" })} disabled={busy} aria-label={`Voir le plan ${name}${page ? ` — page ${page}` : ""}`} onClick={() => void openPreview()}>{busy ? "Ouverture de la source…" : `Voir le plan${page ? ` — page ${page}` : ""}`}</button>
     {error && <p role="status" className="text-xs text-warning">{error}</p>}

@@ -459,8 +459,8 @@
       "id": "dashboard-ux-pages",
       "note": "Pages auditées par UX01-UX29.",
       "paths": [
+        "src/app/dashboard/affaires/[projectId]/takeoff/page.tsx",
         "src/app/dashboard/page.tsx",
-        "src/app/dashboard/takeoff/**",
         "src/app/dashboard/products/**",
         "src/app/dashboard/prices/**",
         "src/app/dashboard/admin/*.tsx",
@@ -564,20 +564,21 @@
       ]
     },
     {
-      "id": "estimate-takeoff",
-      "note": "Revue d'un job de métré depuis la version (TKF, contracts.e2e.ts).",
+      "id": "takeoff-bookmarks",
+      "note": "Reprise des favoris et revue du métré depuis son affaire.",
       "paths": [
-        "src/app/dashboard/estimates/[versionId]/takeoff/**"
+        "src/app/dashboard/[...unknown]/**",
+        "src/app/dashboard/affaires/[projectId]/takeoff/**"
       ],
       "journeys": [
         "e2e/army/takeoff/contracts.e2e.ts"
       ]
     },
     {
-      "id": "takeoff-monitor-results",
+      "id": "takeoff-affaire-results",
       "note": "Le suivi d'un métré terminé ouvre sa revue et ses lignes extraites (TKW01).",
       "paths": [
-        "src/components/takeoff/TakeoffJobMonitor.tsx"
+        "src/components/takeoff/TakeoffJobsTable.tsx"
       ],
       "journeys": [
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
@@ -683,7 +684,7 @@
         "src/app/favicon.ico",
         "src/app/portal/**",
         "src/app/dashboard/_actions/**",
-        "src/app/dashboard/estimates/[versionId]/{diff,plans,source-review}/**",
+        "src/app/dashboard/estimates/[versionId]/{diff,source-review}/**",
         "src/app/dashboard/estimates/{dashboard,templates}/**",
         "src/app/dashboard/admin/{procurement-reset,rules,suggestion-learning,takeoff}/**",
         "src/app/dashboard/{analytics,direction,indices,memberships,referentiel,sites,suppliers,tarifs,tenants}/**"

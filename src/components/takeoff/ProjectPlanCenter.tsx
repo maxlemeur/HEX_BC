@@ -209,11 +209,8 @@ export function ProjectPlanCenter({ projectId, initialPlanSets, hasTakeoffAnalys
                 {loaded.map((set) => (
                   <PlanSetCard
                     key={set.id}
-                    appearance="row"
                     planSet={set}
-                    versionId={null}
                     launchHref={launchHref(set.id)}
-                    launchLabel="Analyser ce jeu"
                     deletePlanSetHandler={deletePlanSetAction}
                     onDeleted={handleSetDeleted}
                     onFilesChanged={handleFilesChanged}

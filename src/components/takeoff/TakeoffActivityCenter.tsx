@@ -694,6 +694,7 @@ export default function TakeoffActivityCenter({
                 : null,
           }))}
           initialPlanSetId={requestedPlanSetId}
+          initialVersionId={searchParams.get("launch") === "1" ? searchParams.get("version") : null}
         />
       ) : null}
     </div>

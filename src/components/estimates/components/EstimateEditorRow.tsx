@@ -96,6 +96,7 @@ const DragHandle = memo(function DragHandle({
 });
 
 export type EstimateEditorRowProps = {
+  projectId?: string;
   versionId: string;
   estimateCurrency: SupportedEstimateCurrency;
   item: EstimateItem;
@@ -203,6 +204,7 @@ function areEstimateEditorRowPropsEqual(
   next: EstimateEditorRowProps
 ) {
   return (
+    previous.projectId === next.projectId &&
     previous.versionId === next.versionId &&
     previous.estimateCurrency === next.estimateCurrency &&
     previous.item === next.item &&
@@ -241,6 +243,7 @@ function areEstimateEditorRowPropsEqual(
 }
 
 export const EstimateEditorRow = memo(function EstimateEditorRow({
+  projectId,
   versionId,
   estimateCurrency,
   item,
@@ -589,6 +592,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
 
   return (
     <LineRow
+      projectId={projectId}
       versionId={versionId}
       item={item}
       depth={depth}

@@ -7,10 +7,11 @@ import {
   apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, resolveDownload,
 } from "../critical/fixtures";
 import {
-  TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
+  TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
 } from "./fixtures";
 import { nativeTest } from "./native-ui";
-import { launchWorkerCsv } from "./worker-support";
+import { signUpDedicatedOwner } from "../local/dedicated-owner";
+import { launchWorkerCsv, signUpWorkerOwner } from "./worker-support";
 
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; details?: {
   blocked_items?: Array<{ item_id: string; designation: string }>; medium_items?: Array<{ designation: string }>; threshold?: number;
@@ -156,7 +157,7 @@ armyTest("TKF06 final wizard confirmation applies through the owning page sessio
   ];
   const seed = await fixture.seed("A", measures);
   const before = await readEstimate(browser, ids.versionId);
-  await app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${seed.jobId}`);
+  await app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${seed.jobId}/review?versionId=${ids.versionId}`);
   // One screen: the impact preview is computed without a click, the excluded line is not among the lines sent, and the
   // request carries the version's strategy (no DPGF line: append) and no overrides.
   const sent: unknown[] = [];
@@ -197,34 +198,61 @@ armyTest("TKF06 final wizard confirmation applies through the owning page sessio
 // TI-686 D10: the first journey through the guard panel. Two lines without their localized proof (level C) are forced
 // from the wizard: one coded reason and one justification written once, copied to the selection, then the whole override
 // sent; both enter the internal estimate as provisions with their reason, the admitted line stays measured. That an
-// engineer never sees the block is covered by TakeoffApplyWizard.test.tsx (the shared ARMY account stays admin).
+// engineer cannot force it is checked on the same job in this journey’s disposable tenant.
 armyTest("TKF07 an administrator forces each blocked line from the apply wizard with a coded reason", options, async ui => {
   const { app, screen, browser, army } = ui;
   await browser.emulateMedia({ reducedMotion: "reduce" });
+  const owner = await signUpWorkerOwner(ui, "TKFORCE");
   const ids = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY UI forced apply" }, army);
   const target = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} forced target`);
-  const fixture = await localTakeoffFixture(army, ids);
+  const fixture = await localTakeoffFixture(army, ids, owner.email, owner.password);
   const measures = [
     { designation: `${army.runPrefix} UI forced A`, quantity: 12.5, unit: "m2", confidence: 0.9 },
     { designation: `${army.runPrefix} UI forced B`, quantity: 3, unit: "u", confidence: 0.9 },
     { designation: `${army.runPrefix} UI admitted`, quantity: 7, unit: "u", confidence: 0.9 },
   ];
   const seed = await fixture.seed("C", measures);
-  const worker = await localTakeoffWorkerClient(army, ids.versionId);
+  const worker = await localTakeoffWorkerClient(army, ids.versionId, owner.email, owner.password);
   for (const item of seed.items.slice(0, 2)) {
     const missing = await worker.client.from("takeoff_items").update({ evidence: null }).eq("id", item.id);
     expect(missing.error).toBeNull();
   }
-  await app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${seed.jobId}`);
+  const review = `/dashboard/affaires/${ids.projectId}/takeoff/${seed.jobId}/review?versionId=${ids.versionId}`;
+  const before = await readEstimate(browser, ids.versionId);
+  const justification = "ARMY relevé chantier joint au dossier fictif";
+  const forcedItems = seed.items.slice(0, 2).map(item => ({
+    item_id: item.id, reason_code: "additional_evidence", justification_index: 0,
+  }));
+  const changeRole = async (role: "admin" | "engineer") => {
+    const changed = await worker.client.from("tenant_memberships").update({ role })
+      .eq("tenant_id", owner.tenantId).eq("user_id", owner.userId).select("role").single();
+    expect(changed.data?.role).toBe(role);
+  };
+  await changeRole("engineer");
+  await app.open(review);
+  await expect(screen.getByText(measures[0].designation, { exact: true }).first()).toBeVisible();
+  await expect(screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeDisabled();
+  const refused = await applyOwnedTakeoff(browser, ids.versionId, seed.jobId, {
+    strategy: "append", target_section_id: target.parent_id, override: true,
+    forced_items: forcedItems, forced_justifications: [justification],
+  });
+  expect(refused.status).toBe(403);
+  await changeRole("admin");
+  await app.open(review);
   const dialog = await openTakeoffSend(ui, target.parent_id!, measures[0].designation);
   await expect(dialog).toContainText("Lignes à trancher");
+  for (const item of measures.slice(0, 2)) {
+    await expect(dialog.getByRole("checkbox", item.designation, { exact: true })).toBeChecked();
+    await expect(dialog.getByLabel(`Motif : ${item.designation}`, { exact: true })).toHaveValue("");
+  }
   await expect(dialog.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true })).toBeDisabled();
   const force = dialog.getByRole("button", "Forcer l'application (2 lignes)", { exact: true });
   await expect(force).toBeDisabled();
   await dialog.getByLabel("Motif de la sélection", { exact: true }).selectOption({ value: "additional_evidence" });
-  await dialog.getByLabel("Justification de la sélection", { exact: true }).fill("ARMY relevé chantier joint au dossier fictif");
+  await dialog.getByLabel("Justification de la sélection", { exact: true }).fill(justification);
   await dialog.getByRole("button", "Appliquer à la sélection", { exact: true }).click();
   await expect(force).toBeEnabled();
+  expect((await readEstimate(browser, ids.versionId)).items).toEqual(before.items);
   const forcedApply = browser.waitForResponse(`**/api/takeoff/jobs/${seed.jobId}/apply`);
   await force.click();
   const response = await forcedApply;
@@ -235,6 +263,13 @@ armyTest("TKF07 an administrator forces each blocked line from the apply wizard 
   expect(result.data.job).toMatchObject({ id: seed.jobId, status: "applied" });
   await expect(dialog).not.toBeVisible();
   const after = await readEstimate(browser, ids.versionId);
+  const audit = await worker.client.from("takeoff_apply_override_consumptions")
+    .select("user_id, audit_logs!inner(after_data)").eq("tenant_id", owner.tenantId)
+    .eq("job_id", seed.jobId).eq("estimate_version_id", ids.versionId).single();
+  expect(audit.error).toBeNull();
+  expect(audit.data).toMatchObject({ user_id: owner.userId, audit_logs: { after_data: { metadata: {
+    forced_items: expect.arrayContaining(forcedItems), forced_justifications: [justification],
+  } } } });
   const truth = (title: string) => (after.items.find(row => row.title === title)?.line_truth as LineTruth)?.qtyStatus;
   for (const item of measures) expect(after.items.find(row => row.title === item.designation)?.quantity).toBe(item.quantity);
   expect(measures.map(item => truth(item.designation)?.code)).toEqual(["internal_provision", "internal_provision", "measured"]);
@@ -308,3 +343,44 @@ armyTest("TKF04 revision comparison exposes actual additions removals and change
   expect(response.body.data).toMatchObject({ base_job_id: base.jobId, other_job_id: other.jobId });
   expect(response.body.data.summary).toMatchObject({ added: 1, removed: 1, changed: 1 });
 });
+
+for (const scope of ["archived", "other-tenant"] as const) {
+  armyTest(`A takeoff bookmark for an ${scope} affaire reveals no destination`, options, async ui => {
+    const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "ARMY accès au métré" }, ui.army);
+    const fixture = await localTakeoffFixture(ui.army, ids);
+    const { jobId } = await fixture.seed("A", definitions);
+    const path = `/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review?reviewMode=production&view=items`;
+    await ui.app.open(path);
+    await expect(ui.browser).toHaveURL(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}&reviewMode=production&view=items`);
+    if (scope === "archived") {
+      const oldVersion = `/dashboard/estimates/${ids.versionId}`;
+      const affaire = `/dashboard/affaires/${ids.projectId}`;
+      for (const [from, to] of [
+        ["/dashboard/takeoff", "/dashboard/affaires"],
+        [`${oldVersion}/plans`, `${affaire}/plans`],
+        [`${oldVersion}/takeoff`, `${affaire}/takeoff?version=${ids.versionId}`],
+        [`${oldVersion}/takeoff/new`, `${affaire}/takeoff?launch=1&version=${ids.versionId}`],
+        [`${oldVersion}/takeoff/${jobId}`, `${affaire}/takeoff/${jobId}/review?versionId=${ids.versionId}`],
+      ]) {
+        await ui.app.open(from);
+        await expect(ui.browser).toHaveURL(to);
+      }
+      const worker = await localTakeoffWorkerClient(ui.army, ids.versionId);
+      const result = await worker.client.from("estimate_projects").update({ is_archived: true })
+        .eq("id", ids.projectId).eq("tenant_id", worker.tenantId).select("id").single();
+      expect(result.error).toBeNull();
+    } else {
+      await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "TKACCESS" });
+      const own = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Autre affaire ARMY" }, ui.army);
+      const foreignJob = `/dashboard/estimates/${own.versionId}/takeoff/${jobId}`;
+      await ui.app.open(foreignJob);
+      await expect(ui.screen.getByRole("heading", "Page introuvable", { exact: true })).toBeVisible();
+      await expect(ui.browser).toHaveURL(foreignJob);
+    }
+    for (const bookmark of [path, `/dashboard/estimates/${ids.versionId}/plans`]) {
+      await ui.app.open(bookmark);
+      await expect(ui.screen.getByRole("heading", "Page introuvable", { exact: true })).toBeVisible();
+      await expect(ui.browser).toHaveURL(bookmark);
+    }
+  });
+}

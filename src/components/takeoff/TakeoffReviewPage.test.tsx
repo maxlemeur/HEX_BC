@@ -8,7 +8,7 @@ const navigation = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation.router,
   useSearchParams: () => navigation.searchParams,
-  usePathname: () => "/dashboard/estimates/version/takeoff/job/review",
+  usePathname: () => "/dashboard/affaires/project/takeoff/job/review",
 }));
 vi.mock("@/components/feedback/toast-provider", () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
@@ -96,7 +96,7 @@ describe("TakeoffReviewPage, refreshing the DPGF comparison (TI-721)", () => {
   it("reads the comparison once and keeps the decision being typed, whatever the order of the answers", async () => {
     vi.mocked(fetchTakeoffJob).mockResolvedValue(JOB);
     const reads = heldComparisonReads();
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+    render(<TakeoffReviewPage projectId="project" jobId={JOB_ID} versionId={VERSION_ID} />);
     await waitFor(() => expect(reads.count()).toBe(1));
     reads.answerAll(comparison("Plafond suspendu"));
 
@@ -119,7 +119,7 @@ describe("TakeoffReviewPage, refreshing the DPGF comparison (TI-721)", () => {
   it("shows the read asked for last, even when an earlier read answers after it", async () => {
     vi.mocked(fetchTakeoffJob).mockResolvedValue(JOB);
     const reads = heldComparisonReads({ answersOnceAborted: true });
-    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+    render(<TakeoffReviewPage projectId="project" jobId={JOB_ID} versionId={VERSION_ID} />);
     await waitFor(() => expect(reads.count()).toBe(1));
     reads.answerAll(comparison("Plafond suspendu"));
     await screen.findByLabelText("Justification humaine");

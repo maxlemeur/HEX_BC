@@ -99,44 +99,6 @@ export const POLISH_ROUTES: PolishRoute[] = [
     tags: ["estimates", "referentiel"],
   },
 
-  // Métré (routes legacy comprises)
-  {
-    id: "takeoff-legacy-home",
-    path: "/dashboard/takeoff",
-    heading: "Métrés — Analyse de plans",
-    tags: ["takeoff", "legacy"],
-  },
-  {
-    id: "takeoff-legacy-plans",
-    path: "/dashboard/estimates/:takeoffVersionId/plans",
-    heading: "Plans",
-    tags: ["takeoff", "legacy"],
-  },
-  {
-    id: "takeoff-legacy-jobs",
-    path: "/dashboard/estimates/:takeoffVersionId/takeoff",
-    heading: "Historique des extractions",
-    tags: ["takeoff", "legacy"],
-  },
-  {
-    id: "takeoff-legacy-new",
-    path: "/dashboard/estimates/:takeoffVersionId/takeoff/new",
-    heading: "Lancer une extraction",
-    tags: ["takeoff", "legacy"],
-  },
-  {
-    id: "takeoff-legacy-job",
-    path: "/dashboard/estimates/:takeoffVersionId/takeoff/:takeoffJobId",
-    heading: "Extraction",
-    tags: ["takeoff", "legacy"],
-  },
-  {
-    id: "takeoff-legacy-review",
-    path: "/dashboard/estimates/:takeoffVersionId/takeoff/:takeoffJobId/review",
-    heading: "Revue d’extraction",
-    tags: ["takeoff", "legacy"],
-  },
-
   // Commandes
   { id: "orders", path: "/dashboard/orders", heading: "Bons de commande", tags: ["orders"] },
   { id: "orders-new", path: "/dashboard/orders/new", heading: "Nouveau bon de commande", tags: ["orders"] },

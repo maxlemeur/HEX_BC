@@ -513,7 +513,6 @@ function createPlansSummary(input: {
     planSetCount: 1,
     planFileCount: 3,
     totalSizeBytes: 18_400_000,
-    hasLegacyFallback: false,
     defaultPlanSetId: "55555555-5555-4555-8555-555555555555",
     defaultPlanSetName: "Plans intake confirmes",
     defaultPlanSetSource: "affaire-intake",

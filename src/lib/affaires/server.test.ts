@@ -50,10 +50,16 @@ import {
   fetchAffaireHubMarginAnalysis,
   fetchAffaireHubPlansSummary,
   fetchAffaireHubSummary,
-  fetchAffaireList,
+  fetchAffaireListWithContext,
   fetchAffaireManagerQueueSummary,
   fetchAffairePageData,
 } from "@/lib/affaires/server";
+
+import { normalizeAffaireListQuery, type AffaireListQuery } from "@/lib/affaires/schemas";
+
+async function readAffaireList(input: AffaireListQuery) {
+  return fetchAffaireListWithContext(await getAuthenticatedContext(), normalizeAffaireListQuery(input));
+}
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -431,7 +437,7 @@ describe("affaires server (list + counters)", () => {
 
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
-    const result = await fetchAffaireList({
+    const result = await readAffaireList({
       q: "Projet",
       status: ["draft"],
       size: 20,
@@ -485,7 +491,7 @@ describe("affaires server (list + counters)", () => {
     );
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
-    const result = await fetchAffaireList({ size: 1000 });
+    const result = await readAffaireList({ size: 1000 });
 
     expect(context.supabase.rpc).toHaveBeenCalledTimes(10);
     expect(context.supabase.rpc.mock.calls[0]?.[1]).toEqual(
@@ -518,7 +524,7 @@ describe("affaires server (list + counters)", () => {
       }),
       "utf8"
     ).toString("base64url");
-    await fetchAffaireList({
+    await readAffaireList({
       sort: "name",
       dir: "asc",
       cursor: nameCursor,
@@ -544,7 +550,7 @@ describe("affaires server (list + counters)", () => {
       }),
       "utf8"
     ).toString("base64url");
-    await fetchAffaireList({
+    await readAffaireList({
       sort: "totalHtCents",
       dir: "desc",
       cursor: amountCursor,
@@ -577,7 +583,7 @@ describe("affaires server (list + counters)", () => {
     ).toString("base64url");
 
     await expect(
-      fetchAffaireList({ sort: "totalHtCents", cursor })
+      readAffaireList({ sort: "totalHtCents", cursor })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(context.supabase.rpc).not.toHaveBeenCalled();
   });
@@ -594,7 +600,7 @@ describe("affaires server (list + counters)", () => {
 
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
-    const result = await fetchAffaireList({ size: 20 });
+    const result = await readAffaireList({ size: 20 });
 
     expect(result.items).toHaveLength(20);
     expect(result.hasNextPage).toBe(true);
@@ -1986,7 +1992,7 @@ describe("affaires hub v3 margin (lot 3.2)", () => {
 // The App Router performs this RPC and its follow-up PostgREST read on the
 // server; browser routing cannot hold either internal request without replacing
 // the rendered server result. Control that database schedule at the existing
-// reader boundary here, while exercising the real fetchAffaireList function.
+// reader boundary here, while exercising the list reader used by the affaires page.
 // Failure modes: (1) a save changes a listed version between the two reads,
 // (2) the second read returns an unsupported currency, (3) a listed version is
 // absent from it. None may fail the whole page (PR83 review: one autosave made
@@ -2026,7 +2032,7 @@ describe("affaires list currency snapshot race", () => {
     context.supabase.from.mockImplementation(() => versionRead as never);
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
-    const result = await fetchAffaireList({ size: 20, sort: "totalHtCents", dir: "asc" });
+    const result = await readAffaireList({ size: 20, sort: "totalHtCents", dir: "asc" });
 
     expect(schedule).toEqual([
       "RPC: version 1 total 1000 before the save",
@@ -2060,7 +2066,7 @@ describe("affaires list currency snapshot race", () => {
     context.supabase.from.mockImplementation(() => versionRead as never);
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
-    await expect(fetchAffaireList({ size: 20 })).rejects.toMatchObject({
+    await expect(readAffaireList({ size: 20 })).rejects.toMatchObject({
       status: 400, code: "BAD_REQUEST", message: "Impossible de charger les devises des affaires.",
     });
   });
@@ -2078,7 +2084,7 @@ describe("affaires list currency snapshot race", () => {
     context.supabase.from.mockImplementation(() => versionRead as never);
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
-    const result = await fetchAffaireList({ size: 20 });
+    const result = await readAffaireList({ size: 20 });
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({
       currentVersionId: listed.current_version_id, currentCurrency: "USD", currentTotalHtCents: 123456,

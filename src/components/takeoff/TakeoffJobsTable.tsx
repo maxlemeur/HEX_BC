@@ -14,6 +14,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import {
   PAGE_SIZE_OPTIONS,
+  OPERATOR_STATE_LABELS,
+  getBusinessStatusLabel,
   formatCount,
   formatTimestamp,
   getConfidenceBadgeVariant,
@@ -62,22 +64,22 @@ export default function TakeoffJobsTable({
           const response = await reconcileTakeoffJob(jobId);
           if (response.dispatch?.status === "persistence_unconfirmed") {
             setActionNotice(
-              `Réconciliation créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis ce job (suivi ${response.dispatch.correlation_id}).`
+              `Réconciliation créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis cette analyse (suivi ${response.dispatch.correlation_id}).`
             );
           } else if (response.dispatch?.status === "queued_for_recovery") {
             setActionNotice(
-              `Réconciliation enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activé (suivi ${response.dispatch.correlation_id}).`
+              `Réconciliation enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activée (suivi ${response.dispatch.correlation_id}).`
             );
           }
         } else if (action === "resubmit") {
           const response = await resubmitTakeoffJob(jobId);
           if (response.dispatch?.status === "persistence_unconfirmed") {
             setActionNotice(
-              `Nouvelle soumission créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis ce job (suivi ${response.dispatch.correlation_id}).`
+              `Nouvelle soumission créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis cette analyse (suivi ${response.dispatch.correlation_id}).`
             );
           } else if (response.dispatch?.status === "queued_for_recovery") {
             setActionNotice(
-              `Nouvelle soumission enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activé (suivi ${response.dispatch.correlation_id}).`
+              `Nouvelle soumission enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activée (suivi ${response.dispatch.correlation_id}).`
             );
           }
         } else {
@@ -127,12 +129,6 @@ export default function TakeoffJobsTable({
     reviewEnabled: boolean
   ) => (
     <div className="flex flex-wrap gap-2">
-      <Link
-        href={`/dashboard/estimates/${job.estimateVersionId}/takeoff/${job.jobId}`}
-        className={buttonVariants({ variant: "outline" })}
-      >
-        Détail
-      </Link>
       {reviewEnabled ? (
         <Link
           href={`/dashboard/affaires/${projectId}/takeoff/${job.jobId}/review?versionId=${job.estimateVersionId}`}
@@ -247,7 +243,7 @@ export default function TakeoffJobsTable({
                     <span
                       className={`status-badge ${getStatusCss(job.statusRaw)}`}
                     >
-                      {job.statusLabel}
+                      {getBusinessStatusLabel(job.statusRaw, job.statusLabel)}
                     </span>
                     <Badge variant="neutral" size="sm">
                       {job.levelLabel}
@@ -275,7 +271,7 @@ export default function TakeoffJobsTable({
                         )}
                         size="sm"
                       >
-                        {job.operatorStateLabel ?? job.operatorState}
+                        {OPERATOR_STATE_LABELS[job.operatorState]}
                       </Badge>
                     ) : null}
                     {job.dispatchStatus === "queued" ||
@@ -425,7 +421,7 @@ export default function TakeoffJobsTable({
                           <span
                             className={`status-badge ${getStatusCss(job.statusRaw)}`}
                           >
-                            {job.statusLabel}
+                            {getBusinessStatusLabel(job.statusRaw, job.statusLabel)}
                           </span>
                           {/* An immediate analysis has no provider batch: its badge would repeat the strategy. */}
                           {job.processingStrategy === "sync" ? null : (
@@ -456,7 +452,7 @@ export default function TakeoffJobsTable({
                               )}
                               size="sm"
                             >
-                              {job.operatorStateLabel ?? job.operatorState}
+                              {OPERATOR_STATE_LABELS[job.operatorState]}
                             </Badge>
                           ) : null}
                           {job.dispatchStatus === "queued" ||

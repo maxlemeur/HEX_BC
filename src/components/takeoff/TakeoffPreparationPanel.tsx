@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useOptionalUserContext } from "@/components/UserContext";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
-import { TakeoffPreparationFields, type PreparationSourceOption } from "@/components/takeoff/TakeoffPreparationFields";
+import { TakeoffPreparationFields } from "@/components/takeoff/TakeoffPreparationFields";
 import { useTakeoffPreparation } from "@/components/takeoff/useTakeoffPreparation";
 import { TakeoffPreparationProfiles } from "@/components/takeoff/TakeoffPreparationProfiles";
 import { TakeoffPreparationAssistance } from "@/components/takeoff/TakeoffPreparationAssistance";
@@ -39,8 +39,6 @@ export type TakeoffPreparationPanelProps = {
   documentControls?: ReactNode;
   destinationControls?: ReactNode;
   advancedControls?: ReactNode | ((context: PreparationAdvancedControlsContext) => ReactNode);
-  uploadSource?: PreparationSourceOption | null;
-  localPreviewUrl?: string | null;
   onLaunch: (revision: number, processing: TakeoffPreparation["processing"]) => Promise<void>;
   onBusyChange?: (busy: boolean) => void;
   onRegisterSave?: (save: () => Promise<number | null>) => void;
@@ -53,7 +51,7 @@ export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
   return <TakeoffPreparationPanelContent key={`${user?.tenantId ?? "unknown"}:${user?.profile?.id ?? "unknown"}:${props.projectId}`} {...props} />;
 }
 
-function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, targetSelectionKey = 0, recommendedLevel = "B", compatibleLevels = PROCESSING_LEVELS, documentControls, destinationControls, advancedControls, localPreviewUrl, uploadSource, onLaunch, onBusyChange, onRegisterSave, launchDisabled = false, disabled = false }: TakeoffPreparationPanelProps) {
+function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, targetSelectionKey = 0, recommendedLevel = "B", compatibleLevels = PROCESSING_LEVELS, documentControls, destinationControls, advancedControls, onLaunch, onBusyChange, onRegisterSave, launchDisabled = false, disabled = false }: TakeoffPreparationPanelProps) {
   const { record, support, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId);
   const [triaging, setTriaging] = useState(false);
   const [step, setStep] = useState(0);
@@ -97,22 +95,21 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       if (latest.destination.estimate_version_id !== target && shouldBindTarget) {
         return { ...latest, destination: { ...latest.destination, estimate_version_id: target, confirmed: false } };
       }
-      const candidates = uploadSource ? [uploadSource] : availableSources;
-      const selection = uploadSource?.document_id ?? planSetId;
+      const selection = planSetId;
       const didSwitch = (previousSelection.current !== undefined && previousSelection.current !== selection) || (previousSelection.current === undefined && record?.revision === null && !latest.sources.some((source) => source.active));
       previousSelection.current = selection;
       const currentIds = new Set(latest.sources.map((source) => source.document_id));
-      const newSources = candidates.filter((source) => !currentIds.has(source.document_id));
+      const newSources = availableSources.filter((source) => !currentIds.has(source.document_id));
       const changedSelection = latest.sources.some((source) => source.active && (
-        uploadSource ? source.document_id !== uploadSource.document_id : (source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId))
+        source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId)
       ));
       if (newSources.length === 0 && !changedSelection && !didSwitch) return latest;
       return { ...latest, sources: [
-        ...latest.sources.map((source) => ({ ...source, ...(didSwitch ? { active: uploadSource ? source.document_id === uploadSource.document_id : source.plan_set_id === planSetId, confirmed: false } : {}), ...(source.active && (uploadSource ? source.document_id !== uploadSource.document_id : (source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId))) ? { active: false, confirmed: false } : {}) })),
-        ...newSources.map((source) => ({ ...source, revision: source.revision ?? null, pages: [], active: uploadSource ? source.document_id === uploadSource.document_id : Boolean(planSetId && source.plan_set_id === planSetId), confirmed: false })),
+        ...latest.sources.map((source) => ({ ...source, ...(didSwitch ? { active: source.plan_set_id === planSetId, confirmed: false } : {}), ...(source.active && (source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId)) ? { active: false, confirmed: false } : {}) })),
+        ...newSources.map((source) => ({ ...source, revision: source.revision ?? null, pages: [], active: Boolean(planSetId && source.plan_set_id === planSetId), confirmed: false })),
       ] };
     });
-  }, [availableSources, compatibleLevels, draft, estimateVersionId, planSetId, recommendedLevel, record?.revision, renewTargetIntent, targetSelectionKey, updateDraft, uploadSource]);
+  }, [availableSources, compatibleLevels, draft, estimateVersionId, planSetId, recommendedLevel, record?.revision, renewTargetIntent, targetSelectionKey, updateDraft]);
 
   async function launch() {
     if (!readiness?.can_launch || locked || launchDisabled || !processingCompatible) return;
@@ -175,7 +172,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {step === 1 && <TakeoffPreparationProfiles draft={draft} onChange={updateDraft} profiles={support.profiles} loadError={support.profilesError} onSaved={addProfile} />}
       {step === 3 && destinationControls}
       {step === 3 && estimateVersionId && draft.destination.estimate_version_id !== estimateVersionId && <div className="space-y-2 rounded-lg border border-border bg-surface-subtle p-3"><p className="text-sm text-muted-foreground">La destination enregistrée est conservée pour retrouver la demande précédente. Pour changer sa destination, choisissez explicitement la version affichée.</p><button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => updateDraft({ ...draft, destination: { ...draft.destination, estimate_version_id: estimateVersionId, confirmed: false } })}>Utiliser la version cible sélectionnée</button></div>}
-      <TakeoffPreparationFields draft={draft} onChange={updateDraft} step={step} projectId={projectId} availableSources={uploadSource ? [...availableSources, uploadSource] : availableSources} localPreviewUrl={localPreviewUrl} orderedQuestionIds={orderedQuestionIds} />
+      <TakeoffPreparationFields draft={draft} onChange={updateDraft} step={step} projectId={projectId} availableSources={availableSources} orderedQuestionIds={orderedQuestionIds} />
       {step === 0 && <TakeoffPageTriage projectId={projectId} draft={draft} availability={support.pageTriage} onChange={updateDraft} save={save} adopt={adopt} disabled={locked || saveState === "error"} onBusyChange={(busy) => { setTriaging(busy); onBusyChange?.(busy); }} />}
       {step === 3 && <p className="text-sm text-muted-foreground">Réglages du traitement : {draft.processing.level ? TAKEOFF_LEVEL_BUSINESS_LABELS[draft.processing.level] : "Niveau à préciser"} · {record?.confirmedAt && draft.processing.provider === "auto" ? "Automatique — fournisseur de la demande confirmée" : PROCESSING_PROVIDER_LABELS[draft.processing.provider]}.</p>}
       {step === 3 && !processingCompatible && <Alert variant="warning"><AlertDescription>Le niveau enregistré n’est pas compatible avec les documents sélectionnés. Choisissez explicitement un niveau compatible dans les options avancées.</AlertDescription></Alert>}

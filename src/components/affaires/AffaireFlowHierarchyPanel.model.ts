@@ -112,7 +112,6 @@ export type AffaireFlowPanelModel = {
   primaryAction: AffaireFlowPanelAction | null;
   blockers: string[];
   aides: AffaireFlowPanelAction[];
-  legacyAction: AffaireFlowPanelAction | null;
 };
 
 function dedupe(values: string[]) {
@@ -376,7 +375,6 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     ...(submissionReadiness?.alerts.filter((flag) => flag.category === "documents") ?? []),
   ];
   const documentsCount = documents.length;
-  const hasLegacyEntry = input.takeoffEnabled && input.currentVersion !== null && input.plansSummary?.hasLegacyFallback === true;
   const processingDocuments = documents.filter((document) => isDocumentProcessing(document));
 
   const addFilesSuggestion = findSuggestion(suggestions, "add_files");
@@ -990,16 +988,6 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     );
   }
 
-  const legacyAction = hasLegacyEntry
-    ? toHrefAction({
-        key: "legacy-fallback",
-        label: "Ouvrir l’ancien parcours",
-        description: `Un ancien parcours par chiffrage existe déjà sur la V${input.currentVersion?.versionNumber ?? "?"}. Utilisez-le seulement comme reprise exceptionnelle.`,
-        href: `/dashboard/estimates/${input.currentVersion?.id}/takeoff`,
-        variant: "secondary",
-      })
-    : null;
-
   return {
     heroState,
     reviewImpact,
@@ -1013,6 +1001,5 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     primaryAction,
     blockers,
     aides,
-    legacyAction,
   };
 }

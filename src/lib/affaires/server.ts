@@ -294,7 +294,6 @@ export type AffaireHubPlansSummaryResult = {
   planSetCount: number;
   planFileCount: number;
   totalSizeBytes: number;
-  hasLegacyFallback?: boolean;
   defaultPlanSetId: string | null;
   defaultPlanSetName: string | null;
   defaultPlanSetSource: string | null;
@@ -1384,9 +1383,6 @@ async function fetchAffaireHubPlansSummaryWithContext(
     created_at: string | null;
   }>;
   const planSetCount = planSetsResult.count ?? planSetRows.length;
-  const hasLegacyFallback = planSetRows.some(
-    (planSet) => typeof planSet.estimate_version_id === "string"
-  );
   const sortedPlanSetRows = [...planSetRows].sort((a, b) => {
     const aCreatedAt = a.created_at ?? "";
     const bCreatedAt = b.created_at ?? "";
@@ -1674,7 +1670,6 @@ async function fetchAffaireHubPlansSummaryWithContext(
     planSetCount,
     planFileCount,
     totalSizeBytes,
-    hasLegacyFallback,
     defaultPlanSetId,
     defaultPlanSetName,
     defaultPlanSetSource,
@@ -1773,7 +1768,7 @@ async function fetchAffaireListRowsWithContext<TPageSize extends number>(
 
 // Only consumers that display monetary amounts need the second, guarded
 // currency read. Metadata-only readers keep the RPC snapshot and its ordering.
-async function fetchAffaireListWithContext<TPageSize extends number>(
+export async function fetchAffaireListWithContext<TPageSize extends number>(
   context: AffaireContext,
   query: AffaireListFetchQuery<TPageSize>
 ): Promise<AffaireListPageResult<TPageSize>> {
@@ -2056,17 +2051,6 @@ async function fetchAffaireManagerFilteredPageDataWithContext(
     },
     managerQueue: managerQueueData.summary,
   };
-}
-
-export async function fetchAffaireList(
-  input: AffaireListQuery = {}
-): Promise<AffaireListPageResult> {
-  const context = await getAuthenticatedContext();
-  const query = normalizeAffaireListQuery(input);
-  if (query.manager !== "all") {
-    return (await fetchAffaireManagerFilteredPageDataWithContext(context, query)).list;
-  }
-  return fetchAffaireListWithContext(context, query);
 }
 
 export async function fetchAffaireCounters(
