@@ -109,10 +109,13 @@ describe("the document reads offered to the model", () => {
       await runAssistantLoop({ input: [{ role: "user", content: "Que dit la note ?" }], tools, callModel: model.callModel, documents,
         emit: () => undefined, signal: new AbortController().signal });
       const [first, second] = bodies as [Record<string, unknown>, Record<string, unknown>];
-      expect(second.instructions).toBe(first.instructions);
-      expect(second.tools).toEqual(first.tools);
-      expect(String(second.instructions)).not.toContain(INJECTED);
       const input = second.input as Array<Record<string, unknown>>;
+      // The rules: the developer message that opens the input, the same at every request, and the only one.
+      expect(input[0]).toEqual((first.input as unknown[])[0]);
+      expect(input[0]).toMatchObject({ role: "developer" });
+      expect(input.slice(1).some((item) => item.role === "developer" || item.role === "system")).toBe(false);
+      expect(second.tools).toEqual(first.tools);
+      expect(JSON.stringify(input[0])).not.toContain("modification du devis");
       const carrying = input.filter((item) => JSON.stringify(item).includes("modification du devis"));
       expect(carrying).toEqual([expect.objectContaining({ type: "function_call_output", call_id: "call_1" })]);
       // A JSON string value of the result, quoted: never spliced in as text of its own.

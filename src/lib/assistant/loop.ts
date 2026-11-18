@@ -58,7 +58,7 @@ export type AssistantEvent =
 
 /**
  * One request of the answer. `finalInstruction` is set on the last one, which
- * offers no tool: the loop's own words, added to the rules, never to the input.
+ * offers no tool: the loop's own words, said as the rules are, never as the user's or a read's.
  */
 export type AssistantModelRequest = { input: unknown[]; toolsAllowed: boolean; finalInstruction?: string };
 
