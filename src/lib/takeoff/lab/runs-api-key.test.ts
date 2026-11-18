@@ -303,6 +303,16 @@ describe("lab extraction on the member's API key", () => {
     await expectNoSecretStored();
   });
 
+  it("stores no key an answer escapes in its JSON (a decoded value), and keeps « Bearer » plan text as written", async () => {
+    const echoed = { ...ITEMS, items: [{ ...ITEMS.items[0], designation: `Tuyauterie ${key}` },
+      { ...ITEMS.items[1], designation: "Vanne Bearer bracket DN20" }] };
+    provider.reply = () => answer(JSON.stringify(echoed).replace(key, `\\u0073${key.slice(1)}`));
+    const run = await essai([terra()]);
+    expect(JSON.stringify(run)).not.toContain(key);
+    expect(run.configs[0].elements.map((element) => element.label)).toEqual(["Tuyauterie [clé masquée]", "Vanne Bearer bracket DN20"]);
+    await expectNoSecretStored();
+  });
+
   it("leaves the cost « à confirmer » when OpenAI served another tier than Standard", async () => {
     provider.reply = () => answer(JSON.stringify(ITEMS), { tier: "priority" });
     const [config] = (await essai([terra()])).configs;

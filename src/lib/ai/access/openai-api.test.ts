@@ -624,6 +624,35 @@ describe("a structured call for the lab", () => {
     expect(result.data?.items[0].designation).toBe("Tuyauterie [clé masquée]");
   });
 
+  // Review round 2, item H: masking applies to decoded values, and only to the key and real OpenAI key shapes.
+  it("masks a key the answer escapes in its JSON, which parsing would decode", async () => {
+    const key = fictionalKey();
+    const echoed = { ...items, items: [{ ...items.items[0], designation: `Tuyauterie ${key}` }, items.items[1]] };
+    // The answer writes the key's first letter as a JSON escape: the serialized text never contains the key itself.
+    const escaped = JSON.stringify(echoed).replace(key, `\\u0073${key.slice(1)}`);
+    expect(escaped).not.toContain(key);
+    const openai = fakeOpenAi((_key, pathname) => pathname === "/v1/models" ? listed() : pathname === "/v1/responses/input_tokens" ? counted(1_000)
+      : answered(escaped));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key });
+    const result = await service.execute<z.infer<typeof TakeoffExchangeSchema>>(OWNER, await prepareCall(service), { timeoutMs: 60_000 });
+    expect(result.data?.items[0].designation).toBe("Tuyauterie [clé masquée]");
+    expect(JSON.stringify(result)).not.toContain(key);
+    expect(JSON.stringify(JSON.parse(result.rawText))).not.toContain(key);
+  });
+
+  it("leaves legitimate plan text that merely contains « Bearer » unchanged", async () => {
+    const plan = { ...items, items: [{ ...items.items[0], designation: "Support Bearer bracket DN20", evidence: "Bearer bracket 4 u, repère B1" },
+      items.items[1]] };
+    const openai = fakeOpenAi((_key, pathname) => pathname === "/v1/models" ? listed() : pathname === "/v1/responses/input_tokens" ? counted(1_000)
+      : answered(JSON.stringify(plan)));
+    const { service } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const result = await service.execute<z.infer<typeof TakeoffExchangeSchema>>(OWNER, await prepareCall(service), { timeoutMs: 60_000 });
+    expect([result.data?.items[0].designation, result.data?.items[0].evidence]).toEqual(["Support Bearer bracket DN20", "Bearer bracket 4 u, repère B1"]);
+    expect(JSON.parse(result.rawText)).toEqual(plan);
+  });
+
   it("uses a strict schema only where the schema allows it", () => {
     expect(strictOpenAiSchema(z.object({ connexion: z.literal("ok") }).strict())).toEqual({ type: "object",
       properties: { connexion: { type: "string", const: "ok" } }, required: ["connexion"], additionalProperties: false });

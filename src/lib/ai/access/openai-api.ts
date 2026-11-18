@@ -17,7 +17,7 @@ import {
 } from "@/lib/ai/access/openai-pricing";
 import { resolveSecretStore, SecretStoreError, type SecretItem, type SecretStore } from "@/lib/ai/access/secret-store";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
-import { containsCredential, REDACTED, redactSecrets } from "@/lib/observability/redaction";
+import { containsCredential, REDACTED } from "@/lib/observability/redaction";
 
 // The OpenAI adapter of a member's personal API key. It is the one place that
 // obtains the saved key (`resolveKey`, from the Keychain) and the one place that
@@ -378,9 +378,37 @@ async function generateWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, reques
   if (!usage) throw new ApiKeyError("AI_KEY_RESPONSE_LOST", context);
   const parts = answer.output.filter((item) => item.type === "message").flatMap((item) => item.content ?? []);
   const refused = parts.some((part) => part.type === "refusal");
-  // An answer that echoes the key, or anything credential-shaped, is masked before it is parsed or stored.
-  const text = redactSecrets(secret.maskIn(parts.filter((part) => part.type === "output_text").map((part) => part.text ?? "").join(""), REDACTED));
+  // As received: decoded and masked by `readAnswer` before anything reads, stores or shows it.
+  const text = parts.filter((part) => part.type === "output_text").map((part) => part.text ?? "").join("");
   return { model, usage, serviceTier, requestId: reply.requestId, text, refused };
+}
+
+/** A real OpenAI key's shape: « sk- » then at least 20 key characters. Plan text such as « Bearer bracket » is not one. */
+const OPENAI_KEY_SHAPE = /\bsk-[A-Za-z0-9_-]{20,}/g;
+
+function maskAnswerString(value: string, secret: ApiKeySecret) {
+  return secret.maskIn(value, REDACTED).replace(OPENAI_KEY_SHAPE, REDACTED);
+}
+
+function maskAnswerValue(value: unknown, secret: ApiKeySecret, depth = 0): unknown {
+  if (typeof value === "string") return maskAnswerString(value, secret);
+  if (depth > 32 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((entry) => maskAnswerValue(entry, secret, depth + 1));
+  return Object.fromEntries(Object.entries(value).map(([name, entry]) => [maskAnswerString(name, secret), maskAnswerValue(entry, secret, depth + 1)]));
+}
+
+/**
+ * An answer's text, decoded then masked: the key, and anything shaped like an OpenAI key, is replaced in every
+ * decoded string (an escape in the JSON cannot hide it), and nothing else is touched. `value` is the decoded,
+ * masked JSON (undefined when the text is not JSON); `text` is what may be stored or shown.
+ */
+function readAnswer(text: string, secret: ApiKeySecret): { value: unknown; text: string } {
+  try {
+    const value = maskAnswerValue(JSON.parse(text), secret);
+    return { value, text: JSON.stringify(value) };
+  } catch {
+    return { value: undefined, text: maskAnswerString(text, secret) };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -511,7 +539,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     const costNanoUsd = costOfOpenAiUsage(answer.model, answer.usage, answer.serviceTier);
     let valid = false;
     try {
-      valid = !answer.refused && MODEL_TEST_SCHEMA.safeParse(JSON.parse(answer.text)).success;
+      valid = !answer.refused && MODEL_TEST_SCHEMA.safeParse(readAnswer(answer.text, secret).value).success;
     } catch {
       valid = false;
     }
@@ -677,12 +705,16 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
           throw error;
         }
         await markUsed(owner, connection.version);
+        // Decoded, then masked: what is validated, stored and shown never holds the key, escaped or not.
+        const read = readAnswer(answer.text, secret);
         const answered: Answered = { model: answer.model, usage: answer.usage, serviceTier: answer.serviceTier,
           costNanoUsd: costOfOpenAiUsage(answer.model, answer.usage, answer.serviceTier), durationMs: Date.now() - startedAt,
-          requestId: answer.requestId, rawText: answer.text };
+          requestId: answer.requestId, rawText: read.text };
         try {
           if (answer.refused) throw new SyntaxError("Le modèle a refusé de répondre.");
-          return { ...answered, data: (held.schema as z.ZodType<T>).parse(JSON.parse(answer.text)), schemaError: null, refused: false };
+          // A fixed message: a parser's own message quotes the text it failed on.
+          if (read.value === undefined) throw new SyntaxError("La réponse n’est pas un objet JSON.");
+          return { ...answered, data: (held.schema as z.ZodType<T>).parse(read.value), schemaError: null, refused: false };
         } catch (error) {
           if (error instanceof SyntaxError || error instanceof z.ZodError) return { ...answered, data: null, schemaError: error, refused: answer.refused };
           throw new ApiKeyError("AI_KEY_UNEXPECTED");

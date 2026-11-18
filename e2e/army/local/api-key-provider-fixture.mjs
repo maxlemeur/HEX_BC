@@ -9,8 +9,8 @@
 // 2. OpenAI's API at its HTTP boundary, for a personal key: the API's model list (not the subscription's), the
 //    input token count, and Responses answered from the fictional plan's independent truth (12,5 m of copper
 //    pipe, four valves). Every request is checked (fixed origin, key, store false, Standard tier, no cache
-//    write, bounded output, model and effort the key may use). Mode « echo » returns the key in the answer, the
-//    model id and the request id, as a provider bug would. The journey gives only the key's SHA-256
+//    write, bounded output, model and effort the key may use). Mode « echo » returns the key in the answer (once
+//    escaped in the JSON, once literal), the model id and the request id, as a provider bug would. The journey gives only the key's SHA-256
 //    (ARMY_API_KEY_CONTROL); the transport log never holds the key.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -86,6 +86,8 @@ globalThis.fetch = async (input, init) => {
         evidence: echo ? `Bearer ${sentKey}` : "Cotes 5,00 m et 7,50 m" },
       { designation: "Vanne isolement DN20", quantity: 4, unit: "u", source_page: 1, confidence: 0.99, evidence: "Reperes V1 a V4" },
     ], warnings: [], confidence: 0.99, metadata: { level: "C", prompt_version: "takeoff-c-v1", file_type: "pdf", schema_version: "v1" } });
+    // The first echo is written with a JSON escape (\u0073 for « s »): only a decoded value reveals it.
+    if (echo) text = text.replace(sentKey, `\\u0073${sentKey.slice(1)}`);
   } else {
     assert.deepEqual(body.text.format, { type: "json_schema", name: "mergeone_model_test", strict: true, schema: body.text.format.schema });
     text = JSON.stringify({ connexion: "ok" });
