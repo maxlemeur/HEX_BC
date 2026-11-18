@@ -44,7 +44,7 @@ reprise Gemini ; ne l’appliquer à une base partagée qu’après autorisation
    et se connecter à MergeOne. Si le port 3000 est occupé, utiliser
    `npm run dev -- --port 3015` et ouvrir cette même adresse avec le port 3015.
    Conserver la même adresse pendant le parcours OAuth.
-3. Dans **Mon forfait ChatGPT**, choisir **Continue with ChatGPT** et consentir
+3. Dans **Accès IA › Abonnement ChatGPT**, choisir **Continue with ChatGPT** et consentir
    à l’utilisation du forfait avec un compte éligible. **GPT-6.1 Terra** est
    sélectionné par défaut si le compte le propose et qu’aucun modèle n’est encore
    choisi. Un choix déjà enregistré est conservé. Le modèle reste modifiable
@@ -100,7 +100,8 @@ Son résultat identifie `provider: chatgpt`, le modèle et les jetons consommés
 `cost_cents: 0` signifie usage du forfait, sans prix API calculé.
 
 Les anciennes tâches Gemini ne sont plus lancées ni réconciliées par cette
-version. Les intégrations par clé personnelle sont hors de ce lot. Ces
+version. La clé API personnelle est décrite plus bas ([Clé API OpenAI](#clé-api-openai)) ;
+elle ne remplace jamais le forfait dans ces traitements. Ces
 changements n'ont pas été déployés : le site hébergé et ses traitements déjà
 enregistrés conservent leur fonctionnement tant qu'ils ne sont pas modifiés.
 La fonctionnalité Decisions reste indépendante : si elle est déjà configurée,
@@ -146,6 +147,61 @@ aussi ce forfait. Il s'active à part avec `MERGEONE_ASSISTANT=1` : voir
   du serveur et les hôtes de `MERGEONE_DEV_HOSTS` sont acceptés. Hors
   développement, l’opt-in CLI/test reste explicite et refusé sur Vercel ou CI.
   `npm run dev:chatgpt` lie l’écoute à `127.0.0.1` sauf `--hostname` explicite.
+
+## Clé API OpenAI
+
+« Mon profil › Accès IA » montre deux entrées : **Abonnement ChatGPT** (la source
+par défaut, avec toutes ses commandes) et **Clé API**. Dans cette version, la clé
+sert **uniquement au labo métré** ([guide du labo](takeoff-lab.md#clé-api-openai)) :
+les autres traitements restent sur le forfait, et aucun ne passe de l’un à
+l’autre. Un forfait expiré ou absent ne déclenche jamais d’appel sur la clé ; une
+clé refusée ne bascule jamais sur le forfait.
+
+- **Ajouter** : coller la clé dans le champ masqué, puis **Vérifier et
+  enregistrer**. Le serveur lit le catalogue `GET /v1/models` (ni pièce jointe ni
+  génération) ; accepté, l’état devient « Clé reconnue ». Une clé qui n’a pas le
+  droit de lister les modèles n’est pas déclarée invalide : l’écran propose de
+  tester explicitement un modèle avant de l’enregistrer.
+- **Tester le modèle** : un petit appel facturable, annoncé avec son plafond, sans
+  document client. « Modèle testé le … » signifie seulement que cet appel a abouti.
+- **Remplacer** vérifie la nouvelle clé avant de remplacer l’ancienne, qui reste
+  en service si la vérification échoue. **Retirer** coupe les nouveaux appels ;
+  révoquer la clé chez OpenAI reste à faire dans le compte du fournisseur.
+- Modèles proposés : l’intersection du catalogue de la clé et des modèles
+  qualifiés et tarifés dans `src/lib/ai/access/openai-pricing.ts` (barème standard
+  relevé le 18 novembre 2026 : GPT-6.1 Terra 1 / 0,05 / 5 $ US et GPT-6.1 Sol
+  2 / 0,10 / 10 $ US par million de jetons d’entrée, d’entrée en cache et de
+  sortie). Un modèle sans tarif connu n’est ni proposé ni appelé.
+
+Stockage et frontières de la clé :
+
+- Le secret est dans le **Trousseau macOS** de ce Mac, élément
+  `fr.mergeone.ai-api-key`, compte `<installation>:<utilisateur>:<tenant>:openai`.
+  Il passe par `/usr/bin/security` : écriture par l’entrée standard de
+  `security -i` (hexadécimal, mise à jour en place), relue et comparée après
+  chaque écriture ; jamais en argument, variable d’environnement, fichier, URL ou
+  journal. L’installation est l’identifiant de `.private/chatgpt-local/host.json`.
+- Trousseau verrouillé, ou boîte de déverrouillage sans réponse en 30 s :
+  « Déverrouillez le Trousseau de ce Mac ». Sans Trousseau (Linux, version
+  hébergée), l’entrée indique que la clé n’est disponible que sur l’installation
+  Mac ; aucun stockage de repli n’existe.
+- `.private/ai-access/` (fichiers `0600`) ne garde que le suffixe masqué, la
+  version, la vérification, le dernier test et la dernière utilisation.
+- Les routes `/api/ai-access/api-key` vérifient l’hôte local, la session, le
+  tenant actif et, pour une écriture, l’origine de la page et un corps JSON. Ce
+  ne sont pas des actions serveur : en développement, Next affiche les arguments
+  d’une action serveur dans le terminal.
+- Seul l’adaptateur `src/lib/ai/access/openai-api.ts` obtient la clé enregistrée
+  et l’envoie, à `https://api.openai.com` sans suivre de redirection, avec
+  `store: false` et une sortie bornée. Ses échecs sont des codes fermés aux
+  messages français fixes ; il ne lit d’une réponse que le statut, un code
+  d’erreur reconnu, l’identifiant de requête et `Retry-After`.
+
+Essai réel du propriétaire (hors CI) : lancer le labo comme indiqué dans son
+guide, déconnecter ChatGPT si besoin, enregistrer la clé dans « Mon profil »,
+**Tester le modèle**, puis dans le labo choisir le fournisseur **Clé API OpenAI**,
+le plan fictif `army-chatgpt-plan` et lancer. Attendu : 12,5 m de tuyauterie et
+quatre vannes en page 1, le modèle utilisé et un coût en $ US.
 
 ## Vérification
 
