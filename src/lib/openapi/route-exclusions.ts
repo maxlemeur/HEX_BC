@@ -1,5 +1,8 @@
 import type { OpenApiRouteExclusion } from "@/lib/openapi/route-coverage";
 
+const LOCAL_AI_API_KEY =
+  "Cle API personnelle d'un membre, gardee dans le Trousseau macOS du Mac qui sert MergeOne local (127.0.0.1), hors contrat applicatif public.";
+
 const LOCAL_TAKEOFF_LAB =
   "Outil local du labo metre (TI-661), servi seulement par MergeOne local sur 127.0.0.1 a un administrateur, hors contrat applicatif public.";
 
@@ -116,5 +119,20 @@ export const openApiRouteExclusions = [
     methods: ["POST"],
     reason:
       "Flux d'evenements de l'assistant, servi seulement par MergeOne local (MERGEONE_ASSISTANT et forfait ChatGPT sur 127.0.0.1), hors contrat applicatif public tant que le site heberge ne l'ouvre pas.",
+  },
+  {
+    path: "/api/ai-access/api-key",
+    methods: ["GET", "PUT", "DELETE"],
+    reason: LOCAL_AI_API_KEY,
+  },
+  {
+    path: "/api/ai-access/api-key/models",
+    methods: ["GET"],
+    reason: LOCAL_AI_API_KEY,
+  },
+  {
+    path: "/api/ai-access/api-key/test",
+    methods: ["POST"],
+    reason: LOCAL_AI_API_KEY,
   },
 ] as const satisfies readonly OpenApiRouteExclusion[];
