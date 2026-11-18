@@ -70,6 +70,18 @@ et ne sont pas lisibles pour restaurer un poste. Ne jamais recopier le mot de
 passe dans le dépôt ou les preuves. Les campagnes ordinaires continuent à utiliser
 leur compte local éphémère.
 
+## Vérifier l’accès au chiffrage en production
+
+Dans GitHub Actions, ouvrir [TesterArmy production QA](https://github.com/maxlemeur/HEX_BC/actions/workflows/e2e-production-qa.yml), puis choisir **Run workflow** sur `main`. La commande équivalente est `gh workflow run e2e-production-qa.yml --repo maxlemeur/HEX_BC --ref main`. Ouvrir l’exécution depuis cette page pour lire son résultat.
+
+`QA_OK` confirme que le compte dédié s’est connecté au site déployé, que son organisation active porte [l’identifiant public du tenant QA](../docs/testing/shared-supabase-test-data-purge-2026-10-25.json), que son rôle courant est `admin` et que le formulaire « Nouveau chiffrage » s’affiche avec ses contrôles actifs. Le formulaire reste vide. Le navigateur ouvre uniquement des lectures sur le site et autorise une seule requête de connexion vers son service d’authentification.
+
+- `QA_SECRETS` indique que la session Actions ne dispose pas des deux secrets. `QA_LOGIN_REJECTED` indique que le formulaire a refusé les identifiants.
+- `QA_ORIGIN` ou `QA_LOGIN` indique un écart sur la page ou le flux de connexion. `QA_TENANT`, `QA_ROLE` ou `QA_MEMBERSHIP` indique un écart sur l’organisation, le rôle ou la réponse de vérification.
+- `QA_ESTIMATE` indique que le formulaire attendu est indisponible. `QA_RUNNER` signale un échec du lanceur.
+
+Cette vérification ne conserve aucune capture, vidéo, trace, liste de membres ni session. Le statut public est limité au code du résultat.
+
 ## Organisation et écriture des parcours
 
 - `army/critical/` : parcours métier et accès ; `army/extended/` : compléments
