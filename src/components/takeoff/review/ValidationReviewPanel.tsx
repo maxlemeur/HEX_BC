@@ -23,6 +23,8 @@ type ValidationReviewPanelProps = {
   hasSaveErrors?: boolean;
   requiresLocalizedProof?: boolean;
   canOpenApplyWizard?: boolean;
+  isApplyReady?: boolean;
+  forceGuidance?: string | null;
   applyReadinessMessage?: string | null;
   onOpenEvidencePanel?: (itemId: string) => void;
   onVerifyItem?: (itemId: string) => void;
@@ -248,6 +250,8 @@ export function ValidationReviewPanel({
   hasSaveErrors = false,
   requiresLocalizedProof = false,
   canOpenApplyWizard = false,
+  isApplyReady = canOpenApplyWizard,
+  forceGuidance = null,
   applyReadinessMessage = null,
   onOpenEvidencePanel,
   onVerifyItem,
@@ -338,11 +342,12 @@ export function ValidationReviewPanel({
         hasSaveErrors,
         summary,
         dpgfSummary,
-        canOpenApplyWizard,
+        canOpenApplyWizard: isApplyReady,
       }),
-    [canOpenApplyWizard, dpgfSummary, hasDirtyOrSaving, hasSaveErrors, summary]
+    [isApplyReady, dpgfSummary, hasDirtyOrSaving, hasSaveErrors, summary]
   );
 
+  const positiveTone = forceGuidance ? "neutral" : "success";
   if (items.length === 0) {
     return (
       <EmptyState
@@ -366,7 +371,7 @@ export function ValidationReviewPanel({
               Traitez d&apos;abord les exceptions qui peuvent biaiser le chiffrage
             </h2>
             <p className="mt-2 max-w-3xl text-sm text-foreground-secondary">
-              {statusMessage}
+              {forceGuidance ?? statusMessage}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -387,25 +392,25 @@ export function ValidationReviewPanel({
           <PriorityCard
             label="À traiter d'abord"
             value={summary.priorityCount}
-            tone={summary.priorityCount > 0 ? "warning" : "success"}
+            tone={summary.priorityCount > 0 ? "warning" : positiveTone}
             hint="preuves manquantes, faible confiance, source incomplète"
           />
           <PriorityCard
             label="Sans preuve"
             value={summary.missingEvidence}
-            tone={summary.missingEvidence > 0 ? "warning" : "success"}
+            tone={summary.missingEvidence > 0 ? "warning" : positiveTone}
             hint="items à documenter avant arbitrage"
           />
           <PriorityCard
             label="Source incomplète"
             value={summary.missingSourceContext}
-            tone={summary.missingSourceContext > 0 ? "warning" : "success"}
+            tone={summary.missingSourceContext > 0 ? "warning" : positiveTone}
             hint="fichier ou page non consultable"
           />
           <PriorityCard
             label="Faible à vérifier"
             value={summary.lowConfidence}
-            tone={summary.lowConfidence > 0 ? "danger" : "success"}
+            tone={summary.lowConfidence > 0 ? "danger" : positiveTone}
             hint="validation humaine requise"
           />
         </div>
@@ -453,7 +458,7 @@ export function ValidationReviewPanel({
               <PriorityCard
                 label="Sans preuve"
                 value={dpgfSummary.lines_without_proof}
-                tone={dpgfSummary.lines_without_proof > 0 ? "warning" : "success"}
+                tone={dpgfSummary.lines_without_proof > 0 ? "warning" : positiveTone}
                 hint="lignes DPGF sans rapprochement fiable"
               />
               <PriorityCard
@@ -462,7 +467,7 @@ export function ValidationReviewPanel({
                 tone={
                   dpgfSummary.total_lines > 0 && dpgfSummary.unused_takeoff_items > 0
                     ? "warning"
-                    : "success"
+                    : positiveTone
                 }
                 hint={
                   dpgfSummary.total_lines === 0
@@ -473,7 +478,7 @@ export function ValidationReviewPanel({
               <PriorityCard
                 label="Revue manuelle"
                 value={dpgfSummary.forced_manual}
-                tone={dpgfSummary.forced_manual > 0 ? "warning" : "success"}
+                tone={dpgfSummary.forced_manual > 0 ? "warning" : positiveTone}
                 hint="cas qui demandent un arbitrage humain"
               />
               <PriorityCard
@@ -482,7 +487,7 @@ export function ValidationReviewPanel({
                 tone={
                   dpgfSummary.to_confirm + dpgfSummary.significant_gaps > 0
                     ? "warning"
-                    : "success"
+                    : positiveTone
                 }
                 hint="écarts forts ou rapprochements fragiles"
               />
@@ -503,7 +508,7 @@ export function ValidationReviewPanel({
             value={`${summary.coveragePct} %`}
             variant={
               summary.coveragePct >= 80
-                ? "success"
+                ? positiveTone
                 : summary.coveragePct >= 50
                   ? "warning"
                   : "danger"
@@ -512,27 +517,27 @@ export function ValidationReviewPanel({
           <SummaryCard
             label="Confiance faible"
             value={summary.lowConfidence}
-            variant={summary.lowConfidence === 0 ? "success" : "danger"}
+            variant={summary.lowConfidence === 0 ? positiveTone : "danger"}
           />
           <SummaryCard
             label="Sans preuve"
             value={summary.missingEvidence}
-            variant={summary.missingEvidence === 0 ? "success" : "warning"}
+            variant={summary.missingEvidence === 0 ? positiveTone : "warning"}
           />
           <SummaryCard
             label="Anomalies"
             value={summary.withAnomalies}
-            variant={summary.withAnomalies === 0 ? "success" : "danger"}
+            variant={summary.withAnomalies === 0 ? positiveTone : "danger"}
           />
           <SummaryCard
             label="Confiance à confirmer"
             value={summary.confidenceToConfirm}
-            variant={summary.confidenceToConfirm === 0 ? "success" : "warning"}
+            variant={summary.confidenceToConfirm === 0 ? positiveTone : "warning"}
           />
           <SummaryCard
             label="Validés"
             value={`${summary.verified} / ${summary.total}`}
-            variant={summary.unverified === 0 ? "success" : "neutral"}
+            variant={summary.unverified === 0 ? positiveTone : "neutral"}
           />
         </div>
 
@@ -540,11 +545,13 @@ export function ValidationReviewPanel({
           <p className="mt-3 text-sm text-muted-foreground" role="status">
             Tous les items sont exclus. Réintégrez au moins un item pour pouvoir appliquer l&apos;extraction.
           </p>
+        ) : forceGuidance ? (
+          <p className="mt-3 text-sm text-warning" role="status">Des lignes bloquées demandent une décision.</p>
         ) : summary.flaggedCount === 0 ? (
           <p className="mt-3 text-sm font-medium text-success" role="status">
             Tous les items sont conformes. La revue peut passer à l&apos;étape suivante.
           </p>
-        ) : canOpenApplyWizard && summary.priorityCount === 0 ? (
+        ) : isApplyReady && summary.priorityCount === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground" role="status">
             {summary.flaggedCount} contrôle{summary.flaggedCount > 1 ? "s" : ""} humain{summary.flaggedCount > 1 ? "s" : ""} reste{summary.flaggedCount > 1 ? "nt" : ""} recommandé{summary.flaggedCount > 1 ? "s" : ""}. L&apos;application n&apos;est pas bloquée.
           </p>
@@ -642,7 +649,7 @@ export function ValidationReviewPanel({
           <p id="validation-next-step" className="text-sm text-muted-foreground">
             Prochaine étape :{" "}
             <span className="font-medium text-foreground">
-              {canOpenApplyWizard
+              {isApplyReady
                 ? "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact puis confirmez."
                 : (applyReadinessMessage ?? statusMessage)}
             </span>
@@ -685,9 +692,10 @@ function PriorityCard({
   label: string;
   value: number;
   hint: string;
-  tone: "success" | "warning" | "danger";
+  tone: "success" | "warning" | "danger" | "neutral";
 }) {
   const toneClass = {
+    neutral: { border: "border-border", value: "text-foreground" },
     success: { border: "border-success-border", value: "text-success" },
     warning: { border: "border-warning-border", value: "text-warning" },
     danger: { border: "border-danger-border", value: "text-danger" },

@@ -40,7 +40,7 @@ function buildAlertHref(alert: DirectionSyntheticAlert) {
   const reviewJobId = alert.latestJobId ?? alert.jobId;
 
   if (reviewJobId) {
-    return `/dashboard/affaires/${alert.projectId}/takeoff/${reviewJobId}/review?versionId=${alert.versionId}&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
+    return `/dashboard/affaires/${alert.projectId}/takeoff/${reviewJobId}/review?versionId=${alert.versionId}&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
   }
 
   return `/dashboard/affaires/${alert.projectId}`;

@@ -12,7 +12,7 @@ droits du tenant actif et de l'affaire.
 
 ## Parcours pris en charge
 
-Depuis « Métrés », choisissez une affaire dans la liste. Ouvrez ses plans ou ses métrés pour préparer une analyse. Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
+« Métrés » rouvre les métrés de la dernière affaire consultée. Si elle est archivée, inaccessible ou inconnue, choisissez une affaire dans la liste. Ouvrez ses plans ou ses métrés pour préparer une analyse. Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
 
 Le lancement propose quatre étapes dans
 [`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx) :

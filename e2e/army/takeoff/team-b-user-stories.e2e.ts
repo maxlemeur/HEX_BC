@@ -1286,7 +1286,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     const pendingVersion = plansSection.getByRole("listitem").filter({ has: page.getByText("V2", { exact: true }) });
     const completedVersion = plansSection.getByRole("listitem").filter({ has: page.getByText("V1", { exact: true }) });
     await expect(pendingVersion).toHaveCount(1);
-    await expect(pendingVersion.getByText("En attente du fournisseur", { exact: true })).toBeVisible();
+    await expect(pendingVersion.getByText("En attente du fournisseur IA", { exact: true })).toBeVisible();
     await expect(completedVersion).toHaveCount(1);
     await expect(completedVersion.getByText("Analyse terminée", { exact: true })).toBeVisible();
   });

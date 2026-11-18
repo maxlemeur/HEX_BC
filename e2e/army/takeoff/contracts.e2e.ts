@@ -229,16 +229,24 @@ armyTest("TKF07 an administrator forces each blocked line from the apply wizard 
     expect(changed.data?.role).toBe(role);
   };
   await changeRole("engineer");
-  await app.open(review);
-  await expect(screen.getByText(measures[0].designation, { exact: true }).first()).toBeVisible();
-  await expect(screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeDisabled();
+  for (const mode of ["production", "validation"]) {
+    await app.open(`${review}&reviewMode=${mode}`);
+    await expect(screen.getByText(/Le contrôle de 2 ligne\(s\) reste incomplet/).first()).toBeVisible();
+    await expect(screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeDisabled();
+  }
   const refused = await applyOwnedTakeoff(browser, ids.versionId, seed.jobId, {
     strategy: "append", target_section_id: target.parent_id, override: true,
     forced_items: forcedItems, forced_justifications: [justification],
   });
   expect(refused.status).toBe(403);
+  expect(refused.body).toMatchObject({ error: { message: "Seul un administrateur peut forcer l'application des lignes bloquées." } });
   await changeRole("admin");
-  await app.open(review);
+  for (const mode of ["production", "validation"]) {
+    await app.open(`${review}&reviewMode=${mode}`);
+    await expect(screen.getByText(/2 lignes restent à trancher.*revue ciblée.*justifier.*une par une.*envoi/i).first()).toBeVisible();
+    await expect(screen.getByText(/Prêt à envoyer|Prêt pour l'envoi|Tous les items sont conformes|L'application n'est pas bloquée/)).toHaveCount(0);
+    await expect(screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeEnabled();
+  }
   const dialog = await openTakeoffSend(ui, target.parent_id!, measures[0].designation);
   await expect(dialog).toContainText("Lignes à trancher");
   for (const item of measures.slice(0, 2)) {
@@ -365,10 +373,28 @@ for (const scope of ["archived", "other-tenant"] as const) {
         await ui.app.open(from);
         await expect(ui.browser).toHaveURL(to);
       }
+      const unrelated = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Autre version lisible" }, ui.army);
+      const mismatched = `/dashboard/estimates/${unrelated.versionId}/takeoff/${jobId}`;
+      await ui.app.open(mismatched);
+      await expect(ui.screen.getByRole("heading", "Page introuvable", { exact: true })).toBeVisible();
+      await expect(ui.browser).toHaveURL(mismatched);
+      // A full document navigation through a streamed redirect must preserve the previous page for Back.
+      await ui.app.open(`${affaire}/plans`);
+      const streaming = await ui.browser.evaluate(async href => {
+        const response = await fetch(href, { redirect: "manual" });
+        return { status: response.status, meta: (await response.text()).includes('id="__next-page-redirect"') };
+      }, path);
+      await ui.app.open(path);
+      await expect(ui.browser).toHaveURL(`${affaire}/takeoff/${jobId}/review?versionId=${ids.versionId}&reviewMode=production&view=items`);
+      await ui.browser.evaluate(() => { window.history.back(); return true; });
+      await expect(ui.browser).toHaveURL(`${affaire}/plans`);
+      await recordEvidence(ui.army, "bookmark-back", streaming);
       const worker = await localTakeoffWorkerClient(ui.army, ids.versionId);
       const result = await worker.client.from("estimate_projects").update({ is_archived: true })
         .eq("id", ids.projectId).eq("tenant_id", worker.tenantId).select("id").single();
       expect(result.error).toBeNull();
+      await ui.app.open("/dashboard/affaires?reprendre=metre");
+      await expect(ui.browser).toHaveURL("/dashboard/affaires");
     } else {
       await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "TKACCESS" });
       const own = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Autre affaire ARMY" }, ui.army);
@@ -384,3 +410,66 @@ for (const scope of ["archived", "other-tenant"] as const) {
     }
   });
 }
+
+armyTest("A remembered affaire and bookmarks respect the active engineer's ownership", options, async ui => {
+  const owner = await signUpWorkerOwner(ui, "TKOWN");
+  const colleague = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Métré du collègue" }, ui.army);
+  const foreign = await localTakeoffFixture(ui.army, colleague, owner.email, owner.password);
+  const { jobId } = await foreign.seed("A", definitions);
+  const worker = await localTakeoffWorkerClient(ui.army, colleague.versionId, owner.email, owner.password);
+  const flag = await worker.client.from("feature_flags").upsert({
+    tenant_id: owner.tenantId, flag_key: "TAKEOFF_MODULE_ENABLED", enabled: true,
+  }, { onConflict: "tenant_id,flag_key" });
+  expect(flag.error).toBeNull();
+  const engineer = await signUpWorkerOwner(ui, "TKENG");
+  const unset = await worker.client.from("tenant_memberships").update({ is_default: false })
+    .eq("user_id", engineer.userId).eq("tenant_id", engineer.tenantId);
+  expect(unset.error).toBeNull();
+  const membership = await worker.client.from("tenant_memberships").insert({
+    tenant_id: owner.tenantId, user_id: engineer.userId, role: "engineer", is_default: true,
+  });
+  expect(membership.error).toBeNull();
+  const own = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Métré personnel" }, ui.army);
+  const session = await localTakeoffFixture(ui.army, own, engineer.email, engineer.password);
+  expect(session.tenantId).toBe(owner.tenantId);
+  const projectRead = await session.client.from("estimate_projects").select("id").eq("id", colleague.projectId);
+  const versionRead = await session.client.from("estimate_versions").select("id").eq("id", colleague.versionId);
+  expect(projectRead.error).toBeNull();
+  expect(versionRead.error).toBeNull();
+  expect(projectRead.data).toEqual([]);
+  expect(versionRead.data).toEqual([]);
+  await recordEvidence(ui.army, "engineer-colleague-rls", {
+    projectRows: projectRead.data?.length, versionRows: versionRead.data?.length,
+  });
+  for (const path of [
+    `/dashboard/estimates/${colleague.versionId}/plans`,
+    `/dashboard/estimates/${own.versionId}/takeoff/${jobId}/review`,
+  ]) {
+    await ui.app.open(path);
+    await expect(ui.screen.getByRole("heading", "Page introuvable", { exact: true })).toBeVisible();
+    await expect(ui.browser).toHaveURL(path);
+  }
+
+  await ui.app.open(`/dashboard/affaires/${own.projectId}/plans`);
+  await ui.browser.setViewport({ width: 390, height: 844 });
+  await ui.screen.getByRole("button", { name: "Ouvrir le menu principal", exact: true }).click();
+  const metres = ui.screen.getByRole("navigation", { name: "Menu principal" }).getByRole("link", { name: "Métrés", exact: true });
+  await expect(metres).toHaveAttribute("aria-current", "page");
+  await metres.click();
+  await expect(ui.browser).toHaveURL(`/dashboard/affaires/${own.projectId}/takeoff`);
+  await ui.screen.getByRole("button", { name: "Ouvrir le menu principal", exact: true }).click();
+  await expect(metres).toHaveAttribute("aria-current", "page");
+  await ui.screen.getByRole("navigation", { name: "Menu principal" })
+    .getByRole("link", { name: "Affaires", exact: true }).click();
+  await expect(ui.browser).toHaveURL("/dashboard/affaires");
+  await ui.browser.keyboard.press("ControlOrMeta+k");
+  const palette = ui.screen.getByRole("dialog", { name: /Recherche rapide/i });
+  await palette.getByRole("option", { name: /^Métrés\b/i }).click();
+  await expect(ui.browser).toHaveURL(`/dashboard/affaires/${own.projectId}/takeoff`);
+  // The remembered affaire changes hands while this engineer is on another screen.
+  await ui.app.open("/dashboard/affaires");
+  const transfer = await worker.client.from("estimate_projects").update({ user_id: owner.userId }).eq("id", own.projectId);
+  expect(transfer.error).toBeNull();
+  await ui.app.open("/dashboard/affaires?reprendre=metre");
+  await expect(ui.browser).toHaveURL("/dashboard/affaires");
+});

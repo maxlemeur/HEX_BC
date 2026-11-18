@@ -13,6 +13,7 @@ describe("resolveTakeoffOperatorState", () => {
     });
 
     expect(state.state).toBe("orphan_to_reconcile");
+    expect(state.label).toBe("Reprise à vérifier");
     expect(state.canReconcile).toBe(true);
   });
 

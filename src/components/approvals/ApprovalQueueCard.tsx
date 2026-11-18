@@ -81,7 +81,7 @@ function buildCardHref(item: ApprovalQueueItem): string {
   const reviewJobId = resolveExceptionReviewJobId(item);
 
   if (reviewJobId) {
-    return `/dashboard/affaires/${item.projectId}/takeoff/${reviewJobId}/review?versionId=${item.versionId}&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
+    return `/dashboard/affaires/${item.projectId}/takeoff/${reviewJobId}/review?versionId=${item.versionId}&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
   }
 
   return `/dashboard/affaires/${item.projectId}`;

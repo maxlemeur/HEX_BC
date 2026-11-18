@@ -1,6 +1,14 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { z } from "zod";
 
-import { fetchAffairePageData } from "@/lib/affaires/server";
+import { getUserContext } from "@/lib/auth/server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { lastAffaireCookieName } from "@/lib/navigation/last-affaire";
+import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+
+import { fetchAffairePageData, findReadableAffaireProject } from "@/lib/affaires/server";
 import {
   parseAffaireListQuery,
   type NormalizedAffaireListQuery,
@@ -45,6 +53,17 @@ async function AffairesPageResults({
 
 export default async function AffairesPage({ searchParams }: Props) {
   const params = await searchParams;
+  if (params.reprendre === "metre") {
+    const { tenantId } = await getUserContext();
+    if (!tenantId) redirect("/dashboard/affaires");
+    const context = await getAuthenticatedContext();
+    const saved = (await cookies()).get(lastAffaireCookieName(context.userId, context.tenantId));
+    const id = z.uuid().safeParse(saved?.value);
+    if (id.success && await isTakeoffEnabled(context.tenantId) && await findReadableAffaireProject(context, id.data)) {
+      redirect(`/dashboard/affaires/${id.data}/takeoff`);
+    }
+    redirect("/dashboard/affaires");
+  }
   const query = parseAffaireListQuery(params);
 
   return (

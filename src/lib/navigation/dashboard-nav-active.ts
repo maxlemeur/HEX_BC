@@ -1,5 +1,5 @@
 export function isDashboardNavItemActive(pathname: string, href: string, navId?: string) {
-  const isTakeoff = /^\/dashboard\/affaires\/[^/]+\/takeoff(?:\/|$)/.test(pathname);
+  const isTakeoff = /^\/dashboard\/affaires\/[^/]+\/(?:takeoff|plans)(?:\/|$)/.test(pathname);
   if (navId === "takeoff") return isTakeoff;
   if (href === "/dashboard") {
     return pathname === "/dashboard";

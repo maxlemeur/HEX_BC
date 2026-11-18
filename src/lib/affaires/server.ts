@@ -910,10 +910,10 @@ export function buildAffaireHubReadinessSnapshot(input: {
 const PLAN_FILE_SUM_BATCH_SIZE = 500;
 const AFFAIRE_PROJECT_VERSIONS_BATCH_SIZE = 1000;
 
-const fetchAffaireHubProjectOrThrow = cache(async (
+export const findReadableAffaireProject = cache(async (
   context: AffaireContext,
   projectId: string
-): Promise<AffaireHubProjectRow> => {
+): Promise<AffaireHubProjectRow | null> => {
   let query = context.supabase
     .from("estimate_projects")
     .select("id, tenant_id, user_id, name, reference, client_name, site_address, is_archived")
@@ -931,7 +931,11 @@ const fetchAffaireHubProjectOrThrow = cache(async (
     throw mapSupabaseError(error, "Impossible de charger le projet affaire.");
   }
 
-  const project = (data ?? null) as AffaireHubProjectRow | null;
+  return (data ?? null) as AffaireHubProjectRow | null;
+});
+
+const fetchAffaireHubProjectOrThrow = cache(async (context: AffaireContext, projectId: string) => {
+  const project = await findReadableAffaireProject(context, projectId);
   if (!project) {
     throw notFound("Affaire introuvable.");
   }

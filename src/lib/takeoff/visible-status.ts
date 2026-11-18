@@ -41,7 +41,7 @@ const TAKEOFF_VISIBLE_JOB_STATUS_LABELS: Record<
 > = {
   queued: "En file",
   processing: "En traitement",
-  provider_pending: "En attente provider",
+  provider_pending: "En attente du fournisseur IA",
   review_required: "Revue requise",
   action_required: "Échec à corriger",
   completed: "Analyse terminée",

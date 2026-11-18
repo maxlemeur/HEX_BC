@@ -886,7 +886,7 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     });
     const tenantId = await getTenantIdForVersion(versionId);
 
-    await seedPlanSetWithFile({
+    const { planSetId } = await seedPlanSetWithFile({
       projectId,
       versionId,
       tenantId,
@@ -906,5 +906,16 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     const affaireTakeoffLink = page.getByRole("link", { name: "Ouvrir les métrés", exact: true });
     await expect(affaireTakeoffLink).toBeVisible();
     await expect(affaireTakeoffLink).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff`);
+    const copy = await page.request.post(`/api/estimates/${versionId}/duplicate`, { failOnStatusCode: false });
+    expect(copy.status()).toBe(201);
+    const bookmark = `/dashboard/estimates/${versionId}/takeoff/new?plan_set_id=${planSetId}`;
+    await page.goto(bookmark);
+    await expect(page.browser).toHaveURL(`/dashboard/affaires/${projectId}/takeoff?launch=1&version=${versionId}&launchPlanSet=${planSetId}`);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByLabel("Jeu de plans à analyser")).toHaveValue(planSetId);
+    await dialog.getByRole("button", { name: /Vérifier et lancer$/ }).click();
+    await expect(dialog.getByLabel("Version cible")).toHaveValue(versionId);
+    await page.goto(`/dashboard/affaires/${projectId}/plans`);
+    await expect(page.getByRole("heading", { name: "Plans de la première version", exact: true })).toBeVisible();
   });
 });

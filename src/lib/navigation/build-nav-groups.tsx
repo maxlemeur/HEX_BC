@@ -50,7 +50,7 @@ const AFFAIRES_ITEM: NavItem = {
 };
 
 const TAKEOFF_NAV_ITEM: NavItem = {
-  href: "/dashboard/affaires",
+  href: "/dashboard/affaires?reprendre=metre",
   label: "Métrés",
   navId: "takeoff",
   icon: (

@@ -124,7 +124,7 @@ export const TAKEOFF_SEND_CONFIRM = "Confirmer l'envoi";
 export const TAKEOFF_SENT_TOAST = "Métré envoyé au tableau de chiffrage";
 
 /**
- * Opens « Envoyer au tableau de chiffrage » from a review or the job page, chooses the section (or checks it is the one
+ * Opens « Envoyer au tableau de chiffrage » from the affaire’s review, chooses the section (or checks it is the one
  * preselected, the first), and waits for the impact preview of that section: computed without a click, its lines listed
  * (read-only), `designation` among them. No step, no strategy to pick: the version decides (merge with DPGF lines,
  * append otherwise).

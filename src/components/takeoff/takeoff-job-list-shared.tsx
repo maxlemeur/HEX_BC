@@ -88,23 +88,11 @@ export const BUSINESS_LEVEL_FILTER_OPTIONS: Array<{
   { value: "C", label: "Détaillé" },
 ];
 
-export function getBusinessStatusLabel(status: string, label: string): string {
-  return status === "provider_pending" ? "En attente du fournisseur" : label;
-}
-
-export const OPERATOR_STATE_LABELS: Record<TakeoffJobOperatorState, string> = {
-  none: "Aucune action requise",
-  submitted_to_provider: "Analyse envoyée au fournisseur",
-  awaiting_provider_result: "En attente du résultat du fournisseur",
-  provider_failed: "Échec de l’analyse",
-  orphan_to_reconcile: "Reprise à vérifier",
-};
-
 export const BUSINESS_STATUS_FILTER_OPTIONS = [
   { value: "all", label: "Tous les statuts" },
   ...TAKEOFF_VISIBLE_JOB_STATUSES.map((status) => ({
     value: status,
-    label: getBusinessStatusLabel(status, getTakeoffVisibleJobStatusLabel(status)),
+    label: getTakeoffVisibleJobStatusLabel(status),
   })),
 ] as const;
 

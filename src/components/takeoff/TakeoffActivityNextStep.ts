@@ -111,9 +111,7 @@ export function resolveTakeoffNextStep({
 
   if (latestJob.statusRaw === "action_required") {
     // The failure labels already say what to do next.
-    const hint = context?.failureReasonLabel ?? (latestJob.canResubmit
-      ? "Relancez-la depuis la liste ci-dessous ou préparez un nouveau métré."
-      : "Préparez un nouveau métré.");
+    const hint = context?.failureReasonLabel ?? "Consultez le motif et les actions disponibles dans la liste des analyses.";
     return {
       title: "Analyse à reprendre",
       description: `La dernière analyse n’a pas abouti. ${hint}`,

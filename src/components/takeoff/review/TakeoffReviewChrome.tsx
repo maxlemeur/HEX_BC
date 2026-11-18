@@ -63,11 +63,13 @@ export function TakeoffReviewErrorState({
 
 export function TakeoffApplyReadinessBar({
   isApplyReady,
+  canOpenApplyWizard,
   includedCount,
   readinessMessage,
   onOpenApplyWizard,
 }: {
   isApplyReady: boolean;
+  canOpenApplyWizard: boolean;
   includedCount: number;
   readinessMessage: string;
   onOpenApplyWizard: () => void;
@@ -87,7 +89,7 @@ export function TakeoffApplyReadinessBar({
       <Button
         variant="primary"
         className="w-full sm:w-auto"
-        disabled={!isApplyReady}
+        disabled={!canOpenApplyWizard}
         aria-describedby="takeoff-apply-readiness"
         onClick={onOpenApplyWizard}
       >

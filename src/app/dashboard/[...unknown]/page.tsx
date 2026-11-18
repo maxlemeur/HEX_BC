@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
+import { findReadableAffaireProject } from "@/lib/affaires/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { getUserContext } from "@/lib/auth/server";
 import { mapSupabaseError } from "@/lib/estimates/errors";
@@ -30,17 +31,10 @@ export default async function UnknownDashboardRoute({ params, searchParams }: Pr
   const { tenantId } = await getUserContext();
   if (!tenantId || !(await isTakeoffEnabled(tenantId))) notFound();
   const context = await getAuthenticatedContext();
-  let query = context.supabase.from("estimate_versions")
-    .select("project_id, estimate_projects!inner(user_id)")
-    .eq("tenant_id", context.tenantId).eq("id", versionId)
-    .eq("estimate_projects.tenant_id", context.tenantId)
-    .eq("estimate_projects.is_archived", false);
-  if (context.tenantRole !== "admin" && context.tenantRole !== "director") {
-    query = query.eq("estimate_projects.user_id", context.userId);
-  }
-  const { data: version, error } = await query.maybeSingle();
+  const { data: version, error } = await context.supabase.from("estimate_versions")
+    .select("project_id").eq("tenant_id", context.tenantId).eq("id", versionId).maybeSingle();
   if (error) throw mapSupabaseError(error, "Impossible de retrouver l’affaire.");
-  if (!version) notFound();
+  if (!version || !(await findReadableAffaireProject(context, version.project_id))) notFound();
   const affaire = `/dashboard/affaires/${version.project_id}`;
   if (section === "plans") redirect(`${affaire}/plans`);
   const takeoff = `${affaire}/takeoff`;

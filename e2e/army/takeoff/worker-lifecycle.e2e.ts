@@ -7,7 +7,7 @@ import type { TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-co
 
 import { apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
 import { ownedEstimateContext, querySql } from "../local/calculation-gate-support";
-import { TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, openTakeoffSend } from "./fixtures";
+import { TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend } from "./fixtures";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
 import { VECTOR_PLAN } from "./vector-plan-fixture";
@@ -89,6 +89,19 @@ armyTest("TKW01 a stored historical CSV runs the controlled worker once and appl
   for (const item of before.items) expect(after.items.find((line) => line.id === item.id)).toMatchObject({
     title: item.title, quantity: item.quantity, unit_price_ht_cents: item.unit_price_ht_cents,
   });
+  const reviewHref = `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`;
+  const line = after.items.find(item => item.source_job_id === jobId)!;
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+  const row = ui.browser.locator(`[data-estimate-item-id="${line.id}"]`);
+  await row.getByTestId("estimate-line-more-trigger").click();
+  await ui.screen.getByRole("button", "Afficher la provenance IA", { exact: true }).click();
+  await expect(ui.screen.getByRole("link", "Ouvrir l'extraction", { exact: true })).toHaveAttribute("href", reviewHref);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+  await ui.screen.getByRole("tab", "Historique", { exact: true }).click();
+  for (const width of [1280, 390]) {
+    await ui.browser.setViewport({ width, height: 844 });
+    await expect(ui.screen.getByRole("link", "Ouvrir la revue", { exact: true })).toHaveAttribute("href", reviewHref);
+  }
   const appliedReplay = await startOwnedWorker(ui, ids, jobId).done;
   expect(appliedReplay.job.status).toBe("applied");
   expect(appliedReplay.providerCalls).toBe(0);
@@ -176,9 +189,27 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
   expect(detail.body.data.job.error_message).toBe("ARMY controlled terminal provider failure");
   await expect(ui.screen.getByRole("heading", "Analyse à reprendre", { exact: true })).toBeVisible();
+  const fixture = await localTakeoffFixture(ui.army, ids);
+  await fixture.seed("A", [{ designation: "ARMY nouvelle analyse", quantity: 1, unit: "u", confidence: 1 }]);
+  await ui.browser.reload();
+  const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
+  await expect(failedRow).toContainText("Analyse interrompue (code AI_PROVIDER).");
+  await expect(failedRow).toContainText(`Relances utilisées : ${detail.body.data.job.retry_count} sur 3`);
+  expect(detail.body.data.job.can_resubmit).toBe(false);
+  await expect(failedRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse.");
+  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
   await expect(ui.screen.getByText("Démarrage immédiat indisponible, reprise automatique active.", { exact: true })).toHaveCount(0);
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW05-terminal-error", { ids, jobId, failed, estimateUnchanged: true });
+  const worker = await localTakeoffWorkerClient(ui.army, ids.versionId);
+  const exhausted = await worker.client.from("takeoff_jobs").update({ error_code: "AI_SAFETY", retry_count: 3 })
+    .eq("tenant_id", worker.tenantId).eq("id", jobId).select("id").single();
+  expect(exhausted.error).toBeNull();
+  await ui.browser.reload();
+  await expect(failedRow).toContainText("Document bloqué pendant l'analyse.");
+  await expect(failedRow).toContainText("Relances utilisées : 3 sur 3");
+  await expect(failedRow).toContainText("Le nombre maximal de relances est atteint.");
+  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
 });
 
 type ActionEnvelope = {

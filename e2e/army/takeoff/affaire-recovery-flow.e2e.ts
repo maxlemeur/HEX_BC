@@ -253,7 +253,7 @@ describe("US-6.2 - reprise apres attente, erreur ou echec partiel", { session: "
     const pendingRecoveryHistory = plansSection.getByRole("list").first();
     await expect(
       pendingRecoveryHistory.getByRole("listitem").filter({ hasText: "V2" }).first()
-    ).toContainText("En attente du fournisseur");
+    ).toContainText("En attente du fournisseur IA");
     await expect(
       pendingRecoveryHistory.getByRole("listitem").filter({ hasText: "V1" }).first()
     ).toContainText("Analyse terminée");

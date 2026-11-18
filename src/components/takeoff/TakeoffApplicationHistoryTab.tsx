@@ -76,7 +76,7 @@ export default function TakeoffApplicationHistoryTab({
               href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}`}
               className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full justify-center")}
             >
-              Voir le détail
+              Ouvrir la revue
             </Link>
           </article>
         ))}
@@ -112,7 +112,7 @@ export default function TakeoffApplicationHistoryTab({
                   href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}`}
                   className={buttonVariants({ variant: "outline" })}
                 >
-                  Détail
+                  Ouvrir la revue
                 </Link>
               </td>
             </tr>

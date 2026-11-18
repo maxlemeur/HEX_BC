@@ -147,10 +147,11 @@ async function seedTakeoffJobsForCarryOver(page: Page, input: {
     },
   ];
 
-  const { error } = await sb.from("takeoff_jobs").insert(payload);
+  const { data, error } = await sb.from("takeoff_jobs").insert(payload).select("id, status");
   if (error) {
     throw new Error(`Seed takeoff jobs failed: ${error.message}`);
   }
+  return { ready: data.find(job => job.status === "completed")!.id, pending: data.find(job => job.status === "processing")!.id };
 }
 
 async function fetchVersionNumber(page: Page, versionId: string) {
@@ -250,7 +251,7 @@ describe("VNEXT US-6.1 - import flow carry-over", { session: "army", tags: ["cri
       getTenantIdForVersion(sourceVersionId),
     ]);
 
-    await seedTakeoffJobsForCarryOver(page, {
+    const seeded = await seedTakeoffJobsForCarryOver(page, {
       versionId: sourceVersionId,
       tenantId,
     });
@@ -342,6 +343,10 @@ describe("VNEXT US-6.1 - import flow carry-over", { session: "army", tags: ["cri
     await expect.poll(async () => countCarryOverLinks(targetVersionId), {
       timeout: 15_000,
     }).toBe(3);
+    await page.goto(`/dashboard/estimates/${targetVersionId}/takeoff/${seeded.ready}`);
+    await expect(page.browser).toHaveURL(`/dashboard/affaires/${projectId}/takeoff/${seeded.ready}/review?versionId=${targetVersionId}`);
+    await page.goto(`/dashboard/estimates/${sourceVersionId}/takeoff/${seeded.pending}`);
+    await expect(page.browser).toHaveURL(`/dashboard/affaires/${projectId}/takeoff?version=${sourceVersionId}`);
     await recordEvidence(page.army, "import-flow-carry-over", {
       projectId,
       sourceVersionId,

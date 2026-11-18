@@ -1028,7 +1028,7 @@ export default function TakeoffReviewPage({
   // warning, no decision), read again once it is applied here (the estimate then holds its lines) and after a saved
   // change of a line's source page. Exclusion needs no new read: the banner filters the pages by the lines on screen.
   const pagesInEstimate = useTakeoffJobPageContributions(jobId, versionId, { applied: hasAlreadyBeenApplied, revision: savedSourcePages });
-  const canOpenApplyWizard =
+  const meetsApplyConditions =
     !hasAlreadyBeenApplied &&
     jobStatus === "completed" &&
     hasIncluded &&
@@ -1038,7 +1038,14 @@ export default function TakeoffReviewPage({
     !isDpgfValidationPending &&
     !hasDpgfValidationError &&
     !hasDpgfBlocks;
-  const isApplyReady = canOpenApplyWizard && (!hasGuardBlocks || isAdmin);
+  const isApplyReady = meetsApplyConditions && !hasGuardBlocks;
+  const canOpenApplyWizard = meetsApplyConditions && (!hasGuardBlocks || isAdmin);
+  const blockedCount = guardResult?.blocked_items.length ?? 0;
+  const forceGuidance = hasGuardBlocks && isAdmin
+    ? blockedCount === 1
+      ? "1 ligne reste à trancher. Vous pouvez la traiter dans la revue ciblée ou la justifier à l’envoi."
+      : `${blockedCount} lignes restent à trancher. Vous pouvez les traiter dans la revue ciblée ou les justifier une par une à l’envoi.`
+    : null;
   const applyReadinessMessage = useMemo(() => {
     if (hasAlreadyBeenApplied) {
       return "Ce métré a déjà été appliqué au chiffrage.";
@@ -1072,9 +1079,7 @@ export default function TakeoffReviewPage({
       return "Des rapprochements DPGF restent à trancher. Ouvrez la revue détaillée pour finaliser les liens manuels.";
     }
 
-    if (hasGuardBlocks && isAdmin) {
-      return "Ouvrez l’aperçu d’impact pour examiner les lignes bloquées et justifier chaque forçage.";
-    }
+    if (forceGuidance) return forceGuidance;
     if (hasGuardBlocks) {
       return `Le contrôle de ${guardResult?.blocked_items.length ?? 0} ligne(s) reste incomplet : complétez les preuves localisées, tranchez les règles en échec ou validez les lignes avant l'application.`;
     }
@@ -1087,7 +1092,7 @@ export default function TakeoffReviewPage({
     hasDpgfValidationError,
     hasDirtyOrSaving,
     hasGuardBlocks,
-    isAdmin,
+    forceGuidance,
     hasIncluded,
     hasAlreadyBeenApplied,
     hasSaveErrors,
@@ -1119,10 +1124,10 @@ export default function TakeoffReviewPage({
   } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied, onSent: handleSent });
 
   const handleOpenApplyWizard = useCallback(() => {
-    if (!isApplyReady) return;
+    if (!canOpenApplyWizard) return;
     setApplyWizardOpen(true);
     setApplyError(null);
-  }, [isApplyReady, setApplyError]);
+  }, [canOpenApplyWizard, setApplyError]);
 
   const reviewTitle = "Revue des exceptions & preuves";
   const backHref = `/dashboard/affaires/${projectId}/takeoff`;
@@ -1242,7 +1247,8 @@ export default function TakeoffReviewPage({
           onExcludeItems={handleExcludeItems}
           onIncludeItems={handleIncludeItems}
           onApplyClick={handleOpenApplyWizard}
-          isApplyReady={isApplyReady}
+          canOpenApplyWizard={canOpenApplyWizard}
+          forceGuidance={forceGuidance}
         />
       ) : currentReviewMode === "validation" ? (
         <LazyValidationReviewPanel
@@ -1259,7 +1265,9 @@ export default function TakeoffReviewPage({
           onIncludeItem={(itemId) => handleIncludeItems([itemId])}
           onOpenDpgfExceptions={openDpgfExceptions}
           onOpenDetailedReview={() => openProductionReview("items")}
-          canOpenApplyWizard={isApplyReady}
+          canOpenApplyWizard={canOpenApplyWizard}
+          isApplyReady={isApplyReady}
+          forceGuidance={forceGuidance}
           applyReadinessMessage={applyReadinessMessage}
           onOpenApplyWizard={handleOpenApplyWizard}
         />
@@ -1300,6 +1308,7 @@ export default function TakeoffReviewPage({
       {currentReviewMode === "production" ? (
         <TakeoffApplyReadinessBar
           isApplyReady={isApplyReady}
+          canOpenApplyWizard={canOpenApplyWizard}
           includedCount={includedItems.length}
           readinessMessage={applyReadinessMessage}
           onOpenApplyWizard={handleOpenApplyWizard}

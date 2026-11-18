@@ -6,7 +6,6 @@ import useSWR from "swr";
 import { Badge } from "@/components/ui/badge";
 import type { BadgeProps } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { getBusinessStatusLabel } from "@/components/takeoff/takeoff-job-list-shared";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { fetchTakeoffActivityCenter } from "@/lib/takeoff/client";
 import {
@@ -366,7 +365,7 @@ export function PlansMetresCard({
                     {entry.versionLabel}
                   </span>
                   <span className="text-sm text-foreground-secondary">
-                    {getBusinessStatusLabel(entry.statusRaw, entry.statusLabel)}
+                    {entry.statusLabel}
                   </span>
                 </div>
                 {entry.carriedOverFrom ? (
