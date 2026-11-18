@@ -1,12 +1,13 @@
 "use client";
 
-import {
-  type SectionOption,
-} from "./shared";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 
-export function TakeoffApplyWizardTargetStep({
+import type { SectionOption } from "./shared";
+
+/** Where the takeoff's lines go: the section (the first one preselected) and what it receives. */
+export function TakeoffApplyDestination({
   targetVersionLabel,
   targetSectionId,
   sectionOptions,
@@ -14,7 +15,8 @@ export function TakeoffApplyWizardTargetStep({
   sectionsError,
   isSubmitting,
   onTargetSectionChange,
-  reconcilesDpgf = false,
+  onRetrySections,
+  reconcilesDpgf,
 }: {
   targetVersionLabel?: string | null;
   targetSectionId: string | null;
@@ -23,23 +25,18 @@ export function TakeoffApplyWizardTargetStep({
   sectionsError: string | null;
   isSubmitting: boolean;
   onTargetSectionChange: (value: string | null) => void;
-  reconcilesDpgf?: boolean;
+  /** Reads the sections again after a failed read. */
+  onRetrySections: () => void;
+  reconcilesDpgf: boolean;
 }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-surface-subtle p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Cible d&apos;application
-        </p>
-        <p className="mt-2 text-sm font-semibold text-foreground">
-          {targetVersionLabel
-            ? `${targetVersionLabel} — brouillon actuellement ouvert`
-            : "Brouillon actuellement ouvert"}
-        </p>
+    <section aria-labelledby="takeoff-apply-destination-title" className="space-y-3 rounded-xl border border-border bg-surface-subtle p-4">
+      <div>
+        <h3 id="takeoff-apply-destination-title" className="text-sm font-semibold text-foreground">
+          Destination
+        </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          {reconcilesDpgf
-            ? "Les lignes DPGF rapprochées conservent leur emplacement. Cette section accueille les nouvelles lignes éventuelles après confirmation."
-            : "Les quantités seront injectées dans cette section après confirmation finale. La racine du devis n’est jamais proposée comme cible."}
+          {targetVersionLabel ? `${targetVersionLabel} — brouillon actuellement ouvert` : "Brouillon actuellement ouvert"}
         </p>
       </div>
 
@@ -68,17 +65,31 @@ export function TakeoffApplyWizardTargetStep({
             </option>
           ))}
         </NativeSelect>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {reconcilesDpgf
+            ? "Les lignes DPGF rapprochées gardent leur place ; cette section reçoit les nouvelles lignes."
+            : "Les lignes du métré arrivent dans cette section ; une page déjà mesurée met à jour ses lignes à leur place."}
+        </p>
       </div>
 
       {isLoadingSections && (
         <Alert variant="info">Chargement des sections…</Alert>
       )}
-      {sectionsError && <Alert variant="danger">{sectionsError}</Alert>}
+      {sectionsError && (
+        <Alert variant="danger">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="min-w-0">{sectionsError}</p>
+            <Button type="button" variant="outline" size="sm" onClick={onRetrySections} disabled={isSubmitting}>
+              Réessayer
+            </Button>
+          </div>
+        </Alert>
+      )}
       {!isLoadingSections && !sectionsError && sectionOptions.length === 0 && (
         <Alert variant="info">
           Créez d&apos;abord un lot ou un chapitre dans le devis pour y rattacher les lignes du métré.
         </Alert>
       )}
-    </div>
+    </section>
   );
 }

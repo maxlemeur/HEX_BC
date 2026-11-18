@@ -23,7 +23,7 @@ describe("« Fusion sur une ligne DPGF » at the application's confirmation", ()
     const open = vi.fn();
     render(<TakeoffDpgfMergePanel resolution={resolution} dpgfReviewHref="/dashboard/affaires/p/takeoff/j/review?view=dpgf" onOpenDpgfReview={open} />);
     const region = screen.getByRole("region", { name: "Fusion sur une ligne DPGF" });
-    expect(within(region).getByRole("status")).toHaveTextContent("« Fusionner » enverrait « Calorifuge DN 22 » (9 ml) de ce métré sur la "
+    expect(within(region).getByRole("status")).toHaveTextContent("La fusion enverrait « Calorifuge DN 22 » (9 ml) de ce métré sur la "
       + "ligne DPGF « Calorifuge DN 22 » (8 ml), que ce métré n’alimente pas.");
     expect(region).toHaveTextContent("Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité du DPGF gardée.");
     const link = within(region).getByRole("link", { name: "Ouvrir le rapprochement DPGF" });

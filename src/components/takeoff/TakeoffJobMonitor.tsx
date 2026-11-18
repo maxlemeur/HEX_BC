@@ -79,7 +79,6 @@ const STATUS_LABEL_MAP: Record<string, string> = {
 
 const STRATEGY_LABEL_MAP: Record<TakeoffApplyStrategy, string> = {
   append: "Append",
-  replace: "Replace",
   merge: "Merge",
 };
 function getStatusCss(status: string) {
@@ -484,7 +483,6 @@ export default function TakeoffJobMonitor({
 
   const wizardItems = applyItems ?? data?.items.data;
   const includedItemsCount = wizardItems?.filter((item) => !item.is_excluded).length ?? 0;
-  const excludedItemsCount = (wizardItems?.length ?? 0) - includedItemsCount;
 
   const handleApplyWizardOpenChange = useCallback(
     (open: boolean) => {
@@ -531,7 +529,6 @@ export default function TakeoffJobMonitor({
         const response = await applyTakeoffJob(jobId, {
           target_section_id: payload.targetSectionId,
           strategy: payload.strategy,
-          overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
           override: payload.override,
           forced_justifications: payload.forced?.forced_justifications,
           forced_items: payload.forced?.forced_items,
@@ -729,7 +726,7 @@ export default function TakeoffJobMonitor({
             loading={applyState === "loading" || isLoadingApplyItems}
             onClick={() => handleApplyWizardOpenChange(true)}
           >
-            Appliquer au devis
+            Envoyer au tableau de chiffrage
           </Button>
         )}
         {isCompleted && !canOpenApplyWizard && (
@@ -796,7 +793,6 @@ export default function TakeoffJobMonitor({
           data?.job.version_number != null ? `V${data.job.version_number}` : null
         }
         includedCount={includedItemsCount}
-        excludedCount={excludedItemsCount}
         isSubmitting={applyState === "loading"}
         submitError={applyError}
         submitErrorGuard={applyErrorGuard}

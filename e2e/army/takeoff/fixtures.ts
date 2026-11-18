@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { expect, type JsonValue } from "e2e";
 import type { Browser } from "@e2e-dev/web";
 
-import { recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
+import { recordEvidence, type ArmyState, type createEstimateViaWizard, type OwnedEstimate } from "../critical/fixtures";
 
 export type TakeoffSeedItem = {
   designation: string;
@@ -114,4 +114,66 @@ export async function applyOwnedTakeoff(browser: Browser, versionId: string, job
     });
     return { status: response.status, body: await response.json() as JsonValue };
   }, { versionId, jobId, body: JSON.stringify(body), foreignSession });
+}
+
+type SendUi = Parameters<typeof createEstimateViaWizard>[0];
+
+/** The one screen that sends a reviewed takeoff to the estimate (2026-11-18), and the button that opens it. */
+export const TAKEOFF_SEND = "Envoyer au tableau de chiffrage";
+export const TAKEOFF_SEND_CONFIRM = "Confirmer l'envoi";
+export const TAKEOFF_SENT_TOAST = "Métré envoyé au tableau de chiffrage";
+
+/**
+ * Opens « Envoyer au tableau de chiffrage » from a review or the job page, chooses the section (or checks it is the one
+ * preselected, the first), and waits for the impact preview of that section: computed without a click, its lines listed
+ * (read-only), `designation` among them. No step, no strategy to pick: the version decides (merge with DPGF lines,
+ * append otherwise).
+ */
+export async function openTakeoffSend(ui: SendUi, sectionId: string, designation: string, options: { preselected?: boolean } = {}) {
+  await ui.screen.getByRole("button", TAKEOFF_SEND, { exact: true }).click();
+  const dialog = ui.screen.getByRole("dialog", TAKEOFF_SEND, { exact: true });
+  const section = dialog.getByLabel("Section cible", { exact: true });
+  if (options.preselected) await expect(section).toHaveValue(sectionId);
+  else await section.selectOption({ value: sectionId });
+  // A DPGF version names them as retained before its reconciliation (the out-of-scope ones are not sent).
+  await expect(dialog.getByRole("list", /^Lignes (envoyées|retenues avant le rapprochement DPGF)$/)).toContainText(designation, { timeout: 30_000 });
+  // The strategies the four-step wizard offered are gone (« Pages déjà au devis » keeps its own radios).
+  await expect(dialog.getByRole("button", "Suivant", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("radio", /^(Ajouter sans effacer|Remplacer uniquement la section choisie|Fusionner avec l'existant)/)).toHaveCount(0);
+  return dialog;
+}
+
+type SentSummary = { created_count: number; updated_count: number; ignored_count: number; created_ids: string[];
+  item_links: Array<{ estimate_item_id: string }> };
+
+const counted = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
+
+/**
+ * After « Confirmer l'envoi » from a review: the French toast with the counts the application returned, then the
+ * version's editor placed on the takeoff's line, the first it created, else the first it fed or updated (`focusItemId`),
+ * highlighted and in view. With `offscreen`, the line also lay below the fold of its scroll container before the editor
+ * scrolled to it (the journey put enough lines before it). Returns its id.
+ */
+export async function expectLandedOnTakeoffLine(ui: SendUi, versionId: string, summary: SentSummary,
+  options: { offscreen?: boolean } = {}) {
+  const counts = `${counted(summary.created_count, "ligne créée", "lignes créées")}, `
+    + `${counted(summary.updated_count, "mise à jour", "mises à jour")}, ${counted(summary.ignored_count, "ignorée", "ignorées")}.`;
+  await expect(ui.browser.locator('[data-slot="toast"]').filter({ hasText: TAKEOFF_SENT_TOAST }).filter({ hasText: counts })).toBeVisible();
+  const lineId = summary.created_ids[0] ?? summary.item_links[0]?.estimate_item_id;
+  expect(lineId, "the application names a line of the estimate").toBeTruthy();
+  await expect(ui.browser).toHaveURL(new RegExp(`/dashboard/estimates/${versionId}/edit\\?focusItemId=${lineId}$`), { timeout: 60_000 });
+  const row = ui.browser.locator(`[data-estimate-item-id="${lineId}"]`);
+  await expect(row).toBeVisible({ timeout: 60_000 });
+  // The editor highlights the line for a few seconds once it has scrolled to it (useEstimateEditorState, focusItemId).
+  await expect(row).toHaveAttribute("data-highlighted", "true");
+  await expect.poll(() => ui.browser.evaluate((id) => {
+    const element = document.querySelector(`[data-estimate-item-id="${id}"]`);
+    const box = element?.getBoundingClientRect();
+    if (!element || !box) return { inView: false, belowFoldBefore: false };
+    // How far the line's scroll containers moved: where the line stood before, in the viewport, is that much lower.
+    let scrolled = 0;
+    for (let node = element.parentElement; node; node = node.parentElement) scrolled += node.scrollTop;
+    return { inView: box.height > 0 && box.bottom > 0 && box.top < window.innerHeight, belowFoldBefore: box.top + scrolled >= window.innerHeight };
+  }, lineId!), { timeout: 30_000 }).toEqual(expect.objectContaining({ inView: true, ...(options.offscreen ? { belowFoldBefore: true } : {}) }));
+  return lineId!;
 }

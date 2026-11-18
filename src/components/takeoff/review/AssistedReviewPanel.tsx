@@ -213,7 +213,7 @@ export function AssistedReviewPanel({
           onClick={onApplyClick}
           disabled={acceptedCount === 0 || !isApplyReady}
         >
-          Appliquer au chiffrage
+          Envoyer au tableau de chiffrage
         </Button>
       </div>
     </div>

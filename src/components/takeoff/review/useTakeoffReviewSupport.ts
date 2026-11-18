@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
@@ -19,6 +19,19 @@ const errorGuardOf = (details: unknown) => {
   return typeof guard === "string" ? guard : null;
 };
 
+/** One call of the review: whether it is pending, and its refusal. */
+type Outcome = { id: number; submitting: boolean; error: string | null; errorGuard: string | null };
+
+export const TAKEOFF_APPLY_SENT_TITLE = "Métré envoyé au tableau de chiffrage";
+
+const counted = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
+
+/** The toast's counts once sent: « 2 lignes créées, 1 mise à jour, 0 ignorée. » */
+export function takeoffApplySentDescription(summary: Pick<TakeoffApplyResponse["summary"], "created_count" | "updated_count" | "ignored_count">) {
+  return `${counted(summary.created_count, "ligne créée", "lignes créées")}, ${counted(summary.updated_count, "mise à jour", "mises à jour")}, `
+    + `${counted(summary.ignored_count, "ignorée", "ignorées")}.`;
+}
+
 /** The tenant's low confidence threshold (feature flag), as the apply guard reads it. */
 export function useTakeoffLowConfidenceThreshold() {
   const { enabled, value } = useFeatureFlag(TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY);
@@ -26,50 +39,90 @@ export function useTakeoffLowConfidenceThreshold() {
 }
 
 /**
- * Applies a job from its review: takes the version's draft lock (or keeps the editor's), applies, then gives the lock
- * back when it took it. `onApplied` runs on success only; any refusal (the guard's 422, the lock) is `error`.
+ * Sends a job to the estimate table from its review: takes the version's draft lock (or keeps the editor's), applies,
+ * then gives the lock back when it took it. On success `onSent` runs (the toast, whatever became of the review), then
+ * `onApplied` (the landing in the editor), once that lock is given back and only while the review that asked is still
+ * shown for this job and version: Back, or a link, may have left it meanwhile, and the landing would then move the
+ * estimator from another screen. Any refusal (the guard's 422, the lock) is `error`. One application at a time: a second
+ * call while one is pending does nothing.
+ *
+ * The lease is scoped by version, user and page identity, and a client-side navigation keeps the identity
+ * (draft-lock-session-client.ts): the editor `onApplied` opens adopts a lease still held, and a release landing after
+ * that would delete the editor's lease. So the release is awaited before `onApplied`. A failed release leaves a lease of
+ * this page's identity, which the editor adopts as its own.
+ *
+ * What the review shows (`submitting`, `error`, `errorGuard`) belongs to its current call for the job and version shown:
+ * another job or version shown since, even the same one again, starts empty, and a call it superseded changes nothing
+ * there (the re-check of 0fd09a20, finding 6: a late refusal showed on the next review). The lease that call took is given
+ * back all the same.
  */
 export function useTakeoffApplyConfirm(input: {
   jobId: string;
   versionId: string;
   onApplied: (response: TakeoffApplyResponse, payload: TakeoffApplyWizardSubmitPayload) => void;
+  /** Runs on every success, before `onApplied`, even once the review is left: the sending happened. */
+  onSent?: (response: TakeoffApplyResponse) => void;
 }) {
-  const { jobId, versionId, onApplied } = input;
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // TI-682 lot D: the guard of a refusal (a page decision refused): the wizard reads its proposal again.
-  const [errorGuard, setErrorGuard] = useState<string | null>(null);
+  const { jobId, versionId, onApplied, onSent } = input;
+  // The call shown, for the job and version shown: emptied when another is shown (adjusted while rendering, before the
+  // render that would show the earlier one). TI-682 lot D: `errorGuard` is the guard of a refusal (a page decision
+  // refused): the wizard reads its proposal again.
+  const scope = `${jobId}\u0000${versionId}`;
+  const [shown, setShown] = useState<{ scope: string; call: Outcome | null }>({ scope, call: null });
+  if (shown.scope !== scope) setShown({ scope, call: null });
+  const outcome = shown.scope === scope ? shown.call : null;
+  // Set synchronously, before any await: two clicks in the same frame start one application.
+  const pending = useRef(false);
+  // The review's current call; any other (the review left, another job or version shown) no longer lands.
+  const current = useRef(0);
+  useEffect(() => {
+    const call = current;
+    return () => { call.current += 1; };
+  }, [jobId, versionId]);
+  const setError = useCallback((error: string | null) => {
+    setShown((view) => ({ ...view, call: view.call ? { ...view.call, error, errorGuard: null } : null }));
+  }, []);
   const confirm = useCallback(async (payload: TakeoffApplyWizardSubmitPayload) => {
-    setSubmitting(true);
-    setError(null);
-    setErrorGuard(null);
+    if (pending.current) return;
+    pending.current = true;
+    const call = ++current.current;
+    setShown({ scope, call: { id: call, submitting: true, error: null, errorGuard: null } });
+    // Only while this call is still the one shown.
+    const show = (next: Partial<Omit<Outcome, "id">>) =>
+      setShown((view) => (view.call?.id === call ? { ...view, call: { ...view.call, ...next } } : view));
     let shouldReleaseDraftLock = false;
+    let response: TakeoffApplyResponse | null = null;
     try {
       const lockResult = await ensureTakeoffApplyDraftLock(versionId);
       if (!lockResult.acquired) {
-        setError(lockResult.errorMessage ?? "Impossible d'acquérir le verrou de brouillon de la version cible.");
+        show({ error: lockResult.errorMessage ?? "Impossible d'acquérir le verrou de brouillon de la version cible." });
         return;
       }
       shouldReleaseDraftLock = lockResult.shouldRelease;
-      const response = await applyTakeoffJob(jobId, {
+      // The administrator's mapping rules apply as the server reads them: the screen sends no overrides.
+      response = await applyTakeoffJob(jobId, {
         strategy: payload.strategy,
         target_section_id: payload.targetSectionId,
-        overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
         override: payload.override,
         forced_justifications: payload.forced?.forced_justifications,
         forced_items: payload.forced?.forced_items,
         page_decisions: payload.pageDecisions,
       }, versionId);
-      onApplied(response, payload);
     } catch (err) {
-      setError(isTakeoffApiError(err) ? err.message : "Erreur lors de l'application.");
-      setErrorGuard(isTakeoffApiError(err) ? errorGuardOf(err.details) : null);
+      show({ error: isTakeoffApiError(err) ? err.message : "Erreur lors de l'envoi au tableau de chiffrage.",
+        errorGuard: isTakeoffApiError(err) ? errorGuardOf(err.details) : null });
     } finally {
+      // Whatever became of the review: a lease this call took is always given back.
       if (shouldReleaseDraftLock) {
-        void releaseEstimateDraftLock(versionId).catch(() => false);
+        await releaseEstimateDraftLock(versionId).catch(() => false);
       }
-      setSubmitting(false);
+      pending.current = false;
+      show({ submitting: false });
     }
-  }, [jobId, onApplied, versionId]);
-  return { submitting, error, errorGuard, setError, confirm };
+    if (!response) return;
+    onSent?.(response);
+    if (current.current === call) onApplied(response, payload);
+  }, [jobId, onApplied, onSent, scope, versionId]);
+  return { submitting: outcome?.submitting ?? false, error: outcome?.error ?? null, errorGuard: outcome?.errorGuard ?? null, setError,
+    confirm };
 }

@@ -40,6 +40,18 @@ function JustificationCount({ id, value }: Readonly<{ id: string; value: string 
   );
 }
 
+/**
+ * A way out of the review shown as a link; while sending, a disabled lookalike instead: leaving the review then would let
+ * the landing in the estimate table follow the estimator to another screen (Link has no disabled state).
+ */
+function ReviewLink({ href, disabled, className, children }: Readonly<{ href: string; disabled: boolean; className: string;
+  children: string }>) {
+  if (disabled) {
+    return <span aria-disabled="true" className={cn(className, "pointer-events-none opacity-50")}>{children}</span>;
+  }
+  return <Link href={href} className={className}>{children}</Link>;
+}
+
 /** TI-686 D10: one blocked line's coded reason, rules at fault and justification. */
 function ForcedLine({ line, draft, onChange }: Readonly<{
   line: GuardBlockedItem; draft: ForcedDraft; onChange: (next: ForcedDraft) => void;
@@ -107,6 +119,7 @@ export function GuardPanel({
   targetedReviewHref,
   onForcedDraftsChange,
   onOverrideConfirm,
+  disabled = false,
 }: {
   guardResult: ApplyGuardResult;
   isAdmin: boolean;
@@ -119,6 +132,8 @@ export function GuardPanel({
   targetedReviewHref?: string;
   onForcedDraftsChange: (next: ForcedDrafts) => void;
   onOverrideConfirm: () => void;
+  /** While sending: the ways out of the review are closed. */
+  disabled?: boolean;
 }) {
   const bulkId = useId();
   const [bulk, setBulk] = useState<{ reason: ForceReason | ""; justification: string }>({ reason: "", justification: "" });
@@ -155,18 +170,20 @@ export function GuardPanel({
             type="button"
             className={cn(buttonVariants({ variant: "outline" }), "mt-3")}
             onClick={onReturnToReview}
+            disabled={disabled}
           >
             Retour à la revue
           </button>
         ) : reviewHref ? (
-          <Link href={reviewHref} className={cn(buttonVariants({ variant: "outline" }), "mt-3 inline-flex")}>
+          <ReviewLink href={reviewHref} disabled={disabled} className={cn(buttonVariants({ variant: "outline" }), "mt-3 inline-flex")}>
             Ouvrir la revue des preuves
-          </Link>
+          </ReviewLink>
         ) : null}
         {targetedReviewHref ? (
-          <Link href={targetedReviewHref} className={cn(buttonVariants({ variant: "outline" }), "ml-2 mt-3 inline-flex")}>
+          <ReviewLink href={targetedReviewHref} disabled={disabled}
+            className={cn(buttonVariants({ variant: "outline" }), "ml-2 mt-3 inline-flex")}>
             Trancher dans la revue ciblée
-          </Link>
+          </ReviewLink>
         ) : null}
       </div>
 

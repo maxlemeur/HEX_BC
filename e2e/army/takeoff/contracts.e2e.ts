@@ -6,7 +6,9 @@ import * as XLSX from "xlsx";
 import {
   apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, resolveDownload,
 } from "../critical/fixtures";
-import { applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient } from "./fixtures";
+import {
+  TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
+} from "./fixtures";
 import { nativeTest } from "./native-ui";
 import { launchWorkerCsv } from "./worker-support";
 
@@ -141,7 +143,7 @@ for (const scenario of ["level-a", "admin-override", "excluded"] as const) {
 }
 
 armyTest("TKF06 final wizard confirmation applies through the owning page session and persists exact quantities", options, async ui => {
-  const { app, screen, browser, army } = ui;
+  const { app, browser, army } = ui;
   await browser.emulateMedia({ reducedMotion: "reduce" });
   const ids = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY UI apply session" }, army);
   const target = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} existing target`);
@@ -155,17 +157,20 @@ armyTest("TKF06 final wizard confirmation applies through the owning page sessio
   const seed = await fixture.seed("A", measures);
   const before = await readEstimate(browser, ids.versionId);
   await app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${seed.jobId}`);
-  await screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-  const dialog = screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-  await dialog.getByLabel("Section cible", { exact: true }).selectOption({ value: target.parent_id! });
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
-  await dialog.getByRole("radio", /^Ajouter sans effacer/).check();
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
-  await expect(dialog).toContainText(measures[0].designation);
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
-  await expect(dialog).toContainText(/Confirmation finale/i);
+  // One screen: the impact preview is computed without a click, the excluded line is not among the lines sent, and the
+  // request carries the version's strategy (no DPGF line: append) and no overrides.
+  const sent: unknown[] = [];
+  await browser.route(new RegExp(`/api/takeoff/jobs/${seed.jobId}/apply$`), async (route) => {
+    sent.push(JSON.parse(route.request.postData ?? "{}"));
+    await route.fallback();
+  });
+  const dialog = await openTakeoffSend(ui, target.parent_id!, measures[0].designation);
+  const lines = dialog.getByRole("list", "Lignes envoyées", { exact: true });
+  await expect(lines).toContainText(measures[1].designation);
+  await expect(lines).not.toContainText(measures[2].designation);
+  await expect(dialog.getByRole("region", "Aperçu d’impact", { exact: true })).toContainText("Rien n’est écrit dans le devis avant votre confirmation.");
   const finalApply = browser.waitForResponse(`**/api/takeoff/jobs/${seed.jobId}/apply`);
-  await dialog.getByRole("button", "Confirmer l'application", { exact: true }).click();
+  await dialog.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click();
   const response = await finalApply;
   const result = await response.json<Envelope<{ job: { id: string; status: string }; summary: { created_count: number; updated_count: number } }>>();
   await recordEvidence(army, "takeoff-ui-apply-response", { ids, seed, status: response.status, ok: result.ok,
@@ -175,6 +180,9 @@ armyTest("TKF06 final wizard confirmation applies through the owning page sessio
   expect(result.ok).toBe(true);
   expect(result.data.job).toMatchObject({ id: seed.jobId, status: "applied" });
   expect(result.data.summary).toMatchObject({ created_count: 2, updated_count: 0 });
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ strategy: "append", target_section_id: target.parent_id });
+  expect(sent[0]).not.toHaveProperty("overrides");
   await expect(dialog).not.toBeVisible();
   await browser.reload();
   const after = await readEstimate(browser, ids.versionId);
@@ -208,15 +216,9 @@ armyTest("TKF07 an administrator forces each blocked line from the apply wizard 
     expect(missing.error).toBeNull();
   }
   await app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${seed.jobId}`);
-  await screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-  const dialog = screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-  await dialog.getByLabel("Section cible", { exact: true }).selectOption({ value: target.parent_id! });
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
-  await dialog.getByRole("radio", /^Ajouter sans effacer/).check();
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
-  await expect(dialog).toContainText(measures[0].designation);
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
+  const dialog = await openTakeoffSend(ui, target.parent_id!, measures[0].designation);
   await expect(dialog).toContainText("Lignes à trancher");
+  await expect(dialog.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true })).toBeDisabled();
   const force = dialog.getByRole("button", "Forcer l'application (2 lignes)", { exact: true });
   await expect(force).toBeDisabled();
   await dialog.getByLabel("Motif de la sélection", { exact: true }).selectOption({ value: "additional_evidence" });

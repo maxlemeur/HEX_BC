@@ -3,7 +3,7 @@
 import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target } from "lucide-react";
 
@@ -17,7 +17,9 @@ import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRe
 import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
 import { acceptanceReasonRule, requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
-import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
+import {
+  TAKEOFF_APPLY_SENT_TITLE, takeoffApplySentDescription, useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold,
+} from "@/components/takeoff/review/useTakeoffReviewSupport";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +33,7 @@ import { fetchTakeoffDpgfComparison, fetchTakeoffJobWithAllItems, isTakeoffApiEr
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { quantityEntryLabel } from "@/lib/takeoff/quantity-entry";
 import { APPLY_GUARD_REASON_LABELS, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
+import { takeoffApplyLandingHref } from "@/lib/takeoff/apply-landing";
 import { quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
 import { TAKEOFF_RULE_LABELS, ZONE_OVERLAP_DIFFERENCE_LABELS } from "@/lib/takeoff/rules/labels";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
@@ -54,6 +57,7 @@ import {
   type ZoneOverlapGuidance,
 } from "@/lib/takeoff/targeted-review";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS, isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
+import { exclusionReasonText } from "@/lib/takeoff/comparison-selection";
 import type { TakeoffApplyResponse, TakeoffItemPatchField, TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
 import { cn } from "@/lib/utils";
 
@@ -129,6 +133,7 @@ function parseQuantity(text: string) {
 
 export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<{ jobId: string; versionId: string; projectId: string }>) {
   const toast = useToast();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
@@ -448,13 +453,17 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     return () => document.removeEventListener("keydown", listener);
   }, []);
 
+  // Sent: said in a toast, even once the review is left; then, while it is still shown, the estimator lands in the
+  // estimate table on the takeoff's lines (the draft lock taken is already given back).
+  const handleSent = useCallback((response: TakeoffApplyResponse) => {
+    toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
+  }, [toast]);
   const handleApplied = useCallback((response: TakeoffApplyResponse) => {
     setWizardOpen(false);
     setJob((previous) => (previous ? { ...previous, status: "applied" } : previous));
-    toast.success({ title: "Apply contrôlé terminé",
-      description: `${response.summary.created_count} créé(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignoré(s).` });
-  }, [toast]);
-  const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
+    router.push(takeoffApplyLandingHref(versionId, response.summary));
+  }, [router, versionId]);
+  const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied, onSent: handleSent });
 
   const included = items.filter((item) => !item.is_excluded);
   const applyBlocker = !job ? "Chargement du métré…"
@@ -581,9 +590,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                 <Kbd>↑</Kbd><Kbd>↓</Kbd> ligne · <Kbd>E</Kbd> exclure · <Kbd>F2</Kbd> corriger · <Kbd>V</Kbd> accepter · <Kbd>Échap</Kbd> annuler
               </p>
               <Button className="w-full" size="lg" disabled={applyBlocker !== null} onClick={() => { apply.setError(null); setWizardOpen(true); }}>
-                Appliquer au devis
+                Envoyer au tableau de chiffrage
               </Button>
-              <p role="status" className="text-xs text-muted-foreground">{applyBlocker ?? "Choisissez la section et la stratégie ; contrôlez aussi le périmètre attendu."}</p>
+              <p role="status" className="text-xs text-muted-foreground">{applyBlocker ?? "Choisissez la section et vérifiez l’aperçu d’impact ; contrôlez aussi le périmètre attendu."}</p>
             </div>
           </aside>
         ) : (
@@ -710,7 +719,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       {wizardOpen && job ? (
         <TakeoffApplyWizard open={wizardOpen} jobId={jobId} versionId={versionId}
           targetVersionLabel={job.version_number ? `V${job.version_number}` : null}
-          includedCount={included.length} excludedCount={items.length - included.length}
+          includedCount={included.length}
           isSubmitting={apply.submitting} submitError={apply.error} submitErrorGuard={apply.errorGuard} onOpenChange={setWizardOpen}
           onConfirm={(payload: TakeoffApplyWizardSubmitPayload) => apply.confirm(payload)} items={items}
           sourceFileName={job.source_file_name} jobLevel={level} confidenceThreshold={threshold} isAdmin={isAdmin}
@@ -809,7 +818,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
         <section aria-label="Raisons" className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Raisons</h3>
           {hypothesis || alternative ? (
-            <p className="text-foreground-secondary">{item.exclusion_reason}</p>
+            <p className="text-foreground-secondary">{item.exclusion_reason ? exclusionReasonText(item.exclusion_reason) : null}</p>
           ) : line.tier === "uncertain" ? (
             <p className="text-foreground-secondary">Confiance moyenne : contrôlez la ligne, puis acceptez-la (V) ou corrigez-la.</p>
           ) : null}

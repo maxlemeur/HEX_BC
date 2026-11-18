@@ -1,16 +1,12 @@
 "use client";
 
-import type {
-  TakeoffMappingOverride,
-  TakeoffPreviewConversionResponse,
-} from "@/lib/takeoff/client";
+import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import type { ForcedOverride } from "@/lib/takeoff/force-reasons";
+import type { MergeSentLine } from "@/lib/takeoff/merge-overwrites";
 import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
-
-export type WizardStep = 1 | 2 | 3 | 4;
 
 export type SectionOption = {
   id: string;
@@ -18,67 +14,22 @@ export type SectionOption = {
   summaryLabel: string;
 };
 
-export type TakeoffApplyStrategy = "append" | "replace" | "merge";
+/**
+ * What the screen sends. The API also accepts « replace » (the section emptied first), which the screen no longer offers
+ * since 2026-11-18: the server's refusals around it stay covered by its own tests.
+ */
+export type TakeoffApplyStrategy = "append" | "merge";
 
 export type TakeoffApplyWizardSubmitPayload = {
   targetSectionId: string | null;
   targetSectionLabel: string;
   strategy: TakeoffApplyStrategy;
-  overrides: TakeoffMappingOverride[];
   override?: boolean;
   /** TI-686 D10: each blocked line's coded reason, its justification stored once (with override). */
   forced?: ForcedOverride;
   /** TI-682 lot D: the decision for each page another takeoff already brought into the estimate. */
   pageDecisions?: TakeoffPageDecision[];
 };
-
-export const ROOT_SECTION_VALUE = "__takeoff_root_section__";
-export const ROOT_SECTION_LABEL = "Racine du devis";
-export const AUTO_OVERRIDE_VALUE = "__takeoff_override_auto__";
-
-export const STRATEGY_OPTIONS: Array<{
-  value: TakeoffApplyStrategy;
-  label: string;
-  description: string;
-  impactLabel: string;
-  caution: string;
-}> = [
-  {
-    value: "append",
-    label: "Ajouter sans effacer",
-    description: "Ajoute les lignes extraites dans la zone cible sans toucher au contenu déjà en place.",
-    impactLabel: "Le plus sur pour enrichir un devis existant.",
-    caution: "Aucune ligne existante n'est supprimée.",
-  },
-  {
-    value: "replace",
-    label: "Remplacer uniquement la section choisie",
-    description:
-      "Remplace le contenu actuel de la section sélectionnée par les lignes issues du métré retenu.",
-    impactLabel: "Impact fort, limité à la section choisie.",
-    caution:
-      "La racine du devis reste protégée. La preview et la confirmation précèdent l'application atomique.",
-  },
-  {
-    value: "merge",
-    label: "Fusionner avec l'existant",
-    description: "Tente de rapprocher les lignes existantes et les lignes extraites selon les règles serveur.",
-    impactLabel: "Bon compromis quand la zone est déjà structuree.",
-    caution: "Relisez l'impact avant confirmation.",
-  },
-];
-
-export const OVERRIDE_ACTION_OPTIONS: Array<{
-  value: TakeoffMappingOverride["action"];
-  label: string;
-}> = [
-  { value: "none", label: "Aucune transformation" },
-  { value: "rename", label: "rename" },
-  { value: "set_price", label: "set_price" },
-  { value: "set_category", label: "set_category" },
-  { value: "apply_assembly", label: "apply_assembly" },
-  { value: "skip", label: "skip" },
-];
 
 function toPosition(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -157,101 +108,47 @@ export function buildSectionOptions(items: EstimateItem[]): SectionOption[] {
   return ordered;
 }
 
-export function strategyDescription(strategy: TakeoffApplyStrategy) {
-  return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.description ?? "-";
+/**
+ * The strategy the screen computes and sends (2026-11-18: no longer chosen by hand). A version that holds DPGF lines
+ * (`isDpgfTargetLine`) merges, so that its reconciled DPGF lines keep their place; any other version appends, a page
+ * another takeoff already brought into the estimate updating its earlier lines in place. The server's proposal says
+ * whether the version holds DPGF lines when it is read (`merge_required`): the dialog follows it.
+ */
+export function takeoffApplyStrategyFor(input: { holdsDpgfLines: boolean }): TakeoffApplyStrategy {
+  return input.holdsDpgfLines ? "merge" : "append";
 }
 
-export function strategyLabel(strategy: TakeoffApplyStrategy) {
-  return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.label ?? strategy;
+/**
+ * The lines the application hands the writer, read from the impact preview: still included once the mapping plan left out
+ * what it skips or folds into an ouvrage (apply_takeoff_job_atomic excludes them before the writer runs), each with the
+ * designation a « rename » gave it and its source order. On a DPGF version the application also skips the lines the
+ * reconciliation decided out of scope, which the preview does not know: these are more lines than the writer is handed,
+ * never fewer (mergeOverwrites reaches no fewer lines for it).
+ */
+export function mergeSentLinesOf(preview: Pick<TakeoffPreviewConversionResponse, "items">): MergeSentLine[] {
+  return preview.items
+    .filter((item) => !item.transformed.is_excluded && item.action !== "skip" && item.action !== "apply_assembly")
+    .map((item) => ({ id: item.item_id, designation: item.transformed.designation, unit: item.transformed.unit,
+      quantity: item.transformed.quantity, sourceOrder: item.source_order }));
 }
 
-export function strategyCaution(strategy: TakeoffApplyStrategy) {
-  return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.caution ?? "";
-}
-
-export function toOverrideList(overridesByItemId: Record<string, TakeoffMappingOverride>) {
-  return Object.values(overridesByItemId);
-}
-
-export function serializeTakeoffOverrides(
-  overridesByItemId: Record<string, TakeoffMappingOverride>
-) {
-  return JSON.stringify(
-    toOverrideList(overridesByItemId).sort((left, right) =>
-      left.item_id.localeCompare(right.item_id)
-    )
-  );
-}
-
-export function summarizeAction(item: TakeoffPreviewConversionResponse["items"][number]) {
-  if (item.action === "none") {
-    return "Aucune";
+/** What the administrator's mapping rule did to a line, in words; null when no rule touched it. */
+export function mappingRuleEffect(item: Pick<TakeoffPreviewConversionResponse["items"][number], "action" | "rule_name">): string | null {
+  const by = item.rule_name ? `par la règle « ${item.rule_name} »` : "par une règle";
+  switch (item.action) {
+    case "none":
+      return null;
+    case "rename":
+      return `Renommée ${by}`;
+    case "set_price":
+      return `Prix fixé ${by}`;
+    case "set_category":
+      return `Catégorie fixée ${by}`;
+    case "apply_assembly":
+      return item.rule_name ? `Remplacée par un ouvrage (règle « ${item.rule_name} »)` : "Remplacée par un ouvrage";
+    case "skip":
+      return `Laissée de côté ${by}`;
   }
-
-  if (item.rule_name) {
-    return `${item.action} (${item.rule_name})`;
-  }
-
-  return item.action;
-}
-
-export function buildOverrideFromAction(input: {
-  item: TakeoffPreviewConversionResponse["items"][number];
-  action: TakeoffMappingOverride["action"];
-}): TakeoffMappingOverride {
-  if (input.action === "rename") {
-    return {
-      item_id: input.item.item_id,
-      action: "rename",
-      action_params: {
-        designation: input.item.transformed.designation,
-      },
-    };
-  }
-
-  if (input.action === "set_price") {
-    return {
-      item_id: input.item.item_id,
-      action: "set_price",
-      action_params: {
-        unit_price_cents: input.item.transformed.unit_price_cents ?? 0,
-      },
-    };
-  }
-
-  if (input.action === "set_category") {
-    return {
-      item_id: input.item.item_id,
-      action: "set_category",
-      action_params: {
-        category_id: input.item.transformed.category_id ?? "",
-      },
-    };
-  }
-
-  if (input.action === "apply_assembly") {
-    return {
-      item_id: input.item.item_id,
-      action: "apply_assembly",
-      action_params: {
-        assembly_id: input.item.transformed.assembly_id ?? "",
-      },
-    };
-  }
-
-  if (input.action === "skip") {
-    return {
-      item_id: input.item.item_id,
-      action: "skip",
-      action_params: {},
-    };
-  }
-
-  return {
-    item_id: input.item.item_id,
-    action: "none",
-    action_params: {},
-  };
 }
 
 export function confidenceColor(confidence: number | null): string {

@@ -186,7 +186,7 @@ describe("a line « Fusionner » sends onto a DPGF line outside the reconciliati
     const resolution = resolveConfirmation(data, initialConfirmationDraft(data));
     expect([resolution.complete, resolution.payload]).toEqual([false, []]);
     expect(resolution.merges.map((advice) => [advice.text, advice.choose, advice.elsewhere, advice.exits])).toEqual([[
-      "« Fusionner » enverrait « Calorifuge DN 22 » (9 ml) de ce métré sur la ligne DPGF « Calorifuge DN 22 » (8 ml), que ce métré "
+      "La fusion enverrait « Calorifuge DN 22 » (9 ml) de ce métré sur la ligne DPGF « Calorifuge DN 22 » (8 ml), que ce métré "
         + "n’alimente pas. Une ligne DPGF ne reçoit une mesure que par le rapprochement, qui garde au moins sa quantité du DPGF : la base "
         + "refuse cette fusion.", [], ["link_in_dpgf_review", "exclude_at_review"],
       ["Reliez cette ligne à la ligne DPGF dans le rapprochement : elle l’alimentera, sa quantité du DPGF gardée.",
@@ -203,7 +203,7 @@ describe("a line « Fusionner » sends onto a DPGF line outside the reconciliati
   it("asks to check the links of a line the reconciliation links elsewhere, without asking to link it here", () => {
     const data = proposal({ dpgf_merge_refusals: [refusal({ linked: true })] });
     const [advice] = resolveConfirmation(data, initialConfirmationDraft(data)).merges;
-    expect([advice.text.startsWith("« Fusionner » enverrait « Calorifuge DN 22 » (9 ml) de ce métré, que le rapprochement relie à une autre "
+    expect([advice.text.startsWith("La fusion enverrait « Calorifuge DN 22 » (9 ml) de ce métré, que le rapprochement relie à une autre "
       + "ligne DPGF, aussi sur la ligne DPGF « Calorifuge DN 22 » (8 ml), que ce métré n’alimente pas."), advice.elsewhere, advice.exits])
       .toEqual([true, ["link_in_dpgf_review"], ["Vérifiez les rattachements DPGF de cette ligne dans le rapprochement."]]);
   });

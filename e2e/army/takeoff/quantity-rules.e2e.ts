@@ -13,7 +13,9 @@ import {
 import { querySql } from "../local/calculation-gate-support";
 import { ownedTakeoffJobs } from "../critical/plans-support";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
-import { localTakeoffFixture, localTakeoffWorkerClient } from "./fixtures";
+import {
+  TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, expectLandedOnTakeoffLine, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
+} from "./fixtures";
 import { signUpWorkerOwner, startOwnedWorker, type WorkerUi } from "./worker-support";
 import { ZONE_PLANS, buildZonePlanPdf } from "./zone-plans-fixture";
 
@@ -250,7 +252,7 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     const list = screen.getByRole("listbox", "Lignes à trancher", { exact: true });
     await expect(list.getByRole("option")).toHaveCount(2);
     await expect(screen.getByRole("button", /^Règle en échec 2$/)).toBeVisible();
-    const applyButton = screen.getByRole("button", "Appliquer au devis", { exact: true });
+    const applyButton = screen.getByRole("button", TAKEOFF_SEND, { exact: true });
     await expect(applyButton).toBeEnabled();
     await expect(screen.getByText("2 lignes à trancher avant l’application.", { exact: true })).toHaveCount(0);
 
@@ -286,7 +288,7 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
       const layout = await ui.browser.evaluate(() => {
         const bottom = (selector: string) => document.querySelector(selector)?.getBoundingClientRect().bottom ?? Infinity;
         return { scroll: document.scrollingElement!.scrollHeight <= window.innerHeight,
-          apply: [...document.querySelectorAll("button")].find((button) => button.textContent === "Appliquer au devis")!.getBoundingClientRect().bottom <= window.innerHeight,
+          apply: [...document.querySelectorAll("button")].find((button) => button.textContent === "Envoyer au tableau de chiffrage")!.getBoundingClientRect().bottom <= window.innerHeight,
           decisions: bottom("[role='toolbar'][aria-label='Décisions']") <= window.innerHeight,
           plan: (document.querySelector("svg[aria-label='Géométrie mesurée']")?.getBoundingClientRect().height ?? 0) > 100,
           focus: document.querySelectorAll("[data-focus='true']").length > 0 };
@@ -320,13 +322,13 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     // Kept after a reload: nothing left to settle, the line at 4.00 m on the server, both lines settled.
     await ui.browser.reload();
     await expect(screen.getByText("Aucune recommandation affichée. Vérifiez aussi la couverture du périmètre attendu.", { exact: true })).toBeVisible();
-    await expect(screen.getByRole("button", "Appliquer au devis", { exact: true })).toBeEnabled();
+    await expect(screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeEnabled();
     const z1 = (await readItems(ui, jobs.Z1)).find((item) => item.designation === ZONE_PLANS.designation);
     expect(z1).toMatchObject({ quantity: 4, is_excluded: false });
     expect(zoneCode(z1)).toBe("ZONE_OVERLAP_RESOLVED");
     expect(zoneCode((await readItems(ui, jobs.Z2)).find((item) => item.designation === ZONE_PLANS.designation))).toBe("ZONE_OVERLAP_RESOLVED");
 
-    // Each job applies through the wizard of its targeted review. Z2's stub line is first accepted by keyboard (V) with
+    // Each job is sent through « Envoyer au tableau de chiffrage » of its targeted review, then lands in the estimate table. Z2's stub line is first accepted by keyboard (V) with
     // its coded reason, then left out: a length the model read on the page of the measured run cannot be applied with it.
     for (const zone of ["Z1", "Z2"] as const) {
       if (zone === "Z2") {
@@ -348,23 +350,22 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
         expect(pipe).toMatchObject({ is_verified: true, is_excluded: false });
         await patchItems(ui, jobs.Z2, [{ item: pipe, fields: { is_excluded: true, exclusion_reason: "Lecture du plan écartée : tronçon mesuré retenu." } }]);
         await ui.app.open(targeted(jobs.Z2));
-        await expect(screen.getByRole("button", "Appliquer au devis", { exact: true })).toBeEnabled();
+        await expect(screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeEnabled();
       }
-      await screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-      const wizard = screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-      await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: String(target.parent_id) });
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      await wizard.getByRole("radio", /^Ajouter sans effacer/).check();
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
-      await expect(wizard).toContainText(ZONE_PLANS.designation);
-      await wizard.getByRole("button", "Suivant", { exact: true }).click();
+      const wizard = await openTakeoffSend(ui, String(target.parent_id), ZONE_PLANS.designation);
       const applied = ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobs[zone]}/apply`);
-      await wizard.getByRole("button", "Confirmer l'application", { exact: true }).click();
+      await wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click();
       const response = await applied;
-      const body = await response.json<Envelope<{ job: { status: string } }>>();
+      const body = await response.json<Envelope<{ job: { status: string }; summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[];
+        item_links: Array<{ estimate_item_id: string }> } }>>();
       await recordEvidence(ui.army, `TKR02-applied-${zone}`, { ids, jobs, status: response.status, body });
       expect([zone, response.status, body.data?.job?.status]).toEqual([zone, 200, "applied"]);
-      await expect(wizard).toBeHidden();
+      // Placed on the first line this job created (for Z1 its valve, for Z2 its run).
+      const landed = await expectLandedOnTakeoffLine(ui, ids.versionId, body.data.summary);
+      expect((await readEstimate(ui.browser, ids.versionId)).items.find((item) => item.id === landed))
+        .toMatchObject({ source_job_id: jobs[zone] });
+      // Its targeted review, opened again, says it is in the estimate.
+      await ui.app.open(targeted(jobs[zone]));
       await expect(screen.getByText("Ce métré a déjà été appliqué au chiffrage.", { exact: true })).toBeVisible();
     }
 
@@ -533,7 +534,7 @@ armyTest("TKR04 complete review preserves an unchanged verification and never re
     await ui.app.open(targeted);
     const line = ui.screen.getByRole("region", "Décision sur la ligne", { exact: true });
     await expect(line).toContainText("DN_NETWORK_NETWORK_MISSING");
-    const applyButton = ui.screen.getByRole("button", "Appliquer au devis", { exact: true });
+    const applyButton = ui.screen.getByRole("button", TAKEOFF_SEND, { exact: true });
     await expect(applyButton).toBeEnabled();
     const accepted = ui.browser.waitForResponse(`**/api/takeoff/jobs/${job}/items`);
     await line.getByRole("button", /^Accepter/).click();
@@ -730,6 +731,15 @@ armyTest("TKR08 an estimate included with I, without entry, reaches the estimate
     const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-TKR08`, title: "Inclusion sans saisie" }, army);
     const target = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} lot supports`);
     expect(target.parent_id).toMatch(/^[0-9a-f-]{36}$/i);
+    // Forty lines already in the section, before the takeoff's: the line the estimator lands on lies below the fold until
+    // the editor scrolls to it (the independent review of eea9e030: no journey landed on a line out of view).
+    const filled = await readEstimate(browser, ids.versionId);
+    const filler = await apiRequest<Envelope<{ committed: boolean }>>(browser, "POST", `/api/estimates/${ids.versionId}/batch`,
+      { operation_key: randomUUID(), operations: Array.from({ length: 40 }, (_, index) => ({ op: "create", data: {
+        item_type: "line", line_nature: "supply_only", parent_id: target.parent_id, position: index + 2,
+        title: `${army.runPrefix} poste existant ${index + 1}`, quantity: 1, unit_price_ht_cents: 1000, tax_rate_bp: 2000,
+        k_fo: 1, h_mo: 0, h_mo_majoration: 1, k_mo: 1 } })) }, { "if-match": filled.version.updated_at });
+    expect([filler.status, filler.body.ok]).toEqual([200, true]);
     const estimated = `${army.runPrefix} Supports estimés`;
     const measured = `${army.runPrefix} Vannes relevées`;
     const seed = await (await localTakeoffFixture(army, ids)).seed("B", [
@@ -766,23 +776,17 @@ armyTest("TKR08 an estimate included with I, without entry, reaches the estimate
     await recordEvidence(army, "TKR08-included", { ids, jobId: seed.jobId, line: decided.id, quantity: decided.quantity,
       category: decided.quantity_entry_category ?? null });
 
-    // Applied through the wizard of the targeted review.
-    await screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-    const wizard = screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-    await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: String(target.parent_id) });
-    await wizard.getByRole("button", "Suivant", { exact: true }).click();
-    await wizard.getByRole("radio", /^Ajouter sans effacer/).check();
-    await wizard.getByRole("button", "Suivant", { exact: true }).click();
-    await expect(wizard).toContainText(estimated);
-    await wizard.getByRole("button", "Suivant", { exact: true }).click();
+    // Sent through « Envoyer au tableau de chiffrage » of the targeted review: the estimator lands on its line.
+    const wizard = await openTakeoffSend(ui, String(target.parent_id), estimated);
     const applied = browser.waitForResponse(`**/api/takeoff/jobs/${seed.jobId}/apply`);
-    await wizard.getByRole("button", "Confirmer l'application", { exact: true }).click();
+    await wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click();
     const response = await applied;
-    const body = await response.json<Envelope<{ job: { status: string } }>>();
+    const body = await response.json<Envelope<{ job: { status: string }; summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[];
+      item_links: Array<{ estimate_item_id: string }> } }>>();
     await recordEvidence(army, "TKR08-applied", { ids, jobId: seed.jobId, status: response.status, job: body.data?.job ?? null,
       errorCode: body.error?.code ?? null });
     expect([response.status, body.data?.job?.status]).toEqual([200, "applied"]);
-    await expect(wizard).toBeHidden();
+    const landed = await expectLandedOnTakeoffLine(ui, ids.versionId, body.data.summary, { offscreen: true });
 
     // The line truth of the internal estimate: « Hypothèse », because the quantity is estimated and was not entered.
     const estimate = await readEstimate(browser, ids.versionId);
@@ -793,6 +797,8 @@ armyTest("TKR08 an estimate included with I, without entry, reaches the estimate
       detail: "Quantité estimée au métré, sans mesure sur un plan, comptée sans saisie : provision à confirmer ; le client voit une "
         + "ligne ordinaire." });
     expect(truth(measured)?.code).toBe("measured");
+    expect(estimate.items.find((item) => item.id === landed)).toMatchObject({ source_job_id: seed.jobId });
+    expect([estimated, measured]).toContain(estimate.items.find((item) => item.id === landed)?.title);
     await recordEvidence(army, "TKR08-line-truth", { ids, lines: [estimated, measured].map((title) => ({ title, qtyStatus: truth(title) ?? null })) });
 
     // The internal CSV the editor downloads names the estimate « Hypothèse »; the measured line and the line created by

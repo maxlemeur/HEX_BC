@@ -729,7 +729,7 @@ export async function applyTakeoffJob(
       },
       body: JSON.stringify(payload),
     },
-    "Impossible d'appliquer le job takeoff.",
+    "Impossible d'envoyer le métré au tableau de chiffrage.",
     true
   );
   return validateTakeoffResponse(jobId, () => parseTakeoffApplyResponse(response, { jobId, versionId, targetSectionId: payload.target_section_id }));
@@ -746,7 +746,7 @@ export async function previewTakeoffConversion(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     },
-    "Impossible de calculer la preview de conversion takeoff.",
+    "Impossible de calculer l’aperçu d’impact.",
     true
   );
   return validateTakeoffResponse(jobId, () => parseTakeoffPreviewConversionResponse(response, { jobId, strategy: payload.strategy, targetSectionId: payload.target_section_id }));

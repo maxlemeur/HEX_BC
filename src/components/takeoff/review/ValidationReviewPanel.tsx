@@ -214,7 +214,7 @@ function buildStatusMessage(input: {
   canOpenApplyWizard: boolean;
 }) {
   if (input.hasDirtyOrSaving) {
-    return "Sauvegarde en cours. Attendez la confirmation avant de passer à l'apply.";
+    return "Sauvegarde en cours. Attendez la confirmation avant l'envoi au tableau de chiffrage.";
   }
 
   if (input.hasSaveErrors) {
@@ -467,7 +467,7 @@ export function ValidationReviewPanel({
                 hint={
                   dpgfSummary.total_lines === 0
                     ? "aucune ligne DPGF cible, ajout au chiffrage possible"
-                    : "items takeoff sans ligne cible"
+                    : "lignes du métré sans ligne cible"
                 }
               />
               <PriorityCard
@@ -643,7 +643,7 @@ export function ValidationReviewPanel({
             Prochaine étape :{" "}
             <span className="font-medium text-foreground">
               {canOpenApplyWizard
-                ? "L'apply contrôlé est prêt. Vérifiez l'impact puis confirmez."
+                ? "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact puis confirmez."
                 : (applyReadinessMessage ?? statusMessage)}
             </span>
           </p>
@@ -656,7 +656,7 @@ export function ValidationReviewPanel({
                 disabled={!canOpenApplyWizard}
                 aria-describedby="validation-next-step"
               >
-                Ouvrir l&apos;apply contrôlé
+                Envoyer au tableau de chiffrage
               </Button>
             ) : null}
             {onOpenDpgfExceptions ? (

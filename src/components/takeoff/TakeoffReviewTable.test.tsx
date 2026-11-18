@@ -188,3 +188,13 @@ describe("TakeoffReviewTable anomaly filter", () => {
     expect(renderFiltered([stale], { confidenceThreshold: 0.5, jobLevel: "B" }, "with_anomalies")(stale.designation)).toBe(true);
   });
 });
+
+// The independent review of eea9e030: a line « Appliquer la sélection » left out before 2026-11-18 is stored with the old
+// wording « Cherry-pick diff TKF-032 », which the table showed verbatim. Written before the fix.
+describe("TakeoffReviewTable reason of a line left out at the comparison", () => {
+  it("shows the French wording for a line stored with the old one", () => {
+    renderTable({ ...ITEM, is_excluded: true, exclusion_reason: "Cherry-pick diff TKF-032" });
+    expect(screen.getByText("Motif : Non retenue à la comparaison des extractions")).toBeInTheDocument();
+    expect(screen.queryByText(/Cherry-pick/)).toBeNull();
+  });
+});

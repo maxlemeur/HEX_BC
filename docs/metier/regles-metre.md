@@ -164,8 +164,8 @@ décision et le refus à l'application.
     suffit pas (il a pu lire aussi une autre zone) ; faute de pouvoir placer la ligne
     partenaire sur la page (ligne de devis sans ligne source, moteurs 1 et 2), il ne
     dit rien ;
-  - dans l'assistant d'application, à la confirmation : la décision « Pages déjà au
-    devis » (section suivante) ;
+  - dans l'écran « Envoyer au tableau de chiffrage », avant la confirmation : la
+    décision « Pages déjà au devis » (section suivante) ;
   - une fois le métré appliqué, seules restent signalées les pages où ses propres
     lignes sont encore au devis : là, la page y est deux fois, sauf si le chiffreur a
     gardé les deux mesures (le bandeau dit alors ce choix et son motif). Ses lignes sans page
@@ -191,7 +191,7 @@ décision et le refus à l'application.
   l'application, pas une erreur de quantité d'une ligne ; les règles fixes ne lisent
   ni le devis ni une version copiée.
 
-**Remplacer ou garder les deux (PR 2).** À la confirmation de l'assistant, pour chaque
+**Remplacer ou garder les deux (PR 2).** À l'envoi au tableau de chiffrage, pour chaque
 page déjà au devis, le chiffreur choisit ; la base refuse une page appliquée une
 seconde fois sans décision.
 
@@ -239,7 +239,7 @@ seconde fois sans décision.
   voir, le choix est toujours demandé.
 - **Garder les deux**, avec un motif codé : autre zone de la même feuille, autre lot
   ou corps d'état, périmètre complémentaire (note de 10 à 500 caractères). Ouvert aux
-  ingénieurs comme aux administrateurs. Refusé seulement quand « Fusionner »,
+  ingénieurs comme aux administrateurs. Refusé seulement quand la fusion,
   obligatoire avec un DPGF, envoie une nouvelle ligne sur une ligne précédente de
   la page.
 - **Une ligne DPGF** (TI-682 D4) somme les mesures qu'elle garde, métré par métré :
@@ -250,7 +250,7 @@ seconde fois sans décision.
   plus le calcul, la mesure d'une ligne DPGF forme un bloc. Remplacer une seule de
   ses pages est refusé (`dpgf_part_unknown`) : une quantité que personne ne peut
   attribuer n'est jamais retirée. Aucune remise à zéro de la ligne n'est proposée :
-  elle retirerait, sans le montrer, ce que les autres pages ont mesuré. L'assistant
+  elle retirerait, sans le montrer, ce que les autres pages ont mesuré. L'écran d'envoi
   le dit avant l'envoi et le refus de la base le nomme : la ligne (désignation,
   unité, quantité), les pages que le bloc mêle, puis deux issues. Recommandée :
   relire aussi ces pages dans le métré (une relance qui les lit, ou « Remplacer »
@@ -279,12 +279,12 @@ seconde fois sans décision.
   DPGF ne reçoit une mesure que par le rapprochement ; « Fusionner » n'y envoie une
   ligne que si l'application l'alimente et que le rapprochement relie cette ligne à
   une ligne DPGF. La proposition des pages (`dpgf_merge_refusals`) nomme chaque
-  ligne refusée avant l'envoi ; l'assistant le dit, n'offre pas la confirmation et
-  ouvre le rapprochement (TKD06,
+  ligne refusée avant l'envoi ; l'écran d'envoi le dit (« La fusion enverrait… »),
+  n'offre pas la confirmation et ouvre le rapprochement (TKD06,
   [`…_takeoff_dpgf_merge_any_line.sql`](../../supabase/migrations/20261113202356_takeoff_dpgf_merge_any_line.sql)).
 - **« Remplacer la section » sur des lignes DPGF** (TI-726). Ce remplacement vide la
-  section cible, sous-sections comprises, avant d'écrire le métré. Avec un DPGF,
-  l'assistant n'offre que « Fusionner » ; envoyé directement à l'API par un métré qui
+  section cible, sous-sections comprises, avant d'écrire le métré. L'écran d'envoi ne
+  le propose plus (depuis le 18 novembre 2026) ; envoyé directement à l'API par un métré qui
   n'alimente aucune ligne DPGF, il supprimait sans un mot les lignes DPGF de la
   section, leur quantité du DPGF et leur composition avec elles. Une ligne DPGF ne
   sort jamais du devis sans un geste qui la nomme : la base refuse ce remplacement dès
@@ -313,9 +313,15 @@ seconde fois sans décision.
   dit que la validation DPGF n'est plus valable et la relance relit la version (pgTAP
   `takeoff-apply-dpgf-check-race`,
   [`…_takeoff_apply_dpgf_check_under_lock.sql`](../../supabase/migrations/20261113224854_takeoff_apply_dpgf_check_under_lock.sql)).
-- **Stratégie** : hors DPGF, « Ajouter » est retenu dès qu'une page est déjà au devis ;
-  « Fusionner » par désignation pourrait remplacer une ligne que le chiffreur n'a pas
-  vue appariée. Avec un DPGF (« Fusionner » obligatoire), ses paires sont imposées.
+- **Stratégie** : l'écran ne la fait plus choisir. Une version qui tient une ligne DPGF
+  (une *ligne* importée du DPGF : la section racine d'un import lié n'en est pas une)
+  fusionne (« Fusionner » obligatoire, ses paires imposées) ; toute autre ajoute
+  (« Ajouter »), et une page déjà au devis y met à jour chaque ligne précédente à sa
+  place. L'écran suit ce que le serveur lit en calculant la proposition
+  (`merge_required`) : si une ligne DPGF est apparue ou a disparu depuis la lecture des
+  sections, l'aperçu et la proposition sont recalculés pour la nouvelle stratégie
+  avant toute confirmation, et c'est elle qui est envoyée. L'aperçu, la proposition et
+  l'envoi ont toujours la même stratégie.
 - **Une décision, un seul endroit** (revue Codex de 708c7fbf). La base décide par ligne
   du devis, sur toutes les pages de l'application : une seule quantité choisie par
   ligne, un seul retrait, une seule paire par ligne du nouveau métré. L'écran fait de
@@ -345,9 +351,17 @@ seconde fois sans décision.
   une ligne DPGF alimentée depuis la page), chaque état que l'écran laisse confirmer
   est appliqué par la vraie fonction de la base, au nom du chiffreur, puis annulé : il
   doit être accepté ; chaque choix que l'écran ne propose pas, forcé, doit être refusé.
-- **La décision se prend à la confirmation**, après l'aperçu : les ajustements de
-  l'aperçu décident quelles lignes entrent au devis, donc quelles lignes peuvent
-  remplacer. La proposition lit la version où l'application écrit (celle du métré).
+- **La décision se prend à la confirmation**, sur l'écran de l'aperçu, que rien ne
+  règle à la main : les lignes qui entrent au devis, donc celles qui peuvent remplacer,
+  sont celles que la revue retient, moins celles que les règles de correspondance de
+  l'administrateur laissent de côté ou remplacent par un ouvrage et, sur une version
+  DPGF, celles que le rapprochement a classées hors périmètre. La proposition lit la
+  version où l'application écrit (celle du métré).
+- **Un choix vaut pour la révision de la ligne** : « Prendre la nouvelle mesure », un
+  retrait ou la part d'une page choisis sur une ligne tombent si la ligne a été
+  modifiée depuis (son `updated_at` a changé quand la proposition est relue, après un
+  refus ou un changement de section) ; l'écran redemande le choix. Sinon un refus pour
+  devis modifié, puis un second clic, écrasaient la seconde modification à la main.
 - **En base**, sous le verrou de la version, dans la transaction de l'application
   ([`…_takeoff_page_decisions.sql`](../../supabase/migrations/20261112025548_takeoff_page_decisions.sql)) :
   les décisions, enregistrées dans la transaction même de l'application, sont relues
@@ -366,6 +380,80 @@ seconde fois sans décision.
   déposé sous deux noms sans préparation ; un même dessin dans deux fichiers
   différents (rôle de Z1/Z2) ; « garder les deux » choisi à tort, mais motivé et
   tracé.
+
+## Envoyer au tableau de chiffrage (18 novembre 2026)
+
+Le métré revu part dans le devis par un seul écran, « Envoyer au tableau de chiffrage »,
+le même nom sur chaque bouton qui l'ouvre (revue complète, revue ciblée, page du
+métré). L'ancien assistant en quatre étapes (cible, stratégie, aperçu avec ajustements,
+confirmation) n'existe plus
+([`TakeoffApplyWizard.tsx`](../../src/components/takeoff/TakeoffApplyWizard.tsx)).
+
+- **Ordre de l'écran** : la destination (« Section cible », la première présélectionnée,
+  et ce que la section reçoit) ; l'aperçu d'impact, calculé sans clic dès que les
+  sections sont lues, puis à chaque changement de section (en cas d'échec,
+  « Réessayer ») ; la liste des lignes envoyées, en lecture seule, avec la désignation
+  (et la nouvelle quand une règle la renomme), la quantité, l'unité, le fichier et la
+  page, et ce qu'une règle de correspondance a fait, en français, avec son nom ; puis,
+  seulement quand ils ont quelque chose à montrer, la fusion sur une ligne DPGF, les
+  pages déjà au devis, les lignes DPGF, les lignes bloquées (avec le forçage réservé
+  aux administrateurs) et le contrôle non bloquant. « Annuler » et « Confirmer l'envoi ».
+- **Rien n'est écrit avant la confirmation**, qui n'est active qu'une fois l'aperçu et
+  la proposition des pages déjà au devis calculés pour la sélection affichée, et quand
+  l'aperçu retient au moins une ligne (le forçage administrateur attend les mêmes
+  conditions). Chaque sélection (une section, même reprise après une autre ; une
+  stratégie corrigée par le serveur ; une relecture après un refus) est une nouvelle
+  génération : une réponse calculée pour une génération précédente, ou pour un autre
+  métré, n'est jamais montrée ni confirmée. Tout ce que l'écran a lu et chaque choix
+  qui y est fait appartiennent à un métré d'une version : un autre métré ou une autre
+  version (même en revenant au premier) repart d'un écran vide. Après un refus pour
+  métré, devis ou décisions périmés (`atomic_mapping_stale`, `page_decision`,
+  `page_already_applied`, `dpgf_quantities`, `dpgf_authorization` : une ligne DPGF
+  apparue, ou une validation DPGF expirée), les sections sont relues, la section
+  choisie gardée, puis les deux calculs. Une lecture qui échoue (sections, aperçu ou
+  pages déjà au devis) propose « Réessayer » ; chaque aperçu recalculé est annoncé aux
+  lecteurs d'écran.
+- **Fusion sur une ligne ordinaire** (18 novembre 2026) : sur une version DPGF,
+  l'envoi fusionne, et l'écrivain rapproche une ligne du métré d'une ligne de la
+  section cible de même désignation et de même unité, puis remplace sa quantité et sa
+  provenance. L'écran rejoue ce rapprochement
+  ([`merge-overwrites.ts`](../../src/lib/takeoff/merge-overwrites.ts)) et refuse
+  l'envoi tant qu'une ligne ordinaire placée directement sous la section serait
+  écrasée, sauf quand la proposition des pages l'apparie par la fusion (une décision de
+  page dit alors ce qu'elle devient). Il nomme chaque ligne avec sa quantité et celle
+  qui la remplacerait, et demande une autre section ; la confirmation et le forçage
+  administrateur attendent. Là où la locale de la base décide (majuscule ou espace
+  hors ASCII), toutes les lignes de cette désignation comptent, jamais moins que
+  l'écrivain ; l'écran ne connaissant pas le moteur de la version, le rapprochement de
+  l'un ou l'autre écrivain compte. Le serveur ne revérifie pas encore ce rapprochement
+  sous le verrou de brouillon.
+- **Lignes envoyées** : la liste ne montre que ce qui part (une ligne remplacée par un
+  ouvrage part comme cet ouvrage) ; les lignes qu'une règle laisse de côté sont
+  listées à part, avec la règle. Sur une version DPGF, l'aperçu ne calcule pas les
+  lignes que le rapprochement a classées hors périmètre (il lit les règles de
+  correspondance seules) : la liste s'appelle « Lignes retenues avant le rapprochement
+  DPGF », et l'écran dit, à côté de son compte, qu'elles ne partent pas et que la liste
+  ne les distingue pas. Les distinguer demanderait que le serveur les renvoie. Le
+  compte « Écartées » lit l'aperçu à jour (lignes exclues à la revue, laissées de côté
+  ou remplacées par un ouvrage), jamais un compte lu par la revue avant lui.
+- **Règles de correspondance** : celles de l'administrateur s'appliquent comme le
+  serveur les lit. L'écran n'envoie plus d'ajustement par ligne (`overrides`, avec
+  identifiants et prix en centimes) ; l'API les accepte toujours.
+- **Arrivée** : une fois envoyé depuis une revue, un message confirme les lignes créées,
+  mises à jour et ignorées, et le navigateur ouvre l'éditeur du devis sur la première
+  ligne créée, sinon la première ligne alimentée ou mise à jour, sinon sur le tableau
+  seul (`/dashboard/estimates/<version>/edit?focusItemId=<ligne>`,
+  [`apply-landing.ts`](../../src/lib/takeoff/apply-landing.ts)). Le verrou de brouillon
+  pris pour l'envoi est rendu avant la navigation : il est lié à l'identité de la page,
+  que l'éditeur ouvert dans le même document reprend, et une libération tardive
+  effacerait le verrou de l'éditeur. Le verrou est rendu dans tous les cas ; la
+  navigation n'a lieu que si la revue est encore affichée pour ce métré : quitter la
+  revue pendant l'envoi (retour du navigateur) n'y ramène pas l'utilisateur depuis un
+  autre écran, seul le message s'affiche. L'envoi en cours et son refus ne s'affichent
+  que sur la revue de ce métré et de cette version. L'éditeur rouvert sans ligne puis
+  sur la même ligne la met de nouveau en évidence. Les sorties du panneau des lignes bloquées
+  sont désactivées pendant l'envoi, et deux clics dans la même image n'envoient qu'une
+  fois.
 
 ## Entrées
 
@@ -1028,7 +1116,7 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     dédoublonnées, sans justification de premier niveau ni `rule_codes` (les `rule_results` des jobs appliqués sont
     figés). Le trigger vérifie chaque entrée (`private.takeoff_apply_forced_item_valid`) et refuse l'ancien format,
     sans fenêtre de transition (H10).
-  - Dans l'assistant, le panneau « Forcer l'application » donne, par ligne bloquée, le motif, la règle fautive et la
+  - Dans l'écran d'envoi, le panneau « Forcer l'application » donne, par ligne bloquée, le motif, la règle fautive et la
     justification ; « Appliquer à la sélection » recopie un motif et un texte, et « Forcer l'application (N lignes) »
     n'est actif que lorsque toutes les lignes sont complètes. Un ingénieur ne voit pas ce panneau.
 - **Provision interne** (TI-686, D10 et D12, migration `20261110094503_takeoff_apply_provisions.sql`). Toute ligne
@@ -1256,13 +1344,13 @@ les lignes que le garde d'application rejette (`blocked_items`) ou trouve incert
 (`medium_items`), avec le même seuil et le même niveau que l'application
 ([`targeted-review.ts`](../../src/lib/takeoff/targeted-review.ts)). Comme la revue complète,
 elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera reste listée
-(sens sûr ; l'assistant et le serveur la laissent de côté).
+(sens sûr ; l'écran d'envoi et le serveur la laissent de côté).
 
 - **Écran** : `/dashboard/affaires/<affaire>/takeoff/<job>/review/targeted?versionId=…`,
   en mise en page outil (TI-658). À gauche les lignes, leurs filtres et l'application ;
   au centre le plan et sa lecture vectorielle, la ligne en évidence ; à droite ses raisons
   et ses décisions. La revue complète y renvoie (« Revue ciblée · N lignes »), comme le
-  panneau des lignes bloquées de l'assistant d'application.
+  panneau des lignes bloquées de l'écran « Envoyer au tableau de chiffrage ».
 - **Filtres** (TI-701, D13), lus sur les lignes de la revue ciblée
   ([`targeted-review-filters.ts`](../../src/lib/takeoff/targeted-review-filters.ts)) :
   - **vue**, un seul choix : « À revoir » (toutes), « Blocages » (les lignes que le garde
@@ -1368,7 +1456,7 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
 - **Limite connue** : deux sessions qui tranchent une même paire en même temps (deux onglets,
   deux utilisateurs) peuvent retirer deux fois la longueur commune ; c'est la
   sous-comptabilisation déjà signalée plus haut, que les règles ne détectent pas.
-- **Assistant d'application** : le garde y laisse de côté les lignes que l'aperçu à jour
+- **Écran d'envoi** : le garde y laisse de côté les lignes que l'aperçu à jour
   saute (`skip`) ou replie dans un ouvrage (`apply_assembly`), comme le serveur ; sans
   aperçu à jour, il garde toutes les lignes retenues (sens sûr). Le panneau des lignes
   bloquées nomme chaque règle en échec et sa raison.

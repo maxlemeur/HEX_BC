@@ -51,8 +51,8 @@ const falling = proposal({ merge_required: true, pages: [page([201, 202], [101, 
     fed: [] }] });
 
 function show(data: TakeoffPageReplacementResponse) {
-  render(<TakeoffPageDecisionsPanel proposal={data} error={null} loading={false} draft={initialConfirmationDraft(data)} strategyNotice={null}
-    disabled={false} onDraftChange={() => undefined} />);
+  render(<TakeoffPageDecisionsPanel proposal={data} error={null} loading={false} draft={initialConfirmationDraft(data)}
+    disabled={false} onDraftChange={() => undefined} onRetry={() => undefined} />);
   return screen.getByRole("region", { name: "Pages déjà au devis" });
 }
 

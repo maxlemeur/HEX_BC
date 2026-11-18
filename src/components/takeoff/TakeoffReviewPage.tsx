@@ -28,7 +28,6 @@ import {
 } from "@/components/takeoff/review/TakeoffReviewModeSwitch";
 import {
   TakeoffApplyReadinessBar,
-  TakeoffApplySuccessBanner,
   TakeoffReviewErrorState,
   TakeoffReviewLoadingState,
 } from "@/components/takeoff/review/TakeoffReviewChrome";
@@ -38,8 +37,9 @@ import {
   getStatusCss,
   getStatusLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
-import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import {
+  TAKEOFF_APPLY_SENT_TITLE,
+  takeoffApplySentDescription,
   useTakeoffApplyConfirm,
   useTakeoffLowConfidenceThreshold,
 } from "@/components/takeoff/review/useTakeoffReviewSupport";
@@ -108,6 +108,8 @@ import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
+import { takeoffApplyLandingHref } from "@/lib/takeoff/apply-landing";
+import { comparisonSelectionPatches } from "@/lib/takeoff/comparison-selection";
 import { AssistantToggle, useAssistantScreen } from "@/components/assistant/AssistantDock";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import type {
@@ -140,14 +142,6 @@ type TakeoffReviewPageProps = {
 
 type ViewTab = "tables" | "items" | "compare" | "dpgf";
 type DpgfFetchMode = "summary" | "detail";
-type ApplySuccessSummary = {
-  appliedAt: string;
-  targetSectionLabel: string;
-  strategy: TakeoffApplyWizardSubmitPayload["strategy"];
-  createdCount: number;
-  updatedCount: number;
-  ignoredCount: number;
-};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -157,7 +151,6 @@ const AUTO_SAVE_DEBOUNCE_MS = 500;
 const REVIEW_ITEMS_PAGE_SIZE = 200;
 const DPGF_COMPARE_PAGE_SIZE = 200;
 const DEFAULT_COMPARE_THRESHOLD = 0.8;
-const CHERRY_PICK_EXCLUSION_REASON = "Cherry-pick diff TKF-032";
 const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
 const TAKEOFF_JOBS_LIST_PAGE_MAX = 100;
 
@@ -362,9 +355,8 @@ export default function TakeoffReviewPage({
   const [exclusionModalOpen, setExclusionModalOpen] = useState(false);
   const [exclusionTargetIds, setExclusionTargetIds] = useState<string[]>([]);
 
-  // ---- Apply wizard state
+  // ---- « Envoyer au tableau de chiffrage » dialog state
   const [applyWizardOpen, setApplyWizardOpen] = useState(false);
-  const [applySuccess, setApplySuccess] = useState<ApplySuccessSummary | null>(null);
 
   // ---- Auto-save
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -951,38 +943,12 @@ export default function TakeoffReviewPage({
       const hasPendingSave = items.some((item) => item._dirty || item._saving);
       if (hasPendingSave || savingRef.current) {
         setApplySelectionError(
-          "Finalisez d'abord les modifications en cours avant d'appliquer un cherry-pick."
+          "Finalisez d'abord les modifications en cours avant d'appliquer la sélection."
         );
         return;
       }
 
-      const selectedIdSet = new Set(selectedBaseItemIds);
-      const patchEntries: TakeoffItemPatchEntry[] = [];
-
-      for (const item of items) {
-        const shouldBeIncluded = selectedIdSet.has(item.id);
-        const nextIsExcluded = !shouldBeIncluded;
-        const nextExclusionReason = nextIsExcluded
-          ? CHERRY_PICK_EXCLUSION_REASON
-          : null;
-
-        const exclusionChanged =
-          item.is_excluded !== nextIsExcluded ||
-          item.exclusion_reason !== nextExclusionReason;
-
-        if (!exclusionChanged) {
-          continue;
-        }
-
-        patchEntries.push({
-          item_id: item.id,
-          updated_at: item.updated_at,
-          fields: {
-            is_excluded: nextIsExcluded,
-            exclusion_reason: nextExclusionReason,
-          },
-        });
-      }
+      const patchEntries = comparisonSelectionPatches(items, new Set(selectedBaseItemIds));
 
       if (patchEntries.length === 0) {
         toast.info({
@@ -1007,25 +973,25 @@ export default function TakeoffReviewPage({
 
         if (failedCount > 0) {
           setApplySelectionError(
-            `${failedCount} item(s) n'ont pas pu être mis à jour pendant le cherry-pick.`
+            `${failedCount} ligne(s) n'ont pas pu être mises à jour pendant la sélection.`
           );
           toast.warning({
-            title: "Cherry-pick partiel",
+            title: "Sélection partielle",
             description: "Certains items n'ont pas pu être synchronisés.",
           });
         } else {
           toast.success({
-            title: "Cherry-pick appliqué",
-            description: `${selectedBaseItemIds.length} item(s) gardé(s) pour l'apply.`,
+            title: "Sélection appliquée",
+            description: `${selectedBaseItemIds.length} ligne(s) gardée(s) pour l'envoi au tableau de chiffrage.`,
           });
         }
       } catch (error) {
         const message = isTakeoffApiError(error)
           ? error.message
-          : "Impossible d'appliquer la sélection cherry-pick.";
+          : "Impossible d'appliquer la sélection.";
         setApplySelectionError(message);
         toast.error({
-          title: "Erreur cherry-pick",
+          title: "Erreur de sélection",
           description: message,
         });
       } finally {
@@ -1067,7 +1033,7 @@ export default function TakeoffReviewPage({
   const isDpgfValidationPending =
     dpgfCompareLoading || dpgfCompareData === null;
   const hasDpgfValidationError = dpgfCompareError !== null;
-  const hasAlreadyBeenApplied = jobStatus === "applied" || applySuccess !== null;
+  const hasAlreadyBeenApplied = jobStatus === "applied";
   // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate version shown here (a
   // warning, no decision), read again once it is applied here (the estimate then holds its lines) and after a saved
   // change of a line's source page. Exclusion needs no new read: the banner filters the pages by the lines on screen.
@@ -1089,27 +1055,27 @@ export default function TakeoffReviewPage({
     }
 
     if (!hasIncluded) {
-      return "Aucun item retenu. Réintégrez au moins une ligne avant l'apply.";
+      return "Aucune ligne retenue. Réintégrez au moins une ligne avant l'envoi au tableau de chiffrage.";
     }
 
     if (hasDirtyOrSaving) {
-      return "Attendez la fin des sauvegardes avant d'ouvrir l'apply contrôlé.";
+      return "Attendez la fin des sauvegardes avant l'envoi au tableau de chiffrage.";
     }
 
     if (hasSaveErrors) {
-      return "Corrigez les lignes en erreur avant l'apply.";
+      return "Corrigez les lignes en erreur avant l'envoi au tableau de chiffrage.";
     }
 
     if (hasBlockingAnomalies) {
-      return "Corrigez les anomalies bloquantes avant l'apply.";
+      return "Corrigez les anomalies bloquantes avant l'envoi au tableau de chiffrage.";
     }
 
     if (isDpgfValidationPending) {
-      return "Attendez le chargement du rapprochement DPGF avant d'ouvrir l'apply contrôlé.";
+      return "Attendez le chargement du rapprochement DPGF avant l'envoi au tableau de chiffrage.";
     }
 
     if (hasDpgfValidationError) {
-      return "Impossible de valider le rapprochement DPGF. Rechargez cette revue avant l'apply.";
+      return "Impossible de valider le rapprochement DPGF. Rechargez cette revue avant l'envoi au tableau de chiffrage.";
     }
 
     if (hasDpgfBlocks) {
@@ -1120,7 +1086,7 @@ export default function TakeoffReviewPage({
       return `Le contrôle de ${guardResult?.blocked_items.length ?? 0} item(s) reste incomplet : complétez les preuves localisées, tranchez les règles en échec ou validez les lignes avant l'application.`;
     }
 
-    return "L'apply contrôlé est prêt. Choisissez une stratégie et vérifiez l'impact avant confirmation.";
+    return "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact avant de confirmer.";
   }, [
     guardResult,
     hasBlockingAnomalies,
@@ -1133,28 +1099,22 @@ export default function TakeoffReviewPage({
     hasSaveErrors,
     isDpgfValidationPending,
   ]);
-  // ---- Apply handler
-  const handleApplied = useCallback(
-    (response: TakeoffApplyResponse, payload: TakeoffApplyWizardSubmitPayload) => {
-      setApplyWizardOpen(false);
-      setApplySuccess({
-        appliedAt: new Date().toISOString(),
-        targetSectionLabel: payload.targetSectionLabel,
-        strategy: payload.strategy,
-        createdCount: response.summary.created_count,
-        updatedCount: response.summary.updated_count,
-        ignoredCount: response.summary.ignored_count,
-      });
-      setJobStatus("applied");
-      toast.success({
-        title: "Apply contrôlé terminé",
-        description: `${response.summary.created_count} créé(s), ${response.summary.updated_count} mis à jour, ${response.summary.ignored_count} ignoré(s).`,
-      });
-      if (!isAffaireContext) {
-        router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
-      }
+  // ---- Sent: said in a toast (the toast provider is the root layout's, so it outlives the review), then, while the
+  // review is still shown, the estimator lands in the estimate table on the takeoff's lines (the draft lock taken for the
+  // application is already given back).
+  const handleSent = useCallback(
+    (response: TakeoffApplyResponse) => {
+      toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
     },
-    [jobId, isAffaireContext, router, toast, versionId]
+    [toast]
+  );
+  const handleApplied = useCallback(
+    (response: TakeoffApplyResponse) => {
+      setApplyWizardOpen(false);
+      setJobStatus("applied");
+      router.push(takeoffApplyLandingHref(versionId, response.summary));
+    },
+    [router, versionId]
   );
   const {
     submitting: applySubmitting,
@@ -1162,7 +1122,7 @@ export default function TakeoffReviewPage({
     errorGuard: applyErrorGuard,
     setError: setApplyError,
     confirm: handleApplyConfirm,
-  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
+  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied, onSent: handleSent });
 
   const handleOpenApplyWizard = useCallback(() => {
     if (!isApplyReady) return;
@@ -1306,19 +1266,6 @@ export default function TakeoffReviewPage({
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
       )}
 
-      {applySuccess && isAffaireContext ? (
-        <TakeoffApplySuccessBanner
-          sourceFileName={jobFileName}
-          targetSectionLabel={applySuccess.targetSectionLabel}
-          strategy={applySuccess.strategy}
-          createdCount={applySuccess.createdCount}
-          updatedCount={applySuccess.updatedCount}
-          ignoredCount={applySuccess.ignoredCount}
-          estimateHref={`/dashboard/estimates/${versionId}`}
-          activityHref={`/dashboard/affaires/${projectId}/takeoff`}
-        />
-      ) : null}
-
       {/* ---- Mode-conditional content ---- */}
       {currentReviewMode === "assisted" ? (
         <AssistedReviewPanel
@@ -1412,7 +1359,6 @@ export default function TakeoffReviewPage({
           jobVersionNumber !== null ? `V${jobVersionNumber}` : null
         }
         includedCount={includedItems.length}
-        excludedCount={items.length - includedItems.length}
         isSubmitting={applySubmitting}
         submitError={applyError}
         submitErrorGuard={applyErrorGuard}

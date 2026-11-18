@@ -5,7 +5,7 @@ import { expect } from "e2e";
 import type { TakeoffPageContributionsResponse } from "@/lib/takeoff/page-contributions-contracts";
 
 import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence } from "../critical/fixtures";
-import { applyOwnedTakeoff } from "./fixtures";
+import { TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, expectLandedOnTakeoffLine, openTakeoffSend } from "./fixtures";
 import { VECTOR_PLAN, buildVectorPlanPdf } from "./vector-plan-fixture";
 import { launchWorkerVectorUpload, startOwnedWorker, type WorkerUi } from "./worker-support";
 
@@ -60,18 +60,8 @@ async function relaunch(ui: WorkerUi, upload: Upload, providerItems: ProviderIte
   return { second, relaunchName, retained: run.items.filter((item) => !item.is_excluded) };
 }
 
-/** Through the application wizard of a review, up to its confirmation (section, « Ajouter », preview). */
-async function openWizardConfirmation(ui: WorkerUi, sectionId: string, designation: string) {
-  await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-  const wizard = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-  await wizard.getByLabel("Section cible", { exact: true }).selectOption({ value: sectionId });
-  await wizard.getByRole("button", "Suivant", { exact: true }).click();
-  await wizard.getByRole("radio", /^Ajouter sans effacer/).check();
-  await wizard.getByRole("button", "Suivant", { exact: true }).click();
-  await expect(wizard).toContainText(designation);
-  await wizard.getByRole("button", "Suivant", { exact: true }).click();
-  return wizard;
-}
+/** Through « Envoyer au tableau de chiffrage » of a review: the section chosen, the impact preview computed. */
+const openWizardConfirmation = (ui: WorkerUi, sectionId: string, designation: string) => openTakeoffSend(ui, sectionId, designation);
 
 async function readPages(ui: WorkerUi, jobId: string, versionId: string) {
   const read = await apiRequest<Envelope<TakeoffPageContributionsResponse>>(ui.browser, "GET",
@@ -121,7 +111,7 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     const banner = ui.screen.getByRole("region", REGION, { exact: true });
     await expect(banner).toBeVisible();
     await expect(banner).toContainText(pageRow);
-    await expect(banner).toContainText("À l’application, l’assistant dit pour chaque page ce qui est possible : remplacer sa mesure précédente, garder les deux avec un motif ou, avec un DPGF, ce qui débloque la page");
+    await expect(banner).toContainText("À l’envoi au tableau de chiffrage, l’écran dit pour chaque page ce qui est possible : remplacer sa mesure précédente, garder les deux avec un motif ou, avec un DPGF, ce qui débloque la page");
     await expect(banner.getByRole("button")).toHaveCount(0);
     const screenshots = [await ui.app.screenshot("ti682-targeted-review-page-already-in-estimate")];
 
@@ -134,7 +124,7 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     await expect(decision.getByRole("radio", "Remplacer la mesure précédente (recommandé)", { exact: true })).toBeChecked();
     // Each estimate line once, with the quantity it will hold (Codex review of 708c7fbf: organised by estimate line).
     await expect(notice.getByRole("list", "Lignes du devis sur ces pages", { exact: true })).toContainText(`${network.designation} : `);
-    await expect(wizard.getByRole("button", "Confirmer l'application", { exact: true })).toBeEnabled();
+    await expect(wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true })).toBeEnabled();
     screenshots.push(await ui.app.screenshot("ti682-apply-wizard-page-already-in-estimate"));
     await wizard.getByRole("button", "Annuler", { exact: true }).click();
     await expect(wizard).toBeHidden();
@@ -153,27 +143,31 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
     const job = await client.from("takeoff_jobs").select("status").eq("id", second).single();
     expect(job.data).toEqual({ status: "completed" });
 
-    // Two zones drawn on one sheet: the estimator keeps both, with the reason « another zone ». The banner reads the
-    // estimate again on the same screen (the read taken before holds none of this takeoff's lines) and says the decision.
+    // Two zones drawn on one sheet: the estimator keeps both, with the reason « another zone ». Once sent, the estimator
+    // lands in the estimate table on the takeoff's new line (2026-11-18: the review no longer stays on screen, so its
+    // banner is read again by opening the review, where it says the decision).
     await ui.app.open(targeted);
     const applyWizard = await openWizardConfirmation(ui, String(target.parent_id), network.designation);
     const keep = applyWizard.getByRole("group", `Page ${relaunchName}, page 1`, { exact: true });
     await keep.getByRole("radio", "Garder les deux", { exact: true }).check();
-    await expect(applyWizard.getByRole("button", "Confirmer l'application", { exact: true })).toBeDisabled();
+    await expect(applyWizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true })).toBeDisabled();
     await keep.getByLabel(`Motif pour ${relaunchName}, page 1`, { exact: true }).selectOption({ value: "other_zone" });
     const [applyResponse] = await Promise.all([
       ui.browser.waitForResponse(`**/api/takeoff/jobs/${second}/apply`),
-      applyWizard.getByRole("button", "Confirmer l'application", { exact: true }).click(),
+      applyWizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click(),
     ]);
     expect(applyResponse.status).toBe(200);
-    await expect(applyWizard).toBeHidden();
+    const sent = (await applyResponse.json<Envelope<{ summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } }>>()).data;
+    const landed = await expectLandedOnTakeoffLine(ui, ids.versionId, sent.summary);
+    const landedLine = (await readEstimate(ui.browser, ids.versionId)).items.find((item) => item.id === landed);
+    expect(landedLine).toMatchObject({ title: network.designation, source_job_id: second });
+    screenshots.push(await ui.app.screenshot("ti682-sent-lands-on-takeoff-line"));
+    // The reason is the trace of the application: the review, opened again, says the decision.
+    await ui.app.open(targeted);
     const twice = ui.screen.getByRole("region", REGION, { exact: true });
     await expect(twice).toContainText(pageRow);
     await expect(twice).toContainText("Mesures gardées toutes les deux à l’application : Autre zone de la même feuille.");
     screenshots.push(await ui.app.screenshot("ti682-targeted-review-page-kept-both"));
-    // The reason is the trace of the application: read again after a reload.
-    await ui.app.open(targeted);
-    await expect(ui.screen.getByRole("region", REGION, { exact: true })).toContainText("Autre zone de la même feuille");
     const appliedPages = await readPages(ui, second, ids.versionId);
     expect(appliedPages.pages).toMatchObject([{ file_name: relaunchName, page: 1, earlier: [{ job_id: first, line_count: 1 }], own_line_count: 1 }]);
 
@@ -283,7 +277,7 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     await expect(updated).toContainText("Robinet d'arrêt : 4 → 5 (+1)");
     await expect(panel.getByLabel("Remplace, pour WC suspendu", { exact: true })).toHaveValue("");
     // The vanished line has no default: the confirmation waits for « remove » or « keep ».
-    const confirm = wizard.getByRole("button", "Confirmer l'application", { exact: true });
+    const confirm = wizard.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true });
     await expect(confirm).toBeDisabled();
     await panel.getByLabel("Choix pour Vanne de purge", { exact: true }).selectOption({ value: "remove" });
     await expect(panel.getByLabel("Choix pour Vanne de purge", { exact: true })).toHaveValue("remove");
@@ -304,7 +298,9 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
       confirm.click(),
     ]);
     expect(applyResponse.status).toBe(200);
-    await expect(wizard).toBeHidden();
+    // The new WC line is the first one created: the estimator lands on it in the estimate table.
+    const sent = (await applyResponse.json<Envelope<{ summary: { created_count: number; updated_count: number; ignored_count: number; created_ids: string[]; item_links: Array<{ estimate_item_id: string }> } }>>()).data;
+    const landed = await expectLandedOnTakeoffLine(ui, ids.versionId, sent.summary);
 
     // In the estimate: each quantity of the page counted once, each earlier line with its identity, title and price.
     const after = (await readEstimate(ui.browser, ids.versionId)).items.filter((item) => item.item_type === "line");
@@ -316,6 +312,7 @@ armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, k
     expect(after.find((item) => item.title === "Robinet d'arrêt")?.id).toBe(valve.id);
     expect(after.some((item) => item.id === purge.id)).toBe(false);
     expect(after.filter((item) => item.title !== `${ui.army.runPrefix} target`).every((item) => item.source_job_id === second)).toBe(true);
+    expect(after.find((item) => item.id === landed)).toMatchObject({ title: "WC suspendu", source_job_id: second });
     // The total is the sum of the lines: the page is priced once.
     const version = (await readEstimate(ui.browser, ids.versionId)).version as { total_ht_cents?: number };
     expect(version.total_ht_cents).toBe(after.reduce((total, item) => total + Number(item.line_total_ht_cents ?? 0), 0));

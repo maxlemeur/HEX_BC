@@ -72,17 +72,23 @@ function outcomeText(entry: ResolvedLine) {
   }
 }
 
-export function TakeoffPageDecisionsPanel({ proposal, error, loading, draft, strategyNotice, disabled, onDraftChange }: Readonly<{
+export function TakeoffPageDecisionsPanel({ proposal, error, loading, draft, disabled, onDraftChange, onRetry }: Readonly<{
   proposal: TakeoffPageReplacementResponse | null;
   error: string | null;
   loading: boolean;
   draft: ConfirmationDraft | null;
-  strategyNotice: string | null;
   disabled: boolean;
   onDraftChange: (draft: ConfirmationDraft) => void;
+  /** Reads the proposal again after a failed read (the confirmation waits for it). */
+  onRetry: () => void;
 }>) {
   if (error) {
-    return <p role="alert" className="text-sm text-danger">{error}</p>;
+    return (
+      <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm text-danger">
+        <p className="min-w-0">{error}</p>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry} disabled={disabled}>Réessayer</Button>
+      </div>
+    );
   }
   if (loading && !proposal) return <p className="text-sm text-muted-foreground">Lecture des pages déjà au devis…</p>;
   if (!proposal || proposal.pages.length === 0 || !draft) return null;
@@ -112,7 +118,6 @@ export function TakeoffPageDecisionsPanel({ proposal, error, loading, draft, str
           <p className="text-foreground-secondary">
             Ces pages sont déjà au devis par un autre métré. {resolution.introduction.text}
           </p>
-          {strategyNotice ? <p className="text-foreground-secondary">{strategyNotice}</p> : null}
         </div>
       </div>
 

@@ -490,7 +490,7 @@ export default function TakeoffDiffView({
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <span className="text-xs text-muted-foreground">
-            Sélection cherry-pick: {selectedIdsArray.length} item(s)
+            Sélection : {selectedIdsArray.length} ligne(s)
           </span>
           <button
             type="button"

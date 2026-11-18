@@ -7,6 +7,7 @@ import type { TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-co
 
 import { apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
 import { ownedEstimateContext, querySql } from "../local/calculation-gate-support";
+import { TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, openTakeoffSend } from "./fixtures";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
 import { VECTOR_PLAN } from "./vector-plan-fixture";
@@ -64,17 +65,11 @@ armyTest("TKW01 a stored historical CSV runs the controlled worker once and appl
     boundary: "The owned worker uses the real processor and a controlled provider response.",
   });
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
-  await ui.screen.getByRole("button", "Appliquer au devis", { exact: true }).click();
-  const dialog = ui.screen.getByRole("dialog", "Appliquer au devis", { exact: true });
-  await dialog.getByLabel("Section cible", { exact: true }).selectOption({ value: String(target.parent_id) });
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
-  await dialog.getByRole("radio", /^Ajouter sans effacer/).check();
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
-  await expect(dialog).toContainText("ARMY worker pipe");
-  await dialog.getByRole("button", "Suivant", { exact: true }).click();
+  // The legacy job page sends through the same one screen, and stays where it is once sent.
+  const dialog = await openTakeoffSend(ui, String(target.parent_id), "ARMY worker pipe");
   const [applied] = await Promise.all([
     ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobId}/apply`),
-    dialog.getByRole("button", "Confirmer l'application", { exact: true }).click(),
+    dialog.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true }).click(),
   ]);
   const application = await applied.json<{ ok: boolean }>();
   await recordEvidence(ui.army, "TKW01-apply-response", { status: applied.status, body: application });
@@ -160,7 +155,7 @@ armyTest("TKW04 a retained PDF runs the real level-B processor and exposes persi
     { designation: "ARMY worker valve", quantity: 3, source_file_name: fileName, source_page: 1 },
   ]);
   await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
-  await expect(ui.screen.getByRole("button", "Appliquer au devis", { exact: true })).toBeVisible();
+  await expect(ui.screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeVisible();
   const replay = await startOwnedWorker(ui, ids, jobId).done;
   expect(replay.outcome.status).toBe("noop_terminal");
   expect(replay.providerCalls).toBe(0);

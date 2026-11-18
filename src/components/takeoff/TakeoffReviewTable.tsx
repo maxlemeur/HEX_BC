@@ -38,6 +38,7 @@ import {
 } from "@/lib/takeoff/guards";
 import { targetedReviewLines } from "@/lib/takeoff/targeted-review";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
+import { exclusionReasonText } from "@/lib/takeoff/comparison-selection";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -778,7 +779,7 @@ export default function TakeoffReviewTable({
                       </div>
                       {isExcluded && item.exclusion_reason ? (
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          Motif : {item.exclusion_reason}
+                          Motif : {exclusionReasonText(item.exclusion_reason)}
                         </p>
                       ) : null}
                     </td>
