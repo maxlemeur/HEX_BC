@@ -92,6 +92,7 @@ globalThis.fetch = async (input, init) => {
   }
   return json({ id: "resp_army", object: "response", status: "completed", model: echo ? sentKey : `${body.model}-2026-10-01`, service_tier: "default",
     output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text, annotations: [] }] }],
-    usage: { input_tokens: 2_400, input_tokens_details: { cached_tokens: 400, cache_write_tokens: 0 }, output_tokens: 300,
+    usage: { input_tokens: 2_400, input_tokens_details: { cached_tokens: 400, cache_write_tokens: 0,
+      cache_write_tokens_details: { ttl_30m_tokens: 0, ttl_12h_tokens: 0 } }, output_tokens: 300,
       output_tokens_details: { reasoning_tokens: 120 }, total_tokens: 2_700 } }, 200, echo ? sentKey : "req_army_api_key");
 };

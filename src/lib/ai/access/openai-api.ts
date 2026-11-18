@@ -283,7 +283,7 @@ const responsesReply = z.looseObject({
     input_tokens: tokens, output_tokens: tokens, total_tokens: tokens.optional(),
     input_tokens_details: z.looseObject({
       cached_tokens: tokens.default(0), cache_write_tokens: tokens.default(0),
-      cache_write_tokens_details: z.record(z.string(), tokens).nullable().optional(),
+      cache_write_tokens_details: z.looseObject({ ttl_30m_tokens: tokens.optional(), ttl_12h_tokens: tokens.optional() }).nullable().optional(),
     }).nullable().optional(),
     output_tokens_details: z.looseObject({ reasoning_tokens: tokens.default(0) }).nullable().optional(),
   }).nullable().optional(),
@@ -340,12 +340,10 @@ async function countWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, request: 
 function usageOf(usage: NonNullable<z.infer<typeof responsesReply>["usage"]>): ApiKeyCallUsage {
   const details = usage.input_tokens_details;
   const written = details?.cache_write_tokens ?? 0;
-  // The 12-hour bucket by its name; a breakdown without one prices every write as 12 hours (the higher rate).
-  const breakdown = details?.cache_write_tokens_details ?? null;
-  const twelveHours = breakdown ? Object.entries(breakdown).filter(([name]) => /12\s*h/i.test(name)).reduce((sum, [, value]) => sum + value, 0)
-    : written;
+  // The documented 30-minute bucket; every written token it does not account for is priced at the 12-hour rate.
+  const thirtyMinutes = Math.min(written, details?.cache_write_tokens_details?.ttl_30m_tokens ?? 0);
   return {
-    input: usage.input_tokens, cachedInput: details?.cached_tokens ?? 0, cacheWrite: written, cacheWrite12h: Math.min(written, twelveHours),
+    input: usage.input_tokens, cachedInput: details?.cached_tokens ?? 0, cacheWrite: written, cacheWrite12h: written - thirtyMinutes,
     output: usage.output_tokens, reasoning: usage.output_tokens_details?.reasoning_tokens ?? 0,
     total: usage.total_tokens ?? usage.input_tokens + usage.output_tokens,
   };

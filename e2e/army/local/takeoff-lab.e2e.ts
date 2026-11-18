@@ -518,7 +518,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     await expect(keyEntry.getByText(masked, { exact: true })).toBeVisible();
     await expect(keyEntry.getByText("Jamais", { exact: true })).toBeVisible();
     await expect(keyEntry.getByRole("combobox", "Modèle à tester", { exact: true })).toHaveValue("gpt-6.1-terra");
-    await expect(keyEntry.getByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,02 \$ US, sans aucun document client/)).toBeVisible();
+    await expect(keyEntry.getByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,03 \$ US, sans aucun document client/)).toBeVisible();
     await keyEntry.getByRole("button", "Tester le modèle", { exact: true }).click();
     await expect(keyEntry.getByText(/^Modèle testé le .* : gpt-6\.1-terra a répondu\. Coût estimé : moins de 0,01 \$ US\.$/)).toBeVisible();
     const state = await apiRequest<{ data: unknown }>(browser, "GET", "/api/ai-access/api-key");
@@ -566,7 +566,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
       error_code: null, usage: { input: 2_400, output: 180, reasoning: 120, total: 2_700 },
       billing: { source: "personal_api_key", provider: "openai", place: "local", currency: "USD", model_used: "gpt-6.1-terra-2026-10-01",
         service_tier: "default", cost_nano_usd: 2_000 * 1_000 + 400 * 50 + 300 * 5_000, ceiling_nano_usd: 1_000_000_000, allotment_nano_usd: 1_000_000_000,
-        input_tokens_counted: 40_000, max_output_tokens: 32_000, bound_nano_usd: 40_000 * 1_250 + 32_000 * 5_000, connection_version: 1,
+        input_tokens_counted: 40_000, max_output_tokens: 32_000, bound_nano_usd: 40_000 * 2_500 + 32_000 * 5_000, connection_version: 1,
         usage: { input: 2_400, cached_input: 400, cache_write: 0, output: 300, reasoning: 120, total: 2_700 } },
       score: { precision: 1, recall: 1, matched: 2 } });
 

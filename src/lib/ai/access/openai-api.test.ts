@@ -423,7 +423,7 @@ describe("a structured call for the lab", () => {
     const count = openai.sent.at(-1)!;
     expect(count.url).toBe("https://api.openai.com/v1/responses/input_tokens");
     expect(prepared).toMatchObject({ inputTokens: 40_000, maxOutputTokens: 32_000, connectionVersion: 1,
-      boundNanoUsd: 40_000 * 1_250 + 32_000 * 5_000 });
+      boundNanoUsd: 40_000 * 2_500 + 32_000 * 5_000 });
     expect(openai.sent.filter((request) => request.url.endsWith("/v1/responses"))).toEqual([]);
     const result = await service.execute<z.infer<typeof TakeoffExchangeSchema>>(OWNER, prepared, { timeoutMs: 60_000 });
     const generation = openai.sent.at(-1)!.body!;
@@ -454,9 +454,9 @@ describe("a structured call for the lab", () => {
     await second.service.save(OWNER, { key: fictionalKey() }).catch(() => undefined);
     await rm(directory, { recursive: true, force: true });
     await second.service.save(OWNER, { key: fictionalKey() });
-    // Sol, 40 000 counted tokens, half the ceiling: 0,10 $ of input leaves 0,40 $, 40 000 output tokens.
+    // Sol, 40 000 counted tokens, half the ceiling: 0,20 $ of input (12-hour write rate) leaves 0,30 $, 30 000 output tokens.
     expect(await prepareCall(second.service, { model: "gpt-6.1-sol", reasoningEffort: "max", outputCap: 64_000, allotmentNanoUsd: 500_000_000 }))
-      .toMatchObject({ maxOutputTokens: 40_000, boundNanoUsd: 500_000_000 });
+      .toMatchObject({ maxOutputTokens: 30_000, boundNanoUsd: 500_000_000 });
   });
 
   it("generates nothing when OpenAI cannot count the input", async () => {
@@ -472,16 +472,36 @@ describe("a structured call for the lab", () => {
     }
   });
 
-  it("returns a response the schema rejects with its usage and cost, and prices cache writes", async () => {
+  it("returns a response the schema rejects with its usage and cost", async () => {
     const openai = fakeOpenAi((_key, pathname) => pathname === "/v1/models" ? listed() : pathname === "/v1/responses/input_tokens" ? counted(1_000)
-      : answered(JSON.stringify({ items: "none" }), { usage: { input_tokens: 1_000, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 400,
-        cache_write_tokens_details: { "30m": 400 } }, output_tokens: 100, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 1_100 } }));
+      : answered(JSON.stringify({ items: "none" })));
     const { service } = access(openai.fetch);
     await service.save(OWNER, { key: fictionalKey() });
     const result = await service.execute(OWNER, await prepareCall(service), { timeoutMs: 60_000 });
     expect(result.data).toBeNull();
     expect(result.schemaError?.name).toBe("ZodError");
-    expect(result.costNanoUsd).toBe(600 * 1_000 + 400 * 1_250 + 100 * 5_000);
+    expect(result.costNanoUsd).toBe(1_000 * 1_000 + 200 * 50 + 300 * 5_000);
+  });
+
+  // Review round 2, item B: the documented buckets are ttl_30m_tokens and ttl_12h_tokens; a written token no recognised
+  // bucket accounts for is priced at the 12-hour rate. A decoder that recognises nothing fails the first case.
+  it("prices cache writes from the documented buckets, and anything unaccounted for at the 12-hour rate", async () => {
+    const cases: Array<[Record<string, number> | null, number]> = [
+      [{ ttl_30m_tokens: 400, ttl_12h_tokens: 0 }, 400 * 1_250],
+      [{ ttl_30m_tokens: 100, ttl_12h_tokens: 300 }, 100 * 1_250 + 300 * 2_500],
+      [{ ttl_5m_tokens: 400 }, 400 * 2_500],
+      [null, 400 * 2_500],
+    ];
+    for (const [details, written] of cases) {
+      await rm(directory, { recursive: true, force: true });
+      const openai = fakeOpenAi((_key, pathname) => pathname === "/v1/models" ? listed() : pathname === "/v1/responses/input_tokens" ? counted(1_000)
+        : answered(JSON.stringify(items), { usage: { input_tokens: 1_000, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 400,
+          ...(details ? { cache_write_tokens_details: details } : {}) }, output_tokens: 100, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 1_100 } }));
+      const { service } = access(openai.fetch);
+      await service.save(OWNER, { key: fictionalKey() });
+      const result = await service.execute(OWNER, await prepareCall(service), { timeoutMs: 60_000 });
+      expect([details, result.costNanoUsd]).toEqual([details, 600 * 1_000 + written + 100 * 5_000]);
+    }
   });
 
   it("refuses a key replaced since the page was drawn, before reading the Keychain", async () => {

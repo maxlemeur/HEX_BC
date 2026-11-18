@@ -166,7 +166,7 @@ describe("lab extraction on the member's API key", () => {
       error_code: null, message: null, usage: { input: 4_000, output: 300, reasoning: 600, total: 4_900 },
       billing: { source: "personal_api_key", provider: "openai", place: "local", currency: "USD", price_table: "openai-standard-2026-11-18",
         model_used: "gpt-6.1-terra-2026-10-01", service_tier: "default", ceiling_nano_usd: 1_000_000_000, allotment_nano_usd: 1_000_000_000,
-        input_tokens_counted: 40_000, max_output_tokens: 32_000, bound_nano_usd: 40_000 * 1_250 + 32_000 * 5_000,
+        input_tokens_counted: 40_000, max_output_tokens: 32_000, bound_nano_usd: 40_000 * 2_500 + 32_000 * 5_000,
         connection_version: 1, request_id: "req_lab",
         usage: { input: 4_000, cached_input: 1_000, cache_write: 0, output: 900, reasoning: 600, total: 4_900 },
         cost_nano_usd: 3_000 * 1_000 + 1_000 * 50 + 900 * 5_000 } });
@@ -189,8 +189,8 @@ describe("lab extraction on the member's API key", () => {
     const bounds = run.configs.map((config) => config.billing!.bound_nano_usd ?? Number.POSITIVE_INFINITY);
     expect(run.configs.map((config) => config.billing!.allotment_nano_usd)).toEqual([500_000_000, 500_000_000]);
     expect(bounds.reduce((sum, bound) => sum + bound, 0)).toBeLessThanOrEqual(1_000_000_000);
-    // Sol: 0,10 $ of counted input leaves 0,40 $, 40 000 output tokens; Terra keeps its cap of 64 000.
-    expect(generations().map((request) => request.body!.max_output_tokens)).toEqual([40_000, 64_000]);
+    // Sol: 0,20 $ of counted input (12-hour write rate) leaves 0,30 $, 30 000 output tokens; Terra keeps its cap of 64 000.
+    expect(generations().map((request) => request.body!.max_output_tokens)).toEqual([30_000, 64_000]);
   });
 
   it("says so in plain French and stops when an answer costs more than the ceiling, never a silent « Terminé »", async () => {

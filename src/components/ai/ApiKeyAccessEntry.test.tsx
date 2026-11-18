@@ -93,7 +93,7 @@ describe("ApiKeyAccessEntry", () => {
     expect(document.body.innerHTML).not.toContain(KEY);
     expect(screen.queryByRole("button", { name: /afficher|révéler|copier/i })).toBeNull();
     for (const name of ["Tester le modèle", "Remplacer", "Retirer"]) expect(screen.getByRole("button", { name })).toBeTruthy();
-    expect(await screen.findByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,02 \$ US, sans aucun document client/)).toBeTruthy();
+    expect(await screen.findByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,03 \$ US, sans aucun document client/)).toBeTruthy();
   });
 
   it("offers an explicit model test to a key that may not list models, instead of calling it invalid", async () => {

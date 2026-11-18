@@ -38,15 +38,23 @@ describe("OpenAI price table", () => {
 });
 
 describe("bound of a call whose input OpenAI counted", () => {
-  it("prices every counted input token at the cache write rate and the whole output budget", () => {
-    // Terra: input written to a 30-minute cache costs 1,25 $ / M, output 5 $ / M.
+  it("prices every counted input token at the 12-hour cache write rate and the whole output budget", () => {
+    // Terra: input written to a 12-hour cache costs 2,50 $ / M, output 5 $ / M.
     expect(boundCountedCall({ model: "gpt-6.1-terra", inputTokens: 40_000, maxOutputTokens: 32_000 }))
-      .toEqual({ status: "priced", inputTokens: 40_000, outputTokens: 32_000, nanoUsd: 40_000 * 1_250 + 32_000 * 5_000 });
+      .toEqual({ status: "priced", inputTokens: 40_000, outputTokens: 32_000, nanoUsd: 40_000 * 2_500 + 32_000 * 5_000 });
+  });
+
+  it("is never below what the call can cost when every input token is written for 12 hours", () => {
+    // Review round 2: 200 000 Sol input tokens all written for 12 hours + 50 000 output cost 1,50 $.
+    const bound = boundCountedCall({ model: "gpt-6.1-sol", inputTokens: 200_000, maxOutputTokens: 50_000 });
+    const worst = costOfOpenAiUsage("gpt-6.1-sol", usage({ input: 200_000, cacheWrite: 200_000, cacheWrite12h: 200_000, output: 50_000 }), "default");
+    expect(worst).toBe(1_500_000_000);
+    expect(bound.status === "priced" && bound.nanoUsd).toBeGreaterThanOrEqual(worst!);
   });
 
   it("applies the long-context rate to the whole request past 272 000 input tokens", () => {
     expect(boundCountedCall({ model: "gpt-6.1-sol", inputTokens: 300_000, maxOutputTokens: 10_000 }))
-      .toMatchObject({ nanoUsd: 300_000 * 2_500 * 2 + 10_000 * 10_000 * 1.5 });
+      .toMatchObject({ nanoUsd: 300_000 * 5_000 * 2 + 10_000 * 10_000 * 1.5 });
   });
 
   it("refuses a model without a known price instead of treating it as free", () => {
@@ -59,13 +67,15 @@ describe("output budget from what is left under the ceiling", () => {
   it("takes the largest output the allotment can pay once the counted input is priced, never above the cap", () => {
     // Sol, 300 000 input tokens: the input alone (1,50 $) passes 1,00 $; nothing is left.
     expect(maxOutputWithin({ model: "gpt-6.1-sol", inputTokens: 300_000, allotmentNanoUsd: LAB_API_KEY_CEILING_NANO_USD, cap: 64_000 })).toBe(0);
-    // Sol, one dense page of 40 000 tokens: 0,10 $ of input leaves 0,90 $, that is 90 000 output tokens, capped at 64 000.
+    // Sol, one dense page of 40 000 tokens: 0,20 $ of input leaves 0,80 $, that is 80 000 output tokens, capped at 64 000.
     expect(maxOutputWithin({ model: "gpt-6.1-sol", inputTokens: 40_000, allotmentNanoUsd: LAB_API_KEY_CEILING_NANO_USD, cap: 64_000 })).toBe(64_000);
-    // Half the ceiling each for two configurations: 0,40 $ left, 40 000 tokens.
-    expect(maxOutputWithin({ model: "gpt-6.1-sol", inputTokens: 40_000, allotmentNanoUsd: 500_000_000, cap: 64_000 })).toBe(40_000);
-    for (const [inputTokens, allotment] of [[40_000, 500_000_000], [250_000, 1_000_000_000], [271_000, 700_000_000]] as const) {
+    // Half the ceiling each for two configurations: 0,30 $ left, 30 000 tokens.
+    expect(maxOutputWithin({ model: "gpt-6.1-sol", inputTokens: 40_000, allotmentNanoUsd: 500_000_000, cap: 64_000 })).toBe(30_000);
+    for (const [inputTokens, allotment] of [[40_000, 500_000_000], [150_000, 1_000_000_000], [250_000, 1_000_000_000], [271_000, 700_000_000]] as const) {
       const cap = 64_000;
       const budget = maxOutputWithin({ model: "gpt-6.1-sol", inputTokens, allotmentNanoUsd: allotment, cap });
+      // No budget: the input alone passes the allotment, and the call is refused (prepare's minimum).
+      if (budget === 0) continue;
       const bound = boundCountedCall({ model: "gpt-6.1-sol", inputTokens, maxOutputTokens: budget });
       expect(bound.status === "priced" && bound.nanoUsd).toBeLessThanOrEqual(allotment);
     }
@@ -80,7 +90,7 @@ describe("output budget from what is left under the ceiling", () => {
 
   it("bounds a text-only call by its bytes, which bound its tokens", () => {
     expect(boundTextOnlyCall({ model: "gpt-6.1-terra", textBytes: 200, maxOutputTokens: 1_024 }))
-      .toMatchObject({ nanoUsd: (200 + OPENAI_SCHEMA_TOKENS_ALLOWANCE + 1_000) * 1_250 + 1_024 * 5_000 });
+      .toMatchObject({ nanoUsd: (200 + OPENAI_SCHEMA_TOKENS_ALLOWANCE + 1_000) * 2_500 + 1_024 * 5_000 });
   });
 });
 

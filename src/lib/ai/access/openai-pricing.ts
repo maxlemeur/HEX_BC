@@ -18,8 +18,8 @@ import type { ApiKeyCallUsage } from "@/lib/ai/access/api-key-errors";
 // The bound of a call is an upper bound of what OpenAI may bill. A call with a
 // document is bounded from its input as OpenAI counts it (the input token
 // counting endpoint, on the exact outgoing request), every input token priced
-// at the cache write rate (the adapter asks for no cache write, but a written
-// token costs no more than this), plus the whole output budget, reasoning
+// at the 12-hour cache write rate (the adapter asks for no cache write, but a
+// written token costs no more than this), plus the whole output budget, reasoning
 // included. A text-only call (the model test) is bounded by its UTF-8 bytes,
 // which bound its tokens. The output budget of a lab call is what its share of
 // the ceiling leaves once the counted input is priced.
@@ -68,7 +68,7 @@ export const LAB_API_KEY_CEILING_NANO_USD = 1_000_000_000;
 export const LAB_MIN_USEFUL_OUTPUT_TOKENS = 8_000;
 /** The model test of « Mon profil »: a minimal answer, no document. */
 export const MODEL_TEST_MAX_OUTPUT_TOKENS = 1_024;
-export const MODEL_TEST_CEILING_NANO_USD = 50_000_000;
+export const MODEL_TEST_CEILING_NANO_USD = 100_000_000;
 /** The test question's words, at most (openai-api.ts checks its own). */
 export const MODEL_TEST_PROMPT_BYTES_MAX = 200;
 
@@ -100,9 +100,9 @@ export type OpenAiCallBound =
 
 const isLong = (inputTokens: number) => inputTokens > OPENAI_PRICE_TABLE.longContextThreshold;
 
-/** The most an input costs: every token at the cache write rate, the long-context rate past the threshold. */
+/** The most an input costs: every token at the 12-hour cache write rate (the highest), the long-context rate past the threshold. */
 function inputBoundNano(price: OpenAiModelPrice, inputTokens: number) {
-  return inputTokens * price.cacheWrite30mNanoPerToken * (isLong(inputTokens) ? 2 : 1);
+  return inputTokens * price.cacheWrite12hNanoPerToken * (isLong(inputTokens) ? 2 : 1);
 }
 
 function outputRateNano(price: OpenAiModelPrice, inputTokens: number) {
