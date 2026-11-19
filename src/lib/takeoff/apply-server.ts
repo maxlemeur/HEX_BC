@@ -22,6 +22,7 @@ import {
   revokeTakeoffDpgfApplyAuthorization,
 } from "@/lib/takeoff/apply-repository";
 import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-server";
+import { isLeftOutByMappingPlan } from "@/lib/takeoff/mapping-engine";
 import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-repository";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { fetchAllTakeoffDpgfComparisonRows } from "@/lib/takeoff/dpgf-comparison-server";
@@ -190,7 +191,7 @@ export async function applyTakeoffJob(
         { supabase }
       );
       const plannedExclusions = new Set(mappingPreview.items
-        .filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id));
+        .filter(isLeftOutByMappingPlan).map((item) => item.item_id));
       const guardItems = (await listTakeoffApplyGuardItems({
         supabase,
         tenantId,

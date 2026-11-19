@@ -4,14 +4,14 @@ import { AlertTriangle } from "lucide-react";
 
 import type { MergeEstimateLine, MergeOverwrite } from "@/lib/takeoff/merge-overwrites";
 
-export const MERGE_OVERWRITE_TITLE = "La fusion écraserait des lignes du devis";
+import { formatTakeoffQuantity } from "./shared";
 
-const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
+export const MERGE_OVERWRITE_TITLE = "La fusion écraserait des lignes du devis";
 
 function measure(quantity: number | string | null, unit: string | null) {
   const value = quantity === null || quantity === "" ? Number.NaN : Number(quantity);
   if (!Number.isFinite(value)) return "sans quantité";
-  return unit ? `${quantityFormat.format(value)} ${unit}` : quantityFormat.format(value);
+  return unit ? `${formatTakeoffQuantity(value)} ${unit}` : formatTakeoffQuantity(value);
 }
 
 /** The unit as the estimate shows it: its code, else the unit an engine 1/2 line writes in its description. */

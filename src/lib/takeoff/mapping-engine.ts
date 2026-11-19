@@ -287,6 +287,14 @@ function applyMappingAction(
   }
 }
 
+/**
+ * The mapping plan leaves this line out of the estimate: it skips it, or folds it into an assembly (both mark it
+ * excluded). The server's guard, the atomic application and the screen leave such a line out before anything else.
+ */
+export function isLeftOutByMappingPlan(item: { action: string }): boolean {
+  return item.action === "skip" || item.action === "apply_assembly";
+}
+
 function countSummary(items: TakeoffMappingPreviewItem[]): TakeoffPreviewConversionSummary {
   return {
     total_count: items.length,
@@ -301,7 +309,7 @@ function countSummary(items: TakeoffMappingPreviewItem[]): TakeoffPreviewConvers
       (item) =>
         !item.original.is_excluded &&
         item.transformed.is_excluded &&
-        (item.action === "skip" || item.action === "apply_assembly")
+        isLeftOutByMappingPlan(item)
     ).length,
     assembly_insertions_count: items.filter(
       (item) => !item.original.is_excluded && item.action === "apply_assembly"

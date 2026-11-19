@@ -18,7 +18,7 @@ import { takeoffApplyStrategyFor, type TakeoffApplyStrategy } from "./shared";
  */
 export type TakeoffApplyGeneration = { id: number; targetSectionId: string; strategy: TakeoffApplyStrategy };
 
-type ReadResult<T> = { jobId: string; generation: number; data: T | null; error: string | null };
+type ReadResult<T> = { generation: number; data: T | null; error: string | null };
 
 export type TakeoffApplyRead<T> = {
   data: T | null;
@@ -31,10 +31,10 @@ const errorMessage = (error: unknown, fallback: string) => (error instanceof Err
 
 /**
  * The two reads the screen confirms on, issued together for each generation and without a click: the impact preview and
- * the proposal of the pages already in the estimate. An answer is current only for the job and the generation it was
- * asked for (the independent review of eea9e030: a result kept under its section and strategy alone came back current
- * when the section was chosen again, before its new reads answered). `retry` asks one failed read again for the same
- * generation.
+ * the proposal of the pages already in the estimate. An answer is current only for the generation it was asked for (the
+ * independent review of eea9e030: a result kept under its section and strategy alone came back current when the section
+ * was chosen again, before its new reads answered); another job remounts the screen, hence this state. `retry` asks one
+ * failed read again for the same generation.
  *
  * The proposal says whether the version holds DPGF lines when it is read (`merge_required`). When that disagrees with the
  * strategy of the generation, its answers are dropped and `onStrategyChange` is told: the caller starts a generation for
@@ -59,9 +59,9 @@ export function useTakeoffApplyReads({ jobId, generation, onStrategyChange }: {
     if (generationId === null || !targetSectionId || !strategy) return;
     let current = true;
     previewTakeoffConversion(jobId, { strategy, target_section_id: targetSectionId }).then(
-      (data) => { if (current) setPreview({ jobId, generation: generationId, data, error: null }); },
+      (data) => { if (current) setPreview({ generation: generationId, data, error: null }); },
       (error: unknown) => {
-        if (current) setPreview({ jobId, generation: generationId, data: null,
+        if (current) setPreview({ generation: generationId, data: null,
           error: errorMessage(error, "Impossible de calculer l’aperçu d’impact.") });
       });
     return () => { current = false; };
@@ -77,17 +77,17 @@ export function useTakeoffApplyReads({ jobId, generation, onStrategyChange }: {
           strategyChanged(generationId, data.merge_required);
           return;
         }
-        setPages({ jobId, generation: generationId, data, error: null });
+        setPages({ generation: generationId, data, error: null });
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) setPages({ jobId, generation: generationId, data: null,
+        if (!controller.signal.aborted) setPages({ generation: generationId, data: null,
           error: errorMessage(error, "Impossible de proposer le remplacement des pages déjà au devis.") });
       });
     return () => controller.abort();
   }, [generationId, jobId, pagesAttempt, strategy, targetSectionId]);
 
   const isCurrent = (result: ReadResult<unknown> | null) =>
-    generationId !== null && result !== null && result.jobId === jobId && result.generation === generationId;
+    generationId !== null && result !== null && result.generation === generationId;
   const previewRead = isCurrent(preview) ? preview : null;
   const pagesRead = isCurrent(pages) ? pages : null;
   const retryPreview = useCallback(() => { setPreview(null); setPreviewAttempt((count) => count + 1); }, []);

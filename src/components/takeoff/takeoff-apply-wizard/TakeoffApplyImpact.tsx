@@ -3,12 +3,11 @@
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
+import { plural } from "@/lib/text/plural";
 
 import { PreviewImpactCard } from "./PreviewImpactCard";
 
 export const IMPACT_TITLE = "Aperçu d’impact";
-
-const plural = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
 
 /**
  * The impact preview of the takeoff on the estimate, computed by the server for the chosen section: what is sent, what

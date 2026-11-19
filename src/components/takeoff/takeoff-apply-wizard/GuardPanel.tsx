@@ -115,7 +115,6 @@ export function GuardPanel({
   canOverride,
   forcedDrafts,
   onReturnToReview,
-  reviewHref,
   targetedReviewHref,
   onForcedDraftsChange,
   onOverrideConfirm,
@@ -127,7 +126,6 @@ export function GuardPanel({
   /** TI-686 D10: what the administrator wrote for each blocked line, kept by the wizard. */
   forcedDrafts: ForcedDrafts;
   onReturnToReview?: () => void;
-  reviewHref?: string;
   /** The targeted review of the job (TI-664 L5c), where each blocked line is settled. */
   targetedReviewHref?: string;
   onForcedDraftsChange: (next: ForcedDrafts) => void;
@@ -174,10 +172,6 @@ export function GuardPanel({
           >
             Retour à la revue
           </button>
-        ) : reviewHref ? (
-          <ReviewLink href={reviewHref} disabled={disabled} className={cn(buttonVariants({ variant: "outline" }), "mt-3 inline-flex")}>
-            Ouvrir la revue des preuves
-          </ReviewLink>
         ) : null}
         {targetedReviewHref ? (
           <ReviewLink href={targetedReviewHref} disabled={disabled}

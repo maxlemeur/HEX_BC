@@ -14,6 +14,7 @@ import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mod
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
+import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
 
 export type CockpitIntent =
   | "add_files"
@@ -430,7 +431,7 @@ export function computeCockpitSuggestions(
         preview: `${exceptionCount} écart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""} détecté${exceptionCount !== 1 ? "s" : ""} entre le DPGF et les métrés extraits.`,
         target: {
           kind: "navigate",
-          href: `/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`,
+          href: takeoffDpgfExceptionsHref({ projectId, jobId: latestJob.jobId, versionId: latestJob.reviewVersionId }),
         },
         requiresConfirmation: false,
         confirmTone: "info",

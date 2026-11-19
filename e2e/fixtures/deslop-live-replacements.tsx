@@ -8,6 +8,20 @@ import {
 import { AssistedReviewPanel } from "../../src/components/takeoff/review/AssistedReviewPanel";
 import type { ReviewItem } from "../../src/components/takeoff/TakeoffReviewPage";
 import { ToastProvider } from "../../src/components/feedback/toast-provider";
+import { takeoffApplyReadiness } from "../../src/lib/takeoff/apply-readiness";
+
+const READY_TO_SEND = takeoffApplyReadiness({
+  jobStatus: "completed",
+  includedCount: 1,
+  hasDirtyOrSaving: false,
+  hasSaveErrors: false,
+  hasBlockingAnomalies: false,
+  dpgfPending: false,
+  dpgfError: false,
+  dpgfExceptions: false,
+  guardBlockedCount: 0,
+  isAdmin: false,
+});
 
 async function captureEvent(event: unknown) {
   const response = await fetch("/fixture-events", {
@@ -135,8 +149,7 @@ function ReviewFixture() {
         onExcludeItems={(ids) => { void setInclusion(ids, true); }}
         onIncludeItems={(ids) => { void setInclusion(ids, false); }}
         onApplyClick={() => { void apply(); }}
-        canOpenApplyWizard
-        forceGuidance={null}
+        readiness={READY_TO_SEND}
       />
       {applied && <p role="status">Application demandée localement</p>}
       {error && <p role="alert">{error}</p>}

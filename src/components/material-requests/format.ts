@@ -31,9 +31,7 @@ export function formatQuantity(quantity: number | null): string {
   return quantity === null ? "" : String(quantity).replace(".", ",");
 }
 
-export function plural(count: number, singular: string, pluralForm: string): string {
-  return `${count} ${count > 1 ? pluralForm : singular}`;
-}
+export { plural } from "@/lib/text/plural";
 
 /** The anchor of « Coût des fournitures » on the purchasing page of an affaire: a link may open the page on it. */
 export const SUPPLY_COST_ANCHOR = "cout-des-fournitures";

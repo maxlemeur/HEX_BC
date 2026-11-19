@@ -1,14 +1,18 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useToast } from "@/components/feedback/toast-provider";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
+import { takeoffApplyLandingHref } from "@/lib/takeoff/apply-landing";
 import { applyTakeoffJob, isTakeoffApiError } from "@/lib/takeoff/client";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
 import { parseLowConfidenceThreshold } from "@/lib/takeoff/guards";
+import { plural } from "@/lib/text/plural";
 import type { TakeoffApplyResponse } from "@/lib/takeoff/types";
 
 // Shared by the takeoff review and its targeted review (TI-664 L5c): the low confidence threshold the guard reads,
@@ -24,12 +28,10 @@ type Outcome = { id: number; submitting: boolean; error: string | null; errorGua
 
 export const TAKEOFF_APPLY_SENT_TITLE = "Métré envoyé au tableau de chiffrage";
 
-const counted = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
-
 /** The toast's counts once sent: « 2 lignes créées, 1 mise à jour, 0 ignorée. » */
 export function takeoffApplySentDescription(summary: Pick<TakeoffApplyResponse["summary"], "created_count" | "updated_count" | "ignored_count">) {
-  return `${counted(summary.created_count, "ligne créée", "lignes créées")}, ${counted(summary.updated_count, "mise à jour", "mises à jour")}, `
-    + `${counted(summary.ignored_count, "ignorée", "ignorées")}.`;
+  return `${plural(summary.created_count, "ligne créée", "lignes créées")}, ${plural(summary.updated_count, "mise à jour", "mises à jour")}, `
+    + `${plural(summary.ignored_count, "ignorée", "ignorées")}.`;
 }
 
 /** The tenant's low confidence threshold (feature flag), as the apply guard reads it. */
@@ -40,15 +42,16 @@ export function useTakeoffLowConfidenceThreshold() {
 
 /**
  * Sends a job to the estimate table from its review: takes the version's draft lock (or keeps the editor's), applies,
- * then gives the lock back when it took it. On success `onSent` runs (the toast, whatever became of the review), then
- * `onApplied` (the landing in the editor), once that lock is given back and only while the review that asked is still
- * shown for this job and version: Back, or a link, may have left it meanwhile, and the landing would then move the
- * estimator from another screen. Any refusal (the guard's 422, the lock) is `error`. One application at a time: a second
- * call while one is pending does nothing.
+ * then gives the lock back when it took it. On success, once that lock is given back, the sending is said in a toast
+ * (the root layout's provider outlives the review, so whatever became of it); then, only while the review that asked is
+ * still shown for this job and version, `onApplied` updates the review and the estimator lands in the estimate table on
+ * the takeoff's lines (takeoffApplyLandingHref): Back, or a link, may have left it meanwhile, and the landing would then
+ * move the estimator from another screen. Any refusal (the guard's 422, the lock) is `error`. One application at a time:
+ * a second call while one is pending does nothing.
  *
  * The lease is scoped by version, user and page identity, and a client-side navigation keeps the identity
- * (draft-lock-session-client.ts): the editor `onApplied` opens adopts a lease still held, and a release landing after
- * that would delete the editor's lease. So the release is awaited before `onApplied`. A failed release leaves a lease of
+ * (draft-lock-session-client.ts): the editor the landing opens adopts a lease still held, and a release landing after
+ * that would delete the editor's lease. So the release is awaited before the landing. A failed release leaves a lease of
  * this page's identity, which the editor adopts as its own.
  *
  * What the review shows (`submitting`, `error`, `errorGuard`) belongs to its current call for the job and version shown:
@@ -59,11 +62,12 @@ export function useTakeoffLowConfidenceThreshold() {
 export function useTakeoffApplyConfirm(input: {
   jobId: string;
   versionId: string;
+  /** The review's own state once sent, before the landing; only while the review that asked is still shown. */
   onApplied: (response: TakeoffApplyResponse, payload: TakeoffApplyWizardSubmitPayload) => void;
-  /** Runs on every success, before `onApplied`, even once the review is left: the sending happened. */
-  onSent?: (response: TakeoffApplyResponse) => void;
 }) {
-  const { jobId, versionId, onApplied, onSent } = input;
+  const { jobId, versionId, onApplied } = input;
+  const toast = useToast();
+  const router = useRouter();
   // The call shown, for the job and version shown: emptied when another is shown (adjusted while rendering, before the
   // render that would show the earlier one). TI-682 lot D: `errorGuard` is the guard of a refusal (a page decision
   // refused): the wizard reads its proposal again.
@@ -120,9 +124,11 @@ export function useTakeoffApplyConfirm(input: {
       show({ submitting: false });
     }
     if (!response) return;
-    onSent?.(response);
-    if (current.current === call) onApplied(response, payload);
-  }, [jobId, onApplied, onSent, scope, versionId]);
+    toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
+    if (current.current !== call) return;
+    onApplied(response, payload);
+    router.push(takeoffApplyLandingHref(versionId, response.summary));
+  }, [jobId, onApplied, router, scope, toast, versionId]);
   return { submitting: outcome?.submitting ?? false, error: outcome?.error ?? null, errorGuard: outcome?.errorGuard ?? null, setError,
     confirm };
 }

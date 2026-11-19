@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/components/ui/native-select";
 import { FieldLabel } from "@/components/ui/field";
 import { Card } from "@/components/ui/card";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 
 type Props = {
   projectId: string;
@@ -263,7 +264,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
             ) : null}
             {item.line_id ? (
               <Link
-                href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.id}/review?versionId=${latestJob.estimate_version_id}&line=${item.line_id}`}
+                href={takeoffReviewHref({ projectId, jobId: latestJob.id, versionId: latestJob.estimate_version_id, line: item.line_id })}
                 className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full justify-center")}
               >
                 Revoir ce signal
@@ -333,7 +334,7 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
                   <td>
                     {item.line_id ? (
                       <Link
-                        href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.id}/review?versionId=${latestJob.estimate_version_id}&line=${item.line_id}`}
+                        href={takeoffReviewHref({ projectId, jobId: latestJob.id, versionId: latestJob.estimate_version_id, line: item.line_id })}
                         className={buttonVariants({ variant: "outline" })}
                       >
                         Revoir

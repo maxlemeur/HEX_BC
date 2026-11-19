@@ -17,6 +17,7 @@
 
 import { assertNever, type EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { normalizeMeasurementUnit, measurementUnitToken } from "@/lib/units/normalize";
+import { isLeftOutByMappingPlan } from "@/lib/takeoff/mapping-engine";
 import { isSameDocument, isSamePage, type TakeoffPageDocument, type TakeoffPageIdentity } from "@/lib/takeoff/page-contributions";
 
 export type RuleIdentity = { kind?: string | null; network?: string | null; material?: string | null; dn?: string | number | null } | null;
@@ -197,7 +198,10 @@ export type MergeSource = { id: string; designation: string; unit: string; creat
 export function mergeSources(lines: ReadonlyArray<{ id: string; designation: string; unit: string; created_at: string; is_excluded: boolean }>,
   plan: ReadonlyArray<{ item_id: string; action: string; transformed?: { designation?: string | null } | null }>): MergeSource[] {
   const actions = new Map(plan.map((item) => [item.item_id, item]));
-  return lines.filter((line) => !line.is_excluded && !["skip", "apply_assembly"].includes(actions.get(line.id)?.action ?? ""))
+  return lines.filter((line) => {
+    const planned = actions.get(line.id);
+    return !line.is_excluded && !(planned && isLeftOutByMappingPlan(planned));
+  })
     .map((line) => {
       const planned = actions.get(line.id);
       const renamed = planned?.action === "rename" ? planned.transformed?.designation?.trim() : null;
