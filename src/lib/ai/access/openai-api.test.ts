@@ -423,7 +423,7 @@ describe("replace and remove", () => {
     const openai = fakeOpenAi(() => listed());
     const service = createOpenAiApiKeyAccess({ secretStore: () => null, fetch: openai.fetch, now: () => NOW,
       installationId: async () => INSTALLATION, directory: () => directory });
-    expect(await service.state(OWNER)).toEqual({ status: "unavailable", reason: "no_keychain",
+    expect(await service.state(OWNER)).toEqual({ status: "unavailable",
       message: apiKeyErrorMessage("AI_KEY_KEYCHAIN_UNAVAILABLE") });
     expect((await failure(service.save(OWNER, { key: fictionalKey() }))).code).toBe("AI_KEY_KEYCHAIN_UNAVAILABLE");
     expect(openai.fetch).not.toHaveBeenCalled();

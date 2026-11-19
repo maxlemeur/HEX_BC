@@ -482,7 +482,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
   /** From MergeOne's own record only: the Keychain is not opened, OpenAI not called. */
   async function state(owner: AiAccessOwner): Promise<ApiKeyAccessState> {
     const store = deps.secretStore();
-    if (!store) return { status: "unavailable", reason: "no_keychain", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message };
+    if (!store) return { status: "unavailable", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message };
     const file = await readAiAccessFile(deps.directory(), owner);
     if (file.connections.openai) return view(store, file.connections.openai);
     return wasUnreadable(file) ? { status: "empty", placeLabel: store.placeLabel, notice: UNREADABLE_RECORD } : { status: "empty", placeLabel: store.placeLabel };
