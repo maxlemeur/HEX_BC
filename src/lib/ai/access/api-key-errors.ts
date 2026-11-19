@@ -37,7 +37,7 @@ export const API_KEY_ERROR_CODES = [
 export type ApiKeyErrorCode = (typeof API_KEY_ERROR_CODES)[number];
 
 /** Values MergeOne computed itself, never provider text. */
-export type ApiKeyErrorDetail = { retryAt?: string | null; ceiling?: string; bound?: string; cost?: string };
+export type ApiKeyErrorDetail = { ceiling?: string; bound?: string; cost?: string };
 
 const timeFormat = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" });
 
@@ -49,7 +49,7 @@ export function frenchClockTime(iso: string) {
   return `${Number(hour)} h ${minute}`;
 }
 
-export function apiKeyErrorMessage(code: ApiKeyErrorCode, detail: ApiKeyErrorDetail = {}): string {
+export function apiKeyErrorMessage(code: ApiKeyErrorCode, detail: ApiKeyErrorDetail & { retryAt?: string | null } = {}): string {
   switch (code) {
     case "AI_KEY_REFUSED":
       return "OpenAI a refusé cette clé. Remplacez-la dans Mon profil pour poursuivre.";
@@ -140,7 +140,7 @@ export class ApiKeyError extends Error {
     providerStatus?: number | null; requestId?: string | null; retryAt?: string | null; detail?: ApiKeyErrorDetail;
     usage?: ApiKeyCallUsage | null; model?: string | null; serviceTier?: string | null;
   } = {}) {
-    super(apiKeyErrorMessage(code, { ...options.detail, retryAt: options.retryAt ?? options.detail?.retryAt ?? null }));
+    super(apiKeyErrorMessage(code, { ...options.detail, retryAt: options.retryAt ?? null }));
     this.name = "ApiKeyError";
     this.code = code;
     this.providerStatus = options.providerStatus ?? null;
