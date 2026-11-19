@@ -29,8 +29,6 @@ export const ESTIMATE_OFFER_CHOICE_LINE_STATUS = {
   provisional_quantity: "priced",
 } as const satisfies Record<string, EstimateLinePricingStatus>;
 
-export type EstimateOfferChoiceKind = keyof typeof ESTIMATE_OFFER_CHOICE_LINE_STATUS;
-
 export const ESTIMATE_OFFER_RESERVE_BASES = {
   private_estimate: "Devis privé (hors marché public)",
   indicative_quantities: "Quantités indicatives selon le règlement de la consultation",

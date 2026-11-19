@@ -9,7 +9,6 @@ export const DRIVE_READ_SCOPE =
 export const DRIVE_WRITE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 export const drivePurposeSchema = z.enum(["read", "write"]);
 export const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
-export const DRIVE_SHORTCUT_MIME = "application/vnd.google-apps.shortcut";
 export const DRIVE_MAX_FILES = 20;
 export const DRIVE_MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const DRIVE_OAUTH_START_PATH = "/api/google-drive/oauth/start";

@@ -115,13 +115,6 @@ const MAPPING_TARGET_LABELS: Record<MappingTargetField, string> = {
   unsupported_labor_total_site: "Total MO chantier",
 };
 
-export const MAPPING_TARGET_GROUP_LABELS: Record<MappingTargetGroup, string> = {
-  value: "Valeurs importées",
-  control: "Colonnes de contrôle (jamais importées)",
-  param: "Paramètres du classeur",
-  unsupported: "Reconnues, non prises en charge",
-};
-
 export const MAPPING_TARGET_FIELD_OPTIONS: MappingTargetFieldOption[] = MAPPING_TARGET_FIELDS.map(
   (value) => ({
     value,

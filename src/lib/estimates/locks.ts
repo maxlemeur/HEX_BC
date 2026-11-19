@@ -79,10 +79,6 @@ export type ReleaseDraftLockResult = {
   lock: DraftLock | null;
 };
 
-export type GetDraftLockInfoResult = {
-  lock: DraftLock | null;
-};
-
 function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   if (!value) return null;
   if (Array.isArray(value)) return value[0] ?? null;
@@ -422,25 +418,6 @@ async function releaseLockInternal(
   };
 }
 
-export async function getLockInfo(
-  versionId: string,
-  sessionId?: string | null
-): Promise<GetDraftLockInfoResult> {
-  const context = await getAuthenticatedContext();
-
-  await assertVersionAccessOrThrow(context, versionId, { requireDraft: false });
-
-  const lock = await getDraftLockInfoInternal({
-    context,
-    versionId,
-    sessionId,
-  });
-
-  return {
-    lock,
-  };
-}
-
 export async function acquireLock(
   versionId: string,
   sessionId: string
@@ -538,14 +515,5 @@ export async function releaseLock(
   return releaseLockInternal(context, versionId, {
     sessionId,
     force: options?.force === true,
-  });
-}
-
-export async function forceReleaseLock(
-  versionId: string,
-  sessionId: string
-): Promise<ReleaseDraftLockResult> {
-  return releaseLock(versionId, sessionId, {
-    force: true,
   });
 }

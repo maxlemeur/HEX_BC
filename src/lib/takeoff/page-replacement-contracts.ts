@@ -176,7 +176,6 @@ const dpgfMergeRefusalSchema = z.object({
   fed: z.boolean(),
   linked: z.boolean(),
 }).strict();
-export type TakeoffPageReplacementDpgfMergeRefusal = z.infer<typeof dpgfMergeRefusalSchema>;
 
 export const takeoffPageReplacementResponseSchema = z.object({
   job_id: uuid,

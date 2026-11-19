@@ -31,8 +31,6 @@ export type EstimateV2FreezeResult = {
   total_ttc_cents?: number;
 };
 
-export type EstimateV2SnapshotPurpose = "send" | "approval" | "document";
-
 type FreezeEstimateV2SnapshotInput = {
   supabase: Supabase;
   rpcClient: Supabase;

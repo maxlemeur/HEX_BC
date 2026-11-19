@@ -88,8 +88,6 @@ export const verificationJustificationReadSchema = z.object({
     note: z.string().optional() }).optional(),
 });
 
-export type VerificationJustificationRead = z.infer<typeof verificationJustificationReadSchema>;
-
 /** The rules whose failure V settles only with a coded reason, in the order the dialog shows them. */
 export const ACCEPTANCE_REASON_RULES = ["dn_network", "scale_dimension", "area_printed"] as const;
 export type AcceptanceReasonRule = (typeof ACCEPTANCE_REASON_RULES)[number];

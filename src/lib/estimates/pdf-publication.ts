@@ -217,14 +217,6 @@ export function buildContentAddressedEstimatePdfPath(input: {
   ].join("/");
 }
 
-export function buildLegacyEstimatePdfPath(input: {
-  tenantId: string;
-  projectId: string;
-  versionId: string;
-}) {
-  return `${input.tenantId}/${input.projectId}/${input.versionId}.pdf`;
-}
-
 export function isCanonicalEstimatePdfPath(input: {
   filePath: string;
   tenantId: string;

@@ -5,10 +5,6 @@ import {
   DEFAULT_STALE_PRICE_DAYS,
   parseStalePriceDays,
 } from "@/lib/catalogue/stale-prices";
-import {
-  ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
-  ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
-} from "@/lib/estimate-editor-virtualization";
 import { badRequest, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
@@ -37,23 +33,6 @@ type ToggleFeatureFlagInput = TenantScopedInput & {
 
 const FEATURE_FLAGS_TABLE = "feature_flags";
 const featureFlagSelect = "tenant_id, flag_key, enabled, value";
-
-export const PRICE_IMPORT_GUIDED_ASSISTANT_FLAG = "PRICE_IMPORT_GUIDED_ASSISTANT";
-export const PRICE_IMPORT_BDC_PROFILE_FLAG = "PRICE_IMPORT_BDC_PROFILE";
-export const PRICE_IMPORT_CREATE_ASSIST_FLAG = "PRICE_IMPORT_CREATE_ASSIST";
-export const PRICE_IMPORT_MULTI_SUPPLIER_FLAG = "PRICE_IMPORT_MULTI_SUPPLIER";
-
-export const PRICE_IMPORT_FEATURE_FLAGS = [
-  PRICE_IMPORT_GUIDED_ASSISTANT_FLAG,
-  PRICE_IMPORT_BDC_PROFILE_FLAG,
-  PRICE_IMPORT_CREATE_ASSIST_FLAG,
-  PRICE_IMPORT_MULTI_SUPPLIER_FLAG,
-] as const;
-
-export const ESTIMATE_EDITOR_VIRTUALIZATION_FEATURE_FLAGS = [
-  ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
-  ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
-] as const;
 
 const tenantIdSchema = z.string().uuid("tenant_id invalide.");
 const userIdSchema = z.string().uuid("user_id invalide.");

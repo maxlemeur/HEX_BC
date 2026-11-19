@@ -116,17 +116,6 @@ export function normalizeGeminiProviderBatchState(
   return GEMINI_BATCH_STATE_MAP[normalized] ?? "unknown";
 }
 
-export function isTerminalTakeoffProviderBatchState(
-  value: TakeoffProviderBatchState | null | undefined
-) {
-  return (
-    value === "succeeded" ||
-    value === "failed" ||
-    value === "cancelled" ||
-    value === "expired"
-  );
-}
-
 export function getTakeoffBatchReconcileBackoffSeconds(attemptCount: number) {
   if (!Number.isFinite(attemptCount) || attemptCount <= 1) {
     return TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS[0];

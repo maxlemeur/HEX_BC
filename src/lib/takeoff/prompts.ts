@@ -173,10 +173,6 @@ export type TakeoffLevelConfig = {
   thinkingLevel: GeminiThinkingLevel;
 };
 
-export type TakeoffPromptRuntimeConfig = TakeoffLevelConfig & {
-  prompt: string;
-};
-
 const PROMPT_CONTEXT_VALUE_MAX_LENGTH = 1000;
 
 // Une valeur de contexte tient sur sa ligne : un nom de fichier reçu (M1b) ne peut ni ajouter de
@@ -303,14 +299,4 @@ export function getTakeoffPrompt(
     "FINAL",
     "Retourne exclusivement un JSON valide conforme au schema, sans texte additionnel.",
   ].join("\n");
-}
-
-export function getTakeoffPromptRuntimeConfig(
-  level: TakeoffPromptLevel,
-  input: TakeoffPromptBuildInput = {}
-): TakeoffPromptRuntimeConfig {
-  return {
-    ...getTakeoffLevelConfig(level),
-    prompt: getTakeoffPrompt(level, input),
-  };
 }

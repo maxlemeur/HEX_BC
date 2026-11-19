@@ -199,10 +199,3 @@ export function cadOpenGates(drawing: Pick<CadDrawing, "gates">, shown: (layer: 
 export function listCadPaths(drawing: CadDrawing): CadPathView[] {
   return Array.from({ length: drawing.paths.count }, (_, index) => cadPathAt(drawing, index));
 }
-
-/** Typed arrays of a drawing, to transfer it out of a worker without copying. */
-export function cadTransferables(drawing: CadDrawing): ArrayBuffer[] {
-  const { paths } = drawing;
-  return [paths.layer, paths.gate, paths.block, paths.color, paths.kind, paths.flags, paths.start, paths.size, paths.length, paths.area, drawing.points]
-    .map((array) => array.buffer as ArrayBuffer);
-}

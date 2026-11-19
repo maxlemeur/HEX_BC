@@ -7,14 +7,12 @@
 export type KeyInfo = { label: string; aliases: readonly string[] };
 
 export const BENCH_LOTS = ["a", "b", "c", "d", "e", "load"] as const;
-export type BenchLot = (typeof BENCH_LOTS)[number];
 
 /** Lots that carry a quantity truth; E (page sorting) and the load-test file do not. */
 export const TRUTH_LOTS = ["a", "b", "c", "d"] as const;
 export type TruthLot = (typeof TRUTH_LOTS)[number];
 
 export const DOCUMENT_KINDS = ["plan", "schema", "devis", "surfaces"] as const;
-export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 
 /** Anonymous document id: `<lot>-<kind>-<nn>`, e.g. `a-plan-01`, `load-plan-01`. */
 export const DOCUMENT_ID_PATTERN = /^(a|b|c|d|e|load)-(plan|schema|devis|surfaces)-(\d{2})$/;

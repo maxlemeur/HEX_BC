@@ -187,7 +187,6 @@ export type TakeoffDpgfReviewDecisionRecord = z.infer<typeof takeoffDpgfReviewDe
 export type TakeoffDpgfComparisonUnusedTakeoffItem = z.infer<typeof takeoffDpgfComparisonUnusedTakeoffItemSchema>;
 export type TakeoffDpgfLineRiskSummary = z.infer<typeof takeoffDpgfLineRiskSummarySchema>;
 export type TakeoffDpgfComparisonRow = z.infer<typeof takeoffDpgfComparisonRowSchema>;
-export type TakeoffDpgfComposition = z.infer<typeof takeoffDpgfCompositionSchema>;
 export type TakeoffDpgfComparisonSummary = z.infer<typeof takeoffDpgfComparisonSummarySchema>;
 export type TakeoffDpgfComparisonResponse = z.infer<typeof takeoffDpgfComparisonResponseSchema>;
 

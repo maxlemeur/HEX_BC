@@ -1,8 +1,3 @@
-export type EstimatePdfStorageFailureReason =
-  | "bucket_missing"
-  | "server_auth_invalid"
-  | "storage_unavailable";
-
 export type EstimatePdfStorageOperation = "upload" | "sign";
 
 type ErrorRecord = Record<string, unknown>;

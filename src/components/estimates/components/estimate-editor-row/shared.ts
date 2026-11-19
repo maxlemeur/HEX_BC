@@ -70,15 +70,6 @@ function getNumberDisplayFormatter(minDecimals: number, maxDecimals: number) {
   return formatter;
 }
 
-export function formatLaborRoleOptionLabel(role: LaborRole) {
-  const hourlyRate = getNumberDisplayFormatter(2, 2).format(
-    Math.max(role.hourly_rate_cents, 0) / 100
-  );
-
-  return `${hourlyRate} €/h ${role.name}${
-    !role.is_active ? " (inactif)" : ""
-  }`;
-}
 
 export function getMissingLaborRateMessage(
   role: LaborRole | undefined,

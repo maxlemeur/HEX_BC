@@ -166,23 +166,6 @@ function resolveKeywordMatch(title: string, keyword: string, titleTokens = title
   };
 }
 
-export function fuzzyMatch(input: { title: string; keyword: string }) {
-  const title = normalizeWord(input.title);
-  const keyword = normalizeWord(input.keyword);
-  if (!title || !keyword) {
-    return {
-      matched: false,
-      similarity: 0,
-    };
-  }
-
-  const similarity = similarityRatio(title, keyword);
-  return {
-    matched: similarity >= MIN_FUZZY_SIMILARITY,
-    similarity,
-  };
-}
-
 export function scoreSuggestion<TRule extends SuggestionRuleForScoring>(input: {
   title: string;
   rule: TRule;

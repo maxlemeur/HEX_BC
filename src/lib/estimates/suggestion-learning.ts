@@ -1,8 +1,6 @@
 import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
-import { z } from "zod";
 
 import {
-  badRequest,
   forbidden,
   mapSupabaseError,
 } from "@/lib/estimates/errors";
@@ -45,11 +43,7 @@ const SUGGESTION_LEARNING_FIELD_VALUES = [
 
 const TRACKED_FIELD_SET = new Set<string>(SUGGESTION_LEARNING_FIELD_VALUES);
 
-const suggestionLearningFieldSchema = z.enum(SUGGESTION_LEARNING_FIELD_VALUES);
-
-export type SuggestionLearningFieldName = z.infer<
-  typeof suggestionLearningFieldSchema
->;
+export type SuggestionLearningFieldName = (typeof SUGGESTION_LEARNING_FIELD_VALUES)[number];
 
 export type SuggestionLearningReviewStatus = "approved" | "rejected";
 
@@ -740,13 +734,4 @@ export async function purgeLearnings(input?: {
     retention_months: retentionMonths,
     ...refreshed,
   };
-}
-
-export function assertTrackedFieldName(value: string): SuggestionLearningFieldName {
-  const parsed = suggestionLearningFieldSchema.safeParse(value);
-  if (!parsed.success) {
-    throw badRequest("field_name invalide.");
-  }
-
-  return parsed.data;
 }

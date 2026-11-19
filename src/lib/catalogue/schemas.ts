@@ -629,10 +629,7 @@ export const createMissingPriceImportEntitiesSchema = z.object({
   productsToCreate: normalizedStringArraySchema,
 });
 
-export type CatalogueActionInput = z.infer<typeof catalogueActionSchema>;
-export type PricesActionInput = z.infer<typeof pricesActionSchema>;
 export type UpdateSupplierCatalogItemInput = z.infer<typeof updateSupplierCatalogItemSchema>;
-export type IndicesActionInput = z.infer<typeof indicesActionSchema>;
 
 export type LinkMappedRowsInput = z.infer<typeof linkMappedRowsSchema>;
 export type CatalogueListQueryInput = z.infer<typeof catalogueListQuerySchema>;

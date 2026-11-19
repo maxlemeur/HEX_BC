@@ -16,25 +16,6 @@ function revalidateApprovalPaths(versionId: string, projectId: string) {
   revalidatePath("/dashboard/approvals");
 }
 
-export async function requestEstimateApprovalAction(input: {
-  versionId: string;
-  projectId: string;
-  ruleIds: string[];
-}) {
-  let lastResult: Awaited<ReturnType<typeof submitEstimateApproval>> | null = null;
-
-  for (const ruleId of input.ruleIds) {
-    lastResult = await submitEstimateApproval({
-      versionId: input.versionId,
-      action: "request",
-      ruleId,
-    });
-  }
-
-  revalidateApprovalPaths(input.versionId, input.projectId);
-  return lastResult;
-}
-
 export async function submitEstimateForReviewAction(input: {
   versionId: string;
   projectId: string;

@@ -24,7 +24,6 @@ export const sendPurchaseOrderSchema = z.object({
     .refine((value) => !CONTROL.test(value), "L’objet tient sur une ligne."),
   message: z.string().max(PURCHASE_ORDER_SEND_MESSAGE_MAX).transform((value) => value.replace(/\r\n?/g, "\n").trimEnd()),
 }).strict();
-export type SendPurchaseOrderInput = z.input<typeof sendPurchaseOrderSchema>;
 export type SendPurchaseOrderData = z.output<typeof sendPurchaseOrderSchema>;
 
 const sendRowSchema = z.object({

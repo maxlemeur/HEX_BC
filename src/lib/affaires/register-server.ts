@@ -1630,15 +1630,6 @@ async function fetchAffaireRegisterSummaryWithContext(input: {
   };
 }
 
-export async function fetchAffaireRegisterTimeline(input: {
-  projectId: string;
-  versionId?: string | null;
-  size?: number;
-}): Promise<AffaireRegisterTimelineEvent[]> {
-  const { context, project } = await requireAffaireRegisterProjectAccess(input.projectId, "reader");
-  return fetchAffaireRegisterTimelineWithContext({ context, project, versionId: input.versionId, size: input.size });
-}
-
 async function fetchAffaireRegisterTimelineWithContext(input: {
   context: AuthenticatedRegisterContext;
   project: AffaireProjectAccessRow;
@@ -1879,20 +1870,6 @@ export async function fetchAffaireRegisterScopeOptions(input: {
     lots: rows.filter((row) => row.item_type === "section").map(toOption),
     lines: rows.filter((row) => row.item_type === "line").map(toOption),
   };
-}
-
-export async function fetchAffaireRegisterOwnerOptions(input: {
-  projectId: string;
-}): Promise<AffaireRegisterOwnerOption[]> {
-  const { context } = await requireAffaireRegisterProjectAccess(
-    input.projectId,
-    "reader"
-  );
-
-  return listAssignableRegisterOwners({
-    supabase: context.supabase,
-    tenantId: context.tenantId,
-  });
 }
 
 export async function fetchAffaireRegisterReviewExport(input: {

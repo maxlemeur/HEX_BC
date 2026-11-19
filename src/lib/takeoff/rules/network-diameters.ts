@@ -1,5 +1,5 @@
 import { DIAMETER_FAMILIES, findDiameterEntries, type DiameterEntry, type DiameterFamily } from "@/lib/takeoff/bench/diameters";
-import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { type MaterialCode, type NetworkCode } from "@/lib/takeoff/bench/keys";
 
 // DN × network reference of the fixed rules (TI-664 step 1), extending the
 // diameter table of L0 (bench/diameters.ts, TI-659 §8). Per network of the
@@ -101,11 +101,6 @@ export const NETWORK_MATERIALS: Record<NetworkCode, readonly MaterialCode[]> = {
   "CW-S": [...HYDRONIC, "pehd"],
   "CW-R": [...HYDRONIC, "pehd"],
 };
-
-/** Open evidence only, never treated as permission by the evaluator. */
-export const AMBIGUOUS_NETWORK_MATERIALS = [
-  { network: "EU", material: "inox", note: "Série NF EN 1124 provisoire : second fabricant et DN 90 à recouper." },
-] as const;
 
 const DRAINAGE_NETWORKS: readonly NetworkCode[] = ["EU", "EV", "EUV", "EUG", "EP", "VP"];
 
@@ -290,6 +285,3 @@ export function checkNetworkDiameter(network: NetworkCode, material: MaterialCod
   if (resolved.status === "ambiguous") return { status: "dn_ambiguous", candidates: resolved.candidates, ...kept };
   return condition ? { status: "requires_justification", reason: condition, size: resolved.size } : { status: "compatible", size: resolved.size };
 }
-
-/** Every network of the vocabulary has a row: a code added to keys.ts without one fails the type check above. */
-export const NETWORKS_WITHOUT_MATERIALS = NETWORK_CODES.filter((code) => NETWORK_MATERIALS[code].length === 0);

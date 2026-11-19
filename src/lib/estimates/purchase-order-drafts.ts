@@ -22,7 +22,6 @@ import {
 import { computeTotalsFromInputs, MAX_ORDER_AMOUNT_CENTS, type LineTotals } from "@/lib/order-calculations";
 import type {
   estimatePurchaseOrderDraftsCreateSchema,
-  estimatePurchaseOrderDraftGroupSchema,
 } from "@/lib/estimates/schemas";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import { supplierOfferIneligibility } from "@/lib/estimates/supplier-offer-eligibility";
@@ -123,9 +122,6 @@ export type EstimatePurchaseOrderDraftPreparation = {
   transferred_lines: z.infer<typeof purchaseTransferSchema>[];
 };
 
-export type EstimatePurchaseOrderDraftCreateGroupInput = z.infer<
-  typeof estimatePurchaseOrderDraftGroupSchema
->;
 
 export type EstimatePurchaseOrderDraftsCreateInput = z.infer<
   typeof estimatePurchaseOrderDraftsCreateSchema

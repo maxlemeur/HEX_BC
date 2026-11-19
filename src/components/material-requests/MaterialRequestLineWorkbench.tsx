@@ -15,8 +15,6 @@ import { IncompleteArticle, MATCH_LABELS, MaterialRequestArticleCell } from "./M
 import type { LineRowProps } from "./MaterialRequestLineRow";
 import { MaterialRequestSupplierCell } from "./MaterialRequestSupplierCell";
 
-export const WORKBENCH_COLUMNS = "grid-cols-[minmax(10rem,1.35fr)_4rem_minmax(8rem,1fr)_minmax(8rem,1fr)_6rem_minmax(7rem,0.8fr)_2rem]";
-
 type WorkbenchProps = LineRowProps & { inspected: boolean; onInspect: () => void };
 
 /** A settled row stays compact; all its provenance and existing actions are in the inspector. */

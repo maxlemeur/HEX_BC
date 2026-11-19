@@ -16,7 +16,6 @@ export const LAB_CAMPAIGN_ERROR = "Nom de campagne : lettres minuscules, chiffre
 export const LabNameSchema = z.string().regex(LAB_NAME_PATTERN, "Nom invalide : lettres minuscules, chiffres et tirets.");
 /** sha256 hex of JSON.stringify([runId, configId, "item" | "question", index | name]). */
 export const ELEMENT_ID_PATTERN = /^[0-9a-f]{64}$/;
-export const ElementIdSchema = z.string().regex(ELEMENT_ID_PATTERN, "Identifiant d’élément invalide.");
 
 /**
  * Layout of TAKEOFF_LAB_DATASET_DIR: the L0 manifest (TI-659) and its PDF binaries,

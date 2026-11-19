@@ -236,7 +236,3 @@ export function useEstimateKeyboardShortcuts({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 }
-
-export type UseEstimateKeyboardShortcutsResult = ReturnType<
-  typeof useEstimateKeyboardShortcuts
->;

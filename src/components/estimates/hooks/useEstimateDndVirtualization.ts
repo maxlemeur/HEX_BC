@@ -508,7 +508,3 @@ export function useEstimateDndVirtualization({
     handleNavigationCellNotMounted,
   };
 }
-
-export type UseEstimateDndVirtualizationResult = ReturnType<
-  typeof useEstimateDndVirtualization
->;

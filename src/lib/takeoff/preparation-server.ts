@@ -65,7 +65,6 @@ export async function loadTakeoffPreparation(projectId: string) {
   await assertPreparationProjectAccess(context, projectId);
   return loadPreparation(context, projectId);
 }
-export type TakeoffPreparationState = Awaited<ReturnType<typeof loadTakeoffPreparation>>;
 
 function validateCanonicalSources(draft: TakeoffPreparation, availableSources: TakeoffPreparation["sources"]) {
   const available = new Map(availableSources.map((source) => [source.document_id, source]));

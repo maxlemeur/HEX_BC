@@ -144,13 +144,6 @@ export function parseEstimateTermsClauses(body: string): EstimateTermsClause[] {
     });
 }
 
-export function splitEstimateTermsClauses(
-  clauses: EstimateTermsClause[],
-): [EstimateTermsClause[], EstimateTermsClause[]] {
-  const columnBreak = Math.ceil(clauses.length / 2);
-  return [clauses.slice(0, columnBreak), clauses.slice(columnBreak)];
-}
-
 export function createDevelopmentEstimateTermsTemplate(
   tenantId: string,
   nodeEnv = process.env.NODE_ENV,

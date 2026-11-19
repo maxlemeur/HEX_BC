@@ -294,7 +294,3 @@ export function useEstimateSupplierComparison({
     handleSelectSupplierComparisonAlternative,
   };
 }
-
-export type UseEstimateSupplierComparisonResult = ReturnType<
-  typeof useEstimateSupplierComparison
->;

@@ -121,7 +121,6 @@ export type SaveArticleSupplierItemData = z.output<typeof saveArticleSupplierIte
 export const supplyTypePreferredSupplierSchema = z
   .object({ preferred_supplier_id: z.union([uuid, z.null()]) })
   .strict();
-export type SupplyTypePreferredSupplierInput = z.input<typeof supplyTypePreferredSupplierSchema>;
 
 /**
  * The supplier exception of an article, which wins over its supply type's; null removes it. A supplier needs an
@@ -130,7 +129,6 @@ export type SupplyTypePreferredSupplierInput = z.input<typeof supplyTypePreferre
 export const productPreferredSupplierSchema = z
   .object({ preferred_supplier_id: z.union([uuid, z.null()]) })
   .strict();
-export type ProductPreferredSupplierInput = z.input<typeof productPreferredSupplierSchema>;
 
 /** Error code of an exception set to a supplier that has no active item for the article. */
 export const PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED = "PRODUCT_PREFERRED_SUPPLIER_ITEM_REQUIRED";

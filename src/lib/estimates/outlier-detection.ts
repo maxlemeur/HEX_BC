@@ -266,20 +266,3 @@ export function withOutlierFlagDismissals(input: {
 
   return result;
 }
-
-export function normalizeOutlierDismissedFlags(
-  input: EstimateOutlierFlagsByItemId
-): EstimateOutlierFlagsByItemId {
-  const result: EstimateOutlierFlagsByItemId = {};
-
-  Object.entries(input).forEach(([itemId, flags]) => {
-    const normalized = flags.filter((flag, index) => {
-      return ESTIMATE_OUTLIER_FLAG_KEYS.includes(flag) && flags.indexOf(flag) === index;
-    });
-
-    if (normalized.length === 0) return;
-    result[itemId] = normalized;
-  });
-
-  return result;
-}

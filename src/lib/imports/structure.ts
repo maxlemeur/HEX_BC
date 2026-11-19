@@ -2,7 +2,6 @@ import { readImportRowStructure } from "./payload";
 
 type JsonRecord = Record<string, unknown>;
 
-export type ImportStructureDecisionKind = "section" | "line" | "ignore";
 export type ImportStructureLevel = 1 | 2;
 
 export type ImportStructureDecision =

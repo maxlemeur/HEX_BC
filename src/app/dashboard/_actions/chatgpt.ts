@@ -7,7 +7,7 @@ import {
   assertLocalChatGptHost, beginLocalChatGptSignIn, CHATGPT_COOKIE,
   disconnectLocalChatGpt, getLocalChatGptState, isLocalChatGptEnabled, selectLocalChatGptProfile,
 } from "@/lib/ai/chatgpt-local-auth";
-import { callLocalChatGptStructured, listLocalChatGptModels, selectLocalChatGptModel, selectLocalChatGptPreferences } from "@/lib/ai/chatgpt-local-inference";
+import { callLocalChatGptStructured, listLocalChatGptModels, selectLocalChatGptPreferences } from "@/lib/ai/chatgpt-local-inference";
 import { chatGptPreferencesSchema, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
@@ -41,11 +41,6 @@ export async function chooseChatGptAccount(profileId: string) {
 export async function loadChatGptModels() {
   const { owner } = await context();
   return listLocalChatGptModels(owner);
-}
-
-export async function chooseChatGptModel(model: string) {
-  const { owner } = await context();
-  await selectLocalChatGptModel(owner, z.string().min(1).max(200).parse(model));
 }
 
 export async function chooseChatGptPreferences(input: ChatGptPreferences) {

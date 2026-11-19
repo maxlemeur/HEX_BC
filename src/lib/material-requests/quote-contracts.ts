@@ -55,7 +55,6 @@ export const MATERIAL_REQUEST_QUOTE_NOTES_MAX = 2000;
 export const MATERIAL_REQUEST_QUOTE_MAX_FILES = 10;
 /** A quote's file is a PDF or an image; an original of the request stays an image. */
 export const MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;
-export const MATERIAL_REQUEST_QUOTE_FILE_EXTENSIONS = ["pdf", "jpg", "jpeg", "png", "webp"] as const;
 /** What the quote file picker offers: PDF and the stored image types, plus HEIC, which the screen converts to JPEG. */
 export const MATERIAL_REQUEST_QUOTE_PICKER_ACCEPT = [
   ...MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES,

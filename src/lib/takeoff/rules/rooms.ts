@@ -15,20 +15,11 @@
 //   four-cornered polygon under CLOSED_BOX.maxShare of the printed surface
 //   (the outline around the label is a box drawn in the room, not the room).
 
-import { QUANTITY_REVIEW_PERCENT } from "@/lib/takeoff/quantity-policy";
-
 export const ROOM_RULES_VERSION = 1;
 // 3 (TI-686 D9): V needs a coded reason and the basis of the printed surface; the details carry the basis the price
 // line expects. A new version reopens every earlier V given without them.
 export const AREA_PRINTED_RULE_VERSION = 3;
 
-/**
- * Starting values (3/11/2026), provisional: the bench gives two closed room polygons only (D RDC, outside the
- * reserve), one read right at −0.1 % of its printed surface, one a box at −69.8 %. 2 % is an outline drawn
- * 1.5 cm off the walls of a 10 m² room; 0.1 m² keeps a 1 m² cupboard from failing on rounding.
- */
-// TI-680: the former max(2%, 0.1m²) proposal is replaced for quantity comparison only.
-export const AREA_PRINTED = { relative: QUANTITY_REVIEW_PERCENT / 100, absolute_m2: 0 } as const;
 export const ROOM_OVERLAP = { relative: 0.02, absolute_m2: 0.1, step_m: 0.05, maxSamples: 250_000 } as const;
 export const CLOSED_BOX = { maxShare: 0.5 } as const;
 
@@ -41,14 +32,6 @@ function stripAccents(text: string) {
 /** A room label naming a bathtub, a cupboard or a shaft (« Placard », « Gaine technique », « GTL »). */
 export function isBoxLabel(room: string) {
   return BOX_LABEL.test(stripAccents(room));
-}
-
-export function areaTolerance(printed: number) {
-  return Math.max(AREA_PRINTED.relative * printed, AREA_PRINTED.absolute_m2);
-}
-
-export function areaAgrees(area: number, printed: number) {
-  return Math.abs(area - printed) <= areaTolerance(printed) + 1e-9;
 }
 
 /**

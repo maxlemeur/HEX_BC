@@ -325,12 +325,6 @@ export const generatedOuvrageCandidateResolutionStatusSchema = z.enum([
   "inserted",
   "rejected",
 ]);
-export const generatedOuvrageSubdetailDraftStatusSchema = z.enum([
-  "pending_review",
-  "reviewed",
-  "applied",
-  "discarded",
-]);
 export const generatedOuvrageSubdetailItemStatusSchema = z.enum([
   "suggested",
   "manual",

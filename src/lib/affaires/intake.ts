@@ -416,17 +416,6 @@ export function isAffaireIntakePrimaryEligibleKind(
   return kind === "dpgf" || kind === "cctp";
 }
 
-export function getDefaultAffaireIntakeDocumentPriority(input: {
-  documentKind: AffaireIntakeDocumentKind;
-  hasExistingPrimary: boolean;
-}): AffaireIntakeDocumentPriority {
-  if (!isAffaireIntakePrimaryEligibleKind(input.documentKind)) {
-    return "secondary";
-  }
-
-  return input.hasExistingPrimary ? "secondary" : "primary";
-}
-
 const DOCUMENT_KIND_HINTS: Array<{
   kind: Exclude<AffaireIntakeDocumentKind, "annexes" | "a_classer">;
   patterns: RegExp[];

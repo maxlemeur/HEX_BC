@@ -522,7 +522,6 @@ export const OTHER_ANSWERS = [
   { value: "hors_liste", class: null, short: "canalisation hors liste", description: "Canalisation réelle d'un fluide qui n'est dans aucun des réseaux proposés" },
   { value: "inconnu", class: null, short: "je ne sais pas", description: "Je ne sais pas : les preuves ne permettent pas de trancher" },
 ] as const;
-export type OtherAnswer = (typeof OTHER_ANSWERS)[number]["value"];
 
 /** Plan codes and legend rows that lead to a network on this page. */
 function codesOfNetwork(evidence: Pick<PageEvidence, "plan_codes" | "legend_blocks">, code: NetworkCode) {

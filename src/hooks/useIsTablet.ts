@@ -2,8 +2,6 @@
 
 import { useSyncExternalStore } from "react";
 
-const TABLET_QUERY = "(min-width: 768px) and (max-width: 1024px)";
-const COMPACT_VIEWPORT_QUERY = "(max-width: 1024px)";
 const MOBILE_VIEWPORT_QUERY = "(max-width: 767px)";
 const WIDE_VIEWPORT_QUERY = "(min-width: 1280px)";
 
@@ -22,26 +20,9 @@ function getServerSnapshot(): boolean {
   return false;
 }
 
-const tabletStore = createMediaQueryStore(TABLET_QUERY);
-const compactViewportStore = createMediaQueryStore(COMPACT_VIEWPORT_QUERY);
 const mobileViewportStore = createMediaQueryStore(MOBILE_VIEWPORT_QUERY);
 const wideViewportStore = createMediaQueryStore(WIDE_VIEWPORT_QUERY);
 
-export function useIsTablet(): boolean {
-  return useSyncExternalStore(
-    tabletStore.subscribe,
-    tabletStore.getSnapshot,
-    getServerSnapshot,
-  );
-}
-
-export function useIsCompactViewport(): boolean {
-  return useSyncExternalStore(
-    compactViewportStore.subscribe,
-    compactViewportStore.getSnapshot,
-    getServerSnapshot,
-  );
-}
 export function useIsMobileViewport(): boolean {
   return useSyncExternalStore(
     mobileViewportStore.subscribe,
