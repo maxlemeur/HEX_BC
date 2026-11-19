@@ -38,8 +38,6 @@ import {
   getStatusLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import {
-  TAKEOFF_APPLY_SENT_TITLE,
-  takeoffApplySentDescription,
   useTakeoffApplyConfirm,
   useTakeoffLowConfidenceThreshold,
 } from "@/components/takeoff/review/useTakeoffReviewSupport";
@@ -108,12 +106,10 @@ import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
-import { takeoffApplyLandingHref } from "@/lib/takeoff/apply-landing";
 import { comparisonSelectionPatches } from "@/lib/takeoff/comparison-selection";
 import { AssistantToggle, useAssistantScreen } from "@/components/assistant/AssistantDock";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import type {
-  TakeoffApplyResponse,
   TakeoffDpgfComparisonResponse,
   TakeoffDpgfComparisonView,
   TakeoffItemBatchPatchResponse,
@@ -1039,30 +1035,18 @@ export default function TakeoffReviewPage({
     guardBlockedCount: guardResult?.blocked_items.length ?? 0,
     isAdmin,
   });
-  // ---- Sent: said in a toast (the toast provider is the root layout's, so it outlives the review), then, while the
-  // review is still shown, the estimator lands in the estimate table on the takeoff's lines (the draft lock taken for the
-  // application is already given back).
-  const handleSent = useCallback(
-    (response: TakeoffApplyResponse) => {
-      toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
-    },
-    [toast]
-  );
-  const handleApplied = useCallback(
-    (response: TakeoffApplyResponse) => {
-      setApplyWizardOpen(false);
-      setJobStatus("applied");
-      router.push(takeoffApplyLandingHref(versionId, response.summary));
-    },
-    [router, versionId]
-  );
+  // ---- Sent: the hook says it in a toast and lands in the estimate table; the review only records it.
+  const handleApplied = useCallback(() => {
+    setApplyWizardOpen(false);
+    setJobStatus("applied");
+  }, []);
   const {
     submitting: applySubmitting,
     error: applyError,
     errorGuard: applyErrorGuard,
     setError: setApplyError,
     confirm: handleApplyConfirm,
-  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied, onSent: handleSent });
+  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
 
   const handleOpenApplyWizard = useCallback(() => {
     if (!readiness.canOpen) return;

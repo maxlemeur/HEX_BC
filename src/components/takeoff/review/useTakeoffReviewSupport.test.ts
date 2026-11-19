@@ -1,12 +1,19 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { router, toast } = vi.hoisted(() => ({ router: { push: vi.fn() }, toast: { success: vi.fn() } }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
+vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => toast }));
 vi.mock("@/hooks/useFeatureFlag", () => ({ useFeatureFlag: () => ({ enabled: false, value: null }) }));
 vi.mock("@/lib/estimates/client-locks", () => ({ releaseEstimateDraftLock: vi.fn() }));
 vi.mock("@/lib/takeoff/apply-draft-lock", () => ({ ensureTakeoffApplyDraftLock: vi.fn() }));
 vi.mock("@/lib/takeoff/client", () => ({ applyTakeoffJob: vi.fn(), isTakeoffApiError: () => false }));
 
-import { takeoffApplySentDescription, useTakeoffApplyConfirm } from "@/components/takeoff/review/useTakeoffReviewSupport";
+import {
+  TAKEOFF_APPLY_SENT_TITLE,
+  takeoffApplySentDescription,
+  useTakeoffApplyConfirm,
+} from "@/components/takeoff/review/useTakeoffReviewSupport";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
@@ -25,6 +32,9 @@ const PAYLOAD: TakeoffApplyWizardSubmitPayload = { targetSectionId: SECTION_ID, 
   pageDecisions: [] };
 const RESPONSE = { job: { id: JOB_ID, status: "applied" }, summary: { scope: "section", created_count: 1, updated_count: 0,
   ignored_count: 0, created_ids: ["33333333-3333-4333-8333-333333333333"], item_links: [] } } as unknown as TakeoffApplyResponse;
+
+const LANDING = `/dashboard/estimates/${VERSION_ID}/edit?focusItemId=33333333-3333-4333-8333-333333333333`;
+const SENT_TOAST = { title: TAKEOFF_APPLY_SENT_TITLE, description: "1 ligne créée, 0 mise à jour, 0 ignorée." };
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined;
@@ -50,9 +60,12 @@ describe("useTakeoffApplyConfirm", () => {
     act(() => { confirmed = result.current.confirm(PAYLOAD); });
     await vi.waitFor(() => expect(releaseEstimateDraftLock).toHaveBeenCalledWith(VERSION_ID));
     expect(onApplied).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
 
     await act(async () => { release.resolve({ released: true }); await confirmed; });
     expect(onApplied).toHaveBeenCalledWith(RESPONSE, PAYLOAD);
+    expect(toast.success).toHaveBeenCalledWith(SENT_TOAST);
+    expect(router.push).toHaveBeenCalledWith(LANDING);
     expect(result.current.submitting).toBe(false);
   });
 
@@ -99,8 +112,7 @@ describe("useTakeoffApplyConfirm", () => {
     const release = deferred<{ released: boolean }>();
     vi.mocked(releaseEstimateDraftLock).mockReturnValue(release.promise);
     const onApplied = vi.fn();
-    const onSent = vi.fn();
-    const { result, unmount } = renderHook(() => useTakeoffApplyConfirm({ jobId: JOB_ID, versionId: VERSION_ID, onApplied, onSent }));
+    const { result, unmount } = renderHook(() => useTakeoffApplyConfirm({ jobId: JOB_ID, versionId: VERSION_ID, onApplied }));
 
     let confirmed: Promise<void> = Promise.resolve();
     act(() => { confirmed = result.current.confirm(PAYLOAD); });
@@ -112,7 +124,8 @@ describe("useTakeoffApplyConfirm", () => {
     await confirmed;
     expect(onApplied).not.toHaveBeenCalled();
     // The sending did happen: it is said (the toast outlives the review), without moving the estimator.
-    expect(onSent).toHaveBeenCalledWith(RESPONSE);
+    expect(toast.success).toHaveBeenCalledWith(SENT_TOAST);
+    expect(router.push).not.toHaveBeenCalled();
   });
 
   it("never lands once the review is left during the release", async () => {
@@ -129,6 +142,7 @@ describe("useTakeoffApplyConfirm", () => {
     release.resolve({ released: true });
     await confirmed;
     expect(onApplied).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
   });
 
   it("never lands from a call another job superseded", async () => {
@@ -145,6 +159,7 @@ describe("useTakeoffApplyConfirm", () => {
     rerender({ jobId: "11111111-1111-4111-8111-111111111112" });
     await act(async () => { application.resolve(RESPONSE); await confirmed; });
     expect(onApplied).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
   });
 
   // The re-check of 0fd09a20 (finding 6): only the landing checked the call's identity; the refusal of a call another job
@@ -236,6 +251,8 @@ describe("useTakeoffApplyConfirm", () => {
     await act(() => result.current.confirm(PAYLOAD));
     expect(releaseEstimateDraftLock).toHaveBeenCalledWith(VERSION_ID);
     expect(onApplied).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
     expect(result.current.error).toBe("Erreur lors de l'envoi au tableau de chiffrage.");
   });
 });
