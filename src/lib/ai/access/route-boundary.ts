@@ -9,6 +9,7 @@ import { isLoopbackHostname } from "@/lib/ai/access/loopback";
 import { assertLocalChatGptHost } from "@/lib/ai/chatgpt-local-auth";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { ApiError, badRequest, forbidden, toErrorResponse } from "@/lib/estimates/errors";
+import { isJsonContentType } from "@/lib/http/request";
 
 // Server boundary of « Mon profil › Accès IA › Clé API ». Route handlers, not
 // server actions: in development Next prints every server action call with its
@@ -37,7 +38,7 @@ export async function requireApiKeyOwner(request: Request,
     if (request.headers.get("origin") !== origin) {
       throw forbidden("Origine de requête refusée : la clé se gère depuis les pages de MergeOne.", undefined, "AI_KEY_ORIGIN");
     }
-    if (options.json && request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
+    if (options.json && !isJsonContentType(request)) {
       throw badRequest("Corps JSON requis (application/json).", undefined, "AI_KEY_BODY");
     }
   }
