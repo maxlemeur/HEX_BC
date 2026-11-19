@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 
 import { ApiKeyError, isApiKeyError, type ApiKeyErrorCode } from "@/lib/ai/access/api-key-errors";
 import type { AiAccessOwner } from "@/lib/ai/access/api-key-store";
+import { isLoopbackHostname } from "@/lib/ai/access/loopback";
 import { assertLocalChatGptHost } from "@/lib/ai/chatgpt-local-auth";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { ApiError, badRequest, forbidden, toErrorResponse } from "@/lib/estimates/errors";
@@ -21,8 +22,6 @@ import { ApiError, badRequest, forbidden, toErrorResponse } from "@/lib/estimate
 // logged, and a malformed one is answered with a fixed message (a JSON
 // parser's message quotes the text it failed on).
 
-const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
-
 export async function requireApiKeyOwner(request: Request,
   options: { write: false } | { write: true; json: boolean; keyInBody?: boolean }): Promise<AiAccessOwner> {
   const requestHeaders = await headers();
@@ -32,7 +31,7 @@ export async function requireApiKeyOwner(request: Request,
   } catch {
     throw new ApiKeyError("AI_KEY_LOCAL_ONLY");
   }
-  if (options.write && options.keyInBody && !LOOPBACK.has(new URL(origin).hostname)) throw new ApiKeyError("AI_KEY_LOOPBACK_ONLY");
+  if (options.write && options.keyInBody && !isLoopbackHostname(new URL(origin).hostname)) throw new ApiKeyError("AI_KEY_LOOPBACK_ONLY");
   const context = await getAuthenticatedContext();
   if (options.write) {
     if (request.headers.get("origin") !== origin) {
