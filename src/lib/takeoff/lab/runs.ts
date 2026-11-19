@@ -225,7 +225,7 @@ function checkConfigs(task: LabTask, configs: readonly LabConfigInput[]) {
   for (const config of configs) {
     if (!task.providers.includes(config.provider)) throw badRequest(`La tâche « ${task.label} » ne se lance pas sur ${PROVIDER_NAMES[config.provider]}.`);
     const key = config.provider === "decisions" ? "decisions"
-      : `${config.provider === "api_key" ? `api_key\u0000${config.apiProvider}\u0000` : ""}${config.model}\u0000${config.reasoningEffort ?? "auto"}`;
+      : config.provider === "api_key" ? `api_key\u0000${apiKeyConfigKey(config)}` : `${config.model}\u0000${config.reasoningEffort ?? "auto"}`;
     if (seen.has(key)) throw badRequest("Deux configurations identiques : changez le modèle ou l’effort.");
     seen.add(key);
   }
