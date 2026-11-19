@@ -16,7 +16,7 @@ import { LoadingState } from "@/components/layout/loading-state";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { useToast } from "@/components/feedback/toast-provider";
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
@@ -32,7 +32,6 @@ import {
   TakeoffReviewLoadingState,
 } from "@/components/takeoff/review/TakeoffReviewChrome";
 import {
-  getBusinessLevelLabel,
   getStatusCss,
   getStatusLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
@@ -122,6 +121,7 @@ import type {
   TakeoffJobSummary,
   TakeoffTable,
 } from "@/lib/takeoff/types";
+import { getBusinessLevelLabel } from "@/lib/takeoff/job-list-labels";
 
 // ---------------------------------------------------------------------------
 // Exported types

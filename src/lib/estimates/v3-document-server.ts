@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   EstimateItem,
   PrepareEstimateDocumentV3Input,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";

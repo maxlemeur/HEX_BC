@@ -1,7 +1,6 @@
 import { act,renderHook } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import type { EstimateQualityFlagCounts } from "@/lib/estimate-quality";
@@ -9,6 +8,7 @@ import type {
 EstimateItem,
 EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 const mocks = vi.hoisted(() => ({
   exportEstimate: vi.fn(),

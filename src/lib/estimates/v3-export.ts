@@ -3,7 +3,7 @@ import {
   prepareEstimateV3DocumentData,
   type EstimateDocumentV3PreparedData,
   type EstimateItem,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";

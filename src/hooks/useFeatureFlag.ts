@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import useSWR from "swr";
 
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
 
 type FeatureFlagListItem = {

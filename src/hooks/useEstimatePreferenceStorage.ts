@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 
-import { useOptionalUserContext } from "@/components/UserContext";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 
 /**
  * Unidentified authenticated sessions never read a previous user's browser

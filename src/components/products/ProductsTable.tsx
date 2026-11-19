@@ -15,7 +15,7 @@ import {
   TagsIcon,
 } from "lucide-react";
 
-import type { ProductRecord } from "@/app/dashboard/products/ProductFormModal";
+import type { ProductRecord } from "@/components/products/ProductFormModal";
 import { EmptyTableRow } from "@/components/layout/empty-state";
 import { LoadingState } from "@/components/layout/loading-state";
 import type { ProductView } from "@/components/products/product-view";

@@ -1,4 +1,4 @@
-import * as documentData from "@/components/estimate-document/prepare-estimate-document-data";
+import * as documentData from "@/lib/estimates/prepare-estimate-document-data";
 
 /**
  * Observation wrapper of the real document preparer, substituted only inside
@@ -8,7 +8,7 @@ import * as documentData from "@/components/estimate-document/prepare-estimate-d
  * This module imports the real one through the same alias: the hook never
  * redirects an import whose parent is this file.
  */
-export * from "@/components/estimate-document/prepare-estimate-document-data";
+export * from "@/lib/estimates/prepare-estimate-document-data";
 
 type PrepareInput = Parameters<typeof documentData.prepareEstimateDocumentData>[0];
 type PrepareOutput = ReturnType<typeof documentData.prepareEstimateDocumentData>;

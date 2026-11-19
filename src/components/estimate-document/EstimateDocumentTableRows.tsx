@@ -5,7 +5,7 @@ import {
   type EstimateDocumentLineSplit,
   type EstimateDocumentV3Line,
   type EstimateItem,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import { isPoseOnlyLine, poseOnlyDesignation } from "@/lib/estimates/line-nature";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
 import { type SectionTotals } from "@/lib/estimate-calculations";

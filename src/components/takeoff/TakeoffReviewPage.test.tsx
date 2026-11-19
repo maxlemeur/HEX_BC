@@ -13,7 +13,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/feedback/toast-provider", () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
 }));
-vi.mock("@/components/UserContext", () => ({
+vi.mock("@/lib/auth/user-context", () => ({
   useUserContext: () => ({ profile: { tenant_role: "admin" } }),
   useOptionalUserContext: () => null,
 }));

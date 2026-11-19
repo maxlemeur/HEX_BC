@@ -4,10 +4,6 @@ import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
-import {
-  getBusinessLevelLabel,
-  getConfidenceLabel,
-} from "@/components/takeoff/takeoff-job-list-shared";
 import type {
   TakeoffActivityCenterResponse,
   TakeoffActivityCenterJobRow,
@@ -16,6 +12,7 @@ import type {
 } from "@/lib/takeoff/types";
 import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
 import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
+import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
 
 /* ─── Constants ─── */
 

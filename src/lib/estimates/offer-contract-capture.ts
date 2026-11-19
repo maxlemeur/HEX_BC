@@ -1,5 +1,5 @@
 import { isKitSection } from "@/lib/estimates/kit-presentation";
-import type { EstimateDocumentPreparedData, EstimateItem } from "@/components/estimate-document/prepare-estimate-document-data";
+import type { EstimateDocumentPreparedData, EstimateItem } from "@/lib/estimates/prepare-estimate-document-data";
 import { parseClientContractSnapshot, type ClientContract1, type CommercialRow1 } from "@/lib/estimates/offer-contract";
 
 export type CaptureInput = {

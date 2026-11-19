@@ -1,7 +1,7 @@
 import Link from "next/link";
 import useSWR from "swr";
 
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { buttonVariants } from "@/components/ui/button";
 import { fetchTakeoffJob, type TakeoffActivityCenterResponse } from "@/lib/takeoff/client";
 import { isTakeoffOperatorMutationRole, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/operator-state";

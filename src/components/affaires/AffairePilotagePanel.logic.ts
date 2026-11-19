@@ -19,7 +19,7 @@ import {
 } from "@/lib/estimates/readiness";
 import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
-import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
+import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 export type PilotageStepStatus = "done" | "in_progress" | "blocked" | "waiting";
 export type PilotageExceptionSeverity = "critical" | "warning" | "info";

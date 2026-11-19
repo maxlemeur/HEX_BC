@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { prepareEstimateDocumentData, type EstimateItem } from "@/components/estimate-document/prepare-estimate-document-data";
+import { prepareEstimateDocumentData, type EstimateItem } from "@/lib/estimates/prepare-estimate-document-data";
 import { computeEstimateBreakdown } from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
 import type { ClientContract1 } from "@/lib/estimates/offer-contract";

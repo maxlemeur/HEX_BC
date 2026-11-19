@@ -14,7 +14,7 @@ import {
   type EstimateDocumentCalculationVersion,
   type EstimateItem,
   type PrepareEstimateDocumentV3Input,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import { footerFromStoredV3Document } from "@/lib/estimates/v3-document-presentation";
 import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";

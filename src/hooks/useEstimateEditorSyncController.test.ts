@@ -3,7 +3,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import { useEstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
@@ -14,6 +13,7 @@ import type {
   EstimateItem,
   EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 const mocks = vi.hoisted(() => ({
   batchEstimateOperations: vi.fn(),

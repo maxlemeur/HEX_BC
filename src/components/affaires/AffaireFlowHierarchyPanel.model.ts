@@ -12,8 +12,8 @@ import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability"
 
 import { resolveSubmissionReadiness } from "./AffairePilotagePanel.logic";
 import { getReviewProbableCategories, sortReviewDocuments } from "./AffaireFlowHierarchyPanel.review-logic";
-import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import { foldText } from "@/lib/text/fold";
+import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 export type AffaireFlowHierarchyPanelProps = {
   projectId: string;

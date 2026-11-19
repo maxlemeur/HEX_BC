@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import type {
   EstimateDocumentV3PreparedData,
   EstimateItem,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import { isPoseOnlyLine } from "@/lib/estimates/line-nature";
 import { OfferCaptureError } from "@/lib/estimates/offer-contract-capture";
 import {

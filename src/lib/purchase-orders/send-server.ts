@@ -18,7 +18,7 @@ import {
   unprocessableEntity,
 } from "@/lib/http/api-response";
 import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
-import { deliveryModeOf, lineKindOf, storedOrderAffaire } from "@/components/purchase-orders/order-lines";
+import { deliveryModeOf, lineKindOf, storedOrderAffaire } from "@/lib/purchase-orders/order-lines";
 import { createServiceRoleClient, hasServiceRoleConfig } from "@/lib/supabase/service-role";
 
 import { formatSendMoment, purchaseOrderPdfFilename, type PurchaseOrderSent } from "./send";

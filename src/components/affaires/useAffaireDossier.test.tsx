@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import { useAffaireDossier, useDossierPoll, type AffaireDossier } from "./useAffaireDossier";
+import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 // The dossier is read through the application's API, never through the router: a refresh of the
 // router holds back what a save brings to the screen until its own data has landed (TI-722).

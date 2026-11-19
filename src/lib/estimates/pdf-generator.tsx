@@ -28,7 +28,7 @@ import {
   prepareEstimateDocumentData,
   prepareEstimateV3DocumentData,
   summarizeEstimateDocumentStructure,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import { computeEstimateTotals, computeStoredDiscountCents } from "@/lib/estimate-calculations";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { isFeatureEnabled } from "@/lib/feature-flags";

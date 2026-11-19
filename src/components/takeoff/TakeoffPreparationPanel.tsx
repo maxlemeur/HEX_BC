@@ -3,7 +3,7 @@
 import { TakeoffActionError } from "@/lib/takeoff/action-result";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { useOptionalUserContext } from "@/components/UserContext";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { TakeoffPreparationFields } from "@/components/takeoff/TakeoffPreparationFields";

@@ -72,12 +72,6 @@ export function resolveErrorTitle(status: number | null) {
   return "Erreur de chargement";
 }
 
-export const BUSINESS_LEVEL_LABEL_MAP: Record<string, string> = {
-  A: "Rapide",
-  B: "Standard",
-  C: "Détaillé",
-};
-
 export const BUSINESS_LEVEL_FILTER_OPTIONS: Array<{
   value: "all" | string;
   label: string;
@@ -95,10 +89,6 @@ export const BUSINESS_STATUS_FILTER_OPTIONS = [
     label: getTakeoffVisibleJobStatusLabel(status),
   })),
 ] as const;
-
-export function getBusinessLevelLabel(level: string): string {
-  return BUSINESS_LEVEL_LABEL_MAP[level] ?? level;
-}
 
 const PROCESSING_STRATEGY_LABEL_MAP: Record<TakeoffProcessingStrategy, string> = {
   sync: "Immédiate",
@@ -164,13 +154,6 @@ export function getOperatorStateBadgeVariant(
     return "info";
   }
   return "neutral";
-}
-
-export function getConfidenceLabel(confidence: number | null): string {
-  if (confidence === null) return "Inconnue";
-  if (confidence >= 0.8) return "Élevée";
-  if (confidence >= 0.5) return "Moyenne";
-  return "Faible";
 }
 
 export function getConfidenceBadgeVariant(

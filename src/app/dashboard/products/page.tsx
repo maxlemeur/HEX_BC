@@ -36,10 +36,10 @@ import type {
   ProductPayload,
   ProductRecord,
   ProductSupplyType,
-} from "./ProductFormModal";
+} from "@/components/products/ProductFormModal";
 
 const ProductFormModal = dynamic(
-  () => import("./ProductFormModal").then((module) => module.ProductFormModal),
+  () => import("@/components/products/ProductFormModal").then((module) => module.ProductFormModal),
   { ssr: false }
 );
 const ProductCsvImport = dynamic(

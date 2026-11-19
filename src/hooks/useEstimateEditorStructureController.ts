@@ -41,7 +41,7 @@ import {
   collectSubtreeItemIds,
   createTopLevelItemIdsTracker,
   resolveTopLevelItemIds,
-} from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
+} from "@/lib/estimates/editor-item-tree";
 
 function isPersistedAssemblyInsertion(error: unknown, versionId: string) {
   if (typeof error !== "object" || error === null || !("code" in error) ||

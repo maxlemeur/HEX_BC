@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCwIcon, UserPlusIcon } from "lucide-react";
 
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { useConfirm } from "@/components/feedback/confirm-provider";
 import { EmptyTableRow } from "@/components/layout/empty-state";
 import { LoadingState } from "@/components/layout/loading-state";

@@ -5,7 +5,7 @@ import { FoCoefficientSettings } from "@/components/estimates/FoCoefficientSetti
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDownIcon, SaveIcon, UsersIcon } from "lucide-react";
 
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { AiAccessCard } from "@/components/ai/AiAccessCard";
 import {GoogleDriveConnectionCard} from "@/components/affaires/GoogleDriveConnectionCard";
 import { DecisionsCapabilityCard } from "@/components/ai/DecisionsCapabilityCard";

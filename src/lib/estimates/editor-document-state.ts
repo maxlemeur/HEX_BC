@@ -1,4 +1,3 @@
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateEditorData, EstimateVersionWithProject } from "@/lib/estimates/client";
 import type { BufferedItemDerivation, BufferedUpdate } from "@/lib/estimates/bulk-buffer";
 import {
@@ -12,7 +11,7 @@ import { reconcileCreatedItemWithLocalDraft } from "@/lib/estimates/editor-optim
 import { applyOfferChoiceRules } from "@/lib/estimates/offer-choice";
 import { applyStatusReasonRules } from "@/lib/estimates/status-reason";
 import type { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
-import { mergeReloadedEditorSettings } from "@/lib/estimates/editor-settings-state";
+import { mergeReloadedEditorSettings, type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 import { isOlderEstimateVersionToken } from "@/lib/estimates/version-token";
 import {
   freshEstimateDocumentV3Settings,

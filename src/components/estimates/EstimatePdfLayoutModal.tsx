@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useOptionalUserContext } from "@/components/UserContext";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

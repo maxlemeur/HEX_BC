@@ -15,7 +15,7 @@ import {
   storedLineDocumentFields,
   storedOrderAffaire,
   type StoredOrderLineFields,
-} from "@/components/purchase-orders/order-lines";
+} from "@/lib/purchase-orders/order-lines";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";

@@ -25,7 +25,7 @@ import {
   buildLegacyDocumentBreakdown,
   DOCUMENT_CALC_ENGINE_VERSION,
   prepareEstimateDocumentData,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import {
   LABOR_RATES,
   LABOR_RATES_RECORD,

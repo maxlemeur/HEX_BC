@@ -1,8 +1,33 @@
-import type { DiscountMode, EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
-import type { EstimateTotals } from "@/lib/estimate-calculations";
+import type { EstimateTotals, MarginMode, RoundingMode } from "@/lib/estimate-calculations";
 import { resolveEstimateCurrency } from "@/lib/estimates/editor-export";
 import { buildVersionDiscountPatch, type EstimateVersionRow } from "@/lib/estimates/editor-items";
 import type { Database } from "@/types/database";
+import type { MarginTier } from "@/lib/estimates/margin-tiers";
+import type { SupportedEstimateCurrency } from "@/lib/money";
+
+export type DiscountMode = "simple" | "cascade";
+
+export type EstimateSettingsState = {
+  title: string;
+  date_devis: string;
+  exclusions: string;
+  validite_jours: number;
+  currency: SupportedEstimateCurrency;
+  margin_multiplier: number;
+  margin_mode?: MarginMode;
+  margin_tiers?: MarginTier[];
+  discount_cents: number;
+  discount_amount_cents?: number | null;
+  discount_bp?: number;
+  discount_mode?: DiscountMode;
+  discount_steps?: number[];
+  global_coefficient?: number;
+  tax_rate_bp: number;
+  /** EST-E27 : role contractuel — pilote le regime de TVA du devis. */
+  contractor_role?: string;
+  rounding_mode: RoundingMode;
+  rounding_step_cents: number;
+};
 
 const MAX_CASCADE_DISCOUNT_STEPS = 4;
 

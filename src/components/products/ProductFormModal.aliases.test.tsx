@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ProductFormModal, type ProductRecord } from "@/app/dashboard/products/ProductFormModal";
+import { ProductFormModal, type ProductRecord } from "@/components/products/ProductFormModal";
 
 /**
  * Failure modes guarded here (TI-690, delivery 3, usual names of an article): each link of a request

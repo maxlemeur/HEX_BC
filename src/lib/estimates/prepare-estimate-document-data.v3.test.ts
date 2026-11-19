@@ -2,8 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import * as documentData from "@/components/estimate-document/prepare-estimate-document-data";
-import type { EstimateDocumentPreparedData, EstimateItem } from "@/components/estimate-document/prepare-estimate-document-data";
+import * as documentData from "@/lib/estimates/prepare-estimate-document-data";
+import type { EstimateDocumentPreparedData, EstimateItem } from "@/lib/estimates/prepare-estimate-document-data";
 import {
   computeEstimateV3Breakdown,
   EstimateV3Error,

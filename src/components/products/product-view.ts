@@ -1,4 +1,4 @@
-import type { ProductRecord } from "@/app/dashboard/products/ProductFormModal";
+import type { ProductRecord } from "@/components/products/ProductFormModal";
 import type { ProductCatalogueStatus } from "@/lib/catalogue/product-validation";
 import type { PriceFreshnessLevel } from "@/lib/catalogue/stale-prices";
 

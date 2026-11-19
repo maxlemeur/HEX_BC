@@ -29,8 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-
-import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
+import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 const ACTION_CLASS = "max-sm:w-full max-sm:gap-1 max-sm:whitespace-nowrap max-sm:px-2 max-sm:text-xs";
 

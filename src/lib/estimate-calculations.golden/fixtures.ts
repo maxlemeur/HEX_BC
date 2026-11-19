@@ -8,7 +8,7 @@ import {
 import { type MarginTier } from "@/lib/estimates/margin-tiers";
 import {
   prepareEstimateDocumentData,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 
 /* ---------------------------------------------------------------------------
  * Fabriques

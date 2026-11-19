@@ -20,7 +20,6 @@ import {
 import type {
   EstimateTotals,
   MarginMode,
-  RoundingMode,
 } from "@/lib/estimate-calculations";
 import { parseRatePercentDraft } from "@/lib/estimates/editor-values";
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
@@ -35,30 +34,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Loader2Icon } from "lucide-react";
-
-export type DiscountMode = "simple" | "cascade";
-
-export type EstimateSettingsState = {
-  title: string;
-  date_devis: string;
-  exclusions: string;
-  validite_jours: number;
-  currency: SupportedEstimateCurrency;
-  margin_multiplier: number;
-  margin_mode?: MarginMode;
-  margin_tiers?: MarginTier[];
-  discount_cents: number;
-  discount_amount_cents?: number | null;
-  discount_bp?: number;
-  discount_mode?: DiscountMode;
-  discount_steps?: number[];
-  global_coefficient?: number;
-  tax_rate_bp: number;
-  /** EST-E27 : role contractuel — pilote le regime de TVA du devis. */
-  contractor_role?: string;
-  rounding_mode: RoundingMode;
-  rounding_step_cents: number;
-};
+import { type DiscountMode, type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 type EstimateSettingsPanelProps = {
   projectName: string;

@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   EstimateSettingsPanel,
-  type EstimateSettingsState,
 } from "@/components/estimates/EstimateSettingsPanel";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 function ControlledEstimateSettingsPanel({
   initialSettings,
