@@ -3,7 +3,7 @@ import { Resend } from "resend";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
 import { ApprovalReviewRequestEmailTemplate } from "@/lib/email/templates/approval-review-request";
-import { internalError } from "@/lib/estimates/errors";
+import { internalError } from "@/lib/http/api-response";
 
 type SendApprovalReviewRequestNotificationInput = {
   recipientEmail: string;

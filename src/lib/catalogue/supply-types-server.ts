@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/http/api-response";
 
 import { canAddToCatalogue } from "./access";
 import {

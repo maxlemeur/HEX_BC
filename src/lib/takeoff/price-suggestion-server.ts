@@ -5,7 +5,7 @@ import { assertTakeoffOperatorActionRole, parseWithSchema } from "@/lib/takeoff/
 import { z } from "zod";
 import { suggestEstimateCataloguePrices } from "@/lib/estimates/supplier-comparison-server";
 import { updateEstimateItem } from "@/lib/estimates/item-update-server";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import {
   TakeoffError,
   TakeoffErrorCode,

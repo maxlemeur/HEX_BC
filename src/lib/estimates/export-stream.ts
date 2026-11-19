@@ -19,7 +19,7 @@ import {
 } from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { internalError } from "@/lib/estimates/errors";
+import { internalError } from "@/lib/http/api-response";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
 import {
   loadEstimateV3ExportDocument,

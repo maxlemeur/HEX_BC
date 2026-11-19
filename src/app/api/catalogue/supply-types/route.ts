@@ -1,6 +1,6 @@
 import { createSupplyTypeSchema } from "@/lib/catalogue/supply-types";
 import { createSupplyType, listSupplyTypes } from "@/lib/catalogue/supply-types-server";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 
 export async function GET() {
   try {

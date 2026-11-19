@@ -1,4 +1,4 @@
-import { ok } from "@/lib/estimates/errors";
+import { ok } from "@/lib/http/api-response";
 import { labErrorResponse, readLabState, requireTakeoffLabAccess } from "@/lib/takeoff/lab/server";
 
 /** Takeoff lab (TI-661): configuration, documents, tasks, Decisions budget and campaigns. */

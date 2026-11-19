@@ -2,7 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { loadValidLaborRoleIdsForOwner } from "@/lib/estimates/estimate-assembly-helpers";
-import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;

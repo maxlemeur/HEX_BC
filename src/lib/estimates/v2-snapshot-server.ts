@@ -18,7 +18,7 @@ import {
 } from "@/lib/estimates/version-totals";
 import type { Database, Json } from "@/types/database";
 
-import { badRequest, conflict, mapSupabaseError, notFound } from "./errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 
 type Supabase = SupabaseClient<Database>;
 

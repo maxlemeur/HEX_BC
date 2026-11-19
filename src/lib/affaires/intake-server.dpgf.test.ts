@@ -8,7 +8,7 @@ import { readLinkedDriveDocument, readLinkedDriveFile } from "@/lib/affaires/goo
 import { DriveError } from "@/lib/affaires/google-drive/errors";
 import { getAffaireIntakeDpgfDownload, readAffaireIntakeDpgfFile } from "@/lib/affaires/intake-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";

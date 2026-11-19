@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { callOpenAiDecisions, type OpenAiDecisionsResult } from "@/lib/ai/decisions";
 import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
-import { badRequest, conflict, unprocessableEntity } from "@/lib/estimates/errors";
+import { badRequest, conflict, unprocessableEntity } from "@/lib/http/api-response";
 import {
   LAB_VECTOR_MAX_SEGMENTS, LAB_VECTOR_TASK_ID, type LabAnswer, type LabConfigId, type LabConfigResult, type LabElement, type LabRun,
   type LabVectorGroup, type LabVectorPage,

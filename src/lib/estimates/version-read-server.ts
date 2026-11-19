@@ -20,7 +20,7 @@ import {
 } from "@/lib/estimates/read-all-items-server";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database, Json } from "@/types/database";
-import { mapSupabaseError, notFound } from "./errors";
+import { mapSupabaseError, notFound } from "@/lib/http/api-response";
 import {
   enrichEstimateItemsWithGeneratedOuvrageProvenance,
   readGeneratedOuvrageApplicationsForVersion,

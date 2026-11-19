@@ -9,7 +9,7 @@ import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-previ
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
 import { listAffaireDocuments, loadAffaireDocument, readAffaireBriefAndRegister } from "@/lib/assistant/affaire-reading-server";
 import { AssistantToolError } from "@/lib/assistant/loop";
-import { notFound } from "@/lib/estimates/errors";
+import { notFound } from "@/lib/http/api-response";
 
 const AFFAIRE = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DOCUMENT = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";

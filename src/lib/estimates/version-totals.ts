@@ -16,7 +16,7 @@ import {
   type EstimateV3SnapshotProjection,
   projectEstimateV3Snapshot,
 } from "@/lib/estimates/engine-v3";
-import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError } from "@/lib/http/api-response";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { getMarginTiers } from "@/lib/estimates/margin-tiers";
 import {

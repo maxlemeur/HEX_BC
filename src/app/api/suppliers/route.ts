@@ -9,7 +9,7 @@ import {
   listSuppliers,
   updateSupplier,
 } from "@/lib/catalogue/suppliers";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { parseJsonBody } from "@/lib/http/request";
 
 export async function GET(request: Request) {

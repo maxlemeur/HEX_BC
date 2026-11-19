@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
-import { internalError, mapSupabaseError } from "@/lib/estimates/errors";
+import { internalError, mapSupabaseError } from "@/lib/http/api-response";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { Database } from "@/types/database";

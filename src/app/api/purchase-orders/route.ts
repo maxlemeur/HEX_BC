@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { computeTotalsFromInputs, OrderTotalNegativeError } from "@/lib/order-calculations";
 import { canWritePurchaseOrders } from "@/lib/purchase-orders";
 import { createPurchaseOrderSchema, purchaseOrderWriteReceiptSchema } from "@/lib/purchase-orders/schemas";

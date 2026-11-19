@@ -8,7 +8,7 @@ import {
   requireEstimateEngineVersion,
   type EstimateEngineVersion,
 } from "@/lib/estimates/engine/capabilities";
-import { badRequest, conflict, forbidden, internalError, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, forbidden, internalError, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { assertEstimateV3VersionShape, toEstimateV3VersionTotals } from "@/lib/estimates/v3-persistence";
 import {

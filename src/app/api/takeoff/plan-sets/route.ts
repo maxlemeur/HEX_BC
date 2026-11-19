@@ -1,19 +1,15 @@
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import {
   createPlanSet,
   parseCreatePlanSetInput,
   parseListPlanSetsQuery,
   listPlanSets,
 } from "@/lib/takeoff/plans";
-import { parseJsonBody } from "@/lib/http/request";
-
-function toQueryObject(request: Request) {
-  return Object.fromEntries(new URL(request.url).searchParams.entries());
-}
+import { parseJsonBody, searchParamsObject } from "@/lib/http/request";
 
 export async function GET(request: Request) {
   try {
-    const query = parseListPlanSetsQuery(toQueryObject(request));
+    const query = parseListPlanSetsQuery(searchParamsObject(request));
     const data = await listPlanSets(query);
     return ok(data);
   } catch (error) {

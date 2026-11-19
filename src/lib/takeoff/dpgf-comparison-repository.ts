@@ -3,7 +3,7 @@ import "server-only";
 import { parseQuantity } from "@/lib/numeric-input/parsers";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { readAllRows } from "@/lib/supabase/read-all";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import type { AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { ESTIMATE_DPGF_COMPARE_SELECT } from "@/lib/takeoff/estimate-line-read-contract";

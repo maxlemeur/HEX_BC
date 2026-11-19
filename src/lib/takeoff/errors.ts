@@ -1,6 +1,6 @@
 import { ZodError } from "zod";
 
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
 import { isRecord } from "@/lib/value-guards";
 

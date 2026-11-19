@@ -1,4 +1,4 @@
-import { badRequest, forbidden } from "@/lib/estimates/errors";
+import { badRequest, forbidden } from "@/lib/http/api-response";
 import type { EstimateSendGatingResult } from "@/lib/estimates/gating";
 import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
 import { provisionalMentionsOverflowMessage } from "@/lib/estimates/provisional-quantity";

@@ -3,7 +3,7 @@ import { parseEstimateVersionId, parseTakeoffLevel } from "@/lib/takeoff/job-cre
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { MAX_FILE_SIZE_BYTES } from "@/lib/file-validation";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { TakeoffError, TakeoffErrorCode, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
@@ -15,6 +15,7 @@ import {
   listTakeoffJobs,
   parseListTakeoffJobsQuery,
 } from "@/lib/takeoff/server";
+import { searchParamsObject } from "@/lib/http/request";
 
 async function parseMultipartFormData(request: Request) {
   // The file limit is 10 MiB; leave room for multipart fields and headers.
@@ -63,13 +64,9 @@ async function parseMultipartFormData(request: Request) {
   }
 }
 
-function toQueryObject(request: Request) {
-  return Object.fromEntries(new URL(request.url).searchParams.entries());
-}
-
 export async function GET(request: Request) {
   try {
-    const query = parseListTakeoffJobsQuery(toQueryObject(request));
+    const query = parseListTakeoffJobsQuery(searchParamsObject(request));
     const data = await listTakeoffJobs(query);
     return ok(parseTakeoffJobListResponse(data, { versionId: query.estimate_version_id, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
   } catch (error) {

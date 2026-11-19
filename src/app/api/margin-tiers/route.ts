@@ -1,4 +1,4 @@
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { createMarginTierSchema } from "@/lib/estimates/schemas";
 import { createMarginTier } from "@/lib/estimates/server";
 import { parseJsonBody } from "@/lib/http/request";

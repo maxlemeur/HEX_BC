@@ -1,21 +1,12 @@
 import { z } from "zod";
 
 import { estimateApprovalActionSchema } from "@/lib/approvals/schemas";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import {
   submitEstimateApproval,
   type SubmitEstimateApprovalInput,
 } from "@/lib/estimates/rules-engine";
-import { parseJsonBody } from "@/lib/http/request";
-
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return versionIdParamSchema.parse(params).versionId;
-}
+import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 function toSubmitInput(input: {
   versionId: string;
@@ -65,7 +56,7 @@ export async function POST(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const body = estimateApprovalActionSchema.parse(await parseJsonBody(request, badRequest));
     const payload = toSubmitInput({
       versionId,

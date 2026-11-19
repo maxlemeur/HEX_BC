@@ -27,7 +27,7 @@ import {
   mapSupabaseError,
   notFound,
   unauthorized,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import {
   buildEstimateDiff,
   type EstimateDiffEntry,

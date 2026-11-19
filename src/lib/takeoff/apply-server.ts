@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { forbidden } from "@/lib/estimates/errors";
+import { forbidden } from "@/lib/http/api-response";
 import { bulkUpdateEstimateItems } from "@/lib/estimates/item-bulk-server";
 import {
   getAuthenticatedTakeoffContext,

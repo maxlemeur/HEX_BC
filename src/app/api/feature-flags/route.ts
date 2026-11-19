@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { getTenantSettingsActorContext } from "@/lib/auth/tenant-context";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import {
   listFeatureFlagsForTenant,
   normalizeFeatureFlagKey,

@@ -6,7 +6,7 @@ import { readSourceReferenceDocuments } from "@/components/estimates/source-refe
 import { PageHeader } from "@/components/layout/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { readSourceReferenceReview } from "@/lib/estimates/source-reference-review";
 
 export default async function SourceReferencePage({ params, searchParams }: Readonly<{

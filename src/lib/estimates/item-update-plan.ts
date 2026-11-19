@@ -4,7 +4,7 @@ import type { EstimateItemUpdate } from "@/lib/estimates/item-write-types";
 import { resolvePromotedEstimateLineNature } from "@/lib/estimates/line-nature";
 import { normalizeEstimateItemAid } from "@/lib/estimates/schemas";
 import type { EstimateItemRow } from "@/lib/estimates/version-read-server";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 import {
   DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN,
   type UpdateEstimateItemInput,

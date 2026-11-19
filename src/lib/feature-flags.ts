@@ -5,7 +5,7 @@ import {
   DEFAULT_STALE_PRICE_DAYS,
   parseStalePriceDays,
 } from "@/lib/catalogue/stale-prices";
-import { badRequest, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, forbidden, mapSupabaseError } from "@/lib/http/api-response";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import { toNonEmptyString } from "@/lib/value-guards";

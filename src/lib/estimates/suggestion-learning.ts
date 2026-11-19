@@ -3,7 +3,7 @@ import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
 import {
   forbidden,
   mapSupabaseError,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
   type ServerSupabaseClient,

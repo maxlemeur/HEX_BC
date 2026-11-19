@@ -1,4 +1,4 @@
-import { ok } from "@/lib/estimates/errors";
+import { ok } from "@/lib/http/api-response";
 import { listBenchReports } from "@/lib/takeoff/lab/bench-reports";
 import { labErrorResponse, requireTakeoffLabAccess } from "@/lib/takeoff/lab/server";
 

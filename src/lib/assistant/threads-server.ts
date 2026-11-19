@@ -7,7 +7,7 @@ import { isAssistantEnabled } from "@/lib/assistant/model";
 import type { AssistantTokenUsage } from "@/lib/assistant/model-turn";
 import type { AssistantScreen } from "@/lib/assistant/prompt";
 import { inConversationOrder } from "@/lib/assistant/thread-order";
-import { mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/estimates/server-context";
 
 export type AssistantThread = { id: string; projectId: string; title: string; updatedAt: string };

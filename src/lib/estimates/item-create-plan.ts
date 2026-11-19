@@ -8,7 +8,7 @@ import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
 import { resolveEstimateLineNature } from "@/lib/estimates/line-nature";
 import type { CreateEstimateItemInput } from "@/lib/estimates/schemas";
 import { pickV3ItemInputFields } from "@/lib/estimates/v3-persistence";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 import { toNonEmptyString } from "@/lib/value-guards";
 
 /**

@@ -1,25 +1,16 @@
 import { parseEstimateEventsResponse } from "@/lib/estimates/write-response-contracts";
 import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
-import { z } from "zod";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { listEstimateVersionEvents } from "@/lib/estimates/server";
-
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return versionIdParamSchema.parse(params).versionId;
-}
+import { uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const data = await listEstimateVersionEvents(versionId);
     return ok(validateEstimateResponse(() => parseEstimateEventsResponse(data, versionId)));
   } catch (error) {

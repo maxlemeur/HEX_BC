@@ -23,7 +23,7 @@ import {
   usesPerUnitLabor,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
-import { badRequest, internalError, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, internalError, mapSupabaseError } from "@/lib/http/api-response";
 import {
   assertTemplateLaborRolesOwnedForV3,
   templateHoursWithoutQuantityMessage,

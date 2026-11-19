@@ -1,6 +1,6 @@
 import "server-only";
 
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { TAKEOFF_FILES_BUCKET } from "@/lib/storage/buckets";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {

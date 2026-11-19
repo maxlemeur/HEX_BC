@@ -11,7 +11,7 @@ import {
   type TenantCalcDefaultsForm,
 } from "@/lib/estimates/calc-policy-defaults";
 import { writeTenantCalcDefaults } from "@/lib/estimates/calc-policy-server";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 
 export type SaveTenantCalcDefaultsResult =
   | { ok: true; form: Omit<TenantCalcDefaultsForm, "changeReason"> }

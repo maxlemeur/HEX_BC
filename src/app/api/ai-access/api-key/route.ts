@@ -1,7 +1,7 @@
 import { ApiKeySaveRequestSchema } from "@/lib/ai/access/contracts";
 import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { apiKeyOk, apiKeyRouteError, readJsonBody, requireApiKeyOwner } from "@/lib/ai/access/route-boundary";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 
 /** « Mon profil › Clé API »: the masked state, read from MergeOne's own record (the Keychain is not opened). */
 export async function GET(request: Request) {

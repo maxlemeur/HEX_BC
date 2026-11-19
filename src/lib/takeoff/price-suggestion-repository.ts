@@ -2,7 +2,7 @@ import "server-only";
 
 import { type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { z } from "zod";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import {
   TakeoffError,
   TakeoffErrorCode,

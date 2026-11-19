@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 
 import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
 import type { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
-import { internalError } from "@/lib/estimates/api-error";
+import { internalError } from "@/lib/http/api-error";
 import { readAllRows } from "@/lib/supabase/read-all";
 
 type Access = Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAdmin>>;

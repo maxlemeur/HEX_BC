@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { PrintTitle } from "@/components/PrintTitle";
 import { SealIntegrityBadge, type SealIntegrityState } from "@/components/estimates/SealIntegrityBadge";
 import { Alert, AlertTitle } from "@/components/ui/alert";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import { OfferContractError } from "@/lib/estimates/offer-contract-core";
 import type { ClientContract2 } from "@/lib/estimates/offer-contract-v2";

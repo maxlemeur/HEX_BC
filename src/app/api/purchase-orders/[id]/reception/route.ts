@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { readJsonBody } from "@/lib/material-requests/http";
 import { receivePurchaseOrderSchema } from "@/lib/purchase-orders/lifecycle-contracts";
 import { receivePurchaseOrder } from "@/lib/purchase-orders/lifecycle-server";

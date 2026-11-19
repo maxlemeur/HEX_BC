@@ -1,5 +1,5 @@
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
-import { badRequest, conflict } from "@/lib/estimates/errors";
+import { badRequest, conflict } from "@/lib/http/api-response";
 
 export function normalizeConcurrencyToken(token: string | null | undefined): string | null {
   const trimmed = token?.trim();

@@ -5,7 +5,7 @@ import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { readFreshV3CostSubtotalCents } from "@/lib/estimates/effective-margin";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import type { EstimateV3LineRecord } from "@/lib/estimates/v3-persistence";
 import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { Database } from "@/types/database";

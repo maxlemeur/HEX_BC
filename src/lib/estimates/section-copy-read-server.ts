@@ -1,5 +1,5 @@
 import { readAllRows } from "@/lib/supabase/read-all";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import type { Supabase } from "@/lib/estimates/item-write-types";
 import {
   assertEstimateVersionUnchanged,

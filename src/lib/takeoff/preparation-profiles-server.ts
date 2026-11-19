@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { takeoffPreparationProfileSchema, type TakeoffPreparationProfile } from "@/lib/takeoff/preparation";

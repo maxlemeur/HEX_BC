@@ -4,11 +4,8 @@ import {
   buildEstimateApprovalDecisionJournalCsv,
   listEstimateApprovalDecisionJournal,
 } from "@/lib/estimates/rules-engine";
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
-
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
+import { ok, toErrorResponse } from "@/lib/http/api-response";
+import { uuidRouteParam } from "@/lib/http/request";
 
 const querySchema = z.object({
   author: z.string().uuid("author invalide.").optional(),
@@ -17,11 +14,6 @@ const querySchema = z.object({
     .optional(),
   format: z.enum(["json", "csv"]).default("json"),
 });
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return versionIdParamSchema.parse(params).versionId;
-}
 
 function getQuery(request: Request) {
   const url = new URL(request.url);
@@ -37,7 +29,7 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const query = getQuery(request);
     const journal = await listEstimateApprovalDecisionJournal({
       versionId,

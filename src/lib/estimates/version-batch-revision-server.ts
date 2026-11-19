@@ -1,5 +1,5 @@
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
-import { badRequest, conflict, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, conflict, mapSupabaseError } from "@/lib/http/api-response";
 import { normalizeConcurrencyToken } from "@/lib/estimates/version-concurrency";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 

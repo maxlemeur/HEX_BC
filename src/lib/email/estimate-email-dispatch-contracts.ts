@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { internalError } from "@/lib/estimates/errors";
+import { internalError } from "@/lib/http/api-response";
 
 const uuid = z.string().uuid();
 const hash = z.string().regex(/^[0-9a-f]{64}$/);

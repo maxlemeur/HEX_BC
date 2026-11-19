@@ -1,4 +1,4 @@
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { updateMaterialRequestSchema } from "@/lib/material-requests/contracts";
 import { readJsonBody, requestParamsSchema } from "@/lib/material-requests/http";
 import { deleteMaterialRequest, getMaterialRequestDetail, updateMaterialRequest } from "@/lib/material-requests/server";

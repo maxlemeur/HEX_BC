@@ -1,5 +1,5 @@
 import "server-only";
-import { ApiError, badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { ApiError, badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 import { readLinkedDriveFile } from "./content";
 import { driveFileRejection, type DriveRequest, type DriveState, type DriveVersionStatus } from "./contracts";

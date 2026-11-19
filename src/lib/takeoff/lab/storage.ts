@@ -5,7 +5,7 @@ import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { writePrivateJson } from "@/lib/ai/chatgpt-local-store";
-import { conflict, notFound } from "@/lib/estimates/errors";
+import { conflict, notFound } from "@/lib/http/api-response";
 import { ELEMENT_ID_PATTERN, LAB_NAME_PATTERN } from "@/lib/takeoff/lab/contracts";
 
 // Where the takeoff lab (TI-661) reads and writes. TAKEOFF_LAB_DATASET_DIR is

@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import { parseTakeoffLineEvidencePanelResponse } from "@/lib/takeoff/line-evidence-contracts";
 import {
   fetchTakeoffLineEvidencePanel,
   parseTakeoffLineEvidencePanelQuery,
 } from "@/lib/takeoff/server";
-
-function toQueryObject(request: Request) {
-  return Object.fromEntries(new URL(request.url).searchParams.entries());
-}
+import { searchParamsObject } from "@/lib/http/request";
 
 async function getParams(
   paramsPromise: Promise<{ jobId: string; lineId: string }>
@@ -24,7 +21,7 @@ export async function GET(
 ) {
   try {
     const { jobId, lineId } = await getParams(params);
-    const query = parseTakeoffLineEvidencePanelQuery(toQueryObject(request));
+    const query = parseTakeoffLineEvidencePanelQuery(searchParamsObject(request));
     const data = await fetchTakeoffLineEvidencePanel(jobId, {
       ...query,
       line_id: lineId,

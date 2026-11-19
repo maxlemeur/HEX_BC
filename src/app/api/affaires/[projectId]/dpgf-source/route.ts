@@ -2,7 +2,7 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 import { parseLinkedDpgfSourceResponse } from "@/lib/estimates/section-copy-response";
 import { z } from "zod";
 
-import { notFound, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { notFound, ok, toErrorResponse } from "@/lib/http/api-response";
 import { getAffaireLinkedDpgfSource } from "@/lib/estimates/server";
 
 const paramsSchema = z.object({

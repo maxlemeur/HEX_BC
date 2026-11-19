@@ -1,4 +1,4 @@
-import { badRequest, conflict } from "@/lib/estimates/errors";
+import { badRequest, conflict } from "@/lib/http/api-response";
 import { normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
 import type { PatchEstimateVersionInput } from "@/lib/estimates/schemas";
 import {

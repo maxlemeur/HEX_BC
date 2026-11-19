@@ -1,14 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
-
-function jsonApiError(error: unknown) {
-  if (error instanceof ApiError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
-  }
-  throw error;
-}
+import { jsonApiError } from "@/lib/http/api-response";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;

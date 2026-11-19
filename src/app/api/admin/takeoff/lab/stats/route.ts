@@ -1,4 +1,4 @@
-import { badRequest, ok } from "@/lib/estimates/errors";
+import { badRequest, ok } from "@/lib/http/api-response";
 import { LAB_NAME_PATTERN } from "@/lib/takeoff/lab/contracts";
 import { labErrorResponse, requireTakeoffLabAccess } from "@/lib/takeoff/lab/server";
 import { requireLabPaths } from "@/lib/takeoff/lab/storage";

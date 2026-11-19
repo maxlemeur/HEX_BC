@@ -3,7 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { ApiError, type SupabaseErrorLike } from "@/lib/estimates/errors";
+import { ApiError, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { coverageErrorCodeSchema } from "@/lib/estimates/source-coverage-contracts";
 import { type SourceReferenceDeadline } from "@/lib/estimates/source-reference-http";
 

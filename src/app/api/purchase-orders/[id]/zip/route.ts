@@ -4,16 +4,9 @@ import { NextResponse } from "next/server";
 import { Readable } from "stream";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { jsonApiError } from "@/lib/http/api-response";
 import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
 import { assertCompletePurchaseOrderSnapshot, getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
-
-function jsonApiError(error: unknown) {
-  if (error instanceof ApiError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
-  }
-  throw error;
-}
 
 export const runtime = "nodejs";
 

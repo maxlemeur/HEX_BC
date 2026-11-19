@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertPreparationProjectAccess, preparationConflict } from "@/lib/takeoff/preparation-repository";
 

@@ -1,4 +1,4 @@
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 import {
   TAKEOFF_LEVELS,
   TAKEOFF_METRICS_PERIODS,
@@ -87,8 +87,6 @@ type WeeklyPilotAccumulator = {
   quicklyValidatedJobs: number;
   untouchedSuccessfulJobs: number;
 };
-
-
 
 export type TakeoffMetricsJobRow = {
   id: string;

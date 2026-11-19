@@ -1,4 +1,4 @@
-import { conflict, internalError } from "@/lib/estimates/errors";
+import { conflict, internalError } from "@/lib/http/api-response";
 import type { SendEstimateInput } from "@/lib/estimates/schemas";
 import type { EstimateEmailDispatch } from "@/lib/email/estimate-email-dispatch-contracts";
 import { canonicalJsonHash } from "@/lib/email/estimate-email-hash";

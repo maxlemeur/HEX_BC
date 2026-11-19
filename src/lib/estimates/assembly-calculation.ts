@@ -4,7 +4,7 @@ import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
-import { ApiError, badRequest, conflict, internalError, mapSupabaseError } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict, internalError, mapSupabaseError } from "@/lib/http/api-response";
 import { calculateEstimateSnapshotForItems } from "@/lib/estimates/version-totals";
 import type { Database, Json } from "@/types/database";
 

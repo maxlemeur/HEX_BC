@@ -3,7 +3,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { toEstimateV3FrozenTotals, toEstimateV3ItemSnapshots } from "@/lib/estimates/v3-persistence";
 import { calculateEstimateV3SnapshotForItems, type EstimateV3TotalsVersionConfig } from "@/lib/estimates/version-totals";

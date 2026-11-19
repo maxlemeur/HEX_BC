@@ -1,9 +1,8 @@
 import { parseEstimateItemWriteResponse } from "@/lib/estimates/write-response-contracts";
 import { parseEstimateItemDeleteResponse } from "@/lib/estimates/item-structure-contracts";
 import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
-import { z } from "zod";
 
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import {
   createEstimateItemSchema,
   deleteEstimateItemSchema,
@@ -15,23 +14,14 @@ import {
   listEstimateItems,
   updateEstimateItem,
 } from "@/lib/estimates/server";
-import { parseJsonBody } from "@/lib/http/request";
-
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return versionIdParamSchema.parse(params).versionId;
-}
+import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const data = await listEstimateItems(versionId);
     return ok(data);
   } catch (error) {
@@ -44,7 +34,7 @@ export async function POST(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const body = createEstimateItemSchema.parse(await parseJsonBody(request, badRequest));
     const data = await createEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(validateEstimateResponse(() => parseEstimateItemWriteResponse(data, versionId)), 201);
@@ -58,7 +48,7 @@ export async function PATCH(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const body = updateEstimateItemSchema.parse(await parseJsonBody(request, badRequest));
     const data = await updateEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(validateEstimateResponse(() => parseEstimateItemWriteResponse(data, versionId, body.id)));
@@ -72,7 +62,7 @@ export async function DELETE(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const body = deleteEstimateItemSchema.parse(await parseJsonBody(request, badRequest));
     const data = await deleteEstimateItem(versionId, body, request.headers.get("if-match") ?? undefined);
     return ok(validateEstimateResponse(() => parseEstimateItemDeleteResponse(data, versionId, body.id)));

@@ -12,7 +12,7 @@ import type {
   CostingWorkbookSupplierReferencesInput,
 } from "@/lib/catalogue/costing-workbook-contract";
 import { PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
-import { conflict, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
+import { conflict, forbidden, mapSupabaseError } from "@/lib/http/api-response";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { foldText } from "@/lib/text/fold";
 

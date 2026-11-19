@@ -2,7 +2,7 @@ import {
   readActiveTenantMembership,
   readAuthenticatedUser,
 } from "@/lib/auth/tenant-context";
-import { badRequest, ok, toErrorResponse, unauthorized } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse, unauthorized } from "@/lib/http/api-response";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 async function getActorContext() {

@@ -10,7 +10,7 @@ import {
   forbidden,
   mapSupabaseError,
   notFound,
-} from "./errors";
+} from "@/lib/http/api-response";
 import { canAccessOwnerResource, isTenantAdmin } from "./server-context";
 
 type Supabase = SupabaseClient<Database>;

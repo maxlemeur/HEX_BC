@@ -11,7 +11,7 @@ import {
   appendAssistantMessage, readAssistantThread, type AssistantActivity, type AssistantMessage,
 } from "@/lib/assistant/threads-server";
 import { buildAssistantTools } from "@/lib/assistant/tools";
-import { conflict } from "@/lib/estimates/errors";
+import { conflict } from "@/lib/http/api-response";
 
 export const assistantQuestionSchema = z.object({
   content: z.string().trim().min(1, "Écrivez votre question.").max(4000, "La question dépasse 4 000 caractères."),

@@ -1,13 +1,9 @@
 import { parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
 import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import { cancelTakeoffJob } from "@/lib/takeoff/server";
-
-async function getJobId(paramsPromise: Promise<{ jobId: string }>) {
-  return (await paramsPromise).jobId;
-}
 
 export async function POST(
   _request: Request,
@@ -16,7 +12,7 @@ export async function POST(
   void _request;
 
   try {
-    const jobId = await getJobId(params);
+    const jobId = (await params).jobId;
     const data = await cancelTakeoffJob(jobId);
     return ok(parseTakeoffJobActionResponse(data, { jobId, command: "cancel" }));
   } catch (error) {

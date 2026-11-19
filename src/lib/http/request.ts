@@ -68,6 +68,23 @@ export function resolveConcurrencyToken(request: Request, fallback?: string) {
   return undefined;
 }
 
+/**
+ * One UUID route parameter. A value that is not a UUID is a validation error
+ * naming the parameter, which `toErrorResponse` answers with 400.
+ */
+export async function uuidRouteParam<Name extends string>(
+  params: Promise<Record<Name, string>>,
+  name: Name
+): Promise<string> {
+  const schema = z.object({ [name]: z.string().uuid(`${name} invalide.`) });
+  return (schema.parse(await params) as Record<Name, string>)[name];
+}
+
+/** The query string as a plain object, the input of the routes' zod query schemas. */
+export function searchParamsObject(request: Request) {
+  return Object.fromEntries(new URL(request.url).searchParams.entries());
+}
+
 /** `superRefine` for PATCH payloads: an update must change at least one field. */
 export function rejectEmptyUpdatePayload<T extends object>(payload: T, ctx: z.RefinementCtx<T>) {
   if (Object.keys(payload).length > 0) return;

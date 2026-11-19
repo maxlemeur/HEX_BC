@@ -8,7 +8,7 @@ import {
   createAssistantThread, deleteAssistantThread, listAssistantThreads, readAssistantThread,
   type AssistantMessage, type AssistantThread,
 } from "@/lib/assistant/threads-server";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 
 type Result<T> = { ok: true; data: T } | { ok: false; message: string };
 

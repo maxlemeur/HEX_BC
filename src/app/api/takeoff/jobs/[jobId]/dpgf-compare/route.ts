@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import { parseTakeoffDpgfComparisonResponse } from "@/lib/takeoff/dpgf-comparison-contracts";
 import { buildTakeoffRowRiskMap } from "@/lib/takeoff/risk-radar";
@@ -9,22 +9,15 @@ import {
   fetchDpgfTakeoffComparison,
   parseTakeoffDpgfComparisonQuery,
 } from "@/lib/takeoff/server";
-
-function toQueryObject(request: Request) {
-  return Object.fromEntries(new URL(request.url).searchParams.entries());
-}
-
-async function getJobId(paramsPromise: Promise<{ jobId: string }>) {
-  return (await paramsPromise).jobId;
-}
+import { searchParamsObject } from "@/lib/http/request";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
-    const jobId = await getJobId(params);
-    const query = parseTakeoffDpgfComparisonQuery(toQueryObject(request));
+    const jobId = (await params).jobId;
+    const query = parseTakeoffDpgfComparisonQuery(searchParamsObject(request));
     const [data, alerts] = await Promise.all([
       fetchDpgfTakeoffComparison(jobId, query),
       fetchTakeoffActiveRiskAlerts(jobId, {

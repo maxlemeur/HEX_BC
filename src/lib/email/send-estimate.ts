@@ -9,7 +9,7 @@ import { readOutgoingEmailRouting } from "@/lib/email/outgoing-routing";
 import { getRequiredEnvVar, loadVersionForEmail } from "@/lib/email/send-estimate-context-server";
 import { loadPdfBuffer, preparePdfForDispatch, renderEstimateDispatchDocument } from "@/lib/email/send-estimate-document";
 import { assertDispatchMatchesSubmission, canRearmUnfrozenEmailRequest, hashSubmission, isTerminalDelivery, resolvePortalOrigin } from "@/lib/email/send-estimate-plan";
-import { ApiError, badRequest, conflict, forbidden, internalError } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict, forbidden, internalError } from "@/lib/http/api-response";
 import { loadVerifiedOfferDocument, type VerifiedOfferDocument } from "@/lib/estimates/offer-document";
 import type { SendEstimateInput } from "@/lib/estimates/schemas";
 import { freezeEstimateV2SnapshotForSend, getEstimateSendGating } from "@/lib/estimates/version-lifecycle-server";

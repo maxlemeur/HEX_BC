@@ -6,7 +6,7 @@ import {
   badRequest,
   mapSupabaseError as mapEstimatesSupabaseError,
   toErrorResponse as toEstimatesErrorResponse,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import {
   buildErrorResponseBody,
   isPostgrestErrorLike,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { badRequest, payloadTooLarge } from "@/lib/estimates/errors";
+import { badRequest, payloadTooLarge } from "@/lib/http/api-response";
 
 /** What the material request routes share: identifiers of the URL and a bounded JSON body. */
 

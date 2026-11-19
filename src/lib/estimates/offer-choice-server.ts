@@ -1,7 +1,7 @@
 import "server-only";
 
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { ApiError, badRequest, conflict, forbidden, internalError, notFound } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict, forbidden, internalError, notFound } from "@/lib/http/api-response";
 import { normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
 import {
   estimateOfferChoiceReceiptSchema,

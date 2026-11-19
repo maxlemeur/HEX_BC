@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { getEstimateBatchReceipt } from "@/lib/estimates/batch";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 
 const paramsSchema = z.object({ versionId: z.string().uuid(), operationKey: z.string().uuid() }).strict();
 

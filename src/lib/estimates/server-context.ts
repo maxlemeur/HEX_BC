@@ -11,7 +11,7 @@ import {
 } from "@/lib/estimates/lock-session";
 import type { Database } from "@/types/database";
 
-import { conflict, forbidden, mapSupabaseError, notFound } from "./errors";
+import { conflict, forbidden, mapSupabaseError, notFound } from "@/lib/http/api-response";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];

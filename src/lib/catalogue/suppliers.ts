@@ -4,7 +4,7 @@ import {
   forbidden,
   mapSupabaseError,
   notFound,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 
 import { getCatalogueWriterClient, readCatalogueAccess } from "./access-server";

@@ -3,7 +3,7 @@ import type { PostgrestError } from "@supabase/supabase-js";
 import { cache } from "react";
 
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import { forbidden } from "@/lib/estimates/errors";
+import { forbidden } from "@/lib/http/api-response";
 import { resolveCalcEngineVersionForDisplay, resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { resolveEffectiveMarginBp, resolveV3NetMarginBp } from "@/lib/estimates/effective-margin";
 import { isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
@@ -11,7 +11,7 @@ import { loadV3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server"
 import { resolveFixedDiscountSignal, type FixedDiscountSignal } from "@/lib/estimates/effective-discount";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { normalizeRiskAlertRow } from "@/lib/takeoff/risk-radar";
 import type {
   TakeoffRiskAlert,

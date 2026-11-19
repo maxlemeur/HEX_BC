@@ -1,6 +1,6 @@
 import { prepareEstimateItemCreation } from "@/lib/estimates/item-create-plan";
 import { DEFAULT_MAX_SECTION_DEPTH, clampMaxSectionDepth } from "@/lib/estimates/hierarchy";
-import { conflict } from "@/lib/estimates/errors";
+import { conflict } from "@/lib/http/api-response";
 import {
   assertDraftLockOwnedByCurrentUser,
   assertDraftStatus,

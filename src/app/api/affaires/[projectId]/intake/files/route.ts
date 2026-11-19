@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { AFFAIRE_INTAKE_MAX_MULTIPART_BODY_BYTES } from "@/lib/affaires/intake-limits";
 import { z } from "zod";
 
-import { ok, badRequest, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, badRequest, toErrorResponse } from "@/lib/http/api-response";
 import {
   createAffaireIntakeUpload,
   processAffaireIntakeUpload,

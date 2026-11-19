@@ -2,7 +2,7 @@ import "server-only";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database } from "@/types/database";
-import { mapSupabaseError, notFound } from "./errors";
+import { mapSupabaseError, notFound } from "@/lib/http/api-response";
 import {
   canAccessOwnerResource,
   getAuthenticatedContext,

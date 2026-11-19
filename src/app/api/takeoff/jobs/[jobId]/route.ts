@@ -1,28 +1,21 @@
 import { parseTakeoffJobDetailResponse } from "@/lib/takeoff/job-response-contracts";
 import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import {
   getTakeoffJobDetails,
   parseGetTakeoffJobDetailsQuery,
 } from "@/lib/takeoff/server";
-
-function toQueryObject(request: Request) {
-  return Object.fromEntries(new URL(request.url).searchParams.entries());
-}
-
-async function getJobId(paramsPromise: Promise<{ jobId: string }>) {
-  return (await paramsPromise).jobId;
-}
+import { searchParamsObject } from "@/lib/http/request";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
-    const jobId = await getJobId(params);
-    const query = parseGetTakeoffJobDetailsQuery(toQueryObject(request));
+    const jobId = (await params).jobId;
+    const query = parseGetTakeoffJobDetailsQuery(searchParamsObject(request));
     const data = await getTakeoffJobDetails(jobId, query);
     return ok(parseTakeoffJobDetailResponse(data, { jobId, itemsLimit: query.items_limit, itemsOffset: query.items_offset }));
   } catch (error) {

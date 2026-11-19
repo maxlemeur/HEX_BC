@@ -83,7 +83,7 @@ import { freezeEstimateV2Snapshot } from "@/lib/estimates/v2-snapshot-server";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type { Database, Json } from "@/types/database";
 
-import { conflict, forbidden, internalError, mapSupabaseError, notFound } from "./errors";
+import { conflict, forbidden, internalError, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import type {
   EstimateVersionChangelog,
   EstimateVersionChangelogChange,

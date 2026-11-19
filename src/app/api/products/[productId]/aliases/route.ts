@@ -1,4 +1,4 @@
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { listProductAliases } from "@/lib/material-requests/articles-server";
 import { productParamsSchema } from "@/lib/material-requests/http";
 

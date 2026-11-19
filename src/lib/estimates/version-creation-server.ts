@@ -5,7 +5,7 @@ import {
   persistCanonicalEstimateV2,
   type PersistCanonicalEstimateV2Input,
 } from "@/lib/estimates/canonical-v2-creation";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 import type { CreateEstimateInput } from "@/lib/estimates/schemas";
 import { getAuthenticatedContext } from "@/lib/estimates/server-context";
 import { tryCarryOverTakeoffJobsToNewVersion } from "@/lib/takeoff/carry-over";

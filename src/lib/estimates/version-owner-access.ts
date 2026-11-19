@@ -1,5 +1,5 @@
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { notFound } from "@/lib/estimates/errors";
+import { notFound } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 
 type AuthenticatedContext = Pick<AuthenticatedTenantContext, "supabase" | "tenantId" | "userId" | "tenantRole">;

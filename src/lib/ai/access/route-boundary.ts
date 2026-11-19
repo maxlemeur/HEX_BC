@@ -7,7 +7,7 @@ import { ApiKeyError, isApiKeyError, type ApiKeyErrorCode } from "@/lib/ai/acces
 import type { AiAccessOwner } from "@/lib/ai/access/api-key-store";
 import { assertLocalChatGptHost } from "@/lib/ai/chatgpt-local-auth";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { ApiError, badRequest, forbidden, toErrorResponse } from "@/lib/estimates/errors";
+import { ApiError, badRequest, forbidden, toErrorResponse } from "@/lib/http/api-response";
 
 // Server boundary of « Mon profil › Accès IA › Clé API ». Route handlers, not
 // server actions: in development Next prints every server action call with its

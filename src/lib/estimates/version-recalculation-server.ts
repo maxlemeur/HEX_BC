@@ -1,4 +1,4 @@
-import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError } from "@/lib/http/api-response";
 import type { Supabase } from "@/lib/estimates/item-write-types";
 import {
   assertEstimateVersionUnchanged,

@@ -2,7 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";

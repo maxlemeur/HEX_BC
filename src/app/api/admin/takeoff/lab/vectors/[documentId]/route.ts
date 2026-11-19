@@ -1,4 +1,4 @@
-import { badRequest, ok } from "@/lib/estimates/errors";
+import { badRequest, ok } from "@/lib/http/api-response";
 import { readLabDocument } from "@/lib/takeoff/lab/dataset";
 import { readLabRun } from "@/lib/takeoff/lab/runs";
 import { labErrorResponse, requireTakeoffLabAccess } from "@/lib/takeoff/lab/server";

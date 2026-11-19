@@ -2,7 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { PDFDocument } from "pdf-lib";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   getTakeoffChunkingConfigForTenant,

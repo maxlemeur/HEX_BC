@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { sourceReferenceReadErrorCodeSchema } from "@/lib/estimates/source-reference-contracts";
 import {
   invalidSourceReferenceInput,

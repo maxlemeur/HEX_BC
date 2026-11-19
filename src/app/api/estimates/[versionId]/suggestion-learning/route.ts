@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { trackSuggestionCorrectionsSchema } from "@/lib/estimates/schemas";
 import { getLearnings, trackCorrection } from "@/lib/estimates/suggestion-learning";
 import { parseJsonBody } from "@/lib/http/request";

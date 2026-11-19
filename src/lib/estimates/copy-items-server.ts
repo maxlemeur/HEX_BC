@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { conflict, internalError, mapSupabaseError } from "@/lib/estimates/errors";
+import { conflict, internalError, mapSupabaseError } from "@/lib/http/api-response";
 import type { Database, Json } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;

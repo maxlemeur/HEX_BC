@@ -1,20 +1,10 @@
-import { z } from "zod";
-
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
   normalizeEstimateDraftLockSessionId,
 } from "@/lib/estimates/lock-session";
 import { acquireLock, releaseLock, renewLock } from "@/lib/estimates/locks";
-
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return versionIdParamSchema.parse(params).versionId;
-}
+import { uuidRouteParam } from "@/lib/http/request";
 
 function getSessionId(request: Request) {
   const sessionId = normalizeEstimateDraftLockSessionId(
@@ -51,7 +41,7 @@ export async function POST(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const sessionId = getSessionId(request);
     const data = await acquireLock(versionId, sessionId);
     return ok(data, 201);
@@ -65,7 +55,7 @@ export async function PATCH(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const sessionId = getSessionId(request);
     const force = parseForceQuery(request);
     const data = await renewLock(versionId, sessionId, {
@@ -82,7 +72,7 @@ export async function DELETE(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const sessionId = getSessionId(request);
     const force = parseForceQuery(request);
     const data = await releaseLock(versionId, sessionId, {

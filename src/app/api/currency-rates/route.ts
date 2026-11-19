@@ -5,7 +5,7 @@ import {
   createCurrencyRateForTenant,
   listCurrencyRatesForTenant,
 } from "@/lib/currency-rates";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { parseJsonBody } from "@/lib/http/request";
 
 const listCurrencyRatesQuerySchema = z.object({

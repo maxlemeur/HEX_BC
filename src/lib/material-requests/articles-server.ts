@@ -1,7 +1,7 @@
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { canAddToCatalogue } from "@/lib/catalogue/access";
 import { PRODUCT_REFERENCE_TAKEN, PRODUCT_WRITE_REFUSAL, catalogueStatusError } from "@/lib/catalogue/product-writes";
-import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 
 import type {

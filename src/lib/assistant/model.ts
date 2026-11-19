@@ -8,7 +8,7 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import type { AssistantTool, CallAssistantModel } from "@/lib/assistant/loop";
 import { readAssistantModelTurn } from "@/lib/assistant/model-turn";
-import { notFound } from "@/lib/estimates/errors";
+import { notFound } from "@/lib/http/api-response";
 
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
 const MODEL_CALL_TIMEOUT_MS = 120_000;

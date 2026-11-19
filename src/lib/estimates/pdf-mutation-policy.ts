@@ -3,7 +3,7 @@ import type { EstimatePdfGenerationClaim } from "@/lib/estimates/pdf-publication
 
 export type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 
-import { forbidden } from "./errors";
+import { forbidden } from "@/lib/http/api-response";
 
 export type PdfGenerateOptions = {
   force?: boolean;

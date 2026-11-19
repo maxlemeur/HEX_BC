@@ -1,7 +1,7 @@
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
-import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { fetchEstimateVersionToken } from "@/lib/estimates/item-write-context";
 import type { EstimateItemUpdate } from "@/lib/estimates/item-write-types";
 import { assertDraftStatus, type AuthenticatedContext } from "@/lib/estimates/server-context";

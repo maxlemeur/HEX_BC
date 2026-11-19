@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { prepareEstimateItemCreation } from "@/lib/estimates/item-create-plan";
 import {
   assertEstimateMovePermutation,

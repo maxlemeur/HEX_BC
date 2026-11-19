@@ -10,7 +10,7 @@ import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion, resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isUnifiedEngine, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
-import { ApiError, badRequest, conflict, internalError, notFound } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict, internalError, notFound } from "@/lib/http/api-response";
 import {
   assertLinePlacementAllowed, assertSectionPlacementAllowed, assertSectionSubtreePlacementAllowed,
 } from "@/lib/estimates/estimate-placement-helpers";

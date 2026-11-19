@@ -5,7 +5,7 @@ import type {
   PrepareEstimateDocumentV3Input,
 } from "@/components/estimate-document/prepare-estimate-document-data";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { calculateEstimateV3SnapshotForItems, type EstimateV3TotalsVersionConfig } from "@/lib/estimates/version-totals";
 import type { Database } from "@/types/database";

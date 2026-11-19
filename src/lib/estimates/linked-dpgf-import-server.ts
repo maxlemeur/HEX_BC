@@ -6,7 +6,7 @@ import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-versio
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import { insertCopiedEstimateItems } from "@/lib/estimates/copy-items-server";
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
-import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError } from "@/lib/http/api-response";
 import { getNextItemPosition } from "@/lib/estimates/item-write-context";
 import type { Supabase, EstimateItemInsert } from "@/lib/estimates/item-write-types";
 import type { ImportLinkedDpgfSourceResult } from "@/lib/estimates/linked-dpgf-contracts";

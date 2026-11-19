@@ -1,6 +1,6 @@
 import "server-only";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { internalError, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { internalError, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type { Database } from "@/types/database";
 

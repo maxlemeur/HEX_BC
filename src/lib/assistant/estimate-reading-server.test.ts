@@ -5,7 +5,7 @@ vi.mock("@/lib/estimates/read-all-items-server", () => ({ readAllEstimateItems: 
 
 import { loadEstimateReading } from "@/lib/assistant/estimate-reading-server";
 import { AssistantToolError } from "@/lib/assistant/loop";
-import { conflict, notFound } from "@/lib/estimates/errors";
+import { conflict, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import type { AuthenticatedContext } from "@/lib/estimates/server-context";
 import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";

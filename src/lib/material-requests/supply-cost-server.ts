@@ -1,4 +1,4 @@
-import { forbidden, internalError, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { forbidden, internalError, mapSupabaseError, notFound } from "@/lib/http/api-response";
 
 import { affaireSupplyCostSchema, type AffaireSupplyCost } from "./supply-cost-contracts";
 import { requireProjectAccess } from "./server-shared";

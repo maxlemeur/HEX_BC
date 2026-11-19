@@ -1,7 +1,7 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import type { GeminiBatchLifecycleEvent } from "@/lib/takeoff/gemini-client";
 import {
   TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS,

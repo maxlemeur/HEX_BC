@@ -14,7 +14,7 @@ import {
 } from "@/lib/email/estimate-email-dispatch-repository";
 import { sha256 } from "@/lib/email/estimate-email-hash";
 import { readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
-import { conflict, internalError } from "@/lib/estimates/errors";
+import { conflict, internalError } from "@/lib/http/api-response";
 import { ESTIMATE_DOCUMENTS_BUCKET } from "@/lib/storage/buckets";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 

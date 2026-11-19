@@ -13,7 +13,7 @@ import {
   type MarginMode,
 } from "@/lib/estimate-calculations";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { computeV3MarginAnalysis } from "@/lib/affaires/margin-analysis-v3";
 import {

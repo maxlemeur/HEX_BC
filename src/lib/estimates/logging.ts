@@ -1,4 +1,4 @@
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 
 function resolveErrorDigest(error: Error) {
   return "digest" in error && typeof error.digest === "string"

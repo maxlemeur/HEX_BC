@@ -1,5 +1,5 @@
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { conflict, forbidden, mapSupabaseError, notFound, type SupabaseErrorLike } from "@/lib/estimates/errors";
+import { conflict, forbidden, mapSupabaseError, notFound, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { readAllRows } from "@/lib/supabase/read-all";
 
 import type {

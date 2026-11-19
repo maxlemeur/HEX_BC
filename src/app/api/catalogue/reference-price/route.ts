@@ -1,6 +1,6 @@
 import { referencePriceActionSchema, referencePriceQuerySchema } from "@/lib/catalogue/reference-price-schemas";
 import { actOnReferencePrice, getReferencePriceProposal } from "@/lib/catalogue/reference-price-server";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 
 export async function GET(request: Request) {
   try {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
-import { toErrorResponse } from "@/lib/estimates/errors";
+import { toErrorResponse } from "@/lib/http/api-response";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;

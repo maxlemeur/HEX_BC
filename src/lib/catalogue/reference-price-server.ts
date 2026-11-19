@@ -1,5 +1,5 @@
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { ApiError, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import {
   referencePriceHistorySchema, referencePriceProposalSchema, referencePriceResponseSchema,
   type ReferencePriceAction, type ReferencePriceHistoryQuery, type ReferencePriceQuery,

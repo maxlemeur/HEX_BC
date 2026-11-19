@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { technicianParamsSchema } from "@/lib/material-requests/http";
 import {
   TECHNICIAN_HISTORY_DEFAULT_LIMIT,

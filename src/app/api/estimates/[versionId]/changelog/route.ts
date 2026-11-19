@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getOrBuildEstimateChangelog } from "@/lib/estimates/changelog";
-import { badRequest, notFound, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, notFound, ok, toErrorResponse } from "@/lib/http/api-response";
 import { renderEstimateChangelogPdfBuffer } from "@/lib/estimates/pdf-generator";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";

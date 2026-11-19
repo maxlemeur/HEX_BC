@@ -3,7 +3,7 @@ import "server-only";
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
 import { DwgConversionError, dwgConversionMessage } from "@/lib/cad/dwg-conversion";
 import { convertDwgToDxf } from "@/lib/cad/dwg-conversion-server";
-import { ApiError, badRequest, unprocessableEntity } from "@/lib/estimates/errors";
+import { ApiError, badRequest, unprocessableEntity } from "@/lib/http/api-response";
 
 /**
  * The DXF of a DWG of the dossier, for the viewer to read. The piece is read

@@ -1,38 +1,16 @@
-import { z } from "zod";
-
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { insertAssemblyIntoVersionSchema } from "@/lib/estimates/schemas";
 import { insertAssemblyIntoVersion } from "@/lib/estimates/server";
-
-const paramsSchema = z.object({
-  assemblyId: z.string().uuid("assemblyId invalide."),
-});
-
-async function getAssemblyId(paramsPromise: Promise<{ assemblyId: string }>) {
-  const params = await paramsPromise;
-  return paramsSchema.parse(params).assemblyId;
-}
-
-async function parseOptionalJsonBody(request: Request): Promise<unknown> {
-  try {
-    const raw = await request.text();
-    if (!raw.trim()) {
-      return {};
-    }
-    return JSON.parse(raw);
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { uuidRouteParam, parseJsonBodyOrEmptyObject } from "@/lib/http/request";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ assemblyId: string }> }
 ) {
   try {
-    const assemblyId = await getAssemblyId(params);
+    const assemblyId = await uuidRouteParam(params, "assemblyId");
     const { searchParams } = new URL(request.url);
-    const body = await parseOptionalJsonBody(request);
+    const body = await parseJsonBodyOrEmptyObject(request, badRequest);
 
     const payload = insertAssemblyIntoVersionSchema.parse({
       versionId: searchParams.get("versionId"),

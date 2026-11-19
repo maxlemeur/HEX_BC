@@ -6,7 +6,7 @@ import {
   readActiveTenantMembership,
   readAuthenticatedUser,
 } from "@/lib/auth/tenant-context";
-import { ApiError, type SupabaseErrorLike } from "@/lib/estimates/errors";
+import { ApiError, type SupabaseErrorLike } from "@/lib/http/api-response";
 import {
   sourceReferenceActivationSchema,
   sourceReferenceConfirmationReceiptSchema,

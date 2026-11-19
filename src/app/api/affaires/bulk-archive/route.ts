@@ -2,7 +2,7 @@ import {
   bulkArchiveDraftAffaires,
   bulkDeleteAffairesInputSchema,
 } from "@/lib/affaires/delete-server";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 
 export async function POST(request: Request) {
   try {

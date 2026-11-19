@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { forbidden } from "@/lib/estimates/errors";
+import { forbidden } from "@/lib/http/api-response";
 import { getFeatureFlagValueForTenant, isFeatureEnabled } from "@/lib/feature-flags";
 import { parseLowConfidenceThreshold } from "@/lib/takeoff/guards";
 import {

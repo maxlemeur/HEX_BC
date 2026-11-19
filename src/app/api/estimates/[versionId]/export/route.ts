@@ -1,32 +1,22 @@
-import { z } from "zod";
-
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   badRequest,
   forbidden,
   toErrorResponse,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
 import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
 import { exportEstimateVersionV3Csv } from "@/lib/estimates/v3-csv-export";
 import type { Database } from "@/types/database";
+import { uuidRouteParam } from "@/lib/http/request";
 
 export const runtime = "nodejs";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
-
 function isExportAllowedRole(role: TenantRole) {
   return role === "admin" || role === "engineer";
-}
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return paramsSchema.parse(params).versionId;
 }
 
 type ExportMode = "standard" | "dpgf" | "bdc";
@@ -75,7 +65,7 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const format = parseFormat(request);
     const mode = parseMode(request);
     if (format === "csv" && mode !== "standard") {

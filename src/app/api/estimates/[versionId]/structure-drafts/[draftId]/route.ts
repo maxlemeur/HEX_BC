@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { getEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
 
 const paramsSchema = z.object({

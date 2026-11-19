@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
 import { fetchAffaireIntakeWorkspace, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 // The affaire page reads its dossier here while documents are added or analysed, instead of

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { materializeVersionZeroDraft } from "@/lib/estimates/version-zero-drafts";
 
 const paramsSchema = z.object({

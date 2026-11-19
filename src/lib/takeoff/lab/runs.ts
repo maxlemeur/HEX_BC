@@ -16,7 +16,7 @@ import {
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { callOpenAiDecisions, getOpenAiDecisionsCapability, OPENAI_DECISIONS_MODEL, type OpenAiDecisionAnswer, type OpenAiDecisionQuestion, type OpenAiDecisionsResult } from "@/lib/ai/decisions";
-import { badRequest, conflict, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, notFound } from "@/lib/http/api-response";
 import { classifyCallError, describeError } from "@/lib/takeoff/bench/run";
 import { TAKEOFF_C_TIMEOUT_MS_DEFAULT } from "@/lib/takeoff/constants";
 import {

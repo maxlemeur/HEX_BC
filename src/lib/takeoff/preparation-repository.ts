@@ -2,7 +2,7 @@ import "server-only";
 
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { assertProjectAccessOrThrow } from "@/lib/affaires/import-flow-server";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";

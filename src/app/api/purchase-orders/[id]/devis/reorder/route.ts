@@ -2,18 +2,11 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { jsonApiError } from "@/lib/http/api-response";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
-
-function jsonApiError(error: unknown) {
-  if (error instanceof ApiError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
-  }
-  throw error;
-}
 
 type ReorderRequestBody = {
   orderedIds: string[];

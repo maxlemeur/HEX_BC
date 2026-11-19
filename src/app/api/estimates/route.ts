@@ -1,6 +1,6 @@
 import { parseCreateEstimateResponse } from "@/lib/estimates/write-response-contracts";
 import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { createEstimateSchema } from "@/lib/estimates/schemas";
 import { createEstimate, listLatestEstimates } from "@/lib/estimates/server";
 import { parseJsonBody } from "@/lib/http/request";

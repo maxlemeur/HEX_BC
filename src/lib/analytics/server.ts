@@ -5,7 +5,7 @@ import {
   badRequest,
   forbidden,
   mapSupabaseError,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];

@@ -1,6 +1,6 @@
 import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";

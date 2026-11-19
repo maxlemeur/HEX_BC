@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { sharedSecretMatches } from "@/lib/http/shared-secret";
+import { isAuthorizedCronRequest } from "@/lib/http/shared-secret";
 import { recoverDurableWorkflows } from "@/lib/workflows/durable-recovery";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-function isAuthorizedCronRequest(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  return Boolean(
-    secret &&
-      sharedSecretMatches(request.headers.get("authorization"), `Bearer ${secret}`)
-  );
-}
 
 export async function GET(request: Request) {
   if (!isAuthorizedCronRequest(request)) {
