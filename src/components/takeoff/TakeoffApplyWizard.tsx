@@ -18,6 +18,7 @@ import {
   type ApplyGuardResult,
 } from "@/lib/takeoff/guards";
 import { isDpgfTargetLine } from "@/lib/takeoff/dpgf-target-line";
+import { isLeftOutByMappingPlan } from "@/lib/takeoff/mapping-engine";
 import { mergeOverwrites } from "@/lib/takeoff/merge-overwrites";
 import { leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
@@ -245,7 +246,7 @@ function TakeoffApplyScreen({
   // (TI-664 L5c): read from the up-to-date preview, before which nothing is judged nor confirmed.
   const guardResult = useMemo<ApplyGuardResult | null>(() => {
     if (!jobLevel || !hasGuardItems || !previewData) return null;
-    const planned = new Set(previewData.items.filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id));
+    const planned = new Set(previewData.items.filter(isLeftOutByMappingPlan).map((item) => item.item_id));
     const guarded = externalItems!.map((item) => (planned.has(item.id) ? { ...item, is_excluded: true } : item));
     // A duplicate whose partners the plan all leaves out no longer blocks, as on the server (TI-677).
     return checkApplyGuard(guarded, threshold, { level: jobLevel, leftOut: leftOutByPartners });

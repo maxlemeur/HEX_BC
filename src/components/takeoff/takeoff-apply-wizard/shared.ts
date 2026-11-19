@@ -2,6 +2,7 @@
 
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import type { ForcedOverride } from "@/lib/takeoff/force-reasons";
+import { isLeftOutByMappingPlan } from "@/lib/takeoff/mapping-engine";
 import type { MergeSentLine } from "@/lib/takeoff/merge-overwrites";
 import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
 import type { Database } from "@/types/database";
@@ -127,7 +128,7 @@ export function takeoffApplyStrategyFor(input: { holdsDpgfLines: boolean }): Tak
  */
 export function mergeSentLinesOf(preview: Pick<TakeoffPreviewConversionResponse, "items">): MergeSentLine[] {
   return preview.items
-    .filter((item) => !item.transformed.is_excluded && item.action !== "skip" && item.action !== "apply_assembly")
+    .filter((item) => !item.transformed.is_excluded && !isLeftOutByMappingPlan(item))
     .map((item) => ({ id: item.item_id, designation: item.transformed.designation, unit: item.transformed.unit,
       quantity: item.transformed.quantity, sourceOrder: item.source_order }));
 }
