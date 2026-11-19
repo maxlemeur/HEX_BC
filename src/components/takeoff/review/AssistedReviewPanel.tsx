@@ -10,6 +10,7 @@ import { useToast } from "@/components/feedback/toast-provider";
 import { ReviewItemCard } from "@/components/takeoff/ReviewItemCard";
 import { ReviewProgressBar } from "@/components/takeoff/ReviewProgressBar";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
+import type { TakeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 import { FileTextIcon } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -25,8 +26,7 @@ type AssistedReviewPanelProps = {
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
   onApplyClick: () => void;
-  canOpenApplyWizard: boolean;
-  forceGuidance: string | null;
+  readiness: TakeoffApplyReadiness;
 };
 
 // ---------------------------------------------------------------------------
@@ -42,8 +42,7 @@ export function AssistedReviewPanel({
   onExcludeItems,
   onIncludeItems,
   onApplyClick,
-  canOpenApplyWizard,
-  forceGuidance,
+  readiness,
 }: AssistedReviewPanelProps) {
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
@@ -207,13 +206,13 @@ export function AssistedReviewPanel({
 
       <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface px-4 py-3">
         <p className="text-sm text-muted-foreground">
-          {forceGuidance ?? `${acceptedCount} item${acceptedCount !== 1 ? "s" : ""} prêt${acceptedCount !== 1 ? "s" : ""} à appliquer`}
+          {readiness.guidance ?? `${acceptedCount} item${acceptedCount !== 1 ? "s" : ""} prêt${acceptedCount !== 1 ? "s" : ""} à appliquer`}
         </p>
         <Button
           variant="primary"
           size="sm"
           onClick={onApplyClick}
-          disabled={acceptedCount === 0 || !canOpenApplyWizard}
+          disabled={acceptedCount === 0 || !readiness.canOpen}
         >
           Envoyer au tableau de chiffrage
         </Button>

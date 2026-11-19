@@ -9,7 +9,7 @@ import {
   detectAnomalies,
 } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
-import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
+import type { TakeoffApplyBlocker, TakeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
 import type { TakeoffDpgfComparisonSummary } from "@/lib/takeoff/types";
 import { CircleCheckIcon } from "lucide-react";
@@ -22,10 +22,7 @@ type ValidationReviewPanelProps = {
   hasDirtyOrSaving?: boolean;
   hasSaveErrors?: boolean;
   requiresLocalizedProof?: boolean;
-  canOpenApplyWizard?: boolean;
-  isApplyReady?: boolean;
-  forceGuidance?: string | null;
-  applyReadinessMessage?: string | null;
+  readiness?: TakeoffApplyReadiness;
   onOpenEvidencePanel?: (itemId: string) => void;
   onVerifyItem?: (itemId: string) => void;
   onExcludeItem?: (itemId: string) => void;
@@ -205,34 +202,31 @@ function confidenceBadge(item: ReviewItem, issues: readonly string[]): Confidenc
   return { label: formatConfidenceLabel(item.confidence), variant: getConfidenceBadgeVariant(item.confidence), score: null };
 }
 
+/** The panel's own wording of the blockers its header names; the other blockers leave it to its review advice. */
+const HEADER_BLOCKER_MESSAGES: Partial<Record<TakeoffApplyBlocker, string>> = {
+  saving: "Sauvegarde en cours. Attendez la confirmation avant l'envoi au tableau de chiffrage.",
+  save_errors: "Certaines décisions ne sont pas encore enregistrées. Reprenez les lignes en erreur avant de continuer.",
+  dpgf_exceptions:
+    "Des rapprochements DPGF restent à trancher. Ouvrez la revue détaillée pour finaliser les liens manuels.",
+};
+
 function buildStatusMessage(input: {
-  hasDirtyOrSaving: boolean;
-  hasSaveErrors: boolean;
+  blockers: readonly TakeoffApplyBlocker[];
   summary: {
     priorityCount: number;
     flaggedCount: number;
   };
-  dpgfSummary: TakeoffDpgfComparisonSummary | null;
-  canOpenApplyWizard: boolean;
+  isApplyReady: boolean;
 }) {
-  if (input.hasDirtyOrSaving) {
-    return "Sauvegarde en cours. Attendez la confirmation avant l'envoi au tableau de chiffrage.";
-  }
-
-  if (input.hasSaveErrors) {
-    return "Certaines décisions ne sont pas encore enregistrées. Reprenez les lignes en erreur avant de continuer.";
-  }
-
-  if (hasBlockingTakeoffDpgfExceptions(input.dpgfSummary)) {
-    return "Des rapprochements DPGF restent à trancher. Ouvrez la revue détaillée pour finaliser les liens manuels.";
-  }
+  const blocker = input.blockers.find((candidate) => HEADER_BLOCKER_MESSAGES[candidate] !== undefined);
+  if (blocker) return HEADER_BLOCKER_MESSAGES[blocker];
 
   if (input.summary.priorityCount > 0) {
     return "Commencez par les exceptions critiques : preuves manquantes, source incomplète et faible confiance.";
   }
 
   if (input.summary.flaggedCount > 0) {
-    if (input.canOpenApplyWizard) {
+    if (input.isApplyReady) {
       return "Le métré peut être appliqué. Des contrôles humains restent recommandés mais ne bloquent pas cette étape.";
     }
     return "Les exceptions principales sont levées. Finalisez les validations humaines restantes.";
@@ -249,10 +243,7 @@ export function ValidationReviewPanel({
   hasDirtyOrSaving = false,
   hasSaveErrors = false,
   requiresLocalizedProof = false,
-  canOpenApplyWizard = false,
-  isApplyReady = canOpenApplyWizard,
-  forceGuidance = null,
-  applyReadinessMessage = null,
+  readiness,
   onOpenEvidencePanel,
   onVerifyItem,
   onExcludeItem,
@@ -335,19 +326,11 @@ export function ValidationReviewPanel({
     };
   }, [flaggedItems, includedItems, requiresLocalizedProof]);
 
-  const statusMessage = useMemo(
-    () =>
-      buildStatusMessage({
-        hasDirtyOrSaving,
-        hasSaveErrors,
-        summary,
-        dpgfSummary,
-        canOpenApplyWizard: isApplyReady,
-      }),
-    [isApplyReady, dpgfSummary, hasDirtyOrSaving, hasSaveErrors, summary]
-  );
+  const isApplyReady = readiness?.state === "ready";
+  const adminMayForce = readiness?.state === "admin_may_force";
+  const statusMessage = buildStatusMessage({ blockers: readiness?.blockers ?? [], summary, isApplyReady });
 
-  const positiveTone = forceGuidance ? "neutral" : "success";
+  const positiveTone = adminMayForce ? "neutral" : "success";
   if (items.length === 0) {
     return (
       <EmptyState
@@ -371,7 +354,7 @@ export function ValidationReviewPanel({
               Traitez d&apos;abord les exceptions qui peuvent biaiser le chiffrage
             </h2>
             <p className="mt-2 max-w-3xl text-sm text-foreground-secondary">
-              {forceGuidance ?? statusMessage}
+              {readiness?.guidance ?? statusMessage}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -545,7 +528,7 @@ export function ValidationReviewPanel({
           <p className="mt-3 text-sm text-muted-foreground" role="status">
             Tous les items sont exclus. Réintégrez au moins un item pour pouvoir appliquer l&apos;extraction.
           </p>
-        ) : forceGuidance ? (
+        ) : adminMayForce ? (
           <p className="mt-3 text-sm text-warning" role="status">Des lignes bloquées demandent une décision.</p>
         ) : summary.flaggedCount === 0 ? (
           <p className="mt-3 text-sm font-medium text-success" role="status">
@@ -651,7 +634,7 @@ export function ValidationReviewPanel({
             <span className="font-medium text-foreground">
               {isApplyReady
                 ? "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact puis confirmez."
-                : (applyReadinessMessage ?? statusMessage)}
+                : (readiness?.message ?? statusMessage)}
             </span>
           </p>
           <div className="flex flex-wrap gap-2">
@@ -660,7 +643,7 @@ export function ValidationReviewPanel({
                 variant="primary"
                 size="sm"
                 onClick={onOpenApplyWizard}
-                disabled={!canOpenApplyWizard}
+                disabled={!readiness?.canOpen}
                 aria-describedby="validation-next-step"
               >
                 Envoyer au tableau de chiffrage

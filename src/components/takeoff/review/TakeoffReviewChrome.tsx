@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { TakeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 
 // ---------------------------------------------------------------------------
 // Loading / error states of the review page
@@ -62,34 +63,30 @@ export function TakeoffReviewErrorState({
 // ---------------------------------------------------------------------------
 
 export function TakeoffApplyReadinessBar({
-  isApplyReady,
-  canOpenApplyWizard,
+  readiness,
   includedCount,
-  readinessMessage,
   onOpenApplyWizard,
 }: {
-  isApplyReady: boolean;
-  canOpenApplyWizard: boolean;
+  readiness: TakeoffApplyReadiness;
   includedCount: number;
-  readinessMessage: string;
   onOpenApplyWizard: () => void;
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <p id="takeoff-apply-readiness" className="text-sm" role="status">
-        {isApplyReady ? (
+        {readiness.state === "ready" ? (
           <span className="flex items-center gap-2 text-success">
             <CircleCheckIcon aria-hidden="true" className="size-4" />
             Prêt à envoyer ({includedCount} ligne{includedCount > 1 ? "s" : ""})
           </span>
         ) : (
-          <span className="text-muted-foreground">{readinessMessage}</span>
+          <span className="text-muted-foreground">{readiness.message}</span>
         )}
       </p>
       <Button
         variant="primary"
         className="w-full sm:w-auto"
-        disabled={!canOpenApplyWizard}
+        disabled={!readiness.canOpen}
         aria-describedby="takeoff-apply-readiness"
         onClick={onOpenApplyWizard}
       >
