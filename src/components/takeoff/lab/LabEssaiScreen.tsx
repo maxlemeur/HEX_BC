@@ -17,9 +17,9 @@ import { LabPdfCanvas } from "@/components/takeoff/lab/LabPdfCanvas";
 import { errorMessage, formatInteger, formatLatency, labApi } from "@/components/takeoff/lab/lab-api";
 import { renderDecisionsImage } from "@/components/takeoff/lab/lab-pdf";
 import { formatUsd, formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
-import type { ChatGptAvailableModel, ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { CHATGPT_REASONING_EFFORT_LABELS, type ChatGptAvailableModel, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import {
-  configLabel, defaultCampaignName, EFFORT_LABELS, LAB_CAMPAIGN_ERROR, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
+  configLabel, defaultCampaignName, LAB_CAMPAIGN_ERROR, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
   type LabConfigInput, type LabProvider, type LabRun, type LabRunSummary, type LabTaskDescriptor,
 } from "@/lib/takeoff/lab/contracts";
 import type { NormalizedBox } from "@/lib/takeoff/lab/geometry";
@@ -339,7 +339,7 @@ export function LabEssaiScreen() {
                           <NativeSelect id={`${fieldId}-${id}-effort`} size="sm" value={config.reasoningEffort ?? "auto"} disabled={!ready}
                             onChange={(event) => updateConfig(index, { reasoningEffort: event.target.value === "auto" ? null : event.target.value as ChatGptReasoningEffort })}>
                             <option value="auto">Automatique</option>
-                            {efforts.map((effort) => <option key={effort} value={effort}>{EFFORT_LABELS[effort]}</option>)}
+                            {efforts.map((effort) => <option key={effort} value={effort}>{CHATGPT_REASONING_EFFORT_LABELS[effort]}</option>)}
                           </NativeSelect>
                         </div>
                       </div>
