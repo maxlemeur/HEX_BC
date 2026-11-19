@@ -462,6 +462,7 @@
         "src/app/dashboard/affaires/[projectId]/takeoff/page.tsx",
         "src/app/dashboard/page.tsx",
         "src/app/dashboard/products/**",
+        "src/components/products/ProductFormModal.tsx",
         "src/app/dashboard/prices/**",
         "src/app/dashboard/admin/*.tsx",
         "src/app/dashboard/admin/flags/**",
@@ -556,7 +557,8 @@
     {
       "id": "estimate-editor",
       "paths": [
-        "src/app/dashboard/estimates/[versionId]/edit/**"
+        "src/app/dashboard/estimates/[versionId]/edit/**",
+        "src/lib/estimates/editor-item-tree.ts"
       ],
       "journeys": [
         "@editor",
@@ -822,7 +824,8 @@
     {
       "id": "legacy-parity-catalogue",
       "paths": [
-        "src/app/dashboard/{products,prices}/**"
+        "src/app/dashboard/{products,prices}/**",
+        "src/components/products/ProductFormModal.tsx"
       ],
       "journeys": [
         "e2e/army/local/engine-v3-fo-provision.e2e.ts",

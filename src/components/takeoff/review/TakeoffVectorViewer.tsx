@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { CLASS_SOURCE_LABELS, isLocalModelPromptVersion, isModelSource, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
-import { formatDenominator } from "@/components/takeoff/lab/LabVectorsScreen";
+import { formatDenominator } from "@/lib/takeoff/vectors/scale";
 
 // Viewer of a takeoff job's vector reading (TI-662), in the takeoff review:
 // the plan page rendered by pdfjs in the browser, the centrelines of its

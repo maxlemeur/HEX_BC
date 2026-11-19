@@ -20,6 +20,7 @@ import {
 } from "@/lib/takeoff/lab/contracts";
 import { CLASS_SOURCE_LABELS } from "@/lib/takeoff/vectors/classify";
 import { cn } from "@/lib/utils";
+import { formatDenominator } from "@/lib/takeoff/vectors/scale";
 
 // Vectors page of the takeoff lab (TI-662), « mise en page outil »: on the
 // left the document page and its layers and colours (one row per group of
@@ -42,10 +43,6 @@ const SCALE_LABELS: Record<LabVectorPage["scale"]["status"], string> = {
   verified: "vérifiée par une cote", format: "format conforme", calibrated: "calibrée", unverified: "non vérifiée",
 };
 const SOURCE_LABELS: Record<LabVectorClassSource, string> = CLASS_SOURCE_LABELS;
-
-export function formatDenominator(denominator: number) {
-  return Number.isInteger(denominator) ? String(denominator) : denominator.toFixed(1);
-}
 
 function classText(group: Pick<LabVectorGroup, "class" | "confidence" | "candidates" | "proposal">) {
   if (group.class === null) return group.candidates.length > 0 ? `${group.candidates.join(" ou ")} ?` : group.proposal ? `à revoir · ${group.proposal}` : "à revoir";
