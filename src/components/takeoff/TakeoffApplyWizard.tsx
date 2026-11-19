@@ -52,10 +52,7 @@ import { forcedOverrideOf, type ForcedDrafts } from "./takeoff-apply-wizard/forc
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 
-export type {
-  TakeoffApplyStrategy,
-  TakeoffApplyWizardSubmitPayload,
-} from "./takeoff-apply-wizard/shared";
+export type { TakeoffApplyWizardSubmitPayload } from "./takeoff-apply-wizard/shared";
 
 export const TAKEOFF_APPLY_TITLE = "Envoyer au tableau de chiffrage";
 
