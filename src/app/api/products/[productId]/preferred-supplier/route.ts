@@ -1,5 +1,6 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { productParamsSchema, readJsonBody } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { productParamsSchema } from "@/lib/http/request";
 import { productPreferredSupplierSchema } from "@/lib/material-requests/supplier-contracts";
 import { setProductPreferredSupplier } from "@/lib/material-requests/suppliers-server";
 

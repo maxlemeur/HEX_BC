@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TakeoffPageDocument, TakeoffPageIdentity } from "@/lib/takeoff/page-contributions";
-import { isRuleBlocked } from "@/lib/takeoff/rules/blocking";
+import { blockingRules } from "@/lib/takeoff/rules/blocking";
 import { TAKEOFF_RULE_VERSIONS, evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
 import { ruleFailureKeys, ruleFailuresReopen } from "@/lib/takeoff/rules/failure-keys";
 import { REGISTRATION_VERSION, type PageAnchors } from "@/lib/takeoff/rules/registration";
@@ -210,8 +210,8 @@ describe("decisions made on a re-measured page before the change", () => {
   it("keeps a verified line verified when its duplicate disappears: the writer reopens a line on a new failure only", () => {
     const now = measuredTwice(at({ plan_file_id: PLAN }), at({ plan_file_id: PLAN })).results.get("m2-ef");
     expect(ruleFailuresReopen(stored("m1-ef"), now)).toBe(false);
-    expect(isRuleBlocked(now, false, true)).toBe(false);
-    expect(isRuleBlocked(now, false, false)).toBe(false);
+    expect(blockingRules(now, true).length > 0).toBe(false);
+    expect(blockingRules(now, false).length > 0).toBe(false);
   });
 
   it("reopens a verified line whose real duplicate remains: the rule's version is part of every failure key", () => {

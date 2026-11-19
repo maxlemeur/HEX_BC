@@ -3,11 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 // Pagination faults are covered with the real SDK in read-all.test.ts.
 vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
 
-
-import {
-  checkApprovalRule,
-  evaluateRules,
-} from "@/lib/estimates/rules-engine";
+import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { checkApprovalRule } from "@/lib/estimates/rule-evaluation";
 
 describe("approval threshold", () => {
   it("requires approval as soon as the HT reaches the configured threshold", () => {

@@ -84,6 +84,8 @@ import {
   type AffaireIntakeReadinessSnapshot,
   type AffaireIntakeUploadStatus,
   type AffaireIntakeWorkspaceMissingPiece,
+  type AffaireProjectAccess,
+  type AffaireProjectAccessRow,
 } from "@/lib/affaires/intake";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { readLinkedDriveDocument, readLinkedDriveFile } from "@/lib/affaires/google-drive/content";
@@ -96,19 +98,9 @@ import {
   syncAffaireRegisterMissingPieces,
   syncAffairePlanGap,
 } from "@/lib/affaires/register-server";
-import { isRecord } from "@/lib/value-guards";
+import { isRecord, toStringOrNull } from "@/lib/value-guards";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
-
-type AffaireProjectAccessRow = {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  name: string;
-  reference: string | null;
-  client_name: string | null;
-  is_archived: boolean;
-};
 
 type AffaireIntakeUploadRow = {
   id: string;
@@ -382,10 +374,6 @@ const affaireBriefGenerationSchema = z
 
 type AffaireBriefEntry = z.infer<typeof affaireBriefEntrySchema>;
 type AffaireBriefGeneration = z.infer<typeof affaireBriefGenerationSchema>;
-function toStringOrNull(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
 function toNumberOrZero(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -874,10 +862,7 @@ async function classifyAffaireIntakeDocument(input: {
 
 export async function requireAffaireProjectOwnerOrAdmin(
   projectId: string
-): Promise<{
-  context: AuthenticatedContext;
-  project: AffaireProjectAccessRow;
-}> {
+): Promise<AffaireProjectAccess> {
   return requireAffaireProjectAccess(projectId, "owner_or_admin");
 }
 
@@ -885,7 +870,7 @@ export async function requireAffaireProjectOwnerOrAdmin(
 async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
   const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
   const { data, error } = await context.supabase
-    .from("affaire_intake_documents" as never)
+    .from("affaire_intake_documents")
     .select("id, tenant_id, file_name, mime_type, size_bytes, storage_path, drive_connection_id, drive_file_id" as never)
     .eq("id", documentId)
     .eq("tenant_id", context.tenantId)
@@ -974,10 +959,7 @@ export async function readAffaireIntakeDpgfFile(projectId: string, documentId: s
 
 export async function requireAffaireProjectReadAccess(
   projectId: string
-): Promise<{
-  context: AuthenticatedContext;
-  project: AffaireProjectAccessRow;
-}> {
+): Promise<AffaireProjectAccess> {
   return requireAffaireProjectAccess(projectId, "reader");
 }
 
@@ -990,20 +972,14 @@ export async function readAffaireBriefDraft(projectId: string) {
 
 async function requireAffaireProjectBriefEditor(
   projectId: string
-): Promise<{
-  context: AuthenticatedContext;
-  project: AffaireProjectAccessRow;
-}> {
+): Promise<AffaireProjectAccess> {
   return requireAffaireProjectAccess(projectId, "brief_editor");
 }
 
 async function requireAffaireProjectAccess(
   projectId: string,
   mode: "owner_or_admin" | "reader" | "brief_editor"
-): Promise<{
-  context: AuthenticatedContext;
-  project: AffaireProjectAccessRow;
-}> {
+): Promise<AffaireProjectAccess> {
   const context = await getAuthenticatedContext();
   const { data, error } = await context.supabase
     .from("estimate_projects")
@@ -1727,7 +1703,7 @@ async function fetchAffaireBriefForProject(input: {
   supabase: AffaireIntakeSupabaseClient;
   projectId: string;
 }) {
-  const briefTable = input.supabase.from("affaire_briefs" as never) as {
+  const briefTable = input.supabase.from("affaire_briefs") as {
     select: (columns: string) => {
       eq: (column: string, value: string) => {
         order: (
@@ -1759,7 +1735,7 @@ async function fetchAffaireBriefForProject(input: {
     return null;
   }
 
-  const sourceTable = input.supabase.from("affaire_brief_source_links" as never) as {
+  const sourceTable = input.supabase.from("affaire_brief_source_links") as {
     select: (columns: string) => {
       eq: (column: string, value: string) => {
         order: (
@@ -1911,7 +1887,7 @@ async function persistAffaireBriefDraft(input: {
     confirmed_at: nextConfirmedAt,
   } as const;
 
-  const briefMutationTable = input.supabase.from("affaire_briefs" as never) as {
+  const briefMutationTable = input.supabase.from("affaire_briefs") as {
     update: (values: unknown) => {
       eq: (column: string, value: string) => {
         select: (columns: string) => {
@@ -2125,7 +2101,7 @@ async function getMissingPiecesForProject(input: {
 export async function reconcileAffairePlanPresence(projectId: string) {
   const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
   const { data: upload, error: uploadError } = await context.supabase
-    .from("affaire_intake_uploads" as never)
+    .from("affaire_intake_uploads")
     .select("id" as never)
     .eq("project_id", project.id)
     .eq("tenant_id", context.tenantId)
@@ -2260,7 +2236,7 @@ export async function createAffaireIntakeUpload(
   validateAffaireIntakeUploadBatch(files);
 
   const { data: uploadData, error: uploadError } = await context.supabase
-    .from("affaire_intake_uploads" as never)
+    .from("affaire_intake_uploads")
     .insert({
       project_id: project.id,
       created_by: context.userId,
@@ -2334,7 +2310,7 @@ export async function createAffaireIntakeUpload(
       error: unknown;
     }>(
       context.supabase
-        .from("affaire_intake_documents" as never)
+        .from("affaire_intake_documents")
         .insert({
           id: documentId,
           upload_id: upload.id,
@@ -2401,7 +2377,7 @@ export async function createAffaireIntakeUpload(
         error: unknown;
       }>(
         context.supabase
-          .from("affaire_intake_documents" as never)
+          .from("affaire_intake_documents")
           .update({
             upload_status: "rejected",
             rejection_reason: "Impossible de téléverser le fichier dans le storage.",
@@ -2442,7 +2418,7 @@ export async function createAffaireIntakeUpload(
       error: unknown;
     }>(
       context.supabase
-        .from("affaire_intake_documents" as never)
+        .from("affaire_intake_documents")
         .update({
           upload_status: "uploaded",
         } as never)
@@ -2492,7 +2468,7 @@ export async function createAffaireIntakeUpload(
     error: unknown;
   }>(
     context.supabase
-      .from("affaire_intake_uploads" as never)
+      .from("affaire_intake_uploads")
       .update({
         status: finalUploadStatus,
         completed_at: uploadedCount > 0 ? null : new Date().toISOString(),
@@ -2551,7 +2527,7 @@ async function processClaimedAffaireIntakeUpload(input: {
     error: unknown;
   }>(
     supabase
-      .from("affaire_intake_documents" as never)
+      .from("affaire_intake_documents")
       .select(DOCUMENT_SELECT as never)
       .eq("upload_id", upload.id)
       .order("created_at", { ascending: true })
@@ -2606,7 +2582,7 @@ async function processClaimedAffaireIntakeUpload(input: {
       error: unknown;
     }>(
       supabase
-        .from("affaire_intake_documents" as never)
+        .from("affaire_intake_documents")
         .update({
           classification_status: "processing",
         } as never)
@@ -2633,7 +2609,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         error: unknown;
       }>(
         supabase
-          .from("affaire_intake_documents" as never)
+          .from("affaire_intake_documents")
           .update({
             classification_status: "failed",
             issues: ["Chemin storage manquant pour le document intake."],
@@ -2685,7 +2661,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         error: unknown;
       }>(
         supabase
-          .from("affaire_intake_documents" as never)
+          .from("affaire_intake_documents")
           .update({
             classification_status: classificationStatus,
             document_kind: classification.result.documentKind,
@@ -2737,7 +2713,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         error: unknown;
       }>(
         supabase
-          .from("affaire_intake_documents" as never)
+          .from("affaire_intake_documents")
           .update({
             classification_status: "failed",
             issues: [error instanceof DriveError
@@ -2802,7 +2778,7 @@ async function processClaimedAffaireIntakeUpload(input: {
 
   const [{ data: refreshedDocsData, error: refreshedDocsError }, { data: projectData, error: projectError }] =
     await Promise.all([
-      readAllRows(() => supabase.from("affaire_intake_documents" as never)
+      readAllRows(() => supabase.from("affaire_intake_documents")
         .select(DOCUMENT_SELECT as never, { count: "exact" })
         .eq("project_id", upload.project_id).is("deleted_at", null).is("deletion_token", null)
         .order("created_at", { ascending: true }).order("id", { ascending: true })),
@@ -2811,7 +2787,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         error: unknown;
       }>(
         supabase
-          .from("estimate_projects" as never)
+          .from("estimate_projects")
           .select(PROJECT_SELECT as never)
           .eq("id", upload.project_id)
           .maybeSingle()
@@ -3026,7 +3002,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     error: unknown;
   }>(
     context.supabase
-      .from("affaire_intake_uploads" as never)
+      .from("affaire_intake_uploads")
       .select(UPLOAD_SELECT as never)
       .eq("project_id", project.id)
       .order("created_at", { ascending: false })
@@ -3069,7 +3045,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     error: unknown;
   }>(
     readAllRows(() => context.supabase
-      .from("affaire_intake_documents" as never)
+      .from("affaire_intake_documents")
       .select(DOCUMENT_SELECT as never, { count: "exact" })
       .eq("project_id", project.id)
       .is("deleted_at", null)
@@ -3315,7 +3291,7 @@ export async function updateAffaireBrief(input: {
 
   const { error } = await resolveSupabaseQuery<{ error: unknown }>(
     context.supabase
-      .from("affaire_briefs" as never)
+      .from("affaire_briefs")
       .update({
         summary: nextDraft.summary,
         scope: nextDraft.scope,
@@ -3398,7 +3374,7 @@ export async function confirmAffaireBrief(input: { projectId: string; expectedUp
   const confirmedAt = new Date().toISOString();
   const { data, error } = await resolveSupabaseQuery<{ data: { id: string } | null; error: unknown }>(
     context.supabase
-      .from("affaire_briefs" as never)
+      .from("affaire_briefs")
       .update({
         status: "confirme", confirmed_at: confirmedAt, confirmed_by: context.userId, updated_by: context.userId,
       } as never)
@@ -3444,7 +3420,7 @@ export async function reclassifyAffaireDocument(input: {
     error: unknown;
   }>(
     context.supabase
-      .from("affaire_intake_documents" as never)
+      .from("affaire_intake_documents")
       .select(DOCUMENT_SELECT as never)
       .eq("id", input.documentId)
       .is("deleted_at", null).is("deletion_token", null)
@@ -3499,7 +3475,7 @@ export async function reclassifyAffaireDocument(input: {
     error: unknown;
   }>(
     context.supabase
-      .from("affaire_intake_documents" as never)
+      .from("affaire_intake_documents")
       .update({
         document_kind: input.category,
         ...(input.category !== document.document_kind ? { document_priority: "secondary" } : {}),
@@ -3619,7 +3595,7 @@ export async function setAffaireDocumentAsPrimary(input: {
     error: unknown;
   }>(
     context.supabase
-      .from("affaire_intake_documents" as never)
+      .from("affaire_intake_documents")
       .select(DOCUMENT_SELECT as never)
       .eq("id", input.documentId)
       .is("deleted_at", null).is("deletion_token", null)
@@ -3652,7 +3628,7 @@ export async function setAffaireDocumentAsPrimary(input: {
       error: unknown;
     }>(
       readAllRows(() => context.supabase
-        .from("affaire_intake_documents" as never)
+        .from("affaire_intake_documents")
         .select(DOCUMENT_SELECT as never, { count: "exact" })
         .eq("project_id", project.id)
         .eq("document_kind", document.document_kind)
@@ -3677,7 +3653,7 @@ export async function setAffaireDocumentAsPrimary(input: {
       error: unknown;
     }>(
       context.supabase
-        .from("affaire_intake_documents" as never)
+        .from("affaire_intake_documents")
         .update({
           document_priority: "secondary",
         } as never)
@@ -3697,7 +3673,7 @@ export async function setAffaireDocumentAsPrimary(input: {
       error: unknown;
     }>(
       context.supabase
-        .from("affaire_intake_documents" as never)
+        .from("affaire_intake_documents")
         .update({
           document_priority: "primary",
         } as never)

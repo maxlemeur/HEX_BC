@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AffaireConfirmDialog } from "./AffaireConfirmDialog";
 import { AffaireApprovalBadge, AffaireStatusBadges } from "./AffaireStatusBadges";
-import { AffaireRowActions, getAffaireListItemState } from "./AffaireRowActions";
+import { AffaireRowActions, formatAffaireListDate, getAffaireListItemState } from "./AffaireRowActions";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import type { AffaireListItem } from "./types";
 
@@ -27,16 +27,6 @@ type Props = {
 };
 
 const EMPTY_SELECTED_PROJECT_IDS: ReadonlySet<string> = new Set();
-
-const AFFAIRE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-});
-
-function formatDate(iso: string): string {
-  return AFFAIRE_DATE_FORMATTER.format(new Date(iso));
-}
 
 export function AffairesCardList({
   items,
@@ -141,7 +131,7 @@ export function AffairesCardList({
                         : "—"}
                     </span>
                     <span className="text-muted-foreground">
-                      {formatDate(item.currentUpdatedAt)}
+                      {formatAffaireListDate(item.currentUpdatedAt)}
                     </span>
                   </div>
                 </Link>

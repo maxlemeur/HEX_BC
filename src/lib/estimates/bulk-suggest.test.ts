@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  applyBulkSuggestions,
   computeBulkSuggestions,
   findSuggestibleLines,
   buildBulkSuggestPreview,
@@ -228,123 +227,6 @@ describe("bulk-suggest", () => {
       "k_mo",
       "category_id",
     ]);
-  });
-
-  it("applies selected suggestions and returns update, usage and undo snapshots", () => {
-    const items = [
-      createLine({
-        id: "line-1",
-        title: "Pose de fenetre",
-      }),
-      createLine({
-        id: "line-2",
-        title: "Remplacement fenetre",
-      }),
-    ];
-    const rules = [
-      createRule({
-        id: "rule-window",
-        match_value: "fenetre",
-        unit: "u",
-        k_fo: 1.2,
-        usage_count: 7,
-      }),
-    ];
-    const computation = computeBulkSuggestions({
-      items,
-      rules,
-    });
-
-    const result = applyBulkSuggestions({
-      items,
-      suggestions: computation.suggestions,
-      selectedLineIds: ["line-1"],
-    });
-
-    expect(result.updates).toEqual([
-      {
-        id: "line-1",
-        updates: {
-          description: "u",
-          k_fo: 1.2,
-        },
-      },
-    ]);
-    expect(result.appliedLineIds).toEqual(["line-1"]);
-    expect(result.ruleUsageByRuleId).toEqual({
-      "rule-window": 1,
-    });
-    expect(result.ruleUsageIncrements).toEqual([
-      {
-        ruleId: "rule-window",
-        incrementBy: 1,
-        previousUsageCount: 7,
-        nextUsageCount: 8,
-      },
-    ]);
-    expect(result.snapshot.previousLines).toHaveLength(1);
-    expect(result.snapshot.previousLines[0]?.id).toBe("line-1");
-    expect(result.snapshot.appliedLines).toHaveLength(1);
-    expect(result.snapshot.appliedLines[0]?.ruleId).toBe("rule-window");
-
-    const nextLine1 = result.snapshot.nextItems.find((item) => item.id === "line-1");
-    const nextLine2 = result.snapshot.nextItems.find((item) => item.id === "line-2");
-    expect(nextLine1?.description).toBe("u");
-    expect(nextLine1?.k_fo).toBe(1.2);
-    expect(nextLine2?.description).toBeNull();
-    expect(nextLine2?.k_fo).toBe(1);
-
-    expect(items[0]?.description).toBeNull();
-    expect(items[0]?.k_fo).toBe(1);
-  });
-
-  it("keeps non-neutral fields untouched if the line changed after preview", () => {
-    const initialItems = [
-      createLine({
-        id: "line-1",
-        title: "Pose de fenetre",
-      }),
-    ];
-    const rules = [
-      createRule({
-        id: "rule-window",
-        match_value: "fenetre",
-        unit: "u",
-        k_fo: 1.2,
-        k_mo: 1.25,
-        usage_count: 3,
-      }),
-    ];
-    const computation = computeBulkSuggestions({
-      items: initialItems,
-      rules,
-    });
-    const editedItems = [
-      createLine({
-        ...initialItems[0],
-        k_fo: 1.8,
-      }),
-    ];
-
-    const result = applyBulkSuggestions({
-      items: editedItems,
-      suggestions: computation.suggestions,
-    });
-
-    expect(result.updates).toEqual([
-      {
-        id: "line-1",
-        updates: {
-          description: "u",
-          k_mo: 1.25,
-        },
-      },
-    ]);
-
-    const nextLine = result.snapshot.nextItems[0];
-    expect(nextLine?.k_fo).toBe(1.8);
-    expect(nextLine?.k_mo).toBe(1.25);
-    expect(nextLine?.description).toBe("u");
   });
 });
 

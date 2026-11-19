@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  runActiveTenantExternalEffect,
+  isWorkflowTenantActive,
   WorkflowTenantCheckError,
-  WorkflowTenantInactiveError,
   type WorkflowTenantClient,
 } from "@/lib/workflows/active-tenant";
 
@@ -25,36 +24,26 @@ function createClient(result: { data: unknown; error: unknown }) {
 }
 
 describe("active workflow tenant boundary", () => {
-  it("runs the external effect only for an active tenant", async () => {
+  it("reports an active tenant", async () => {
     const { client, builder } = createClient({ data: { id: "tenant-1" }, error: null });
-    const effect = vi.fn().mockResolvedValue("ok");
 
-    await expect(
-      runActiveTenantExternalEffect({ client, tenantId: "tenant-1", effect })
-    ).resolves.toBe("ok");
+    await expect(isWorkflowTenantActive(client, "tenant-1")).resolves.toBe(true);
 
     expect(builder.eq).toHaveBeenNthCalledWith(1, "id", "tenant-1");
     expect(builder.eq).toHaveBeenNthCalledWith(2, "is_active", true);
-    expect(effect).toHaveBeenCalledTimes(1);
   });
 
-  it("never invokes the provider for a suspended tenant", async () => {
+  it("reports a suspended tenant as inactive", async () => {
     const { client } = createClient({ data: null, error: null });
-    const effect = vi.fn();
 
-    await expect(
-      runActiveTenantExternalEffect({ client, tenantId: "tenant-2", effect })
-    ).rejects.toBeInstanceOf(WorkflowTenantInactiveError);
-    expect(effect).not.toHaveBeenCalled();
+    await expect(isWorkflowTenantActive(client, "tenant-2")).resolves.toBe(false);
   });
 
   it("fails closed when tenant state cannot be verified", async () => {
     const { client } = createClient({ data: null, error: new Error("db down") });
-    const effect = vi.fn();
 
     await expect(
-      runActiveTenantExternalEffect({ client, tenantId: "tenant-3", effect })
+      isWorkflowTenantActive(client, "tenant-3")
     ).rejects.toBeInstanceOf(WorkflowTenantCheckError);
-    expect(effect).not.toHaveBeenCalled();
   });
 });

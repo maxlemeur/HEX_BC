@@ -2,6 +2,7 @@
 
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import type { ForcedOverride } from "@/lib/takeoff/force-reasons";
+import { DEFAULT_LOW_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_CEILING } from "@/lib/takeoff/guards";
 import { isLeftOutByMappingPlan } from "@/lib/takeoff/mapping-engine";
 import type { MergeSentLine } from "@/lib/takeoff/merge-overwrites";
 import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
@@ -162,12 +163,12 @@ export function mappingRuleEffect(item: Pick<TakeoffPreviewConversionResponse["i
 export function confidenceColor(confidence: number | null): string {
   if (confidence === null) return "text-danger";
   if (confidence < 0.3) return "text-danger";
-  if (confidence < 0.5) return "text-warning";
-  if (confidence < 0.8) return "text-info";
+  if (confidence < DEFAULT_LOW_CONFIDENCE_THRESHOLD) return "text-warning";
+  if (confidence < MEDIUM_CONFIDENCE_CEILING) return "text-info";
   return "text-success";
 }
 
 export function formatConfidencePercent(confidence: number | null): string {
   if (confidence === null) return "N/A";
-  return confidence >= 0.8 ? "Élevée" : confidence >= 0.5 ? "Moyenne" : "Faible";
+  return confidence >= MEDIUM_CONFIDENCE_CEILING ? "Élevée" : confidence >= DEFAULT_LOW_CONFIDENCE_THRESHOLD ? "Moyenne" : "Faible";
 }

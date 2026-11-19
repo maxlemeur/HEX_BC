@@ -73,16 +73,34 @@ export function resolveConcurrencyToken(request: Request, fallback?: string) {
   return undefined;
 }
 
+/** A UUID route parameter whose invalid value is refused as « <name> invalide. ». */
+export const uuidParamSchema = (name: string) => z.string().uuid(`${name} invalide.`);
+
+/** `{ id }` of the order routes: a UUID, zod's own message when it is not one. */
+export const idParamsSchema = z.object({ id: z.string().uuid() });
+export const productParamsSchema = z.object({ productId: uuidParamSchema("productId") });
+export const productAliasParamsSchema = productParamsSchema.extend({ aliasId: uuidParamSchema("aliasId") });
+export const supplyTypeParamsSchema = z.object({ supplyTypeId: uuidParamSchema("supplyTypeId") });
+
 /**
- * One UUID route parameter. A value that is not a UUID is a validation error
- * naming the parameter, which `toErrorResponse` answers with 400.
+ * UUID route parameters, validated together. A value that is not a UUID is a
+ * validation error naming its parameter, which `toErrorResponse` answers with 400.
  */
+export async function uuidRouteParams<Name extends string>(
+  params: Promise<Record<Name, string>>,
+  ...names: Name[]
+): Promise<Record<Name, string>> {
+  const schema = z.object(
+    Object.fromEntries(names.map((name) => [name, z.string().uuid(`${name} invalide.`)]))
+  );
+  return schema.parse(await params) as Record<Name, string>;
+}
+
 export async function uuidRouteParam<Name extends string>(
   params: Promise<Record<Name, string>>,
   name: Name
 ): Promise<string> {
-  const schema = z.object({ [name]: z.string().uuid(`${name} invalide.`) });
-  return (schema.parse(await params) as Record<Name, string>)[name];
+  return (await uuidRouteParams(params, name))[name];
 }
 
 /** The query string as a plain object, the input of the routes' zod query schemas. */

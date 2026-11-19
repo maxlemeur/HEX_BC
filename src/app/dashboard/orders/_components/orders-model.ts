@@ -1,9 +1,8 @@
-export type PurchaseOrderStatus =
-  | "draft"
-  | "sent"
-  | "confirmed"
-  | "received"
-  | "canceled";
+import {
+  PURCHASE_ORDER_STATUS_LABELS,
+  PURCHASE_ORDER_STATUSES,
+  type OrderStatus,
+} from "@/lib/purchase-orders/lifecycle";
 
 type RelatedLookup = { id: string; name: string };
 
@@ -11,7 +10,7 @@ export type PurchaseOrderListRow = {
   id: string;
   reference: string;
   created_at: string;
-  status: PurchaseOrderStatus;
+  status: OrderStatus;
   expected_delivery_date: string | null;
   total_ht_cents: number;
   suppliers: RelatedLookup | RelatedLookup[] | null;
@@ -65,20 +64,17 @@ export type LazyRows<T> = T[] | "loading" | "error";
 export type ItemsCache = Record<string, LazyRows<OrderItemRow>>;
 export type DevisCache = Record<string, LazyRows<DevisItemRow>>;
 
-export const ORDER_STATUS_OPTIONS: { value: PurchaseOrderStatus; label: string }[] = [
-  { value: "draft", label: "Brouillon" },
-  { value: "sent", label: "Envoyée" },
-  { value: "confirmed", label: "Confirmée" },
-  { value: "received", label: "Reçue" },
-  { value: "canceled", label: "Annulée" },
-];
+export const ORDER_STATUS_OPTIONS: { value: OrderStatus; label: string }[] = PURCHASE_ORDER_STATUSES.map((value) => ({
+  value,
+  label: PURCHASE_ORDER_STATUS_LABELS[value],
+}));
 
-export function statusLabel(status: PurchaseOrderStatus) {
+export function statusLabel(status: OrderStatus) {
   return ORDER_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
 }
 
 /** Legacy `.status-badge` pills: kept as the shared status hook used across the app. */
-export function statusClass(status: PurchaseOrderStatus) {
+export function statusClass(status: OrderStatus) {
   const known = ORDER_STATUS_OPTIONS.some((option) => option.value === status);
   return `status-badge status-${known ? status : "draft"}`;
 }

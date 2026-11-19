@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
+import { normalizeFeatureFlagKey } from "@/lib/feature-flag-keys";
 
 type SuggestionLearningFieldName =
   | "description"
@@ -99,10 +100,6 @@ const FIELD_LABELS: Record<SuggestionLearningFieldName, string> = {
   labor_role_id: "Rôle MO",
   supply_type_id: "Type fourniture",
 };
-
-function normalizeFeatureFlagKey(value: string) {
-  return value.trim().toUpperCase();
-}
 
 function getFeatureFlag(flags: FeatureFlagRecord[], key: string) {
   const normalizedKey = normalizeFeatureFlagKey(key);

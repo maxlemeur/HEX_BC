@@ -4,7 +4,7 @@ import {
   deleteEstimateAssembly,
   getEstimateAssembly,
   updateEstimateAssembly,
-} from "@/lib/estimates/server";
+} from "@/lib/estimates/assemblies-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(

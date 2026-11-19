@@ -8,7 +8,7 @@ import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
   type ServerSupabaseClient,
 } from "@/lib/auth/tenant-context";
-import { assertDraftLockOwnedByCurrentUser, isTenantAdmin } from "@/lib/estimates/server-context";
+import { assertDraftLockOwnedByCurrentUser, assertDraftStatus, isTenantAdmin } from "@/lib/estimates/server-context";
 import type { Database } from "@/types/database";
 import { toNonEmptyString } from "@/lib/value-guards";
 
@@ -100,11 +100,6 @@ export type TrackCorrectionsResult = SuggestionLearningState & {
 };
 
 export type ReviewLearningAction = "approve" | "reject" | "reset";
-
-function assertDraftStatus(status: Database["public"]["Enums"]["estimate_status"]) {
-  if (status === "draft") return;
-  throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
-}
 
 function parseFlagInteger(input: {
   value: string | null;

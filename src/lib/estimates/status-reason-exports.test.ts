@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-read-server", () => ({
   getEstimateVersionDetails: vi.fn(),
   listEstimateItems: vi.fn(),
+}));
+vi.mock("@/lib/estimates/supplier-comparison-server", () => ({
   getEstimateSupplierComparisons: vi.fn(),
 }));
 vi.mock("@/lib/estimates/supplier-export-search", async (original) => ({
@@ -17,7 +19,8 @@ vi.mock("@/lib/estimates/v3-export", async (original) => ({
 import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
 import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx, type WorkbookWriterFactory } from "@/lib/estimates/export-stream";
-import { getEstimateSupplierComparisons, getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
+import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
+import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/version-read-server";
 import { loadEstimateV3ExportDocument } from "@/lib/estimates/v3-export";
 import { frozenV3ExportDocument, type FixtureExportLine } from "@/lib/estimates/v3-export-document.fixtures";
 

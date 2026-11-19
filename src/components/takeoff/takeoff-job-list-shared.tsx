@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/card";
 export const TAKEOFF_LIST_REFRESH_INTERVAL_MS = 20_000;
 export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
-export const STATUS_CSS_MAP: Record<string, string> = {
+const STATUS_CSS_MAP: Record<string, string> = {
   queued: "status-draft",
   pending: "status-draft",
   provider_pending: "status-sent",
@@ -25,7 +25,7 @@ export const STATUS_CSS_MAP: Record<string, string> = {
   applied: "status-accepted",
 };
 
-export const STATUS_LABEL_MAP: Record<string, string> = {
+const STATUS_LABEL_MAP: Record<string, string> = {
   pending: "En attente",
   processing: "En cours",
   completed: "Terminé",

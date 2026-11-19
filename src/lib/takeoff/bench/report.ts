@@ -4,7 +4,7 @@ import {
   type TakeoffBenchmarkFailedCheck,
   type TakeoffBenchmarkThresholds,
 } from "@/lib/takeoff/benchmark";
-import { DIAMETER_TABLE_VERSION } from "@/lib/takeoff/bench/diameters";
+import { DIAMETER_TABLE_VERSION } from "@/lib/takeoff/diameters";
 import { ITEM_KEY_READER_VERSION, scoredUnit, type ScoredUnit } from "@/lib/takeoff/bench/item-keys";
 import type { BenchPageSelection } from "@/lib/takeoff/bench/pages";
 import {

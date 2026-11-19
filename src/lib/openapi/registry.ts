@@ -30,6 +30,9 @@ import {
 import {
   forcedItemSchema,
   forcedJustificationSchema,
+  MAX_TAKEOFF_JOB_ITEMS_LIMIT,
+  MAX_TAKEOFF_JOB_ITEMS_OFFSET,
+  MAX_TAKEOFF_JOBS_LIST_LIMIT,
   requestTakeoffPriceSuggestionSchema as takeoffPriceSuggestionRequestSchema,
   reviewTakeoffPriceSuggestionSchema as takeoffPriceSuggestionReviewRequestSchema,
 } from "@/lib/takeoff/schemas";
@@ -149,11 +152,11 @@ const suggestPricesQuerySchema = z
 const changelogFormatQuerySchema = z.enum(["json", "pdf"]);
 const pdfFormatQuerySchema = z.enum(["json"]);
 const takeoffPlanSetsLimitQuerySchema = z.number().int().min(1).max(100);
-const takeoffJobsLimitQuerySchema = z.number().int().min(1).max(100);
-const takeoffJobsOffsetQuerySchema = z.number().int().min(0).max(10000);
+const takeoffJobsLimitQuerySchema = z.number().int().min(1).max(MAX_TAKEOFF_JOBS_LIST_LIMIT);
+const takeoffJobsOffsetQuerySchema = z.number().int().min(0).max(MAX_TAKEOFF_JOB_ITEMS_OFFSET);
 const takeoffJobsPeriodQuerySchema = z.enum(["7d", "30d", "90d"]);
-const takeoffJobItemsLimitQuerySchema = z.number().int().min(1).max(200);
-const takeoffJobItemsOffsetQuerySchema = z.number().int().min(0).max(10000);
+const takeoffJobItemsLimitQuerySchema = z.number().int().min(1).max(MAX_TAKEOFF_JOB_ITEMS_LIMIT);
+const takeoffJobItemsOffsetQuerySchema = z.number().int().min(0).max(MAX_TAKEOFF_JOB_ITEMS_OFFSET);
 const takeoffCompareThresholdQuerySchema = z.number().min(0.5).max(0.99);
 const takeoffPlanFilesIncludeDownloadUrlQuerySchema = z.enum([
   "0",

@@ -67,21 +67,13 @@ describe("durable workflow recovery", () => {
         trigger_kind: "process",
       },
     ]);
-    const triggerTakeoff = vi.fn().mockResolvedValue({
-      triggered: false,
-      correlationId: "correlation",
-      statusCode: 503,
-    });
     const processIntake = vi.fn();
-    const persistTakeoffDispatch = vi.fn().mockResolvedValue(true);
     const drainStorageCleanup = vi
       .fn()
       .mockResolvedValue(STORAGE_CLEANUP_RESULT);
 
     const result = await recoverDurableWorkflows({
       client,
-      triggerTakeoff,
-      persistTakeoffDispatch,
       processIntake,
       drainStorageCleanup,
       drainEmailOutbox: async () => EMAIL_OUTBOX_RESULT,
@@ -89,8 +81,6 @@ describe("durable workflow recovery", () => {
     });
 
     expect(processIntake).not.toHaveBeenCalled();
-    expect(triggerTakeoff).not.toHaveBeenCalled();
-    expect(persistTakeoffDispatch).not.toHaveBeenCalled();
     expect(result.dispatchedCount).toBe(0);
     expect(result.failedCount).toBe(0);
     expect(result.skippedCount).toBe(2);

@@ -20,7 +20,6 @@ import {
   countEstimateQualityFlags,
   computeEstimateQualityFlagsByItemId,
   type EstimateQualityFlagCounts,
-  type EstimateQualityFlagKey,
   type EstimateQualityFlagsByItemId,
 } from "@/lib/estimate-quality";
 import {
@@ -29,6 +28,7 @@ import {
 } from "@/lib/estimates/client";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import type { EstimateItem } from "@/lib/estimates/editor-items";
+import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";
 import {
   DEFAULT_ESTIMATE_OUTLIER_CONFIG,
   detectEstimateOutliers,
@@ -42,11 +42,6 @@ import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
 
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
-
-export type EstimateQualityFilter =
-  | "all_lines"
-  | "with_anomalies"
-  | EstimateQualityFlagKey;
 
 type EstimateEditorQualityControllerInput = {
   routeVersionId: string;

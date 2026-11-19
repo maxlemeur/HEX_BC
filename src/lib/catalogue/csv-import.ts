@@ -3,7 +3,7 @@ import {
   type BulkCreateSupplierPricesInput,
 } from "@/lib/catalogue/schemas";
 import { parseEuroToCents } from "@/lib/money";
-import { stripAccents } from "@/lib/text/fold";
+import { foldWords } from "@/lib/text/fold";
 
 export type CsvImportScalar = string | number | boolean | null | undefined;
 export type CsvImportRow = Record<string, CsvImportScalar>;
@@ -212,13 +212,6 @@ const TARGET_FIELD_ALIASES: Record<PriceBookCsvTargetField, string[]> = {
   currency: ["currency", "currency code", "devise", "code devise", "devise code"],
 };
 
-function normalizeHeaderToken(value: string): string {
-  return stripAccents(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
 function coerceCellToString(value: CsvImportScalar): string {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number" || typeof value === "boolean") return String(value).trim();
@@ -230,11 +223,11 @@ function readCellByHeader(row: CsvImportRow, header: string): string {
     return coerceCellToString(row[header]);
   }
 
-  const normalizedHeader = normalizeHeaderToken(header);
+  const normalizedHeader = foldWords(header);
   if (!normalizedHeader) return "";
 
   for (const [sourceColumn, value] of Object.entries(row)) {
-    if (normalizeHeaderToken(sourceColumn) !== normalizedHeader) continue;
+    if (foldWords(sourceColumn) !== normalizedHeader) continue;
     return coerceCellToString(value);
   }
 
@@ -272,7 +265,7 @@ function readMappedCell(
 }
 
 function scoreAliasMatch(normalizedHeader: string, alias: string): number {
-  const normalizedAlias = normalizeHeaderToken(alias);
+  const normalizedAlias = foldWords(alias);
   if (!normalizedAlias) return 0;
 
   if (normalizedHeader === normalizedAlias) {
@@ -678,10 +671,10 @@ export function extractPriceBookSourceColumns(rows: CsvImportRow[]): string[] {
 }
 
 export function detectPriceBookProfile(sourceColumns: string[]): PriceBookProfile {
-  const normalized = new Set(sourceColumns.map((column) => normalizeHeaderToken(column)));
+  const normalized = new Set(sourceColumns.map((column) => foldWords(column)));
 
   const hits = MM_BDC_SIGNATURE_COLUMNS.reduce((count, signatureColumn) => {
-    const signatureToken = normalizeHeaderToken(signatureColumn);
+    const signatureToken = foldWords(signatureColumn);
     return count + (normalized.has(signatureToken) ? 1 : 0);
   }, 0);
 
@@ -701,7 +694,7 @@ export function suggestPriceBookColumnMapping(
   const candidates: Candidate[] = [];
 
   sourceColumns.forEach((sourceColumn, sourceIndex) => {
-    const normalizedHeader = normalizeHeaderToken(sourceColumn);
+    const normalizedHeader = foldWords(sourceColumn);
     if (!normalizedHeader) return;
 
     (Object.keys(TARGET_FIELD_ALIASES) as PriceBookCsvTargetField[]).forEach((target) => {

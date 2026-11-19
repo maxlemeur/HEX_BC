@@ -6,13 +6,12 @@ import { drainProcurementStorageCleanupOutbox } from "@/lib/procurement/storage-
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
-} from "@/lib/purchase-orders";
+} from "@/lib/purchase-orders/access";
 import { computeTotalsFromInputs, OrderTotalNegativeError } from "@/lib/order-calculations";
 import { updatePurchaseOrderSchema, purchaseOrderWriteReceiptSchema } from "@/lib/purchase-orders/schemas";
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
 import { purchaseOrderInputError, purchaseOrderWriteError, toPurchaseOrderLinePayload } from "@/lib/purchase-orders/write";
-import type { Database, Json } from "@/types/database";
-
-type PurchaseOrderStatus = Database["public"]["Tables"]["purchase_orders"]["Row"]["status"];
+import type { Json } from "@/types/database";
 
 export async function PUT(
   request: Request,
@@ -35,7 +34,7 @@ export async function PUT(
   // Fetch existing order
   const existingOrder = await getAccessiblePurchaseOrderOrNull<{
     id: string;
-    status: PurchaseOrderStatus;
+    status: OrderStatus;
     tenant_id: string;
   }>(supabase, id, "id, status, tenant_id");
 
@@ -128,7 +127,7 @@ export async function DELETE(
   // Fetch existing order
   const existingOrder = await getAccessiblePurchaseOrderOrNull<{
     id: string;
-    status: PurchaseOrderStatus;
+    status: OrderStatus;
     tenant_id: string;
   }>(supabase, id, "id, status, tenant_id");
 

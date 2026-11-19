@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { checkGroupTruthFiles, formatBenchIssue } from "@/lib/takeoff/bench/check";
 import { BenchDatasetError, filesSha256 } from "@/lib/takeoff/bench/dataset";
-import { NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import { GroupTruthFileSchema, type GroupTruthFile, type TakeoffBenchManifest } from "@/lib/takeoff/bench/schemas";
 import { table } from "@/lib/takeoff/bench/vector-report";
 import { CANDIDATE_FILTER_REASONS, type CandidateFilterReason } from "@/lib/takeoff/vectors/candidate-filter";

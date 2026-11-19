@@ -368,14 +368,6 @@ export function generateChangelog(input: {
   return buildEstimateChangelogFromDiff(diff);
 }
 
-export function buildEstimateChangelog(input: {
-  previous: EstimateVersionDetailsForDiff;
-  current: EstimateVersionDetailsForDiff;
-  diff?: EstimateDiffResult;
-}): EstimateVersionChangelog {
-  return generateChangelog(input);
-}
-
 function isEstimateVersionChangelog(value: unknown): value is EstimateVersionChangelog {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<EstimateVersionChangelog>;

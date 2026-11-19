@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   isPriceStale,
-  priceFreshnessLevel,
 } from "@/lib/catalogue/stale-prices";
 
 describe("stale-prices", () => {
@@ -28,54 +27,5 @@ describe("stale-prices", () => {
         now
       )
     ).toBe(false);
-  });
-});
-
-describe("priceFreshnessLevel", () => {
-  const NOW = new Date("2026-02-21T00:00:00.000Z");
-
-  it("returns fresh at the 30-day boundary", () => {
-    const result = priceFreshnessLevel(
-      { updatedAt: "2026-01-22T00:00:00.000Z" },
-      NOW
-    );
-    expect(result.level).toBe("fresh");
-    expect(result.ageDays).toBe(30);
-  });
-
-  it("returns aging for a price updated 31 days ago", () => {
-    const result = priceFreshnessLevel(
-      { updatedAt: "2026-01-21T00:00:00.000Z" },
-      NOW
-    );
-    expect(result.level).toBe("aging");
-    expect(result.ageDays).toBe(31);
-  });
-
-  it("returns aging at the 90-day boundary", () => {
-    const result = priceFreshnessLevel(
-      { updatedAt: "2025-11-23T00:00:00.000Z" },
-      NOW
-    );
-    expect(result.level).toBe("aging");
-    expect(result.ageDays).toBe(90);
-  });
-
-  it("returns stale for a price updated 91 days ago", () => {
-    const result = priceFreshnessLevel(
-      { updatedAt: "2025-11-22T00:00:00.000Z" },
-      NOW
-    );
-    expect(result.level).toBe("stale");
-    expect(result.ageDays).toBe(91);
-  });
-
-  it("falls back to createdAt when updatedAt is null", () => {
-    const result = priceFreshnessLevel(
-      { updatedAt: null, createdAt: "2026-02-10T00:00:00.000Z" },
-      NOW
-    );
-    expect(result.level).toBe("fresh");
-    expect(result.ageDays).toBe(11);
   });
 });

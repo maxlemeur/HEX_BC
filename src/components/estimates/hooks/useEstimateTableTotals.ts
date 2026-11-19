@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import type { EstimateSectionCalculation } from "@/components/estimates/hooks/useEstimateVisibility";
 import { computeAllSectionTotals, type SectionTotals } from "@/lib/estimate-calculations";
+import { ITEMS_BY_PARENT_ROOT_KEY } from "@/lib/estimates/editor-item-tree";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -41,7 +42,7 @@ export function useEstimateTableTotals({
   }, [items, marginMultiplier, discountCents, taxRateBp, laborRateById, isLaborSplitEnabled, sectionCalculation]);
 
   const grandTotals = useMemo(() => {
-    const rootItems = itemsByParent.get("root") ?? [];
+    const rootItems = itemsByParent.get(ITEMS_BY_PARENT_ROOT_KEY) ?? [];
     let foTotal = 0;
     let moTotal = 0;
     let htTotal = 0;

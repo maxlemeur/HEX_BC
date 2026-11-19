@@ -15,6 +15,7 @@ import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
+import { normalizeFeatureFlagKey } from "@/lib/feature-flag-keys";
 
 type FeatureFlagRecord = {
   tenant_id: string;
@@ -35,10 +36,6 @@ type ApiEnvelope<T> = {
 };
 
 type StatusFilter = "all" | "enabled" | "disabled";
-
-function normalizeFeatureFlagKey(value: string) {
-  return value.trim().toUpperCase();
-}
 
 async function fetchFeatureFlags([
   route,

@@ -29,12 +29,13 @@ import { assertNormalizedBox } from "@/lib/takeoff/lab/geometry";
 import { scoreLabExtraction } from "@/lib/takeoff/lab/score";
 import {
   canonicalJson, elementIdOf, listJsonFiles, outputSubdirectory, readDecisionsTokenCap, readLabJson, requireLabPaths, runFile,
-  sha256Hex, writeLabJson, type LabPaths,
+  writeLabJson, type LabPaths,
 } from "@/lib/takeoff/lab/storage";
 import { findLabTask, vectorGroupsQuestionTemplate, type LabTask } from "@/lib/takeoff/lab/tasks";
 import { runVectorGroupsConfig, choiceLabel } from "@/lib/takeoff/lab/vectors";
 import { isDecisionsRunStop } from "@/lib/takeoff/vectors/group-decisions-server";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
+import { sha256Hex } from "@/lib/takeoff/sha256";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 
 // One essai of the takeoff lab (TI-661): a document (whole PDF, or one page

@@ -58,7 +58,8 @@ export type ResolvedImportStructure = {
 const FOOTER_TITLE_PATTERN = /^(?:sous[- ]?total|total(?:\s+(?:h\.?t\.?|t\.?t\.?c\.?|general))?|totaux)\b/i;
 const LEGAL_FOOTER_TITLE_PATTERN =
   /^(?:conditions?\s+(?:generales?|particulieres?|de\s+validite)|mentions?\s+legales?|validite\s+(?:de\s+)?(?:l['’])?offre|offre\s+valable|(?:les|nos)\s+prix\s+(?:sont|restent)|toute\s+commande|bon\s+pour\s+accord)\b/i;
-const EMPTY_SENTINELS = new Set(["", "-", "--", "—", "–", "pm", "p.m.", "n/a", "na"]);
+/** Cell texts read as an empty value once the caller has normalised them. */
+export const EMPTY_CELL_SENTINELS = new Set(["", "-", "--", "—", "–", "pm", "p.m.", "n/a", "na"]);
 
 function asText(value: unknown): string {
   if (typeof value === "string") return value.trim();
@@ -73,7 +74,7 @@ function normalizeToken(value: unknown) {
 }
 
 function isEmptyLike(value: unknown) {
-  return EMPTY_SENTINELS.has(normalizeToken(value));
+  return EMPTY_CELL_SENTINELS.has(normalizeToken(value));
 }
 
 function parseNumericValue(value: unknown): number | null {
@@ -119,7 +120,8 @@ function hasLineQuantity(mappedRow: JsonRecord) {
   return quantity !== null && quantity > 0;
 }
 
-function resolveTitle(mappedRow: JsonRecord) {
+/** A row's title: its designation, else its reference (or HEX code). */
+export function resolveImportRowTitle(mappedRow: JsonRecord) {
   return asText(mappedRow.designation) || asText(mappedRow.reference ?? mappedRow.hex_code);
 }
 
@@ -148,7 +150,7 @@ function isDesignationMerged(row: ImportStructureRow, title: string) {
 }
 
 function buildCandidate(row: ImportStructureRow): ImportStructureCandidate | null {
-  const title = resolveTitle(row.mappedRow);
+  const title = resolveImportRowTitle(row.mappedRow);
   if (!title || hasUsablePrice(row.mappedRow)) return null;
 
   const structure = readImportRowStructure(row.rawRow);
@@ -189,22 +191,22 @@ export function analyzeImportStructure(rows: ImportStructureRow[]): ImportStruct
   // a heading without quantity, or another such « Sous-total »; a line with a quantity further on) is ignored
   // alone and the lines after it are kept. Any other total or legal row, a « Sous-total » followed by priced
   // options, or the last « Sous-total » block still starts the footer.
-  const titledRows = sortedRows.filter((row) => resolveTitle(row.mappedRow));
+  const titledRows = sortedRows.filter((row) => resolveImportRowTitle(row.mappedRow));
   const lastQuantityRowIndex = titledRows.reduce((last, row) =>
-    !isFooterTitle(resolveTitle(row.mappedRow)) && hasLineQuantity(row.mappedRow) ? row.rowIndex : last,
+    !isFooterTitle(resolveImportRowTitle(row.mappedRow)) && hasLineQuantity(row.mappedRow) ? row.rowIndex : last,
   Number.NEGATIVE_INFINITY);
-  const isSubtotalRow = (row: ImportStructureRow) => SUBTOTAL_TITLE_PATTERN.test(stripAccents(resolveTitle(row.mappedRow)));
+  const isSubtotalRow = (row: ImportStructureRow) => SUBTOTAL_TITLE_PATTERN.test(stripAccents(resolveImportRowTitle(row.mappedRow)));
   const intermediateSubtotalRowIndexes = new Set<number>();
   for (let index = titledRows.length - 1; index >= 0; index -= 1) {
     const row = titledRows[index]!;
     const next = titledRows[index + 1];
     if (!next || !isSubtotalRow(row) || row.rowIndex >= lastQuantityRowIndex) continue;
-    const nextIsHeading = !isFooterTitle(resolveTitle(next.mappedRow)) && !hasLineQuantity(next.mappedRow);
+    const nextIsHeading = !isFooterTitle(resolveImportRowTitle(next.mappedRow)) && !hasLineQuantity(next.mappedRow);
     if (nextIsHeading || intermediateSubtotalRowIndexes.has(next.rowIndex)) intermediateSubtotalRowIndexes.add(row.rowIndex);
   }
 
   for (const row of sortedRows) {
-    const title = resolveTitle(row.mappedRow);
+    const title = resolveImportRowTitle(row.mappedRow);
     const isFooterRow = Boolean(title) && isFooterTitle(title);
     const isIntermediateSubtotal = intermediateSubtotalRowIndexes.has(row.rowIndex);
     if (!footerStarted && isFooterRow && !isIntermediateSubtotal) {

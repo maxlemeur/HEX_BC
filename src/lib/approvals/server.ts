@@ -240,7 +240,7 @@ export async function markApprovalQueueItemState(
   }
 
   const { error } = await supabase
-    .from("approval_queue_reviewer_states" as never)
+    .from("approval_queue_reviewer_states")
     .upsert(
       {
         tenant_id: tenantId,

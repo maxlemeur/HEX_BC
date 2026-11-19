@@ -1,6 +1,6 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { createMaterialRequestTechnicianSchema } from "@/lib/material-requests/contracts";
-import { readJsonBody } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
 import {
   createMaterialRequestTechnician,
   listMaterialRequestTechnicians,

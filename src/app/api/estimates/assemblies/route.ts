@@ -3,10 +3,7 @@ import {
   createEstimateAssemblySchema,
   listEstimateAssembliesQuerySchema,
 } from "@/lib/estimates/schemas";
-import {
-  createEstimateAssembly,
-  listEstimateAssemblies,
-} from "@/lib/estimates/server";
+import { createEstimateAssembly, listEstimateAssemblies } from "@/lib/estimates/assemblies-server";
 import { parseJsonBody, parsePositiveIntParam } from "@/lib/http/request";
 
 export async function GET(request: Request) {

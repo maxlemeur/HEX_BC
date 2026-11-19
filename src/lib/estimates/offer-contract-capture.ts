@@ -24,7 +24,7 @@ export class OfferCaptureError extends Error {
   }
 }
 
-function incomplete(): never {
+export function incomplete(): never {
   throw new OfferCaptureError();
 }
 

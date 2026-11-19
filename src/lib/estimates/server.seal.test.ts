@@ -47,12 +47,9 @@ vi.mock("@/lib/estimates/offer-document", async (importOriginal) => {
   };
 });
 
-import {
-  buildCanonicalEstimateSealPayload,
-  computeEstimateSealHash,
-  patchEstimateStatus,
-  verifyEstimateSeal,
-} from "@/lib/estimates/server";
+import { buildCanonicalEstimateSealPayload, computeEstimateSealHash } from "@/lib/estimates/estimate-seal";
+import { patchEstimateStatus } from "@/lib/estimates/version-lifecycle-server";
+import { verifyEstimateSeal } from "@/lib/estimates/version-seal-server";
 import { evaluateEstimateSendGating } from "./gating";
 import { loadVerifiedOfferDocument } from "@/lib/estimates/offer-document";
 import { generateEstimatePdfNow } from "./pdf-generator";

@@ -10,15 +10,15 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedTenantContext: vi.fn(),
 }));
 
-vi.mock("@/lib/purchase-orders", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/purchase-orders")>(),
+vi.mock("@/lib/purchase-orders/access", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/purchase-orders/access")>(),
   getAccessiblePurchaseOrderOrNull: vi.fn(),
 }));
 
 import { GET } from "@/app/api/purchase-orders/[id]/zip/route";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
+import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders/access";
 
 const ORDER_ID = "55555555-5555-4555-8555-555555555555";
 const USER_ID = "11111111-1111-4111-8111-111111111111";

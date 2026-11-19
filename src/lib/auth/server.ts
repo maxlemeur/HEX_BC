@@ -2,21 +2,9 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 
 import { readActiveTenantMembership, readAuthenticatedUser } from "@/lib/auth/tenant-context";
+import type { UserProfile } from "@/lib/auth/user-context";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { normalizeUiMode, type UiMode } from "@/lib/ui-mode";
-import type { Database } from "@/types/database";
-
-export type UserProfile = {
-  id: string;
-  full_name: string;
-  phone: string | null;
-  job_title: string | null;
-  work_email: string | null;
-  role: "buyer" | "site_manager" | "admin";
-  ui_mode: UiMode;
-  tenant_id: string | null;
-  tenant_role: Database["public"]["Enums"]["tenant_role"] | null;
-};
+import { normalizeUiMode } from "@/lib/ui-mode";
 
 export const getSupabase = cache(async () => createSupabaseServerClient());
 

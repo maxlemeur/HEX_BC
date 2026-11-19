@@ -127,7 +127,7 @@ async function findProjectPlanSet(input: {
   project: SyncProject;
 }) {
   const { data, error } = await readAllRows(() => input.supabase
-    .from("plan_sets" as never)
+    .from("plan_sets")
     .select("id, estimate_version_id, name, metadata, updated_at, plan_files(count)" as never, { count: "exact" })
     .eq("project_id" as never, input.project.id as never)
     .order("updated_at" as never, { ascending: false }));
@@ -165,7 +165,7 @@ async function createProjectPlanSet(input: {
   createdBy: string | null;
 }) {
   const response = await input.supabase
-    .from("plan_sets" as never)
+    .from("plan_sets")
     .insert(
       {
         id: stableImportPlanSetId(input.project.tenant_id, input.project.id, null),
@@ -209,7 +209,7 @@ async function listSyncedPlanFiles(input: {
   planSetId: string;
 }) {
   const { data, error } = await readAllRows(() => input.supabase
-    .from("plan_files" as never)
+    .from("plan_files")
     .select("id, file_path, file_size_bytes, metadata" as never, { count: "exact" })
     .eq("plan_set_id" as never, input.planSetId as never));
 
@@ -260,7 +260,7 @@ async function deleteSyncedPlanFiles(input: {
     const status = Number((remaining.error as { statusCode?: string; status?: number } | null)?.statusCode
       ?? (remaining.error as { status?: number } | null)?.status);
     if (remaining.data || !remaining.error || ![400, 404].includes(status)) throw new Error("Plan cleanup storage removal was not confirmed");
-    const { error: deleteError } = await input.supabase.from("plan_files" as never).delete()
+    const { error: deleteError } = await input.supabase.from("plan_files").delete()
       .eq("id", file.id).contains("metadata", { intake_cleanup_pending: true });
     if (deleteError) throw deleteError;
     removed += 1;
@@ -353,7 +353,7 @@ async function createSyncedPlanFile(input: {
   if (!input.existing) {
     // Persist the deterministic reservation before upload: Storage RLS can then
     // authorize the path and a later refresh can recover an interrupted upload.
-    const { error: insertError } = await input.supabase.from("plan_files" as never).insert({
+    const { error: insertError } = await input.supabase.from("plan_files").insert({
       id: fileId, tenant_id: input.project.tenant_id, plan_set_id: input.planSetId,
       file_path: filePath, file_name: fileName, file_type: "application/pdf",
       file_size_bytes: sourceBlob.size, page_count: null, file_hash: null,
@@ -361,7 +361,7 @@ async function createSyncedPlanFile(input: {
     } as never);
     if (insertError) {
       if (insertError.code !== "23505") throw insertError;
-      const { data: existing, error } = await input.supabase.from("plan_files" as never)
+      const { data: existing, error } = await input.supabase.from("plan_files")
         .select("id,file_path,file_size_bytes,metadata" as never).eq("id", fileId).maybeSingle();
       const row = existing as unknown as PlanFileRow | null;
       if (error || !row || row.file_path !== filePath || row.metadata?.intake_document_id !== input.document.id ||

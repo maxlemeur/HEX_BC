@@ -18,7 +18,7 @@ import {
 } from "@/lib/estimates/engine-v3";
 import { resolveMarginMultiplier, type MarginTier } from "@/lib/estimates/margin-tiers";
 import { saleCoefficientSchema } from "@/lib/estimates/v3-schemas";
-import { normalizeEstimateCurrency, type SupportedEstimateCurrency } from "@/lib/money";
+import { MAX_CENTS, normalizeEstimateCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { formatDecimalInput, parseAmountCents, parseCoefficient, parseRateBp } from "@/lib/numeric-input/parsers";
 import { ESTIMATE_LINE_PRICING_STATUSES } from "@/lib/units/normalize";
 
@@ -110,7 +110,6 @@ export class EstimateV3SettingsError extends Error {
   }
 }
 
-const MAX_DISCOUNT_AMOUNT_CENTS = 2_147_483_647;
 const MAX_RATE_BP = 10_000;
 
 const COEFFICIENT_LABELS: Record<"sale_coefficient_fo" | "sale_coefficient_mo", "FO" | "MO"> = {
@@ -135,7 +134,7 @@ export function isValidEstimateV3SaleCoefficient(value: unknown): value is numbe
 }
 
 function isValidDiscountAmount(value: number) {
-  return Number.isSafeInteger(value) && value >= 0 && value <= MAX_DISCOUNT_AMOUNT_CENTS;
+  return Number.isSafeInteger(value) && value >= 0 && value <= MAX_CENTS;
 }
 
 function isValidRateBp(value: number) {

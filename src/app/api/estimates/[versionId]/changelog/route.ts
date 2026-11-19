@@ -3,15 +3,12 @@ import { z } from "zod";
 
 import { getOrBuildEstimateChangelog } from "@/lib/estimates/changelog";
 import { badRequest, notFound, ok, toErrorResponse } from "@/lib/http/api-response";
+import { uuidRouteParam } from "@/lib/http/request";
 import { renderEstimateChangelogPdfBuffer } from "@/lib/estimates/pdf-generator";
-import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
 
 const querySchema = z.object({
   compare: z.string().uuid("compare invalide."),
@@ -40,15 +37,15 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.parse(await params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const query = parseQuery(request);
 
-    if (query.compare === parsedParams.versionId) {
+    if (query.compare === versionId) {
       throw badRequest("La comparaison doit cibler une autre version.");
     }
 
     const [currentDetails, previousDetails] = await Promise.all([
-      getEstimateVersionDetails(parsedParams.versionId),
+      getEstimateVersionDetails(versionId),
       getEstimateVersionDetails(query.compare),
     ]);
 

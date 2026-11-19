@@ -7,6 +7,7 @@ import {
   mapSupabaseError,
 } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
+import { toSafeInteger } from "@/lib/value-guards";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type KpiRow =
@@ -93,21 +94,6 @@ function normalizeOwnerUserId(ownerUserId: string | null | undefined): string | 
 
 function isAdminRole(role: TenantRole | null | undefined): role is "admin" {
   return role === "admin";
-}
-
-function toSafeInteger(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.trunc(value);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return 0;
 }
 
 function toSafeNumber(value: unknown): number {

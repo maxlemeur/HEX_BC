@@ -1,4 +1,4 @@
-import { MAX_CENTS } from "@/lib/estimate-calculations";
+import { MAX_CENTS } from "@/lib/money";
 import { assertNoPendingEstimateBatch } from "@/lib/estimates/batch-intentions";
 import { EstimateApiError, isEstimateApiError } from "@/lib/estimates/client-errors";
 import { requestJsonUncoordinated } from "@/lib/estimates/client-http";

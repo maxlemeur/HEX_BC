@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import type { SuggestionRuleCreatePayload } from "@/lib/estimates/editor-table-types";
 import type { Database } from "@/types/database";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,18 +18,6 @@ type SuggestionRule =
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
-
-export type SuggestionRuleCreatePayload = {
-  name: string;
-  match_value: string;
-  unit: string | null;
-  category_id: string | null;
-  k_fo: number | null;
-  k_mo: number | null;
-  labor_role_id: string | null;
-  position: number | null;
-  is_active: boolean;
-};
 
 type EstimateSuggestionRulesManagerProps = {
   rules: SuggestionRule[];

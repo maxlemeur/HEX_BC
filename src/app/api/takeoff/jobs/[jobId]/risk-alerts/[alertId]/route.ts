@@ -1,8 +1,7 @@
 import { parseUpdateTakeoffRiskAlertStatusResponse } from "@/lib/takeoff/risk-response-contracts";
-import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { updateTakeoffRiskAlertStatus } from "@/lib/takeoff/server";
 
 async function getParams(
@@ -22,12 +21,6 @@ export async function PATCH(
 
     return ok(parseUpdateTakeoffRiskAlertStatusResponse(data, { jobId, alertId, status: body.status, reviewNote: body.review_note }));
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

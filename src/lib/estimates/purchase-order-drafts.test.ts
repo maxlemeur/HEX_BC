@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-read-server", () => ({
   listEstimateItemRows: vi.fn(),
+}));
+vi.mock("@/lib/estimates/supplier-comparison-server", () => ({
   getEstimateSupplierComparisons: vi.fn(),
 }));
 vi.mock("@/lib/auth/tenant-context", () => ({
@@ -14,7 +16,8 @@ import {
   getEstimatePurchaseOrderDraftPreparation,
   getEstimatePurchaseOrderReadinessCounts,
 } from "@/lib/estimates/purchase-order-drafts";
-import { getEstimateSupplierComparisons, listEstimateItemRows } from "@/lib/estimates/server";
+import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
+import { listEstimateItemRows } from "@/lib/estimates/version-read-server";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";

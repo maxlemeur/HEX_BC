@@ -97,7 +97,7 @@ export function assertNativeRuntimeHost(host: NativeRuntimeHost) {
   }
 }
 
-function currentNativeRuntimeHost(): NativeRuntimeHost {
+export function currentNativeRuntimeHost(): NativeRuntimeHost {
   const report = process.report?.getReport() as
     | { header?: { glibcVersionRuntime?: string } }
     | undefined;

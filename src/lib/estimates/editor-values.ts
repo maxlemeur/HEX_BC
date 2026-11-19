@@ -22,6 +22,14 @@ export function parseNullableNumberInput(value: string): number | null {
   return parseDecimalInput(value);
 }
 
+export function parseNonNegativeNumberInput(value: string): number | null {
+  const parsedValue = parseDecimalInput(value);
+  if (parsedValue === null) {
+    return null;
+  }
+  return Math.max(parsedValue, 0);
+}
+
 // Grid and settings adapters of the D11 per-quantity parsers (2.3 review): the reading of the
 // import and the paste, at the v1/v2 stored precision (quantity, h MO, K FO, K MO numeric(12,3)).
 // Excess decimals are refused instead of being rounded by PostgreSQL on write, and the stored

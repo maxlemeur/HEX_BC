@@ -6,7 +6,7 @@ import { readAffaireBriefDraft, requireAffaireProjectReadAccess } from "@/lib/af
 import { normalizeIntakeTranscription } from "@/lib/affaires/intake-transcription";
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
 import { charsetOf, documentReadType, UNREADABLE_FORMAT } from "@/lib/assistant/document-reading";
-import { AssistantToolError, withUserFacingRefusals } from "@/lib/assistant/loop";
+import { AssistantToolError, isUserFacingRefusal, withUserFacingRefusals } from "@/lib/assistant/loop";
 
 const NO_ACCESS = "Vous n’avez pas accès aux pièces de cette affaire.";
 const NOT_IN_AFFAIRE = "Cette pièce n’appartient pas à l’affaire de cette conversation, ou n’est plus disponible. Liste les pièces pour en choisir une.";
@@ -14,17 +14,12 @@ const KIND_ORDER: AffaireIntakeDocumentKind[] = ["cctp", "dpgf", "bpu_dqe", "pla
 const REGISTER_ENTRIES = 25;
 const REGISTER_TEXT = 500;
 
-function isClientError(error: unknown) {
-  const status = (error as { status?: unknown } | null)?.status;
-  return error instanceof Error && typeof status === "number" && status >= 400 && status < 500;
-}
-
 /** The member may still read the affaire (owner, admin or director): checked again by every read, with their own rights. */
 async function affaireAccess(projectId: string) {
   try {
     return await requireAffaireProjectReadAccess(projectId);
   } catch (error) {
-    if (isClientError(error)) throw new AssistantToolError(NO_ACCESS);
+    if (isUserFacingRefusal(error)) throw new AssistantToolError(NO_ACCESS);
     throw error;
   }
 }

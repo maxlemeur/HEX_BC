@@ -25,6 +25,7 @@ import {
   computeOrderTotals,
 } from "@/lib/order-calculations";
 import { parseEuroToCents } from "@/lib/money";
+import { PURCHASE_ORDER_DEFAULT_TAX_RATE_BP } from "@/lib/purchase-orders/line-kinds";
 import { parseOrderQuantityInput } from "@/lib/purchase-orders/quantities";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -52,7 +53,7 @@ function newDraftItem(): DraftItem {
     quantityInput: "1",
     unitInput: "",
     unitPriceEuros: "",
-    taxRateBp: 2000,
+    taxRateBp: PURCHASE_ORDER_DEFAULT_TAX_RATE_BP,
   };
 }
 

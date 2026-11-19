@@ -43,6 +43,7 @@ import { assertCanWriteEstimateWorkflows } from "./write-access";
 import { keepTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 import { toNonEmptyString } from "@/lib/value-guards";
 import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
+import { normalizeSectionTitleKey } from "@/lib/estimates/estimate-structure-draft";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -452,17 +453,6 @@ export async function withEstimateAiGenerationLease<T>(input: {
     }
   }
 }
-function normalizeSectionTitleKey(value: string | null | undefined) {
-  const normalized = toNonEmptyString(value);
-  if (!normalized) return "section";
-  return normalized
-    .normalize("NFD")
-    .replace(/\p{Diacritic}+/gu, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
 async function getVersionAccessOrThrow(
   supabase: Supabase,
   versionId: string,

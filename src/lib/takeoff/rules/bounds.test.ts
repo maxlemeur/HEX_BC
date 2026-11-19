@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isRuleBlocked } from "@/lib/takeoff/rules/blocking";
+import { blockingRules } from "@/lib/takeoff/rules/blocking";
 import { TakeoffRuleResultsSchema, boundRuleResults } from "@/lib/takeoff/rules/contracts";
 import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import { pageAnchors } from "@/lib/takeoff/rules/registration";
@@ -50,7 +50,7 @@ const ROOMS_OVERLAP: TakeoffRuleResult = { rule: "room_overlap", status: "fail",
 function expectSameDecision(bounded: readonly TakeoffRuleResult[], original: readonly TakeoffRuleResult[]) {
   expect(bounded.map(({ rule, status, code, version, acceptable }) => ({ rule, status, code, version, acceptable })))
     .toEqual(original.map(({ rule, status, code, version, acceptable }) => ({ rule, status, code, version, acceptable })));
-  for (const verified of [false, true]) expect(isRuleBlocked(bounded, false, verified)).toBe(isRuleBlocked(original, false, verified));
+  for (const verified of [false, true]) expect(blockingRules(bounded, verified).length > 0).toBe(blockingRules(original, verified).length > 0);
 }
 
 describe("rule results within the column's byte budget", () => {

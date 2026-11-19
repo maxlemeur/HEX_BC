@@ -13,7 +13,7 @@ import {
   type EstimateStatus,
 } from "@/lib/estimates/client";
 import {
-  formatCurrency as formatEstimateCurrency,
+  formatCurrency,
   normalizeEstimateCurrency,
   type SupportedEstimateCurrency,
 } from "@/lib/money";
@@ -104,10 +104,6 @@ function formatDate(dateStr: string | null) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const year = date.getFullYear();
   return `${day}/${month}/${year}`;
-}
-
-function formatCurrency(cents: number, currency: SupportedEstimateCurrency) {
-  return formatEstimateCurrency(cents, currency);
 }
 
 function resolveEstimateCurrency(estimate: EstimateListItem): SupportedEstimateCurrency {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { MATERIAL_CODES, NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { MATERIAL_CODES, NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import type { BenchPass } from "@/lib/takeoff/bench/run";
 import type { BenchRuleData } from "@/lib/takeoff/bench/vector-rules";
 import { blockingRules } from "@/lib/takeoff/rules/blocking";

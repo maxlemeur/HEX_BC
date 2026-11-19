@@ -41,20 +41,3 @@ export function isPriceStale(
 }
 
 export type PriceFreshnessLevel = "fresh" | "aging" | "stale";
-
-export function priceFreshnessLevel(
-  input: { updatedAt?: string | null; createdAt?: string | null },
-  now = new Date()
-): { level: PriceFreshnessLevel; ageDays: number } {
-  const rawDate = input.updatedAt ?? input.createdAt ?? null;
-  if (!rawDate) return { level: "fresh", ageDays: 0 };
-
-  const date = new Date(rawDate);
-  if (Number.isNaN(date.getTime())) return { level: "fresh", ageDays: 0 };
-
-  const ageDays = Math.floor((now.getTime() - date.getTime()) / (24 * 60 * 60 * 1000));
-
-  if (ageDays <= 30) return { level: "fresh", ageDays };
-  if (ageDays <= 90) return { level: "aging", ageDays };
-  return { level: "stale", ageDays };
-}

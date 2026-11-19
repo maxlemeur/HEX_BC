@@ -6,11 +6,7 @@ import {
   updateCurrencyRateForTenant,
 } from "@/lib/currency-rates";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
-import { parseJsonBody } from "@/lib/http/request";
-
-const paramsSchema = z.object({
-  rateId: z.string().uuid("rateId invalide."),
-});
+import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 const patchCurrencyRateSchema = z
   .object({
@@ -40,11 +36,6 @@ const deleteCurrencyRateQuerySchema = z.object({
   tenant_id: z.string().uuid("tenant_id invalide.").optional(),
 });
 
-async function getRateId(paramsPromise: Promise<{ rateId: string }>) {
-  const params = await paramsPromise;
-  return paramsSchema.parse(params).rateId;
-}
-
 function parseDeleteQuery(request: Request) {
   const searchParams = new URL(request.url).searchParams;
 
@@ -58,7 +49,7 @@ export async function PATCH(
   { params }: { params: Promise<{ rateId: string }> }
 ) {
   try {
-    const rateId = await getRateId(params);
+    const rateId = await uuidRouteParam(params, "rateId");
     const payload = patchCurrencyRateSchema.parse(await parseJsonBody(request, badRequest));
     const { supabase, userId, defaultTenantId } = await getTenantSettingsActorContext();
     const tenantId = payload.tenant_id ?? defaultTenantId;
@@ -88,7 +79,7 @@ export async function DELETE(
   { params }: { params: Promise<{ rateId: string }> }
 ) {
   try {
-    const rateId = await getRateId(params);
+    const rateId = await uuidRouteParam(params, "rateId");
     const query = parseDeleteQuery(request);
     const { supabase, userId, defaultTenantId } = await getTenantSettingsActorContext();
     const tenantId = query.tenant_id ?? defaultTenantId;

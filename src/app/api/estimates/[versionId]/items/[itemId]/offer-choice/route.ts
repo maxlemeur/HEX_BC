@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { uuidRouteParams } from "@/lib/http/request";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { estimateOfferChoiceInputSchema } from "@/lib/estimates/offer-choice";
 import { readEstimateLineOfferChoiceSuggestion, setEstimateLineOfferChoice } from "@/lib/estimates/offer-choice-server";
@@ -9,15 +8,6 @@ import { readEstimateLineOfferChoiceSuggestion, setEstimateLineOfferChoice } fro
 // line of a v3 draft. If-Match carries the version token; the draft lock header names this page's session.
 // PR 5: the same for the provisional quantity of a priced line resting on a takeoff hypothesis; GET reads what its
 // « Établie sur » starts from (the takeoff line's note).
-
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-  itemId: z.string().uuid("itemId invalide."),
-});
-
-async function readParams(params: Promise<{ versionId: string; itemId: string }>) {
-  return paramsSchema.parse(await params);
-}
 
 function writeInput(request: Request) {
   return {
@@ -28,7 +18,7 @@ function writeInput(request: Request) {
 
 export async function GET(_request: Request, { params }: { params: Promise<{ versionId: string; itemId: string }> }) {
   try {
-    const { versionId, itemId } = await readParams(params);
+    const { versionId, itemId } = await uuidRouteParams(params, "versionId", "itemId");
     return ok(await readEstimateLineOfferChoiceSuggestion({ versionId, itemId }));
   } catch (error) {
     return toErrorResponse(error);
@@ -37,7 +27,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ver
 
 export async function PUT(request: Request, { params }: { params: Promise<{ versionId: string; itemId: string }> }) {
   try {
-    const { versionId, itemId } = await readParams(params);
+    const { versionId, itemId } = await uuidRouteParams(params, "versionId", "itemId");
     let body: unknown;
     try {
       body = await request.json();
@@ -53,7 +43,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ vers
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ versionId: string; itemId: string }> }) {
   try {
-    const { versionId, itemId } = await readParams(params);
+    const { versionId, itemId } = await uuidRouteParams(params, "versionId", "itemId");
     return ok(await setEstimateLineOfferChoice({ versionId, itemId, choice: null, ...writeInput(request) }));
   } catch (error) {
     return toErrorResponse(error);

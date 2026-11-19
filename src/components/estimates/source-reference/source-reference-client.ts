@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import {
   sourceReferenceErrorResponseSchema,
-  sourceReferenceVerifiedCopySchema,
+  type sourceReferenceVerifiedCopySchema,
 } from "@/lib/estimates/source-reference-contracts";
 
 export class SourceReferenceRequestError extends Error {

@@ -17,7 +17,7 @@ import {
   notFound,
   unprocessableEntity,
 } from "@/lib/http/api-response";
-import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
+import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders/access";
 import { deliveryModeOf, lineKindOf, storedOrderAffaire } from "@/lib/purchase-orders/order-lines";
 import { createServiceRoleClient, hasServiceRoleConfig } from "@/lib/supabase/service-role";
 

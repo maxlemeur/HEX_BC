@@ -120,14 +120,6 @@ export function mapSupabaseError(
     return forbidden("Cette version est en lecture seule.", publicDetails, "READ_ONLY");
   }
 
-  if (
-    error.code === "23503" ||
-    error.code === "23514" ||
-    error.code === "22P02"
-  ) {
-    return badRequest(fallbackMessage, publicDetails, "BAD_REQUEST");
-  }
-
   return badRequest(fallbackMessage, publicDetails, "BAD_REQUEST");
 }
 

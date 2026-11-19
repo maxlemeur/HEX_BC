@@ -1,8 +1,8 @@
-import { NETWORK_CODES, NETWORKS, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES, NETWORKS, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import { isNetworkClass } from "@/lib/takeoff/vectors/classify";
 import { isGrey, isNearWhite, lightnessSaturation, parseHexColor } from "@/lib/takeoff/vectors/colors";
 import type { VectorText } from "@/lib/takeoff/vectors/extraction";
-import { distanceToSegment, pointsToMetres, SegmentIndex, type Box, type Segment } from "@/lib/takeoff/vectors/geometry";
+import { boxContains, distanceToSegment, pointsToMetres, SegmentIndex, type Box, type Segment } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines, readLabelBlocks, type LabelBlock } from "@/lib/takeoff/vectors/labels";
 import { commonNetwork, isTintOrShade } from "@/lib/takeoff/vectors/legend";
 import { LEADER_REACH_PT, leaderTips } from "@/lib/takeoff/vectors/measure";
@@ -313,8 +313,8 @@ export function evidenceLayout(model: PageModel, reading: Pick<VectorPageReading
   const { extraction } = model;
   const lines = mergeTextLines(extraction.texts);
   const blocks = readLegendBlocks(model, reading, lines);
-  const inLegend = (x: number, y: number) => blocks.some(({ box }) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1)
-    || reading.legend.boxes.some((box) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1);
+  const inLegend = (x: number, y: number) => blocks.some(({ box }) => boxContains(box, { x, y }))
+    || reading.legend.boxes.some((box) => boxContains(box, { x, y }));
   const keyNearWhite = extraction.groups.map((key) => isNearWhite(key.color));
   const hiddenLayers = new Set(extraction.layers.filter((layer) => !layer.visible).map((layer) => layer.id));
   const keyHidden = extraction.groups.map((key) => key.layer !== null && hiddenLayers.has(key.layer));

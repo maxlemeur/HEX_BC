@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { listActivityCenterJobs } from "@/lib/takeoff/activity-center";
 
 export async function GET(request: Request) {
@@ -50,12 +50,6 @@ export async function GET(request: Request) {
 
     return ok(data);
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

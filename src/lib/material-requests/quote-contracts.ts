@@ -1,14 +1,13 @@
 import { z } from "zod";
 
+import { purchaseOrderPricePerSchema } from "@/lib/purchase-orders/lifecycle-contracts";
+import type { PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
+
 import {
   MATERIAL_REQUEST_MAX_LINES,
-  MATERIAL_REQUEST_PRICE_PER,
   type MaterialRequestFile,
   type MaterialRequestLine,
-  type MaterialRequestPricePer,
 } from "./contracts";
-
-export { MATERIAL_REQUEST_PRICE_PER, type MaterialRequestPricePer };
 
 /**
  * Consulting suppliers for a material request (TI-691, lot 2 « l'achat », delivery 2 « consultation »). The office
@@ -109,7 +108,7 @@ export const MATERIAL_REQUEST_LINE_PRICED = "MATERIAL_REQUEST_LINE_PRICED";
 export const MATERIAL_REQUEST_QUOTE_BUSY = "MATERIAL_REQUEST_QUOTE_BUSY";
 
 /** A line asked in a quote: its price in whole cents excluding tax for `price_per` units, null until priced. */
-export type MaterialRequestQuoteLine = { line_id: string; unit_price_ht_cents: number | null; price_per: MaterialRequestPricePer };
+export type MaterialRequestQuoteLine = { line_id: string; unit_price_ht_cents: number | null; price_per: PurchaseOrderPricePer };
 
 export type MaterialRequestQuote = {
   id: string;
@@ -188,7 +187,7 @@ export const updateQuoteSchema = z
       .array(z.object({
         line_id: uuid,
         unit_price_ht_cents: z.union([cents, z.null()]),
-        price_per: z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]).optional(),
+        price_per: purchaseOrderPricePerSchema.optional(),
       }).strict())
       .min(1, "Aucune ligne à chiffrer.")
       .max(MATERIAL_REQUEST_MAX_LINES, `${MATERIAL_REQUEST_MAX_LINES} lignes au plus.`)

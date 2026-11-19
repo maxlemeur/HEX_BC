@@ -1,6 +1,7 @@
 import { setSupplyTypePreferredSupplier } from "@/lib/catalogue/supply-types-server";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { readJsonBody, supplyTypeParamsSchema } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { supplyTypeParamsSchema } from "@/lib/http/request";
 import { supplyTypePreferredSupplierSchema } from "@/lib/material-requests/supplier-contracts";
 
 type Context = { params: Promise<{ supplyTypeId: string }> };

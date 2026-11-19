@@ -94,8 +94,6 @@ export function DashboardShell({
   tenantName?: string | null;
 }>) {
   const pathname = usePathname();
-  // The navigation is always the workspace top bar + drawer (see dashboard-navigation-mode.ts).
-  const navigationMode = "workspace" as const;
   const isProductionWorkspace = isProductionWorkspaceRoute(pathname);
   const isToolWorkspace = isToolWorkspaceRoute(pathname);
   const userInitials = buildInitials(displayName);
@@ -233,21 +231,20 @@ export function DashboardShell({
   );
   const navigationContextValue = useMemo(
     () => ({
-      mode: navigationMode,
       pathname,
       drawerOpen,
       menuButtonRef,
       openDrawer,
       groups: navGroups,
     }),
-    [drawerOpen, navigationMode, navGroups, openDrawer, pathname]
+    [drawerOpen, navGroups, openDrawer, pathname]
   );
 
 
   return (
     <div
       className="flex min-h-screen flex-col bg-background"
-      data-navigation-mode={navigationMode}
+      data-navigation-mode="workspace"
     >
       <a
         href="#dashboard-main-content"

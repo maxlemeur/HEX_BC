@@ -8,12 +8,12 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-creation-server", () => ({
   createEstimate: vi.fn(),
 }));
 
 import { initializeAffaireDraft } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
-import { createEstimate } from "@/lib/estimates/server";
+import { createEstimate } from "@/lib/estimates/version-creation-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";

@@ -1,5 +1,5 @@
 import { readAllRows } from "@/lib/supabase/read-all";
-import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { getAuthenticatedContext, isTenantAdmin } from "@/lib/estimates/server-context";
 import {
   mapSupabaseError,
   ok,
@@ -7,19 +7,13 @@ import {
 } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 
-type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type EstimateStatsVersionRow = Pick<
   Database["public"]["Tables"]["estimate_versions"]["Row"],
   "id" | "status" | "created_at" | "updated_at" | "total_ht_cents"
 >;
 
-const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const TREND_MONTHS = 6;
-
-function isTenantAdmin(role: TenantRole) {
-  return role === TENANT_ADMIN_ROLE;
-}
 
 function toMonthKey(dateValue: string): string | null {
   const parsed = new Date(dateValue);
@@ -52,21 +46,9 @@ function buildRecentMonths(now: Date, count: number) {
   });
 }
 
-async function getActorContext() {
-  const { supabase, userId, tenantId, tenantRole } =
-    await getAuthenticatedTenantContext();
-
-  return {
-    supabase,
-    userId,
-    tenantId,
-    tenantRole,
-  };
-}
-
 export async function GET() {
   try {
-    const { supabase, userId, tenantId, tenantRole } = await getActorContext();
+    const { supabase, userId, tenantId, tenantRole } = await getAuthenticatedContext();
 
     let versionsQuery = supabase
       .from("estimate_versions")

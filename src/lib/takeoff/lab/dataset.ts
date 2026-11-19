@@ -8,7 +8,8 @@ import { badRequest, conflict, notFound } from "@/lib/http/api-response";
 import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
 import { ManifestSchema, TruthFileSchema } from "@/lib/takeoff/bench/schemas";
 import { LAB_DATASET_LAYOUT, LAB_NAME_PATTERN, type LabDocumentSummary } from "@/lib/takeoff/lab/contracts";
-import { readLabConfiguration, sha256Hex } from "@/lib/takeoff/lab/storage";
+import { readLabConfiguration } from "@/lib/takeoff/lab/storage";
+import { sha256Hex } from "@/lib/takeoff/sha256";
 
 // Documents of the takeoff lab (TI-661): the PDF binaries of the dataset's
 // manifest.json (the private L0 dataset, or a fictional one in E2E) and two

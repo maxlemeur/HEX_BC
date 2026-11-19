@@ -28,7 +28,7 @@ import {
   type ProductCatalogueStatus,
   type ProductValidationField,
 } from "@/lib/catalogue/product-validation";
-import { parseEuroToCents } from "@/lib/money";
+import { euroInputFromCents, parseEuroToCents } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /** A supply type of the tenant, as `/api/catalogue?view=page` lists them. */
@@ -148,10 +148,6 @@ function initialUnit(product: ProductRecord | null) {
   if (product?.unit?.trim()) return product.unit;
   // A draft without a unit must show it: validation needs one, and a default "u" would hide the gap.
   return product?.catalogue_status === "draft" ? "" : "u";
-}
-
-function euroInputFromCents(value: number) {
-  return (value / 100).toFixed(2).replace(".", ",");
 }
 
 function initialFormState(product: ProductRecord | null): ProductFormState {

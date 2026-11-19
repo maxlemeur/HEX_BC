@@ -1,5 +1,5 @@
 import {
-  MM_PER_POINT, SegmentIndex, distanceToSegment, orientation, orientationGap, segmentLength, textFrame, type Segment,
+  MM_PER_POINT, SegmentIndex, distanceToSegment, orientation, orientationGap, segmentLength, textCentre, textFrame, type Segment,
 } from "@/lib/takeoff/vectors/geometry";
 import type { VectorText } from "@/lib/takeoff/vectors/extraction";
 
@@ -76,12 +76,6 @@ export type PageScale = {
 const SCALE_PATTERN = /(?:^|[^\d/])1\s*[/:]\s*(\d{1,4})(?![\d/])/g;
 const SHEET_NUMBER = /\b(?:page|planche|pl\.|folio|feuille|f°)\s*\d/i;
 const LABEL_PATTERN = /[ée]chelle|\bscale\b|\bech\b/i;
-
-function centre(text: VectorText) {
-  // x, y is the baseline start; the glyph box rises perpendicular to the baseline.
-  const c = Math.cos(text.angle), s = Math.sin(text.angle);
-  return { x: text.x + (c * text.width) / 2 + (s * text.height) / 2, y: text.y + (s * text.width) / 2 - (c * text.height) / 2 };
-}
 
 function near(label: VectorText, value: VectorText) {
   const h = Math.max(label.height, value.height, 1);
@@ -176,7 +170,7 @@ export function findCotes(texts: readonly VectorText[], index: SegmentIndex, den
   for (const text of texts) {
     const parsed = parseCote(text.str);
     if (!parsed || text.height <= 0) continue;
-    const c = centre(text);
+    const c = textCentre(text);
     const h = text.height;
     let best: { segment: Segment; distance: number } | null = null;
     for (const id of index.near(c, Math.max(1.5 * h, text.width))) {

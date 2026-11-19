@@ -1,4 +1,5 @@
 import {
+  normalizedReference,
   SUPPORTED_TEMPLATE_VERSIONS,
   type ProductPriceTemplateIssue,
   type ProductPriceTemplateParseResult,
@@ -135,10 +136,6 @@ function parseDate(value: WorkbookCell, xlsx: XlsxModule): string | null {
 
   const text = textValue(value);
   return isRealIsoDate(text) ? text : null;
-}
-
-function normalizedReference(value: string): string {
-  return value.trim().toLocaleLowerCase("fr-FR");
 }
 
 function sheetRows(sheet: XlsxWorkSheet, xlsx: XlsxModule): WorkbookCell[][] {

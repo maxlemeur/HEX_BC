@@ -31,8 +31,3 @@ export type LeftOut = (result: TakeoffRuleResult) => boolean;
 export function blockingRules(results: readonly TakeoffRuleResult[] | null | undefined, isVerified: boolean, leftOut?: LeftOut) {
   return failedRules(results).filter((entry) => (!entry.acceptable || !isVerified) && !leftOut?.(entry));
 }
-
-export function isRuleBlocked(results: readonly TakeoffRuleResult[] | null | undefined, stale: boolean, isVerified: boolean,
-  leftOut?: LeftOut) {
-  return stale || blockingRules(results, isVerified, leftOut).length > 0;
-}

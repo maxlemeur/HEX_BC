@@ -8,8 +8,9 @@ import {
   getImportOrThrow,
   type Supabase,
 } from "@/lib/affaires/import-flow-server";
+import { ensureEngineerOrAdmin } from "@/lib/auth/engineer-or-admin";
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
-import { createEstimate } from "@/lib/estimates/server";
+import { createEstimate } from "@/lib/estimates/version-creation-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { toNonEmptyString } from "@/lib/value-guards";
 
@@ -45,12 +46,6 @@ function revalidateQuickCreatePaths(projectId: string, versionId: string | null)
 
   if (versionId) {
     revalidatePath(`/dashboard/estimates/${versionId}/edit`);
-  }
-}
-
-function ensureEngineerOrAdmin(role: string) {
-  if (role !== "engineer" && role !== "admin") {
-    throw new Error("Accès refuse: rôle non autorise pour cette action.");
   }
 }
 

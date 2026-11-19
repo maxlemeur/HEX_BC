@@ -1,5 +1,6 @@
 import { fetchApi } from "@/components/catalogue/api";
 import type { ExportColumn } from "@/lib/export";
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
 
 import {
   formatOrderDate,
@@ -7,7 +8,6 @@ import {
   statusLabel,
   type OrderItemRow,
   type PurchaseOrderListRow,
-  type PurchaseOrderStatus,
 } from "./orders-model";
 
 /** TI-691: an order made from a material request names its affaire (null otherwise, or when the caller cannot read it). */
@@ -29,7 +29,7 @@ type ItemExportRow = {
   delivery_site: string;
   affaire: string;
   expected_delivery_date: string | null;
-  status: PurchaseOrderStatus;
+  status: OrderStatus;
   order_total_ht_cents: number;
   item_designation: string;
   item_reference: string | null;
@@ -74,7 +74,7 @@ export const ORDER_EXPORT_COLUMNS: ExportColumn<ExportOrder>[] = [
   {
     key: "status",
     header: "Statut",
-    formatter: (value) => statusLabel(value as PurchaseOrderStatus),
+    formatter: (value) => statusLabel(value as OrderStatus),
   },
   {
     key: "total_ht_cents",
@@ -101,7 +101,7 @@ export const ITEM_EXPORT_COLUMNS: ExportColumn<ItemExportRow>[] = [
   {
     key: "status",
     header: "Statut",
-    formatter: (value) => statusLabel(value as PurchaseOrderStatus),
+    formatter: (value) => statusLabel(value as OrderStatus),
   },
   {
     key: "order_total_ht_cents",

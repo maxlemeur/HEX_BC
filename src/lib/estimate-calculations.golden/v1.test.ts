@@ -13,10 +13,10 @@ import {
   computeInitialDiscountCents,
   computeStoredDiscountCents,
   normalizeDraftItems,
-  UNASSIGNED_SUPPLY_TYPE_KEY,
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
+import { UNASSIGNED_SUPPLY_TYPE_KEY } from "@/lib/estimate-v2-snapshot";
 import { computeDraftBreakdown } from "@/hooks/useEstimateEditorCalculation";
 import { buildEditorSettingsFromVersion, buildHistoricalSettingsPayload } from "@/lib/estimates/editor-settings-state";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";

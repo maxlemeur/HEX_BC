@@ -1,18 +1,12 @@
-import { z } from "zod";
-
 import {
   estimateExplanationDetailQuerySchema,
   estimateExplanationResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
+import { uuidRouteParams } from "@/lib/http/request";
 import { getEstimateLineExplanation } from "@/lib/estimates/explanations";
 
 export const runtime = "nodejs";
-
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-  lineId: z.string().uuid("lineId invalide."),
-});
 
 function parseQuery(request: Request) {
   const searchParams = new URL(request.url).searchParams;
@@ -26,11 +20,11 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string; lineId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.parse(await params);
+    const { versionId, lineId } = await uuidRouteParams(params, "versionId", "lineId");
     const query = parseQuery(request);
     const explanation = await getEstimateLineExplanation({
-      versionId: parsedParams.versionId,
-      lineId: parsedParams.lineId,
+      versionId,
+      lineId,
       includeDetail: query.detail,
     });
 

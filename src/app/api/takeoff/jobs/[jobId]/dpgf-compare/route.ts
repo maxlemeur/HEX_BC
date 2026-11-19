@@ -1,7 +1,5 @@
-import { NextResponse } from "next/server";
-
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { parseTakeoffDpgfComparisonResponse } from "@/lib/takeoff/dpgf-comparison-contracts";
 import { buildTakeoffRowRiskMap } from "@/lib/takeoff/risk-radar";
 import {
@@ -39,12 +37,6 @@ export async function GET(
       jobId, versionId: query.version_id, view: query.view, cursor: query.cursor,
     }));
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

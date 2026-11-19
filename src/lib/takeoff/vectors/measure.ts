@@ -1,4 +1,4 @@
-import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
+import type { MaterialCode, NetworkCode } from "@/lib/takeoff/trade-keys";
 import { isMeasuredNetwork, type GroupClass } from "@/lib/takeoff/vectors/classify";
 import { lightnessSaturation, parseHexColor } from "@/lib/takeoff/vectors/colors";
 import {

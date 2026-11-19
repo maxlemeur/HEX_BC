@@ -604,7 +604,7 @@ La table ([`network-diameters.ts`](../../src/lib/takeoff/rules/network-diameters
     famille suivent la même décision. « Acier » couvre l'acier noir et l'acier sans
     finition précisée ; l'acier galvanisé n'est admis que là où il est nommé.
 - **Séries** : celles des normes produit de la table des diamètres de L0
-  ([`diameters.ts`](../../src/lib/takeoff/bench/diameters.ts), version 3 ; ajouts de
+  ([`diameters.ts`](../../src/lib/takeoff/diameters.ts), version 3 ; ajouts de
   TI-664 : cuivre 6 et 8 mm, fonte DN 80, PER 40 à 63, PP 16).
   - Cuivre NF EN 1057, inox à sertir NF EN 10312 série 2, inox soudé NF EN ISO 1127.
   - PVC NF EN 1329-1 et 1452, fonte SMU NF EN 877. Le PVC d'évacuation et le PVC pression partagent une famille de L0 : leurs diamètres sont séparés ici.

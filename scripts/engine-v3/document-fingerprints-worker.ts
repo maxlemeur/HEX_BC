@@ -28,7 +28,9 @@ import {
 import { toEstimatePdfTermsConfiguration } from "@/lib/estimates/pdf-terms";
 import { readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { formatEstimateReference } from "@/lib/estimates/reference";
-import { loadEstimateSealSource, patchEstimateStatus, verifyEstimateSeal } from "@/lib/estimates/server";
+import { loadEstimateSealSource } from "@/lib/estimates/version-lifecycle-repository";
+import { patchEstimateStatus } from "@/lib/estimates/version-lifecycle-server";
+import { verifyEstimateSeal } from "@/lib/estimates/version-seal-server";
 import { freezeEstimateV2Snapshot } from "@/lib/estimates/v2-snapshot-server";
 import { normalizeEstimateCurrency } from "@/lib/money";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";

@@ -53,14 +53,6 @@ const AUTO_REFRESH_MAX_MS = 60_000;
 const UPLOAD_REFRESH_INTERVAL_MS = 2_000;
 const UPLOAD_REFRESH_MAX_ATTEMPTS = 15;
 
-function isDocumentProcessing(doc: WorkspaceData["documents"][number]) {
-  return isAffaireIntakeDocumentProcessing(doc);
-}
-
-function isDocumentNeedsReview(doc: WorkspaceData["documents"][number]) {
-  return isAffaireIntakeDocumentNeedingReview(doc);
-}
-
 function parseBriefBlockSearchParam(
   value: string | null
 ): AffaireIntakeBriefBlockKey | null {
@@ -157,7 +149,7 @@ export function IntakeWorkspace({
   }, [onReload]);
 
   const lastScrolledFocusKeyRef = useRef<string | null>(null);
-  const hasProcessingDocs = workspace?.documents.some(isDocumentProcessing) ?? false;
+  const hasProcessingDocs = workspace?.documents.some(isAffaireIntakeDocumentProcessing) ?? false;
 
   useEffect(() => {
     setActiveFilter(searchParams.get(FILTER_PARAM));
@@ -277,14 +269,14 @@ export function IntakeWorkspace({
   }, [projectId]);
 
   const documents = useMemo(() => workspace?.documents ?? [], [workspace?.documents]);
-  const needsReviewCount = documents.filter(isDocumentNeedsReview).length;
-  const processingCount = documents.filter(isDocumentProcessing).length;
+  const needsReviewCount = documents.filter(isAffaireIntakeDocumentNeedingReview).length;
+  const processingCount = documents.filter(isAffaireIntakeDocumentProcessing).length;
   const hasDocuments = documents.length > 0;
 
   // Grouped document lists
-  const reviewDocs = useMemo(() => documents.filter(isDocumentNeedsReview), [documents]);
+  const reviewDocs = useMemo(() => documents.filter(isAffaireIntakeDocumentNeedingReview), [documents]);
   const classifiedDocs = useMemo(
-    () => documents.filter((d) => !isDocumentProcessing(d) && !isDocumentNeedsReview(d)),
+    () => documents.filter((d) => !isAffaireIntakeDocumentProcessing(d) && !isAffaireIntakeDocumentNeedingReview(d)),
     [documents]
   );
   const classifiedCount = classifiedDocs.length;

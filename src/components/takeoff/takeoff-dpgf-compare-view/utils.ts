@@ -4,6 +4,7 @@ import type {
   TakeoffDpgfReviewDecision,
 } from "@/lib/takeoff/types";
 import { dpgfRowRetainedQuantity, dpgfRowUnroundedQuantity } from "@/lib/takeoff/dpgf-quantity-policy";
+import { DEFAULT_LOW_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_CEILING } from "@/lib/takeoff/guards";
 
 import {
   DECISION_LABELS,
@@ -27,7 +28,7 @@ export function formatPercent(value: number | null) {
 
 export function formatConfidence(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "Indéterminée";
-  return value >= 0.8 ? "Élevée" : value >= 0.5 ? "Moyenne" : "Faible";
+  return value >= MEDIUM_CONFIDENCE_CEILING ? "Élevée" : value >= DEFAULT_LOW_CONFIDENCE_THRESHOLD ? "Moyenne" : "Faible";
 }
 
 /** A decision being typed for a DPGF line, or the one a line starts with. */
@@ -99,7 +100,7 @@ export function measuredQuantityLabel(row: TakeoffDpgfComparisonRow) {
 
 export function formatProofConfidence(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "Confiance n/a";
-  return `Confiance ${value >= 0.8 ? "élevée" : value >= 0.5 ? "moyenne" : "faible"}`;
+  return `Confiance ${value >= MEDIUM_CONFIDENCE_CEILING ? "élevée" : value >= DEFAULT_LOW_CONFIDENCE_THRESHOLD ? "moyenne" : "faible"}`;
 }
 
 export function buildSearchText(row: TakeoffDpgfComparisonRow) {

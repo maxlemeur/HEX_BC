@@ -18,18 +18,21 @@ import {
   deliveryModeOf,
   orderLineTotals,
   orderTotalsOf,
-  PURCHASE_ORDER_AMOUNT_LINE_UNIT,
   storedLineDocumentFields,
   storedOrderAffaire,
-  type PurchaseOrderAmountKind,
-  type PurchaseOrderLineKind,
   type StoredOrderLineFields,
 } from "@/lib/purchase-orders/order-lines";
+import {
+  PURCHASE_ORDER_AMOUNT_LINE_UNIT,
+  PURCHASE_ORDER_DEFAULT_TAX_RATE_BP,
+  type PurchaseOrderAmountKind,
+  type PurchaseOrderLineKind,
+} from "@/lib/purchase-orders/line-kinds";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useUserContext } from "@/lib/auth/user-context";
-import { parseEuroToCents } from "@/lib/money";
+import { euroInputFromCents, parseEuroToCents } from "@/lib/money";
 import { parseOrderQuantityInput } from "@/lib/purchase-orders/quantities";
-import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
+import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders/access";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import { OrderDocumentViewport } from "../../_components/OrderDocumentViewport";
@@ -117,10 +120,6 @@ type ExistingItem = StoredOrderLineFields & {
   tax_rate_bp: number;
 };
 
-function euroInputFromCents(cents: number) {
-  return (cents / 100).toFixed(2).replace(".", ",");
-}
-
 function newDraftItem(): DraftItem {
   return {
     key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -136,7 +135,7 @@ function newDraftItem(): DraftItem {
     quantityInput: "1",
     unitInput: "",
     unitPriceEuros: "",
-    taxRateBp: 2000,
+    taxRateBp: PURCHASE_ORDER_DEFAULT_TAX_RATE_BP,
     lineKind: "article",
     pricePer: 1,
     fromRequest: false,

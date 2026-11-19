@@ -1,6 +1,7 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { createMaterialRequestSchema } from "@/lib/material-requests/contracts";
-import { projectParamsSchema, readJsonBody } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { projectParamsSchema } from "@/lib/material-requests/http";
 import { createMaterialRequest, listMaterialRequests } from "@/lib/material-requests/server";
 
 // TI-690: the material requests of an affaire. Rights are checked in the domain module.

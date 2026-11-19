@@ -14,7 +14,11 @@ import {
   type TakeoffApplyBlocker,
   type TakeoffApplyReadiness,
 } from "@/lib/takeoff/apply-readiness";
-import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
+import {
+  DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+  getTakeoffVerificationReadiness,
+  MEDIUM_CONFIDENCE_CEILING,
+} from "@/lib/takeoff/guards";
 import type { TakeoffDpgfComparisonSummary } from "@/lib/takeoff/types";
 import { CircleCheckIcon } from "lucide-react";
 
@@ -178,14 +182,14 @@ function getConfidenceBadgeVariant(
   confidence: number | null
 ): "success" | "warning" | "danger" | "neutral" {
   if (confidence === null) return "neutral";
-  if (confidence >= 0.8) return "success";
-  if (confidence >= 0.5) return "warning";
+  if (confidence >= MEDIUM_CONFIDENCE_CEILING) return "success";
+  if (confidence >= DEFAULT_LOW_CONFIDENCE_THRESHOLD) return "warning";
   return "danger";
 }
 
 function formatConfidenceLabel(confidence: number | null) {
   if (confidence === null) return "Confiance inconnue";
-  return `Confiance ${confidence >= 0.8 ? "élevée" : confidence >= 0.5 ? "moyenne" : "faible"}`;
+  return `Confiance ${confidence >= MEDIUM_CONFIDENCE_CEILING ? "élevée" : confidence >= DEFAULT_LOW_CONFIDENCE_THRESHOLD ? "moyenne" : "faible"}`;
 }
 
 type ConfidenceBadge = { label: string; variant: "success" | "warning" | "danger" | "neutral"; score: string | null };

@@ -11,9 +11,8 @@ import {
   readJsonStringArray,
 } from "@/lib/estimates/generated-ouvrage-evidence";
 import { normalizeGeneratedOuvrageParent } from "@/lib/estimates/generated-ouvrage-parent";
-import {
-  assertDraftStatus,
-} from "@/lib/estimates/server";
+import { assertDraftStatus, assertDraftLockOwnedByCurrentUser as assertDraftLockSessionOwnedByCurrentUser, canAccessOwnerResource } from "@/lib/estimates/server-context";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 import { prepareEstimateBatch, sameEstimateBatchTimestamp, EstimateBatchPreparationError } from "@/lib/estimates/batch-preparation";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { hoursPerUnitHalfUp } from "@/lib/estimates/template-v3-hours";
@@ -25,7 +24,6 @@ import { generatedOuvrageAcceptedCandidateSchema, generatedOuvrageReviewTokenSch
   type GeneratedOuvrageApplicationOutcome } from "@/lib/estimates/generated-ouvrage-atomic";
 export type { GeneratedOuvrageApplicationOutcome } from "@/lib/estimates/generated-ouvrage-atomic";
 import { parseGeneratedOuvrageReview } from "@/lib/estimates/generated-ouvrage-review";
-import { assertDraftLockOwnedByCurrentUser as assertDraftLockSessionOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import { projectGeneratedOuvrageCosts } from "@/lib/estimates/generated-ouvrage-cost-projection";
 import { deriveGeneratedOuvrageLaborHours } from "@/lib/estimates/generated-ouvrage-labor-hours";
 import { normalizeGeneratedOuvrageComponentContent, generatedOuvrageComponentContentJson } from "@/lib/estimates/generated-ouvrage-component-content";
@@ -42,7 +40,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import type { Database, Json } from "@/types/database";
 import { toNonEmptyString } from "@/lib/value-guards";
-import { mapFragmentKindToCandidateSourceType } from "@/lib/estimates/generated-ouvrage-provenance";
+import { mapFragmentKindToCandidateSourceType, toJson } from "@/lib/estimates/generated-ouvrage-provenance";
 
 type Supabase = SupabaseClient<Database>;
 type CandidateSourceInsert = Database["public"]["Tables"]["estimate_generated_ouvrage_candidate_sources"]["Insert"];
@@ -789,35 +787,11 @@ function normalizeSectionTitle(value: string | null | undefined) {
     .toLowerCase();
 }
 
-function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean): NonNullable<Json>;
-function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null): Json;
-function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null) {
-  return value as Json;
-}
-
 function pickStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
     .map((entry) => toNonEmptyString(entry))
     .filter((entry): entry is string => Boolean(entry));
-}
-
-function canAccessOwnerResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    input.context.tenantRole === "admin"
-  );
-}
-
-function resolveEmbeddedOne<T>(value: T | T[] | null | undefined) {
-  if (Array.isArray(value)) {
-    return value[0] ?? null;
-  }
-
-  return value ?? null;
 }
 
 async function getVersionAccessOrThrow(

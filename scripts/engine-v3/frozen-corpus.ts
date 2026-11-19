@@ -40,8 +40,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
-  buildEstimateV2SnapshotProjection,
-  buildStoredEstimateBreakdown,
   computeAllSectionTotals,
   computeEstimateBreakdown,
   computeInitialDiscountCents,
@@ -53,13 +51,13 @@ import {
   type EstimateBreakdown,
   type EstimateItemRecord,
   type EstimateTotals,
-  type EstimateV2SnapshotProjection,
   type EstimateVersionForCalc,
   type MarginMode,
   type RoundingMode,
   type SectionTotals,
 } from "../../src/lib/estimate-calculations";
-import type { CalcEngineVersion } from "../../src/lib/estimates/calc-engine-version";
+import { buildEstimateV2SnapshotProjection, buildStoredEstimateBreakdown, type EstimateV2SnapshotProjection } from "../../src/lib/estimate-v2-snapshot";
+import type { CalcEngineVersion } from "../../src/lib/estimates/engine/capabilities";
 import {
   resolveMarginMultiplier,
   type MarginTier,

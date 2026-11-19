@@ -6,7 +6,8 @@ import { jsonApiError } from "@/lib/http/api-response";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
-} from "@/lib/purchase-orders";
+} from "@/lib/purchase-orders/access";
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
 
 type ReorderRequestBody = {
   orderedIds: string[];
@@ -53,7 +54,7 @@ export async function PATCH(
   const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     tenant_id: string;
-    status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+    status: OrderStatus;
   }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {

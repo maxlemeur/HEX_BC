@@ -1,8 +1,7 @@
 import { parseTakeoffApplyResponse } from "@/lib/takeoff/apply-response-contracts";
-import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { applyTakeoffJob } from "@/lib/takeoff/server";
 
 export async function POST(
@@ -15,12 +14,6 @@ export async function POST(
     const data = await applyTakeoffJob(jobId, body);
     return ok(parseTakeoffApplyResponse(data, { jobId, targetSectionId: body.target_section_id }));
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

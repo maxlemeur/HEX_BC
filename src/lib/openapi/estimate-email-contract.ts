@@ -1,12 +1,8 @@
 import { z } from "zod";
 
-export const estimateStatusSchema = z.enum([
-  "draft",
-  "sending",
-  "sent",
-  "accepted",
-  "archived",
-]);
+import { Constants } from "@/types/database.generated";
+
+export const estimateStatusSchema = z.enum(Constants.public.Enums.estimate_status);
 
 export const estimateEmailIdempotencyKeyHeaderParameter = {
   name: "Idempotency-Key",

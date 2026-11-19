@@ -4,7 +4,7 @@ import {
   compareTakeoffJobsQuerySchema,
   getTakeoffJobDetailsQuerySchema,
   listTakeoffJobsQuerySchema,
-  takeoffApplyPayloadSchema,
+  takeoffApplyRequestSchema,
   takeoffDpgfComparisonQuerySchema,
   takeoffLineEvidencePanelQuerySchema,
   takeoffPriceSuggestionQuerySchema,
@@ -88,7 +88,7 @@ export function parseTakeoffRiskRadarQuery(
 
 export function parseApplyTakeoffPayload(payload: unknown): TakeoffApplyRequest {
   return parseWithSchema(
-    takeoffApplyPayloadSchema,
+    takeoffApplyRequestSchema,
     payload,
     "Payload d'application takeoff invalide."
   );

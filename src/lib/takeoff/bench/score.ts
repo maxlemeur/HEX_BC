@@ -1,11 +1,13 @@
 import { DEFAULT_TAKEOFF_BENCHMARK_THRESHOLDS, designationSimilarity } from "@/lib/takeoff/benchmark";
-import { findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries, type DiameterEntry } from "@/lib/takeoff/bench/diameters";
+import { entryId, findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries, type DiameterEntry } from "@/lib/takeoff/diameters";
 import { readItemKey, scoredUnit, type BenchItemKey, type ScoredUnit, type UnreadableReason } from "@/lib/takeoff/bench/item-keys";
-import type { LineKind, MaterialCode, NetworkCode, OrganCode, PlanCause, TruthLot } from "@/lib/takeoff/bench/keys";
+import type { LineKind, OrganCode, PlanCause, TruthLot } from "@/lib/takeoff/bench/keys";
+import type { MaterialCode, NetworkCode } from "@/lib/takeoff/trade-keys";
 import type { GuardTier, TierCounts } from "@/lib/takeoff/bench/rules";
 import type { ManifestDocument, TruthFile, TruthLine } from "@/lib/takeoff/bench/schemas";
 import type { TakeoffItem } from "@/lib/takeoff/types";
 import { toUnitToken } from "@/lib/takeoff/units";
+import { byText } from "@/lib/text/compare";
 
 // Per-key score of the takeoff bench (TI-660), next to evaluateTakeoffBenchmark
 // (benchmark.ts), which stays the line-by-line check of the fictional fixture.
@@ -104,10 +106,6 @@ export type ScoreScope = {
   documents: ManifestDocument[];
   lines: ScopeLine[];
 };
-
-function byText(left: string, right: string) {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 /** Truth files sharing a document form one scope (connected components), sorted by id. */
 export function buildScoreScopes(truthFiles: readonly ScoreTruthFile[], manifest: readonly ManifestDocument[]): ScoreScope[] {
@@ -324,10 +322,6 @@ export function scopeLengthKeys(scope: Pick<ScoreScope, "lines">): Array<{ label
 }
 
 type LocatedKey = BenchItemKey & { zone: string | null; level: string | null };
-
-function entryId(entry: DiameterEntry) {
-  return `${entry.family}:${entry.od_mm}`;
-}
 
 function sameDiameter(item: LocatedKey, key: TruthKey) {
   if (item.dn === null || key.entries === null || key.label.dn === null) return item.dn === null && key.entries === null;

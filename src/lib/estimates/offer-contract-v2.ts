@@ -6,7 +6,7 @@ import type {
   EstimateItem,
 } from "@/lib/estimates/prepare-estimate-document-data";
 import { isPoseOnlyLine } from "@/lib/estimates/line-nature";
-import { OfferCaptureError } from "@/lib/estimates/offer-contract-capture";
+import { incomplete } from "@/lib/estimates/offer-contract-capture";
 import {
   parseOfferDocumentProof,
   type OfferProofParseOptions,
@@ -65,10 +65,6 @@ export type ClientContract2BuildInput = {
   prepared: Pick<EstimateDocumentV3PreparedData, "layout" | "numberingById" | "sectionTotalsById" | "v3">;
   exclusions: string | null;
 };
-
-function incomplete(): never {
-  throw new OfferCaptureError();
-}
 
 /**
  * Copie commerciale d'une v3 figée, à partir des valeurs déjà relues par le préparateur du

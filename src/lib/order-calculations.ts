@@ -1,4 +1,5 @@
 import { roundHalfAwayFromZero } from "@/lib/money";
+import { PURCHASE_ORDER_PRICE_PER } from "@/lib/purchase-orders/line-kinds";
 import { orderQuantityToMilliunits } from "@/lib/purchase-orders/quantities";
 
 export const MAX_ORDER_AMOUNT_CENTS = 2_147_483_647;
@@ -56,7 +57,7 @@ export type OrderTotals = {
   totalTtcCents: number;
 };
 
-const PRICE_PER = new Set([1, 10, 100, 1000]);
+const PRICE_PER = new Set<number>(PURCHASE_ORDER_PRICE_PER);
 
 /**
  * Quantity x price / pricePer, rounded half away from zero to the cent, then its tax the same way, as

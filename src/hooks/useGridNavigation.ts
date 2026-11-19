@@ -307,7 +307,7 @@ export function getGridRangeBounds(
   };
 }
 
-function isEditorElement(value: unknown): value is SpreadsheetEditorElement {
+export function isEditorElement(value: unknown): value is SpreadsheetEditorElement {
   return (
     value instanceof HTMLInputElement ||
     value instanceof HTMLSelectElement ||
@@ -334,7 +334,7 @@ export function writeEditorValue(editor: SpreadsheetEditorElement, value: string
   editor.dispatchEvent(new Event(eventName, { bubbles: true }));
 }
 
-function selectEditorText(editor: SpreadsheetEditorElement) {
+export function selectEditorText(editor: SpreadsheetEditorElement) {
   if (!isTextEditor(editor)) return;
   try {
     editor.select();

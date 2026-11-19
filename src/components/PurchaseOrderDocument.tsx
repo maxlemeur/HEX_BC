@@ -9,15 +9,14 @@ import {
   BusinessDocumentFooter,
   BusinessDocumentFrame,
 } from "@/components/documents/BusinessDocumentPrimitives";
+import { formatLotPrice, signedLineAmount } from "@/lib/purchase-orders/order-lines";
 import {
-  formatLotPrice,
+  PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS,
   PURCHASE_ORDER_DELIVERY_MODE_LABELS,
-  PURCHASE_ORDER_LINE_KIND_LABELS,
-  signedLineAmount,
   type PurchaseOrderAmountKind,
   type PurchaseOrderDeliveryMode,
   type PurchaseOrderLineKind,
-} from "@/lib/purchase-orders/order-lines";
+} from "@/lib/purchase-orders/line-kinds";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 
 // Types
@@ -543,7 +542,7 @@ export function PurchaseOrderDocument({
                 <td className="px-6 py-4 font-medium text-foreground break-words print:px-4 print:py-2 print:text-foreground">
                   {amountKind ? (
                     <span className="mb-1 mr-2 inline-flex rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-brand-blue">
-                      {PURCHASE_ORDER_LINE_KIND_LABELS[amountKind]}
+                      {PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS[amountKind]}
                     </span>
                   ) : null}
                   {editable ? (

@@ -3,7 +3,20 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
-import type { UserProfile } from "@/lib/auth/server";
+import type { UiMode } from "@/lib/ui-mode";
+import type { Database } from "@/types/database";
+
+export type UserProfile = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  job_title: string | null;
+  work_email: string | null;
+  role: "buyer" | "site_manager" | "admin";
+  ui_mode: UiMode;
+  tenant_id: string | null;
+  tenant_role: Database["public"]["Enums"]["tenant_role"] | null;
+};
 
 type UserContextValue = {
   userEmail: string;

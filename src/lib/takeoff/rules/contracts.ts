@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { MATERIAL_CODES, NETWORK_CODES } from "@/lib/takeoff/bench/keys";
+import { MATERIAL_CODES, NETWORK_CODES } from "@/lib/takeoff/trade-keys";
 import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import { TAKEOFF_RULE_IDS, ZONE_OVERLAP_DIFFERENCES, ZONE_OVERLAP_PLANS, type TakeoffRuleInputs, type TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 

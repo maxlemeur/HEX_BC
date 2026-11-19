@@ -3,7 +3,7 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { patchEstimateStatusSchema } from "@/lib/estimates/schemas";
-import { patchEstimateStatus } from "@/lib/estimates/server";
+import { patchEstimateStatus } from "@/lib/estimates/version-lifecycle-server";
 import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
   normalizeEstimateDraftLockSessionId,

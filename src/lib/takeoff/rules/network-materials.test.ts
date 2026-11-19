@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { findDiameterEntries } from "@/lib/takeoff/bench/diameters";
+import { findDiameterEntries } from "@/lib/takeoff/diameters";
 import { takeoffItemBatchPatchSchema, prepareTakeoffItemPatch } from "@/lib/takeoff/item-patch-preparation";
 import { haveComparableQuantities } from "@/lib/takeoff/quantity-compatibility";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
@@ -8,7 +8,7 @@ import { requiresGasPeReason } from "@/lib/takeoff/rules/verification";
 import { evaluateTakeoffRules, type RuleLine } from "@/lib/takeoff/rules/evaluate";
 import { checkNetworkDiameter } from "@/lib/takeoff/rules/network-diameters";
 import type { TakeoffRuleInputs } from "@/lib/takeoff/rules/types";
-import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
+import type { MaterialCode, NetworkCode } from "@/lib/takeoff/trade-keys";
 
 // TI-685, written before implementation. The browser cannot enumerate all network families or distinguish the
 // nominal/outer diameter parser paths reliably. Risks: silent accepts, EFA/returns or inox grades escaping a

@@ -2,12 +2,14 @@
 
 import {
   submitEstimateApproval,
-  type EstimateApprovalDecisionCommentInput,
-  type SubmitEstimateReviewRequestResult,
-  type EstimateReviewDecision,
-  type EstimateReviewCorrectionStatus,
   updateEstimateReviewCorrectionItemStatus,
 } from "@/lib/estimates/rules-engine";
+import type {
+  EstimateApprovalDecisionCommentInput,
+  SubmitEstimateReviewRequestResult,
+  EstimateReviewDecision,
+  EstimateReviewCorrectionStatus,
+} from "@/lib/estimates/approval-types";
 import { revalidatePath } from "next/cache";
 
 function revalidateApprovalPaths(versionId: string, projectId: string) {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PURCHASE_ORDER_PRICE_PER } from "@/lib/purchase-orders/line-kinds";
 
 /**
  * Ordering and receiving a purchase order of an affaire (TI-691, lot 2 « l'achat », delivery 3b-1). The office passes
@@ -17,6 +18,9 @@ const revision = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 /** Blank is no value: the database keeps a trimmed text or null. */
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional()
   .transform((value) => (value ? value : null));
+
+/** How many units a price is for: one of PURCHASE_ORDER_PRICE_PER. */
+export const purchaseOrderPricePerSchema = z.union(PURCHASE_ORDER_PRICE_PER.map((per) => z.literal(per)));
 
 export const PURCHASE_ORDER_SUPPLIER_REFERENCE_MAX = 120;
 export const PURCHASE_ORDER_RECEPTION_NOTE_MAX = 2000;
@@ -37,7 +41,7 @@ export const confirmPurchaseOrderSchema = z.object({
   lines: z.array(z.object({
     id: z.string().uuid(),
     unit_price_ht_cents: z.number().int().min(0).max(2_147_483_647),
-    price_per: z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]),
+    price_per: purchaseOrderPricePerSchema,
   }).strict()).max(1000).default([]),
 }).strict();
 export type ConfirmPurchaseOrderData = z.output<typeof confirmPurchaseOrderSchema>;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isOneMailbox } from "@/lib/email/outgoing-routing";
+import { PURCHASE_ORDER_STATUSES } from "@/lib/purchase-orders/lifecycle";
 
 import { PURCHASE_ORDER_SEND_MESSAGE_MAX, PURCHASE_ORDER_SEND_SUBJECT_MAX, type PurchaseOrderSendRecord } from "./send";
 
@@ -44,7 +45,7 @@ export const finishSendAnswerSchema = z.object({
   send: sendRowSchema,
   order: z.object({
     id: z.string().uuid(),
-    status: z.enum(["draft", "sent", "confirmed", "received", "canceled"]),
+    status: z.enum(PURCHASE_ORDER_STATUSES),
     edit_revision: z.number().int().min(0),
   }),
 });

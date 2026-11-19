@@ -24,6 +24,18 @@ export type SuggestionCorrectionPayload = {
   item_title: string;
 };
 
+export type SuggestionRuleCreatePayload = {
+  name: string;
+  match_value: string;
+  unit: string | null;
+  category_id: string | null;
+  k_fo: number | null;
+  k_mo: number | null;
+  labor_role_id: string | null;
+  position: number | null;
+  is_active: boolean;
+};
+
 export const TRACKED_SUGGESTION_CORRECTION_FIELDS = [
   "description",
   "category_id",
@@ -45,11 +57,6 @@ export type AppliedSuggestionContext = {
   suggestedValues: SuggestionAppliedValues;
   trackedFieldDivergences: Partial<Record<SuggestionCorrectionFieldName, true>>;
 };
-
-export type EstimateQualityFilter =
-  | "all_lines"
-  | "with_anomalies"
-  | import("@/lib/estimate-quality").EstimateQualityFlagKey;
 
 export type EstimateVirtualizationConfig = {
   enabled?: boolean;

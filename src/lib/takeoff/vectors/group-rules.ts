@@ -1,4 +1,4 @@
-import { NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import { isNetworkClass } from "@/lib/takeoff/vectors/classify";
 import { GROUP_EVIDENCE, labelHeadCode, OTHER_ANSWERS, type CandidateEvidence, type PageEvidence } from "@/lib/takeoff/vectors/group-evidence";
 import { PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";

@@ -1,16 +1,14 @@
 import { DIMENSION_PATTERNS, normalizeDimensionText } from "@/lib/estimates/price-reuse-matching";
 import { designationSimilarity } from "@/lib/takeoff/benchmark";
-import { findDiameterEntries, type DiameterEntry } from "@/lib/takeoff/bench/diameters";
+import { entryId, findDiameterEntries, type DiameterEntry } from "@/lib/takeoff/diameters";
+import { ORGANS, type LineKind, type OrganCode } from "@/lib/takeoff/bench/keys";
 import {
   MATERIALS,
   NETWORKS,
-  ORGANS,
   type KeyInfo,
-  type LineKind,
   type MaterialCode,
   type NetworkCode,
-  type OrganCode,
-} from "@/lib/takeoff/bench/keys";
+} from "@/lib/takeoff/trade-keys";
 import { toUnitToken } from "@/lib/takeoff/units";
 
 // Deterministic reader of an extracted takeoff item's key (TI-660), versioned
@@ -225,10 +223,6 @@ function diameterText(kind: string, value: string) {
   if (kind === "diameter") return `Ø ${value.slice(1)}`;
   if (kind === "mm") return `${value.slice(0, -2)} mm`;
   return value;
-}
-
-function entryId(entry: DiameterEntry) {
-  return `${entry.family}:${entry.od_mm}`;
 }
 
 // « 1"1/4 » and « 1 1/4" » (one-digit whole part), « 3/4" », « 2" »; the mark touches the number, so that a

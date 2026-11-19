@@ -10,6 +10,7 @@ import {
   AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS,
   isAffaireIntakePrimaryEligibleKind,
   isAffaireIntakeDocumentNeedingReview,
+  isAffaireIntakeDocumentProcessing,
 } from "@/lib/affaires/intake";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { dispatchCockpitOpenSurface } from "@/lib/cockpit/events";
@@ -18,6 +19,7 @@ import {
   buildAffaireFlowPanelModel,
   ensureDocumentPriorities,
   isDpgfSourceImported,
+  isHybridStructureAction,
   type AffaireFlowHierarchyPanelProps,
   type AffaireFlowPanelAction as PanelAction,
   type AffaireFlowPanelModel as PanelModel,
@@ -40,7 +42,7 @@ import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileText
 import { foldText } from "@/lib/text/fold";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { buildManualEstimateHref, isDocumentProcessing } from "@/components/affaires/AffaireFlowHierarchyPanel.model";
+import { buildManualEstimateHref } from "@/components/affaires/AffaireFlowHierarchyPanel.model";
 
 type IllustrationItem = {
   key: string;
@@ -104,18 +106,8 @@ function isStructureResumeAction(action: PanelAction) {
   return label.includes("revoir") || label.includes("reprendre");
 }
 
-function isHybridStructureAction(action: PanelAction) {
-  return action.label.toLowerCase().includes("hybride");
-}
-
 function isDpgfImportStructureAction(action: PanelAction) {
   return action.label.toLowerCase().includes("dpgf");
-}
-
-function isDocumentNeedingReview(
-  document: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"][number],
-) {
-  return isAffaireIntakeDocumentNeedingReview(document);
 }
 
 
@@ -460,9 +452,9 @@ function ResultCard({
   const evidence = "evidence" in card ? (card.evidence ?? []) : [];
   const documents = ensureDocumentPriorities(intakeWorkspace?.documents ?? []);
   const reviewDocs = sortReviewDocuments(documents, intakeWorkspace?.missingPieces ?? []);
-  const processingDocs = documents.filter((document) => isDocumentProcessing(document));
+  const processingDocs = documents.filter((document) => isAffaireIntakeDocumentProcessing(document));
   const classifiedDocs = documents.filter(
-    (document) => !isDocumentNeedingReview(document) && !isDocumentProcessing(document),
+    (document) => !isAffaireIntakeDocumentNeedingReview(document) && !isAffaireIntakeDocumentProcessing(document),
   );
   const primaryEligibleClassifiedDocs = classifiedDocs.filter((document) =>
     isAffaireIntakePrimaryEligibleKind(document.detectedCategory),

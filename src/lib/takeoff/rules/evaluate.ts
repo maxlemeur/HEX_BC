@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 
 import { scoredUnit } from "@/lib/takeoff/bench/item-keys";
-import { MATERIALS, NETWORKS } from "@/lib/takeoff/bench/keys";
+import { MATERIALS, NETWORKS } from "@/lib/takeoff/trade-keys";
 import { isSamePage, type TakeoffPageIdentity } from "@/lib/takeoff/page-contributions";
 import { surfaceBasis, type SurfaceBasis } from "@/lib/takeoff/quantity-policy";
 import { areaQuantityContexts, expectedSurfaceBasis, type AreaQuantityContext } from "@/lib/takeoff/rules/area-context";
-import { DIAMETER_FAMILIES, findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries } from "@/lib/takeoff/bench/diameters";
+import { DIAMETER_FAMILIES, findDiameterEntries, hasDiameterSeries, sameSizeWithoutSeries } from "@/lib/takeoff/diameters";
 import { ZONE_OVERLAP_DIFFERENCE_LABELS } from "@/lib/takeoff/rules/labels";
 import {
   NETWORK_DIAMETER_TABLE_VERSION,
@@ -69,6 +69,7 @@ import {
   type RestLine,
   type Stretch,
 } from "@/lib/takeoff/rules/zone-overlap";
+import { byText } from "@/lib/text/compare";
 
 // Runs the fixed rules on the lines of one estimate version (TI-664): every
 // job of the version, applied or not, so that a duplicate between two zones
@@ -464,10 +465,6 @@ function readAgain(left: RulePage | undefined, right: RulePage | undefined) {
   if (left.zone && right.zone && left.zone.toUpperCase() !== right.zone.toUpperCase()) return false;
   const known = ({ document, page }: TakeoffPageIdentity): TakeoffPageIdentity => ({ document: { ...document, file_name: null }, page });
   return isSamePage(known(left.identity), known(right.identity));
-}
-
-function byText(left: string, right: string) {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 /**

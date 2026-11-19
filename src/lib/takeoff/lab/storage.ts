@@ -1,12 +1,12 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { writePrivateJson } from "@/lib/ai/chatgpt-local-store";
 import { conflict, notFound } from "@/lib/http/api-response";
 import { ELEMENT_ID_PATTERN, LAB_NAME_PATTERN } from "@/lib/takeoff/lab/contracts";
+import { sha256Hex } from "@/lib/takeoff/sha256";
 
 // Where the takeoff lab (TI-661) reads and writes. TAKEOFF_LAB_DATASET_DIR is
 // read only (the L0 dataset, TI-659); TAKEOFF_LAB_OUTPUT_DIR is the lab's
@@ -62,10 +62,6 @@ export function readDecisionsTokenCap(env: NodeJS.ProcessEnv = process.env): num
   const value = env.TAKEOFF_LAB_DECISIONS_MAX_TOKENS?.trim();
   if (!value) return DEFAULT_DECISIONS_MAX_TOKENS;
   return /^[1-9]\d{0,12}$/.test(value) ? Number(value) : null;
-}
-
-export function sha256Hex(value: string | Uint8Array) {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 /** JSON with object keys sorted at every depth: the identity of a question set. */

@@ -4,11 +4,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // These retained domain tests supply complete query results at the reader boundary.
 vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
 
-
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-lifecycle-server", () => ({
   getEstimateSendGating: vi.fn(),
+}));
+vi.mock("@/lib/estimates/supplier-comparison-server", () => ({
   getEstimateSupplierComparisons: vi.fn(),
+}));
+vi.mock("@/lib/estimates/version-read-server", () => ({
   listEstimateItemRows: vi.fn(),
+}));
+vi.mock("@/lib/estimates/version-list-server", () => ({
   listEstimateProjectVersions: vi.fn(),
 }));
 
@@ -39,11 +44,9 @@ import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@
 import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import { loadV3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
-import {
-  getEstimateSendGating,
-  getEstimateSupplierComparisons,
-  listEstimateItemRows,
-} from "@/lib/estimates/server";
+import { getEstimateSendGating } from "@/lib/estimates/version-lifecycle-server";
+import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
+import { listEstimateItemRows } from "@/lib/estimates/version-read-server";
 import {
   buildAffaireHubReadinessSnapshot,
   fetchAffaireDashboardOverview,

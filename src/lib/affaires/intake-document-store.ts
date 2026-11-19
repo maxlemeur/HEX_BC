@@ -1,12 +1,11 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 
-import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
+import { AFFAIRE_INTAKE_BUCKET, type AffaireProjectAccess } from "@/lib/affaires/intake";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { DriveStoreError } from "@/lib/affaires/google-drive/store";
-import type { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 
-type Access = Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAdmin>>;
+type Access = AffaireProjectAccess;
 type DerivedStateRefresh = (removed: { uploadId: string; wasUploaded: boolean }) => Promise<void>;
 
 // No Next imports: exercised against the owned local RLS and Storage backend.
@@ -15,7 +14,7 @@ type DerivedStateRefresh = (removed: { uploadId: string; wasUploaded: boolean })
 // the reservation so that retrying the deletion runs it again.
 export async function deleteIntakeDocumentCopy({ context, project }: Access, documentId: string, refreshDerivedState?: DerivedStateRefresh) {
   const database = context.supabase;
-  const lookup = await database.from("affaire_intake_documents" as never)
+  const lookup = await database.from("affaire_intake_documents")
     .select("id,upload_id,updated_at,storage_path,source_provider,deleted_at,deletion_token,deletion_started_at,upload_status,classification_status,document_priority")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).maybeSingle();
   if (lookup.error) throw new DriveStoreError(500, "Impossible de charger le document à supprimer.");
@@ -24,7 +23,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
   if (!document) throw new DriveStoreError(409, "Document introuvable dans cette affaire. Actualisez le dossier.");
   if (document.deleted_at) return { documentId, deleted: true as const };
 
-  const upload = await database.from("affaire_intake_uploads" as never).select("status")
+  const upload = await database.from("affaire_intake_uploads").select("status")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.upload_id).single();
   if (upload.error) throw new DriveStoreError(500, "Impossible de vérifier le traitement du document.");
   if (["queued", "processing"].includes((upload.data as { status: string }).status) || document.upload_status === "pending") {
@@ -41,7 +40,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
   let intakeRemoved = false;
   // The reserved piece leaves the principal role at once, so the refresh can promote its
   // successor under the one-principal-per-kind index.
-  const reservation = await database.from("affaire_intake_documents" as never).update({ deletion_token: token, deletion_started_at: new Date(now).toISOString(), document_priority: "secondary" } as never)
+  const reservation = await database.from("affaire_intake_documents").update({ deletion_token: token, deletion_started_at: new Date(now).toISOString(), document_priority: "secondary" } as never)
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId)
     .is("deleted_at", null).eq("updated_at", document.updated_at).select("id");
   if (reservation.error || !(reservation.data as unknown[])?.length) {
@@ -49,7 +48,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
   }
   try {
     // Find only derived plan copies belonging to this exact intake document/tenant.
-    const plans = await database.from("plan_files" as never).select("id,file_path")
+    const plans = await database.from("plan_files").select("id,file_path")
       .eq("tenant_id", context.tenantId)
       .contains("metadata", { source: "affaire-intake", intake_document_id: documentId, intake_storage_path: document.storage_path });
     if (plans.error) throw new DriveStoreError(500, "Impossible de vérifier les copies du plan.");
@@ -74,7 +73,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
         // A confirmed removal retires this copy generation. Rotating the token
         // keeps the deletion reservation intact while fencing delayed producers.
         const renewed = randomUUID();
-        const generation = await database.from("affaire_intake_documents" as never).update({
+        const generation = await database.from("affaire_intake_documents").update({
           deletion_token: renewed, deletion_started_at: new Date().toISOString(), plan_copy_generation: randomUUID(),
         } as never).eq("tenant_id", context.tenantId).eq("project_id", project.id)
           .eq("id", documentId).eq("deletion_token", token).select("id");
@@ -84,7 +83,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
         token = renewed;
         generationRotated = true;
       }
-      const deleted = await database.from("plan_files" as never).delete()
+      const deleted = await database.from("plan_files").delete()
         .eq("tenant_id", context.tenantId).eq("id", plan.id).select("id");
       if (deleted.error || !(deleted.data as unknown[])?.length) throw new DriveStoreError(500, "La copie du plan n’a pas pu être retirée.");
     }
@@ -92,7 +91,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
     intakeRemoved = true;
     // A reserved row only changes with its token: rotating it renews the lease for the refresh.
     const renewed = randomUUID();
-    const lease = await database.from("affaire_intake_documents" as never).update({ deletion_token: renewed, deletion_started_at: new Date().toISOString() } as never)
+    const lease = await database.from("affaire_intake_documents").update({ deletion_token: renewed, deletion_started_at: new Date().toISOString() } as never)
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).eq("deletion_token", token).select("id");
     if (lease.error || !(lease.data as unknown[])?.length) throw new DriveStoreError(409, "Une autre suppression a repris cette pièce. Actualisez le dossier.");
     token = renewed;
@@ -103,7 +102,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
       throw new DriveStoreError(500, "Fichier retiré du stockage ; actualisation du dossier interrompue. Reprenez la suppression.");
     }
 
-    const deleted = await database.from("affaire_intake_documents" as never).update({
+    const deleted = await database.from("affaire_intake_documents").update({
       deleted_at: new Date().toISOString(), deletion_token: null, deletion_started_at: null, storage_path: null, upload_status: "rejected",
       // A Drive piece is only a link: removing it leaves the file in Drive untouched.
       document_priority: "secondary", rejection_reason: document.source_provider === "google_drive"
@@ -115,7 +114,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
     }
     return { documentId, deleted: true as const };
   } catch (error) {
-    const release = (restored: Record<string, unknown>) => database.from("affaire_intake_documents" as never).update({ deletion_token: null, deletion_started_at: null, ...restored } as never)
+    const release = (restored: Record<string, unknown>) => database.from("affaire_intake_documents").update({ deletion_token: null, deletion_started_at: null, ...restored } as never)
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId).eq("deletion_token", token);
     // With its bytes still in place the piece keeps the principal role it had, unless a concurrent
     // sync already gave that role to another piece (unique index): it is then released as secondary.

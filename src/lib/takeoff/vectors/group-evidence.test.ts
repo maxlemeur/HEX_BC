@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { OpenAiDecisionAnswer } from "@/lib/ai/decisions";
-import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES } from "@/lib/takeoff/trade-keys";
 import { applyDecisions, classifyByKeywords, DECISIONS_ACCEPTED_MARGIN, groupsToReview, isClassified, isMeasuredNetwork } from "@/lib/takeoff/vectors/classify";
 import type { VectorGroupKey, VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
 import {

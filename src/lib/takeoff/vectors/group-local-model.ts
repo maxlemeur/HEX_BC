@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { NETWORK_CODES, NETWORKS, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES, NETWORKS, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import { GROUP_DECISIONS_DEVELOPER } from "@/lib/takeoff/vectors/group-decisions";
 import { groupJson, OTHER_ANSWERS, type CandidateEvidence, type PageEvidence } from "@/lib/takeoff/vectors/group-evidence";
 import { classOfAnswer, horsListeProposal, paleGuardDrops } from "@/lib/takeoff/vectors/group-rules";

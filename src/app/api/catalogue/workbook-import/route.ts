@@ -4,7 +4,7 @@ import {
 } from "@/lib/catalogue/costing-workbook-contract";
 import { importCostingWorkbook } from "@/lib/catalogue/costing-workbook-server";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { readJsonBody } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
 
 // About 2,600 drafts: the catalogue read and a dozen chunked writes take seconds, more than a default budget.
 export const maxDuration = 60;

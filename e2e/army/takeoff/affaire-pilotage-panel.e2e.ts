@@ -1,4 +1,4 @@
-import { nativeTest as test, describe, expect, buildEstimateName, loginWithUi, localClient, ensureEstimatePdfReady, type NativeUi as Page } from "./native-ui";
+import { nativeTest as test, describe, expect, getTenantIdForVersion, buildEstimateName, loginWithUi, localClient, ensureEstimatePdfReady, type NativeUi as Page } from "./native-ui";
 import type { Locator } from "e2e";
 import { randomUUID } from "node:crypto";
 import { localTakeoffWorkerClient, seedOwnedSupplyType } from "./fixtures";
@@ -64,26 +64,6 @@ async function createEstimateViaApi(
   }
 
   return { versionId, projectId };
-}
-
-async function getTenantIdForVersion(versionId: string) {
-  const sb = await getAuthenticatedSupabaseClient();
-  const { data, error } = await sb
-    .from("estimate_versions")
-    .select("tenant_id")
-    .eq("id", versionId)
-    .single();
-
-  if (error) {
-    throw new Error(`Cannot resolve tenant for version: ${error.message}`);
-  }
-
-  const tenantId = (data as { tenant_id?: string }).tenant_id;
-  if (!tenantId) {
-    throw new Error("Missing tenant_id for version.");
-  }
-
-  return tenantId;
 }
 
 async function seedReviewIntakeDocument(input: {

@@ -41,7 +41,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth/user-context", () => ({
   useUserContext: () => ({ profile: { full_name: "Camille Martin", job_title: "Acheteuse", phone: null, work_email: null } }),
 }));
-vi.mock("@/lib/purchase-orders", () => ({ assertCompletePurchaseOrderSnapshot: vi.fn(async () => undefined) }));
+vi.mock("@/lib/purchase-orders/access", () => ({ assertCompletePurchaseOrderSnapshot: vi.fn(async () => undefined) }));
 vi.mock("@/lib/supabase/client", () => ({
   createSupabaseBrowserClient: () => ({
     from: (table: string) => {

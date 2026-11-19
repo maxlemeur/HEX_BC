@@ -28,6 +28,8 @@ import {
   readImportRowStructure,
 } from "@/lib/imports/payload";
 import {
+  EMPTY_CELL_SENTINELS,
+  resolveImportRowTitle,
   resolveImportStructure,
   type ImportStructureDecision,
   type ImportStructureLevel,
@@ -201,8 +203,6 @@ function resolveMappedPayload(payload: JsonRecord): JsonRecord | null {
   return embeddedMappedRow ?? payload;
 }
 
-const EMPTY_NUMERIC_SENTINELS = new Set(["", "-", "--", "—", "–", "pm", "p.m.", "n/a", "na"]);
-
 type PreparedImportFlowRow = ImportStructureRow & {
   payload: JsonRecord;
 };
@@ -210,7 +210,7 @@ type PreparedImportFlowRow = ImportStructureRow & {
 function isMissingNumericValue(value: unknown) {
   if (value === null || value === undefined) return true;
   if (typeof value !== "string") return false;
-  return EMPTY_NUMERIC_SENTINELS.has(value.trim().toLowerCase());
+  return EMPTY_CELL_SENTINELS.has(value.trim().toLowerCase());
 }
 
 type NumericField =
@@ -411,12 +411,6 @@ function sortImportFlowItems(items: ValidImportFlowItem[]) {
   });
 }
 
-function resolveRowTitle(mappedRow: JsonRecord) {
-  const designation = normalizeText(mappedRow.designation);
-  const reference = normalizeText(mappedRow.reference ?? mappedRow.hex_code);
-  return designation || reference;
-}
-
 /** Valid lines in source order: row index, then mapped row id. */
 export function sortValidImportFlowLines(lines: readonly ValidImportFlowLine[]): ValidImportFlowLine[] {
   return [...lines].sort((left, right) => {
@@ -477,7 +471,7 @@ export function normalizeMappedRowsForEstimateCreation(
 
   // The first untitled row carrying workbook parameters (OPTIMA row 2) supplies them to the lines.
   const parameterRow = preparedRows.find((row) =>
-    isWorkbookParameterRow(row.mappedRow, resolveRowTitle(row.mappedRow))
+    isWorkbookParameterRow(row.mappedRow, resolveImportRowTitle(row.mappedRow))
   );
   const parameterValues = parameterRow ? readWorkbookParameterValues(parameterRow.mappedRow) : null;
   const workbookParameters =
@@ -516,7 +510,7 @@ export function normalizeMappedRowsForEstimateCreation(
       continue;
     }
 
-    const title = resolveRowTitle(row.mappedRow);
+    const title = resolveImportRowTitle(row.mappedRow);
     if (isWorkbookParameterRow(row.mappedRow, title)) {
       ignoredRows.push({ mappedRowId: row.id, rowIndex: row.rowIndex, reason: "parameters" });
       continue;
@@ -801,7 +795,7 @@ export function readImportWorkbookParameters(rows: ImportFlowMappedRowInput[]): 
   for (const [index, row] of rows.entries()) {
     const payload = asRecord(row.payload);
     const mappedRow = payload ? resolveMappedPayload(payload) : null;
-    if (!payload || !mappedRow || !isWorkbookParameterRow(mappedRow, resolveRowTitle(mappedRow))) continue;
+    if (!payload || !mappedRow || !isWorkbookParameterRow(mappedRow, resolveImportRowTitle(mappedRow))) continue;
     const values = readWorkbookParameterValues(mappedRow);
     const rowIndex = Number.isInteger(payload.row_index) ? Number(payload.row_index) : index + 1;
     return values ? parseWorkbookParameters(rowIndex, values) : null;

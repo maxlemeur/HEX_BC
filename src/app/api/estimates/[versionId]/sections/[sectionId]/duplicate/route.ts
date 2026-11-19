@@ -1,30 +1,16 @@
 import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { parseDuplicateSectionResponse } from "@/lib/estimates/section-copy-response";
-import { z } from "zod";
-
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { duplicateEstimateSectionSchema } from "@/lib/estimates/schemas";
-import { duplicateSectionFromVersion } from "@/lib/estimates/server";
-import { parseJsonBodyOrEmptyObject } from "@/lib/http/request";
-
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-  sectionId: z.string().uuid("sectionId invalide."),
-});
-
-async function getParams(
-  paramsPromise: Promise<{ versionId: string; sectionId: string }>
-) {
-  const params = await paramsPromise;
-  return paramsSchema.parse(params);
-}
+import { duplicateSectionFromVersion } from "@/lib/estimates/section-copy-server";
+import { parseJsonBodyOrEmptyObject, uuidRouteParams } from "@/lib/http/request";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ versionId: string; sectionId: string }> }
 ) {
   try {
-    const { versionId, sectionId } = await getParams(params);
+    const { versionId, sectionId } = await uuidRouteParams(params, "versionId", "sectionId");
     const body = duplicateEstimateSectionSchema.parse(
       await parseJsonBodyOrEmptyObject(request, badRequest)
     );

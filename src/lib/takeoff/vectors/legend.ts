@@ -1,4 +1,4 @@
-import type { NetworkCode } from "@/lib/takeoff/bench/keys";
+import type { NetworkCode } from "@/lib/takeoff/trade-keys";
 import { isGrey, isNearWhite, parseHexColor } from "@/lib/takeoff/vectors/colors";
 import type { VectorText } from "@/lib/takeoff/vectors/extraction";
 import { emptyBox, extendBox, textFrame, type Box } from "@/lib/takeoff/vectors/geometry";

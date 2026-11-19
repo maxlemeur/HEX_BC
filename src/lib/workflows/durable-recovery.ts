@@ -8,13 +8,10 @@ import {
   type ProcurementStorageCleanupDrainResult,
 } from "@/lib/procurement/storage-cleanup-outbox";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import type { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
-import type { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import type { DurableWorkflowRpcClient } from "@/lib/workflows/affaire-intake-lifecycle";
 
 export const MAX_DURABLE_RECOVERY_ATTEMPTS = 5;
 
-const DURABLE_RECOVERY_DEAD_ERROR_CODE = "DURABLE_RECOVERY_DEAD";
 const DURABLE_RECOVERY_DEAD_MESSAGE =
   "La reprise durable a epuise son budget de tentatives.";
 
@@ -61,8 +58,6 @@ type DurableRecoveryDependencies = {
   now?: () => Date;
   limit?: number;
   maxIntakePerRun?: number;
-  triggerTakeoff?: typeof triggerTakeoffJobProcessing;
-  persistTakeoffDispatch?: typeof persistTakeoffDispatchOutcome;
   processIntake?: typeof processAffaireIntakeUpload;
   drainStorageCleanup?: typeof drainProcurementStorageCleanupOutbox;
   storageCleanupLimit?: number;
@@ -110,15 +105,8 @@ function asTableClient(value: unknown): DurableRecoveryTableClient | null {
   return value as DurableRecoveryTableClient;
 }
 
-function retryTable(workflow: DueWorkflow) {
-  return workflow.workflowKind === "takeoff"
-    ? "takeoff_jobs"
-    : "affaire_intake_uploads";
-}
-
-function retryColumn(workflow: DueWorkflow) {
-  return workflow.workflowKind === "takeoff" ? "retry_count" : "attempt_count";
-}
+const RETRY_TABLE = "affaire_intake_uploads";
+const RETRY_COLUMN = "attempt_count";
 
 function readNonNegativeInt(value: unknown) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -145,10 +133,9 @@ async function defaultGetRetryCount(
   if (!tableClient) {
     return 0;
   }
-  const column = retryColumn(workflow);
   const { data, error } = await tableClient
-    .from(retryTable(workflow))
-    .select(column)
+    .from(RETRY_TABLE)
+    .select(RETRY_COLUMN)
     .eq("id", workflow.workId)
     .maybeSingle();
   if (error) {
@@ -156,7 +143,7 @@ async function defaultGetRetryCount(
       cause: error,
     });
   }
-  return readCount(data, column);
+  return readCount(data, RETRY_COLUMN);
 }
 
 async function defaultIncrementRetryCount(
@@ -168,8 +155,8 @@ async function defaultIncrementRetryCount(
     return next;
   }
   const { error } = await tableClient
-    .from(retryTable(workflow))
-    .update({ [retryColumn(workflow)]: next })
+    .from(RETRY_TABLE)
+    .update({ [RETRY_COLUMN]: next })
     .eq("id", workflow.workId);
   if (error) {
     throw new Error("Impossible d'enregistrer l'échec de reprise durable.", {
@@ -188,27 +175,16 @@ async function defaultMarkDead(
     return;
   }
   const nowIso = now.toISOString();
-  const payload =
-    workflow.workflowKind === "takeoff"
-      ? {
-          status: "failed",
-          next_retry_at: null,
-          completed_at: nowIso,
-          last_error_at: nowIso,
-          error_code: DURABLE_RECOVERY_DEAD_ERROR_CODE,
-          error_message: DURABLE_RECOVERY_DEAD_MESSAGE,
-        }
-      : {
-          status: "failed",
-          next_retry_at: null,
-          completed_at: nowIso,
-          last_error: DURABLE_RECOVERY_DEAD_MESSAGE,
-          processing_lease_token: null,
-          processing_lease_expires_at: null,
-        };
   const { error } = await tableClient
-    .from(retryTable(workflow))
-    .update(payload)
+    .from(RETRY_TABLE)
+    .update({
+      status: "failed",
+      next_retry_at: null,
+      completed_at: nowIso,
+      last_error: DURABLE_RECOVERY_DEAD_MESSAGE,
+      processing_lease_token: null,
+      processing_lease_expires_at: null,
+    })
     .eq("id", workflow.workId);
   if (error) {
     throw new Error("Impossible de marquer le workflow durable comme mort.", {

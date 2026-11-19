@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/server-context", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/estimates/server-context")>(),
   assertDraftStatus: vi.fn(),
+}));
+vi.mock("@/lib/estimates/item-create-server", () => ({
   createEstimateItem: vi.fn(),
 }));
 
@@ -27,10 +30,8 @@ import {
   generateOuvragesFromText,
   insertGeneratedOuvrages,
 } from "@/lib/estimates/generated-ouvrages";
-import {
-  assertDraftStatus,
-  createEstimateItem,
-} from "@/lib/estimates/server";
+import { assertDraftStatus } from "@/lib/estimates/server-context";
+import { createEstimateItem } from "@/lib/estimates/item-create-server";
 import { prepareEstimateBatch } from "@/lib/estimates/batch-preparation";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";

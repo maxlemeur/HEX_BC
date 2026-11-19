@@ -3,7 +3,7 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { bulkUpdateEstimateItemsRequestSchema } from "@/lib/estimates/schemas";
-import { bulkUpdateEstimateItems } from "@/lib/estimates/server";
+import { bulkUpdateEstimateItems } from "@/lib/estimates/item-bulk-server";
 import { parseJsonBody, resolveConcurrencyToken, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(

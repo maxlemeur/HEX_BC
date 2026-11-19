@@ -86,39 +86,6 @@ export type BulkSuggestionsComputation = {
   suggestions: BulkSuggestion[];
 };
 
-export type AppliedBulkSuggestionLine = {
-  lineId: string;
-  ruleId: string;
-  previous: SuggestionTargetValues;
-  next: SuggestionTargetValues;
-  updates: SuggestionUpdatePayload;
-  diff: BulkSuggestionDiffEntry[];
-};
-
-export type RuleUsageIncrement = {
-  ruleId: string;
-  incrementBy: number;
-  previousUsageCount: number;
-  nextUsageCount: number;
-};
-
-export type BulkSuggestionSnapshot = {
-  previousLines: EstimateItemRow[];
-  nextItems: EstimateItemRow[];
-  appliedLines: AppliedBulkSuggestionLine[];
-};
-
-export type ApplyBulkSuggestionsResult = {
-  updates: Array<{
-    id: string;
-    updates: SuggestionUpdatePayload;
-  }>;
-  appliedLineIds: string[];
-  ruleUsageByRuleId: Record<string, number>;
-  ruleUsageIncrements: RuleUsageIncrement[];
-  snapshot: BulkSuggestionSnapshot;
-};
-
 type FindSuggestibleLinesInput = {
   items: EstimateItemRow[];
   rules: SuggestionRuleRow[];
@@ -128,12 +95,6 @@ type FindSuggestibleLinesInput = {
 
 type ComputeBulkSuggestionsInput = FindSuggestibleLinesInput & {
   lineIds?: string[];
-};
-
-type ApplyBulkSuggestionsInput = {
-  items: EstimateItemRow[];
-  suggestions: BulkSuggestion[];
-  selectedLineIds?: string[];
 };
 
 const SUGGESTION_FIELDS: BulkSuggestionField[] = [
@@ -491,100 +452,5 @@ export function computeBulkSuggestions(
     scannedLineCount: input.items.filter((item) => item.item_type === "line").length,
     suggestibleLineCount: suggestions.length,
     suggestions,
-  };
-}
-
-export function applyBulkSuggestions(
-  input: ApplyBulkSuggestionsInput
-): ApplyBulkSuggestionsResult {
-  const selectedLineIds =
-    input.selectedLineIds && input.selectedLineIds.length > 0
-      ? new Set(input.selectedLineIds)
-      : null;
-
-  const nextById = new Map(input.items.map((item) => [item.id, { ...item }]));
-  const previousLines: EstimateItemRow[] = [];
-  const appliedLines: AppliedBulkSuggestionLine[] = [];
-  const updates: Array<{
-    id: string;
-    updates: SuggestionUpdatePayload;
-  }> = [];
-
-  const ruleUsageByRuleId: Record<string, number> = {};
-  const rulePreviousUsageByRuleId = new Map<string, number>();
-
-  input.suggestions.forEach((suggestion) => {
-    if (selectedLineIds && !selectedLineIds.has(suggestion.lineId)) {
-      return;
-    }
-
-    const currentItem = nextById.get(suggestion.lineId);
-    if (!currentItem || currentItem.item_type !== "line") {
-      return;
-    }
-
-    const lineUpdates = buildApplicablePatchForLine(currentItem, suggestion.updates);
-    if (!hasPatchValue(lineUpdates)) {
-      return;
-    }
-
-    const previousValues = toTargetValues(currentItem);
-    const nextValues = applyPatchToValues(previousValues, lineUpdates);
-    const diff = buildDiff(previousValues, nextValues);
-    if (diff.length === 0) {
-      return;
-    }
-
-    previousLines.push({ ...currentItem });
-    const nextLine = {
-      ...currentItem,
-      ...lineUpdates,
-    };
-    nextById.set(currentItem.id, nextLine);
-
-    updates.push({
-      id: currentItem.id,
-      updates: lineUpdates,
-    });
-
-    appliedLines.push({
-      lineId: currentItem.id,
-      ruleId: suggestion.rule.id,
-      previous: previousValues,
-      next: nextValues,
-      updates: lineUpdates,
-      diff,
-    });
-
-    if (!(suggestion.rule.id in ruleUsageByRuleId)) {
-      ruleUsageByRuleId[suggestion.rule.id] = 0;
-      rulePreviousUsageByRuleId.set(suggestion.rule.id, suggestion.usageCount);
-    }
-    ruleUsageByRuleId[suggestion.rule.id] += 1;
-  });
-
-  const nextItems = input.items.map((item) => nextById.get(item.id) ?? item);
-  const ruleUsageIncrements = Object.entries(ruleUsageByRuleId).map(
-    ([ruleId, incrementBy]) => {
-      const previousUsageCount = rulePreviousUsageByRuleId.get(ruleId) ?? 0;
-      return {
-        ruleId,
-        incrementBy,
-        previousUsageCount,
-        nextUsageCount: previousUsageCount + incrementBy,
-      };
-    }
-  );
-
-  return {
-    updates,
-    appliedLineIds: appliedLines.map((line) => line.lineId),
-    ruleUsageByRuleId,
-    ruleUsageIncrements,
-    snapshot: {
-      previousLines,
-      nextItems,
-      appliedLines,
-    },
   };
 }

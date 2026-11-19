@@ -6,6 +6,7 @@ import { AcceptanceConfirmationEmailTemplate } from "@/lib/email/templates/accep
 import { lookupPortalCapability, loadPortalOffer } from "@/lib/estimates/portal-offer";
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { DEVIS_BUCKET } from "@/lib/storage/buckets";
 import type { Json } from "@/types/database";
 
 export const runtime = "nodejs";
@@ -134,7 +135,7 @@ export async function POST(
       const storagePath = `signatures/${portalToken.id}.png`;
 
       const { error: uploadError } = await supabase.storage
-        .from("devis")
+        .from(DEVIS_BUCKET)
         .upload(storagePath, buffer, {
           contentType: "image/png",
           upsert: false,

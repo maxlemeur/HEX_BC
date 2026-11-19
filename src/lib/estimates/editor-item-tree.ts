@@ -2,6 +2,12 @@ import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
+export const ITEMS_BY_PARENT_ROOT_KEY = "root";
+
+export function getParentKey(id: string | null) {
+  return id ?? ITEMS_BY_PARENT_ROOT_KEY;
+}
+
 export function collectSubtreeItemIds(
   sourceItems: EstimateItem[],
   rootId: string

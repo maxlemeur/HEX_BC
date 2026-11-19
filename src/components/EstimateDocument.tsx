@@ -16,7 +16,7 @@ import {
   type PrepareEstimateDocumentV3Input,
 } from "@/lib/estimates/prepare-estimate-document-data";
 import { footerFromStoredV3Document } from "@/lib/estimates/v3-document-presentation";
-import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import type { CalcEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 import {
   ESTIMATE_SERVICE_LIMITS_TITLE,

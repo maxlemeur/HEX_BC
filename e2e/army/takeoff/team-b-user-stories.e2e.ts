@@ -1,4 +1,4 @@
-import { nativeTest as test, describe, expect, buildEstimateName, createEstimateViaWizard, loginWithUi, localClient, outputPath, ensureMapping, fixtureFile, expectSummaryValue, type NativeUi as Page } from "./native-ui";
+import { nativeTest as test, describe, expect, extractProjectId, getTenantIdForVersion, buildEstimateName, createEstimateViaWizard, loginWithUi, localClient, outputPath, ensureMapping, fixtureFile, expectSummaryValue, type NativeUi as Page } from "./native-ui";
 
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -132,50 +132,6 @@ async function fetchEstimateItems(page: Page, versionId: string) {
     data?: { items?: Array<Record<string, unknown>> };
   };
   return payload.data?.items ?? [];
-}
-
-async function extractProjectId(page: Page, versionId: string) {
-  const response = await page.request.get(`/api/estimates/${versionId}`, {
-    failOnStatusCode: false,
-  });
-  expect(response.status()).toBe(200);
-
-  const payload = (await response.json()) as {
-    data?: {
-      version?: { project_id?: string };
-      project_id?: string;
-    };
-    project_id?: string;
-  };
-
-  const projectId =
-    payload.data?.version?.project_id ??
-    payload.data?.project_id ??
-    payload.project_id ??
-    null;
-
-  expect(projectId, "project_id should be present in estimate version response").toBeTruthy();
-  return projectId as string;
-}
-
-async function getTenantIdForVersion(versionId: string) {
-  const sb = await getAuthenticatedSupabaseClient();
-  const { data, error } = await sb
-    .from("estimate_versions")
-    .select("tenant_id")
-    .eq("id", versionId)
-    .single();
-
-  if (error) {
-    throw new Error(`Cannot resolve tenant for version: ${error.message}`);
-  }
-
-  const tenantId = (data as { tenant_id?: string }).tenant_id;
-  if (!tenantId) {
-    throw new Error("Missing tenant_id for version.");
-  }
-
-  return tenantId;
 }
 
 async function uploadAndClassifyIntakeDpgf(page: Page, input: {

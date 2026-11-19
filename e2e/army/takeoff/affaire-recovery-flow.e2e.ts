@@ -1,31 +1,7 @@
-import { nativeTest as test, describe, expect, duplicateEstimateViaApi, loginWithUi, localClient, type NativeUi as Page } from "./native-ui";
+import { nativeTest as test, describe, expect, extractProjectId, getTenantIdForVersion, duplicateEstimateViaApi, loginWithUi, type NativeUi as Page } from "./native-ui";
 
 import { createLineViaApi, ownEstimate, recordEvidence } from "../critical/fixtures";
 import { seedPlanSetWithFile, seedTakeoffJob, seedVersionLink } from "./recovery-support";
-
-
-async function getAuthenticatedSupabaseClient() { return (await localClient()).client; }
-
-async function extractProjectId(page: Page, versionId: string) {
-  const response = await page.request.get(`/api/estimates/${versionId}`, {
-    failOnStatusCode: false,
-  });
-  expect(response.status()).toBe(200);
-
-  const payload = (await response.json()) as {
-    data?: { version?: { project_id?: string }; project_id?: string };
-    project_id?: string;
-  };
-
-  const projectId =
-    payload.data?.version?.project_id ??
-    payload.data?.project_id ??
-    payload.project_id ??
-    null;
-
-  expect(projectId, "project_id should be present in estimate version response").toBeTruthy();
-  return projectId as string;
-}
 
 async function createEstimateViaApi(
   page: Page,
@@ -80,26 +56,6 @@ async function createEstimateViaApi(
   }
 
   return { versionId };
-}
-
-async function getTenantIdForVersion(versionId: string) {
-  const sb = await getAuthenticatedSupabaseClient();
-  const { data, error } = await sb
-    .from("estimate_versions")
-    .select("tenant_id")
-    .eq("id", versionId)
-    .single();
-
-  if (error) {
-    throw new Error(`Cannot resolve tenant for version: ${error.message}`);
-  }
-
-  const tenantId = (data as { tenant_id?: string }).tenant_id;
-  if (!tenantId) {
-    throw new Error("Missing tenant_id for version.");
-  }
-
-  return tenantId;
 }
 
 async function openPlansSection(page: Page, projectId: string) {

@@ -182,3 +182,9 @@ export function textFrame(angle: number) {
   const cos = Math.cos(angle), sin = Math.sin(angle);
   return { cos, sin, along: (x: number, y: number) => x * cos + y * sin, up: (x: number, y: number) => x * sin - y * cos };
 }
+
+/** The centre of a text box: x, y is the baseline start; the glyph box rises perpendicular to the baseline. */
+export function textCentre(text: { x: number; y: number; angle: number; width: number; height: number }): Point {
+  const c = Math.cos(text.angle), s = Math.sin(text.angle);
+  return { x: text.x + (c * text.width) / 2 + (s * text.height) / 2, y: text.y + (s * text.width) / 2 - (c * text.height) / 2 };
+}

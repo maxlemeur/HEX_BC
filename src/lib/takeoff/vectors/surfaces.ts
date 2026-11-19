@@ -1,7 +1,7 @@
 import type { GroupClass } from "@/lib/takeoff/vectors/classify";
 import type { VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
 import { FILL_GROUP_ID, fillRooms, type FillRejection } from "@/lib/takeoff/vectors/fill";
-import { angleGap, pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
+import { angleGap, pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, textCentre, type Point } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 import { groupId, type PageModel } from "@/lib/takeoff/vectors/page-model";
 
@@ -48,11 +48,6 @@ export type RoomSurface = {
   /** Why the fill between walls gave no area (reported, never measured); null when not filled or measured. */
   fill_rejected: FillRejection | null;
 };
-
-function lineCentre(text: VectorText): Point {
-  const c = Math.cos(text.angle), s = Math.sin(text.angle);
-  return { x: text.x + (c * text.width) / 2 + (s * text.height) / 2, y: text.y + (s * text.width) / 2 - (c * text.height) / 2 };
-}
 
 const LABEL_PREFIX = /(?:^|\s)(?:s|surf(?:ace)?\.?|aire)\s*[=:]\s*$/i;
 
@@ -102,7 +97,7 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
     const printed = Number(match[1].replace(",", "."));
     if (!Number.isFinite(printed) || printed <= 0) return [];
     const room = roomLabel(text, text.str.slice(0, match.index), lines);
-    return room ? [{ text, room, printed, anchor: lineCentre(text) }] : [];
+    return room ? [{ text, room, printed, anchor: textCentre(text) }] : [];
   });
   const rings: Array<{ area: number; path: VectorPath } | null> = rooms.map(({ text, anchor }) => {
     let best: { area: number; path: VectorPath } | null = null;

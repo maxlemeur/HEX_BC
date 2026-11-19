@@ -31,7 +31,6 @@ import {
   type MaterialRequestFileUploads,
   type MaterialRequestLine,
   type MaterialRequestLineArticleResult,
-  type MaterialRequestPricePer,
   type MaterialRequestListItem,
   type MaterialRequestTechnician,
   type MaterialRequestUpdateResult,
@@ -73,6 +72,7 @@ import {
   type PurchaseOrderConfirmed,
   type PurchaseOrderReceived,
 } from "@/lib/purchase-orders/lifecycle-contracts";
+import type { PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
 import type { PurchaseOrderSent } from "@/lib/purchase-orders/send";
 import { sendPurchaseOrderSchema } from "@/lib/purchase-orders/send-contracts";
 import {
@@ -87,7 +87,7 @@ const uuid = z.string().uuid();
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const timestamp = z.string();
 // How many units a price is for (TI-691): a price stays in whole cents.
-const pricePer: z.ZodType<MaterialRequestPricePer> = z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]);
+const pricePer: z.ZodType<PurchaseOrderPricePer> = z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]);
 
 const technician: z.ZodType<MaterialRequestTechnician> = z.object({
   id: uuid, name: z.string(), current_project_id: uuid.nullable(), is_active: z.boolean(),

@@ -21,7 +21,7 @@ export interface GitChangeRecord {
   previousPath?: string;
 }
 
-interface GitCommandResult {
+export interface GitCommandResult {
   status: number;
   stdout: string;
   stderr: string;
@@ -56,7 +56,7 @@ function runGit(rootDirectory: string, args: string[]): GitCommandResult {
   };
 }
 
-function requireGitSuccess(result: GitCommandResult, description: string) {
+export function requireGitSuccess(result: GitCommandResult, description: string) {
   if (result.status !== 0) {
     const details = result.stderr.trim() || result.stdout.trim() || "unknown Git error";
     throw new Error(`${description}: ${details}`);

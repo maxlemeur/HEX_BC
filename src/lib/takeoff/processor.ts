@@ -6,6 +6,7 @@ import { mapSupabaseError } from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
+import { dedupeHeaders } from "@/lib/imports/tabular-normalization";
 import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
 import {
   buildPdfChunks,
@@ -282,16 +283,6 @@ function normalizeHeaderCell(value: unknown, index: number) {
     .replace(/^_+|_+$/g, "");
 
   return normalized.length > 0 ? normalized : `column_${index + 1}`;
-}
-
-function dedupeHeaders(headers: string[]) {
-  const collisions = new Map<string, number>();
-
-  return headers.map((header) => {
-    const nextCount = (collisions.get(header) ?? 0) + 1;
-    collisions.set(header, nextCount);
-    return nextCount === 1 ? header : `${header}_${nextCount}`;
-  });
 }
 
 function normalizeSheetCell(value: unknown): string {

@@ -1,8 +1,8 @@
-import { DIAMETER_FAMILIES, findDiameterEntries, type DiameterEntry, type DiameterFamily } from "@/lib/takeoff/bench/diameters";
-import { type MaterialCode, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { DIAMETER_FAMILIES, findDiameterEntries, type DiameterEntry, type DiameterFamily } from "@/lib/takeoff/diameters";
+import { type MaterialCode, type NetworkCode } from "@/lib/takeoff/trade-keys";
 
 // DN × network reference of the fixed rules (TI-664 step 1), extending the
-// diameter table of L0 (bench/diameters.ts, TI-659 §8). Per network of the
+// diameter table of L0 (diameters.ts, TI-659 §8). Per network of the
 // legend: the materials a network may be built in, and for each material the
 // series of its product standard (copper NF EN 1057, press stainless NF EN
 // 10312, welded stainless ISO 1127, PVC NF EN 1329-1 / 1452, SMU cast iron NF

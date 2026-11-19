@@ -28,6 +28,47 @@ export async function localClient() {
   return { client, userId: login.data.user!.id };
 }
 
+export async function extractProjectId(page: NativeUi, versionId: string) {
+  const response = await page.request.get(`/api/estimates/${versionId}`, {
+    failOnStatusCode: false,
+  });
+  expect(response.status()).toBe(200);
+
+  const payload = (await response.json()) as {
+    data?: { version?: { project_id?: string }; project_id?: string };
+    project_id?: string;
+  };
+
+  const projectId =
+    payload.data?.version?.project_id ??
+    payload.data?.project_id ??
+    payload.project_id ??
+    null;
+
+  expect(projectId, "project_id should be present in estimate version response").toBeTruthy();
+  return projectId as string;
+}
+
+export async function getTenantIdForVersion(versionId: string) {
+  const sb = (await localClient()).client;
+  const { data, error } = await sb
+    .from("estimate_versions")
+    .select("tenant_id")
+    .eq("id", versionId)
+    .single();
+
+  if (error) {
+    throw new Error(`Cannot resolve tenant for version: ${error.message}`);
+  }
+
+  const tenantId = (data as { tenant_id?: string }).tenant_id;
+  if (!tenantId) {
+    throw new Error("Missing tenant_id for version.");
+  }
+
+  return tenantId;
+}
+
 // Shared naming and request plumbing for the existing specialist journeys.
 // Every browser action below is the public Army SDK, so it stays in report.json.
 export const nativeTest = armyTest.extend<{ ui: NativeUi }>({

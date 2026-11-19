@@ -1,7 +1,7 @@
 import { cache } from "react";
 
 import { ESTIMATE_READINESS_CATEGORY_ORDER } from "@/lib/estimates/readiness";
-import { getEstimateSendGating } from "@/lib/estimates/server";
+import { getEstimateSendGating } from "@/lib/estimates/version-lifecycle-server";
 import { getEstimatePurchaseOrderReadinessCounts } from "@/lib/estimates/purchase-order-drafts";
 import {
   buildPurchaseOrderReadiness,

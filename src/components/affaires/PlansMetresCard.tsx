@@ -21,6 +21,7 @@ import { CircleHelpIcon, PanelsTopLeftIcon, TriangleAlertIcon } from "lucide-rea
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
+import { isIntakeSyncedPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 type PlansMetresCardProps = {
@@ -67,10 +68,6 @@ function QuestionIcon() {
   return (
     <CircleHelpIcon aria-hidden="true" className="inline-block shrink-0" size={14} />
   );
-}
-
-function isIntakeSyncedPlanSet(source: string | null | undefined) {
-  return source === "affaire-intake";
 }
 
 function getPlanSetContextCopy(input: {

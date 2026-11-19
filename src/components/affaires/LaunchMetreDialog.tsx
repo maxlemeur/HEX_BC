@@ -34,6 +34,7 @@ import { CheckIcon } from "lucide-react";
 import { LazyTakeoffPreparationPanel } from "@/components/takeoff/LazyTakeoffPreparationPanel";
 import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
 import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
+import { isIntakeSyncedPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -125,10 +126,6 @@ type LaunchVersionOption = {
   label: string;
   helper: string;
 };
-
-function isIntakeSyncedPlanSet(source: string | null | undefined) {
-  return source === "affaire-intake";
-}
 
 function versionBusinessLabel(versionNumber: number) {
   return versionNumber > 0 ? `V${versionNumber}` : "version courante";

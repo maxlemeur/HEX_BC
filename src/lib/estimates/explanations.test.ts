@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-read-server", () => ({
   getEstimateVersionDetails: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ vi.mock("@/lib/takeoff/gemini-client", () => ({
 }));
 
 import { getEstimateDeltaExplanation, getEstimateLineExplanation } from "@/lib/estimates/explanations";
-import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 

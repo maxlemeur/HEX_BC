@@ -7,8 +7,7 @@ import {
   ok,
   toErrorResponse,
 } from "@/lib/http/api-response";
-import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { deletePlanSet, getPlanSet, planSetIdSchema } from "@/lib/takeoff/plans";
 import { parseJsonBody } from "@/lib/http/request";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
@@ -64,10 +63,7 @@ function parseUpdatePlanSetPayload(payload: unknown): UpdatePlanSetInput {
 }
 
 async function updatePlanSetById(setId: string, input: UpdatePlanSetInput) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
-  await assertTakeoffEnabled(tenantId, {
-    supabase,
-  });
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
 
   const updatePayload: Record<string, unknown> = {};
   if (Object.prototype.hasOwnProperty.call(input, "name")) {

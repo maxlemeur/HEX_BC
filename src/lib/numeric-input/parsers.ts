@@ -1,7 +1,9 @@
+import type { SupportedEstimateCurrency } from "@/lib/money";
+
 /** Text-entry grammar shared by estimates, imports and clipboard previews.
  * Native spreadsheet numbers deliberately bypass textual locale inference.
  */
-type DecimalOptions = { maxFractionDigits?: number; currency?: "EUR" | "USD" | "GBP" };
+type DecimalOptions = { maxFractionDigits?: number; currency?: SupportedEstimateCurrency };
 
 /** Validated decimal digits: `integer` and `fraction` hold ASCII digits only. */
 type DecimalDigits = { negative: boolean; integer: string; fraction: string };

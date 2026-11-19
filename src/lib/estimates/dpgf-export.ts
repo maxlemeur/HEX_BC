@@ -5,7 +5,7 @@ import { resolveEstimateEngineVersion, shouldPreserveStoredEstimateV2Snapshot } 
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { ESTIMATE_EXPORT_PROGRESS_COMPLETE, ESTIMATE_EXPORT_XLSX_CONTENT_TYPE, createWorkbookWriterFactory, setCurrencyColumns, type EstimateExportStreamResult, type WorkbookWriterFactory, styleWorksheetHeader } from "@/lib/estimates/export-stream";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";
-import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { loadEstimateV3ExportDocument, writeEstimateV3DpgfWorkbook, type EstimateV3ExportDocument } from "@/lib/estimates/v3-export";
 
 type WorksheetRowValue = Record<string, unknown> | unknown[];

@@ -1,4 +1,4 @@
-import type { MaterialCode } from "@/lib/takeoff/bench/keys";
+import type { MaterialCode } from "@/lib/takeoff/trade-keys";
 
 // Versioned diameter correspondence of the takeoff bench (TI-659), from public
 // product standards only, no client data. A devis writes « 22x1,2 », a plan
@@ -84,6 +84,11 @@ export type DiameterEntry = {
   /** Other spellings: French ID/OD pairs (« 20/22 », « 20/27 ») and inch sizes. */
   aliases: readonly string[];
 };
+
+/** One entry's identity: its family and outer diameter. */
+export function entryId(entry: DiameterEntry) {
+  return `${entry.family}:${entry.od_mm}`;
+}
 
 type Row = [od: number, wall: number | null, dn: number | null, ...aliases: string[]];
 

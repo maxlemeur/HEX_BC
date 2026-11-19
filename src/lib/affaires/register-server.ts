@@ -59,7 +59,7 @@ import {
   type AffaireRegisterSummary,
   type AffaireRegisterTimelineEvent,
 } from "./register";
-import { isRecord } from "@/lib/value-guards";
+import { isRecord, toStringOrNull } from "@/lib/value-guards";
 import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -354,10 +354,6 @@ const continueAffaireRegisterWithHypothesisInputSchema = z.object({
   entryId: z.string().uuid("entryId invalide."),
   comment: z.string().trim().max(320).nullable().optional(),
 });
-function toStringOrNull(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
 function normalizeAffaireProject(row: unknown): AffaireProjectAccessRow | null {
   if (!isRecord(row)) {
     return null;
@@ -894,7 +890,7 @@ async function insertAffaireRegisterEvent(input: {
   beforePayload?: Json | null;
   afterPayload?: Json | null;
 }) {
-  const { error } = await input.supabase.from("affaire_register_events" as never).insert({
+  const { error } = await input.supabase.from("affaire_register_events").insert({
     entry_id: input.entryId,
     actor_user_id: input.actorUserId ?? null,
     event_type: input.eventType,
@@ -977,7 +973,7 @@ async function listExistingRegisterEntriesBySyncKey(input: {
   }
 
   const { data, error } = await readAllRowsInChunks(input.syncKeys, (pageIds) => input.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(
       "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never,
       { count: "exact" }
@@ -1006,7 +1002,7 @@ async function deactivateMissingSyncEntries(input: {
   reason: string;
 }) {
   const { data, error } = await readAllRows(() => input.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(
       "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never,
       { count: "exact" }
@@ -1155,7 +1151,7 @@ async function upsertSyncedEntries(input: {
     );
     if (newPayload.length > 0) {
       const { data, error } = await input.supabase
-        .from("affaire_register_entries" as never)
+        .from("affaire_register_entries")
         .insert(newPayload as never)
         .select(
           "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never
@@ -1395,7 +1391,7 @@ export async function fetchAffaireRegisterGateSummaries(input: {
   const { data, error } = await readAllRowsInChunks(
     input.scopes.map((scope) => scope.projectId),
     (projectIds) => input.supabase
-      .from("affaire_register_entries" as never)
+      .from("affaire_register_entries")
       .select(`${GATE_ENTRY_SELECT}, project_id, updated_at` as never, { count: "exact" })
       .in("project_id", projectIds as never)
       .eq("is_active", true as never) as never,
@@ -1629,7 +1625,7 @@ async function fetchAffaireRegisterTimelineWithContext(input: {
 }): Promise<AffaireRegisterTimelineEvent[]> {
   const { context, project } = input;
   let query = context.supabase
-    .from("affaire_register_events" as never)
+    .from("affaire_register_events")
     .select(EVENT_SELECT as never)
     .eq("project_id", project.id as never);
 
@@ -1661,13 +1657,13 @@ export async function fetchAffaireRegisterPage(
 
   const pageSize = Math.max(1, Math.min(input.size ?? PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX));
   let query = context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("is_active", true as never);
   let focusedQuery: typeof query | null = input.focusEntryId
     ? context.supabase
-        .from("affaire_register_entries" as never)
+        .from("affaire_register_entries")
         .select(ENTRY_SELECT as never)
         .eq("project_id", project.id as never)
         .eq("is_active", true as never)
@@ -1873,7 +1869,7 @@ export async function fetchAffaireRegisterReviewExport(input: {
   );
 
   let query = context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never, { count: "exact" })
     .eq("project_id", project.id as never)
     .eq("is_active", true as never);
@@ -2045,7 +2041,7 @@ export async function createAffaireRegisterEntry(input: z.infer<typeof createAff
   } as const;
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .insert(payload as never)
     .select(ENTRY_SELECT as never)
     .single();
@@ -2088,7 +2084,7 @@ export async function updateAffaireRegisterEntryStatus(
   );
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("id", parsed.entryId as never)
@@ -2203,7 +2199,7 @@ export async function updateAffaireRegisterEntryFollowUp(
   );
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("id", parsed.entryId as never)
@@ -2392,7 +2388,7 @@ export async function requestAffaireRegisterRevalidation(
   const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("id", parsed.entryId as never)
@@ -2493,7 +2489,7 @@ export async function continueAffaireRegisterWithHypothesis(
   const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("id", parsed.entryId as never)
@@ -2516,7 +2512,7 @@ export async function continueAffaireRegisterWithHypothesis(
   }
 
   let assumptionsQuery = context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never, { count: "exact" })
     .eq("project_id", project.id as never)
     .eq("kind", "assumption" as never)
@@ -2580,7 +2576,7 @@ export async function continueAffaireRegisterWithHypothesis(
 
   if (!hypothesisEntry) {
     const { data: hypothesisData, error: hypothesisInsertError } = await context.supabase
-      .from("affaire_register_entries" as never)
+      .from("affaire_register_entries")
       .insert({
         project_id: project.id,
         version_id: sourceEntry.version_id,

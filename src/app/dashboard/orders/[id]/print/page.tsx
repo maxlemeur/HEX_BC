@@ -18,7 +18,8 @@ import {
 } from "@/lib/purchase-orders/order-lines";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
-import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
+import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders/access";
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import { OrderDocumentViewport } from "../../_components/OrderDocumentViewport";
@@ -60,7 +61,7 @@ type PurchaseOrder = {
   edit_revision: number;
   reference: string;
   order_number: number;
-  status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+  status: OrderStatus;
   order_date: string;
   expected_delivery_date: string | null;
   notes: string | null;

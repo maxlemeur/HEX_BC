@@ -1,14 +1,20 @@
 import { readAllRowsInChunks } from "@/lib/supabase/read-all";
-import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
+import {
+  applyTakeoffJobsListFilters,
+  getAuthenticatedTakeoffContext,
+  resolveVersionIdsForProject,
+  type AuthenticatedTakeoffContext,
+} from "@/lib/takeoff/job-read-server";
 import type {
   TakeoffActivityCenterResponse,
   TakeoffActivityCenterJobRow,
   TakeoffActivityCenterCounters,
   TakeoffActivityCenterConfidenceLabel,
+  TakeoffDispatchOutcome,
+  TakeoffDispatchStatus,
 } from "@/lib/takeoff/types";
 import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
 import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
@@ -18,14 +24,7 @@ import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-lis
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
-const VERSIONS_BATCH_SIZE = 1000;
 const JOBS_BATCH_SIZE = 1000;
-
-const TAKEOFF_JOB_LIST_PERIOD_DAYS: Record<string, number> = {
-  "7d": 7,
-  "30d": 30,
-  "90d": 90,
-};
 
 /* ─── Input type ─── */
 
@@ -43,7 +42,7 @@ type ListActivityCenterJobsInput = {
 
 /* ─── Helpers ─── */
 
-type SupabaseClient = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
+type SupabaseClient = AuthenticatedTakeoffContext["supabase"];
 
 type JobRow = {
   id: string;
@@ -61,14 +60,8 @@ type JobRow = {
   provider_reconcile_lease_expires_at: string | null;
   created_at: string;
   retry_count: number;
-  dispatch_status: "started" | "queued" | "trigger_failed" | null;
-  dispatch_outcome:
-    | "accepted"
-    | "configuration_missing"
-    | "http_error"
-    | "timeout"
-    | "network_error"
-    | null;
+  dispatch_status: TakeoffDispatchStatus | null;
+  dispatch_outcome: TakeoffDispatchOutcome | null;
   dispatch_correlation_id: string | null;
   dispatch_updated_at: string | null;
 };
@@ -91,49 +84,6 @@ type PlanSources = {
   candidatesByFileName: Map<string, PlanSourceCandidate[]>;
 };
 
-async function resolveVersionIdsForProject(
-  supabase: SupabaseClient,
-  tenantId: string,
-  projectId: string
-): Promise<Array<{ id: string; version_number: number }>> {
-  const versions: Array<{ id: string; version_number: number }> = [];
-  let offset = 0;
-
-  while (true) {
-    const end = offset + VERSIONS_BATCH_SIZE - 1;
-    const { data, error } = await supabase
-      .from("estimate_versions")
-      .select("id, version_number")
-      .eq("tenant_id", tenantId)
-      .eq("project_id", projectId)
-      .order("version_number", { ascending: true })
-      .order("id", { ascending: true })
-      .range(offset, end);
-
-    if (error) {
-      throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de résoudre les versions du projet."),
-        { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false }
-      );
-    }
-
-    const rows = (data ?? []) as Array<{ id: string; version_number: number }>;
-    if (rows.length === 0) break;
-
-    versions.push(...rows);
-    offset += rows.length;
-  }
-
-  return versions;
-}
-
-function resolvePeriodStart(period: string | null | undefined): string | null {
-  if (!period) return null;
-  const days = TAKEOFF_JOB_LIST_PERIOD_DAYS[period];
-  if (!days) return null;
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-}
-
 function toNormalizedSourceFileKey(value: string | null | undefined): string | null {
   if (typeof value !== "string") {
     return null;
@@ -141,46 +91,6 @@ function toNormalizedSourceFileKey(value: string | null | undefined): string | n
 
   const normalized = value.trim().toLocaleLowerCase("fr-FR");
   return normalized.length > 0 ? normalized : null;
-}
-
-type FilterableQuery = {
-  eq: (col: string, val: string) => FilterableQuery;
-  gte: (col: string, val: string) => FilterableQuery;
-  in: (col: string, vals: string[]) => FilterableQuery;
-};
-
-function applyFilters<T extends FilterableQuery>(
-  query: T,
-  opts: {
-    versionIds?: string[];
-    versionId?: string | null;
-    status?: string | null;
-    level?: string | null;
-    period?: string | null;
-  }
-): T {
-  let q = query;
-
-  if (opts.versionIds && opts.versionIds.length > 0) {
-    q = q.in("estimate_version_id", opts.versionIds) as T;
-  } else if (opts.versionId) {
-    q = q.eq("estimate_version_id", opts.versionId) as T;
-  }
-
-  if (opts.status) {
-    q = q.eq("status", opts.status) as T;
-  }
-
-  if (opts.level) {
-    q = q.eq("level", opts.level) as T;
-  }
-
-  const periodStart = resolvePeriodStart(opts.period);
-  if (periodStart) {
-    q = q.gte("created_at", periodStart) as T;
-  }
-
-  return q;
 }
 
 function comparePlanSourceCandidates(
@@ -227,14 +137,18 @@ async function listMatchingJobs(
 
   while (true) {
     const end = offset + JOBS_BATCH_SIZE - 1;
-    const query = applyFilters(
+    const query = applyTakeoffJobsListFilters(
       supabase
         .from("takeoff_jobs" as never)
         .select(
           "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
         )
         .eq("tenant_id" as never, tenantId as never),
-      filterOpts
+      {
+        version_ids: filterOpts.versionIds,
+        level: filterOpts.level,
+        period: filterOpts.period,
+      }
     );
 
     const { data, error } = await (query as ReturnType<typeof supabase.from>)
@@ -674,18 +588,17 @@ async function batchEnrich(
 export async function listActivityCenterJobs(
   input: ListActivityCenterJobsInput
 ): Promise<TakeoffActivityCenterResponse> {
-  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
-  await assertTakeoffEnabled(tenantId, { supabase });
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedTakeoffContext();
 
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
 
   // 1. Resolve version IDs for the project
-  const versions = await resolveVersionIdsForProject(
+  const versions = await resolveVersionIdsForProject({
     supabase,
     tenantId,
-    input.project_id
-  );
+    projectId: input.project_id,
+  });
   const versionIds = versions.map((v) => v.id);
   const versionNumberMap = new Map(versions.map((v) => [v.id, v.version_number]));
 

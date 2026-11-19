@@ -39,20 +39,20 @@ import type { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuv
 import type { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
 import type { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
 import type { VersionZeroDraftDialog } from "@/components/estimates/VersionZeroDraftDialog";
-import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
+import type { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import type { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
-import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
-import {
+import type { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
+import type {
   EstimateEditorTable,
-  type EstimateSectionDuplicateTarget,
+  EstimateSectionDuplicateTarget,
 } from "@/components/estimates/EstimateEditorTable";
 import type { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import type { PriceReuseDialog } from "@/components/estimates/PriceReuseDialog";
 import type { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
 import type { EstimateV3GridModel } from "@/components/estimates/v3/V3LineCells";
-import {
+import type {
   EstimateSettingsSummaryBar,
-  type SettingsSection,
+  SettingsSection,
 } from "@/components/estimates/EstimateSettingsSummaryBar";
 import { useToast } from "@/components/feedback/toast-provider";
 import { useUserContext } from "@/lib/auth/user-context";
@@ -88,6 +88,7 @@ import {
 } from "@/hooks/useEstimateEditorSyncController";
 import { useUiMode } from "@/hooks/useUiMode";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { LABOR_SPLIT_FEATURE_FLAG_KEY } from "@/lib/feature-flag-keys";
 import { useEstimateV3Settings } from "@/hooks/useEstimateV3Settings";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import { hasFreshEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
@@ -307,7 +308,7 @@ export function useEstimateEditorState({
   const isAdmin = profile?.role === "admin";
   const isViewerReadOnly = profile?.tenant_role === "viewer";
   const { isExpert } = useUiMode();
-  const { enabled: isLaborSplitEnabled } = useFeatureFlag("EST_031_LABOR_SPLIT");
+  const { enabled: isLaborSplitEnabled } = useFeatureFlag(LABOR_SPLIT_FEATURE_FLAG_KEY);
   const {
     enabled: isVirtualizationModeFlagEnabled,
     value: virtualizationModeFlagValue,

@@ -1,5 +1,5 @@
-import type { NetworkCode } from "@/lib/takeoff/bench/keys";
-import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
+import type { NetworkCode } from "@/lib/takeoff/trade-keys";
+import { NETWORK_CODES } from "@/lib/takeoff/trade-keys";
 import { matchLegendColor, type PageLegend } from "@/lib/takeoff/vectors/legend";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 import { classOfLayerName, OTHER_CLASSES, type VectorClass } from "@/lib/takeoff/vectors/vocabulary";

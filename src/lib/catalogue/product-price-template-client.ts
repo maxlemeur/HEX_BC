@@ -54,3 +54,8 @@ export type ProductPriceTemplateParseResult = {
   hasBlockingIssues: boolean;
   version: string | null;
 };
+
+/** The key that matches a product reference of the template with a catalogue product: trimmed, lower case (fr-FR). */
+export function normalizedReference(value: string): string {
+  return value.trim().toLocaleLowerCase("fr-FR");
+}

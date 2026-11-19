@@ -4,7 +4,7 @@ import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { NETWORKS, NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { NETWORKS, NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import {
   EMPTY_TARGETED_REVIEW_FILTERS,
   LOT_VALUE_PREFIX,

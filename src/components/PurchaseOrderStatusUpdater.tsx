@@ -5,36 +5,31 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
+import {
+  PURCHASE_ORDER_STATUS_LABELS,
+  PURCHASE_ORDER_STATUSES,
+  type OrderStatus,
+} from "@/lib/purchase-orders/lifecycle";
 import { purchaseOrderStatusErrorMessage } from "@/lib/purchase-orders/status-errors";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
-type PurchaseOrderStatus =
-  | "draft"
-  | "sent"
-  | "confirmed"
-  | "received"
-  | "canceled";
+type StatusOption = { value: OrderStatus; label: string };
 
-type StatusOption = { value: PurchaseOrderStatus; label: string };
-
-const STATUS_OPTIONS: StatusOption[] = [
-  { value: "draft", label: "Brouillon" },
-  { value: "sent", label: "Envoyée" },
-  { value: "confirmed", label: "Confirmée" },
-  { value: "received", label: "Reçue" },
-  { value: "canceled", label: "Annulée" },
-];
+const STATUS_OPTIONS: StatusOption[] = PURCHASE_ORDER_STATUSES.map((value) => ({
+  value,
+  label: PURCHASE_ORDER_STATUS_LABELS[value],
+}));
 
 type PurchaseOrderStatusUpdaterProps = {
   orderId: string;
-  status: PurchaseOrderStatus;
+  status: OrderStatus;
   onSaved?: () => void;
   /** Lets a visible label (e.g. a dialog field) name the select instead of the default aria-label. */
   selectId?: string;
   className?: string;
   /** TI-691: the statuses offered, in this order (an order of an affaire is only canceled or reopened here). */
-  statuses?: readonly PurchaseOrderStatus[];
+  statuses?: readonly OrderStatus[];
 };
 
 /**
@@ -47,7 +42,7 @@ export function usePurchaseOrderStatusUpdate(orderId: string, onSaved?: () => vo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function update(next: PurchaseOrderStatus): Promise<boolean> {
+  async function update(next: OrderStatus): Promise<boolean> {
     setError(null);
     setSaving(true);
     const { error: updateError } = await supabase
@@ -75,7 +70,7 @@ export function PurchaseOrderStatusUpdater({
   className,
   statuses,
 }: PurchaseOrderStatusUpdaterProps) {
-  const [value, setValue] = useState<PurchaseOrderStatus>(status);
+  const [value, setValue] = useState<OrderStatus>(status);
   const { update, saving, error } = usePurchaseOrderStatusUpdate(orderId, onSaved);
 
   async function onSave() {
@@ -92,7 +87,7 @@ export function PurchaseOrderStatusUpdater({
         aria-label={selectId ? undefined : "Statut de la commande"}
         wrapperClassName="w-auto min-w-40"
         value={value}
-        onChange={(event) => setValue(event.target.value as PurchaseOrderStatus)}
+        onChange={(event) => setValue(event.target.value as OrderStatus)}
       >
         {(statuses ? STATUS_OPTIONS.filter((option) => statuses.includes(option.value)) : STATUS_OPTIONS).map((option) => (
           <option key={option.value} value={option.value}>

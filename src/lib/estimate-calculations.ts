@@ -1,4 +1,4 @@
-import { bankersRound, computeTaxCents } from "@/lib/money";
+import { bankersRound, computeTaxCents, MAX_CENTS } from "@/lib/money";
 import { allocateProRata } from "@/lib/estimate-allocation";
 import {
   aggregateEstimateV2Sections,
@@ -9,24 +9,12 @@ import {
   resolveMarginMultiplier,
   type MarginTier,
 } from "@/lib/estimates/margin-tiers";
-import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-
-export { allocateProRata } from "@/lib/estimate-allocation";
-export {
-  buildEstimateV2SnapshotProjection,
-  buildStoredEstimateBreakdown,
-  UNASSIGNED_SUPPLY_TYPE_KEY,
-  type EstimateV2SnapshotLine,
-  type EstimateV2SnapshotProjection,
-} from "@/lib/estimate-v2-snapshot";
+import type { CalcEngineVersion } from "@/lib/estimates/engine/capabilities";
 
 /* ---------- constants ---------- */
 
 /** Maximum allowed margin multiplier (A6 overflow guard). */
 export const MAX_MARGIN_MULTIPLIER = 100;
-
-/** Maximum PostgreSQL integer value – caps computed cents to avoid DB overflow. */
-export const MAX_CENTS = 2_147_483_647;
 
 /* ---------- shared types ---------- */
 

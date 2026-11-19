@@ -1,5 +1,6 @@
 import "server-only";
 import { ApiError, badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
+import type { AffaireProjectAccess } from "@/lib/affaires/intake";
 import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
 import { readLinkedDriveFile } from "./content";
 import { driveFileRejection, type DriveRequest, type DriveState, type DriveVersionStatus } from "./contracts";
@@ -17,7 +18,7 @@ export function toDriveApiError(error: unknown) {
 async function guarded<T>(work: () => Promise<T>) {
   try { return await work(); } catch (error) { throw toDriveApiError(error); }
 }
-const member = (access: Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAdmin>>) => access.context;
+const member = (access: AffaireProjectAccess) => access.context;
 
 export async function driveState(projectId: string): Promise<DriveState> {
   const access = await requireAffaireProjectOwnerOrAdmin(projectId);
@@ -34,7 +35,7 @@ export async function driveState(projectId: string): Promise<DriveState> {
 }
 
 async function checkDriveVersion(
-  { context, project }: Awaited<ReturnType<typeof requireAffaireProjectOwnerOrAdmin>>,
+  { context, project }: AffaireProjectAccess,
   documentId: string,
   signal: AbortSignal,
 ): Promise<{ versionStatus: DriveVersionStatus }> {

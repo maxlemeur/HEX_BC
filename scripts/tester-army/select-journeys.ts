@@ -408,6 +408,16 @@ export function expandJourneys(map: ImpactMap, references: readonly string[], se
   return [...journeys];
 }
 
+/** The globs of a test list of e2e.config.ts, each `...name` replaced by the entries of `const name = [...]`. */
+function configTestGlobs(config: string, list: string): string[] {
+  const entries = list.replace(/\.\.\.([A-Za-z_$][\w$]*)/gu, (_spread, name: string) => {
+    const constant = new RegExp(`const ${name} = \\[([^\\]]*)\\]`, "u").exec(config);
+    if (!constant) throw new Error(`The list ${name} of e2e.config.ts cannot be read.`);
+    return constant[1];
+  });
+  return [...entries.matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+}
+
 /**
  * Journey files the CI critical suite runs: the localBusiness test list of
  * e2e.config.ts (the CI stack is loopback), matched against the working tree.
@@ -415,7 +425,7 @@ export function expandJourneys(map: ImpactMap, references: readonly string[], se
 export function criticalSuiteJourneys(config: string, repositoryFiles: readonly string[]): string[] {
   const branch = /critical \? localBusiness \? \[([^\]]*)\]/u.exec(config);
   if (!branch) throw new Error("The localBusiness critical test list of e2e.config.ts cannot be read.");
-  const globs = [...branch[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+  const globs = configTestGlobs(config, branch[1]);
   return repositoryFiles.filter((file) => globs.some((glob) => globToRegExp(glob).test(file))).sort();
 }
 
@@ -423,7 +433,7 @@ export function criticalSuiteJourneys(config: string, repositoryFiles: readonly 
 export function fullSelectionGlobs(config: string): string[] {
   const branch = /: full \? \[([^\]]*)\]/u.exec(config);
   if (!branch) throw new Error("The full test list of e2e.config.ts cannot be read.");
-  return [...branch[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+  return configTestGlobs(config, branch[1]);
 }
 
 /**

@@ -2,7 +2,7 @@ import { parseVerifyEstimateSealResponse } from "@/lib/estimates/write-response-
 import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { verifyEstimateSeal } from "@/lib/estimates/server";
+import { verifyEstimateSeal } from "@/lib/estimates/version-seal-server";
 import { uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { updateMarginTierSchema } from "@/lib/estimates/schemas";
-import { deleteMarginTier, updateMarginTier } from "@/lib/estimates/server";
+import { deleteMarginTier, updateMarginTier } from "@/lib/estimates/reference-data-server";
 import { parseJsonBody } from "@/lib/http/request";
 
 const paramsSchema = z.object({

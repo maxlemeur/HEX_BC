@@ -11,7 +11,7 @@ import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 
 import { resolveSubmissionReadiness } from "./AffairePilotagePanel.logic";
-import { getReviewProbableCategories, sortReviewDocuments } from "./AffaireFlowHierarchyPanel.review-logic";
+import { dedupe, getReviewProbableCategories, sortReviewDocuments } from "./AffaireFlowHierarchyPanel.review-logic";
 import { foldText } from "@/lib/text/fold";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
@@ -114,11 +114,7 @@ export type AffaireFlowPanelModel = {
   aides: AffaireFlowPanelAction[];
 };
 
-function dedupe(values: string[]) {
-  return [...new Set(values)];
-}
-
-function isHybridStructureAction(action: AffaireFlowPanelAction) {
+export function isHybridStructureAction(action: AffaireFlowPanelAction) {
   return action.label.toLowerCase().includes("hybride");
 }
 
@@ -128,10 +124,6 @@ function hasCriticalMissingCategory(missingPieces: NonNullable<AffaireFlowHierar
 
 function hasDetectedDocumentKind(intakeWorkspace: AffaireFlowHierarchyPanelProps["intakeWorkspace"], kind: "dpgf" | "plans" | "cctp") {
   return intakeWorkspace?.documents.some((document) => document.detectedCategory === kind && document.confidence > 0) ?? false;
-}
-
-export function isDocumentProcessing(document: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"][number]) {
-  return isAffaireIntakeDocumentProcessing(document);
 }
 
 function hasOpenCriticalRegisterDocumentRisk(registerSummary: AffaireFlowHierarchyPanelProps["registerSummary"]) {
@@ -375,7 +367,7 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     ...(submissionReadiness?.alerts.filter((flag) => flag.category === "documents") ?? []),
   ];
   const documentsCount = documents.length;
-  const processingDocuments = documents.filter((document) => isDocumentProcessing(document));
+  const processingDocuments = documents.filter((document) => isAffaireIntakeDocumentProcessing(document));
 
   const addFilesSuggestion = findSuggestion(suggestions, "add_files");
   const addMissingPiecesSuggestion = findSuggestion(suggestions, "add_missing_pieces");

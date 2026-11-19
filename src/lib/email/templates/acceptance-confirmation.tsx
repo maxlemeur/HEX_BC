@@ -83,8 +83,6 @@ export function AcceptanceConfirmationEmailTemplate({
   );
 }
 
-export default AcceptanceConfirmationEmailTemplate;
-
 // ---------------------------------------------------------------------------
 // Styles (inline for email compatibility)
 // ---------------------------------------------------------------------------

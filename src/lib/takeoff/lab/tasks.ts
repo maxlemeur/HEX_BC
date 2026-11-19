@@ -1,4 +1,4 @@
-import { NETWORK_CODES, NETWORKS } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES, NETWORKS } from "@/lib/takeoff/trade-keys";
 import { getTakeoffPrompt, getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { DECISIONS_INSTRUCTIONS_MAX, EXTRACTION_PROMPT_MAX, LAB_VECTOR_TASK_ID, type LabTaskDescriptor } from "@/lib/takeoff/lab/contracts";
 import {

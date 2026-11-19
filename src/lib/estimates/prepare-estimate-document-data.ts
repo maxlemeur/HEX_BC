@@ -1,5 +1,4 @@
 import {
-  buildStoredEstimateBreakdown,
   computeEstimateBreakdown,
   computeReadOnlyTotals,
   computeStoredDiscountCents,
@@ -9,9 +8,10 @@ import {
   type EstimateVersionForCalc,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
+import { buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import { aggregateEstimateV2Sections } from "@/lib/estimate-v2-snapshot";
-import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
+  type CalcEngineVersion,
   isLegacyEngine,
   isUnifiedEngine,
   usesSaleCoefficients,

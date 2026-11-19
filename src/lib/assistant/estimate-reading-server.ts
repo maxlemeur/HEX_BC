@@ -2,7 +2,7 @@ import "server-only";
 
 import type { EstimateReading } from "@/lib/assistant/estimate-reading";
 import { buildEstimateReading, type EstimateReadingSource } from "@/lib/assistant/estimate-reading-build";
-import { AssistantToolError } from "@/lib/assistant/loop";
+import { AssistantToolError, isUserFacingRefusal } from "@/lib/assistant/loop";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import type { AuthenticatedContext } from "@/lib/estimates/server-context";
@@ -13,8 +13,7 @@ const NO_ACCESS = "Ce devis est introuvable ou vous n’y avez pas accès.";
 
 /** A refusal the application worded for its user (4xx) is told as is; anything else is not. */
 function userFacingMessage(error: unknown) {
-  const status = (error as { status?: unknown } | null)?.status;
-  return error instanceof Error && typeof status === "number" && status >= 400 && status < 500 ? error.message : null;
+  return isUserFacingRefusal(error) ? error.message : null;
 }
 
 /** The versions of an affaire that this member may open, most recent first. */

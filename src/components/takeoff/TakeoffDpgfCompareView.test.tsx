@@ -11,7 +11,8 @@ vi.mock("@/lib/takeoff/client", async (importActual) => ({
   saveTakeoffReviewDecision: vi.fn(async () => ({})),
 }));
 
-import TakeoffDpgfCompareView, { buildManualLinkCandidates } from "@/components/takeoff/TakeoffDpgfCompareView";
+import TakeoffDpgfCompareView from "@/components/takeoff/TakeoffDpgfCompareView";
+import { buildManualLinkCandidates } from "@/components/takeoff/takeoff-dpgf-compare-view/manualLinkCandidates";
 import { fetchTakeoffRiskRadar, saveTakeoffReviewDecision, type TakeoffRiskRadarResponse } from "@/lib/takeoff/client";
 import type {
   TakeoffDpgfComparisonResponse, TakeoffDpgfComparisonRow, TakeoffDpgfComparisonView, TakeoffDpgfReviewDecision,

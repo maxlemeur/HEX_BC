@@ -1,6 +1,6 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { listProductAliases } from "@/lib/material-requests/articles-server";
-import { productParamsSchema } from "@/lib/material-requests/http";
+import { productParamsSchema } from "@/lib/http/request";
 
 type Context = { params: Promise<{ productId: string }> };
 

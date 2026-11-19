@@ -1,5 +1,5 @@
-import { findDiameterEntries, type DiameterFamily } from "@/lib/takeoff/bench/diameters";
-import type { MaterialCode } from "@/lib/takeoff/bench/keys";
+import { findDiameterEntries, type DiameterFamily } from "@/lib/takeoff/diameters";
+import type { MaterialCode } from "@/lib/takeoff/trade-keys";
 import { foldText } from "@/lib/text/fold";
 
 /**

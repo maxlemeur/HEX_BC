@@ -9,15 +9,6 @@ type CockpitPreferenceRow = {
   is_pinned: boolean;
 };
 
-function isMissingCockpitPreferencesTableError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: string }).code === "42P01"
-  );
-}
-
 export async function fetchCockpitCommandPreferences(
   projectId: string,
 ): Promise<CockpitCommandPreference[]> {
@@ -28,16 +19,13 @@ export async function fetchCockpitCommandPreferences(
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from("cockpit_command_preferences" as never)
+    .from("cockpit_command_preferences")
     .select("action_id, is_hidden, is_pinned")
     .eq("tenant_id", tenantId)
     .eq("user_id", profile.id)
     .eq("project_id", projectId);
 
   if (error) {
-    if (isMissingCockpitPreferencesTableError(error)) {
-      return [];
-    }
     throw error;
   }
 
@@ -61,7 +49,7 @@ export async function upsertCockpitCommandPreference(input: {
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase
-    .from("cockpit_command_preferences" as never)
+    .from("cockpit_command_preferences")
     .upsert(
       {
         tenant_id: tenantId,
@@ -70,16 +58,13 @@ export async function upsertCockpitCommandPreference(input: {
         action_id: input.actionId,
         is_hidden: input.isHidden,
         is_pinned: input.isPinned,
-      } as never,
+      },
       {
         onConflict: "tenant_id,user_id,project_id,action_id",
       },
     );
 
   if (error) {
-    if (isMissingCockpitPreferencesTableError(error)) {
-      return;
-    }
     throw error;
   }
 }

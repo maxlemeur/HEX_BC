@@ -29,8 +29,8 @@ import { Alert } from "@/components/ui/alert";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 import { readOutgoingEmailRouting } from "@/lib/email/outgoing-routing";
-import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";
-import { parisToday } from "@/lib/purchase-orders/lifecycle";
+import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders/access";
+import { parisToday, type OrderStatus } from "@/lib/purchase-orders/lifecycle";
 import {
   defaultSendMessage,
   defaultSendSubject,
@@ -39,17 +39,11 @@ import {
   type PurchaseOrderSendRouting,
 } from "@/lib/purchase-orders/send";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { DEVIS_BUCKET } from "@/lib/storage/buckets";
 
 import { OrderLineHistory } from "../_components/OrderLineHistory";
 import { OrderDocumentViewport } from "../_components/OrderDocumentViewport";
 import { formatOrderDate, statusClass, statusLabel } from "../_components/orders-model";
-
-type PurchaseOrderStatus =
-  | "draft"
-  | "sent"
-  | "confirmed"
-  | "received"
-  | "canceled";
 
 type Supplier = {
   name: string;
@@ -87,7 +81,7 @@ type PurchaseOrder = {
   edit_revision: number;
   reference: string;
   order_number: number;
-  status: PurchaseOrderStatus;
+  status: OrderStatus;
   order_date: string;
   expected_delivery_date: string | null;
   notes: string | null;
@@ -247,7 +241,7 @@ export default async function OrderPage({
   const devisItems: DevisItem[] = await Promise.all(
     devisRecords.map(async (record) => {
       const { data: signedData } = await supabase.storage
-        .from("devis")
+        .from(DEVIS_BUCKET)
         .createSignedUrl(record.storage_path, 60 * 10);
 
       return {

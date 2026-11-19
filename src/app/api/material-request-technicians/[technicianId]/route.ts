@@ -1,6 +1,7 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { updateMaterialRequestTechnicianSchema } from "@/lib/material-requests/contracts";
-import { readJsonBody, technicianParamsSchema } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { technicianParamsSchema } from "@/lib/material-requests/http";
 import { updateMaterialRequestTechnician } from "@/lib/material-requests/technicians-server";
 
 type Context = { params: Promise<{ technicianId: string }> };

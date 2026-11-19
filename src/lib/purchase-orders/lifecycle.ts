@@ -4,7 +4,17 @@
  * server. The database decides; these only say what to offer.
  */
 
-export type OrderStatus = "draft" | "sent" | "confirmed" | "received" | "canceled";
+import type { Database } from "@/types/database";
+
+export type OrderStatus = Database["public"]["Enums"]["purchase_order_status"];
+export const PURCHASE_ORDER_STATUSES = ["draft", "sent", "confirmed", "received", "canceled"] as const satisfies readonly OrderStatus[];
+export const PURCHASE_ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  draft: "Brouillon",
+  sent: "Envoyée",
+  confirmed: "Confirmée",
+  received: "Reçue",
+  canceled: "Annulée",
+};
 
 /**
  * The statuses an order of an affaire may be given directly, from the one it has: a draft is canceled, a canceled

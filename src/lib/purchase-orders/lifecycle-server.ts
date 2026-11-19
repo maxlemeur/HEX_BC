@@ -11,7 +11,7 @@ import {
   notFound,
   unprocessableEntity,
 } from "@/lib/http/api-response";
-import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
+import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders/access";
 
 import type {
   ConfirmPurchaseOrderData,

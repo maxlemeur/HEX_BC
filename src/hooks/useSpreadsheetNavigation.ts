@@ -11,7 +11,11 @@ import {
   type MouseEvent,
   type RefCallback,
 } from "react";
-import { writeEditorValue } from "@/hooks/useGridNavigation";
+import {
+  isEditorElement,
+  selectEditorText,
+  writeEditorValue,
+} from "@/hooks/useGridNavigation";
 
 const CELL_ID_SEPARATOR = "::";
 
@@ -251,31 +255,8 @@ export function resolveSpreadsheetPointerCommand({
   };
 }
 
-function isEditorElement(value: EventTarget | null): value is SpreadsheetEditorElement {
-  return (
-    value instanceof HTMLInputElement ||
-    value instanceof HTMLSelectElement ||
-    value instanceof HTMLTextAreaElement
-  );
-}
-
 function readEditorValue(editor: SpreadsheetEditorElement) {
   return editor.value;
-}
-
-function selectEditorText(editor: SpreadsheetEditorElement) {
-  if (
-    !(editor instanceof HTMLInputElement) &&
-    !(editor instanceof HTMLTextAreaElement)
-  ) {
-    return;
-  }
-
-  try {
-    editor.select();
-  } catch {
-    // Some input types (e.g. number) do not support text selection.
-  }
 }
 
 function setEditorCursorToEnd(editor: SpreadsheetEditorElement, value: string) {

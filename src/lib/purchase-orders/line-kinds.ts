@@ -1,7 +1,6 @@
 /**
  * The words of a purchase order line and of its delivery, without any dependency: the order screens read them, and
- * their bundles carry no validation schema for it (the « orders » page has a size budget). schemas.ts and the
- * material-request order contracts re-export them.
+ * their bundles carry no validation schema for it (the « orders » page has a size budget).
  *
  * TI-691, lot 2 « l'achat », delivery 3a: a line is an article, the supplier's shipping or a global discount, its price
  * given for 1, 10, 100 or 1 000 units; an order made from a material request is delivered at the request's place.
@@ -10,12 +9,16 @@ export const PURCHASE_ORDER_LINE_KINDS = ["article", "shipping", "discount"] as 
 export type PurchaseOrderLineKind = (typeof PURCHASE_ORDER_LINE_KINDS)[number];
 export const PURCHASE_ORDER_PRICE_PER = [1, 10, 100, 1000] as const;
 export type PurchaseOrderPricePer = (typeof PURCHASE_ORDER_PRICE_PER)[number];
+/** The supplier's shipping and a global discount: amounts of the order, not articles. */
+export type PurchaseOrderAmountKind = Exclude<PurchaseOrderLineKind, "article">;
 /** What a shipping or discount line is called, and its unit, when the client leaves them empty. */
-export const PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS: Record<Exclude<PurchaseOrderLineKind, "article">, string> = {
+export const PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS: Record<PurchaseOrderAmountKind, string> = {
   shipping: "Port",
   discount: "Remise",
 };
 export const PURCHASE_ORDER_AMOUNT_LINE_UNIT = "forfait";
+/** The tax rate the order forms propose for a new line: 20 %. */
+export const PURCHASE_ORDER_DEFAULT_TAX_RATE_BP = 2000;
 export const PURCHASE_ORDER_IMPUTATIONS = ["project", "overhead"] as const;
 
 /** How an order made from a material request is delivered: the request's delivery place, copied. */

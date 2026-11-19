@@ -2,7 +2,7 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 import { parseImportSourcesResponse } from "@/lib/estimates/section-copy-response";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { listEstimateImportSourcesQuerySchema } from "@/lib/estimates/schemas";
-import { listEstimateImportSources } from "@/lib/estimates/server";
+import { listEstimateImportSources } from "@/lib/estimates/section-copy-read-server";
 
 export async function GET(request: Request) {
   try {

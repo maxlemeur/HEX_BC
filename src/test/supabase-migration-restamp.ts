@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { runSupabaseMigrationGitGuard } from "@/test/supabase-migration-git-guard";
+import {
+  requireGitSuccess,
+  runSupabaseMigrationGitGuard,
+  type GitCommandResult,
+} from "@/test/supabase-migration-git-guard";
 import {
   computeSupabaseMigrationHashes,
   hashSupabaseMigrationContents,
@@ -53,12 +57,6 @@ export interface MigrationRestampResult {
   renames: MigrationRestampEntry[];
 }
 
-interface GitCommandResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
-
 interface RestampOptions {
   at?: string;
   base: string;
@@ -79,14 +77,6 @@ function runGit(rootDirectory: string, args: string[]): GitCommandResult {
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
   };
-}
-
-function requireGitSuccess(result: GitCommandResult, description: string) {
-  if (result.status !== 0) {
-    const details = result.stderr.trim() || result.stdout.trim() || "unknown Git error";
-    throw new Error(`${description}: ${details}`);
-  }
-  return result.stdout;
 }
 
 function parseOptions(argv: string[]): RestampOptions {

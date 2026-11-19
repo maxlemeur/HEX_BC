@@ -1,13 +1,11 @@
 import { z } from "zod";
 
-import { DN_KEY_PATTERN, knownDnKeys } from "@/lib/takeoff/bench/diameters";
+import { DN_KEY_PATTERN, knownDnKeys } from "@/lib/takeoff/diameters";
 import {
   BENCH_LOTS,
   DOCUMENT_ID_PATTERN,
   DOCUMENT_KINDS,
   LINE_KINDS,
-  MATERIAL_CODES,
-  NETWORK_CODES,
   ORGAN_CODES,
   PLAN_CAUSES,
   REVIEWED_PLAN_CAUSES,
@@ -15,6 +13,7 @@ import {
   UNITS,
   UNITS_BY_KIND,
 } from "@/lib/takeoff/bench/keys";
+import { MATERIAL_CODES, NETWORK_CODES } from "@/lib/takeoff/trade-keys";
 import { freeTakeoffLevelLabel, TAKEOFF_PAGE_TYPES } from "@/lib/takeoff/page-triage";
 
 // Schemas of the private takeoff bench dataset (TI-659). The dataset lives outside
@@ -43,7 +42,7 @@ function knownCode<const T extends readonly [string, ...string[]]>(codes: T, nam
   return z.enum(codes, {
     error: (issue) => issue.input === undefined
       ? `${name} is required`
-      : `unknown ${name} ${JSON.stringify(issue.input)} (known keys: src/lib/takeoff/bench/keys.ts)`,
+      : `unknown ${name} ${JSON.stringify(issue.input)} (known keys: src/lib/takeoff/bench/keys.ts, src/lib/takeoff/trade-keys.ts)`,
   });
 }
 
@@ -53,7 +52,7 @@ const DnSchema = z.string()
     if (!knownDnKeys(null).has(value)) {
       ctx.addIssue({
         code: "custom",
-        message: `unknown ${value}: no series has this size (src/lib/takeoff/bench/diameters.ts)`,
+        message: `unknown ${value}: no series has this size (src/lib/takeoff/diameters.ts)`,
       });
     }
   });
@@ -230,7 +229,7 @@ function checkKey(key: QuantityKey, ctx: Ctx) {
     addIssue(ctx, ["unit"], "a network line in m2 is an insulation surface: its material is calorifuge");
   }
   if (key.dn !== null && key.material !== null && !knownDnKeys(key.material).has(key.dn)) {
-    addIssue(ctx, ["dn"], `unknown ${key.dn} for material ${key.material} (src/lib/takeoff/bench/diameters.ts)`);
+    addIssue(ctx, ["dn"], `unknown ${key.dn} for material ${key.material} (src/lib/takeoff/diameters.ts)`);
   }
 }
 

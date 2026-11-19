@@ -3,7 +3,7 @@ import { isKitSection } from "@/lib/estimates/kit-presentation";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { EstimateQualityFilter } from "@/components/estimates/hooks/useEstimateVisibility";
+import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";
 import type { EstimateItem } from "@/lib/estimates/editor-items";
 
 type Options = {

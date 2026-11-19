@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { readItemKey, type BenchItemKey } from "@/lib/takeoff/bench/item-keys";
-import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES, type MaterialCode, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import { TakeoffItemSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffItem } from "@/lib/takeoff/types";
 import type { VectorPageExtraction, VectorText } from "@/lib/takeoff/vectors/extraction";

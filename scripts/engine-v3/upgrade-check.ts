@@ -31,10 +31,10 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
   assertNativeRuntimeHost,
+  currentNativeRuntimeHost,
   enableNativeStack,
   findAvailablePort,
   parseLocalSupabaseStatus,
-  type NativeRuntimeHost,
 } from "../../src/test/local-supabase-ci";
 import {
   acquireNativeStackSlot,
@@ -190,19 +190,6 @@ function describeDifferences(differences: unknown[], limit = 20) {
   const lines = differences.slice(0, limit).map((difference) => `  - ${describeDifference(difference as Difference)}`);
   if (differences.length > limit) lines.push(`  - ... ${differences.length - limit} more in report.json`);
   return lines.join("\n");
-}
-
-function currentNativeRuntimeHost(): NativeRuntimeHost {
-  const report = process.report?.getReport() as
-    | { header?: { glibcVersionRuntime?: string } }
-    | undefined;
-  return {
-    arch: process.arch,
-    glibcVersion: report?.header?.glibcVersionRuntime,
-    platform: process.platform,
-    release: os.release(),
-    uid: process.getuid?.(),
-  };
 }
 
 function hostEphemeralPortRanges(): number[][] {

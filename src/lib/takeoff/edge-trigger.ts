@@ -1,25 +1,19 @@
 import { randomUUID } from "node:crypto";
 
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import type { TakeoffDispatchOutcome } from "@/lib/takeoff/types";
 
 export type TriggerTakeoffJobProcessingInput = {
   jobId: string;
   correlationId?: string;
   trigger?: "create" | "retry" | "manual" | "reconcile";
-  timeoutMs?: number;
-  fetchFn?: typeof fetch;
 };
 
 export type TriggerTakeoffJobProcessingResult = {
   triggered: boolean;
   correlationId: string;
   statusCode: number | null;
-  outcome:
-    | "accepted"
-    | "configuration_missing"
-    | "http_error"
-    | "timeout"
-    | "network_error";
+  outcome: TakeoffDispatchOutcome;
 };
 
 export async function triggerTakeoffJobProcessing(

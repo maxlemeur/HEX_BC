@@ -7,14 +7,15 @@ import {
   SealIntegrityBadge,
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
+import { LABOR_SPLIT_FEATURE_FLAG_KEY } from "@/lib/feature-flag-keys";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { getUserContext } from "@/lib/auth/server";
 import {
-  buildStoredEstimateBreakdown,
   computeEstimateTotals,
   computeReadOnlyTotals,
   computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
+import { buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import {
   resolveEstimateEngineVersionForDisplay,
@@ -36,8 +37,9 @@ import {
   describeEstimatePdfLayout,
   parseEstimatePdfLayoutSearchParams,
 } from "@/lib/estimates/pdf-layout";
-import { verifyEstimateSeal } from "@/lib/estimates/server";
+import { verifyEstimateSeal } from "@/lib/estimates/version-seal-server";
 import { normalizeEstimateCurrency } from "@/lib/money";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
@@ -79,14 +81,6 @@ function resolveEstimatePortalUrl(versionId: string) {
   } catch {
     return null;
   }
-}
-
-function resolveProject(
-  value: EstimateVersion["estimate_projects"]
-) {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
 }
 
 export default async function PrintEstimatePage({
@@ -162,7 +156,7 @@ export default async function PrintEstimatePage({
       <EstimateEngineUnavailableNotice
         versionNumber={version.version_number}
         projectId={version.project_id}
-        projectName={resolveProject(version.estimate_projects)?.name}
+        projectName={resolveEmbeddedOne(version.estimate_projects)?.name}
       />
     );
   }
@@ -172,7 +166,7 @@ export default async function PrintEstimatePage({
         supabase={supabase}
         tenantId={version.tenant_id}
         versionId={versionId}
-        project={resolveProject(version.estimate_projects)}
+        project={resolveEmbeddedOne(version.estimate_projects)}
         issuer={{ name: userContext.profile?.full_name, role: userContext.profile?.job_title,
           phone: userContext.profile?.phone, email: userContext.profile?.work_email ?? userContext.userEmail }}
         previewLayout={previewLayout}
@@ -193,10 +187,10 @@ export default async function PrintEstimatePage({
       : shouldPreserveStoredEstimateV2Snapshot(version);
   const selectedCurrency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   const layoutDescription = describeEstimatePdfLayout(previewLayout.layout);
-  const project = resolveProject(version.estimate_projects);
+  const project = resolveEmbeddedOne(version.estimate_projects);
   const isLaborSplitEnabled = preserveStoredSnapshot
     ? true
-    : await isFeatureEnabled(version.tenant_id, "EST_031_LABOR_SPLIT", {
+    : await isFeatureEnabled(version.tenant_id, LABOR_SPLIT_FEATURE_FLAG_KEY, {
         supabase,
       });
   const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(

@@ -1027,8 +1027,6 @@ export const updateTakeoffRiskAlertStatusSchema = z
     }
   });
 
-export const takeoffApplyPayloadSchema = takeoffApplyRequestSchema;
-
 export type ListTakeoffJobsQuery = z.infer<typeof listTakeoffJobsQuerySchema>;
 export type GetTakeoffJobDetailsQuery = z.infer<
   typeof getTakeoffJobDetailsQuerySchema

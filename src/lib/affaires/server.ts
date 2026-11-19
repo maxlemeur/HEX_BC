@@ -30,10 +30,7 @@ import { resolveV3NetMarginBp } from "@/lib/estimates/effective-margin";
 import { usesSaleCoefficients, type EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { loadV3MarginEvidence, type V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
-import {
-  listEstimateProjectVersions,
-  type ListEstimateProjectVersionsResult,
-} from "@/lib/estimates/server";
+import { listEstimateProjectVersions, type ListEstimateProjectVersionsResult } from "@/lib/estimates/version-list-server";
 import {
   resolveEstimateStructureModeSummary,
   type EstimateStructureModeSummary,
@@ -75,6 +72,7 @@ import {
   type NormalizedAffaireListQuery,
 } from "./schemas";
 import { hasDefaultImportPlanSetMarker } from "@/lib/takeoff/default-import-plan-set";
+import { toSafeInteger } from "@/lib/value-guards";
 import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "./register-server";
 
 type AffaireContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
@@ -382,21 +380,6 @@ export type AffaireHubMarginV3Notice = { versionEvolutionUnavailableV3: number[]
 
 /** Ce que reçoit la carte « Analyse de marge » du hub : l'analyse, l'avis v3 seul, ou rien. */
 export type AffaireHubMarginCardData = AffaireHubMarginAnalysisResult | AffaireHubMarginV3Notice;
-
-function toSafeInteger(value: number | string | null | undefined): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.trunc(value);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return 0;
-}
 
 function toNullableSafeInteger(
   value: number | string | null | undefined
@@ -1270,7 +1253,7 @@ async function resolveTakeoffReviewVersionId(input: {
       : await (async () => {
           const { data: currentVersionData, error: currentVersionError } =
             await input.context.supabase
-              .from("estimate_versions" as never)
+              .from("estimate_versions")
               .select("id" as never)
               .eq("tenant_id" as never, input.context.tenantId as never)
               .eq("project_id" as never, input.projectId as never)
@@ -1297,7 +1280,7 @@ async function resolveTakeoffReviewVersionId(input: {
   }
 
   const { data: linkData, error: linkError } = await input.context.supabase
-    .from("takeoff_version_links" as never)
+    .from("takeoff_version_links")
     .select("target_version_id" as never)
     .eq("tenant_id" as never, input.context.tenantId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
@@ -1326,7 +1309,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("project_id" as never, project.id as never),
     context.supabase
-      .from("takeoff_jobs" as never)
+      .from("takeoff_jobs")
       .select(
         "id, status, level, processing_strategy, provider_batch_state, source_file_name, created_at, error_code, error_message, estimate_version_id, plan_set_id, estimate_versions!inner(project_id)" as never
       )
@@ -1420,7 +1403,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
 
   if (planSetCount > 0) {
     const { count: planFilesCount, error: planFilesCountError } = await context.supabase
-      .from("plan_files" as never)
+      .from("plan_files")
       .select("id, plan_sets!inner(project_id)" as never, { count: "exact", head: true })
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("plan_sets.project_id" as never, project.id as never)
@@ -1494,13 +1477,13 @@ async function fetchAffaireHubPlansSummaryWithContext(
     const [defaultPlanFilesResult, defaultPlanSetLatestJobResult] =
       await Promise.all([
         context.supabase
-          .from("plan_files" as never)
+          .from("plan_files")
           .select("file_name, file_type, page_count, created_at" as never)
           .eq("tenant_id" as never, context.tenantId as never)
           .eq("plan_set_id" as never, defaultPlanSetId as never)
           .order("created_at" as never, { ascending: true }),
         context.supabase
-          .from("takeoff_jobs" as never)
+          .from("takeoff_jobs")
           .select(
             "status, created_at, estimate_version_id, plan_set_id" as never,
           )

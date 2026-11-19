@@ -27,15 +27,6 @@ export class WorkflowTenantCheckError extends Error {
   }
 }
 
-export class WorkflowTenantInactiveError extends Error {
-  readonly code = "WORKFLOW_TENANT_INACTIVE";
-
-  constructor(readonly tenantId: string) {
-    super("Le tenant est suspendu; aucun effet externe ne peut être execute.");
-    this.name = "WorkflowTenantInactiveError";
-  }
-}
-
 export async function isWorkflowTenantActive(
   client: WorkflowTenantClient,
   tenantId: string
@@ -56,22 +47,4 @@ export async function isWorkflowTenantActive(
   }
 
   return Boolean(data);
-}
-
-export async function assertWorkflowTenantActive(
-  client: WorkflowTenantClient,
-  tenantId: string
-) {
-  if (!(await isWorkflowTenantActive(client, tenantId))) {
-    throw new WorkflowTenantInactiveError(tenantId);
-  }
-}
-
-export async function runActiveTenantExternalEffect<T>(input: {
-  client: WorkflowTenantClient;
-  tenantId: string;
-  effect: () => Promise<T>;
-}) {
-  await assertWorkflowTenantActive(input.client, input.tenantId);
-  return input.effect();
 }

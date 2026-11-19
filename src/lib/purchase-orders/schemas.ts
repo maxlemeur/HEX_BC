@@ -7,10 +7,9 @@ import {
   PURCHASE_ORDER_DELIVERY_MODES,
   PURCHASE_ORDER_IMPUTATIONS,
   PURCHASE_ORDER_LINE_KINDS,
-  PURCHASE_ORDER_PRICE_PER,
-  type PurchaseOrderLineKind,
-  type PurchaseOrderPricePer,
 } from "@/lib/purchase-orders/line-kinds";
+import { PURCHASE_ORDER_STATUSES } from "@/lib/purchase-orders/lifecycle";
+import { purchaseOrderPricePerSchema } from "@/lib/purchase-orders/lifecycle-contracts";
 import { isValidOrderQuantity, MAX_ORDER_QUANTITY } from "@/lib/purchase-orders/quantities";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
@@ -23,7 +22,7 @@ export const ordersListQuerySchema = z
     size: z.coerce.number().int().min(1).max(100).default(50),
     sort: z.enum(["created_at", "expected_delivery_date", "total_ht_cents", "reference"]).default("created_at"),
     direction: z.enum(["asc", "desc"]).default("desc"),
-    status: z.array(z.enum(["draft", "sent", "confirmed", "received", "canceled"])).max(5).default([]),
+    status: z.array(z.enum(PURCHASE_ORDER_STATUSES)).max(5).default([]),
     supplier_id: z.string().uuid(UUID_ERROR_MESSAGE).optional(),
     delivery_site_id: z.string().uuid(UUID_ERROR_MESSAGE).optional(),
     has_devis: z.enum(["with", "without"]).optional(),
@@ -61,19 +60,6 @@ const expectedDeliveryDateSchema = z.string().trim().transform((value) =>
  * line keeps its kind, its lot when `pricePer` is left out, and what a material request gave it (request line,
  * imputation, affaire, category), which this payload never carries.
  */
-export {
-  PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS,
-  PURCHASE_ORDER_AMOUNT_LINE_UNIT,
-  PURCHASE_ORDER_DELIVERY_MODES,
-  PURCHASE_ORDER_IMPUTATIONS,
-  PURCHASE_ORDER_LINE_KINDS,
-  PURCHASE_ORDER_PRICE_PER,
-  type PurchaseOrderLineKind,
-  type PurchaseOrderPricePer,
-};
-
-const pricePerSchema = z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]);
-
 const purchaseOrderLineObject = z.object({
   id: z.string().uuid(UUID_ERROR_MESSAGE).nullable().optional(),
   productId: z.string().uuid(UUID_ERROR_MESSAGE).nullable().optional(),
@@ -87,7 +73,7 @@ const purchaseOrderLineObject = z.object({
   taxRateBp: z.number().int().min(0).max(10000),
   lineKind: z.enum(PURCHASE_ORDER_LINE_KINDS).optional()
     .describe("article (défaut), shipping (port) ou discount (remise, soustraite) ; ne change pas sur une ligne existante."),
-  pricePer: pricePerSchema.optional()
+  pricePer: purchaseOrderPricePerSchema.optional()
     .describe("Le prix HT s'entend pour 1 (défaut), 10, 100 ou 1 000 unités ; laissé absent, une ligne existante garde le sien."),
 }).strict();
 
@@ -183,7 +169,7 @@ const orderLookupSchema = z.object({ id: z.string().uuid(), name: z.string() });
 
 export const purchaseOrderDocumentHeaderSchema = z.object({
   id: z.string().uuid(), reference: z.string(), created_at: z.string(),
-  status: z.enum(["draft", "sent", "confirmed", "received", "canceled"]),
+  status: z.enum(PURCHASE_ORDER_STATUSES),
   expected_delivery_date: z.string().nullable(),
   edit_revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   total_ht_cents: z.number().int(), total_tax_cents: z.number().int(), total_ttc_cents: z.number().int(),
@@ -207,7 +193,7 @@ export const purchaseOrderStoredItemSchema = z.object({
   line_tax_cents: z.number().int(), line_total_ttc_cents: z.number().int(),
   /** TI-691: article, shipping or discount; the lot the unit price is for. */
   line_kind: z.enum(PURCHASE_ORDER_LINE_KINDS),
-  price_per: pricePerSchema,
+  price_per: purchaseOrderPricePerSchema,
   /** TI-691: the material request line it orders (its request: material_request_id, when the caller reads it). */
   material_request_line_id: z.string().uuid().nullable(),
   material_request_id: z.string().uuid().nullable(),

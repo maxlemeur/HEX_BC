@@ -100,8 +100,6 @@ export function EstimateEmailTemplate({
   );
 }
 
-export default EstimateEmailTemplate;
-
 // ---------------------------------------------------------------------------
 // Styles (inline for email compatibility)
 // ---------------------------------------------------------------------------

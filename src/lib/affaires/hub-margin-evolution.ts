@@ -8,6 +8,7 @@ import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import type { EstimateV3LineRecord } from "@/lib/estimates/v3-persistence";
 import { readAllRowsInChunks } from "@/lib/supabase/read-all";
+import { toSafeInteger } from "@/lib/value-guards";
 import type { Database } from "@/types/database";
 
 /*
@@ -17,15 +18,6 @@ import type { Database } from "@/types/database";
 
 type AffaireContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
-
-function toSafeInteger(value: number | string | null | undefined): number {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return 0;
-}
 
 export type MarginAnalysisVersionRow = Pick<
   EstimateVersionRow,

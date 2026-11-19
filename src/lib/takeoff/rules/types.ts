@@ -1,4 +1,4 @@
-import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
+import type { MaterialCode, NetworkCode } from "@/lib/takeoff/trade-keys";
 import type { ResolvedSize, SizeCandidate } from "@/lib/takeoff/rules/network-diameters";
 
 // Fixed quantity rules of the takeoff (TI-664, TI-658 pipeline step 6): « the

@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   computeEstimateTotals,
   exceedsMaxCents,
-  MAX_CENTS,
 } from "@/lib/estimate-calculations";
+import { MAX_CENTS } from "@/lib/money";
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
 import {
   makeLine,

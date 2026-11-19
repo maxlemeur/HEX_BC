@@ -12,12 +12,9 @@ import {
   ok,
   toErrorResponse,
 } from "@/lib/http/api-response";
+import { uuidRouteParam } from "@/lib/http/request";
 
 export const runtime = "nodejs";
-
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
 
 const reconcileBodySchema = z.discriminatedUnion("resolution", [
   z.object({
@@ -42,7 +39,7 @@ export async function POST(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const { versionId } = versionIdParamSchema.parse(await params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const body = reconcileBodySchema.parse(
       await request.json().catch(() => {
         throw badRequest("Payload JSON invalide.");

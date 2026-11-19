@@ -8,7 +8,8 @@ import {
   createMaterialRequestLineArticleSchema,
   linkMaterialRequestLineArticleSchema,
 } from "@/lib/material-requests/contracts";
-import { lineParamsSchema, readJsonBody } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { lineParamsSchema } from "@/lib/material-requests/http";
 
 type Context = { params: Promise<{ projectId: string; requestId: string; lineId: string }> };
 

@@ -21,7 +21,10 @@ import type {
   EstimateTotals,
   MarginMode,
 } from "@/lib/estimate-calculations";
-import { parseRatePercentDraft } from "@/lib/estimates/editor-values";
+import {
+  parseNonNegativeNumberInput,
+  parseRatePercentDraft,
+} from "@/lib/estimates/editor-values";
 import { getMarginTiers, type MarginTier } from "@/lib/estimates/margin-tiers";
 import { appendOfferReserveParagraph } from "@/lib/estimates/offer-choice";
 import { planProvisionalQuantityMentions, provisionalMentionsOverflowMessage } from "@/lib/estimates/provisional-quantity";
@@ -98,15 +101,6 @@ function sortMarginTiers(tiers: MarginTier[]) {
     }
     return (left.position ?? 0) - (right.position ?? 0);
   });
-}
-
-function parseNonNegativeNumberInput(value: string) {
-  const parsedValue = parseLocalizedNumberInput(value);
-  if (parsedValue === null) {
-    return null;
-  }
-
-  return Math.max(parsedValue, 0);
 }
 
 function parseIntegerNumberInput(value: string) {

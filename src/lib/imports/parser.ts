@@ -9,7 +9,7 @@ import {
   hasNonReservedValue,
   isPlainObject,
   normalizeCellValue,
-  normalizeRowObject as normalizeTabularRowObject,
+  normalizeRowObject,
   type NormalizedImportRow,
 } from "./tabular-normalization";
 
@@ -43,14 +43,6 @@ type ParseWorkbookRunner = (
   fileBytes: ArrayBuffer,
   signal: AbortSignal
 ) => Promise<ParseWorkbookResult>;
-
-function normalizeRowObject(row: Record<string, unknown>) {
-  return normalizeTabularRowObject(row);
-}
-
-function hasNonNullValue(row: NormalizedImportRow) {
-  return hasNonReservedValue(row);
-}
 
 export function detectImportSourceFormat(
   filename: string,
@@ -381,7 +373,7 @@ export async function parseImportFile(
       normalizedRow[header] = normalizeCellValue(values[index]);
     });
 
-    if (!hasNonNullValue(normalizedRow)) continue;
+    if (!hasNonReservedValue(normalizedRow)) continue;
 
     const sourceMatrixIndex = headerRowIndex + bodyIndex + 1;
     const rowStyle = rowStyles[sourceMatrixIndex];
@@ -420,5 +412,5 @@ export function normalizeRowsFromJson(rows: unknown[]): NormalizedImportRow[] {
     return normalizeRowObject(row);
   });
 
-  return normalizedRows.filter((row) => hasNonNullValue(row));
+  return normalizedRows.filter((row) => hasNonReservedValue(row));
 }

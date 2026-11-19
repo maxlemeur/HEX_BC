@@ -11,7 +11,8 @@ import {
 } from "react";
 import { Popover } from "@/components/ui-legacy/Popover";
 
-import { type SectionTotals, UNASSIGNED_SUPPLY_TYPE_KEY } from "@/lib/estimate-calculations";
+import { type SectionTotals } from "@/lib/estimate-calculations";
+import { UNASSIGNED_SUPPLY_TYPE_KEY } from "@/lib/estimate-v2-snapshot";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
 import { type TreeConnectorMeta, buildTreeConnectorSegments } from "@/lib/estimates/tree-connectors";

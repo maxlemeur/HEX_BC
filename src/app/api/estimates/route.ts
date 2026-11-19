@@ -2,7 +2,8 @@ import { parseCreateEstimateResponse } from "@/lib/estimates/write-response-cont
 import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { createEstimateSchema } from "@/lib/estimates/schemas";
-import { createEstimate, listLatestEstimates } from "@/lib/estimates/server";
+import { createEstimate } from "@/lib/estimates/version-creation-server";
+import { listLatestEstimates } from "@/lib/estimates/version-list-server";
 import { parseJsonBody } from "@/lib/http/request";
 
 export async function GET() {

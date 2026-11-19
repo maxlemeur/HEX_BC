@@ -31,7 +31,7 @@ import type {
 } from "@/lib/affaires/server";
 import type { EstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal";
 import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
-import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
+import type { ConfirmUnifiedImportFlowResult } from "@/lib/affaires/import-flow-results";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";

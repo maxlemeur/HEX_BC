@@ -1,6 +1,6 @@
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { createLaborRoleSchema } from "@/lib/estimates/schemas";
-import { createLaborRole } from "@/lib/estimates/server";
+import { createLaborRole } from "@/lib/estimates/reference-data-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(
