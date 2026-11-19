@@ -9,7 +9,7 @@ import { isLoopbackHostname } from "@/lib/ai/access/loopback";
 import { assertLocalChatGptHost } from "@/lib/ai/chatgpt-local-auth";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { ApiError, badRequest, forbidden, toErrorResponse } from "@/lib/estimates/errors";
-import { isJsonContentType } from "@/lib/http/request";
+import { isJsonContentType, parseJsonBody } from "@/lib/http/request";
 
 // Server boundary of « Mon profil › Accès IA › Clé API ». Route handlers, not
 // server actions: in development Next prints every server action call with its
@@ -45,12 +45,8 @@ export async function requireApiKeyOwner(request: Request,
   return { userId: context.userId, tenantId: context.tenantId };
 }
 
-export async function readJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw badRequest("Corps JSON invalide.", undefined, "AI_KEY_BODY");
-  }
+export function readJsonBody(request: Request): Promise<unknown> {
+  return parseJsonBody(request, () => badRequest("Corps JSON invalide.", undefined, "AI_KEY_BODY"));
 }
 
 const STATUS: Partial<Record<ApiKeyErrorCode, number>> = {
