@@ -89,7 +89,6 @@ type TakeoffApplyWizardProps = {
   confidenceThreshold?: number;
   isAdmin?: boolean;
   onReturnToReview?: () => void;
-  reviewHref?: string;
   /** The job's targeted review (TI-664 L5c), offered beside the blocked lines. */
   targetedReviewHref?: string;
   /** TI-723: the job's DPGF reconciliation, offered beside a line the merge would send onto a DPGF line outside it. */
@@ -133,7 +132,6 @@ function TakeoffApplyScreen({
   confidenceThreshold,
   isAdmin = false,
   onReturnToReview,
-  reviewHref,
   targetedReviewHref,
   dpgfReviewHref,
   onOpenDpgfReview,
@@ -383,7 +381,6 @@ function TakeoffApplyScreen({
               canOverride={canAdminOverride}
               forcedDrafts={forcedDrafts}
               onReturnToReview={onReturnToReview}
-              reviewHref={reviewHref}
               targetedReviewHref={targetedReviewHref}
               onForcedDraftsChange={setForcedDrafts}
               onOverrideConfirm={() => void handleOverrideConfirm()}

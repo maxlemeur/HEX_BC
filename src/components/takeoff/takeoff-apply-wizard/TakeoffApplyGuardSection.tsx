@@ -17,7 +17,6 @@ export function TakeoffApplyGuardSection({
   canOverride,
   forcedDrafts,
   onReturnToReview,
-  reviewHref,
   targetedReviewHref,
   onForcedDraftsChange,
   onOverrideConfirm,
@@ -30,7 +29,6 @@ export function TakeoffApplyGuardSection({
   canOverride: boolean;
   forcedDrafts: ForcedDrafts;
   onReturnToReview?: () => void;
-  reviewHref?: string;
   targetedReviewHref?: string;
   onForcedDraftsChange: (next: ForcedDrafts) => void;
   onOverrideConfirm: () => void;
@@ -46,7 +44,6 @@ export function TakeoffApplyGuardSection({
         canOverride={canOverride}
         forcedDrafts={forcedDrafts}
         onReturnToReview={onReturnToReview}
-        reviewHref={reviewHref}
         targetedReviewHref={targetedReviewHref}
         onForcedDraftsChange={onForcedDraftsChange}
         onOverrideConfirm={onOverrideConfirm}
