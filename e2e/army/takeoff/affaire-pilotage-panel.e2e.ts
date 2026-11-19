@@ -879,18 +879,18 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     ).toBeVisible();
   });
 
-  test("garde le legacy takeoff comme fallback volontaire depuis l'affaire", async ({ ui: page }) => {
+  test("ouvre les métrés historiques depuis l’affaire", async ({ ui: page }) => {
     const { versionId, projectId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("US63-HIERARCHIE"),
       title: "US-6.3 Hierarchie des flux",
     });
     const tenantId = await getTenantIdForVersion(versionId);
 
-    await seedPlanSetWithFile({
+    const { planSetId } = await seedPlanSetWithFile({
       projectId,
       versionId,
       tenantId,
-      name: "Plans fallback legacy",
+      name: "Plans de la première version",
     });
 
     await page.goto(`/dashboard/affaires/${projectId}?view=overview`, { waitUntil: "domcontentloaded" });
@@ -898,19 +898,24 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
     await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
     await expect(page.getByText("Prochaine étape")).toBeVisible();
-    await expect(page.getByText("Reprise par l’ancien parcours")).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "Ouvrir l’ancien parcours" })
-    ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/takeoff`);
-
-    await expect(
-      page.getByText("Un ancien parcours par chiffrage existe déjà sur la V1. Utilisez-le seulement comme reprise exceptionnelle.", { exact: true })
-    ).toBeVisible();
+    await expect(page.getByText("Reprise par l’ancien parcours")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Ouvrir l’ancien parcours" })).toHaveCount(0);
     // The action bar and its link to the affaire's takeoffs belong to « Chiffrage ».
     await page.getByRole("navigation", { name: "Navigation de l'affaire", exact: true })
       .getByRole("button", { name: "Chiffrage", exact: true }).click();
     const affaireTakeoffLink = page.getByRole("link", { name: "Ouvrir les métrés", exact: true });
     await expect(affaireTakeoffLink).toBeVisible();
     await expect(affaireTakeoffLink).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff`);
+    const copy = await page.request.post(`/api/estimates/${versionId}/duplicate`, { failOnStatusCode: false });
+    expect(copy.status()).toBe(201);
+    const bookmark = `/dashboard/estimates/${versionId}/takeoff/new?plan_set_id=${planSetId}`;
+    await page.goto(bookmark);
+    await expect(page.browser).toHaveURL(`/dashboard/affaires/${projectId}/takeoff?launch=1&version=${versionId}&launchPlanSet=${planSetId}`);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByLabel("Jeu de plans à analyser")).toHaveValue(planSetId);
+    await dialog.getByRole("button", { name: /Vérifier et lancer$/ }).click();
+    await expect(dialog.getByLabel("Version cible")).toHaveValue(versionId);
+    await page.goto(`/dashboard/affaires/${projectId}/plans`);
+    await expect(page.getByRole("heading", { name: "Plans de la première version", exact: true })).toBeVisible();
   });
 });

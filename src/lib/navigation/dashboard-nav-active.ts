@@ -1,25 +1,12 @@
-function isTakeoffRoute(pathname: string) {
-  return (
-    pathname.startsWith("/dashboard/takeoff") ||
-    /^\/dashboard\/affaires\/[^/]+\/takeoff/.test(pathname) ||
-    /^\/dashboard\/estimates\/[^/]+\/takeoff/.test(pathname)
-  );
-}
-
-export function isDashboardNavItemActive(pathname: string, href: string) {
+export function isDashboardNavItemActive(pathname: string, href: string, navId?: string) {
+  const isTakeoff = /^\/dashboard\/affaires\/[^/]+\/(?:takeoff|plans)(?:\/|$)/.test(pathname);
+  if (navId === "takeoff") return isTakeoff;
   if (href === "/dashboard") {
     return pathname === "/dashboard";
   }
 
-  if (
-    href === "/dashboard/takeoff" ||
-    /\/dashboard\/affaires\/[^/]+\/takeoff$/.test(href)
-  ) {
-    return isTakeoffRoute(pathname);
-  }
-
   if (href === "/dashboard/affaires") {
-    if (isTakeoffRoute(pathname)) return false;
+    if (isTakeoff) return false;
     return (
       pathname.startsWith("/dashboard/affaires") ||
       pathname.startsWith("/dashboard/estimates")

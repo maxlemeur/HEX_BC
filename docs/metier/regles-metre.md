@@ -3,6 +3,8 @@
 Le modèle propose, les règles expliquent les anomalies et l'utilisateur contrôle
 les valeurs clés (TI-664 et cadrage TI-681 confirmé les 8 et 9 novembre 2026).
 
+Le métré se suit depuis son affaire, y compris pour une analyse créée sur une ancienne version du devis. Depuis sa revue, l’envoi au tableau de chiffrage exige toujours l’aperçu d’impact et une confirmation humaine.
+
 ## Contrat actuel de contrôle ciblé — TI-681
 
 Les avertissements de quantité, y compris une confiance faible, recommandent un
@@ -383,9 +385,9 @@ seconde fois sans décision.
 
 ## Envoyer au tableau de chiffrage (18 novembre 2026)
 
-Le métré revu part dans le devis par un seul écran, « Envoyer au tableau de chiffrage »,
-le même nom sur chaque bouton qui l'ouvre (revue complète, revue ciblée, page du
-métré). L'ancien assistant en quatre étapes (cible, stratégie, aperçu avec ajustements,
+Depuis la revue complète ou ciblée de l’affaire, « Envoyer au tableau de chiffrage »
+ouvre l’écran où le métreur vérifie l’impact de son envoi. L'ancien assistant
+en quatre étapes (cible, stratégie, aperçu avec ajustements,
 confirmation) n'existe plus
 ([`TakeoffApplyWizard.tsx`](../../src/components/takeoff/TakeoffApplyWizard.tsx)).
 
@@ -1116,9 +1118,12 @@ restent en C. Le garde TS et le trigger tournent donc sur tous les niveaux.
     dédoublonnées, sans justification de premier niveau ni `rule_codes` (les `rule_results` des jobs appliqués sont
     figés). Le trigger vérifie chaque entrée (`private.takeoff_apply_forced_item_valid`) et refuse l'ancien format,
     sans fenêtre de transition (H10).
-  - Dans l'écran d'envoi, le panneau « Forcer l'application » donne, par ligne bloquée, le motif, la règle fautive et la
-    justification ; « Appliquer à la sélection » recopie un motif et un texte, et « Forcer l'application (N lignes) »
-    n'est actif que lorsque toutes les lignes sont complètes. Un ingénieur ne voit pas ce panneau.
+  - Depuis la revue complète, l’administrateur peut ouvrir l’aperçu d’impact malgré les lignes à justifier.
+    Dans le panneau de forçage, toutes les lignes bloquées sont cochées pour la saisie groupée. Le motif et la
+    justification de chacune sont vides. « Appliquer à la sélection » recopie le motif et le texte saisis
+    sur les lignes cochées. Après un aperçu à jour et une justification valable pour chaque ligne bloquée,
+    le clic sur « Forcer l’application » envoie directement les lignes au chiffrage. Pour un ingénieur,
+    ces mêmes blocages empêchent l’ouverture de l’écran d’envoi depuis la revue complète.
 - **Provision interne** (TI-686, D10 et D12, migration `20261110094503_takeoff_apply_provisions.sql`). Toute ligne
   forcée entre au devis comme provision interne, quelle que soit la protection qui la bloquait encore (H8) : preuve
   localisée ou page manquante en niveau C, résultats à recalculer, échec d'une règle bloquante comme un matériau
@@ -1321,7 +1326,7 @@ Migration `20261104215000_takeoff_rule_bounds_and_serialization.sql`.
   borne encore avant l'insertion de la page. Une page trop chargée n'écarte plus la
   lecture vectorielle du job. Le banc lit les mêmes ancres.
 - **Seuil de confiance basse** : une seule lecture, `parseLowConfidenceThreshold`
-  (garde TS, moniteur, revue) et `takeoff_low_confidence_threshold` (trigger). Espaces
+  (garde TS et revue) et `takeoff_low_confidence_threshold` (trigger). Espaces
   rognés comme `trim()` de JS, décimal d'au plus 100 caractères (exposant de 3
   chiffres au plus, ni hexadécimal ni « Infinity »), entre 0 et 1, sinon 0,5 ; puis
   arrondi au 1e-4 supérieur, la précision des confiances stockées : les mêmes lignes

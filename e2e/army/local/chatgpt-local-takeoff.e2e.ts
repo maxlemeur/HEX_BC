@@ -1,3 +1,4 @@
+import { submitPreparedCsv } from "../takeoff/prepared-csv";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -353,17 +354,11 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubm
     const before = await readEstimate(browser, estimate.versionId);
     const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
     await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
-    await ui.app.open(`/dashboard/estimates/${estimate.versionId}/takeoff/new`);
-    const source = screen.getByLabel("Fichier source", { exact: true });
-    await expect(source).toBeEnabled();
-    await source.setInputFiles(csv);
-    await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(csv)], objective: "extract_quantities", unit: "Unités des lignes sources",
-      inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "A" } }, browser.locator("form").last());
     await setDecisionsControl({ timeoutWriting: true });
-    const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
-      screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).tap()]);
+    const created = await submitPreparedCsv(ui, estimate, csv, "auto",
+      `.build/tester-army/next-${serverWorkspace!.id}/dev/server/server-reference-manifest.json`);
     expect(created.status).toBe(201);
-    const jobId = (await created.json<{ data: { id: string } }>()).data.id;
+    const jobId = created.id!;
     const read = () => apiRequest<{ data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
     await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("failed");
     const failed = (await read()).body.data;
@@ -439,20 +434,10 @@ test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantit
   expect((await readEstimate(browser, ids.versionId)).version.calc_engine_version).toBe(2);
   const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
   await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
-  // The file input stays disabled until the form hydrates; a file set earlier is lost.
-  const source = screen.getByLabel("Fichier source", { exact: true });
-  await expect(source).toBeEnabled();
-  await source.setInputFiles(csv);
-  await expect(screen.getByText(path.basename(csv), { exact: true })).toBeVisible();
-  await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(csv)], objective: "extract_quantities", unit: "Unités des lignes sources",
-    inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "A" } }, browser.locator("form").last());
-  await expect(screen.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
-  const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
-    screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).tap()]);
+  const created = await submitPreparedCsv(ui, ids, csv, "auto",
+    `.build/tester-army/next-${serverWorkspace!.id}/dev/server/server-reference-manifest.json`);
   expect(created.status).toBe(201);
-  const body = await created.json<{ data: { id: string } }>();
-  const jobId = body.data.id;
+  const jobId = created.id!;
   const read = () => apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
   await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
   const detail = (await read()).body.data;
@@ -508,23 +493,21 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
   const file = path.resolve("e2e/fixtures/takeoff/army-chatgpt-plan.pdf");
   const truth = JSON.parse(await readFile(path.resolve("e2e/fixtures/takeoff/army-chatgpt-plan.expected.json"), "utf8"));
   expect(createHash("sha256").update(await readFile(file)).digest("hex")).toBe(truth.sha256);
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
-  const source = screen.getByLabel("Fichier source", { exact: true });
-  await expect(source).toBeEnabled();
-  await source.setInputFiles(file);
-  await expect(screen.getByText(path.basename(file), { exact: true })).toBeVisible();
-  await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(file)], objective: "extract_quantities", unit: "Unités des lignes sources",
-    inclusions: "Toutes les quantités documentées", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "C" } }, browser.locator("form").last());
-  const picker = screen.getByLabel("Fournisseur IA", { exact: true });
-  await expect(picker).toBeVisible();
-  await expect(browser.locator('select option[value="gemini"]')).toHaveCount(0);
-  await picker.selectOption({ value: "chatgpt" });
-  await expect(picker).toHaveValue("chatgpt");
-  const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
-    screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).tap()]);
-  const responseBody = await created.json<{ data: { id: string } }>();
-  expect({ status: created.status, body: responseBody }).toMatchObject({ status: 201 });
-  const jobId = responseBody.data.id;
+  const plans = await createPlanSet(ui, army, ids, `${prefix} plans`);
+  await screen.getByRole("heading", plans.name, { exact: true }).click();
+  await browser.locator("input[type='file'][accept*='pdf']").first().setInputFiles(file);
+  await expect(screen.getByRole("button", `Supprimer ${path.basename(file)}`, { exact: true })).toBeVisible();
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff?launch=1&launchPlanSet=${plans.id}`);
+  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(file)],
+    objective: "extract_quantities", unit: "Unités des lignes sources", inclusions: "Toutes les quantités documentées",
+    levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "C", provider: "chatgpt" } });
+  await expect(browser.locator('[role="dialog"] select option[value="gemini"]')).toHaveCount(0);
+  await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+  await expect(dialog.getByRole("link", /Centre d'activit/i)).toBeVisible();
+  const { client } = await localClient();
+  const jobs = await client.from("takeoff_jobs").select("id").eq("estimate_version_id", ids.versionId).eq("plan_set_id", plans.id).single();
+  expect(jobs.error).toBeNull();
+  const jobId = jobs.data!.id;
   const read = () => apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
   await expect.poll(async () => (await read()).body.data.job.status, { timeout: 180_000 }).toBe("completed");
   const detail = (await read()).body.data;

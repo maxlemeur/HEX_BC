@@ -21,7 +21,7 @@ const MENU_ITEM_SELECTOR = '[role="menuitem"]';
 
 function isGroupActive(pathname: string, group: NavGroup) {
   return group.items.some((item) =>
-    isDashboardNavItemActive(pathname, item.href)
+    isDashboardNavItemActive(pathname, item.href, item.navId)
   );
 }
 
@@ -272,11 +272,11 @@ export function WorkspaceGlobalNavigation() {
                       {group.items.map((item) => {
                         const itemActive = isDashboardNavItemActive(
                           pathname,
-                          item.href
+                          item.href, item.navId
                         );
                         return (
                           <Link
-                            key={item.href}
+                            key={item.navId ?? item.href}
                             href={item.href}
                             role="menuitem"
                             className="production-ribbon__global-menu-item"

@@ -1,3 +1,4 @@
+import { submitPreparedCsv } from "../takeoff/prepared-csv";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -31,6 +32,7 @@ import { labSessionCookies, rawLabRequest } from "./takeoff-lab-support";
 // own and removes it: DEC01 starts without one, and the lab's output holds the runs of VEC01 alone.
 const server = chatGptLocalServer();
 let localOrigin: string;
+let serverWorkspace: { id: string };
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;
 let transportLog: string;
@@ -52,7 +54,7 @@ async function preparePlanFixture(unsetPreferences = false) {
 }
 
 beforeAll(async () => {
-  ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir } = await server.start());
+  ({ workspace: serverWorkspace, origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir } = await server.start());
 });
 // The tests here open the takeoff pages too (ASSIST02 launches a job and reads its review, the intake tests open the
 // affaire): the same waves as the takeoff file, one hook each, so that no first use waits for its compile.
@@ -546,17 +548,10 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré assistant" }, army);
     const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
     await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
-    await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/new`);
-    const source = screen.getByLabel("Fichier source", { exact: true });
-    await expect(source).toBeEnabled();
-    await source.setInputFiles(csv);
-    await expect(screen.getByText(path.basename(csv), { exact: true })).toBeVisible();
-    await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(csv)], objective: "extract_quantities", unit: "Unités des lignes sources",
-      inclusions: "Toutes les lignes du fichier", levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "A" } }, browser.locator("form").last());
-    const [created] = await Promise.all([browser.waitForResponse("**/api/takeoff/jobs"),
-      screen.getByRole("button", "Confirmer et lancer le métré", { exact: true }).tap()]);
+    const created = await submitPreparedCsv(ui, ids, csv, "auto",
+      `.build/tester-army/next-${serverWorkspace!.id}/dev/server/server-reference-manifest.json`);
     expect(created.status).toBe(201);
-    const jobId = (await created.json<{ data: { id: string } }>()).data.id;
+    const jobId = created.id!;
     const read = () => apiRequest<{ data: { job: { status: string }; items: { data: Array<{ designation: string; quantity: number; unit: string }> } } }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
     await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
     const detail = (await read()).body.data;

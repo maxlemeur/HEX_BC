@@ -115,6 +115,7 @@ type LaunchMetreDialogProps = {
   }>;
   availablePlanSets?: LaunchMetrePlanSetOption[];
   initialPlanSetId?: string | null;
+  initialVersionId?: string | null;
 };
 
 type LaunchVersionOption = {
@@ -212,6 +213,7 @@ function LaunchMetreDialogContent({
   availableVersions = [],
   availablePlanSets,
   initialPlanSetId = null,
+  initialVersionId = null,
 }: LaunchMetreDialogProps) {
   const toast = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -224,7 +226,7 @@ function LaunchMetreDialogContent({
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [targetSelectionKey, setTargetSelectionKey] = useState(0);
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
   const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
     initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
   );
@@ -333,8 +335,8 @@ function LaunchMetreDialogContent({
 
 
   useEffect(() => {
-    setSelectedVersionId(versionOptions[0]?.id ?? null);
-  }, [versionOptions]);
+    setSelectedVersionId(versionOptions.find((option) => option.id === initialVersionId)?.id ?? versionOptions[0]?.id ?? null);
+  }, [initialVersionId, versionOptions]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -492,7 +494,7 @@ function LaunchMetreDialogContent({
                 {launchExistingAnalysis
                   ? " Consultez son état dans le centre d’activité."
                   : launchRecoveryUnconfirmed
-                  ? " La reprise automatique n'a pas pu être confirmée : ouvrez le centre d'activité et relancez ce job."
+                  ? " La reprise automatique n'a pas pu être confirmée : ouvrez le centre d'activité et relancez cette analyse."
                   : launchQueuedForRecovery
                     ? " La demande est conservée et sera reprise automatiquement."
                     : " Le traitement a accepté la demande."}

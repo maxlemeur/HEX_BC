@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useSWRConfig } from "swr";
+import { getTakeoffOperatorStateLabel } from "@/lib/takeoff/operator-state";
+import { TakeoffJobActions, type ActionKind } from "./TakeoffJobActions";
 
 import {
   cancelTakeoffJob,
@@ -35,8 +36,6 @@ type Props = {
   pageSize: number;
 };
 
-type ActionKind = "reconcile" | "resubmit" | "cancel";
-
 export default function TakeoffJobsTable({
   projectId,
   data,
@@ -62,22 +61,22 @@ export default function TakeoffJobsTable({
           const response = await reconcileTakeoffJob(jobId);
           if (response.dispatch?.status === "persistence_unconfirmed") {
             setActionNotice(
-              `Réconciliation créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis ce job (suivi ${response.dispatch.correlation_id}).`
+              `Vérification demandée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis cette analyse (suivi ${response.dispatch.correlation_id}).`
             );
           } else if (response.dispatch?.status === "queued_for_recovery") {
             setActionNotice(
-              `Réconciliation enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activé (suivi ${response.dispatch.correlation_id}).`
+              `Vérification demandée. Le démarrage immédiat a échoué ; la reprise automatique est activée (suivi ${response.dispatch.correlation_id}).`
             );
           }
         } else if (action === "resubmit") {
           const response = await resubmitTakeoffJob(jobId);
           if (response.dispatch?.status === "persistence_unconfirmed") {
             setActionNotice(
-              `Nouvelle soumission créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis ce job (suivi ${response.dispatch.correlation_id}).`
+              `Nouvelle soumission créée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis cette analyse (suivi ${response.dispatch.correlation_id}).`
             );
           } else if (response.dispatch?.status === "queued_for_recovery") {
             setActionNotice(
-              `Nouvelle soumission enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activé (suivi ${response.dispatch.correlation_id}).`
+              `Nouvelle soumission enregistrée. Le démarrage immédiat a échoué ; la reprise automatique est activée (suivi ${response.dispatch.correlation_id}).`
             );
           }
         } else {
@@ -94,7 +93,7 @@ export default function TakeoffJobsTable({
           isTakeoffApiError(err)
             ? err.message
             : action === "reconcile"
-              ? "Impossible de relancer la réconciliation de cette analyse."
+              ? "Impossible de vérifier la reprise de cette analyse."
               : action === "resubmit"
                 ? "Impossible de soumettre à nouveau cette analyse."
               : "Impossible d'annuler cette analyse."
@@ -118,71 +117,6 @@ export default function TakeoffJobsTable({
     pageSize !== smallestPageSize ||
     data.pagination.offset > 0;
 
-  const renderJobActions = (
-    job: TakeoffActivityCenterResponse["jobs"][number],
-    pendingAction: ActionKind | undefined,
-    canReconcile: boolean,
-    canResubmit: boolean,
-    canCancel: boolean,
-    reviewEnabled: boolean
-  ) => (
-    <div className="flex flex-wrap gap-2">
-      <Link
-        href={`/dashboard/estimates/${job.estimateVersionId}/takeoff/${job.jobId}`}
-        className={buttonVariants({ variant: "outline" })}
-      >
-        Détail
-      </Link>
-      {reviewEnabled ? (
-        <Link
-          href={`/dashboard/affaires/${projectId}/takeoff/${job.jobId}/review?versionId=${job.estimateVersionId}`}
-          className={buttonVariants({ variant: "outline" })}
-        >
-          Revue
-        </Link>
-      ) : null}
-      {canReconcile ? (
-        <button
-          type="button"
-          className={buttonVariants({ variant: "outline" })}
-          onClick={() => {
-            void handleAction(job.jobId, "reconcile");
-          }}
-          disabled={Boolean(pendingAction)}
-        >
-          {pendingAction === "reconcile"
-            ? "Réconciliation…"
-            : "Relancer la réconciliation"}
-        </button>
-      ) : null}
-      {canResubmit ? (
-        <button
-          type="button"
-          className={buttonVariants({ variant: "outline" })}
-          onClick={() => {
-            void handleAction(job.jobId, "resubmit");
-          }}
-          disabled={Boolean(pendingAction)}
-        >
-          {pendingAction === "resubmit"
-            ? "Nouvelle soumission…"
-            : "Soumettre à nouveau"}
-        </button>
-      ) : null}
-      {canCancel ? (
-        <button
-          type="button"
-          className={buttonVariants({ variant: "outline" })}
-          onClick={() => {
-            void handleAction(job.jobId, "cancel");
-          }}
-          disabled={Boolean(pendingAction)}
-        >
-          {pendingAction === "cancel" ? "Annulation…" : "Annuler"}
-        </button>
-      ) : null}
-    </div>
-  );
 
   return (
     <div>
@@ -213,12 +147,6 @@ export default function TakeoffJobsTable({
           <div className="space-y-3 p-4 md:hidden">
             {jobs.map((job) => {
               const pendingAction = pendingActions[job.jobId];
-              const canReconcile = job.canReconcile ?? false;
-              const canResubmit = job.canResubmit ?? false;
-              const canCancel = job.canCancel ?? false;
-              const reviewEnabled =
-                job.statusRaw === "completed" ||
-                job.statusRaw === "review_required";
 
               return (
                 <article
@@ -275,7 +203,7 @@ export default function TakeoffJobsTable({
                         )}
                         size="sm"
                       >
-                        {job.operatorStateLabel ?? job.operatorState}
+                        {getTakeoffOperatorStateLabel(job.operatorState)}
                       </Badge>
                     ) : null}
                     {job.dispatchStatus === "queued" ||
@@ -353,14 +281,7 @@ export default function TakeoffJobsTable({
                   </dl>
 
                   <div className="mt-4">
-                    {renderJobActions(
-                      job,
-                      pendingAction,
-                      canReconcile,
-                      canResubmit,
-                      canCancel,
-                      reviewEnabled
-                    )}
+                    <TakeoffJobActions job={job} projectId={projectId} pendingAction={pendingAction} onAction={handleAction} />
                   </div>
                 </article>
               );
@@ -390,12 +311,6 @@ export default function TakeoffJobsTable({
               <tbody>
                 {jobs.map((job) => {
                   const pendingAction = pendingActions[job.jobId];
-                  const canReconcile = job.canReconcile ?? false;
-                  const canResubmit = job.canResubmit ?? false;
-                  const canCancel = job.canCancel ?? false;
-                  const reviewEnabled =
-                    job.statusRaw === "completed" ||
-                    job.statusRaw === "review_required";
 
                   return (
                     <tr key={job.jobId}>
@@ -456,7 +371,7 @@ export default function TakeoffJobsTable({
                               )}
                               size="sm"
                             >
-                              {job.operatorStateLabel ?? job.operatorState}
+                              {getTakeoffOperatorStateLabel(job.operatorState)}
                             </Badge>
                           ) : null}
                           {job.dispatchStatus === "queued" ||
@@ -495,14 +410,7 @@ export default function TakeoffJobsTable({
                         {job.exceptionCount}
                       </td>
                       <td>
-                        {renderJobActions(
-                          job,
-                          pendingAction,
-                          canReconcile,
-                          canResubmit,
-                          canCancel,
-                          reviewEnabled
-                        )}
+                        <TakeoffJobActions job={job} projectId={projectId} pendingAction={pendingAction} onAction={handleAction} />
                       </td>
                     </tr>
                   );

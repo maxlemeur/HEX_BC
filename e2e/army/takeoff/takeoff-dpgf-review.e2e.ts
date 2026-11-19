@@ -578,7 +578,7 @@ describe("V3-010 — DPGF review page", { session: "army", tags: ["critical", "e
       page.getByRole("heading", { name: "Revue des exceptions & preuves" })
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Centre d'activité métrés" })
+      page.getByRole("link", { name: "Métrés de l’affaire" })
     ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff`);
     await expect(
       page.getByRole("tab", { name: "Validation : Exceptions et couverture" })

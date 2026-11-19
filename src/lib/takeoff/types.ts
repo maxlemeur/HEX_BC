@@ -78,17 +78,6 @@ export type TakeoffApplyRequest = z.infer<typeof takeoffApplyRequestSchema>;
 
 export type TakeoffProvider = "auto" | "chatgpt" | "gemini";
 
-export type TakeoffJobCreateInput = {
-  provider?: TakeoffProvider;
-  estimateVersionId: string;
-  preparationRevision?: number;
-  level: TakeoffLevel;
-  file: File;
-  idempotencyKey?: string;
-  onUploadProgress?: (progressPercent: number) => void;
-  signal?: AbortSignal;
-};
-
 export type { TakeoffJobCreateResponse as TakeoffJobResponse } from "@/lib/takeoff/job-response-contracts";
 
 export type { TakeoffJobDispatch } from "@/lib/takeoff/job-response-contracts";
@@ -412,8 +401,6 @@ export type TakeoffMappingRuleDeleteResponse = {
   rule_id: string;
 };
 
-export const TAKEOFF_JOB_MAX_RETRY_COUNT = 3;
-
 export type TakeoffJobAttemptOutcomeStatus =
   | "completed"
   | "submitted_to_provider"
@@ -446,13 +433,6 @@ export type TakeoffJobAttemptOutcome = {
   error_message: string | null;
   correlation_id: string;
 };
-
-export const TAKEOFF_JOB_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
-  "completed",
-  "failed",
-  "canceled",
-  "applied",
-]);
 
 /* ─── Plan Center types ─── */
 

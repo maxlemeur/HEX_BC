@@ -10,7 +10,6 @@ import {
 } from "@/lib/stores/cockpit-suggestions-store";
 
 import { useUserContext } from "@/components/UserContext";
-import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import { dispatchCockpitExecuteAction } from "@/lib/cockpit/events";
@@ -46,7 +45,6 @@ export type CommandGroup = {
 
 const NAVIGATION_KEYWORDS_BY_HREF: Readonly<Record<string, string[]>> = {
   "/dashboard/affaires": ["affaire", "project", "projet", "chiffrage", "devis"],
-  "/dashboard/takeoff": ["takeoff", "metre", "plan"],
   "/dashboard/orders": ["order", "commande", "bon"],
   "/dashboard/referentiel": ["referentiel", "produit", "catalogue", "fournisseur"],
   "/dashboard/tarifs": ["tarif", "prix", "price", "indice"],
@@ -198,7 +196,6 @@ export function useCommandPalette() {
   const { isExpert } = useUiMode();
   const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
   const tenantRole = profile?.tenant_role ?? null;
-  const lastAffaireId = useLastAffaireId();
 
   const navigationItems = useMemo(
     () =>
@@ -208,9 +205,8 @@ export function useCommandPalette() {
         featureFlags: {
           takeoffEnabled: takeoffStatus === "ready" && isTakeoffEnabled,
         },
-        lastAffaireId,
       }),
-    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled, lastAffaireId]
+    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled]
   );
   const cockpitSuggestions = useSyncExternalStore(
     subscribeCockpit,

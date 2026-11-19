@@ -66,17 +66,17 @@ export default function TakeoffApplicationHistoryTab({
                 </p>
               </div>
               <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-foreground-secondary">
-                {formatCount(job.items_count)} item{job.items_count === 1 ? "" : "s"}
+                {formatCount(job.items_count)} élément{job.items_count === 1 ? "" : "s"}
               </span>
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
               Appliqué le {formatTimestamp(job.created_at)}
             </p>
             <Link
-              href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
+              href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}`}
               className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full justify-center")}
             >
-              Voir le détail
+              Ouvrir la revue
             </Link>
           </article>
         ))}
@@ -94,7 +94,7 @@ export default function TakeoffApplicationHistoryTab({
             <th>Version</th>
             <th>Source</th>
             <th>Date d&apos;application</th>
-            <th>Items</th>
+            <th>Éléments</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -109,10 +109,10 @@ export default function TakeoffApplicationHistoryTab({
               <td>{formatCount(job.items_count)}</td>
               <td>
                 <Link
-                  href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
+                  href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}`}
                   className={buttonVariants({ variant: "outline" })}
                 >
-                  Détail
+                  Ouvrir la revue
                 </Link>
               </td>
             </tr>

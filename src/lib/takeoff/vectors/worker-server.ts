@@ -172,7 +172,7 @@ export type VectorPageOutcome = {
 
 /**
  * The preparation's identity of an original PDF: its plan file, or for a direct upload `upload:` and the SHA-256 of
- * the bytes read (TakeoffUploadForm), the identity the loader already held them to (assertPreparedUploadBytes).
+ * the uploaded bytes, the identity the loader already held them to (assertPreparedUploadBytes).
  */
 export function preparationDocumentId(document: TakeoffSourceDocumentRef, bytes: ArrayBuffer): string {
   return document.kind === "plan_file" ? document.plan_file_id : `upload:${createHash("sha256").update(Buffer.from(bytes)).digest("hex")}`;

@@ -25,7 +25,8 @@ type AssistedReviewPanelProps = {
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
   onApplyClick: () => void;
-  isApplyReady: boolean;
+  canOpenApplyWizard: boolean;
+  forceGuidance: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -41,7 +42,8 @@ export function AssistedReviewPanel({
   onExcludeItems,
   onIncludeItems,
   onApplyClick,
-  isApplyReady,
+  canOpenApplyWizard,
+  forceGuidance,
 }: AssistedReviewPanelProps) {
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
@@ -205,13 +207,13 @@ export function AssistedReviewPanel({
 
       <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface px-4 py-3">
         <p className="text-sm text-muted-foreground">
-          {acceptedCount} item{acceptedCount !== 1 ? "s" : ""} prêt{acceptedCount !== 1 ? "s" : ""} à appliquer
+          {forceGuidance ?? `${acceptedCount} item${acceptedCount !== 1 ? "s" : ""} prêt${acceptedCount !== 1 ? "s" : ""} à appliquer`}
         </p>
         <Button
           variant="primary"
           size="sm"
           onClick={onApplyClick}
-          disabled={acceptedCount === 0 || !isApplyReady}
+          disabled={acceptedCount === 0 || !canOpenApplyWizard}
         >
           Envoyer au tableau de chiffrage
         </Button>

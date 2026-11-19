@@ -31,7 +31,6 @@ export type AffaireHubPlansSummaryData = {
   planSetCount: number;
   planFileCount: number;
   totalSizeBytes: number;
-  hasLegacyFallback?: boolean;
   defaultPlanSetId: string | null;
   defaultPlanSetName?: string | null;
   defaultPlanSetSource?: string | null;

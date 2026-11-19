@@ -10,7 +10,7 @@ Les trois cas doivent créer leur projet/devis ARMY par le parcours existant,
 retenir leurs identités, puis vérifier les mêmes comportements : aucune offre
 inventée pour une ligne sans article ; une analyse V1 acquise et une V2 en attente
 restent visibles ; une pièce ambiguë déclenche la hiérarchie de confirmation et
-le lien vers l'ancien parcours reste explicite. Les seeds de reprise sont déplacés
+la reprise du métré se fait depuis son affaire. Les seeds de reprise sont déplacés
 sans changement depuis `affaire-recovery-flow` dans un helper commun. Aucun
 fournisseur IA, email ou statut commercial réel n'est invoqué.
 

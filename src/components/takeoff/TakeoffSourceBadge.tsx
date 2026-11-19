@@ -31,6 +31,7 @@ const NOT_AVAILABLE_LABEL = "Non disponible";
 const SUPPORTED_BADGE_PROVIDERS = SUPPORTED_TAKEOFF_SOURCE_BADGE_PROVIDERS;
 
 type TakeoffSourceBadgeProps = {
+  projectId?: string;
   versionId: string;
   estimateItemId?: string | null;
   lineLabel?: string | null;
@@ -473,6 +474,7 @@ function parseVersionZeroApplications(value: unknown): VersionZeroApplication[] 
 }
 
 export function TakeoffSourceBadge({
+  projectId,
   versionId,
   estimateItemId,
   lineLabel,
@@ -567,11 +569,11 @@ export function TakeoffSourceBadge({
     ? `V${normalizedSourceVersionNumber}`
     : NOT_AVAILABLE_LABEL;
   const triggerLabelSuffix = normalizedSourceVersionNumber
-    ? ` (from V${normalizedSourceVersionNumber})`
+    ? ` (depuis V${normalizedSourceVersionNumber})`
     : "";
   const normalizedSourceJobId = toNonEmptyString(sourceJobId);
-  const jobLink = normalizedSourceJobId
-    ? `/dashboard/estimates/${versionId}/takeoff/${normalizedSourceJobId}`
+  const jobLink = projectId && normalizedSourceJobId
+    ? `/dashboard/affaires/${projectId}/takeoff/${normalizedSourceJobId}/review?versionId=${versionId}`
     : null;
   const canOpenEvidence =
     !isVersionZeroDraft &&

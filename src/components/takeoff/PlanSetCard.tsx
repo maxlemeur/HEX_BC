@@ -8,7 +8,6 @@ import { PlanFileCard, formatFileSize, formatRelativeTime } from "@/components/t
 import { PlanFileUploadZone } from "@/components/takeoff/PlanFileUploadZone";
 import { useConfirm } from "@/components/feedback/confirm-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldLabel } from "@/components/ui/field";
@@ -21,18 +20,12 @@ import {
   fetchPlanFiles,
   isTakeoffApiError,
 } from "@/lib/takeoff/client";
-import { resolvePlanSetFlowDescriptor } from "@/lib/takeoff/flow-hierarchy";
 import type { PlanFileListItem, PlanSetListItem } from "@/lib/takeoff/types";
-import { cn } from "@/lib/utils";
 import { ChevronRightIcon, PencilIcon, Trash2Icon } from "lucide-react";
 
 type PlanSetCardProps = {
   planSet: PlanSetListItem;
-  /** `row`: a line of the affaire's plan-set panel, with no frame of its own. */
-  appearance?: "card" | "row";
-  versionId?: string | null;
-  launchHref?: string | null;
-  launchLabel?: string;
+  launchHref: string;
   deletePlanSetHandler?: (setId: string) => Promise<unknown>;
   onDeleted: (unsynchronizedProjectId?: string) => void;
   onFilesChanged: (unsynchronizedProjectId?: string) => void;
@@ -98,22 +91,12 @@ function formatAbsoluteDate(isoDate: string) {
 
 export function PlanSetCard({
   planSet,
-  appearance = "card",
-  versionId,
   launchHref,
-  launchLabel,
   deletePlanSetHandler,
   onDeleted,
   onFilesChanged,
   onUpdated,
 }: PlanSetCardProps) {
-  const flowDescriptor = resolvePlanSetFlowDescriptor(planSet);
-  const resolvedLaunchHref =
-    launchHref ??
-    (versionId
-      ? `/dashboard/estimates/${versionId}/takeoff/new?plan_set_id=${planSet.id}`
-      : null);
-  const resolvedLaunchLabel = launchLabel ?? "Lancer l'extraction";
   const regionId = useId();
   const confirm = useConfirm();
   const [expanded, setExpanded] = useState(false);
@@ -247,13 +230,10 @@ export function PlanSetCard({
     }
   }, [editDescription, editName, onUpdated, planSet.id]);
 
-  const isRow = appearance === "row";
-  const Heading = isRow ? "h3" : "h2";
-
   return (
-    <Card className={cn("overflow-hidden", isRow && "rounded-none border-0 bg-transparent shadow-none")}>
+    <Card className="overflow-hidden rounded-none border-0 bg-transparent shadow-none">
       {/* Header row */}
-      <div className={cn("flex w-full flex-wrap items-center gap-2 px-4 py-4 sm:flex-nowrap sm:gap-4", isRow ? "sm:px-6" : "sm:px-5")}>
+      <div className="flex w-full flex-wrap items-center gap-2 px-4 py-4 sm:flex-nowrap sm:gap-4 sm:px-6">
         {/* Accordion trigger */}
         <button
           type="button"
@@ -268,15 +248,9 @@ export function PlanSetCard({
           {/* Set info */}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Heading className="line-clamp-2 text-sm font-semibold text-foreground sm:truncate">
+              <h3 className="line-clamp-2 text-sm font-semibold text-foreground sm:truncate">
                 {planSet.name}
-              </Heading>
-              {/* The affaire-level set is the default: only the historical one is worth a label. */}
-              {flowDescriptor.kind === "legacy" ? (
-                <Badge size="sm" variant="warning">
-                  {flowDescriptor.label}
-                </Badge>
-              ) : null}
+              </h3>
               <span className="text-micro text-muted-foreground sm:hidden">
                 {planSet.file_count} {planSet.file_count === 1 ? "plan" : "plans"}
               </span>
@@ -333,19 +307,13 @@ export function PlanSetCard({
         hidden={!expanded}
       >
         {expanded && (
-          <div className={cn("border-t border-border px-4 pb-5 pt-4", isRow ? "sm:px-6" : "sm:px-5")}>
+          <div className="border-t border-border px-4 pb-5 pt-4 sm:px-6">
             {/* The full dates, which the compact row leaves out. */}
             <p className="mb-4 text-xs text-muted-foreground">
               Créé le {formatAbsoluteDate(planSet.created_at)} · mis à jour{" "}
               {formatRelativeTime(planSet.updated_at).toLocaleLowerCase("fr-FR")}
               {planSet.total_size_bytes > 0 ? ` · ${formatFileSize(planSet.total_size_bytes)}` : ""}
             </p>
-            {flowDescriptor.kind === "legacy" ? (
-              <p className="mb-4 flex items-start gap-2 text-xs leading-5 text-muted-foreground">
-                <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />
-                {flowDescriptor.summary}
-              </p>
-            ) : null}
 
             {/* Set edit form */}
             {editingSet && (
@@ -445,13 +413,13 @@ export function PlanSetCard({
             )}
 
             {/* Extraction link */}
-            {files && files.length > 0 && resolvedLaunchHref && (
+            {files && files.length > 0 && (
               <div className="mt-4 flex justify-end">
                 <Link
-                  href={resolvedLaunchHref}
-                  className={buttonVariants({ variant: isRow ? "outline" : "primary" })}
+                  href={launchHref}
+                  className={buttonVariants({ variant: "outline" })}
                 >
-                  {resolvedLaunchLabel}
+                  Analyser ce jeu
                 </Link>
               </div>
             )}

@@ -48,13 +48,3 @@ export function toStringValue(value: unknown): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
-
-export function parseJsonPayload(value: string): unknown {
-  if (!value || value.trim().length === 0) return null;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}

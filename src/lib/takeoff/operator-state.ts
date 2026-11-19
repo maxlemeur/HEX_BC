@@ -24,14 +24,14 @@ const PROVIDER_TERMINAL_STATES = new Set<TakeoffProviderBatchState>([
   "succeeded",
   ...PROVIDER_FAILED_STATES,
 ]);
-const TAKEOFF_RETRY_MAX = 3;
+export const TAKEOFF_RETRY_MAX = 3;
 
 const TAKEOFF_OPERATOR_STATE_LABELS: Record<TakeoffJobOperatorState, string> = {
   none: "Aucune action requise",
-  submitted_to_provider: "Soumis au provider",
-  awaiting_provider_result: "En attente du résultat provider",
-  provider_failed: "Échec provider",
-  orphan_to_reconcile: "Reprise reconcile requise",
+  submitted_to_provider: "Envoyée au fournisseur IA",
+  awaiting_provider_result: "En attente du résultat du fournisseur IA",
+  provider_failed: "Échec du fournisseur IA",
+  orphan_to_reconcile: "Reprise à vérifier",
 };
 
 export type ResolveTakeoffOperatorStateInput = {

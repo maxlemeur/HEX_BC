@@ -369,7 +369,7 @@ describe("TesterArmy critical impact map", () => {
     // Shared pages: the editor, which the estimate wizard opens, reaches the wizard's takeoff journeys.
     expect(select(["src/app/dashboard/estimates/[versionId]/edit/page.tsx"]).fullOnly.files)
       .toEqual(expect.arrayContaining([contracts, TEAM_B, "e2e/army/takeoff/generated-review.e2e.ts"]));
-    expect(select(["src/app/dashboard/estimates/[versionId]/takeoff/[jobId]/page.tsx"]).fullOnly.files).toContain(contracts);
+    expect(select(["src/app/dashboard/[...unknown]/page.tsx"]).fullOnly.files).toContain(contracts);
 
     // Documentation and tests reach nothing.
     expect(select(["docs/testing/tester-army-ci.md", "e2e/army/takeoff/team-b-fixture-contract.md"]).fullOnly)

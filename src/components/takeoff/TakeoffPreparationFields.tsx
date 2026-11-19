@@ -12,7 +12,7 @@ import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
 import { orderTakeoffPreparationQuestions } from "@/lib/takeoff/preparation-assistance";
 import { TAKEOFF_PREPARATION_OBJECTIVES, type TakeoffPreparation } from "@/lib/takeoff/preparation";
 
-export type PreparationSourceOption = TakeoffPreparation["sources"][number] & {
+type PreparationSourceOption = TakeoffPreparation["sources"][number] & {
   plan_set_id?: string | null;
   file_path?: string | null;
   page_count?: number | null;
@@ -24,7 +24,6 @@ type Props = {
   step: number;
   projectId: string;
   availableSources: PreparationSourceOption[];
-  localPreviewUrl?: string | null;
   orderedQuestionIds?: string[];
 };
 
@@ -65,7 +64,7 @@ function OptionalNumber({ label, value, onChange, min = 0 }: { label: string; va
   </label>;
 }
 
-export function TakeoffPreparationFields({ draft, onChange, step, projectId, availableSources, localPreviewUrl, orderedQuestionIds = [] }: Props) {
+export function TakeoffPreparationFields({ draft, onChange, step, projectId, availableSources, orderedQuestionIds = [] }: Props) {
   const id = useId();
   const changeSource = (documentId: string, patch: Partial<TakeoffPreparation["sources"][number]>) => {
     onChange({ ...draft, sources: draft.sources.map((source) => source.document_id === documentId ? reconcileTakeoffPageTriageStatuses({ ...source, ...patch, confirmed: false }) : source) });
@@ -91,7 +90,7 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
         <PagesField name={source.document_name} pages={source.pages} onChange={(pages) => changeSource(source.document_id, { pages })} />
       </div>}
       {source.active && <label className="block space-y-1 text-sm"><span>Référence du plan</span><Input aria-label={`Référence du plan de ${source.document_name}`} value={source.logical_document_id ?? ""} placeholder="Même référence pour les révisions du même document" onChange={(event) => changeSource(source.document_id, { logical_document_id: event.target.value.trim() || null })} /><span className="block text-xs text-muted-foreground">Les pièces ayant cette même référence représentent un même document. Choisissez une seule révision active.</span></label>}
-      <TakeoffPreparationSourcePreview projectId={projectId} documentId={source.document_id} name={source.document_name} page={source.pages[0]} localPreviewUrl={source.document_id.startsWith("upload:") ? localPreviewUrl : null} />
+      <TakeoffPreparationSourcePreview projectId={projectId} documentId={source.document_id} name={source.document_name} page={source.pages[0]} />
       {source.active && !source.revision && <div className="space-y-2 text-sm">
         <p className="text-muted-foreground">Révision inconnue : précisez-la ou conservez une réserve attribuée.</p>
         <label className="block space-y-1"><span>Motif de réserve</span><Input aria-label={`Motif de réserve pour ${source.document_name}`} value={draft.unknowns.find((unknown) => unknown.id === `source_revision:${source.document_id}`)?.answer ?? ""} onChange={(event) => {
@@ -166,7 +165,7 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
       <label className="block space-y-1 text-sm"><span>Réponse à {unknown.question}</span><Textarea value={unknown.answer ?? ""} onChange={(event) => onChange({ ...draft, unknowns: draft.unknowns.map((item) => item.id === unknown.id ? { ...item, answer: event.target.value || null, status: "open" } : item) })} /></label>
       <label className="block space-y-1 text-sm"><span>Responsable de {unknown.question}</span><Input value={unknown.responsible ?? ""} onChange={(event) => onChange({ ...draft, unknowns: draft.unknowns.map((item) => item.id === unknown.id ? { ...item, responsible: event.target.value || null, status: "open" } : item) })} /></label>
       <label className="block space-y-1 text-sm"><span>Décision pour {unknown.question}</span><NativeSelect value={unknown.status} onChange={(event) => onChange({ ...draft, unknowns: draft.unknowns.map((item) => item.id === unknown.id ? { ...item, status: event.target.value as typeof item.status } : item) })}><option value="open">À préciser</option><option value="answered">Réponse confirmée</option>{unknown.impact === "reservation" && <option value="accepted">Réserve acceptée</option>}<option value="excluded">Exclu explicitement du périmètre</option></NativeSelect></label>
-      {unknown.source_document_id && availableSources.some((source) => source.document_id === unknown.source_document_id) && <TakeoffPreparationSourcePreview projectId={projectId} documentId={unknown.source_document_id} name={draft.sources.find((source) => source.document_id === unknown.source_document_id)?.document_name ?? "la pièce concernée"} page={unknown.page} localPreviewUrl={unknown.source_document_id.startsWith("upload:") ? localPreviewUrl : null} />}
+      {unknown.source_document_id && availableSources.some((source) => source.document_id === unknown.source_document_id) && <TakeoffPreparationSourcePreview projectId={projectId} documentId={unknown.source_document_id} name={draft.sources.find((source) => source.document_id === unknown.source_document_id)?.document_name ?? "la pièce concernée"} page={unknown.page} />}
     </fieldset>)}
   </div>;
 

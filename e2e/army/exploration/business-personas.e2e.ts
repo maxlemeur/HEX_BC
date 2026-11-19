@@ -7,7 +7,7 @@ import { armyTest, recordEvidence } from "../critical/fixtures";
 for (const persona of [
   { name: "estimator", goal: "Ouvrir la liste des affaires", path: "/dashboard/affaires", heading: "Affaires" },
   { name: "purchaser", goal: "Ouvrir le catalogue de produits et prix de référence", path: "/dashboard/products", heading: "Produits & prix de référence" },
-  { name: "reviewer", goal: "Ouvrir la liste des métrés et analyses de plans", path: "/dashboard/takeoff", heading: "Métrés — Analyse de plans" },
+  { name: "reviewer", goal: "Choisir l’affaire dont je veux vérifier le métré", path: "/dashboard/affaires", heading: "Affaires" },
 ] as const) {
   armyTest(`EXP ${persona.name} discovers its business entry from the dashboard`, {
     session: "army", agent: persona.name, tags: ["agent", "exploration"], trace: "off", timeout: 180_000,

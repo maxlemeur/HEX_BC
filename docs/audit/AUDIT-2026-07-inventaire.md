@@ -286,7 +286,7 @@ Généré depuis l'artefact : **27 bugs**, **73 constats UX/UI**.
 | UX26 | Mineur | ConfidenceHeader — niveaux A/B | L'entête de confiance globale (jauge + distribution) n'est rendu que pour les extractions Level C. Les métrés Level A (métrage structuré) et Level B (tableaux … | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX27 | Mineur | Route affaire review — paramètre versionId m… | La page de revue affaire fait notFound() si le search param versionId est absent. Un métreur qui arrive via un lien partagé ou un favori sans ce paramètre tomb… | à traiter — non rouvert, aucun correctif livré ne le vise |
 | UX28 | Mineur | EvidencePanel — piège de focus du tiroir | Le tiroir d'évidence est marqué role=dialog / aria-modal=true et reçoit le focus à l'ouverture, mais il n'y a pas de piège de focus réel : Tab peut sortir du t… | livré (`12d77a8`) — piège de focus et restauration sur EvidencePanel |
-| UX29 | Mineur | Plans — double expérience (affaire vs estima… | Deux parcours plans coexistent : /affaires/[id]/plans (ProjectPlanCenter, actuel) et /estimates/[versionId]/plans (PlanCenter, marqué déprécié via TakeoffDepre… | à traiter — non rouvert, aucun correctif livré ne le vise |
+| UX29 | Mineur | Plans — double expérience (affaire vs estima… | Deux parcours plans coexistent : /affaires/[id]/plans (ProjectPlanCenter, actuel) et /estimates/[versionId]/plans (PlanCenter, marqué déprécié via TakeoffDepre… | Résolu — les jeux de plans des anciennes versions sont accessibles dans les plans de l’affaire. Les favoris lisibles y sont redirigés (lot 1b, `f38dfb12`). |
 
 ### Chargé d'affaires / Conducteur de travaux — 11 constats
 

@@ -7,10 +7,11 @@ import {
   apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, resolveDownload,
 } from "../critical/fixtures";
 import {
-  TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
+  TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
 } from "./fixtures";
 import { nativeTest } from "./native-ui";
-import { launchWorkerCsv } from "./worker-support";
+import { signUpDedicatedOwner } from "../local/dedicated-owner";
+import { launchWorkerCsv, signUpWorkerOwner } from "./worker-support";
 
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; details?: {
   blocked_items?: Array<{ item_id: string; designation: string }>; medium_items?: Array<{ designation: string }>; threshold?: number;
@@ -156,7 +157,7 @@ armyTest("TKF06 final wizard confirmation applies through the owning page sessio
   ];
   const seed = await fixture.seed("A", measures);
   const before = await readEstimate(browser, ids.versionId);
-  await app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${seed.jobId}`);
+  await app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${seed.jobId}/review?versionId=${ids.versionId}`);
   // One screen: the impact preview is computed without a click, the excluded line is not among the lines sent, and the
   // request carries the version's strategy (no DPGF line: append) and no overrides.
   const sent: unknown[] = [];
@@ -197,34 +198,69 @@ armyTest("TKF06 final wizard confirmation applies through the owning page sessio
 // TI-686 D10: the first journey through the guard panel. Two lines without their localized proof (level C) are forced
 // from the wizard: one coded reason and one justification written once, copied to the selection, then the whole override
 // sent; both enter the internal estimate as provisions with their reason, the admitted line stays measured. That an
-// engineer never sees the block is covered by TakeoffApplyWizard.test.tsx (the shared ARMY account stays admin).
+// engineer cannot force it is checked on the same job in this journey’s disposable tenant.
 armyTest("TKF07 an administrator forces each blocked line from the apply wizard with a coded reason", options, async ui => {
   const { app, screen, browser, army } = ui;
   await browser.emulateMedia({ reducedMotion: "reduce" });
+  const owner = await signUpWorkerOwner(ui, "TKFORCE");
   const ids = await createEstimateViaWizard(ui, { projectName: army.projectName, title: "ARMY UI forced apply" }, army);
   const target = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} forced target`);
-  const fixture = await localTakeoffFixture(army, ids);
+  const fixture = await localTakeoffFixture(army, ids, owner.email, owner.password);
   const measures = [
     { designation: `${army.runPrefix} UI forced A`, quantity: 12.5, unit: "m2", confidence: 0.9 },
     { designation: `${army.runPrefix} UI forced B`, quantity: 3, unit: "u", confidence: 0.9 },
     { designation: `${army.runPrefix} UI admitted`, quantity: 7, unit: "u", confidence: 0.9 },
   ];
   const seed = await fixture.seed("C", measures);
-  const worker = await localTakeoffWorkerClient(army, ids.versionId);
+  const worker = await localTakeoffWorkerClient(army, ids.versionId, owner.email, owner.password);
   for (const item of seed.items.slice(0, 2)) {
     const missing = await worker.client.from("takeoff_items").update({ evidence: null }).eq("id", item.id);
     expect(missing.error).toBeNull();
   }
-  await app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${seed.jobId}`);
+  const review = `/dashboard/affaires/${ids.projectId}/takeoff/${seed.jobId}/review?versionId=${ids.versionId}`;
+  const before = await readEstimate(browser, ids.versionId);
+  const justification = "ARMY relevé chantier joint au dossier fictif";
+  const forcedItems = seed.items.slice(0, 2).map(item => ({
+    item_id: item.id, reason_code: "additional_evidence", justification_index: 0,
+  }));
+  const changeRole = async (role: "admin" | "engineer") => {
+    const changed = await worker.client.from("tenant_memberships").update({ role })
+      .eq("tenant_id", owner.tenantId).eq("user_id", owner.userId).select("role").single();
+    expect(changed.data?.role).toBe(role);
+  };
+  await changeRole("engineer");
+  for (const mode of ["production", "validation"]) {
+    await app.open(`${review}&reviewMode=${mode}`);
+    await expect(screen.getByText(/Le contrôle de 2 ligne\(s\) reste incomplet/).first()).toBeVisible();
+    await expect(screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeDisabled();
+  }
+  const refused = await applyOwnedTakeoff(browser, ids.versionId, seed.jobId, {
+    strategy: "append", target_section_id: target.parent_id, override: true,
+    forced_items: forcedItems, forced_justifications: [justification],
+  });
+  expect(refused.status).toBe(403);
+  expect(refused.body).toMatchObject({ error: { message: "Seul un administrateur peut forcer l'application des lignes bloquées." } });
+  await changeRole("admin");
+  for (const mode of ["production", "validation"]) {
+    await app.open(`${review}&reviewMode=${mode}`);
+    await expect(screen.getByText(/2 lignes restent à trancher.*revue ciblée.*justifier.*une par une.*envoi/i).first()).toBeVisible();
+    await expect(screen.getByText(/Prêt à envoyer|Prêt pour l'envoi|Tous les items sont conformes|L'application n'est pas bloquée/)).toHaveCount(0);
+    await expect(screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeEnabled();
+  }
   const dialog = await openTakeoffSend(ui, target.parent_id!, measures[0].designation);
   await expect(dialog).toContainText("Lignes à trancher");
+  for (const item of measures.slice(0, 2)) {
+    await expect(dialog.getByRole("checkbox", item.designation, { exact: true })).toBeChecked();
+    await expect(dialog.getByLabel(`Motif : ${item.designation}`, { exact: true })).toHaveValue("");
+  }
   await expect(dialog.getByRole("button", TAKEOFF_SEND_CONFIRM, { exact: true })).toBeDisabled();
   const force = dialog.getByRole("button", "Forcer l'application (2 lignes)", { exact: true });
   await expect(force).toBeDisabled();
   await dialog.getByLabel("Motif de la sélection", { exact: true }).selectOption({ value: "additional_evidence" });
-  await dialog.getByLabel("Justification de la sélection", { exact: true }).fill("ARMY relevé chantier joint au dossier fictif");
+  await dialog.getByLabel("Justification de la sélection", { exact: true }).fill(justification);
   await dialog.getByRole("button", "Appliquer à la sélection", { exact: true }).click();
   await expect(force).toBeEnabled();
+  expect((await readEstimate(browser, ids.versionId)).items).toEqual(before.items);
   const forcedApply = browser.waitForResponse(`**/api/takeoff/jobs/${seed.jobId}/apply`);
   await force.click();
   const response = await forcedApply;
@@ -235,6 +271,13 @@ armyTest("TKF07 an administrator forces each blocked line from the apply wizard 
   expect(result.data.job).toMatchObject({ id: seed.jobId, status: "applied" });
   await expect(dialog).not.toBeVisible();
   const after = await readEstimate(browser, ids.versionId);
+  const audit = await worker.client.from("takeoff_apply_override_consumptions")
+    .select("user_id, audit_logs!inner(after_data)").eq("tenant_id", owner.tenantId)
+    .eq("job_id", seed.jobId).eq("estimate_version_id", ids.versionId).single();
+  expect(audit.error).toBeNull();
+  expect(audit.data).toMatchObject({ user_id: owner.userId, audit_logs: { after_data: { metadata: {
+    forced_items: expect.arrayContaining(forcedItems), forced_justifications: [justification],
+  } } } });
   const truth = (title: string) => (after.items.find(row => row.title === title)?.line_truth as LineTruth)?.qtyStatus;
   for (const item of measures) expect(after.items.find(row => row.title === item.designation)?.quantity).toBe(item.quantity);
   expect(measures.map(item => truth(item.designation)?.code)).toEqual(["internal_provision", "internal_provision", "measured"]);
@@ -307,4 +350,126 @@ armyTest("TKF04 revision comparison exposes actual additions removals and change
   expect(response.status).toBe(200);
   expect(response.body.data).toMatchObject({ base_job_id: base.jobId, other_job_id: other.jobId });
   expect(response.body.data.summary).toMatchObject({ added: 1, removed: 1, changed: 1 });
+});
+
+for (const scope of ["archived", "other-tenant"] as const) {
+  armyTest(`A takeoff bookmark for an ${scope} affaire reveals no destination`, options, async ui => {
+    const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "ARMY accès au métré" }, ui.army);
+    const fixture = await localTakeoffFixture(ui.army, ids);
+    const { jobId } = await fixture.seed("A", definitions);
+    const path = `/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review?reviewMode=production&view=items`;
+    await ui.app.open(path);
+    await expect(ui.browser).toHaveURL(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}&reviewMode=production&view=items`);
+    if (scope === "archived") {
+      const oldVersion = `/dashboard/estimates/${ids.versionId}`;
+      const affaire = `/dashboard/affaires/${ids.projectId}`;
+      for (const [from, to] of [
+        ["/dashboard/takeoff", "/dashboard/affaires"],
+        [`${oldVersion}/plans`, `${affaire}/plans`],
+        [`${oldVersion}/takeoff`, `${affaire}/takeoff?version=${ids.versionId}`],
+        [`${oldVersion}/takeoff/new`, `${affaire}/takeoff?launch=1&version=${ids.versionId}`],
+        [`${oldVersion}/takeoff/${jobId}`, `${affaire}/takeoff/${jobId}/review?versionId=${ids.versionId}`],
+      ]) {
+        await ui.app.open(from);
+        await expect(ui.browser).toHaveURL(to);
+      }
+      const unrelated = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Autre version lisible" }, ui.army);
+      const mismatched = `/dashboard/estimates/${unrelated.versionId}/takeoff/${jobId}`;
+      await ui.app.open(mismatched);
+      await expect(ui.screen.getByRole("heading", "Page introuvable", { exact: true })).toBeVisible();
+      await expect(ui.browser).toHaveURL(mismatched);
+      // A full document navigation through a streamed redirect must preserve the previous page for Back.
+      await ui.app.open(`${affaire}/plans`);
+      const streaming = await ui.browser.evaluate(async href => {
+        const response = await fetch(href, { redirect: "manual" });
+        return { status: response.status, meta: (await response.text()).includes('id="__next-page-redirect"') };
+      }, path);
+      await ui.app.open(path);
+      await expect(ui.browser).toHaveURL(`${affaire}/takeoff/${jobId}/review?versionId=${ids.versionId}&reviewMode=production&view=items`);
+      await ui.browser.evaluate(() => { window.history.back(); return true; });
+      await expect(ui.browser).toHaveURL(`${affaire}/plans`);
+      await recordEvidence(ui.army, "bookmark-back", streaming);
+      const worker = await localTakeoffWorkerClient(ui.army, ids.versionId);
+      const result = await worker.client.from("estimate_projects").update({ is_archived: true })
+        .eq("id", ids.projectId).eq("tenant_id", worker.tenantId).select("id").single();
+      expect(result.error).toBeNull();
+      await ui.app.open("/dashboard/affaires?reprendre=metre");
+      await expect(ui.browser).toHaveURL("/dashboard/affaires");
+    } else {
+      await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "TKACCESS" });
+      const own = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Autre affaire ARMY" }, ui.army);
+      const foreignJob = `/dashboard/estimates/${own.versionId}/takeoff/${jobId}`;
+      await ui.app.open(foreignJob);
+      await expect(ui.screen.getByRole("heading", "Page introuvable", { exact: true })).toBeVisible();
+      await expect(ui.browser).toHaveURL(foreignJob);
+    }
+    for (const bookmark of [path, `/dashboard/estimates/${ids.versionId}/plans`]) {
+      await ui.app.open(bookmark);
+      await expect(ui.screen.getByRole("heading", "Page introuvable", { exact: true })).toBeVisible();
+      await expect(ui.browser).toHaveURL(bookmark);
+    }
+  });
+}
+
+armyTest("A remembered affaire and bookmarks respect the active engineer's ownership", options, async ui => {
+  const owner = await signUpWorkerOwner(ui, "TKOWN");
+  const colleague = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Métré du collègue" }, ui.army);
+  const foreign = await localTakeoffFixture(ui.army, colleague, owner.email, owner.password);
+  const { jobId } = await foreign.seed("A", definitions);
+  const worker = await localTakeoffWorkerClient(ui.army, colleague.versionId, owner.email, owner.password);
+  const flag = await worker.client.from("feature_flags").upsert({
+    tenant_id: owner.tenantId, flag_key: "TAKEOFF_MODULE_ENABLED", enabled: true,
+  }, { onConflict: "tenant_id,flag_key" });
+  expect(flag.error).toBeNull();
+  const engineer = await signUpWorkerOwner(ui, "TKENG");
+  const unset = await worker.client.from("tenant_memberships").update({ is_default: false })
+    .eq("user_id", engineer.userId).eq("tenant_id", engineer.tenantId);
+  expect(unset.error).toBeNull();
+  const membership = await worker.client.from("tenant_memberships").insert({
+    tenant_id: owner.tenantId, user_id: engineer.userId, role: "engineer", is_default: true,
+  });
+  expect(membership.error).toBeNull();
+  const own = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "Métré personnel" }, ui.army);
+  const session = await localTakeoffFixture(ui.army, own, engineer.email, engineer.password);
+  expect(session.tenantId).toBe(owner.tenantId);
+  const projectRead = await session.client.from("estimate_projects").select("id").eq("id", colleague.projectId);
+  const versionRead = await session.client.from("estimate_versions").select("id").eq("id", colleague.versionId);
+  expect(projectRead.error).toBeNull();
+  expect(versionRead.error).toBeNull();
+  expect(projectRead.data).toEqual([]);
+  expect(versionRead.data).toEqual([]);
+  await recordEvidence(ui.army, "engineer-colleague-rls", {
+    projectRows: projectRead.data?.length, versionRows: versionRead.data?.length,
+  });
+  for (const path of [
+    `/dashboard/estimates/${colleague.versionId}/plans`,
+    `/dashboard/estimates/${own.versionId}/takeoff/${jobId}/review`,
+  ]) {
+    await ui.app.open(path);
+    await expect(ui.screen.getByRole("heading", "Page introuvable", { exact: true })).toBeVisible();
+    await expect(ui.browser).toHaveURL(path);
+  }
+
+  await ui.app.open(`/dashboard/affaires/${own.projectId}/plans`);
+  await ui.browser.setViewport({ width: 390, height: 844 });
+  await ui.screen.getByRole("button", { name: "Ouvrir le menu principal", exact: true }).click();
+  const metres = ui.screen.getByRole("navigation", { name: "Menu principal" }).getByRole("link", { name: "Métrés", exact: true });
+  await expect(metres).toHaveAttribute("aria-current", "page");
+  await metres.click();
+  await expect(ui.browser).toHaveURL(`/dashboard/affaires/${own.projectId}/takeoff`);
+  await ui.screen.getByRole("button", { name: "Ouvrir le menu principal", exact: true }).click();
+  await expect(metres).toHaveAttribute("aria-current", "page");
+  await ui.screen.getByRole("navigation", { name: "Menu principal" })
+    .getByRole("link", { name: "Affaires", exact: true }).click();
+  await expect(ui.browser).toHaveURL("/dashboard/affaires");
+  await ui.browser.keyboard.press("ControlOrMeta+k");
+  const palette = ui.screen.getByRole("dialog", { name: /Recherche rapide/i });
+  await palette.getByRole("option", { name: /^Métrés\b/i }).click();
+  await expect(ui.browser).toHaveURL(`/dashboard/affaires/${own.projectId}/takeoff`);
+  // The remembered affaire changes hands while this engineer is on another screen.
+  await ui.app.open("/dashboard/affaires");
+  const transfer = await worker.client.from("estimate_projects").update({ user_id: owner.userId }).eq("id", own.projectId);
+  expect(transfer.error).toBeNull();
+  await ui.app.open("/dashboard/affaires?reprendre=metre");
+  await expect(ui.browser).toHaveURL("/dashboard/affaires");
 });

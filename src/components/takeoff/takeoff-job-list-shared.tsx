@@ -9,7 +9,6 @@ import {
 } from "@/lib/takeoff/visible-status";
 import { Card } from "@/components/ui/card";
 
-export const TAKEOFF_MAX_LIST_OFFSET = 10_000;
 export const TAKEOFF_LIST_REFRESH_INTERVAL_MS = 20_000;
 export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
@@ -34,29 +33,6 @@ export const STATUS_LABEL_MAP: Record<string, string> = {
   canceled: "Annulé",
   applied: "Appliqué",
 };
-
-export const STATUS_FILTER_OPTIONS: Array<{
-  value: "all" | string;
-  label: string;
-}> = [
-  { value: "all", label: "Tous les statuts" },
-  { value: "pending", label: "En attente" },
-  { value: "processing", label: "En cours" },
-  { value: "completed", label: "Terminé" },
-  { value: "failed", label: "Échoué" },
-  { value: "canceled", label: "Annulé" },
-  { value: "applied", label: "Appliqué" },
-];
-
-export const LEVEL_FILTER_OPTIONS: Array<{
-  value: "all" | string;
-  label: string;
-}> = [
-  { value: "all", label: "Tous niveaux" },
-  { value: "A", label: "Niveau A" },
-  { value: "B", label: "Niveau B" },
-  { value: "C", label: "Niveau C" },
-];
 
 export const PERIOD_FILTER_OPTIONS: Array<{
   value: "all" | string;
@@ -83,20 +59,6 @@ export function formatTimestamp(value: string | null) {
   return date.toLocaleString("fr-FR");
 }
 
-export function formatDurationMs(ms: number | null) {
-  if (ms === null || !Number.isFinite(ms)) return "-";
-  if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
-}
-
-export function formatCostCents(cents: number | null) {
-  if (cents === null || !Number.isFinite(cents)) return "-";
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(cents / 100);
-}
-
 export function formatCount(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value))
     return "-";
@@ -109,53 +71,6 @@ export function resolveErrorTitle(status: number | null) {
   if (status === 401) return "Session expirée";
   return "Erreur de chargement";
 }
-
-type TakeoffJobListRefreshPayload = {
-  counters?: { processing?: number };
-  jobs?: Array<{ status: string }>;
-};
-
-export function resolveTakeoffJobsRefreshInterval(
-  latestData?: TakeoffJobListRefreshPayload
-) {
-  if (!latestData) return 0;
-
-  const hasProcessingJobs = (latestData.counters?.processing ?? 0) > 0;
-  const hasVisiblePendingJobs =
-    latestData.jobs?.some((job) => job.status === "pending") ?? false;
-
-  return hasProcessingJobs || hasVisiblePendingJobs
-    ? TAKEOFF_LIST_REFRESH_INTERVAL_MS
-    : 0;
-}
-
-export function resolveTakeoffMaxNavigablePagesByOffset(pageSize: number) {
-  const normalizedPageSize =
-    Number.isFinite(pageSize) && pageSize > 0 ? Math.trunc(pageSize) : 1;
-
-  return Math.floor(TAKEOFF_MAX_LIST_OFFSET / normalizedPageSize) + 1;
-}
-
-export function CounterCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: number;
-}) {
-  return (
-    <article className="rounded-xl border border-border bg-surface p-3 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1 text-xl font-black text-foreground">
-        {formatCount(value)}
-      </p>
-    </article>
-  );
-}
-
-/* --- Business-language labels (V3-007) --- */
 
 export const BUSINESS_LEVEL_LABEL_MAP: Record<string, string> = {
   A: "Rapide",
@@ -173,15 +88,6 @@ export const BUSINESS_LEVEL_FILTER_OPTIONS: Array<{
   { value: "C", label: "Détaillé" },
 ];
 
-export const BUSINESS_STATUS_LABEL_MAP: Record<string, string> = {
-  queued: getTakeoffVisibleJobStatusLabel("queued"),
-  processing: getTakeoffVisibleJobStatusLabel("processing"),
-  provider_pending: getTakeoffVisibleJobStatusLabel("provider_pending"),
-  review_required: getTakeoffVisibleJobStatusLabel("review_required"),
-  action_required: getTakeoffVisibleJobStatusLabel("action_required"),
-  completed: getTakeoffVisibleJobStatusLabel("completed"),
-};
-
 export const BUSINESS_STATUS_FILTER_OPTIONS = [
   { value: "all", label: "Tous les statuts" },
   ...TAKEOFF_VISIBLE_JOB_STATUSES.map((status) => ({
@@ -192,10 +98,6 @@ export const BUSINESS_STATUS_FILTER_OPTIONS = [
 
 export function getBusinessLevelLabel(level: string): string {
   return BUSINESS_LEVEL_LABEL_MAP[level] ?? level;
-}
-
-export function getBusinessStatusLabel(status: string): string {
-  return BUSINESS_STATUS_LABEL_MAP[status] ?? status;
 }
 
 const PROCESSING_STRATEGY_LABEL_MAP: Record<TakeoffProcessingStrategy, string> = {

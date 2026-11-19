@@ -25,11 +25,10 @@ export async function fillTakeoffPreparation(
     inclusions?: string;
     levels?: string;
     zones?: string;
-    processing?: { level: "A" | "B" | "C"; provider?: "auto" | "gemini" | "chatgpt" };
-  },
-  container?: ReturnType<Ui["screen"]["getByRole"]>
+    processing?: { level: "B" | "C"; provider?: "auto" | "gemini" | "chatgpt" };
+  }
 ) {
-  const dialog = container ?? ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await dialog.getByRole("button", /Mes documents$/).click();
   for (const source of input.sources) {
     await dialog.getByLabel(`Utiliser ${source}`, { exact: true }).check();
@@ -54,8 +53,8 @@ export async function fillTakeoffPreparation(
   if (input.confirm !== false) await dialog.getByLabel("Je confirme la destination et la revue des résultats", { exact: true }).check();
   if (input.processing) {
     await dialog.getByText("Options avancées", { exact: true }).click();
-    const name = container ? new RegExp(`Niveau ${input.processing.level}`) : input.processing.level === "B" ? "Standard" : "Détaillé";
-    const level = dialog.getByRole("radio", name, { exact: typeof name === "string" });
+    const name = input.processing.level === "B" ? "Standard" : "Détaillé";
+    const level = dialog.getByRole("radio", name, { exact: true });
     await level.check();
     await expect(level).toBeChecked();
     if (input.processing.provider) {

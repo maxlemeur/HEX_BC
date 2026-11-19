@@ -1286,12 +1286,12 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     const pendingVersion = plansSection.getByRole("listitem").filter({ has: page.getByText("V2", { exact: true }) });
     const completedVersion = plansSection.getByRole("listitem").filter({ has: page.getByText("V1", { exact: true }) });
     await expect(pendingVersion).toHaveCount(1);
-    await expect(pendingVersion.getByText("En attente provider", { exact: true })).toBeVisible();
+    await expect(pendingVersion.getByText("En attente du fournisseur IA", { exact: true })).toBeVisible();
     await expect(completedVersion).toHaveCount(1);
     await expect(completedVersion.getByText("Analyse terminée", { exact: true })).toBeVisible();
   });
 
-  test("US-6.3 makes the main, adjacent and legacy takeoff hierarchy explicit", async ({ ui: page }) => {
+  test("US-6.3 keeps takeoff actions in the affaire", async ({ ui: page }) => {
     const ids = await createHierarchyFixture(page);
     // The journey and its study tools are shown in « Vue d’ensemble ».
     await page.goto(`/dashboard/affaires/${ids.projectId}?view=overview`);
@@ -1309,11 +1309,6 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       flowHierarchy.getByRole("button", { name: "Pourquoi TIMAX hésite" })
     ).toBeVisible();
     await expect(flowHierarchy.getByText("Blocages à traiter")).toBeVisible();
-    await expect(
-      flowHierarchy.getByRole("link", { name: "Ouvrir l’ancien parcours" })
-    ).toBeVisible();
-    await expect(flowHierarchy.getByRole("link", { name: "Ouvrir l’ancien parcours" })).toHaveAttribute(
-      "href", `/dashboard/estimates/${ids.versionId}/takeoff`,
-    );
+    await expect(flowHierarchy.getByRole("link", { name: "Ouvrir l’ancien parcours" })).toHaveCount(0);
   });
 });

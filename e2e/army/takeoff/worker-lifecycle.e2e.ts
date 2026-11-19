@@ -7,7 +7,7 @@ import type { TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-co
 
 import { apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
 import { ownedEstimateContext, querySql } from "../local/calculation-gate-support";
-import { TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, openTakeoffSend } from "./fixtures";
+import { TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend } from "./fixtures";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
 import { VECTOR_PLAN } from "./vector-plan-fixture";
@@ -44,14 +44,14 @@ armyTest("TKW01 a stored historical CSV runs the controlled worker once and appl
   expect(released.status).toBe(200);
   expect(released.body.data.released).toBe(true);
   const before = await readEstimate(ui.browser, ids.versionId);
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
-  const reviewPath = `/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`;
-  const resultsLink = ui.screen.getByRole("link", "Voir les résultats", { exact: true });
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+  const reviewPath = `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`;
+  const resultsLink = ui.screen.getByRole("link", "Ouvrir la revue", { exact: true });
   await expect(resultsLink).toBeVisible();
   await expect(resultsLink).toHaveAttribute("href", reviewPath);
   await resultsLink.click();
   await expect(ui.browser).toHaveURL(reviewPath);
-  await expect(ui.screen.getByRole("heading", "Revue d’extraction", { exact: true })).toBeVisible();
+  await expect(ui.screen.getByRole("heading", "Revue des exceptions & preuves", { exact: true })).toBeVisible();
   await ui.screen.getByRole("tab", "Assisté : Revue guidée carte par carte", { exact: true }).click();
   for (const item of completed.items) {
     const card = ui.screen.getByRole("article", item.designation, { exact: true });
@@ -60,12 +60,11 @@ armyTest("TKW01 a stored historical CSV runs the controlled worker once and appl
     await expect(card.getByText(fileName, { exact: true })).toBeVisible();
     await expect(card.getByText(`p. ${item.source_page}`, { exact: true })).toBeVisible();
   }
-  await recordEvidence(ui.army, "TKW01-monitor-results-review", {
+  await recordEvidence(ui.army, "TKW01-affaire-results-review", {
     ids, jobId, reviewPath, items: completed.items,
     boundary: "The owned worker uses the real processor and a controlled provider response.",
   });
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
-  // The legacy job page sends through the same one screen, and stays where it is once sent.
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
   const dialog = await openTakeoffSend(ui, String(target.parent_id), "ARMY worker pipe");
   const [applied] = await Promise.all([
     ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobId}/apply`),
@@ -90,6 +89,19 @@ armyTest("TKW01 a stored historical CSV runs the controlled worker once and appl
   for (const item of before.items) expect(after.items.find((line) => line.id === item.id)).toMatchObject({
     title: item.title, quantity: item.quantity, unit_price_ht_cents: item.unit_price_ht_cents,
   });
+  const reviewHref = `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`;
+  const line = after.items.find(item => item.source_job_id === jobId)!;
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
+  const row = ui.browser.locator(`[data-estimate-item-id="${line.id}"]`);
+  await row.getByTestId("estimate-line-more-trigger").click();
+  await ui.screen.getByRole("button", "Afficher la provenance IA", { exact: true }).click();
+  await expect(ui.screen.getByRole("link", "Ouvrir l'extraction", { exact: true })).toHaveAttribute("href", reviewHref);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+  await ui.screen.getByRole("tab", "Historique", { exact: true }).click();
+  for (const width of [1280, 390]) {
+    await ui.browser.setViewport({ width, height: 844 });
+    await expect(ui.screen.getByRole("link", "Ouvrir la revue", { exact: true })).toHaveAttribute("href", reviewHref);
+  }
   const appliedReplay = await startOwnedWorker(ui, ids, jobId).done;
   expect(appliedReplay.job.status).toBe("applied");
   expect(appliedReplay.providerCalls).toBe(0);
@@ -122,7 +134,7 @@ armyTest("TKW03 cancel during the real provider boundary prevents late result pe
   const worker = startOwnedWorker(ui, ids, jobId, "hold");
   try {
     expect(await worker.provider).toMatchObject({ jobId, status: "processing" });
-    await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff`);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
     const [canceled] = await Promise.all([
       ui.browser.waitForResponse(`**/api/takeoff/jobs/${jobId}/cancel`),
       ui.screen.getByRole("button", "Annuler", { exact: true }).click(),
@@ -154,7 +166,7 @@ armyTest("TKW04 a retained PDF runs the real level-B processor and exposes persi
     { designation: "ARMY worker pipe", quantity: 12.5, source_file_name: fileName, source_page: 1 },
     { designation: "ARMY worker valve", quantity: 3, source_file_name: fileName, source_page: 1 },
   ]);
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
   await expect(ui.screen.getByRole("button", TAKEOFF_SEND, { exact: true })).toBeVisible();
   const replay = await startOwnedWorker(ui, ids, jobId).done;
   expect(replay.outcome.status).toBe("noop_terminal");
@@ -174,11 +186,30 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
     errorCode: "AI_PROVIDER", extractedJson: {}, warningCodes: ["PROCESSING_FAILED"] }]);
   expect(failed.items).toEqual([]);
   await ui.browser.reload();
-  await expect(ui.screen.getByRole("alert").filter({ hasText: "[AI_PROVIDER]ARMY controlled terminal provider failure" }))
-    .toHaveText("[AI_PROVIDER]ARMY controlled terminal provider failure");
+  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(detail.body.data.job.error_message).toBe("ARMY controlled terminal provider failure");
+  await expect(ui.screen.getByRole("heading", "Analyse à reprendre", { exact: true })).toBeVisible();
+  const fixture = await localTakeoffFixture(ui.army, ids);
+  await fixture.seed("A", [{ designation: "ARMY nouvelle analyse", quantity: 1, unit: "u", confidence: 1 }]);
+  await ui.browser.reload();
+  const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
+  await expect(failedRow).toContainText("Analyse interrompue (code AI_PROVIDER).");
+  await expect(failedRow).toContainText(`Relances utilisées : ${detail.body.data.job.retry_count} sur 3`);
+  expect(detail.body.data.job.can_resubmit).toBe(false);
+  await expect(failedRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse.");
+  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
   await expect(ui.screen.getByText("Démarrage immédiat indisponible, reprise automatique active.", { exact: true })).toHaveCount(0);
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW05-terminal-error", { ids, jobId, failed, estimateUnchanged: true });
+  const worker = await localTakeoffWorkerClient(ui.army, ids.versionId);
+  const exhausted = await worker.client.from("takeoff_jobs").update({ error_code: "AI_SAFETY", retry_count: 3 })
+    .eq("tenant_id", worker.tenantId).eq("id", jobId).select("id").single();
+  expect(exhausted.error).toBeNull();
+  await ui.browser.reload();
+  await expect(failedRow).toContainText("Document bloqué pendant l'analyse.");
+  await expect(failedRow).toContainText("Relances utilisées : 3 sur 3");
+  await expect(failedRow).toContainText("Le nombre maximal de relances est atteint.");
+  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
 });
 
 type ActionEnvelope = {
@@ -356,7 +387,7 @@ armyTest("TKW08 a vector plan read at level C persists its measured networks and
   expect(page.reading.surfaces).toEqual([{ room: VECTOR_PLAN.room.room, printed_m2: VECTOR_PLAN.room.printed_m2, polygon_m2: VECTOR_PLAN.room.area_m2, deviation: 0.0145 }]);
 
   // The review viewer: plan, scale, detection, networks and their toggles.
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
   const viewer = ui.screen.getByRole("region", "Lecture vectorielle du plan", { exact: true });
   await expect(viewer).toBeVisible({ timeout: 30_000 });
   await expect(viewer.getByText("Échelle 1/50 format conforme", { exact: true })).toBeVisible();
@@ -489,7 +520,7 @@ armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed cal
   expect(downloaded.status).toBe(200);
   expect(createHash("sha256").update(Buffer.from(await downloaded.arrayBuffer())).digest("hex")).toBe(sha256);
 
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
   const viewer = ui.screen.getByRole("region", "Lecture vectorielle du plan", { exact: true });
   await expect(viewer).toBeVisible({ timeout: 30_000 });
   await expect(viewer.getByText("Échelle 1/50 calibrée", { exact: true })).toBeVisible();
@@ -513,7 +544,7 @@ armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed cal
   expect(removed.error).toBeNull();
   const after = await apiRequest<{ ok: boolean; data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
   expect([after.status, after.body.data.source_download_url, after.body.data.pages.length]).toEqual([200, null, 1]);
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
   await expect(viewer).toBeVisible({ timeout: 30_000 });
   await expect(viewer.getByText("Le plan source de cette page n’est pas disponible ; la géométrie reste visible.", { exact: true })).toBeVisible();
   await expect(viewer.getByText(/éléments affichés$/)).toHaveText("3 / 3 éléments affichés");
@@ -568,7 +599,7 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   expect(readPage.reading.decisions).toMatchObject({ calls: { batch: 1, dedicated: 0, failed: 0 }, stop: null });
 
   // The review: each network with its source, EU with Decisions' confidence; nothing left « à revoir ».
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}/review`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
   const viewer = ui.screen.getByRole("region", "Lecture vectorielle du plan", { exact: true });
   await expect(viewer).toBeVisible({ timeout: 30_000 });
   await expect(viewer.getByText("Détection 100 %", { exact: true })).toBeVisible();
@@ -598,7 +629,7 @@ armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the work
   expect(failed.items.map((item) => item.designation)).toEqual(["ARMY worker pipe", "ARMY worker valve", "EF PER DN 16", "EU/EV PVC DN 40",
     VECTOR_PLAN.room.designation].sort((left, right) => left.localeCompare(right)));
   expect(failed.geometries.some((geometry) => geometry.network === "EU")).toBe(false);
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${failedJobId}/review`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${failedJobId}/review?versionId=${ids.versionId}`);
   await expect(viewer).toBeVisible({ timeout: 30_000 });
   await expect(viewer.getByText("Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.", { exact: true })).toBeVisible();
   await expect(viewer.getByText("Decisions : 1 appel, 0 jeton, 0 réponse", { exact: true })).toBeVisible();

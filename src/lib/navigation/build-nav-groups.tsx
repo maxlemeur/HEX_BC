@@ -27,7 +27,6 @@ export type BuildNavGroupsInput = {
   role: TenantRole | null;
   uiMode: UiMode;
   featureFlags: { takeoffEnabled: boolean };
-  lastAffaireId?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -50,8 +49,8 @@ const AFFAIRES_ITEM: NavItem = {
   ),
 };
 
-export const TAKEOFF_NAV_ITEM: NavItem = {
-  href: "/dashboard/takeoff",
+const TAKEOFF_NAV_ITEM: NavItem = {
+  href: "/dashboard/affaires?reprendre=metre",
   label: "Métrés",
   navId: "takeoff",
   icon: (
@@ -133,10 +132,7 @@ export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
   // --- Affaires (all roles) ---
   const affairesItems: NavItem[] = [AFFAIRES_ITEM];
   if (featureFlags.takeoffEnabled) {
-    const takeoffHref = input.lastAffaireId
-      ? `/dashboard/affaires/${input.lastAffaireId}/takeoff`
-      : "/dashboard/takeoff";
-    affairesItems.push({ ...TAKEOFF_NAV_ITEM, href: takeoffHref });
+    affairesItems.push(TAKEOFF_NAV_ITEM);
   }
   groups.push({ key: "affaires", label: "Affaires", items: affairesItems });
 

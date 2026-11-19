@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,13 +18,11 @@ import { WorkspaceGlobalNavigation } from "@/components/dashboard/WorkspaceGloba
 import { KeyboardShortcutsModal } from "@/components/ui-legacy/KeyboardShortcutsModal";
 import { isTextEditingTarget } from "@/hooks/useCommandPalette";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { setLastAffaire, useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import { buildNavGroups } from "@/lib/navigation/build-nav-groups";
 import { isDashboardNavItemActive } from "@/lib/navigation/dashboard-nav-active";
 import { isProductionWorkspaceRoute, isToolWorkspaceRoute } from "@/lib/navigation/dashboard-navigation-mode";
-import { initStore } from "@/lib/stores/last-affaire-store";
 import { KeyboardIcon, XIcon } from "lucide-react";
 
 const DRAWER_FOCUSABLE_SELECTOR = [
@@ -49,10 +46,6 @@ function buildInitials(value: string) {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
-function getAffaireIdFromPathname(pathname: string): string | null {
-  const match = pathname.match(/^\/dashboard\/affaires\/([^/]+)/);
-  return match?.[1] ?? null;
-}
 
 function ModeToggleSwitch({
   isExpert,
@@ -115,24 +108,6 @@ export function DashboardShell({
   const { setMode, isExpert } = useUiMode();
   const { profile } = useUserContext();
   const tenantRole = profile?.tenant_role ?? null;
-  const lastAffaireId = useLastAffaireId();
-  const currentAffaireId = useMemo(
-    () => getAffaireIdFromPathname(pathname),
-    [pathname]
-  );
-
-  useLayoutEffect(() => {
-    initStore(profile?.id ?? null);
-  }, [profile?.id]);
-
-  useLayoutEffect(() => {
-    if (!currentAffaireId) {
-      return;
-    }
-
-    setLastAffaire(currentAffaireId, profile?.id ?? null);
-  }, [currentAffaireId, profile?.id]);
-
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -149,7 +124,7 @@ export function DashboardShell({
   }, [pathname]);
 
   const density = useMemo(() => {
-    if (/\/estimates\/[^/]+/.test(pathname) || pathname.startsWith("/dashboard/takeoff")) {
+    if (/\/estimates\/[^/]+/.test(pathname)) {
       return "compact" as const;
     }
     return "comfortable" as const;
@@ -255,9 +230,8 @@ export function DashboardShell({
         featureFlags: {
           takeoffEnabled: takeoffStatus === "ready" && isTakeoffEnabled,
         },
-        lastAffaireId,
       }),
-    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled, lastAffaireId]
+    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled]
   );
   const navigationContextValue = useMemo(
     () => ({
@@ -271,9 +245,6 @@ export function DashboardShell({
     [drawerOpen, navigationMode, navGroups, openDrawer, pathname]
   );
 
-  function isActive(href: string) {
-    return isDashboardNavItemActive(pathname, href);
-  }
 
   return (
     <div
@@ -390,7 +361,7 @@ export function DashboardShell({
               <div className="sidebar-nav-group__label">{group.label}</div>
               <div className="space-y-1">
                 {group.items.map((item) => {
-                  const active = isActive(item.href);
+                  const active = isDashboardNavItemActive(pathname, item.href, item.navId);
                   return (
                     <Link
                       key={item.navId ?? item.href}

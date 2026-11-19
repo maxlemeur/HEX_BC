@@ -11,7 +11,6 @@ import {
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import { countLegacyPlanSets } from "@/lib/takeoff/flow-hierarchy";
 import { buildTakeoffLaunchContext } from "@/lib/takeoff/launch-context";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
 
@@ -101,12 +100,7 @@ export default async function AffaireTakeoffPage({ params }: Props) {
           context="L’IA lit vos plans et propose les quantités. Vous les vérifiez avant de les reporter au devis."
         />
       }
-      help={
-        <TakeoffFlowHierarchyPanel
-          currentKind="adjacent"
-          legacyPlanSetCount={countLegacyPlanSets(planSets)}
-        />
-      }
+      help={<TakeoffFlowHierarchyPanel />}
       versions={versions}
       launchContext={launchContext}
       latestJobContext={

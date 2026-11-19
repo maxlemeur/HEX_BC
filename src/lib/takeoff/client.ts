@@ -1,7 +1,7 @@
 import { parseTakeoffApplyResponse, parseTakeoffPreviewConversionResponse } from "@/lib/takeoff/apply-response-contracts";
 import { parseTakeoffJobCompareResponse } from "@/lib/takeoff/compare-response-contracts";
 import { parseTakeoffItemBatchPatchResponse } from "@/lib/takeoff/item-response-contracts";
-import { parseTakeoffJobCreateResponse, parseTakeoffJobDetailResponse, parseTakeoffJobListResponse, parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
+import { parseTakeoffJobDetailResponse, parseTakeoffJobListResponse, parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
 import { parseSaveTakeoffDpgfManualLinkResponse, parseSaveTakeoffReviewDecisionResponse } from "@/lib/takeoff/review-response-contracts";
 import { parseTakeoffRiskRadarResponse, parseUpdateTakeoffRiskAlertStatusResponse } from "@/lib/takeoff/risk-response-contracts";
 import {
@@ -42,11 +42,9 @@ import type {
   TakeoffItemBatchPatchResponse as SharedTakeoffItemBatchPatchResponse,
   TakeoffJobCompareResponse as SharedTakeoffJobCompareResponse,
   TakeoffJobActionResponse as SharedTakeoffJobActionResponse,
-  TakeoffJobCreateInput as SharedTakeoffJobCreateInput,
   TakeoffJobDetailResponse as SharedTakeoffJobDetailResponse,
   TakeoffJobListQuery as SharedTakeoffJobListQuery,
   TakeoffJobListResponse as SharedTakeoffJobListResponse,
-  TakeoffJobResponse as SharedTakeoffJobResponse,
   TakeoffLevel as SharedTakeoffLevel,
   TakeoffLineEvidencePanelResponse as SharedTakeoffLineEvidencePanelResponse,
   TakeoffMappingRule as SharedTakeoffMappingRule,
@@ -64,7 +62,6 @@ import {
   TakeoffApiError,
   isRecord,
   isTakeoffApiError,
-  parseJsonPayload,
   TAKEOFF_READ_REQUEST_TIMEOUT_MS,
   TAKEOFF_WRITE_REQUEST_TIMEOUT_MS,
   toStringValue,
@@ -78,7 +75,6 @@ export {
 };
 
 export type TakeoffLevel = SharedTakeoffLevel;
-export type TakeoffJobCreateResponse = SharedTakeoffJobResponse;
 export type TakeoffJobDetailResponse = SharedTakeoffJobDetailResponse;
 export type TakeoffJobListQuery = SharedTakeoffJobListQuery;
 export type TakeoffJobListResponse = SharedTakeoffJobListResponse;
@@ -88,7 +84,6 @@ export type TakeoffApplyRequest = SharedTakeoffApplyRequest;
 export type TakeoffApplyResponse = SharedTakeoffApplyResponse;
 export type TakeoffPreviewConversionRequest = SharedTakeoffPreviewConversionRequest;
 export type TakeoffPreviewConversionResponse = SharedTakeoffPreviewConversionResponse;
-export type CreateTakeoffJobInput = SharedTakeoffJobCreateInput;
 export type TakeoffItemBatchPatchRequest = SharedTakeoffItemBatchPatchRequest;
 export type TakeoffItemBatchPatchResponse = SharedTakeoffItemBatchPatchResponse;
 export type TakeoffMappingRule = SharedTakeoffMappingRule;
@@ -426,141 +421,6 @@ export async function deleteTakeoffMappingRule(
   );
 }
 
-export async function createTakeoffJob(
-  input: CreateTakeoffJobInput
-): Promise<TakeoffJobCreateResponse> {
-  const formData = new FormData();
-  formData.append("file", input.file);
-  formData.append("estimate_version_id", input.estimateVersionId);
-  formData.append("level", input.level);
-  if (input.provider) formData.append("provider", input.provider);
-  if (input.preparationRevision !== undefined) formData.append("preparation_revision", String(input.preparationRevision));
-
-  return new Promise<TakeoffJobCreateResponse>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    let settled = false;
-
-    const rejectOnce = (error: TakeoffApiError) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
-    };
-
-    const resolveOnce = (value: TakeoffJobCreateResponse) => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-
-    const cleanupAbortListener = (() => {
-      if (!input.signal) {
-        return () => undefined;
-      }
-
-      const handleAbort = () => {
-        xhr.abort();
-      };
-
-      if (input.signal.aborted) {
-        rejectOnce(new TakeoffApiError("Requête annulée.", 0, null, "ABORTED"));
-        return () => undefined;
-      }
-
-      input.signal.addEventListener("abort", handleAbort, { once: true });
-
-      return () => {
-        input.signal?.removeEventListener("abort", handleAbort);
-      };
-    })();
-
-    xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable || !input.onUploadProgress) return;
-      const progress = normalizeProgress((event.loaded / event.total) * 100);
-      input.onUploadProgress(progress);
-    };
-
-    xhr.onerror = () => {
-      cleanupAbortListener();
-      rejectOnce(
-        new TakeoffApiError(
-          "Erreur réseau pendant l'envoi du fichier.",
-          xhr.status || 0,
-          null,
-          "NETWORK_ERROR"
-        )
-      );
-    };
-
-    xhr.onabort = () => {
-      cleanupAbortListener();
-      rejectOnce(new TakeoffApiError("Requête annulée.", 0, null, "ABORTED"));
-    };
-
-    xhr.onload = () => {
-      cleanupAbortListener();
-
-      const payload = parseJsonPayload(xhr.responseText);
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-        rejectOnce(
-          new TakeoffApiError(
-            toErrorMessage(payload, "Impossible de créer le job takeoff."),
-            xhr.status,
-            extractErrorDetails(payload),
-            extractErrorCode(payload),
-            buildErrorMetadata(payload)
-          )
-        );
-        return;
-      }
-
-      try {
-        const responsePayload = unwrapValidatedTakeoffEnvelope(payload);
-
-        resolveOnce(validateTakeoffResponse(undefined, () => parseTakeoffJobCreateResponse(responsePayload, {
-          versionId: input.estimateVersionId, level: input.level,
-        })));
-      } catch (error) {
-        if (error instanceof TakeoffApiError) {
-          rejectOnce(error);
-          return;
-        }
-
-        rejectOnce(
-          new TakeoffApiError(
-            "Impossible de lire la réponse du serveur.",
-            xhr.status,
-            payload,
-            null
-          )
-        );
-      }
-    };
-
-    xhr.open("POST", "/api/takeoff/jobs");
-    xhr.withCredentials = true;
-
-    const idempotencyKey = input.idempotencyKey?.trim();
-    if (idempotencyKey) {
-      xhr.setRequestHeader("idempotency-key", idempotencyKey);
-    }
-
-    try {
-      xhr.send(formData);
-    } catch (error) {
-      cleanupAbortListener();
-      rejectOnce(
-        new TakeoffApiError(
-          "Impossible de démarrer l'upload du fichier.",
-          0,
-          error,
-          "UPLOAD_INIT_FAILED"
-        )
-      );
-    }
-  });
-}
-
 export async function fetchTakeoffJob(
   jobId: string,
   options?: { signal?: AbortSignal; itemsLimit?: number; itemsOffset?: number }
@@ -666,18 +526,6 @@ export async function listTakeoffJobs(
   return validateTakeoffResponse(undefined, () => parseTakeoffJobListResponse(response, { versionId: estimateVersionId, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
 }
 
-export async function retryTakeoffJob(
-  jobId: string
-): Promise<TakeoffJobActionResponse> {
-  const response = await requestTakeoffJson<unknown>(
-    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/retry`,
-    { method: "POST" },
-    "Impossible de relancer le job takeoff.",
-    true
-  );
-  return validateTakeoffResponse(jobId, () => parseTakeoffJobActionResponse(response, { jobId, command: "retry" }));
-}
-
 export async function reconcileTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {
@@ -770,17 +618,6 @@ export async function patchTakeoffItems(
 }
 
 /* ─── Plan Center API ─── */
-
-export async function fetchPlanSets(
-  versionId: string
-): Promise<PlanSetListItem[]> {
-  const response = await requestTakeoffJson<PlanSetsListResponse>(
-    `/api/takeoff/plan-sets?estimate_version_id=${encodeURIComponent(versionId)}`,
-    { method: "GET" },
-    "Impossible de récupérer les jeux de plans."
-  );
-  return response.plan_sets;
-}
 
 export async function fetchPlanSetsForProject(
   projectId: string,

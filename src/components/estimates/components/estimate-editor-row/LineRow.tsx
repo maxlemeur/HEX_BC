@@ -89,6 +89,7 @@ const TakeoffSourceBadge = dynamic(
 );
 
 type LineRowProps = {
+  projectId?: string;
   versionId: string;
   item: EstimateItem;
   depth: number;
@@ -219,6 +220,7 @@ type LineRowProps = {
 };
 
 export function LineRow({
+  projectId,
   versionId,
   item,
   depth,
@@ -600,6 +602,7 @@ export function LineRow({
   const lineDetailNodes = (
     <>
       {hasTakeoffSourceBadge(item.source_provider) ? <TakeoffSourceBadge
+        projectId={projectId}
         versionId={versionId}
         estimateItemId={item.id}
         lineLabel={item.title}

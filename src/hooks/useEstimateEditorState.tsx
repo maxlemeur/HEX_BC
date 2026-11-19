@@ -2238,6 +2238,7 @@ export function useEstimateEditorState({
 
   const editorTableProps = useMemo<EstimateEditorTableProps>(
     () => ({
+      projectId: version?.project_id,
       versionId: version?.id ?? resolvedVersionId,
       items: editorDisplayItems,
       categories,
@@ -2397,6 +2398,7 @@ export function useEstimateEditorState({
       settings?.currency,
       totals?.appliedMarginMultiplier,
       totals?.discountCents,
+      version?.project_id,
       version?.id,
       version?.max_section_depth,
       resolvedVersionId,

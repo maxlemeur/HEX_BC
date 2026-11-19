@@ -135,7 +135,8 @@ function ReviewFixture() {
         onExcludeItems={(ids) => { void setInclusion(ids, true); }}
         onIncludeItems={(ids) => { void setInclusion(ids, false); }}
         onApplyClick={() => { void apply(); }}
-        isApplyReady
+        canOpenApplyWizard
+        forceGuidance={null}
       />
       {applied && <p role="status">Application demandée localement</p>}
       {error && <p role="alert">{error}</p>}

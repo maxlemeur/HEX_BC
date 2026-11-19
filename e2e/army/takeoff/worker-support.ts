@@ -149,8 +149,8 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string) {
     created_by: userId, level: "A", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
     source_file_type: "text/csv", source_file_size_bytes: bytes.length, execution_provider: "gemini" }).select("id").single();
   expect(inserted.error).toBeNull();
-  await ui.app.open(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
-  await expect(ui.browser).toHaveURL(`/dashboard/estimates/${ids.versionId}/takeoff/${jobId}`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+  await expect(ui.browser).toHaveURL(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await recordEvidence(ui.army, "worker-ui-created", { ids, jobId, fileName, engine: before.version.calc_engine_version,
     boundary: "Historical pending job and stored CSV are seeded on the owned stack. The worker uses real DB/Storage/processors and a controlled provider; local ChatGPT upload is covered separately." });
   return { ids, jobId, fileName, before };
@@ -232,7 +232,7 @@ export async function launchWorkerVectorPlan(ui: WorkerUi, { journey = "TKW08", 
 
 // TI-662 (review of PR #147): a level C job on the fictional vector plan uploaded directly (no plan set), its page
 // calibrated in the confirmed preparation. The plan prints no scale: only that calibration (100 mm on paper are
-// 5 m, 1/50) gives it one. The preparation names the upload `upload:<SHA-256 of its bytes>`, as TakeoffUploadForm
+// 5 m, 1/50) gives it one. The preparation names the upload `upload:<SHA-256 of its bytes>`, as the upload API
 // does; it is built by the product's own snapshot builder and seeded with the job on the owned stack.
 export async function launchWorkerVectorUpload(ui: WorkerUi) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
