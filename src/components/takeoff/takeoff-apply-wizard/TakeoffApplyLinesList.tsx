@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -77,8 +79,10 @@ function LinesSection({ id, title, note, items, sourceByItemId }: {
  * and the read that knows them has side effects): the list is named for what it is, the lines retained before the
  * reconciliation, and its count says so beside it (the re-check of 0fd09a20, finding 4: « Lignes envoyées (2) » named a
  * line out of scope, the caveat came after the list).
+ *
+ * Memoized: its props hold while the rest of the dialog changes (a forcing justification typed, for example).
  */
-export function TakeoffApplyLinesList({
+export const TakeoffApplyLinesList = memo(function TakeoffApplyLinesList({
   items,
   sourceByItemId,
   reconcilesDpgf,
@@ -99,4 +103,4 @@ export function TakeoffApplyLinesList({
       ) : null}
     </div>
   );
-}
+});
