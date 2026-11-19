@@ -18,6 +18,7 @@ import { VerificationJustificationDialog } from "@/components/takeoff/review/Ver
 import { acceptanceReasonRule, requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -468,9 +469,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                 : dpgf.error ? "Rapprochement DPGF indisponible : rechargez la revue avant l’application."
                   : dpgf.blocking ? "Des rapprochements DPGF restent à trancher dans la revue complète." : null;
 
-  const reviewHref = `/dashboard/affaires/${projectId}/takeoff/${jobId}/review?versionId=${encodeURIComponent(versionId)}`;
+  const reviewHref = takeoffReviewHref({ projectId, jobId, versionId });
   const targetedHref = (otherJobId: string, itemId: string) =>
-    `/dashboard/affaires/${projectId}/takeoff/${otherJobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`;
+    takeoffReviewHref({ projectId, jobId: otherJobId, versionId, targeted: true, line: itemId });
   const focusIds = current ? [current.item.id, ...(guidance?.partners ?? []).filter((partner) => partner.job_id === jobId).map((partner) => partner.item_id)] : [];
   const rightMax = 720;
   const clampRight = (value: number) => Math.min(rightMax, Math.max(RIGHT_MIN, value));
@@ -510,7 +511,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       </header>
       {job ? (
         <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={applied} className="mx-4 mt-2"
-          jobHref={(earlier) => `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`} />
+          jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
       ) : null}
       <TakeoffReviewPolicyPanel items={items} providerMeta={providerMeta} context={reviewContext.context} error={reviewContext.error}
         onFocusItem={(itemId) => { entryFocus.current = null; setDraft(null); setSelectedId(itemId); setPinnedId(itemId); }} />
@@ -714,7 +715,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           isSubmitting={apply.submitting} submitError={apply.error} submitErrorGuard={apply.errorGuard} onOpenChange={setWizardOpen}
           onConfirm={(payload: TakeoffApplyWizardSubmitPayload) => apply.confirm(payload)} items={items}
           sourceFileName={job.source_file_name} jobLevel={level} confidenceThreshold={threshold} isAdmin={isAdmin}
-          onReturnToReview={() => setWizardOpen(false)} dpgfReviewHref={`${reviewHref}&reviewMode=production&view=dpgf`} />
+          onReturnToReview={() => setWizardOpen(false)} dpgfReviewHref={takeoffReviewHref({ projectId, jobId, versionId, reviewMode: "production", view: "dpgf" })} />
       ) : null}
     </div>
   );

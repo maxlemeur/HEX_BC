@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { fetchTakeoffJob, type TakeoffActivityCenterResponse } from "@/lib/takeoff/client";
 import { isTakeoffOperatorMutationRole, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/operator-state";
 import type { TakeoffJobSummary } from "@/lib/takeoff/types";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { getTakeoffFailureReasonLabel } from "@/lib/takeoff/visible-status";
 
 export type ActionKind = "reconcile" | "resubmit" | "cancel";
@@ -55,7 +56,7 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
       <div className="flex flex-wrap gap-2">
         {reviewEnabled ? (
           <Link
-            href={`/dashboard/affaires/${projectId}/takeoff/${job.jobId}/review?versionId=${job.estimateVersionId}`}
+            href={takeoffReviewHref({ projectId, jobId: job.jobId, versionId: job.estimateVersionId })}
             className={buttonVariants({ variant: "outline" })}
           >
             Revue

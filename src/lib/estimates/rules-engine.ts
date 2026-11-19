@@ -21,6 +21,7 @@ import { normalizeEstimateApprovalDecision, resolveApprovalDecisionOutcome, type
 import type { Database, Json } from "@/types/database";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "./errors";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { readAllEstimateItems } from "./read-all-items-server";
 import { canAccessOwnerResource } from "./server-context";
 
@@ -100,13 +101,12 @@ function buildTakeoffExceptionHref(input: {
   versionId: string;
   alert: EstimateRiskAlertTargetRow;
 }) {
-  const params = new URLSearchParams({
+  return takeoffReviewHref({
+    projectId: input.projectId,
+    jobId: input.alert.takeoff_job_id,
     versionId: input.versionId,
+    line: input.alert.line_id || undefined,
   });
-  if (input.alert.line_id) {
-    params.set("line", input.alert.line_id);
-  }
-  return `/dashboard/affaires/${input.projectId}/takeoff/${input.alert.takeoff_job_id}/review?${params.toString()}`;
 }
 
 function formatChangeFieldValue(input: {

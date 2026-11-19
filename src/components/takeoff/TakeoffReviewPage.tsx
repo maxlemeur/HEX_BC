@@ -32,6 +32,7 @@ import {
   TakeoffReviewLoadingState,
 } from "@/components/takeoff/review/TakeoffReviewChrome";
 import { takeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import {
   getBusinessLevelLabel,
   getStatusCss,
@@ -633,7 +634,7 @@ export default function TakeoffReviewPage({
           toast.info({ title: "Enregistrez les modifications, puis ouvrez la revue ciblée pour justifier cette ligne." });
           return;
         }
-        router.push(`/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`);
+        router.push(takeoffReviewHref({ projectId, jobId, versionId, targeted: true, line: itemId }));
         return;
       }
       // TI-686 D12: a quantity still to enter is entered with what it rests on, in the targeted review, which lists the
@@ -647,7 +648,7 @@ export default function TakeoffReviewPage({
           return;
         }
         toast.info({ title: message });
-        router.push(`/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`);
+        router.push(takeoffReviewHref({ projectId, jobId, versionId, targeted: true, line: itemId }));
         return;
       }
       setItems((prev) =>
@@ -1062,7 +1063,7 @@ export default function TakeoffReviewPage({
   // other line to review.
   const targetedReviewCount = (guardResult ? guardResult.blocked_items.length + guardResult.medium_items.length : 0)
     + items.filter(isUndecidedHypothesis).length;
-  const targetedReviewHref = `/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}`;
+  const targetedReviewHref = takeoffReviewHref({ projectId, jobId, versionId, targeted: true });
 
   if (loading) {
     return <TakeoffReviewLoadingState title={reviewTitle} />;
@@ -1153,7 +1154,7 @@ export default function TakeoffReviewPage({
         className="space-y-4"
       >
       <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={hasAlreadyBeenApplied}
-        jobHref={(earlier) => `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`} />
+        jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
 
       {/* ---- Confidence header (Level C only) ---- */}
       {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}
