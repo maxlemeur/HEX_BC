@@ -1,3 +1,4 @@
+import { isDpgfTargetLine } from "@/lib/takeoff/dpgf-target-line";
 import { unitKey } from "@/lib/takeoff/page-replacement";
 
 // « Fusionner » (merge), as the database's writer pairs a takeoff's lines with the lines of the destination section,
@@ -61,28 +62,22 @@ const legacyText = (value: string | null): Keys => {
   return { fine: asciiLower(legacyPattern(btrimSpaces(written))), coarse: fullLower(legacyPattern(written).replace(ANY_SPACE, " ").trim()) };
 };
 
+// A line's keys: its title's, then its unit's, apart.
+const lineKeys = (title: Keys, unit: Keys): Keys => ({ fine: `${title.fine}\u0000${unit.fine}`, coarse: `${title.coarse}\u0000${unit.coarse}` });
+const sameKeys = (value: string): Keys => ({ fine: value, coarse: value });
+
 function sentKeys(line: MergeSentLine, writer: MergeWriter): Keys | null {
-  if (writer === "legacy") {
-    const title = legacyText(line.designation);
-    const unit = legacyText(line.unit);
-    return { fine: `${title.fine}\u0000${unit.fine}`, coarse: `${title.coarse}\u0000${unit.coarse}` };
-  }
+  if (writer === "legacy") return lineKeys(legacyText(line.designation), legacyText(line.unit));
   const unit = unitKey(line.unit);
   if (unit === null) return null;
-  const title = engine3Text(line.designation);
-  return { fine: `${title.fine}\u0000${unit}`, coarse: `${title.coarse}\u0000${unit}` };
+  return lineKeys(engine3Text(line.designation), sameKeys(unit));
 }
 
 function sectionKeys(line: MergeSectionLine, writer: MergeWriter): Keys | null {
-  if (writer === "legacy") {
-    const title = legacyText(line.title);
-    const unit = legacyText(line.description);
-    return { fine: `${title.fine}\u0000${unit.fine}`, coarse: `${title.coarse}\u0000${unit.coarse}` };
-  }
+  if (writer === "legacy") return lineKeys(legacyText(line.title), legacyText(line.description));
   const unit = line.unit_code ?? (line.pricing_status === null ? null : `status:${line.pricing_status}`);
   if (line.title === null || unit === null) return null;
-  const title = engine3Text(line.title);
-  return { fine: `${title.fine}\u0000${unit}`, coarse: `${title.coarse}\u0000${unit}` };
+  return lineKeys(engine3Text(line.title), sameKeys(unit));
 }
 
 // uuid order is byte order, which is the order of their lower-case text.
@@ -118,12 +113,12 @@ export function writerMergeReach(sent: readonly MergeSentLine[], section: readon
     if (group.sent.length === 0 || group.section.length === 0) continue;
     const ordered = [...group.section].sort((left, right) => bySection(left.line, right.line));
     const exact = new Set([...group.sent, ...group.section].map((entry) => entry.fine)).size === 1;
+    const sources = [...group.sent].sort((left, right) => left.line.sourceOrder - right.line.sourceOrder);
     if (!exact) {
-      const all = [...group.sent].sort((left, right) => left.line.sourceOrder - right.line.sourceOrder).map((entry) => entry.line.id);
+      const all = sources.map((entry) => entry.line.id);
       for (const entry of ordered) reach.set(entry.line.id, all);
       continue;
     }
-    const sources = [...group.sent].sort((left, right) => left.line.sourceOrder - right.line.sourceOrder);
     sources.slice(0, ordered.length).forEach((entry, rank) => reach.set(ordered[rank].line.id, [entry.line.id]));
   }
   return reach;
@@ -164,7 +159,7 @@ export function mergeOverwrites<T extends MergeEstimateLine>(input: {
   }
   return section.flatMap((line) => {
     const ids = reached.get(line.id);
-    if (!ids || line.source_provider === "dpgf" || input.accounted.has(line.id)) return [];
+    if (!ids || isDpgfTargetLine(line) || input.accounted.has(line.id)) return [];
     const lines = [...ids].map((sentId) => sentById.get(sentId)!).sort((left, right) => left.sourceOrder - right.sourceOrder);
     return [{ line, sent: lines }];
   });
