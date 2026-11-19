@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   Dialog,
@@ -147,7 +147,6 @@ function TakeoffApplyScreen({
   const [sectionsError, setSectionsError] = useState<string | null>(null);
   // Each new read of the sections (« Réessayer », a refusal): the version's DPGF lines, hence the strategy, read again.
   const [sectionsRead, setSectionsRead] = useState(0);
-  const sectionsReadFor = useRef<string | null>(null);
   // TI-686 D10: each blocked line's coded reason and justification, written in the guard panel.
   const [forcedDrafts, setForcedDrafts] = useState<ForcedDrafts>({});
   // TI-682 lot D: the estimator's choices at « Pages déjà au devis », one draft for the whole application, kept when the
@@ -184,24 +183,12 @@ function TakeoffApplyScreen({
   const { preview, pages } = useTakeoffApplyReads({ jobId, generation, onStrategyChange: handleStrategyChange });
   const previewData = preview.data;
 
+  // The callers mount the screen only while it is open, and another job or version remounts it: a read after the first
+  // (a refusal, « Réessayer ») is for the same version, the section chosen and the estimator's choices stand.
   useEffect(() => {
-    if (!open) {
-      sectionsReadFor.current = null;
-      return;
-    }
-
     let active = true;
-    // Read again for the same version (a refusal, « Réessayer »): the section chosen and the estimator's choices stand.
-    const again = sectionsReadFor.current === versionId;
 
     const loadSections = async () => {
-      if (!again) {
-        setSelection((current) => ({ generation: current.generation + 1, targetSectionId: null, holdsDpgfLines: false }));
-        setSectionOptions([]);
-        setEstimateItems([]);
-        setForcedDrafts({});
-        setPageChoices(NO_CONFIRMATION_CHOICES);
-      }
       setSectionsError(null);
       setIsLoadingSections(true);
 
@@ -209,14 +196,13 @@ function TakeoffApplyScreen({
         const estimateItems = await fetchEstimateItemsForVersion(versionId);
         if (!active) return;
         const options = buildSectionOptions(estimateItems);
-        sectionsReadFor.current = versionId;
         setSectionOptions(options);
         setEstimateItems(estimateItems);
         // The server's own test of a DPGF version (hasTakeoffDpgfTargetLines): a DPGF line, never a DPGF section alone.
         const holdsDpgfLines = estimateItems.some(isDpgfTargetLine);
         setSelection((current) => ({
           generation: current.generation + 1,
-          targetSectionId: again && options.some((option) => option.id === current.targetSectionId)
+          targetSectionId: options.some((option) => option.id === current.targetSectionId)
             ? current.targetSectionId : options[0]?.id ?? null,
           holdsDpgfLines,
         }));
@@ -237,7 +223,7 @@ function TakeoffApplyScreen({
     return () => {
       active = false;
     };
-  }, [open, sectionsRead, versionId]);
+  }, [sectionsRead, versionId]);
 
   const handleTargetSectionChange = (sectionId: string | null) => {
     setSelection((current) => ({ ...current, targetSectionId: sectionId, generation: current.generation + 1 }));
