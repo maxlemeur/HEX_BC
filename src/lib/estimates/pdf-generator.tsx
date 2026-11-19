@@ -454,6 +454,12 @@ async function loadEstimateTermsTemplate(input: {
     .maybeSingle();
 
   if (error) {
+    if (isEstimateTermsSchemaUnavailable(error)) {
+      return canUseDevelopmentEstimateTerms()
+        ? createDevelopmentEstimateTermsTemplate(input.tenantId, "development")
+        : null;
+    }
+
     throw mapSupabaseError(
       error,
       "Impossible de charger les conditions générales du devis.",
@@ -495,6 +501,20 @@ export function isMissingEstimateRoundingAdjustmentSchema(
     code === "42703" &&
     message.includes("rounding_adjustment_cents") &&
     message.includes("estimate_versions")
+  );
+}
+
+// PostgREST answers PGRST205 / « schema cache » for a table it has not reloaded yet,
+// which happens for a moment after a deployment that touches the schema.
+function isEstimateTermsSchemaUnavailable(error: SupabaseErrorLike) {
+  const code = error.code?.toUpperCase() ?? "";
+  const message = normalizedSupabaseError(error);
+
+  return (
+    message.includes("estimate_terms_templates") &&
+    (code === "42P01" ||
+      code === "PGRST205" ||
+      message.includes("schema cache"))
   );
 }
 

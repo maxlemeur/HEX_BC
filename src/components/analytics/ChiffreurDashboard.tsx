@@ -20,10 +20,6 @@ import type {
   AnalyticsTrendPoint,
 } from "@/lib/analytics/server";
 
-// ---------------------------------------------------------------------------
-// Status helpers
-// ---------------------------------------------------------------------------
-
 const STATUS_BADGE_VARIANT: Record<string, "neutral" | "info" | "success"> = {
   draft: "neutral",
   sent: "info",
@@ -56,10 +52,6 @@ function StatValue({ value, suffix }: { value: string; suffix?: string }) {
     </span>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Trend Chart (pure CSS vertical bars)
-// ---------------------------------------------------------------------------
 
 function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
   const maxCount = Math.max(
@@ -125,10 +117,6 @@ function TrendChart({ trend }: { trend: AnalyticsTrendPoint[] }) {
     </PageSection>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Top Affaires Table
-// ---------------------------------------------------------------------------
 
 function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
   if (items.length === 0) {
@@ -282,10 +270,6 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Owner Selector (admin only)
-// ---------------------------------------------------------------------------
-
 function OwnerSelectorInner({
   owners,
 }: {
@@ -337,10 +321,6 @@ function OwnerSelector({ owners }: { owners: AnalyticsOwnerOption[] }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main Dashboard
-// ---------------------------------------------------------------------------
-
 type Props = {
   initialData: AnalyticsPayload;
 };
@@ -349,7 +329,6 @@ export function ChiffreurDashboard({ initialData }: Readonly<Props>) {
   const router = useRouter();
   const { scope, kpis, trend, topAffaires, owners } = initialData;
 
-  // Auto-refresh every 60s
   useEffect(() => {
     const interval = setInterval(() => {
       router.refresh();

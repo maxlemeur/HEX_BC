@@ -37,10 +37,6 @@ const EXCEPTION_GROUP_LABELS: Record<ExceptionGroupKey, string> = {
 
 export { EXCEPTION_GROUP_LABELS };
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type ReviewerState = "seen" | "review_laurent" | "blocking" | "acceptable";
 export type VisualState = "new" | "seen" | "commented" | "resolved";
 
@@ -65,10 +61,6 @@ export type ApprovalQueueItem = {
   latestJobId: string | null;
   syntheticAlerts: DirectionSyntheticAlert[];
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("fr", { numeric: "auto" });
 
@@ -119,10 +111,6 @@ function deriveVisualState(
   if (reviewerState) return "seen";
   return "new";
 }
-
-// ---------------------------------------------------------------------------
-// Data fetching
-// ---------------------------------------------------------------------------
 
 type RpcRow = {
   project_id: string;
@@ -224,10 +212,6 @@ export async function fetchApprovalQueue(
     ? filteredItems
     : filteredItems.toReversed();
 }
-
-// ---------------------------------------------------------------------------
-// Mutation
-// ---------------------------------------------------------------------------
 
 export async function markApprovalQueueItemState(
   cycleId: string,

@@ -341,11 +341,6 @@ describe("Fixture A - base coef 1 marge fixe [surfaces 1 et 3]", () => {
   });
 });
 
-/* ---------------------------------------------------------------------------
- * Fixture B - coefficient global 1.10 (memes items que A)
- * ------------------------------------------------------------------------- */
-
-
 describe("Fixture B - coefficient global 1.10 [surfaces 1 et 3]", () => {
   const lineItems = FIXTURE_A_ITEMS.filter((i) => i.item_type === "line");
 
@@ -495,11 +490,6 @@ describe("Fixture B - coefficient global 1.10 [surfaces 1 et 3]", () => {
   });
 });
 
-/* ---------------------------------------------------------------------------
- * Fixture C - remise cascade 3 etapes
- * ------------------------------------------------------------------------- */
-
-
 describe("Fixture C - remise cascade 3 etapes [surface 1]", () => {
   const lineItems = FIXTURE_A_ITEMS.filter((i) => i.item_type === "line");
   const CASCADE_STEPS = [500, 300, 250];
@@ -630,11 +620,6 @@ describe("Fixture C - remise cascade 3 etapes [surface 1]", () => {
       });
   });
 });
-
-/* ---------------------------------------------------------------------------
- * Fixture D - remise simple avec steps residuels
- * ------------------------------------------------------------------------- */
-
 
 describe("Fixture D - remise simple steps residuels [surface 1]", () => {
   const lineItems = FIXTURE_A_ITEMS.filter((i) => i.item_type === "line");
@@ -1051,11 +1036,6 @@ describe("Fixture H - ligne racine + multi-TVA [surfaces 1 et 3]", () => {
   });
 });
 
-/* ---------------------------------------------------------------------------
- * Surface 2 - editeur
- * ------------------------------------------------------------------------- */
-
-
 describe("Éditeur du devis historique [surface 2]", () => {
   function editorCase(
     items: EstimateItemRecord[],
@@ -1167,11 +1147,6 @@ describe("Éditeur du devis historique [surface 2]", () => {
     });
   });
 });
-
-/* ---------------------------------------------------------------------------
- * Surface 4 - pages serveur (detail / print / portail)
- * ------------------------------------------------------------------------- */
-
 
 // ---------------------------------------------------------------------------
 // COUVERTURE PARTIELLE — surface "pages serveur".
@@ -1357,11 +1332,6 @@ describe("Surface pages serveur (COUVERTURE PARTIELLE) [surface 4]", () => {
       });
   });
 });
-
-/* ---------------------------------------------------------------------------
- * Surface 5 - exports XLSX
- * ------------------------------------------------------------------------- */
-
 
 // ---------------------------------------------------------------------------
 // COUVERTURE PARTIELLE — surface "exports XLSX".

@@ -273,7 +273,6 @@ export function IntakeWorkspace({
   const processingCount = documents.filter(isAffaireIntakeDocumentProcessing).length;
   const hasDocuments = documents.length > 0;
 
-  // Grouped document lists
   const reviewDocs = useMemo(() => documents.filter(isAffaireIntakeDocumentNeedingReview), [documents]);
   const classifiedDocs = useMemo(
     () => documents.filter((d) => !isAffaireIntakeDocumentProcessing(d) && !isAffaireIntakeDocumentNeedingReview(d)),
@@ -281,7 +280,6 @@ export function IntakeWorkspace({
   );
   const classifiedCount = classifiedDocs.length;
 
-  // Group classified docs by category for the category cards grid
   const docsByCategory = useMemo(() => {
     const grouped = new Map<AffaireIntakeDocumentKind, IntakeDocumentData[]>();
     for (const doc of classifiedDocs) {
@@ -297,17 +295,14 @@ export function IntakeWorkspace({
     [docsByCategory],
   );
 
-  // For filter mode, only show reviewDocs (same behaviour as before)
   const filteredDocuments = isFilterActive ? reviewDocs : documents;
   const focusedDocument =
     focusDocumentId !== null
       ? documents.find((document) => document.documentId === focusDocumentId) ?? null
       : null;
 
-  // Missing pieces: check if any critical
   const hasCriticalMissing = workspace?.missingPieces.some((p) => p.severity === "critical") ?? false;
 
-  // Progress bar segments
   const { classifiedPct, reviewPct, processingPct } = useMemo(() => {
     const total = documents.length;
     if (total === 0) return { classifiedPct: 0, reviewPct: 0, processingPct: 0 };
@@ -318,7 +313,6 @@ export function IntakeWorkspace({
     };
   }, [documents.length, classifiedCount, needsReviewCount, processingCount]);
 
-  // Triage complete?
   const triageComplete = hasDocuments && processingCount === 0 && needsReviewCount === 0 && !hasCriticalMissing;
 
   const toggleFilter = useCallback(() => {
@@ -338,7 +332,6 @@ export function IntakeWorkspace({
     window.history.replaceState(window.history.state, "", nextUrl);
   }, [activeFilter, pathname, searchParams]);
 
-  // Legend text for progress bar
   const progressLegend = useMemo(() => {
     const parts: string[] = [];
     if (classifiedCount > 0) parts.push(`${classifiedCount} valide${classifiedCount > 1 ? "s" : ""}`);
@@ -395,7 +388,6 @@ export function IntakeWorkspace({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* "A revoir" filter toggle */}
             {needsReviewCount > 0 && (
               <button
                 type="button"
@@ -412,7 +404,6 @@ export function IntakeWorkspace({
               </button>
             )}
 
-            {/* Add files button */}
             {hasDocuments && !hideAddFilesAction && (
               <button
                 type="button"
@@ -433,7 +424,6 @@ export function IntakeWorkspace({
         <GoogleDriveImport key={projectId} projectId={projectId} onUploadComplete={handleUploadComplete} onRefresh={handleReclassified} showTrigger={!driveOfferedByFlowPanel} fallbackFocus={sectionRef} />
       </div>
 
-      {/* Progress bar */}
       {hasDocuments && (
         <div className="mb-4">
           <div
@@ -467,7 +457,6 @@ export function IntakeWorkspace({
         </div>
       )}
 
-      {/* Dropzone */}
       {(showDropzone || !hasDocuments) && (
         <div className={hasDocuments ? "mb-4" : ""}>
           <IntakeDropzone
@@ -481,7 +470,6 @@ export function IntakeWorkspace({
         </div>
       )}
 
-      {/* Missing pieces */}
       {workspace && workspace.missingPieces.length > 0 && (
         <div className="mb-4">
           <IntakeMissingPieces
@@ -541,7 +529,6 @@ export function IntakeWorkspace({
         </details>
       </div>}
 
-      {/* Filtered mode: show only review docs (same as before) */}
       {isFilterActive && filteredDocuments.length > 0 && (
         <div className="space-y-2">
           {filteredDocuments.map((doc) => (
@@ -557,7 +544,6 @@ export function IntakeWorkspace({
         </div>
       )}
 
-      {/* Empty filter state */}
       {isFilterActive && filteredDocuments.length === 0 && hasDocuments && (
         <div className="py-6 text-center">
           <p className="text-sm text-muted-foreground">
@@ -573,7 +559,6 @@ export function IntakeWorkspace({
         </div>
       )}
 
-      {/* CTA: Triage status */}
       {hasDocuments && triageComplete && (
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
           <CircleCheckBigIcon className="shrink-0" aria-hidden="true" size={16} />
@@ -598,7 +583,6 @@ export function IntakeWorkspace({
         </div>
       )}
 
-      {/* Live announcements */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>

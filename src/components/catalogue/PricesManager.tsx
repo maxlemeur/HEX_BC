@@ -28,8 +28,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { TEMPLATE_FILE_URL } from "@/lib/catalogue/product-price-template-client";
 import { ChevronDownIcon, DownloadIcon, FileSpreadsheetIcon, PlusIcon, UploadIcon } from "lucide-react";
 
-// --- Filter & Sort config ---
-
 const FRESHNESS_FILTER_OPTIONS = [
   { value: "fresh", label: "À jour (< 30 j)" },
   { value: "aging", label: "Vieillissant (30–90 j)" },
@@ -58,8 +56,6 @@ const PRICES_SORT_OPTIONS: SortOption[] = [
 
 const PRICE_PAGE_SIZES = [25, 50, 100] as const;
 
-// --- Component ---
-
 export function PricesManager({
   embedded = false,
   productId = null,
@@ -72,10 +68,8 @@ export function PricesManager({
   const searchParams = useSearchParams();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<EnrichedPrice | null>(null);
-  // --- Delete confirmation state ---
   const [deleteTarget, setDeleteTarget] = useState<EnrichedPrice | null>(null);
 
-  // --- CSV import collapsible ---
   const [isCsvOpen, setIsCsvOpen] = useState(embedded);
   const [isTemplateImportOpen, setIsTemplateImportOpen] = useState(false);
   const querySearch = searchParams.get("q") ?? "";
@@ -283,7 +277,6 @@ export function PricesManager({
         </section>
       ) : null}
 
-      {/* CSV Import - collapsible */}
       <section
         aria-labelledby="price-csv-import-title"
         className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface shadow-card"
@@ -333,7 +326,6 @@ export function PricesManager({
         ) : null}
       </section>
 
-      {/* Stats cards */}
       {data && stats.total > 0 ? (
         <StatGrid label="Synthèse des prix fournisseurs">
           <StatCard label="Total prix" value={stats.total} />

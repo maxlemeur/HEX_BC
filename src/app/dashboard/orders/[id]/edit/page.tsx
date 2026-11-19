@@ -207,7 +207,6 @@ export default function EditOrderPage() {
   const [expectedRevision, setExpectedRevision] = useState<number | null>(null);
   const [revisionConflict, setRevisionConflict] = useState(false);
 
-  // Fetch existing order
   const fetchOrder = useCallback(async () => {
     if (!id) throw new Error("Identifiant du bon de commande manquant.");
     const { data, error } = await supabase
@@ -229,7 +228,6 @@ export default function EditOrderPage() {
     { revalidateOnFocus: false, revalidateOnReconnect: false }
   );
 
-  // Initialize form with existing data
   useEffect(() => {
     if (!id || !order || order.id !== id || initialized || isOrderValidating || orderError) return;
     let canceled = false;
@@ -256,7 +254,6 @@ export default function EditOrderPage() {
     return () => { canceled = true; };
   }, [id, order, initialized, isOrderValidating, orderError, resetDeliveryDate]);
 
-  // Check if order is draft
   const isDraft = order?.status === "draft";
   // TI-691: an order made from a material request is for its affaire and keeps the retained quote's supplier.
   const fromRequestOrder = Boolean(order?.project_id);
@@ -310,7 +307,6 @@ export default function EditOrderPage() {
   const loadError = orderError ?? suppliersError ?? sitesError;
   const isLoading = isSuppliersLoading || isSitesLoading || isOrderLoading || isOrderValidating;
 
-  // Get selected supplier and site data
   const selectedSupplier: SupplierData | null = useMemo(() => {
     if (!supplierId) return null;
     const s = suppliers.find((x) => x.id === supplierId);

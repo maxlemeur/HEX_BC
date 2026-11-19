@@ -35,7 +35,6 @@ export const prepareEstimateDocumentData: MaybeSpy = Object.assign((input: Prepa
   return output;
 }, { [SPY_MARK]: true as const });
 
-/** Collect the real preparer calls made while `run` executes. */
 export async function observePreparedDocuments<T>(run: () => Promise<T>) {
   const holder = globalThis as GlobalWithSink;
   if (holder[SINK_KEY]) throw new Error("Prepared-document observations cannot be nested.");

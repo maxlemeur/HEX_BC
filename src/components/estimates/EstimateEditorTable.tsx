@@ -1125,7 +1125,6 @@ export function EstimateEditorTable({
     previousSimplifiedRef.current = isSimplified;
   }, [columnPreset, columnVisibility.hasManualOverride, isSimplified, setColumnPresetAuto]);
 
-  // Compute super-header FO/MO group spans for the grid
   const superHeaderSpans = useMemo(() => {
     const foStart = 4; // PR.FO is always column 4 (after designation, qty, unit)
     const supplierSpan = viewportVisibleColumns.has("supplier") ? 1 : 0;
@@ -2350,7 +2349,6 @@ export function EstimateEditorTable({
     sectionLevelById,
   ]);
 
-  // Scroll shadow detection for horizontal overflow indicator
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;

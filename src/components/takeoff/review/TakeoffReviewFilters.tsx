@@ -17,10 +17,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-// ---------------------------------------------------------------------------
-// Filter model
-// ---------------------------------------------------------------------------
-
 export type InclusionFilter = "all" | "included" | "excluded";
 export type VerificationFilter = "all" | "verified" | "unverified";
 export type AnomalyFilter = "all" | "with_anomalies" | "without_anomalies";
@@ -62,10 +58,6 @@ export const SORT_FIELD_LABELS: Record<SortField, string> = {
 export function countActiveSecondaryFilters(filters: ReviewTableFilters): number {
   return SECONDARY_FILTER_KEYS.filter((key) => filters[key] !== "all").length;
 }
-
-// ---------------------------------------------------------------------------
-// Filter bar: primary filters inline, the rest behind "Plus de filtres"
-// ---------------------------------------------------------------------------
 
 type TakeoffReviewFiltersProps = {
   filters: ReviewTableFilters;

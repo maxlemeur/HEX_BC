@@ -2,20 +2,12 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type ReviewMode = "assisted" | "production" | "validation";
 
 type TakeoffReviewModeSwitchProps = {
   mode: ReviewMode;
   onModeChange: (mode: ReviewMode) => void;
 };
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const MODE_OPTIONS: { value: ReviewMode; label: string; description: string }[] = [
   {
@@ -34,10 +26,6 @@ const MODE_OPTIONS: { value: ReviewMode; label: string; description: string }[] 
     description: "Exceptions et couverture",
   },
 ];
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function TakeoffReviewModeSwitch({
   mode,

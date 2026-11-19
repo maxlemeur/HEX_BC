@@ -10,10 +10,6 @@ import {
   prepareEstimateDocumentData,
 } from "@/lib/estimates/prepare-estimate-document-data";
 
-/* ---------------------------------------------------------------------------
- * Fabriques
- * ------------------------------------------------------------------------- */
-
 export const LABOR_RATES = new Map<string, number>([
   ["role-mo", 4_500], // 45,00 EUR/h - voie legacy (labor_role_id)
   ["role-atelier", 3_800],

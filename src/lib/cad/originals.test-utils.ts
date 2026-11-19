@@ -39,7 +39,6 @@ export type DwgFixture = {
   address?: "sentinel" | number;
   /** Bytes between the header and the preview. */
   padding?: number;
-  /** Cuts the file to this length. */
   cut?: number;
 };
 

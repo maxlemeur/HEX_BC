@@ -37,7 +37,6 @@ export type ForcedItem = {
 
 export type ForcedOverride = { forced_justifications: string[]; forced_items: ForcedItem[] };
 
-/** A blocked line as the apply guard reports it (checkApplyGuard). */
 type BlockedLine = Pick<GuardBlockedItem, "reasons" | "rule_failures">;
 
 /** The rules whose failure blocks the line, on results to trust (readable, not to compute again); none otherwise. */

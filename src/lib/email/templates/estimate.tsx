@@ -39,14 +39,12 @@ export function EstimateEmailTemplate({
       <Preview>{`Devis V${versionNumber} - ${projectName}`}</Preview>
       <Body style={bodyStyle}>
         <Container style={containerStyle}>
-          {/* Header */}
           <Section style={headerStyle}>
             <Heading as="h1" style={logoTextStyle}>
               {companyName}
             </Heading>
           </Section>
 
-          {/* Title */}
           <Section style={contentStyle}>
             <Heading as="h2" style={titleStyle}>
               Devis - {projectName}
@@ -54,7 +52,6 @@ export function EstimateEmailTemplate({
             <Text style={versionBadgeStyle}>Version V{versionNumber}</Text>
           </Section>
 
-          {/* Custom message */}
           <Section style={contentStyle}>
             <Text style={messageStyle}>{message}</Text>
             {historicalCopy ? (
@@ -67,13 +64,11 @@ export function EstimateEmailTemplate({
 
           <Hr style={hrStyle} />
 
-          {/* Total */}
           <Section style={contentStyle}>
             <Text style={totalLabelStyle}>Montant TTC</Text>
             <Text style={totalValueStyle}>{totalTtcFormatted}</Text>
           </Section>
 
-          {/* CTA */}
           <Section style={ctaSectionStyle}>
             <Link href={portalUrl} style={ctaButtonStyle}>
               Consulter le devis
@@ -82,7 +77,6 @@ export function EstimateEmailTemplate({
 
           <Hr style={hrStyle} />
 
-          {/* Footer */}
           <Section style={contentStyle}>
             <Text style={footerStyle}>
               Ce devis vous a été transmis par {companyName}. Vous pouvez le

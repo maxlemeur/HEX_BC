@@ -29,10 +29,6 @@ const TARGET_GROUP_LABELS: Record<string, string> = {
 
 export type ColumnMapping = Record<string, string>;
 
-/* ------------------------------------------------------------------ */
-/*  Confidence badge helpers (UX2-010)                                 */
-/* ------------------------------------------------------------------ */
-
 const EMPTY_SAMPLE_VALUES: Record<string, string[]> = {};
 
 const CONFIDENCE_LABELS: Record<MappingConfidenceBand, string> = {
@@ -127,7 +123,6 @@ export function ColumnMapper({
   const mappedTargets = useMemo(() => new Set(visibleMappings.map(([, target]) => target)), [visibleMappings]);
   const missingRequiredTargets = requiredTargets.filter((required) => !mappedTargets.has(required));
 
-  // Compute duplicate target assignments for inline warnings
   const duplicateTargetMap = useMemo(() => {
     const targetToSources = new Map<string, string[]>();
     for (const [source, target] of visibleMappings) {
@@ -237,7 +232,6 @@ export function ColumnMapper({
             </p>
           </div>
 
-          {/* Filter toggle */}
           <div
             role="group"
             aria-label="Filtrer les colonnes"
@@ -263,7 +257,6 @@ export function ColumnMapper({
           </div>
         </div>
 
-        {/* Full-width progress bar */}
         <div
           role="progressbar"
           aria-label="Champs métier mappés"

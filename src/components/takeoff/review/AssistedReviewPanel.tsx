@@ -13,10 +13,6 @@ import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import type { TakeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 import { FileTextIcon } from "lucide-react";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type AssistedReviewPanelProps = {
   items: ReviewItem[];
   reviewedIds: Set<string>;
@@ -28,10 +24,6 @@ type AssistedReviewPanelProps = {
   onApplyClick: () => void;
   readiness: TakeoffApplyReadiness;
 };
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function AssistedReviewPanel({
   items,
@@ -145,7 +137,6 @@ export function AssistedReviewPanel({
         totalCount={items.length}
       />
 
-      {/* Business-language summary */}
       <div className="border-b border-border bg-surface-subtle px-4 py-2">
         <p className="text-sm text-muted-foreground">
           Parcourez chaque item et décidez de le conserver ou de l&apos;écarter.

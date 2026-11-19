@@ -189,7 +189,6 @@ export function IntakeDocumentCard({
   };
   const hasMetadata = meta.documentNature || meta.projectName || meta.clientName || meta.deadlineAt || meta.detectedLots.length > 0 || meta.detectedVariants.length > 0;
 
-  // Compact mode: single-line summary (name + badge only)
   if (compact && !isEditing) {
     return (
       <div
@@ -230,7 +229,6 @@ export function IntakeDocumentCard({
       data-needs-review={isAmbiguous && !isProcessing ? "true" : undefined}
       data-highlighted={isEmphasized ? "true" : undefined}
     >
-      {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 flex items-start gap-2.5">
           <span className={`mt-0.5 text-micro font-bold uppercase leading-none ${fileType.color}`}>{fileType.label}</span>
@@ -239,7 +237,6 @@ export function IntakeDocumentCard({
               {doc.fileName}
             </p>
 
-            {/* Category + confidence badges */}
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {isProcessing ? (
                 <Badge variant="neutral">
@@ -267,7 +264,6 @@ export function IntakeDocumentCard({
           </div>
         </div>
 
-        {/* Reclassify button */}
         {canManage && canClassify && !isProcessing && !isEditing && (
           <div className="flex shrink-0 items-center gap-1.5">
             {isPriorityEligible && documentPriority !== "primary" ? (
@@ -291,7 +287,6 @@ export function IntakeDocumentCard({
         )}
       </div>
 
-      {/* Inline reclassification */}
       {canManage && canClassify && isEditing && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-surface-subtle p-2">
           <label htmlFor={`reclassify-${doc.documentId}`} className="sr-only">
@@ -353,7 +348,6 @@ export function IntakeDocumentCard({
         </section>
       )}
 
-      {/* Extracted metadata */}
       {hasMetadata && !isProcessing && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 pl-6">
           <MetadataLine label="Nature" value={meta.documentNature ?? null} />
@@ -375,7 +369,6 @@ export function IntakeDocumentCard({
         </div>
       )}
 
-      {/* Issues */}
       {doc.issues.length > 0 && !isProcessing && (
         <ul className="mt-2 space-y-0.5 pl-6">
           {doc.issues.map((issue, i) => (

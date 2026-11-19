@@ -119,7 +119,6 @@ export default function NewOrderPage() {
   const loadError = suppliersError ?? sitesError;
   const isLoading = isSuppliersLoading || isSitesLoading;
 
-  // Get selected supplier and site data
   const selectedSupplier: SupplierData | null = useMemo(() => {
     if (!supplierId) return null;
     const s = suppliers.find((x) => x.id === supplierId);

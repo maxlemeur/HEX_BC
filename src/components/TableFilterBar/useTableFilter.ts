@@ -40,7 +40,6 @@ function normalizeText(text: string): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-// Check if a date range value has any value set
 function isDateRangeEmpty(value: DateRangeValue): boolean {
   return !value.from && !value.to;
 }
@@ -75,7 +74,6 @@ export function useTableFilter<T extends Record<string, unknown>>(
   const deferredSearch = useDeferredValue(searchInput);
   const isSearchPending = searchInput !== deferredSearch;
 
-  // Filter state
   const [filterState, setFilterState] = useState<FilterState>(() => {
     const initial: FilterState = {};
     filters?.forEach((f) => {
@@ -93,7 +91,6 @@ export function useTableFilter<T extends Record<string, unknown>>(
     return initial;
   });
 
-  // Sort state
   const [sortState, setSortState] = useState<SortState>(() => {
     if (defaultSort) return defaultSort;
     if (sortOptions && sortOptions.length > 0) {
@@ -105,12 +102,10 @@ export function useTableFilter<T extends Record<string, unknown>>(
 
   const searchFieldsKey = searchConfig?.fields?.join("|") ?? "";
 
-  // Filter the data
   const filteredData = useMemo(() => {
     let result = [...data];
     const searchFields = searchFieldsKey ? searchFieldsKey.split("|") : [];
 
-    // 1. Apply search
     if (deferredSearch && searchFields.length > 0) {
       const searchNormalized = normalizeText(deferredSearch);
       result = result.filter((item) =>
@@ -122,7 +117,6 @@ export function useTableFilter<T extends Record<string, unknown>>(
       );
     }
 
-    // 2. Apply filters
     for (const [key, value] of Object.entries(filterState)) {
       const filterConfig = filters?.find((f) => f.key === key);
       if (!filterConfig) continue;
@@ -154,19 +148,16 @@ export function useTableFilter<T extends Record<string, unknown>>(
       }
     }
 
-    // 3. Apply sort
     if (sortState) {
       const { key, direction } = sortState;
       result.sort((a, b) => {
         const aVal = getNestedValue(a, key);
         const bVal = getNestedValue(b, key);
 
-        // Handle null/undefined
         if (aVal == null && bVal == null) return 0;
         if (aVal == null) return direction === "asc" ? 1 : -1;
         if (bVal == null) return direction === "asc" ? -1 : 1;
 
-        // Compare values
         let comparison: number;
         if (typeof aVal === "string" && typeof bVal === "string") {
           comparison = aVal.localeCompare(bVal, "fr");
@@ -183,7 +174,6 @@ export function useTableFilter<T extends Record<string, unknown>>(
     return result;
   }, [data, deferredSearch, searchFieldsKey, filterState, filters, sortState]);
 
-  // Notify parent of data changes
   const onDataChangeRef = useRef(onDataChange);
   const lastNotifiedDataRef = useRef<T[] | null>(null);
 
@@ -204,7 +194,6 @@ export function useTableFilter<T extends Record<string, unknown>>(
     handler(filteredData);
   }, [filteredData]);
 
-  // Count active filters
   const activeFilterCount = useMemo(() => {
     let count = 0;
     for (const [key, value] of Object.entries(filterState)) {
@@ -222,7 +211,6 @@ export function useTableFilter<T extends Record<string, unknown>>(
     return count;
   }, [filterState, filters]);
 
-  // Actions
   const setFilter = (key: string, value: FilterValue) => {
     setFilterState((prev) => ({ ...prev, [key]: value }));
   };
@@ -274,24 +262,20 @@ export function useTableFilter<T extends Record<string, unknown>>(
   };
 
   return {
-    // Output
     filteredData,
     totalCount: data.length,
     filteredCount: filteredData.length,
 
-    // Search
     searchValue: searchInput,
     setSearchValue: setSearchInput,
     isSearchPending,
 
-    // Filters
     filterState,
     setFilter,
     clearFilter,
     clearAllFilters,
     activeFilterCount,
 
-    // Sort
     sortState,
     setSort,
     toggleSortDirection,

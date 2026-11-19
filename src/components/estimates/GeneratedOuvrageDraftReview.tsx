@@ -68,7 +68,6 @@ export function GeneratedOuvrageDraftReview({
 }: GeneratedOuvrageDraftReviewProps) {
   return (
     <div className="space-y-4">
-      {/* Summary bar */}
       <div className="flex flex-wrap items-center gap-2">
         {summary.certainCount > 0 && (
           <Badge variant="success" size="sm">
@@ -102,7 +101,6 @@ export function GeneratedOuvrageDraftReview({
         )}
       </div>
 
-      {/* Draft status message */}
       {STATUS_MESSAGES[draftStatus] && (
         <p className="text-sm text-muted-foreground italic">
           {STATUS_MESSAGES[draftStatus]}
@@ -118,7 +116,6 @@ export function GeneratedOuvrageDraftReview({
         ) : null}
       </div>
 
-      {/* Candidate list */}
       <div
         role="region"
         aria-label="Propositions d'ouvrages"

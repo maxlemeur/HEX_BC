@@ -164,10 +164,6 @@ describe("Fixture F - split MO actif / 3 semantiques du flag [surface 1]", () =>
   });
 });
 
-/* ---------------------------------------------------------------------------
- * Fixture G - payload de split residuel
- * ------------------------------------------------------------------------- */
-
 describe("Fixture G - payload split residuel [surface 1]", () => {
   it("fige la detection de payload : chaine vide et k_mo_atelier = 0 l'activent", () => {
     // DIVERGENCE : la detection teste `!== null && !== undefined`, pas la

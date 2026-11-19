@@ -20,13 +20,9 @@ import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
 import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
 
-/* ─── Constants ─── */
-
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const JOBS_BATCH_SIZE = 1000;
-
-/* ─── Input type ─── */
 
 type ListActivityCenterJobsInput = {
   project_id: string;
@@ -39,8 +35,6 @@ type ListActivityCenterJobsInput = {
   limit?: number;
   offset?: number;
 };
-
-/* ─── Helpers ─── */
 
 type SupabaseClient = AuthenticatedTakeoffContext["supabase"];
 
@@ -390,8 +384,6 @@ async function countItemsByJobId(
   return new Map(entries);
 }
 
-/* ─── Batched enrichment helpers ─── */
-
 type EnrichmentResult = {
   confidence: Map<string, number | null>;
   exceptions: Map<string, number>;
@@ -415,10 +407,8 @@ async function batchEnrich(
 
   const jobIds = jobs.map((j) => j.id);
 
-  // Run all batched queries in parallel
   const [confidenceRows, exceptionRows, linkRows, carryOverRows, totalItemRows] =
     await Promise.all([
-      // 1. Confidence: fetch all items with confidence for all enrichable jobs
       (async () => {
         const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
           .from("takeoff_items" as never)
@@ -448,7 +438,6 @@ async function batchEnrich(
         return (data ?? []) as Array<{ takeoff_job_id: string }>;
       })(),
 
-      // 3. Coverage: count linked DPGF lines per job
       (async () => {
         const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
           .from("takeoff_dpgf_links" as never)
@@ -469,7 +458,6 @@ async function batchEnrich(
         }>;
       })(),
 
-      // 4. Carry-over: check version links
       (async () => {
         const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
           .from("takeoff_version_links" as never)
@@ -488,7 +476,6 @@ async function batchEnrich(
         }>;
       })(),
 
-      // 5. Total estimate items per version (for coverage denominator)
       (async () => {
         const versionIds = [...new Set(jobs.map((j) => j.estimate_version_id))];
         const { data, error } = await readAllRowsInChunks(versionIds, (pageIds) => supabase
@@ -507,7 +494,6 @@ async function batchEnrich(
       })(),
     ]);
 
-  // Build confidence map: average per job
   const confidenceByJob = new Map<string, number[]>();
   for (const row of confidenceRows) {
     if (row.confidence !== null && Number.isFinite(row.confidence)) {
@@ -527,7 +513,6 @@ async function batchEnrich(
     );
   }
 
-  // Build exceptions map: count per job
   const exceptions = new Map<string, number>();
   for (const jobId of jobIds) exceptions.set(jobId, 0);
   for (const row of exceptionRows) {
@@ -583,8 +568,6 @@ async function batchEnrich(
   return { confidence, exceptions, coverage, carryOver };
 }
 
-/* ─── Main function ─── */
-
 export async function listActivityCenterJobs(
   input: ListActivityCenterJobsInput
 ): Promise<TakeoffActivityCenterResponse> {
@@ -593,7 +576,6 @@ export async function listActivityCenterJobs(
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
 
-  // 1. Resolve version IDs for the project
   const versions = await resolveVersionIdsForProject({
     supabase,
     tenantId,
@@ -610,7 +592,6 @@ export async function listActivityCenterJobs(
     };
   }
 
-  // 2. Determine effective version filter
   const effectiveVersionIds =
     input.versionId && versionIds.includes(input.versionId)
       ? [input.versionId]
@@ -704,7 +685,6 @@ export async function listActivityCenterJobs(
   const total = statusFilteredRows.length;
   const jobIds = pagedRows.map((row) => row.id);
 
-  // 4. Item counts
   const itemCountMap = await countItemsByJobId(supabase, tenantId, jobIds);
 
   // 5. Batch-enrich completed/applied jobs for the current page only.
@@ -721,7 +701,6 @@ export async function listActivityCenterJobs(
     blockingExceptionsJobs: blockingExceptionsCount,
   };
 
-  // 7. Map rows to response
   const jobs: TakeoffActivityCenterJobRow[] = pagedRows.map((row) => {
     const versionNumber = versionNumberMap.get(row.estimate_version_id);
     const isEnrichable = row.status === "completed" || row.status === "applied";

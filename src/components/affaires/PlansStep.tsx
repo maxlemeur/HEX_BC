@@ -33,7 +33,6 @@ type PlansStepProps = {
   versionId: string;
   onSkip: () => void;
   onContinue: () => void;
-  /** When true, show a success banner above the plans step. */
   showSuccessBanner?: boolean;
 };
 
@@ -234,7 +233,6 @@ export function PlansStep({
         </div>
       </div>
 
-      {/* Benefits explanation */}
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">

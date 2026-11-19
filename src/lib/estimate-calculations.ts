@@ -11,12 +11,8 @@ import {
 } from "@/lib/estimates/margin-tiers";
 import type { CalcEngineVersion } from "@/lib/estimates/engine/capabilities";
 
-/* ---------- constants ---------- */
-
 /** Maximum allowed margin multiplier (A6 overflow guard). */
 export const MAX_MARGIN_MULTIPLIER = 100;
-
-/* ---------- shared types ---------- */
 
 export type EstimateLineLike = {
   quantity: number | null;
@@ -94,7 +90,6 @@ export type CascadeDiscountComputation = {
   subtotalAfterDiscountCents: number;
   steps: DiscountStepTotal[];
 };
-/* ---------- helpers ---------- */
 
 function toSafeNumber(value: number | null | undefined, fallback: number) {
   return Number.isFinite(value ?? NaN) ? (value ?? fallback) : fallback;
@@ -205,8 +200,6 @@ function applyRounding(value: number, mode: RoundingMode, step: number) {
   if (mode === "down") return Math.floor(ratio) * safeStep;
   return Math.round(ratio) * safeStep;
 }
-
-/* ---------- line-level computation ---------- */
 
 export function computeEstimateLineValues(
   item: EstimateLineLike,
@@ -333,8 +326,6 @@ export function computeCascadeDiscountCents(
     steps,
   };
 }
-
-/* ---------- totals computation ---------- */
 
 export function computeEstimateTotals({
   lineItems,

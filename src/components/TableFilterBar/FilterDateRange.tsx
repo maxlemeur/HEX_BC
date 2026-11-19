@@ -11,7 +11,6 @@ type FilterDateRangeProps = {
   onClear: () => void;
 };
 
-// Quick date preset helpers
 function getPresetDates(preset: "week" | "month" | "30days"): DateRangeValue {
   const today = new Date();
   const toDate = today.toISOString().split("T")[0];
@@ -40,14 +39,12 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
 
   const hasValue = value.from || value.to;
 
-  // Format date for display
   const formatDisplayDate = (dateStr: string) => {
     if (!dateStr) return "";
     const date = new Date(dateStr);
     return date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
   };
 
-  // Get display label
   const getDisplayLabel = () => {
     if (!hasValue) return config.label;
     if (value.from && value.to) {
@@ -58,7 +55,6 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
     return config.label;
   };
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -72,7 +68,6 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
     }
   }, [isOpen]);
 
-  // Close dropdown on Escape
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);
@@ -105,7 +100,6 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
 
       {isOpen && (
         <div className="filter-dropdown filter-dropdown--date" role="dialog" aria-label={config.label}>
-          {/* Quick presets */}
           <div className="filter-dropdown__presets">
             <button
               type="button"
@@ -130,7 +124,6 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
             </button>
           </div>
 
-          {/* Date inputs */}
           <div className="filter-dropdown__dates">
             <div className="filter-dropdown__date-field">
               <label className="filter-dropdown__date-label">
@@ -159,7 +152,6 @@ export function FilterDateRange({ config, value, onChange, onClear }: FilterDate
             </div>
           </div>
 
-          {/* Clear button */}
           {hasValue && (
             <button
               type="button"

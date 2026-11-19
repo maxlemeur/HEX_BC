@@ -82,7 +82,6 @@ export default function TakeoffJobsTable({
         } else {
           await cancelTakeoffJob(jobId);
         }
-        // Revalidate activity center data after successful mutation
         await mutate(
           (key: unknown) => Array.isArray(key) && key[0] === "activity-center",
           undefined,
@@ -419,7 +418,6 @@ export default function TakeoffJobsTable({
             </table>
           </div>
 
-          {/* Pagination */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-6">
             <p className="text-sm text-muted-foreground">
               {formatCount(data.pagination.total)} analyse{data.pagination.total > 1 ? "s" : ""}

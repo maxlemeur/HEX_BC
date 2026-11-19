@@ -217,7 +217,6 @@ const pick = (block, re) => {
   return m ? decode(m[1]) : "";
 };
 
-// ---------- bugs ----------
 const bugBlocks = html.split('<article class="card bug').slice(1);
 const bugs = bugBlocks.map((raw, index) => {
   const block = raw.slice(0, raw.indexOf("</article>"));
@@ -236,7 +235,6 @@ const bugs = bugBlocks.map((raw, index) => {
   };
 });
 
-// ---------- constats UX, par persona ----------
 const personaNames = [
   ...html.matchAll(/<h3>([^<]{3,80})<\/h3>\s*<div class="pcounts"/g),
 ].map((m) => decode(m[1]));

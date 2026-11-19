@@ -61,7 +61,6 @@ export function panCadViewport(viewport: CadViewport, dx: number, dy: number): C
   return { scale: viewport.scale, x: viewport.x - dx / viewport.scale, y: viewport.y + dy / viewport.scale };
 }
 
-/** The drawing point under a pixel of the canvas. */
 export function cadPointAt(viewport: CadViewport, sx: number, sy: number): [number, number] {
   return [viewport.x + sx / viewport.scale, viewport.y - sy / viewport.scale];
 }
@@ -260,7 +259,6 @@ export function drawCadView(ctx: CadViewContext, scene: CadScene, viewport: CadV
   }
   ctx.globalAlpha = 1;
 
-  // Tracé, one stroke per colour.
   let color = -1, pending = 0;
   const flush = () => {
     if (pending > 0) ctx.stroke();

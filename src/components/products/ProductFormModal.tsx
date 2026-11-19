@@ -176,7 +176,6 @@ function nullableText(value: string) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Les details techniques restent deplies si le produit en porte deja. */
 function hasTechnicalDetails(product: ProductRecord | null) {
   if (!product) return false;
   return Boolean(

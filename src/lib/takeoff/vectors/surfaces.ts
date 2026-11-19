@@ -67,7 +67,6 @@ function roomLabel(text: VectorText, before: string, texts: readonly VectorText[
   const above = texts.filter((other) => other !== text && angleGap(other.angle, text.angle) < 0.02 && !AREA_PATTERN.test(other.str)
     && up(other) > 0.5 * h && up(other) < 3.4 * h
     && along(other) < text.width + h && along(other) + other.width > -h).sort((left, right) => up(right) - up(left));
-  // Keep the lines stacked right above the surface (each within 1.7 heights of the next).
   const kept: VectorText[] = [];
   let bottom = 0;
   for (const line of [...above].reverse()) {
@@ -111,7 +110,6 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
     }
     return best;
   });
-  // The rooms no ring bounds, filled between the walls when the page has some and a measurable scale.
   const fills = walls && denominator !== null && rings.some((ring) => ring === null)
     ? fillRooms({ extraction, model: walls.model, classes: walls.classes, denominator,
       rooms: rooms.map(({ text, printed, anchor }, index) => ({ anchor, printed_m2: printed, height: text.height, fill: rings[index] === null })) })

@@ -48,10 +48,6 @@ export type TargetedReviewFacts = {
   uncertain: boolean;
 } & Record<TargetedReviewFlag, boolean> & Record<TargetedReviewFacet, string | null>;
 
-// ---------------------------------------------------------------------------------------------------------------------
-// Gros montants
-// ---------------------------------------------------------------------------------------------------------------------
-
 /** The share of the priced amount the large lines make at least, in basis points. */
 export const LARGE_AMOUNT_SHARE_BP = 8000;
 
@@ -150,10 +146,6 @@ export function takeoffPricingIndex(context: { unlinked_item_ids: readonly strin
 
 export type TakeoffPricingIndex = ReturnType<typeof takeoffPricingIndex>;
 
-// ---------------------------------------------------------------------------------------------------------------------
-// Réseau ou lot, niveau ou zone, plan et indice
-// ---------------------------------------------------------------------------------------------------------------------
-
 /** A source of the takeoff's preparation, as its snapshot holds it (preparation.ts). */
 export type TargetedReviewSource = {
   document_name: string;
@@ -221,10 +213,6 @@ export function targetedReviewFacts<T extends ApplyGuardItem & ValuedLine & { qu
   }));
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
-// Filtering and counts
-// ---------------------------------------------------------------------------------------------------------------------
-
 type Kind = "view" | TargetedReviewFlag | TargetedReviewFacet;
 
 function viewMatches(line: TargetedReviewFacts, view: TargetedReviewView) {
@@ -290,10 +278,6 @@ export function hasTargetedReviewFilters(filters: TargetedReviewFilters) {
   return filters.view !== "all" || TARGETED_REVIEW_FLAGS.some((flag) => filters[flag])
     || TARGETED_REVIEW_FACETS.some((facet) => filters[facet].length > 0);
 }
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The address
-// ---------------------------------------------------------------------------------------------------------------------
 
 const VALUE_MAX = 512;
 const VALUES_MAX = 50;

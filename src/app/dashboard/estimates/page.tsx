@@ -171,7 +171,6 @@ export default function EstimatesPage() {
   const runWithFeedback = useActionFeedback();
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Read URL params for initial state
   const initialQ = searchParams.get("q") ?? "";
   const initialStatus = parseStatusParam(searchParams.get("status"));
   const initialSort = searchParams.get("sort") ?? "updatedAt";
@@ -209,7 +208,6 @@ export default function EstimatesPage() {
     revalidateOnReconnect: true,
   });
 
-  // Pre-filter by status chips before passing to useTableFilter
   const statusFilteredData = useMemo(() => {
     let data: EstimateListItem[];
     if (selectedStatuses.length === 0) {
@@ -221,7 +219,6 @@ export default function EstimatesPage() {
     return filterByDateRange(data, dateRange);
   }, [rawEstimates, selectedStatuses, dateRange]);
 
-  // Metrics computation
   const metrics = useMemo(() => {
     const now = new Date();
     const nonArchived = rawEstimates.filter((e) => e.status !== "archived");
@@ -299,7 +296,6 @@ export default function EstimatesPage() {
     initialSearchValue: initialQ,
   });
 
-  // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
 
   useEffect(() => {
@@ -326,7 +322,6 @@ export default function EstimatesPage() {
 
   const visibleColumnCount = 5 + (showClientColumn ? 1 : 0) + (showDeviseColumn ? 1 : 0);
 
-  // Reset page to 1 when filters/search/sort change
   const prevSearchRef = useRef(searchValue);
   const prevStatusRef = useRef(selectedStatuses);
   const prevSortRef = useRef(sortState);
@@ -347,7 +342,6 @@ export default function EstimatesPage() {
     }
   }, [searchValue, selectedStatuses, sortState, dateRange]);
 
-  // Sync state to URL
   useEffect(() => {
     const params = new URLSearchParams();
     if (searchValue) params.set("q", searchValue);
@@ -405,7 +399,6 @@ export default function EstimatesPage() {
     setCurrentPage(Math.max(1, Math.min(totalPages, page)));
   };
 
-  // Auto-close <details> dropdowns on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       const target = e.target as HTMLElement;
@@ -471,7 +464,6 @@ export default function EstimatesPage() {
         </div>
       </div>
 
-      {/* Metrics banner */}
       {!isLoading && rawEstimates.length > 0 ? (
         <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <div className="dashboard-card px-4 py-3">
@@ -547,7 +539,6 @@ export default function EstimatesPage() {
       ) : null}
 
       <div className="dashboard-card overflow-hidden">
-        {/* Toolbar */}
         <div className="flex flex-col gap-4 border-b border-[var(--slate-200)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -584,14 +575,12 @@ export default function EstimatesPage() {
             </button>
           </div>
 
-          {/* Status chips */}
           <EstimateStatusChips
             counts={statusCounts}
             selected={selectedStatuses}
             onChange={setSelectedStatuses}
           />
 
-          {/* Search + Sort + Count */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-1 items-center gap-3">
               <div className="w-full max-w-sm">
@@ -648,7 +637,6 @@ export default function EstimatesPage() {
           </div>
         ) : null}
 
-        {/* Desktop table */}
         <div className="hidden md:block">
           <div className="table-scroll">
             <table className="data-table">
@@ -848,7 +836,6 @@ export default function EstimatesPage() {
           </div>
         </div>
 
-        {/* Mobile cards */}
         <div className="md:hidden">
           {isLoading ? (
             <div className="flex flex-col items-center gap-3 py-12">
@@ -964,7 +951,6 @@ export default function EstimatesPage() {
           )}
         </div>
 
-        {/* Pagination */}
         {filteredCount > PAGE_SIZE_OPTIONS[0] ? (
           <div className="flex items-center justify-between border-t border-[var(--slate-200)] px-6 py-4">
             <div className="flex items-center gap-1">

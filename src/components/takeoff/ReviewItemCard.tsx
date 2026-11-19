@@ -11,10 +11,6 @@ import {
 } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type ReviewItemCardProps = {
   item: ReviewItem;
   isReviewed: boolean;
@@ -47,10 +43,6 @@ function getConfidenceBadgeVariant(
   return "danger";
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export function ReviewItemCard({
   item,
   isReviewed,
@@ -67,7 +59,6 @@ export function ReviewItemCard({
     item.confidence !== null ? Math.round(item.confidence * 100) : null;
   const badgeVariant = getConfidenceBadgeVariant(item.confidence);
 
-  // Card style by state
   const cardClass = isMarkedForReview
     ? "border-l-4 border-l-warning bg-warning-subtle"
     : isAccepted
@@ -81,7 +72,6 @@ export function ReviewItemCard({
       aria-label={item.designation || "Item sans désignation"}
       className={`relative overflow-hidden rounded-lg transition-colors duration-200 ${cardClass}`}
     >
-      {/* Confidence bar at top */}
       <div className="h-1 w-full bg-muted" aria-hidden="true">
         <div
           className={`h-full transition-all duration-300 ease-out ${getConfidenceBarClass(item.confidence)}`}
@@ -89,9 +79,7 @@ export function ReviewItemCard({
         />
       </div>
 
-      {/* Content */}
       <div className="p-3 sm:p-4">
-        {/* Header row: designation + confidence */}
         <div className="mb-2 flex items-start gap-2">
           <p
             className={`min-w-0 flex-1 break-words text-sm font-medium text-foreground ${
@@ -107,7 +95,6 @@ export function ReviewItemCard({
           </Badge>
         </div>
 
-        {/* Details row: quantity + unit + source */}
         <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>
             <span className="font-medium text-foreground-secondary">{item.quantity}</span>{" "}
@@ -140,7 +127,6 @@ export function ReviewItemCard({
           </ul>
         ) : null}
 
-        {/* Action buttons */}
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Button
             variant="primary"

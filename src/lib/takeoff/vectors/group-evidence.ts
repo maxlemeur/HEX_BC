@@ -241,7 +241,6 @@ export function readLegendBlocks(model: PageModel, reading: Pick<VectorPageReadi
     box.x0 -= 25 * hh;
     box.y0 -= 5 * hh;
     box.y1 += 1.5 * hh;
-    // The texts of each row inside the block, left to right (a name then its code).
     for (const row of members) {
       row.texts = [...new Set(flat.filter((text) => Math.abs(text.y - text.height / 2 - row.y) <= rule.rowHeights * row.h && text.x >= box.x0 && text.x <= box.x1)
         .sort((first, second) => first.x - second.x).map((text) => text.str.trim()))];
@@ -365,7 +364,6 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
     mode: reading.mode, scale: { status: reading.scale.status, denominator: reading.scale.denominator },
     layers: extraction.layers.filter((layer) => layer.visible).map((layer) => layer.name), classified_colours: {},
   };
-  // Colours of the keyword reading's networks.
   const networkOf = reading.groups.map((group) => (isNetworkClass(group.class) ? group.class : null));
   // A network's colour: a colour group's own, or a layer's when it has a single one (a layer of several holds symbols
   // and fittings in the standard CAD colours other layers use too).
@@ -407,12 +405,10 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
     tally.set(text, (tally.get(text) ?? 0) + 1);
     attached.set(best.group, tally);
   }
-  // Network segments of the keyword reading, for the band hint.
   const networkIds = model.segments.flatMap((_, id) => (networkOf[model.segmentGroup[id]] !== null && !model.segmentNearWhite[id] ? [id] : []));
   // Cells of twice the band's reach: a query meets few network segments (the default 24 pt cells hold hundreds on a dense plan).
   const networkIndex = new SegmentIndex(networkIds.map((id) => model.segments[id]), width, 2 * GROUP_EVIDENCE.band.reachPt);
   const parallel = Math.sin((GROUP_EVIDENCE.band.parallelDeg * Math.PI) / 180);
-  // Each candidate's own visible segments and paths, gathered once.
   const wanted = new Set(candidates.map((candidate) => candidate.group));
   const ownSegments = new Map<number, number[]>(candidates.map((candidate) => [candidate.group, []]));
   model.segments.forEach((_, id) => {
@@ -451,7 +447,6 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
     return { share: total > 0 ? round(bandedTotal / total, 3) : 0, network: lead ? commonNetwork(compatible.map(([network]) => network)) ?? lead[0] : null,
       agreement: bandedTotal > 0 ? round(agreeing / bandedTotal, 3) : null };
   };
-  // Texts within reach of each candidate's strokes (outside the legends).
   const near = new Map<number, Array<{ text: string; distance: number }>>(candidates.map((candidate) => [candidate.group, []]));
   const allIndex = new SegmentIndex(model.segments.map((segment, id) => (wanted.has(model.segmentGroup[id]) && !model.segmentNearWhite[id] ? segment : NONE)), width);
   const reach = GROUP_EVIDENCE.nearTextReachPt;

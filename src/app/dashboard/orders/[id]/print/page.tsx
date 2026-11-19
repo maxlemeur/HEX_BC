@@ -140,7 +140,6 @@ export default async function OrderPrintPage({
   const deliverySiteDb = order.delivery_sites;
   const userProfile = order.profiles;
 
-  // Map database data to component types
   const supplier: SupplierData | null = supplierDb
     ? {
         name: supplierDb.name,

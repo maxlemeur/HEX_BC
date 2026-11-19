@@ -3,10 +3,6 @@ import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 import { isQuantityWarning } from "@/lib/takeoff/quantity-review-policy";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 export const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.5;
 export const MEDIUM_CONFIDENCE_CEILING = 0.8;
 
@@ -51,10 +47,6 @@ export const APPLY_GUARD_REASON_LABELS: Record<ApplyGuardBlockReason, string> = 
   rule_failed: "Règle en échec",
   rules_stale: "Règles à recalculer",
 };
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type GuardBlockedItem = {
   item_id: string;
@@ -119,10 +111,6 @@ export function getTakeoffVerificationReadiness(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Pure guard check
-// ---------------------------------------------------------------------------
-
 export type ApplyGuardItem = Pick<
   TakeoffJobItem,
   | "id"
@@ -167,7 +155,6 @@ export function checkApplyGuard(
     ? (entry) => test(entry, (id) => own.get(id) ?? context.partnerExclusions?.get(id)) : undefined;
 
   for (const item of items) {
-    // Only consider included items
     if (item.is_excluded) continue;
 
     const conf = item.confidence;

@@ -40,10 +40,6 @@ import { targetedReviewLines } from "@/lib/takeoff/targeted-review";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import { exclusionReasonText } from "@/lib/takeoff/comparison-selection";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type TakeoffReviewTableProps = {
   items: ReviewItem[];
   onUpdateItem: (itemId: string, field: string, value: unknown) => void;
@@ -62,10 +58,6 @@ export type AnomalyType =
   | ApplyGuardBlockReason
   | "zero_quantity"
   | "empty_designation";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const EDITABLE_COLUMNS = ["designation", "quantity", "unit"] as const;
 
@@ -96,10 +88,6 @@ function compareConfidence(
 function getCategory(item: ReviewItem): string | null {
   return typeof item.metadata.category === "string" ? item.metadata.category : null;
 }
-
-// ---------------------------------------------------------------------------
-// Anomaly detection (exported for reuse)
-// ---------------------------------------------------------------------------
 
 /** What the apply guard blocks each line on, by line id; a line it lets through has no entry. */
 export type ReviewBlockReasons = ReadonlyMap<string, readonly ApplyGuardBlockReason[]>;
@@ -191,10 +179,6 @@ function matchesFilters(item: ReviewItem, filters: ReviewTableFilters, anomalyCo
       return true;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Cells
-// ---------------------------------------------------------------------------
 
 function ConfidenceBadge({ confidence, reasons = [] }: { confidence: number | null; reasons?: string[] }) {
   const level = quantityConfidence(confidence, reasons);
@@ -349,10 +333,6 @@ function SortableHeader({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main component (controlled)
-// ---------------------------------------------------------------------------
-
 export default function TakeoffReviewTable({
   items,
   onUpdateItem,
@@ -361,7 +341,6 @@ export default function TakeoffReviewTable({
   onOpenEvidencePanel,
   anomalyContext = NO_ANOMALY_CONTEXT,
 }: TakeoffReviewTableProps) {
-  // ---- Filter/sort state
   const [filters, setFilters] = useState<ReviewTableFilters>(DEFAULT_REVIEW_TABLE_FILTERS);
   const [sortField, setSortField] = useState<SortField>("confidence");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -369,10 +348,8 @@ export default function TakeoffReviewTable({
     setFilters((current) => ({ ...current, ...patch }));
   }, []);
 
-  // ---- Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // ---- Filter options
   const allCategories = useMemo(() => {
     const cats = new Set<string>();
     for (const item of items) {
@@ -399,7 +376,6 @@ export default function TakeoffReviewTable({
     return Array.from(indices).sort((a, b) => a - b);
   }, [items]);
 
-  // ---- Filter + sort
   const filteredItems = useMemo(() => {
     const result = items.filter((item) => matchesFilters(item, filters, anomalyContext));
     return result.sort((a, b) => {
@@ -418,7 +394,6 @@ export default function TakeoffReviewTable({
     });
   }, [items, filters, anomalyContext, sortField, sortDirection]);
 
-  // ---- Spreadsheet navigation
   const navigationRows: SpreadsheetNavigationRow[] = useMemo(
     () =>
       filteredItems.map((item) => ({
@@ -433,7 +408,6 @@ export default function TakeoffReviewTable({
     disabled: false,
   });
 
-  // ---- Selection
   const toggleSelection = useCallback((itemId: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -463,7 +437,6 @@ export default function TakeoffReviewTable({
     setSelectedIds(new Set());
   }, []);
 
-  // ---- Exclusion actions
   const handleExcludeSelected = useCallback(() => {
     const ids = Array.from(selectedIds).filter((id) => {
       const item = items.find((i) => i.id === id);
@@ -484,7 +457,6 @@ export default function TakeoffReviewTable({
     clearSelection();
   }, [selectedIds, items, onIncludeItems, clearSelection]);
 
-  // ---- Sort
   const handleSortChange = useCallback(
     (field: SortField) => {
       if (field === sortField) {
@@ -566,14 +538,12 @@ export default function TakeoffReviewTable({
         totalCount={items.length}
       />
 
-      {/* ---- Keyboard shortcuts hint ---- */}
       <p className="text-xs text-muted-foreground">
         Raccourcis : <kbd className="rounded border border-border px-1">E</kbd> exclure/inclure,{" "}
         <kbd className="rounded border border-border px-1">V</kbd> vérifier,{" "}
         <kbd className="rounded border border-border px-1">P</kbd> preuve
       </p>
 
-      {/* ---- Bulk actions bar ---- */}
       {selectedCount > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-info-border bg-info-subtle px-4 py-2 text-sm">
           <span className="font-medium text-foreground">
@@ -591,7 +561,6 @@ export default function TakeoffReviewTable({
         </div>
       )}
 
-      {/* ---- Table ---- */}
       <div
         className="relative overflow-x-auto rounded-lg border border-border"
         role="region"
@@ -647,7 +616,6 @@ export default function TakeoffReviewTable({
 
                 return (
                   <tr key={item.id} className={rowClassName}>
-                    {/* Checkbox */}
                     <td className="text-center">
                       <input
                         type="checkbox"
@@ -727,7 +695,6 @@ export default function TakeoffReviewTable({
                       />
                     </td>
 
-                    {/* Confidence */}
                     <td>
                       {onOpenEvidencePanel ? (
                         <ClickableConfidenceBadge
@@ -741,17 +708,14 @@ export default function TakeoffReviewTable({
                       )}
                     </td>
 
-                    {/* Anomalies */}
                     <td>
                       <AnomalyDetails anomalies={anomalies} designation={item.designation} />
                     </td>
 
-                    {/* Category */}
                     <td>
                       <CategoryTag category={getCategory(item)} />
                     </td>
 
-                    {/* Source */}
                     <td>
                       <SourceReference
                         sourceFileName={item.source_file_name}
@@ -759,7 +723,6 @@ export default function TakeoffReviewTable({
                       />
                     </td>
 
-                    {/* Status badges */}
                     <td>
                       <div className="flex flex-wrap gap-1">
                         {isExcluded ? (
@@ -784,7 +747,6 @@ export default function TakeoffReviewTable({
                       ) : null}
                     </td>
 
-                    {/* Actions */}
                     <td>
                       {isExcluded ? (
                         <Button

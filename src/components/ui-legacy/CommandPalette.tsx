@@ -14,10 +14,6 @@ import { ChevronRightIcon, ClockIcon, CornerDownLeftIcon, SearchIcon, XIcon, Zap
 
 const LISTBOX_ID = "command-palette-list";
 
-// ---------------------------------------------------------------------------
-// Group icon per type
-// ---------------------------------------------------------------------------
-
 function GroupIcon({ group }: { group: CommandGroup["key"] }) {
   const className = "size-3.5 shrink-0 opacity-60";
   if (group === "recent") return <ClockIcon aria-hidden="true" className={className} />;
@@ -32,10 +28,6 @@ function KeyHint({ children }: { children: React.ReactNode }) {
     </kbd>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
 
 /**
  * Global quick search (Ctrl/⌘ K) on the house dialog: focus trap, Escape and focus return
@@ -65,7 +57,6 @@ export function CommandPalette() {
     if (open) executedRef.current = false;
   }, [open]);
 
-  // Scroll selected item into view
   useEffect(() => {
     if (!open || flatItems.length === 0) return;
     const item = listRef.current?.querySelector(
@@ -107,7 +98,6 @@ export function CommandPalette() {
       >
         <DialogTitle className="sr-only">Recherche rapide</DialogTitle>
 
-        {/* Search input */}
         <div className="flex items-center gap-3 border-b border-border py-2 pr-2 pl-4">
           <SearchIcon aria-hidden="true" className="size-4.5 shrink-0 text-muted-foreground" />
           <input
@@ -134,7 +124,6 @@ export function CommandPalette() {
           </DialogClose>
         </div>
 
-        {/* Results */}
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
           {groups.length === 0 ? (
             <p role="status" className="px-3 py-8 text-center text-sm text-muted-foreground">
@@ -194,7 +183,6 @@ export function CommandPalette() {
           </div>
         </div>
 
-        {/* Footer hints */}
         <div
           aria-hidden="true"
           className="flex items-center gap-4 border-t border-border px-4 py-2 text-micro text-muted-foreground"

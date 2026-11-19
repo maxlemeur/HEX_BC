@@ -604,7 +604,6 @@ function extractSampleValues(
       }
 
       if (samples.size < maxSamples) {
-        // Truncate long values for display
         samples.add(text.length > 40 ? text.slice(0, 37) + "..." : text);
       }
     }

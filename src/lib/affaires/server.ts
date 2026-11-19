@@ -2232,15 +2232,10 @@ export async function fetchAffaireHubCoreData(
   return fetchAffaireHubCoreDataWithContext(context, project, safePage);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Margin Analysis                                                     */
-/* ------------------------------------------------------------------ */
-
 async function fetchAffaireHubMarginAnalysisWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
 ): Promise<AffaireHubMarginCardData> {
-  // 1. Fetch all versions
   const { data: versionsData, error: versionsError } = await readAllRows(() => context.supabase
     .from("estimate_versions")
     .select(
@@ -2258,10 +2253,8 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const versions = (versionsData ?? []) as MarginAnalysisVersionRow[];
   if (versions.length === 0) return null;
 
-  // 2. Current version = highest version_number
   const currentVersion = versions[versions.length - 1];
 
-  // 3. Fetch all items for current version
   const { data: itemsData, error: itemsError } = await readAllRows(() => context.supabase
     .from("estimate_items")
     .select(MARGIN_ANALYSIS_ITEM_COLUMNS, { count: "exact" })
@@ -2275,10 +2268,8 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const items = (itemsData ?? []) as MarginAnalysisItem[];
   if (items.length === 0) return marginEvolutionV3Notice([currentVersion]);
 
-  // 4. Fetch labor roles for rate lookup
   const laborRateById = await readMarginLaborRates(context, items);
 
-  // 5. Identify root sections
   const rootSections = items.filter(
     (item) => item.item_type === "section" && item.parent_id === null
   );
@@ -2419,7 +2410,6 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const globalMarginPercent =
     globalCostCents > 0 ? ((globalSaleCents - globalCostCents) / globalCostCents) * 100 : 0;
 
-  // 8. Build sections array
   const sections: MarginSectionBreakdown[] = rootSections
     .sort((a, b) => a.position - b.position)
     .map((section) => {
@@ -2442,7 +2432,6 @@ async function fetchAffaireHubMarginAnalysisWithContext(
       };
     });
 
-  // 9. Build version evolution
   const versionEvolution = buildMarginVersionEvolution(versions, v3Totals);
 
   return {

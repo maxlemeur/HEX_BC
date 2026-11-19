@@ -2,8 +2,6 @@ import { z } from "zod";
 
 import { uuidParamSchema as id } from "@/lib/http/request";
 
-/** What the material request routes share: identifiers of the URL. */
-
 export const projectParamsSchema = z.object({ projectId: id("projectId") });
 export const requestParamsSchema = projectParamsSchema.extend({ requestId: id("requestId") });
 export const lineParamsSchema = requestParamsSchema.extend({ lineId: id("lineId") });

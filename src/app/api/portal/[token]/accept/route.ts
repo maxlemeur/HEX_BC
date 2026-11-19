@@ -58,7 +58,6 @@ export async function POST(
       );
     }
 
-    // Validate accepted_terms
     if (body.accepted_terms !== true) {
       return NextResponse.json(
         { error: "Vous devez accepter les conditions." },
@@ -66,7 +65,6 @@ export async function POST(
       );
     }
 
-    // Validate signature if provided
     if (body.signature_base64 !== undefined) {
       if (
         typeof body.signature_base64 !== "string" ||
@@ -94,7 +92,6 @@ export async function POST(
     const offer = await loadPortalOffer({ supabase, token, capability: portalToken }).catch(() => null);
     if (!offer) return NextResponse.json({ error: "La copie du devis ne peut pas être vérifiée." }, { status: 409 });
 
-    // 2. Capture client IP
     const clientIp = resolveClientIp(request);
 
     // 3. Atomically claim both the capability and its parent estimate version.
@@ -147,7 +144,6 @@ export async function POST(
       } else {
         signatureUrl = storagePath;
 
-        // Patch the token with the signature URL
         await supabase
           .from("portal_tokens")
           .update({ signature_url: signatureUrl })
@@ -190,7 +186,6 @@ export async function POST(
               }),
             });
 
-          // Log email with accurate status
           const emailStatus = emailSendError ? "failed" : "sent";
           const { error: logError } = await supabase.from("estimate_emails").insert({
             tenant_id: portalToken.tenant_id,

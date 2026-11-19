@@ -522,10 +522,6 @@ export function AffairesDenseTable({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Expanded content — 3 column grid                                   */
-/* ------------------------------------------------------------------ */
-
 const QUICK_LINK_CLASS =
   "flex min-h-9 items-center gap-2 rounded-sm text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -546,7 +542,6 @@ function ExpandedContent({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {/* Column 1 — Résumé financier */}
       <div className="space-y-1.5 text-sm">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Résumé financier
@@ -593,7 +588,6 @@ function ExpandedContent({
         )}
       </div>
 
-      {/* Column 2 — Source DPGF */}
       <div className="space-y-1.5 text-sm">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Source DPGF
@@ -636,7 +630,6 @@ function ExpandedContent({
         )}
       </div>
 
-      {/* Column 3 — Actions rapides */}
       <div className="space-y-1 text-sm">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Actions rapides

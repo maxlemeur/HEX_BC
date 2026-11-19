@@ -218,7 +218,6 @@ function ordersStep(input: RequestStepsInput): { state: RequestStepState; status
   return { state: "upcoming", status: "Aucune ligne prête", next: null };
 }
 
-/** The three steps of a request with their state, and the one thing to do now. */
 export function requestSteps(input: RequestStepsInput): RequestSteps {
   const linesPart = linesStep(input);
   const quotesPart = quotesStep(input, linesPart.state === "done");

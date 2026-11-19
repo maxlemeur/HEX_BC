@@ -83,8 +83,6 @@ function toFrenchAuthError(message: string): string {
   return message;
 }
 
-/* ─── Feature bullets ─── */
-
 const features = [
   {
     Icon: ReceiptIcon,
@@ -99,8 +97,6 @@ const features = [
     text: "Export Excel multi-feuilles, PDF et suivi en temps réel",
   },
 ];
-
-/* ─── Component ─── */
 
 export default function LoginPage() {
   const router = useRouter();
@@ -139,14 +135,12 @@ export default function LoginPage() {
   return (
     <MotionConfig reducedMotion="user">
       <main className="flex min-h-screen flex-col lg:flex-row">
-        {/* ───────── LEFT PANEL — Brand ───────── */}
         <motion.div
           variants={brandPanelVariants}
           initial="hidden"
           animate="visible"
           className="relative flex w-full flex-col justify-center overflow-hidden bg-gradient-to-br from-brand-blue to-brand-blue-dark px-6 py-10 text-white sm:px-12 sm:py-12 lg:min-h-screen lg:w-[45%] lg:px-16 lg:py-20"
         >
-          {/* Animated pipe network background */}
           <LoginPipeNetwork />
 
           {/* Dark scrim — improves text legibility over pipes */}
@@ -155,7 +149,6 @@ export default function LoginPage() {
             className="absolute inset-0 z-[1] bg-gradient-to-r from-brand-blue-dark/85 via-brand-blue-dark/60 to-brand-blue-dark/30"
           />
 
-          {/* Brand content */}
           <motion.div
             variants={brandContentVariants}
             initial="hidden"
@@ -171,7 +164,6 @@ export default function LoginPage() {
               <TimaxWordmark />
             </motion.p>
 
-            {/* Tagline */}
             <motion.p
               variants={brandItemVariants}
               className="mt-3 text-sm font-medium text-white/85 sm:text-base lg:text-lg"
@@ -179,14 +171,12 @@ export default function LoginPage() {
               Chiffrage BTP : affaires, métrés, devis et bons de commande
             </motion.p>
 
-            {/* Separator */}
             <motion.div
               variants={brandItemVariants}
               aria-hidden="true"
               className="mt-6 h-1 w-16 rounded-full bg-gradient-to-r from-brand-orange-light to-brand-orange-light/40 lg:mt-8 lg:w-20"
             />
 
-            {/* Feature bullets — hidden on tablet, shown on desktop */}
             <ul className="mt-8 hidden space-y-4 lg:block">
               {features.map(({ Icon, text }) => (
                 <motion.li
@@ -204,7 +194,6 @@ export default function LoginPage() {
           </motion.div>
         </motion.div>
 
-        {/* ───────── RIGHT PANEL — Form ───────── */}
         {/*
           Sans animation JS : le formulaire est visible et utilisable dès le HTML
           serveur, avant l'hydratation (le fondu est en CSS).
@@ -218,7 +207,6 @@ export default function LoginPage() {
             method="post"
             onSubmit={onSubmit}
           >
-            {/* Heading */}
             <div>
               <h1 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                 Connexion
@@ -228,7 +216,6 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {/* Email */}
             <div className="space-y-2">
               <Label htmlFor="email" className="font-semibold text-foreground-secondary">
                 Email
@@ -248,7 +235,6 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Password */}
             <div className="space-y-2">
               <Label htmlFor="password" className="font-semibold text-foreground-secondary">
                 Mot de passe
@@ -281,7 +267,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Error */}
             <AnimatePresence mode="wait">
               {error ? (
                 <motion.p
@@ -298,12 +283,10 @@ export default function LoginPage() {
               ) : null}
             </AnimatePresence>
 
-            {/* Submit */}
             <Button size="xl" className="w-full" loading={loading} type="submit">
               Se connecter
             </Button>
 
-            {/* Signup link */}
             <p className="text-center text-sm text-muted-foreground">
               Pas de compte ?{" "}
               <Link

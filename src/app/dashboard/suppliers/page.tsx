@@ -50,7 +50,6 @@ type SuppliersResponse = {
   access?: { user_id: string; can_add: boolean; can_edit_shared: boolean };
 };
 
-// Sort options
 const SUPPLIERS_SORT_OPTIONS: SortOption[] = [
   { key: "name", label: "Nom", defaultDirection: "asc" },
   { key: "city", label: "Ville" },
@@ -92,7 +91,6 @@ const SHARED_BASE_NOTE = "Base commune";
 
 export default function SuppliersPage() {
   const confirm = useConfirm();
-  // Form state
   const [formState, setFormState] = useState<SupplierFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -101,7 +99,6 @@ export default function SuppliersPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const nameFieldRef = useRef<HTMLInputElement | null>(null);
 
-  // Filtered suppliers state
   const [displayedSuppliers, setDisplayedSuppliers] = useState<Supplier[]>([]);
 
   const fetchSuppliers = useCallback(async () => {
@@ -445,7 +442,6 @@ export default function SuppliersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Filter Bar */}
       <TableFilterBar
         data={suppliers}
         onDataChange={setDisplayedSuppliers}

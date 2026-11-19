@@ -120,7 +120,6 @@ export function PlanFileUploadZone({
       async function uploadOne(entry: UploadFileEntry) {
         let registeredFileId: string | null = null;
 
-        // Step 1: register metadata
         updateEntry(entry.id, { status: "registering", progress: 0 });
         try {
           const response = await registerPlanFile(setId, {
@@ -130,7 +129,6 @@ export function PlanFileUploadZone({
           });
           registeredFileId = response.plan_file.id;
 
-          // Step 2: upload binary to signed URL
           updateEntry(entry.id, { status: "uploading" });
           await uploadFileToSignedUrl(
             entry.file,
@@ -266,7 +264,6 @@ export function PlanFileUploadZone({
 
   return (
     <div>
-      {/* Hidden file input */}
       <input
         id={inputId}
         ref={inputRef}
@@ -339,7 +336,6 @@ export function PlanFileUploadZone({
         <span className="sr-only">Zone de dépôt PDF</span>
       </div>
 
-      {/* Upload entries */}
       {entries.length > 0 && (
         <div className="mt-3 space-y-2">
           {entries.map((entry) => (
@@ -430,7 +426,6 @@ export function PlanFileUploadZone({
         </div>
       )}
 
-      {/* Live announcements */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>

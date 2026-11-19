@@ -211,7 +211,6 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     [mapping, sourceColumns]
   );
 
-  // Compute whether the mapping is valid (required fields mapped, no duplicate targets)
   const isMappingValid = useMemo(() => {
     const mappedValues = Object.values(visibleMapping);
     if (mappedValues.length === 0) return false;
@@ -220,7 +219,6 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     const mappedTargets = new Set(mappedValues);
     const hasAllRequired = requiredFields.every((r) => mappedTargets.has(r));
 
-    // Check for duplicate targets
     const targetCounts = new Map<string, number>();
     for (const target of mappedValues) {
       targetCounts.set(target, (targetCounts.get(target) ?? 0) + 1);

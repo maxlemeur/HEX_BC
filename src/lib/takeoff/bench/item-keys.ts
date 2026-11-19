@@ -343,7 +343,6 @@ function roomCandidates(field: string): string[][] {
   return ranks.map((texts) => texts.map((text) => text.replace(PRINTED_AREA, " ").trim()).filter((text) => text.length > 0));
 }
 
-/** The labels the candidates resemble most, at or above ROOM_MIN_SIMILARITY. */
 function closestRooms(candidates: readonly string[], labels: readonly string[]) {
   let best = ROOM_MIN_SIMILARITY;
   let found = new Set<string>();

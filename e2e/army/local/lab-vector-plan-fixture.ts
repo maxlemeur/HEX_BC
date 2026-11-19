@@ -38,7 +38,6 @@ export async function buildLabVectorPlanPdf() {
   const text = (str: string, x: number, y: number, size: number) => `0 g BT /F1 ${size} Tf ${x.toFixed(3)} ${y.toFixed(3)} Td (${str}) Tj ET`;
   const end = (entry: { x: number; sheet_mm: number }) => (entry.x + entry.sheet_mm * POINTS_PER_MM).toFixed(3);
   const content = [
-    // The dimension line, its two ticks across its ends, and its value centred 3 pt above it.
     "/OC /oc0 BDC", "0 G 0.5 w", `${cote.x} ${cote.y} m ${end(cote)} ${cote.y} l S`,
     `${cote.x} ${cote.y - 6} m ${cote.x} ${cote.y + 6} l S`, `${end(cote)} ${cote.y - 6} m ${end(cote)} ${cote.y + 6} l S`,
     text(cote.label, cote.x + (cote.sheet_mm * POINTS_PER_MM) / 2 - 10, cote.y + 3, 10), "EMC",

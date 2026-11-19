@@ -2,10 +2,6 @@ import { cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
@@ -38,10 +34,6 @@ vi.mock("@/components/portal/SignaturePad", () => ({
 
 import { AcceptEstimateModal } from "./AcceptEstimateModal";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function renderModal(
   props: Partial<Parameters<typeof AcceptEstimateModal>[0]> = {}
 ) {
@@ -58,10 +50,6 @@ function renderModal(
   const result = render(<AcceptEstimateModal {...defaultProps} />);
   return { ...result, props: defaultProps };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("AcceptEstimateModal", () => {
   beforeEach(() => {
@@ -84,13 +72,10 @@ describe("AcceptEstimateModal", () => {
 
     renderModal();
 
-    // Sign via stub
     await user.click(screen.getByText("Fake sign"));
 
-    // Check terms
     await user.click(screen.getByLabelText(/accepte ce devis/i));
 
-    // Submit
     await user.click(screen.getByRole("button", { name: /Confirmer/i }));
 
     await waitFor(() => {
@@ -114,11 +99,9 @@ describe("AcceptEstimateModal", () => {
 
     renderModal();
 
-    // Sign, then clear
     await user.click(screen.getByText("Fake sign"));
     await user.click(screen.getByText("Fake clear"));
 
-    // Check terms & submit
     await user.click(screen.getByLabelText(/accepte ce devis/i));
     await user.click(screen.getByRole("button", { name: /Confirmer/i }));
 

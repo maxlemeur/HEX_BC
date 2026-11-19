@@ -59,7 +59,3 @@ describe("Fixture I - arrondi médian bankersRound vs Math.round (§2.5) [surfac
     expect(lineCostResidu.saleLineCents).toBe(25);
   });
 });
-
-/* ---------------------------------------------------------------------------
- * Fixture J - contrat moteur v1/v2 et replay immuable du snapshot v2
- * ------------------------------------------------------------------------- */

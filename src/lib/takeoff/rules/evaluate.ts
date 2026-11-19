@@ -208,9 +208,6 @@ function resolvedLabel(size: ResolvedSize) {
 
 const COUNT_WORDS: Record<number, string> = { 2: "deux", 3: "trois", 4: "quatre" };
 
-// ---------------------------------------------------------------------------
-// Line rules
-
 function dnNetwork(inputs: TakeoffRuleInputs): TakeoffRuleResult | null {
   if (inputs.kind !== "network") return null;
   if (inputs.material !== null && WRAPPING_MATERIALS.includes(inputs.material)) return null;
@@ -364,9 +361,6 @@ function closedBox(line: RuleLine, inputs: TakeoffRuleInputs): TakeoffRuleResult
   }
   return result("closed_box", "pass", "CLOSED_BOX_NONE", "Le contour n’est ni une baignoire, ni un placard, ni une gaine.");
 }
-
-// ---------------------------------------------------------------------------
-// Rules across lines
 
 function roomOverlaps(lines: readonly RuleLine[], results: Map<string, TakeoffRuleResult[]>) {
   type Floor = { line: RuleLine; points: Array<[number, number]>; holes: Array<Array<[number, number]>>; area: number };

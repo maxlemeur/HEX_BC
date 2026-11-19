@@ -573,7 +573,6 @@ function parseRlsMatrixReport(output: string) {
     try {
       return JSON.parse(trimmedLine) as RlsMatrixReport;
     } catch {
-      // Continue until the final valid JSON reporter line is found.
     }
   }
   throw new Error("Local RLS matrix returned invalid JSON");

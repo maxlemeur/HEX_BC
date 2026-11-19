@@ -85,7 +85,6 @@ export type DiameterEntry = {
   aliases: readonly string[];
 };
 
-/** One entry's identity: its family and outer diameter. */
 export function entryId(entry: DiameterEntry) {
   return `${entry.family}:${entry.od_mm}`;
 }
@@ -213,7 +212,6 @@ function printsOuterDiameter(entry: DiameterEntry, printed: number) {
   return sameSize(entry.od_mm, printed);
 }
 
-/** A DN label and the entries it resolved to. */
 export type DiameterLabel = { printed: string; entries: readonly DiameterEntry[] };
 
 /** Sizes a label names: the size it prints, and the one nominal DN and the one outer diameter its entries agree on. */

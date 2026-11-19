@@ -30,10 +30,6 @@ import { ArrowRightIcon, FileIcon, InfoIcon, SquarePenIcon, XIcon } from "lucide
 
 import "./BriefDraftCard.css";
 
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
 type BriefDraftCardProps = {
   projectId: string;
   briefDraft: AffaireIntakeBriefDraft | null;
@@ -45,10 +41,6 @@ type BriefDraftCardProps = {
 };
 
 type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
-
-/* ------------------------------------------------------------------ */
-/*  Constants                                                          */
-/* ------------------------------------------------------------------ */
 
 const EDITABLE_BLOCKS = new Set<AffaireIntakeBriefBlockKey>([
   "summary",
@@ -77,10 +69,6 @@ const PROVENANCE_LABELS: Partial<Record<AffaireIntakeBriefBlockKey, { label: str
   vigilance_points: { label: "Vigilance", variant: "warning" },
   missing_elements: { label: "Manquant", variant: "danger" },
 };
-
-/* ------------------------------------------------------------------ */
-/*  Source lookup                                                       */
-/* ------------------------------------------------------------------ */
 
 function buildSourceLookup(sources: AffaireIntakeBriefSource[]) {
   const map = new Map<string, AffaireIntakeBriefSource[]>();
@@ -135,20 +123,12 @@ function hasEditableBriefChanges(
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  BriefStatusBadge                                                   */
-/* ------------------------------------------------------------------ */
-
 function BriefStatusBadge({ status }: { status: "a_confirmer" | "confirme" }) {
   if (status === "confirme") {
     return <Badge variant="success">Confirmé</Badge>;
   }
   return <Badge variant="warning">À confirmer</Badge>;
 }
-
-/* ------------------------------------------------------------------ */
-/*  BriefEditableList                                                  */
-/* ------------------------------------------------------------------ */
 
 function BriefEditableList({
   items,
@@ -219,10 +199,6 @@ function BriefEditableList({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  BriefBlockSection                                                  */
-/* ------------------------------------------------------------------ */
-
 function BriefBlockSection({
   projectId,
   blockKey,
@@ -271,7 +247,6 @@ function BriefBlockSection({
         )}
       </div>
 
-      {/* Editing mode for paragraph (summary) */}
       {isEditing && isEditable && editParagraph !== undefined && onEditParagraphChange ? (
         <div>
           <textarea
@@ -286,10 +261,8 @@ function BriefBlockSection({
           </p>
         </div>
       ) : isEditing && isEditable && editItems !== undefined && onEditItemsChange ? (
-        /* Editing mode for lists */
         <BriefEditableList items={editItems} onChange={onEditItemsChange} maxItems={MAX_LIST_ITEMS} label={label} />
       ) : paragraph !== undefined ? (
-        /* Read-only paragraph */
         <>
           <p className="text-sm text-foreground-secondary">{paragraph}</p>
           <BriefSourceAnnotation
@@ -298,7 +271,6 @@ function BriefBlockSection({
           />
         </>
       ) : items && items.length > 0 ? (
-        /* Read-only list */
         <ul className="space-y-1">
           {items.map((item, i) => {
             const entrySources = sourceLookup.get(`${blockKey}:${i}`) ?? [];
@@ -334,10 +306,6 @@ function BriefBlockSection({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  BriefDraftCard (exported)                                          */
-/* ------------------------------------------------------------------ */
-
 export function BriefDraftCard({
   projectId,
   briefDraft,
@@ -361,7 +329,6 @@ export function BriefDraftCard({
     if (isEditing) sectionRef.current?.querySelector("textarea")?.focus();
   }, [isEditing]);
 
-  // Edit state
   const [editSummary, setEditSummary] = useState("");
   const [editScope, setEditScope] = useState<string[]>([]);
   const [editVigilancePoints, setEditVigilancePoints] = useState<string[]>([]);
@@ -576,7 +543,6 @@ export function BriefDraftCard({
           <span>Une modification nécessitera une nouvelle confirmation.</span>
         </div>
       )}
-      {/* Empty state */}
       {!briefDraft && (
         <div className="mt-4">
           <EmptyState
@@ -588,7 +554,6 @@ export function BriefDraftCard({
         </div>
       )}
 
-      {/* Content blocks */}
       {briefDraft && !isEditing ? (
         <BriefReviewPanel projectId={projectId} briefDraft={briefDraft} sourceLookup={sourceLookup}
           hasPlans={hasPlans} onOpenDocuments={onOpenDocuments}
@@ -617,7 +582,6 @@ export function BriefDraftCard({
         </div>
       )}
 
-      {/* Edit footer */}
       {isEditing && (
         <div className="brief-review-footer brief-edit-footer">
           {isConfirmedBrief && (
@@ -653,7 +617,6 @@ export function BriefDraftCard({
         confirmLabel="Oui, confirmer" confirmDisabled={isPending} cancelDisabled={isPending}
         onConfirm={() => { setShowConfirmDialog(false); handleConfirm(); }} onCancel={() => setShowConfirmDialog(false)} />
 
-      {/* Inline error */}
       {error && (
         <p className="mt-2 text-xs font-medium text-danger" role="alert">{error}</p>
       )}

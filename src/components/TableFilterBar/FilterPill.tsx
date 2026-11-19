@@ -19,7 +19,6 @@ export function FilterPill({ config, value, onChange, onClear }: FilterPillProps
   const selectedValues = isMultiSelect ? (value as string[]) : value ? [value as string] : [];
   const hasSelection = selectedValues.length > 0;
 
-  // Get display label
   const getDisplayLabel = () => {
     if (!hasSelection) return config.label;
     if (isMultiSelect && selectedValues.length > 1) {
@@ -29,7 +28,6 @@ export function FilterPill({ config, value, onChange, onClear }: FilterPillProps
     return selected?.label ?? config.label;
   };
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
@@ -43,7 +41,6 @@ export function FilterPill({ config, value, onChange, onClear }: FilterPillProps
     }
   }, [isOpen]);
 
-  // Close dropdown on Escape
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);

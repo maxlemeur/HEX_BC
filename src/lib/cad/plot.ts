@@ -112,7 +112,6 @@ export async function plotCadDrawing(drawing: CadDrawing, options: CadPlotOption
     return out;
   };
 
-  // What is plotted, layer by layer, and the box it fills in drawing units.
   const box: Box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
   const grow = (x: number, y: number) => {
     if (x < box.x0) box.x0 = x;
@@ -188,7 +187,6 @@ export async function plotCadDrawing(drawing: CadDrawing, options: CadPlotOption
   }
   const mmPerUnit = (metresPerUnit * 1000) / denominator, scale = mmPerUnit / MM_PER_POINT;
   const sheet = sheetFor(box, mmPerUnit);
-  // The drawing sits in the middle of what the margins and the cartouche leave.
   const left = (sheet[0] - (box.x1 - box.x0) * mmPerUnit) / 2 / MM_PER_POINT;
   const bottom = (MARGIN_MM + CARTOUCHE_MM + (sheet[1] - 2 * MARGIN_MM - CARTOUCHE_MM - (box.y1 - box.y0) * mmPerUnit) / 2) / MM_PER_POINT;
   const px = (x: number) => fixed((x - box.x0) * scale + left), py = (y: number) => fixed((y - box.y0) * scale + bottom);

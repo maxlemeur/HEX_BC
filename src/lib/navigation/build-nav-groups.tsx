@@ -3,10 +3,6 @@ import type { ReactNode } from "react";
 import type { UiMode } from "@/lib/ui-mode";
 import { AsteriskIcon, BuildingIcon, ChartLineIcon, DatabaseIcon, FileTextIcon, FolderIcon, HouseIcon, LayersIcon, SettingsIcon, SquareCheckBigIcon } from "lucide-react";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type NavItem = {
   href: string;
   label: string;
@@ -28,10 +24,6 @@ export type BuildNavGroupsInput = {
   uiMode: UiMode;
   featureFlags: { takeoffEnabled: boolean };
 };
-
-// ---------------------------------------------------------------------------
-// Nav item constants
-// ---------------------------------------------------------------------------
 
 const HOME_ITEM: NavItem = {
   href: "/dashboard",
@@ -115,10 +107,6 @@ const ADMIN_ITEM: NavItem = {
     <SettingsIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
 };
-
-// ---------------------------------------------------------------------------
-// Builder
-// ---------------------------------------------------------------------------
 
 export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
   const { role, uiMode, featureFlags } = input;

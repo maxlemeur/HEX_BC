@@ -146,7 +146,6 @@ async function clickFirstVisible(locators: Locator[], timeoutMs = 2500): Promise
       await first.click();
       return true;
     } catch {
-      // Try the next locator.
     }
   }
 
@@ -165,7 +164,6 @@ async function fillFirstVisible(
       await first.fill(value);
       return true;
     } catch {
-      // Try the next locator.
     }
   }
 

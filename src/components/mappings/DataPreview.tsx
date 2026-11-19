@@ -82,7 +82,6 @@ export function DataPreview({
             </p>
           </div>
 
-          {/* Preview limit selector — integrated into header */}
           {previewLimit !== undefined && onPreviewLimitChange ? (
             <div className="flex items-center gap-2">
               <label className="text-xs text-muted-foreground" htmlFor="preview-limit">

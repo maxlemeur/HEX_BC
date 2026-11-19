@@ -197,7 +197,6 @@ function zones(overrides: { z1?: Partial<RuleLine>; z2?: Partial<RuleLine>; z2An
   return evaluateTakeoffRules({ pages, lines });
 }
 
-/** Every order of `items`. */
 function permutations(items: number[]): number[][] {
   return items.length <= 1 ? [items]
     : items.flatMap((item, index) => permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest]));

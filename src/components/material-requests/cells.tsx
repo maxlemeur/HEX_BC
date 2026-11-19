@@ -26,7 +26,6 @@ function cellTone(alerts: CellAlerts): CellTone {
   return alerts.length > 0 ? "notice" : null;
 }
 
-/** Background of a table cell named by an alert: full yellow when it blocks, pale when it is a remark. */
 export function alertCellClass(alerts: CellAlerts): string {
   const tone = cellTone(alerts);
   if (tone === "blocking") return "bg-warning-light";

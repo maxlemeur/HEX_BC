@@ -616,8 +616,6 @@ export async function patchTakeoffItems(
   return validateTakeoffResponse(jobId, () => parseTakeoffItemBatchPatchResponse(response, request.items.map((item) => item.item_id)));
 }
 
-/* ─── Plan Center API ─── */
-
 export async function fetchPlanSetsForProject(
   projectId: string,
   options?: { defaultImportOnly?: boolean }
@@ -708,8 +706,6 @@ export async function deletePlanFile(
     "Impossible de supprimer le fichier de plan."
   );
 }
-
-/* ─── DPGF Comparison API ─── */
 
 function validateTakeoffResponse<T>(jobId: string | undefined, parse: () => T): T {
   try {
@@ -1080,8 +1076,6 @@ export function uploadFileToSignedUrl(
     }
   });
 }
-
-/* ─── Activity Center API (V3-007) ─── */
 
 export async function fetchTakeoffActivityCenter(
   projectId: string,

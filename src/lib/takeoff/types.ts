@@ -407,8 +407,6 @@ export type TakeoffJobAttemptOutcome = {
   correlation_id: string;
 };
 
-/* ─── Plan Center types ─── */
-
 export type PlanSetListItem = {
   id: string;
   created_at: string;
@@ -514,8 +512,6 @@ export type {
   TakeoffRuleForcingMetrics,
   TakeoffRuleForcingRow,
 } from "@/lib/takeoff/metrics-types";
-
-/* --- Activity Center types (V3-007) --- */
 
 export type TakeoffActivityCenterConfidenceLabel =
   | "Élevée"

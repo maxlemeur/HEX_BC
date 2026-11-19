@@ -22,8 +22,6 @@ import { MAX_CENTS, normalizeEstimateCurrency, type SupportedEstimateCurrency } 
 import { formatDecimalInput, parseAmountCents, parseCoefficient, parseRateBp } from "@/lib/numeric-input/parsers";
 import { ESTIMATE_LINE_PRICING_STATUSES } from "@/lib/units/normalize";
 
-/* ---------- Contrat du §1.2 ---------- */
-
 export type EstimateV3DiscountIntent =
   | { kind: "none" }
   | { kind: "amount"; amount_cents: number }
@@ -317,8 +315,6 @@ export function buildEstimateV3SettingsPayload(
   return payload;
 }
 
-/* ---------- Extensions du hook (§1.3), hors contrat du §1.2 ---------- */
-
 /** Saisie du taux par défaut des nouvelles lignes (« TVA par défaut des nouvelles lignes », D8). */
 export type EstimateV3TaxRateInputError = {
   field: "tax_rate";
@@ -396,8 +392,6 @@ export function resolveEstimateV3MarginTierHint(
   if (!tiers || tiers.length === 0 || !Number.isFinite(costSubtotalCents)) return null;
   return { multiplier: resolveMarginMultiplier(costSubtotalCents, [...tiers]) };
 }
-
-/* ---------- Aperçu par le moteur pur (§1.3 ; mêmes entrées que `buildEstimateV3Input` de 2.5) ---------- */
 
 type Numeric = number | string | null | undefined;
 

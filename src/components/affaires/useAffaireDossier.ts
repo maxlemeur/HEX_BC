@@ -21,7 +21,6 @@ export type AffaireDossier = {
   plansSummary: AffaireHubPlansSummaryData | null;
   // A read is on screen, over the server's render: what the server computed from the dossier may be behind.
   fromRead: boolean;
-  // The plans on screen come from a read.
   plansFromRead: boolean;
   // Reads the dossier again. One read at a time: a reload asked during a read sends one more read
   // after it, since the read in flight may predate what the caller waits for. Never rejects: a

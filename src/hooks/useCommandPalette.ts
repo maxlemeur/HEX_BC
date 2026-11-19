@@ -19,10 +19,6 @@ import {
   type NavGroup as SidebarNavGroup,
 } from "@/lib/navigation/build-nav-groups";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type CommandItem = {
   id: string;
   group: "recent" | "actions" | "navigation";
@@ -38,10 +34,6 @@ export type CommandGroup = {
   label: string;
   items: CommandItem[];
 };
-
-// ---------------------------------------------------------------------------
-// Nav + action items
-// ---------------------------------------------------------------------------
 
 const NAVIGATION_KEYWORDS_BY_HREF: Readonly<Record<string, string[]>> = {
   "/dashboard/affaires": ["affaire", "project", "projet", "chiffrage", "devis"],
@@ -114,10 +106,6 @@ export function buildNavigationItems(input: BuildNavGroupsInput): CommandItem[] 
   return buildNavigationItemsFromNavGroups(buildNavGroups(input));
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const RECENTS_KEY = "command-palette-recents";
 const MAX_RECENTS = 5;
 
@@ -185,10 +173,6 @@ function saveRecent(id: string) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export function useCommandPalette() {
   const router = useRouter();
   const pathname = usePathname();
@@ -245,7 +229,6 @@ export function useCommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recents, setRecents] = useState<CommandItem[]>([]);
 
-  // Reset state when opening
   const openPalette = useCallback(() => {
     setRecents(loadRecents(allItems));
     setQuery("");
@@ -257,7 +240,6 @@ export function useCommandPalette() {
     setOpen(false);
   }, []);
 
-  // Build filtered + grouped results
   const groups: CommandGroup[] = useMemo(() => {
     const filtered = query
       ? allItems.filter((item) => fuzzyMatch(query, item))
@@ -265,7 +247,6 @@ export function useCommandPalette() {
 
     const result: CommandGroup[] = [];
 
-    // Recents only when no query
     if (!query && recents.length > 0) {
       result.push({ key: "recent", label: "Récents", items: recents });
     }
@@ -287,17 +268,14 @@ export function useCommandPalette() {
     return result;
   }, [query, recents, allItems]);
 
-  // Flat list for keyboard nav
   const flatItems = useMemo(
     () => groups.flatMap((g) => g.items),
     [groups]
   );
 
-  // Clamp selected index to valid range
   const clampedSelectedIndex =
     flatItems.length === 0 ? 0 : Math.min(selectedIndex, flatItems.length - 1);
 
-  // Execute an item
   const execute = useCallback(
     (item: CommandItem) => {
       closePalette();
@@ -312,10 +290,8 @@ export function useCommandPalette() {
     [router, closePalette]
   );
 
-  // Selected item ref for scrollIntoView
   const selectedRef = useRef<HTMLElement | null>(null);
 
-  // Global keyboard listener
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -333,7 +309,6 @@ export function useCommandPalette() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open, openPalette, closePalette]);
 
-  // Palette-internal keyboard handler (called from component)
   const handlePaletteKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "ArrowDown") {

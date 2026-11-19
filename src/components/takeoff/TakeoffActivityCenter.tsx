@@ -306,7 +306,6 @@ export default function TakeoffActivityCenter({
     [activeTab, updateParams]
   );
 
-  // Focus active tab on mount
   useEffect(() => {
     const activeButton = tabListRef.current?.querySelector<HTMLButtonElement>(
       `#tab-${activeTab}`
@@ -610,7 +609,6 @@ export default function TakeoffActivityCenter({
             </div>
           ) : null}
 
-          {/* Tab panels */}
           <div
             role="tabpanel"
             id={`tabpanel-${activeTab}`}

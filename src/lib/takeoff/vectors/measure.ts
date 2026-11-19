@@ -165,7 +165,6 @@ export function findDiagramFrames(model: PageModel, classes: readonly GroupClass
     const area = (box.x1 - box.x0) * (box.y1 - box.y0);
     if (area < 0.003 * pageArea || area > 0.4 * pageArea) continue;
     if (Math.min(box.x1 - box.x0, box.y1 - box.y0) < 10 * BAND_MAX_PT) continue;
-    // Axis-aligned rectangle: every point at a corner of the box, and all four corners drawn.
     const corners = new Set<number>();
     const atCorners = xs.every((x, index) => {
       const left = Math.abs(x - box.x0) < 0.5, right = Math.abs(x - box.x1) < 0.5;
@@ -369,7 +368,6 @@ export function dropParentDoubles(runs: readonly Run[], width: number): Run[] {
     const theta = orientation(segments[id]);
     const covered: Array<[number, number]> = [];
     const seen = new Set<number>([id]);
-    // Members near the run, looked up along it one index cell at a time.
     for (let t = run.a; ; t = Math.min(run.b, t + index.cell)) {
       const point = { x: t * run.u.x + run.offset * run.n.x, y: t * run.u.y + run.offset * run.n.y };
       for (const other of index.near(point, index.cell)) {
@@ -382,7 +380,6 @@ export function dropParentDoubles(runs: readonly Run[], width: number): Run[] {
         const t0 = segment.x0 * run.u.x + segment.y0 * run.u.y, t1 = segment.x1 * run.u.x + segment.y1 * run.u.y;
         const lo = Math.max(run.a, Math.min(t0, t1)), hi = Math.min(run.b, Math.max(t0, t1));
         if (hi <= lo) continue;
-        // How far the member's axis lies from this run's axis where they face each other.
         const across = (along: number) => {
           const f = (along - t0) / (t1 - t0);
           return Math.abs((segment.x0 + f * (segment.x1 - segment.x0)) * run.n.x + (segment.y0 + f * (segment.y1 - segment.y0)) * run.n.y - run.offset);
@@ -433,7 +430,6 @@ export function leaderTips(block: LabelBlock, leaders: SegmentIndex): Point[] {
     if (!under && !inBox.some(Boolean)) continue;
     for (const [endIndex, end] of ends.entries()) {
       if (!under && inBox[endIndex]) continue;
-      // Follow a bent leader over up to 5 joined strokes.
       let tip = end, previous = segment;
       for (let hop = 0; hop < 5; hop += 1) {
         const next = leaders.near(tip, 0.6).map((other) => leaders.segments[other]).find((other) => other !== previous
@@ -707,7 +703,6 @@ export function measureNetworks(input: {
       if (block.label.dn !== null && block.label.network !== null) labelled.get(id)?.networks.push(block.label.network);
     }
   });
-  // Connectivity between runs: an end of one within JOIN_PT of another's centreline.
   const neighbours = result.map(() => [] as number[]);
   result.forEach((run, id) => {
     for (const end of [{ x: run.segment.x0, y: run.segment.y0 }, { x: run.segment.x1, y: run.segment.y1 }]) {

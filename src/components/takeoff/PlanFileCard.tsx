@@ -35,10 +35,8 @@ export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
 
   return (
     <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm transition hover:border-border-strong">
-      {/* PDF icon */}
       <FileIcon className="h-5 w-5 shrink-0 text-danger" strokeWidth={1.5} aria-hidden="true" />
 
-      {/* File info */}
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium text-foreground" title={displayName}>
           {displayName}
@@ -54,7 +52,6 @@ export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
         </p>
       </div>
 
-      {/* Delete button */}
       <button
         type="button"
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle-foreground transition hover:bg-muted hover:text-danger disabled:opacity-50"

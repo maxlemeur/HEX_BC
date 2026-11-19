@@ -24,7 +24,6 @@ export type PolishRoute = {
 const FROZEN_GRID = ['[data-testid="estimate-editor-table-shell"]'];
 
 export const POLISH_ROUTES: PolishRoute[] = [
-  // Accueil et affaires
   { id: "home", path: "/dashboard", heading: "Accueil", tags: ["home"] },
   { id: "affaires", path: "/dashboard/affaires", heading: "Affaires", tags: ["affaires"] },
   { id: "affaires-new", path: "/dashboard/affaires/new", heading: "Nouvelle affaire", tags: ["affaires"] },
@@ -54,7 +53,6 @@ export const POLISH_ROUTES: PolishRoute[] = [
     tags: ["takeoff"],
   },
 
-  // Devis
   {
     id: "estimate-new",
     path: "/dashboard/estimates/new?projectId=:projectId",
@@ -99,7 +97,6 @@ export const POLISH_ROUTES: PolishRoute[] = [
     tags: ["estimates", "referentiel"],
   },
 
-  // Commandes
   { id: "orders", path: "/dashboard/orders", heading: "Bons de commande", tags: ["orders"] },
   { id: "orders-new", path: "/dashboard/orders/new", heading: "Nouveau bon de commande", tags: ["orders"] },
   { id: "order-detail", path: "/dashboard/orders/:orderId", heading: /^C-\d{4}-\d{3}$/, tags: ["orders"] },
@@ -111,7 +108,6 @@ export const POLISH_ROUTES: PolishRoute[] = [
     tags: ["orders"],
   },
 
-  // Référentiel, tarifs, DPGF
   { id: "referentiel", path: "/dashboard/referentiel", heading: "Référentiel", tags: ["referentiel"] },
   { id: "suppliers", path: "/dashboard/suppliers", heading: "Fournisseurs", tags: ["referentiel"] },
   { id: "sites", path: "/dashboard/sites", heading: "Chantiers", tags: ["referentiel"] },
@@ -128,12 +124,10 @@ export const POLISH_ROUTES: PolishRoute[] = [
   { id: "mappings", path: "/dashboard/mappings", heading: "Mapping DPGF", tags: ["dpgf"] },
   { id: "catalogue", path: "/dashboard/catalogue", heading: "Catalogue", tags: ["dpgf"] },
 
-  // Validation et pilotage
   { id: "approvals", path: "/dashboard/approvals", heading: "Approbations", tags: ["pilotage"] },
   { id: "direction", path: "/dashboard/direction", heading: "Cockpit direction", tags: ["pilotage"] },
   { id: "analytics", path: "/dashboard/analytics", heading: "Performances", tags: ["pilotage"] },
 
-  // Administration et compte
   { id: "admin", path: "/dashboard/admin", heading: "Administration", tags: ["admin"] },
   { id: "admin-rules", path: "/dashboard/admin/rules", heading: "Règles de contrôle", tags: ["admin"] },
   {
@@ -178,7 +172,6 @@ export const POLISH_ROUTES: PolishRoute[] = [
   },
   { id: "profile", path: "/dashboard/profile", heading: "Mon profil", tags: ["account"] },
 
-  // Public
   { id: "login", path: "/login", heading: "Connexion", tags: ["public"], auth: "anon" },
   { id: "signup", path: "/signup", heading: "Créer un compte", tags: ["public"], auth: "anon" },
   { id: "portal", path: "/portal/:portalToken", heading: null, tags: ["portal"], auth: "anon" },

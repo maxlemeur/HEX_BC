@@ -50,8 +50,6 @@ const AffairesDenseTable = dynamic(
   { ssr: false }
 );
 
-// -- Constants --
-
 const PAGE_SIZE_OPTIONS: readonly AffairePageSize[] =
   AFFAIRE_PAGE_SIZE_OPTIONS;
 const DEFAULT_PAGE_SIZE: AffairePageSize = 20;
@@ -64,8 +62,6 @@ const SORT_OPTIONS: SortOption[] = [
   { key: "name", label: "Nom", defaultDirection: "asc" },
   { key: "totalHtCents", label: "Montant", defaultDirection: "desc" },
 ];
-
-// -- Helpers --
 
 function readStoredPageSize(): AffairePageSize {
   try {
@@ -91,8 +87,6 @@ function isDraftSelectable(
 ) {
   return !item.hasCurrentVersion || item.currentStatus === "draft";
 }
-
-// -- Props --
 
 type Props = {
   initialData: AffairePageDataResult;
@@ -131,8 +125,6 @@ export function AffairesPageClient({
   const isWideViewport = useIsWideViewport();
   const toast = useToast();
   const [isFiltering, startFiltering] = useTransition();
-
-  // -- State --
 
   const [searchValue, setSearchValue] = useState(initialQ);
   const [debouncedSearch, setDebouncedSearch] = useState(initialQ);
@@ -277,7 +269,6 @@ export function AffairesPageClient({
     });
   }, [favoritePendingIds, initialData]);
 
-  // Hydrate page size from localStorage on mount
   useEffect(() => {
     const urlSize = Number(searchParams.get("size"));
     if (PAGE_SIZE_OPTIONS.includes(urlSize as AffairePageSize)) {
@@ -287,8 +278,6 @@ export function AffairesPageClient({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // -- Sync URL --
 
   useEffect(() => {
     if (searchValue === debouncedSearch) return;
@@ -339,7 +328,6 @@ export function AffairesPageClient({
 
     setSelectedProjectIds([]);
 
-    // Reset cursor when filters change
     if (
       searchChanged ||
       statusChanged ||
@@ -364,7 +352,6 @@ export function AffairesPageClient({
       params.set("dir", sortState.direction);
     if (pageSize !== DEFAULT_PAGE_SIZE) params.set("size", String(pageSize));
 
-    // Only set cursor if not resetting
     const effectiveCursor =
       searchChanged ||
       statusChanged ||
@@ -395,8 +382,6 @@ export function AffairesPageClient({
     searchParams,
     startFiltering,
   ]);
-
-  // -- Handlers --
 
   const handleStatusChange = useCallback((statuses: EstimateStatus[]) => {
     setSelectedStatuses(statuses as AffaireStatus[]);
@@ -619,8 +604,6 @@ export function AffairesPageClient({
     onCompleted: handleBulkDeleteCompleted,
   });
 
-  // -- Computed --
-
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (selectedStatuses.length > 0) count += selectedStatuses.length;
@@ -667,7 +650,6 @@ export function AffairesPageClient({
         }
       />
 
-      {/* Filter toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="w-full min-w-0 sm:w-auto sm:min-w-64 sm:flex-1">
           <FilterSearch
@@ -777,7 +759,6 @@ export function AffairesPageClient({
         </div>
       ) : null}
 
-      {/* Content */}
       <section className="mt-4" aria-label="Liste des affaires" aria-busy={isSearchPending}>
         {isExpert ? (
           <div className={isWideViewport ? undefined : "xl:hidden"}>
@@ -820,7 +801,6 @@ export function AffairesPageClient({
         )}
       </section>
 
-      {/* Pagination */}
       {showPagination ? (
         <nav
           className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"

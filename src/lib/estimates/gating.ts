@@ -911,11 +911,9 @@ export async function evaluateEstimateSendGating(
   const sources = await loadSendGatingSources(input);
   const { items, stalePriceDays } = sources;
 
-  // Line quality.
   const staleSupplierPriceItemIds = await findStaleSupplierPriceItemIds({ supabase, tenantId, items, stalePriceDays });
   const lineQuality = collectLineQualityFlags(items, staleSupplierPriceItemIds);
 
-  // Line statuses and offer choices, engine 3 priced lines, and the offer's limits text that must state them.
   const isEngine3 = isEngine3Version(version);
   const lineStatuses = flagLineStatusesAndOfferChoices({
     items, isEngine3, unreadableOfferChoiceIds: sources.unreadableOfferChoiceIds,
@@ -930,7 +928,6 @@ export async function evaluateEstimateSendGating(
     version, isEngine3, reservedItemIds: lineStatuses.offer_reserve_declared, provisionalMentions: pricedLines.provisionalMentions,
   });
 
-  // The version as a whole.
   const budgetCeilingHtCents = parseProjectBudgetCeilingHtCents(project.notes);
   const versionConditions = flagVersionWideConditions({
     version,
@@ -944,7 +941,6 @@ export async function evaluateEstimateSendGating(
     lineStatuses, pricedLines.itemIdsByFlag, offerLimits.itemIdsByFlag, versionConditions,
   ]);
 
-  // Business rules.
   const rulesEvaluation = await evaluateSendRules({ ...input, items });
 
   const blockingFlags: EstimateGatingFlag[] = [];

@@ -42,7 +42,6 @@ function stepNamed(workflow: string, name: string): string {
   return step ?? "";
 }
 
-// Body of a `run: |` block scalar, without its indentation.
 function runScript(step: string): string {
   const lines = step.split(/\r?\n/u);
   const start = lines.findIndex((line) => /^\s+run: \|$/u.test(line));

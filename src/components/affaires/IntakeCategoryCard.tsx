@@ -94,7 +94,6 @@ export function IntakeCategoryCard({
     (document) => (document.documentPriority ?? "secondary") === "secondary"
   ).length;
 
-  // Truncated file names for collapsed view
   const previewNames = documents.slice(0, 3).map((d) => d.fileName);
   const moreCount = count - previewNames.length;
   const shouldFocusDocument =
@@ -113,7 +112,6 @@ export function IntakeCategoryCard({
 
   return (
     <div className="rounded-xl border border-border bg-surface transition-shadow hover:shadow-sm">
-      {/* Clickable header */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -136,7 +134,6 @@ export function IntakeCategoryCard({
                 Autres {secondaryCount}
               </Badge>
             )}
-            {/* Contextual badges */}
             {category === "dpgf" && dpgfAlreadyImported && (
               <Badge variant="success">Importée</Badge>
             )}
@@ -144,7 +141,6 @@ export function IntakeCategoryCard({
               <Badge variant="success">Synchronisés</Badge>
             )}
           </div>
-          {/* File name previews */}
           {!expanded && (
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {previewNames.join(", ")}
@@ -155,7 +151,6 @@ export function IntakeCategoryCard({
         <ChevronDownIcon className={`mt-1 shrink-0 text-subtle-foreground transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" size={14} />
       </button>
 
-      {/* DPGF contextual action */}
       {category === "dpgf" && !dpgfAlreadyImported && onBridgeDpgfImport && (
         <div className="border-t border-border-subtle px-3 py-2">
           <button
@@ -169,7 +164,6 @@ export function IntakeCategoryCard({
         </div>
       )}
 
-      {/* Expanded: show individual document cards */}
       {expanded && (
         <div className="border-t border-border-subtle p-3 space-y-2">
           {documents.map((doc) => (

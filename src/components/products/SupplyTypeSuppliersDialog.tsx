@@ -124,7 +124,6 @@ export function SupplyTypeSuppliersDialog({
     return () => abort.abort();
   }, [open]);
 
-  // The server's answer replaces the row.
   const saved = (stored: SupplyTypeWithPreferredSupplier) =>
     setTypes((current) =>
       current.status === "ready"

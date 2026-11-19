@@ -347,7 +347,6 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
   // The editor acquires/releases its draft lease during hydration. API seeding must
   // wait for the same writable state as a user, or its lease can be released mid-write.
   await expect(page.getByTestId("estimate-editor-add-root-section-button")).toBeEnabled();
-  // Seed one real line, then edit through the editor and prove the saved value.
   const title = "Prestation saisie sans DPGF";
   await createLineViaApi(page.browser, versionId, title);
   await page.reload();

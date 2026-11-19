@@ -162,9 +162,6 @@ class DatasetCheck {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Binaries
-
 async function checkBinary(check: DatasetCheck, { index, document }: KnownDocument) {
   const file = document.raw_path as string;
   const absolute = path.join(check.root, file);
@@ -199,9 +196,6 @@ async function checkBinary(check: DatasetCheck, { index, document }: KnownDocume
   }
   if (verified) check.summary.verifiedBinaries += 1;
 }
-
-// ---------------------------------------------------------------------------
-// Manifest
 
 async function checkManifest(check: DatasetCheck) {
   const file = "manifest.json";
@@ -256,9 +250,6 @@ async function checkRawDirectory(check: DatasetCheck) {
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Truth files
 
 function zonesAndLevels(documents: readonly ManifestDocument[]) {
   const zones = new Set<string>();

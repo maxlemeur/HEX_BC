@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createPortalLegacyOfferFixture } from "@/test/fixtures/portal-legacy-offer";
 
-// ---------------------------------------------------------------------------
-// Mock service-role client
-// ---------------------------------------------------------------------------
-
 const mockSingle = vi.fn();
 const mockTokenSelect = vi.fn();
 const mockTokenEq = vi.fn();
@@ -104,10 +100,6 @@ vi.mock("@/lib/supabase/service-role", () => ({
 
 import { POST } from "./route";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const VALID_TOKEN = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
 function makeRequest(body?: unknown) {
@@ -132,10 +124,6 @@ const PENDING_TOKEN = {
   capability_contract_version: 1,
   estimate_email_dispatch_id: null,
 };
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("POST /api/portal/[token]/reject", () => {
   beforeEach(() => {

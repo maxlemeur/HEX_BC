@@ -236,7 +236,6 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
         onChange={handleInputChange}
       />
 
-      {/* Drop zone */}
       <div
         className={cn(
           "relative overflow-hidden rounded-lg border-2 border-dashed transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
@@ -298,7 +297,6 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
         </div>
       </div>
 
-      {/* Upload queue */}
       {hasItems ? (
         <div className="mt-5 space-y-4">
           <div className="flex items-center justify-between gap-2">
@@ -423,7 +421,6 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
         </Alert>
       ) : null}
 
-      {/* Screen reader announcement */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>

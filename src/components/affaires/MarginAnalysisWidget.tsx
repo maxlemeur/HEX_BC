@@ -7,10 +7,6 @@ import type { AffaireHubMarginAnalysisResult, AffaireHubMarginCardData } from "@
 import { formatEUR } from "@/lib/money";
 import { ChevronRightIcon } from "lucide-react";
 
-/* ------------------------------------------------------------------ */
-/*  Margin threshold helpers                                           */
-/* ------------------------------------------------------------------ */
-
 const MARGIN_THRESHOLDS = { good: 25, fair: 15 } as const;
 
 function getMarginTier(percent: number): "good" | "fair" | "poor" {
@@ -22,10 +18,6 @@ function getMarginTier(percent: number): "good" | "fair" | "poor" {
 function getMarginBadgeVariant(tier: string): "success" | "warning" | "danger" {
   return tier === "good" ? "success" : tier === "fair" ? "warning" : "danger";
 }
-
-/* ------------------------------------------------------------------ */
-/*  MarginGlobalSummary — 3 KPIs in a grid                             */
-/* ------------------------------------------------------------------ */
 
 function MarginGlobalSummary({
   global,
@@ -91,10 +83,6 @@ function MarginGlobalSummary({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  MarginSectionTable — breakdown by lot                              */
-/* ------------------------------------------------------------------ */
-
 function MarginSectionTable({
   sections,
   currentVersionId,
@@ -116,7 +104,6 @@ function MarginSectionTable({
         Ventilation par lot
       </h3>
 
-      {/* Desktop table */}
       <div className="hidden sm:block">
         <table className="w-full text-sm">
           <thead>
@@ -171,7 +158,6 @@ function MarginSectionTable({
         </table>
       </div>
 
-      {/* Mobile cards */}
       <div className="space-y-2 sm:hidden">
         {sections.map((section) => {
           const tier = getMarginTier(section.marginPercent);
@@ -202,10 +188,6 @@ function MarginSectionTable({
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  MarginVersionChart — SVG evolution chart                            */
-/* ------------------------------------------------------------------ */
 
 function MarginVersionChart({
   points,
@@ -255,7 +237,6 @@ function MarginVersionChart({
         role="img"
         aria-label="Graphique d'evolution de la marge par version"
       >
-        {/* Threshold lines */}
         {[MARGIN_THRESHOLDS.fair, MARGIN_THRESHOLDS.good].map((threshold) => {
           const y = toY(threshold);
           if (y < PAD_TOP || y > H - PAD_BOTTOM) return null;
@@ -273,7 +254,6 @@ function MarginVersionChart({
           );
         })}
 
-        {/* Main polyline */}
         <polyline
           points={polylinePoints}
           fill="none"
@@ -282,7 +262,6 @@ function MarginVersionChart({
           strokeLinejoin="round"
         />
 
-        {/* Points + labels */}
         {points.map((p, i) => {
           const x = toX(i);
           const y = toY(p.marginPercent);
@@ -291,7 +270,6 @@ function MarginVersionChart({
           return (
             <g key={p.versionId}>
               <circle cx={x} cy={y} r="4" fill={TIER_COLORS[tier]} />
-              {/* Margin % above point */}
               <text
                 x={x}
                 y={y - 8}
@@ -301,7 +279,6 @@ function MarginVersionChart({
               >
                 {p.marginPercent.toFixed(1)}%
               </text>
-              {/* Version label below */}
               <text
                 x={x}
                 y={H - 6}
@@ -318,10 +295,6 @@ function MarginVersionChart({
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  MarginAnalysisWidget — main exported component                     */
-/* ------------------------------------------------------------------ */
 
 export function MarginAnalysisWidget({
   data,

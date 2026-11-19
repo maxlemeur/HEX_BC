@@ -22,7 +22,6 @@ import { isSameDocument, isSamePage, type TakeoffPageDocument, type TakeoffPageI
 
 export type RuleIdentity = { kind?: string | null; network?: string | null; material?: string | null; dn?: string | number | null } | null;
 
-/** A line of the new takeoff on the page. */
 export type ReplacementNewLine = {
   id: string;
   designation: string;

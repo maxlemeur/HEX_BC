@@ -381,7 +381,6 @@ export function CatalogueManager() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ===== CATALOGUE TAB ===== */}
         <TabsContent value="catalogue" className="mt-4 space-y-6">
           <PageSection
             title="Catalogue articles"
@@ -592,7 +591,6 @@ export function CatalogueManager() {
           </PageSection>
         </TabsContent>
 
-        {/* ===== LIAISON TAB ===== */}
         <TabsContent value="liaison" className="mt-4">
           <PageSection
             title="Liaison des lignes importées au catalogue"
@@ -642,7 +640,6 @@ export function CatalogueManager() {
                 className="mt-4 grid gap-4 rounded-lg border border-border bg-surface-subtle p-4 lg:grid-cols-2"
               >
                 <div className="flex min-w-0 flex-col gap-2">
-                  {/* M-21: Renamed "Limite scan" */}
                   <FieldLabel htmlFor="catalogue-link-limit">Nombre max de lignes à analyser</FieldLabel>
                   <NumberInput
                     id="catalogue-link-limit"
@@ -682,7 +679,6 @@ export function CatalogueManager() {
             ) : null}
 
             <div className="mt-4">
-              {/* M-21: Renamed "Dry run" */}
               <label className="inline-flex min-h-9 items-center gap-2 text-sm text-foreground-secondary">
                 <input
                   type="checkbox"
@@ -726,7 +722,6 @@ export function CatalogueManager() {
                   </AlertDescription>
                 </Alert>
 
-                {/* Summary counters */}
                 <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3 text-center">
                     <dt className="text-micro uppercase tracking-wide text-muted-foreground">Analysées</dt>

@@ -4,7 +4,6 @@ export function withNoStore<T extends Response>(response: T): T {
   return response;
 }
 
-/** Marks a member's response as private and never stored. */
 export function withPrivateNoStore<T extends Response>(response: T): T {
   response.headers.set("Cache-Control", "private, no-store");
   return response;

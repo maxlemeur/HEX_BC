@@ -1197,7 +1197,6 @@ offerTest("PDFL6 PDF freeze reconciles editor tokens and real line snapshots bef
     final: { quantity: 2, totals: totals(reloaded.version), titlePreserved: true }, savedStatus: saved.status,
     noReloadBeforeNextSave: true });
 });
-// Append to the existing local suite after GO, before the read-recovery fix.
 offerTest("PDFL7 interrupted post-freeze read blocks stale writes and recovers pending edits without a new PDF POST", options, async (ui) => {
   const p = await prepare(ui, "PDFL7");
   await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
