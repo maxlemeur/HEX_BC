@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CHATGPT_REASONING_EFFORTS, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 
 // « Accès IA » (lot 1): three separate questions, never one field.
 // - Who pays: the billing source. The ChatGPT subscription, or a member's own API key.
@@ -19,7 +19,6 @@ export const AI_EXECUTION_PLACES = ["local"] as const;
 export type AiExecutionPlace = (typeof AI_EXECUTION_PLACES)[number];
 
 /** The efforts a request may carry; each model accepts a subset (openai-pricing.ts). */
-export const AI_REASONING_EFFORTS = CHATGPT_REASONING_EFFORTS;
 export type AiReasoningEffort = ChatGptReasoningEffort;
 
 export const AI_API_PROVIDER_LABELS: Record<AiApiProvider, string> = { openai: "OpenAI" };
