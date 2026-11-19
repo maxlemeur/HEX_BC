@@ -9,8 +9,9 @@ import { listLocalChatGptModels } from "@/lib/ai/chatgpt-local-inference";
 import { getOpenAiDecisionsCapability, OPENAI_DECISIONS_MODEL } from "@/lib/ai/decisions";
 import { getUserContext } from "@/lib/auth/server";
 import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
-import { ApiError, badRequest, conflict, forbidden, toErrorResponse } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict, forbidden, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { isJsonContentType } from "@/lib/http/request";
+import { withNoStore } from "@/lib/http/response";
 import { describeError } from "@/lib/takeoff/bench/run";
 import type { LabState } from "@/lib/takeoff/lab/contracts";
 import { listLabDocuments } from "@/lib/takeoff/lab/dataset";
@@ -75,9 +76,16 @@ export async function requireTakeoffLabWrite(request: Request, options: { json: 
   return access;
 }
 
+// Every lab answer is never cached: the state names the member's key, and a refused key-paid launch
+// (a stale page, the ceiling) must not be replayed.
+
+export function labOk<T>(data: T, status: 200 | 201 = 200) {
+  return withNoStore(ok(data, status));
+}
+
 export function labErrorResponse(error: unknown) {
-  if (error instanceof LabFileError) return toErrorResponse(new ApiError({ status: 500, code: "TAKEOFF_LAB_FILE", message: error.message }));
-  return toErrorResponse(error);
+  if (error instanceof LabFileError) return withNoStore(toErrorResponse(new ApiError({ status: 500, code: "TAKEOFF_LAB_FILE", message: error.message })));
+  return withNoStore(toErrorResponse(error));
 }
 
 export async function readLabState(access: LabAccess): Promise<LabState> {
