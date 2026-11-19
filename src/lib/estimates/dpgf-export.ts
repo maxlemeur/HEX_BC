@@ -3,7 +3,7 @@ import { PassThrough, Readable } from "node:stream";
 import { type EstimateItemRecord } from "@/lib/estimate-calculations";
 import { resolveEstimateEngineVersion, shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { ESTIMATE_EXPORT_PROGRESS_COMPLETE, ESTIMATE_EXPORT_XLSX_CONTENT_TYPE, createWorkbookWriterFactory, setCurrencyColumns, styleHeaderRow, type EstimateExportStreamResult, type WorkbookWriterFactory } from "@/lib/estimates/export-stream";
+import { ESTIMATE_EXPORT_PROGRESS_COMPLETE, ESTIMATE_EXPORT_XLSX_CONTENT_TYPE, createWorkbookWriterFactory, setCurrencyColumns, type EstimateExportStreamResult, type WorkbookWriterFactory, styleWorksheetHeader } from "@/lib/estimates/export-stream";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
 import { loadEstimateV3ExportDocument, writeEstimateV3DpgfWorkbook, type EstimateV3ExportDocument } from "@/lib/estimates/v3-export";
@@ -99,13 +99,6 @@ function buildFilename(input: {
       : input.projectName;
   const projectToken = sanitizeFilenameSegment(sourceName, "chiffrage");
   return `devis-${projectToken}-v${input.versionNumber}-dpgf.xlsx`;
-}
-
-function styleWorksheetHeader(worksheet: WorksheetLike) {
-  const headerRow = worksheet.getRow?.(1);
-  if (!headerRow) return;
-  styleHeaderRow(headerRow);
-  headerRow.commit();
 }
 
 function setDecimalColumns(row: WorksheetRowLike, columns: number[]) {

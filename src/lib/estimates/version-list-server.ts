@@ -8,7 +8,6 @@ import {
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   isTenantAdmin,
-  resolveEmbeddedOne,
 } from "./server-context";
 import type { AuthenticatedContext, VersionAccessRow } from "./server-context";
 
@@ -168,6 +167,7 @@ export type EstimateVersionEventAuthor = Pick<ProfileRow, "full_name">;
 
 import { DEFAULT_CURRENCY, normalizeEstimateCurrencyOrThrow } from "@/lib/estimates/version-write-normalization";
 import { toNonEmptyString } from "@/lib/value-guards";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 export { DEFAULT_CURRENCY, normalizeEstimateCurrencyOrThrow } from "@/lib/estimates/version-write-normalization";
 
 const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;

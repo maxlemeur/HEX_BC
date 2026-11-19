@@ -10,6 +10,7 @@ import { applyTakeoffJob, isTakeoffApiError } from "@/lib/takeoff/client";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
 import { parseLowConfidenceThreshold } from "@/lib/takeoff/guards";
 import type { TakeoffApplyResponse } from "@/lib/takeoff/types";
+import { plural } from "@/lib/text/plural";
 
 // Shared by the takeoff review and its targeted review (TI-664 L5c): the low confidence threshold the guard reads,
 // and the application of a job through the version's draft lock.
@@ -24,12 +25,10 @@ type Outcome = { id: number; submitting: boolean; error: string | null; errorGua
 
 export const TAKEOFF_APPLY_SENT_TITLE = "Métré envoyé au tableau de chiffrage";
 
-const counted = (count: number, singular: string, plural: string) => `${count} ${count > 1 ? plural : singular}`;
-
 /** The toast's counts once sent: « 2 lignes créées, 1 mise à jour, 0 ignorée. » */
 export function takeoffApplySentDescription(summary: Pick<TakeoffApplyResponse["summary"], "created_count" | "updated_count" | "ignored_count">) {
-  return `${counted(summary.created_count, "ligne créée", "lignes créées")}, ${counted(summary.updated_count, "mise à jour", "mises à jour")}, `
-    + `${counted(summary.ignored_count, "ignorée", "ignorées")}.`;
+  return `${plural(summary.created_count, "ligne créée", "lignes créées")}, ${plural(summary.updated_count, "mise à jour", "mises à jour")}, `
+    + `${plural(summary.ignored_count, "ignorée", "ignorées")}.`;
 }
 
 /** The tenant's low confidence threshold (feature flag), as the apply guard reads it. */

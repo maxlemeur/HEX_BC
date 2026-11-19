@@ -1,6 +1,7 @@
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { notFound } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type AuthenticatedContext = Pick<AuthenticatedTenantContext, "supabase" | "tenantId" | "userId" | "tenantRole">;
 
@@ -16,12 +17,6 @@ type VersionAccessRow = Pick<
 > & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
 
 function canAccessOwnerResource(input: {
   context: Pick<AuthenticatedContext, "userId" | "tenantRole">;

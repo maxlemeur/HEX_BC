@@ -23,6 +23,9 @@ import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { readAllEstimateItems } from "./read-all-items-server";
 import { canAccessOwnerResource } from "./server-context";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
+import { isTenantAdmin } from "@/lib/estimates/server-context";
+import { asFiniteNumber } from "@/lib/value-guards";
 
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const context = await getAuthenticatedTenantContext();
@@ -35,14 +38,7 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   };
 }
 
-const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const TENANT_DIRECTOR_ROLE: TenantRole = "director";
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
 
 function sortJsonValue(value: Json | null): Json | null {
   if (value === null) {
@@ -156,10 +152,6 @@ function toRulesSupabaseClient(
   supabase: SupabaseClient<Database> | Supabase
 ): Supabase {
   return supabase;
-}
-
-function isTenantAdmin(tenantRole: TenantRole) {
-  return tenantRole === TENANT_ADMIN_ROLE;
 }
 
 function isTenantDirector(tenantRole: TenantRole) {
@@ -1695,10 +1687,6 @@ function toStringValue(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-function toNumberValue(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 function buildCorrectionItemHref(input: {
   projectId: string;
   versionId: string;
@@ -1822,7 +1810,7 @@ async function buildChangesSinceLastCycle(input: {
     .map((row) => toJsonRecord(row.before_data))
     .find((entry) => entry !== null);
   const baselineTotalHt =
-    toNumberValue(earliestVersionBaseline?.total_ht_cents) ??
+    asFiniteNumber(earliestVersionBaseline?.total_ht_cents) ??
     input.version.total_ht_cents ??
     null;
 

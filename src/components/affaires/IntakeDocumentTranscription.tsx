@@ -9,11 +9,11 @@ import {
   intakeTranscriptionFailureMessage,
   type IntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
+import { plural } from "@/lib/text/plural";
 
 const POLL_MS = 4_000;
 /** About ten minutes: an analysis that runs longer is shown at the next opening. */
 const POLLS = 150;
-const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? "s" : ""}`;
 
 /** A passage the model could not read, shown as such. */
 function TranscribedText({ text }: { text: string }) {

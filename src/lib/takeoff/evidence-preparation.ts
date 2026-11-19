@@ -8,7 +8,7 @@ import type {
   TakeoffLineEvidencePanelResponse,
   TakeoffLineEvidenceStatus,
 } from "@/lib/takeoff/types";
-import { isRecord } from "@/lib/value-guards";
+import { isRecord, asFiniteNumber } from "@/lib/value-guards";
 
 export type SupplierPriceEvidenceRow = {
   id: string;
@@ -66,10 +66,6 @@ type DesiredEvidenceSpec = Omit<
 const ACTIVE_EVIDENCE_INVALIDATION_REASON = "snapshot_replaced";
 function asNullableString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function asNullableNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function asRequiredString(row: Record<string, unknown>, key: string) {
@@ -131,8 +127,8 @@ export function normalizeEvidenceRow(row: unknown): EvidenceRow {
     label: asRequiredString(row, "label"),
     source_label: asRequiredString(row, "source_label"),
     source_file_name: asNullableString(row.source_file_name),
-    source_page: asNullableNumber(row.source_page),
-    confidence_score: asNullableNumber(row.confidence_score),
+    source_page: asFiniteNumber(row.source_page),
+    confidence_score: asFiniteNumber(row.confidence_score),
     note: asNullableString(row.note),
     source_record_table: asNullableString(row.source_record_table),
     source_record_id: asNullableString(row.source_record_id),

@@ -11,10 +11,11 @@ import { Button } from "@/components/ui/button";
 import { fetchMaterialRequests } from "@/lib/material-requests/client";
 import type { MaterialRequestListItem, MaterialRequestSummary } from "@/lib/material-requests/contracts";
 
-import { formatDateOnly, materialRequestHref, plural } from "./format";
+import { formatDateOnly, materialRequestHref } from "./format";
 import { LoadFailure } from "./LoadFailure";
 import { NewMaterialRequestDialog } from "./NewMaterialRequestDialog";
 import { useRetryableLoad } from "./useRetryableLoad";
+import { plural } from "@/lib/text/plural";
 
 function validationProgress(request: MaterialRequestSummary): string {
   if (request.line_count === 0) return "Aucune ligne";

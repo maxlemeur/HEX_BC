@@ -14,7 +14,6 @@ import {
   unprocessableEntity,
 } from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   buildPlanFileStoragePath,
   sanitizePlanPdfFilename,
@@ -28,6 +27,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { coerceNumericSearchParam } from "@/lib/takeoff/schemas";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
+import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 
 const PLAN_FILE_ALLOWED_MIME_TYPE = "application/pdf";
 const PLAN_FILE_ALLOWED_EXTENSION = ".pdf";
@@ -476,12 +476,6 @@ function normalizePlanFileRow(row: unknown): PlanFile {
 
 function normalizePlanFileRows(rows: unknown[]): PlanFile[] {
   return rows.map((row) => normalizePlanFileRow(row));
-}
-
-async function getAuthenticatedTakeoffContext() {
-  const context = await getAuthenticatedContext();
-  await assertTakeoffEnabled(context.tenantId, { supabase: context.supabase });
-  return context;
 }
 
 function assertPlanSetMutationRole(role: string | null | undefined) {

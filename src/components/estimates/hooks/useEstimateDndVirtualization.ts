@@ -36,6 +36,7 @@ import {
 } from "@/components/estimates/components/EstimateSuggestionRow";
 import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
 import type { Database } from "@/types/database";
+import { getParentKey } from "@/components/estimates/hooks/useEstimateVisibility";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -47,7 +48,6 @@ type EstimateVirtualizationConfig = {
   containerHeight?: number;
 };
 
-const ROOT_KEY = "root";
 const DEFAULT_VIRTUAL_ROW_ESTIMATE = 36;
 const DEFAULT_VIRTUAL_OVERSCAN = 8;
 const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
@@ -60,10 +60,6 @@ const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
 const POINTER_SENSOR_OPTIONS = { activationConstraint: { distance: 8 } };
 const TOUCH_SENSOR_OPTIONS = { activationConstraint: { delay: 200, tolerance: 8 } };
 const KEYBOARD_SENSOR_OPTIONS = { coordinateGetter: sortableKeyboardCoordinates };
-
-function getParentKey(id: string | null) {
-  return id ?? ROOT_KEY;
-}
 
 export type VirtualizedItemRow = {
   key: string;

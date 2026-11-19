@@ -130,7 +130,7 @@ function hasDetectedDocumentKind(intakeWorkspace: AffaireFlowHierarchyPanelProps
   return intakeWorkspace?.documents.some((document) => document.detectedCategory === kind && document.confidence > 0) ?? false;
 }
 
-function isDocumentProcessing(document: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"][number]) {
+export function isDocumentProcessing(document: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"][number]) {
   return isAffaireIntakeDocumentProcessing(document);
 }
 
@@ -221,7 +221,7 @@ function toHrefAction(input: {
   };
 }
 
-function buildManualEstimateHref(input: { projectId: string; currentVersion: AffaireFlowHierarchyPanelProps["currentVersion"] }) {
+export function buildManualEstimateHref(input: { projectId: string; currentVersion: AffaireFlowHierarchyPanelProps["currentVersion"] }) {
   if (input.currentVersion?.status === "draft") {
     return `/dashboard/estimates/${input.currentVersion.id}/edit?entry=manual`;
   }

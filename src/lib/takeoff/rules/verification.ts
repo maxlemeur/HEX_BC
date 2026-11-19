@@ -153,7 +153,7 @@ export function printedAreaToReach(results: readonly TakeoffRuleResult[] | undef
   return area.reason_code === MEASURED_OUTLINE_REASON ? null : comparison.printed_m2;
 }
 
-const squareMetres = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value)} m²`;
+export const squareMetres = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value)} m²`;
 
 export const ACCEPTANCE_MESSAGES = {
   stale: "Recalculez les règles avant d’accepter la ligne.",

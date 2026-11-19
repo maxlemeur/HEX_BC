@@ -60,6 +60,7 @@ import {
   type AffaireRegisterTimelineEvent,
 } from "./register";
 import { isRecord } from "@/lib/value-guards";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type Supabase = SupabaseClient<Database>;
@@ -355,12 +356,6 @@ const continueAffaireRegisterWithHypothesisInputSchema = z.object({
 });
 function toStringOrNull(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
 }
 
 function normalizeAffaireProject(row: unknown): AffaireProjectAccessRow | null {

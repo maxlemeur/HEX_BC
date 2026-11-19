@@ -8,6 +8,7 @@ import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/esti
 import { toEstimateV3FrozenTotals, toEstimateV3ItemSnapshots } from "@/lib/estimates/v3-persistence";
 import { calculateEstimateV3SnapshotForItems, type EstimateV3TotalsVersionConfig } from "@/lib/estimates/version-totals";
 import type { Database, Json } from "@/types/database";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 /**
  * Lot 2, sous-lot 2.5 - gel v3 (conception D12, D15, §6.5) par `public.freeze_estimate_v3_snapshot`,
@@ -47,11 +48,6 @@ const NAMED_FREEZE_ERRORS = [
   "ESTIMATE_V3_TAX_RATE_NOT_ALLOWED",
   "ESTIMATE_V3_PROJECTION_MISMATCH",
 ] as const;
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
-}
 
 /** Arguments calculés d'un gel v3 (contexte, lignes et totaux figés), contrôlés avant la RPC. */
 export type EstimateV3FreezeArguments = {

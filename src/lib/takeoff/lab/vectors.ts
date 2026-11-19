@@ -71,7 +71,7 @@ async function extractOrRefuse(bytes: Uint8Array, page: number, extract: VectorE
   }
 }
 
-function choiceLabel(task: LabTask, value: unknown) {
+export function choiceLabel(task: LabTask, value: unknown) {
   return task.question?.choices.find((choice) => choice.value === value)?.label ?? String(value);
 }
 

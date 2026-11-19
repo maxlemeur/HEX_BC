@@ -198,6 +198,7 @@ import {
   type EstimateEditorItemPatch,
 } from "@/components/estimates/estimate-editor-table-types";
 import { asRecord, toNonEmptyString } from "@/lib/value-guards";
+import { toFiniteNumber } from "@/lib/estimates/editor-values";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -583,10 +584,6 @@ async function fetchSupplierComparisons(
   }
 
   return parseSupplierComparisonResult(payload, itemId);
-}
-
-function toFiniteNumber(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function normalizeQuickFilterTerm(value: string) {

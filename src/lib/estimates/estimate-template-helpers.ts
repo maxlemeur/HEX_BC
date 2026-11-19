@@ -4,6 +4,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { loadValidLaborRoleIdsForOwner } from "@/lib/estimates/estimate-assembly-helpers";
 import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
+import { errorMessageContains } from "@/lib/estimates/server-context";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateTemplateRow = Database["public"]["Tables"]["estimate_templates"]["Row"];
@@ -26,15 +27,6 @@ export function throwAssemblyNameConflictIfNeeded(error: PostgrestError): never 
     error,
     "ESTIMATE_ASSEMBLY_NAME_CONFLICT"
   );
-}
-
-export function errorMessageContains(
-  error: PostgrestError,
-  expectedMessageFragment: string
-): boolean {
-  return (error.message ?? "")
-    .toLowerCase()
-    .includes(expectedMessageFragment.toLowerCase());
 }
 
 export function throwAssemblyCompositionErrorIfNeeded(
@@ -78,10 +70,6 @@ export function throwTemplateSourceVersionNotFoundIfNeeded(
 export function throwTemplateNotFoundIfNeeded(error: PostgrestError): never | void {
   if (!errorMessageContains(error, "template not found")) return;
   throw notFound("Template introuvable.", error, "ESTIMATE_TEMPLATE_NOT_FOUND");
-}
-
-export function toRpcUuid(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 export function toTemplateSummary(row: EstimateTemplateRow, itemCount: number) {

@@ -42,6 +42,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import type { Database, Json } from "@/types/database";
 import { toNonEmptyString } from "@/lib/value-guards";
+import { mapFragmentKindToCandidateSourceType } from "@/lib/estimates/generated-ouvrage-provenance";
 
 type Supabase = SupabaseClient<Database>;
 type CandidateSourceInsert = Database["public"]["Tables"]["estimate_generated_ouvrage_candidate_sources"]["Insert"];
@@ -799,15 +800,6 @@ function pickStringArray(value: unknown) {
   return value
     .map((entry) => toNonEmptyString(entry))
     .filter((entry): entry is string => Boolean(entry));
-}
-
-function mapFragmentKindToCandidateSourceType(
-  kind: GeneratedOuvrageFragmentKind
-): GeneratedOuvrageCandidateSource["type"] {
-  if (kind === "cctp_excerpt") return "cctp";
-  if (kind === "history") return "history";
-  if (kind === "library") return "library";
-  return "text";
 }
 
 function canAccessOwnerResource(input: {

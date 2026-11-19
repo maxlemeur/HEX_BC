@@ -12,18 +12,10 @@ import type {
   CreateSupplierInput,
   UpdateSupplierInput,
 } from "./directory-schemas";
+import { compactRecord } from "@/lib/catalogue/product-writes";
 
 type SupplierInsert = Database["public"]["Tables"]["suppliers"]["Insert"];
 type SupplierUpdate = Database["public"]["Tables"]["suppliers"]["Update"];
-
-function compactRecord<T extends Record<string, unknown>>(payload: T): T {
-  const next: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(payload)) {
-    if (value === undefined) continue;
-    next[key] = value;
-  }
-  return next as T;
-}
 
 async function getAuthenticatedClient() {
   const { supabase, userId } = await getAuthenticatedTenantContext();

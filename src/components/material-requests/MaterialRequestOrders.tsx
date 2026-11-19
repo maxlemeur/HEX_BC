@@ -12,10 +12,11 @@ import type { MaterialRequestOrderNotReadyReason } from "@/lib/material-requests
 import { formatEUR } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-import { formatQuantity, formatQuotedPrice, lineTitle, plural, purchaseOrderHref, purchaseOrderStatusLabel } from "./format";
+import { formatQuantity, formatQuotedPrice, lineTitle, purchaseOrderHref, purchaseOrderStatusLabel } from "./format";
 import { REQUEST_STEP_KEYS, type RequestStepKey } from "./request-steps";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import type { MaterialRequestOrdersApi } from "./useMaterialRequestOrders";
+import { plural } from "@/lib/text/plural";
 
 /*
  * « Commandes » (TI-691, lot 2 « l'achat », delivery 3a): the validated lines priced by a retained quote become one

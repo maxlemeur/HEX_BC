@@ -21,7 +21,7 @@ import { noteLength, noteText } from "@/lib/takeoff/rules/verification";
 // Enter saves a complete entry, Escape cancels it: nothing is saved without its category.
 
 const SELECT_CLASS = "rounded-md border border-border bg-surface p-2 text-sm";
-const quantityText = (value: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value);
+export const quantityText = (value: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value);
 
 export function QuantityEntryDialog({ quantity, unit, busy, onClose, onConfirm }: Readonly<{
   quantity: number; unit: string; busy: boolean; onClose: () => void; onConfirm: (entry: QuantityEntry) => void;

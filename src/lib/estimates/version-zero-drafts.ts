@@ -10,7 +10,6 @@ import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import {
   badRequest,
   conflict,
-  forbidden,
   internalError,
   mapSupabaseError,
   notFound,
@@ -18,7 +17,7 @@ import {
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
-import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import { assertDraftLockOwnedByCurrentUser, assertDraftStatus } from "@/lib/estimates/server-context";
 import {
   assignVersionZeroLotKeys,
   matchVersionZeroLotsByLabel,
@@ -45,7 +44,6 @@ type VersionZeroDraftCounts = NonNullable<
   VersionZeroDraftSummary["activeDraft"]
 >["counts"];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionZeroDraftRow =
   Database["public"]["Tables"]["estimate_version_zero_drafts"]["Row"];
@@ -457,11 +455,6 @@ async function getVersionAccessOrThrow(
     version,
     project,
   };
-}
-
-function assertDraftStatus(status: EstimateStatus) {
-  if (status === "draft") return;
-  throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
 }
 
 async function assertVersionIsEmpty(input: {

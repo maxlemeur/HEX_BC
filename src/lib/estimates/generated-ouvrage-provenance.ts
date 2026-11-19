@@ -74,13 +74,13 @@ type GeneratedOuvrageWorkSnapshotRow = {
   metadata: Json;
 };
 
-function toJson(
+export function toJson(
   value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null
 ) {
   return value as Json;
 }
 
-function mapFragmentKindToCandidateSourceType(
+export function mapFragmentKindToCandidateSourceType(
   kind: GeneratedOuvrageFragmentKind
 ): "text" | "cctp" | "history" | "library" {
   if (kind === "cctp_excerpt") return "cctp";

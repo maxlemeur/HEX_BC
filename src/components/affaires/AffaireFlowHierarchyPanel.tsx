@@ -10,7 +10,6 @@ import {
   AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS,
   isAffaireIntakePrimaryEligibleKind,
   isAffaireIntakeDocumentNeedingReview,
-  isAffaireIntakeDocumentProcessing,
 } from "@/lib/affaires/intake";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { dispatchCockpitOpenSurface } from "@/lib/cockpit/events";
@@ -41,6 +40,7 @@ import { CircleAlertIcon, CircleCheckBigIcon, CircleHelpIcon, FileIcon, FileText
 import { foldText } from "@/lib/text/fold";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { buildManualEstimateHref, isDocumentProcessing } from "@/components/affaires/AffaireFlowHierarchyPanel.model";
 
 type IllustrationItem = {
   key: string;
@@ -110,13 +110,6 @@ function isHybridStructureAction(action: PanelAction) {
 
 function isDpgfImportStructureAction(action: PanelAction) {
   return action.label.toLowerCase().includes("dpgf");
-}
-
-
-function isDocumentProcessing(
-  document: NonNullable<AffaireFlowHierarchyPanelProps["intakeWorkspace"]>["documents"][number],
-) {
-  return isAffaireIntakeDocumentProcessing(document);
 }
 
 function isDocumentNeedingReview(
@@ -278,20 +271,6 @@ function buildMissingOverflowIllustrationItem(count: number): IllustrationItem {
     representedCount: count,
   };
 }
-
-
-function buildManualEstimateHref(input: {
-  projectId: string;
-  currentVersion: AffaireFlowHierarchyPanelProps["currentVersion"];
-}) {
-  if (input.currentVersion?.status === "draft") {
-    return `/dashboard/estimates/${input.currentVersion.id}/edit?entry=manual`;
-  }
-
-  return `/dashboard/estimates/new?projectId=${input.projectId}`;
-}
-
-
 
 function ActionButton({
   action,

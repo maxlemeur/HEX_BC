@@ -19,6 +19,7 @@ import {
 import type { Database, Json } from "@/types/database";
 
 import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -45,11 +46,6 @@ type FreezeEstimateV2SnapshotInput = {
 );
 
 const VERSION_CONFLICT_ERROR_MESSAGE = ESTIMATE_VERSION_CONFLICT_MESSAGE;
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
-}
 
 /**
  * Module serveur profond du gel v2 : charge le contexte, calcule la projection,

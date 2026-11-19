@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
-import { QuantityEntryDialog } from "@/components/takeoff/review/QuantityEntryDialog";
+import { QuantityEntryDialog, quantityText } from "@/components/takeoff/review/QuantityEntryDialog";
 import { TakeoffReviewPolicyPanel, importantReviewItemIds, useTakeoffReviewContext } from "@/components/takeoff/review/TakeoffReviewPolicyPanel";
 import { TargetedReviewFilterBar } from "@/components/takeoff/review/TargetedReviewFilters";
 import { TakeoffPagesAlreadyInEstimateBanner, useTakeoffJobPageContributions } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
@@ -86,7 +86,6 @@ const RIGHT_MIN = 340;
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
 const metres = (value: number) => `${new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(value)} m`;
-const quantityText = (value: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value);
 
 /** A shortcut shown on its button; the button names it with aria-keyshortcuts, so it is not read twice. */
 function Kbd({ children }: Readonly<{ children: React.ReactNode }>) {

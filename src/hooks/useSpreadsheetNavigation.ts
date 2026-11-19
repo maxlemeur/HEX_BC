@@ -11,6 +11,7 @@ import {
   type MouseEvent,
   type RefCallback,
 } from "react";
+import { writeEditorValue } from "@/hooks/useGridNavigation";
 
 const CELL_ID_SEPARATOR = "::";
 
@@ -260,23 +261,6 @@ function isEditorElement(value: EventTarget | null): value is SpreadsheetEditorE
 
 function readEditorValue(editor: SpreadsheetEditorElement) {
   return editor.value;
-}
-
-function writeEditorValue(editor: SpreadsheetEditorElement, value: string) {
-  if (editor.value === value) return;
-
-  const descriptor = Object.getOwnPropertyDescriptor(
-    Object.getPrototypeOf(editor),
-    "value"
-  );
-  descriptor?.set?.call(editor, value);
-
-  if (!descriptor?.set) {
-    editor.value = value;
-  }
-
-  const eventName = editor instanceof HTMLSelectElement ? "change" : "input";
-  editor.dispatchEvent(new Event(eventName, { bubbles: true }));
 }
 
 function selectEditorText(editor: SpreadsheetEditorElement) {

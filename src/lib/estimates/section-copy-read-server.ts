@@ -12,7 +12,6 @@ import {
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   isTenantAdmin,
-  resolveEmbeddedOne,
   type VersionAccessRow,
 } from "@/lib/estimates/server-context";
 import type { ListEstimateImportSourcesQueryInput } from "@/lib/estimates/schemas";
@@ -24,6 +23,7 @@ import type {
   ListEstimateImportSectionsResult,
 } from "@/lib/estimates/section-copy-contracts";
 import { toNonEmptyString } from "@/lib/value-guards";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type EstimateImportSourceProject = Pick<
   EstimateProjectRow,

@@ -12,6 +12,7 @@ import {
   notFound,
 } from "@/lib/http/api-response";
 import { canAccessOwnerResource, isTenantAdmin } from "./server-context";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = SupabaseClient<Database>;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -78,12 +79,6 @@ export type ReleaseDraftLockResult = {
   released: boolean;
   lock: DraftLock | null;
 };
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
 
 function isDraftStatus(status: EstimateStatus) {
   return status === "draft";

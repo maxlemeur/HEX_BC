@@ -43,7 +43,7 @@ const SCALE_LABELS: Record<LabVectorPage["scale"]["status"], string> = {
 };
 const SOURCE_LABELS: Record<LabVectorClassSource, string> = CLASS_SOURCE_LABELS;
 
-function formatDenominator(denominator: number) {
+export function formatDenominator(denominator: number) {
   return Number.isInteger(denominator) ? String(denominator) : denominator.toFixed(1);
 }
 

@@ -13,14 +13,11 @@ import { LabPdfCanvas } from "@/components/takeoff/lab/LabPdfCanvas";
 import { errorMessage, labApi } from "@/components/takeoff/lab/lab-api";
 import { configLabel, promptVersionLabel, type LabCampaignElement, type LabVerdict } from "@/lib/takeoff/lab/contracts";
 import { cn } from "@/lib/utils";
+import { plural } from "@/lib/text/plural";
 
 type StateFilter = "todo" | "all" | "good" | "bad";
 
 const TEXT_INPUTS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
-
-function plural(count: number, singular: string, pluralForm: string) {
-  return `${count} ${count > 1 ? pluralForm : singular}`;
-}
 
 /** « 78 / 156 évalués · 17 bons · 61 pas bons · 77 à parcourir »: évalués = bons + pas bons; « Passer » only leaves « à parcourir ». */
 export function progressText(input: { total: number; good: number; bad: number; skipped: number }) {

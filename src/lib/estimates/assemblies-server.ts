@@ -20,7 +20,6 @@ import {
 } from "@/lib/estimates/estimate-placement-helpers";
 import {
   assertTemplateLaborRolesOwnedForV3,
-  errorMessageContains,
   loadEstimateTemplateItems,
   loadEstimateTemplateOrThrow,
   templateHoursWithoutQuantityMessage,
@@ -38,6 +37,7 @@ import {
   assertDraftStatus,
   getAuthenticatedContext,
   getVersionAccessOrThrow,
+  errorMessageContains,
 } from "@/lib/estimates/server-context";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import {

@@ -321,7 +321,7 @@ function isTextEditor(
   return editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement;
 }
 
-function writeEditorValue(editor: SpreadsheetEditorElement, value: string) {
+export function writeEditorValue(editor: SpreadsheetEditorElement, value: string) {
   if (editor.value === value) return;
 
   const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(editor), "value");

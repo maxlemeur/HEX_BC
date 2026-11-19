@@ -6,11 +6,11 @@ import {
   throwTemplateNameConflictIfNeeded,
   throwTemplateNotFoundIfNeeded,
   throwTemplateSourceVersionNotFoundIfNeeded,
-  toRpcUuid,
   toTemplateSummary,
 } from "@/lib/estimates/estimate-template-helpers";
 import {
   getAuthenticatedContext,
+  toRpcUuid,
 } from "@/lib/estimates/server-context";
 import type { Database } from "@/types/database";
 import type { SupabaseClient } from "@supabase/supabase-js";

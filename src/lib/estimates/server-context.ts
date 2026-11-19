@@ -12,6 +12,7 @@ import {
 import type { Database } from "@/types/database";
 
 import { conflict, forbidden, mapSupabaseError, notFound } from "@/lib/http/api-response";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -80,12 +81,6 @@ export async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
     await getAuthenticatedTenantContext();
 
   return { supabase, userId, tenantId, tenantRole };
-}
-
-export function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
 }
 
 export function isTenantAdmin(tenantRole: TenantRole) {

@@ -1,3 +1,5 @@
+import { stripAccents } from "@/lib/text/fold";
+
 // Room surface rules (TI-664 step 1): a room's polygon area agrees with the
 // surface printed in it, rooms of one page do not overlap, and a bathtub, a
 // cupboard or a shaft drawn as a closed box is no room.
@@ -24,10 +26,6 @@ export const ROOM_OVERLAP = { relative: 0.02, absolute_m2: 0.1, step_m: 0.05, ma
 export const CLOSED_BOX = { maxShare: 0.5 } as const;
 
 const BOX_LABEL = /\b(?:baignoires?|placards?|gaines?(?:\s+techniques?)?|GT[ADL]?)\b/i;
-
-function stripAccents(text: string) {
-  return text.normalize("NFD").replace(/[̀-ͯ]/g, "");
-}
 
 /** A room label naming a bathtub, a cupboard or a shaft (« Placard », « Gaine technique », « GTL »). */
 export function isBoxLabel(room: string) {

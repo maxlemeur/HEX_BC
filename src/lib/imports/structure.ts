@@ -1,4 +1,5 @@
 import { readImportRowStructure } from "./payload";
+import { stripAccents } from "@/lib/text/fold";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -65,10 +66,6 @@ function asText(value: unknown): string {
     return String(value).trim();
   }
   return "";
-}
-
-function stripAccents(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function normalizeToken(value: unknown) {

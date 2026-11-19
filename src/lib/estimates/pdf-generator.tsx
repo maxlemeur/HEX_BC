@@ -89,6 +89,7 @@ import type {
   EstimateVersionChangelogChange,
   EstimateVersionChangelogField,
 } from "./changelog";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = ServerSupabaseClient;
 
@@ -378,12 +379,6 @@ const CHANGELOG_NUMBER_FORMATTER = new Intl.NumberFormat("fr-FR", {
 const CHANGELOG_PERCENT_FORMATTER = new Intl.NumberFormat("fr-FR", {
   maximumFractionDigits: 2,
 });
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
 
 async function getVersionAccessOrThrow(
   context: AuthenticatedContext,

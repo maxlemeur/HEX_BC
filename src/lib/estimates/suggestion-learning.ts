@@ -8,7 +8,7 @@ import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
   type ServerSupabaseClient,
 } from "@/lib/auth/tenant-context";
-import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import { assertDraftLockOwnedByCurrentUser, isTenantAdmin } from "@/lib/estimates/server-context";
 import type { Database } from "@/types/database";
 import { toNonEmptyString } from "@/lib/value-guards";
 
@@ -21,8 +21,6 @@ type AuthenticatedContext = {
   tenantId: string;
   tenantRole: TenantRole;
 };
-
-const TENANT_ADMIN_ROLE: TenantRole = "admin";
 
 const FEATURE_FLAG_LEARNING_ENABLED = "EST_163_SUGGESTION_LEARNING";
 const FEATURE_FLAG_LEARNING_THRESHOLD = "EST_163_SUGGESTION_LEARNING_THRESHOLD";
@@ -102,10 +100,6 @@ export type TrackCorrectionsResult = SuggestionLearningState & {
 };
 
 export type ReviewLearningAction = "approve" | "reject" | "reset";
-
-function isTenantAdmin(tenantRole: TenantRole) {
-  return tenantRole === TENANT_ADMIN_ROLE;
-}
 
 function assertDraftStatus(status: Database["public"]["Enums"]["estimate_status"]) {
   if (status === "draft") return;

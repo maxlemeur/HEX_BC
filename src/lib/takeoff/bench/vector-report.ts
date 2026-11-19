@@ -4,6 +4,7 @@ import type { BenchReport } from "@/lib/takeoff/bench/report";
 import { toleranceOf, withinTolerance, type KeyLabel, type KeyScore, type ScopeScore } from "@/lib/takeoff/bench/score";
 import { DECISIONS_ACCEPTED_MARGIN, LOCAL_MODEL_ACCEPTED_PROBABILITY } from "@/lib/takeoff/vectors/classify";
 import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
+import { percentile } from "@/lib/takeoff/bench/report";
 
 // Comparison of the vector reading with the level C baseline (TI-662
 // acceptance): per scope (document) and in total, lengths (network keys in ml)
@@ -476,12 +477,6 @@ export function table(headers: readonly string[], rows: ReadonlyArray<ReadonlyAr
     ...rows.map((row) => `| ${row.map((cell) => (cell === null ? "–" : String(cell))).join(" | ")} |`)];
 }
 
-export function nearestRank(values: readonly number[], p: number) {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
-}
-
 function seconds(ms: number | null) {
   return ms === null ? "–" : (ms / 1000).toFixed(2);
 }
@@ -496,8 +491,8 @@ export function vectorTimings(passes: readonly VectorBenchPass[]) {
     const reading = read.map((reading) => reading.timings.reading_ms);
     return {
       document: id, samples: pages.length, failed: pages.filter((page) => page.status === "failed").length,
-      extraction_ms: { p50: nearestRank(extraction, 50), p95: nearestRank(extraction, 95), raw: extraction },
-      reading_ms: { p50: nearestRank(reading, 50), p95: nearestRank(reading, 95), raw: reading },
+      extraction_ms: { p50: percentile(extraction, 50), p95: percentile(extraction, 95), raw: extraction },
+      reading_ms: { p50: percentile(reading, 50), p95: percentile(reading, 95), raw: reading },
       operators: read[0]?.counts.operators ?? null, stroke_paths: read[0]?.counts.strokePaths ?? null,
       max_rss_mb: read.length ? Math.round(Math.max(...read.map((entry) => entry.memory.max_rss_kb)) / 1024) : null,
     };
@@ -525,8 +520,8 @@ function summarizeDecisions(document: string | null, pages: readonly DecisionsPa
     document, pages: pages.length,
     calls: { batch: calls.length, without_usage: calls.filter((call) => call.usage === null).length },
     tokens: { input: sum((usage) => usage.input_tokens), output: sum((usage) => usage.output_tokens), total: sum((usage) => usage.total_tokens) },
-    latency_ms: { p50: nearestRank(latency, 50), p95: nearestRank(latency, 95), raw: latency },
-    render_ms: { p50: nearestRank(renders, 50), p95: nearestRank(renders, 95), raw: renders },
+    latency_ms: { p50: percentile(latency, 50), p95: percentile(latency, 95), raw: latency },
+    render_ms: { p50: percentile(renders, 50), p95: percentile(renders, 95), raw: renders },
     candidates: pages.reduce((total, entry) => total + entry.decisions.candidates, 0),
     left_out: pages.reduce((total, entry) => total + entry.decisions.left_out, 0),
     answers: (() => {

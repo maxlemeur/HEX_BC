@@ -13,7 +13,7 @@ import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 import { cn } from "@/lib/utils";
 
-import { lineTitle, plural } from "./format";
+import { lineTitle } from "./format";
 import { MaterialRequestArticleSheet } from "./MaterialRequestArticleSheet";
 import { MaterialRequestBulkBar } from "./MaterialRequestBulkBar";
 import { LINE_COLUMN_TITLES, LINE_GRID, MaterialRequestLineRow } from "./MaterialRequestLineRow";
@@ -27,6 +27,7 @@ import type {
   SupplierRetainEntry,
   WithheldLines,
 } from "./useMaterialRequestEditor";
+import { plural } from "@/lib/text/plural";
 
 /** Which lines the server held back, and why, in the words of the shared alert rules. */
 function BlockedReport({

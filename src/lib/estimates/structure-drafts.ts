@@ -21,13 +21,13 @@ import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
   assertDraftLockOwnedByCurrentUser,
   canAccessOwnerResource,
+  assertDraftStatus,
 } from "@/lib/estimates/server-context";
 import type { Database, Json } from "@/types/database";
 
 import {
   badRequest,
   conflict,
-  forbidden,
   mapSupabaseError,
   notFound,
 } from "@/lib/http/api-response";
@@ -42,6 +42,7 @@ import {
 import { assertCanWriteEstimateWorkflows } from "./write-access";
 import { keepTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 import { toNonEmptyString } from "@/lib/value-guards";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -68,7 +69,6 @@ type EstimateStructureDraftApplicationInsert =
 type EstimateStructureDraftApplyRpcResult =
   Database["public"]["Functions"]["apply_estimate_structure_draft"]["Returns"][number];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type GenerateEstimateStructureDraftInput = z.infer<
   typeof generateEstimateStructureDraftSchema
 >;
@@ -452,12 +452,6 @@ export async function withEstimateAiGenerationLease<T>(input: {
     }
   }
 }
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
 function normalizeSectionTitleKey(value: string | null | undefined) {
   const normalized = toNonEmptyString(value);
   if (!normalized) return "section";
@@ -467,11 +461,6 @@ function normalizeSectionTitleKey(value: string | null | undefined) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-}
-
-export function assertDraftStatus(status: EstimateStatus) {
-  if (status === "draft") return;
-  throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
 }
 
 async function getVersionAccessOrThrow(

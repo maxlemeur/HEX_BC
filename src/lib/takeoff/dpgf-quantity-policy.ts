@@ -35,7 +35,7 @@ type ReviewedRow = Pick<TakeoffDpgfComparisonRow, "dpgf_quantity" | "takeoff_qua
   & { dpgf: Pick<TakeoffDpgfComparisonRow["dpgf"], "unit" | "description" | "length_factor">;
     applied_decision?: Pick<NonNullable<TakeoffDpgfComparisonRow["applied_decision"]>, "decision"> | null };
 
-const round4 = (value: number) => Number(value.toFixed(4));
+export const round4 = (value: number) => Number(value.toFixed(4));
 
 /**
  * TI-696: a reconciliation row's pair on the total its DPGF line will hold, the other takeoffs it keeps and this one, as

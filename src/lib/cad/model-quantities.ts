@@ -5,6 +5,7 @@
 
 import type { CadModel, CadModelDimension } from "./fcstd";
 import { cadCsvCell } from "./quantities";
+import { byName } from "@/lib/cad/quantities";
 
 export type CadModelKindRow = {
   kind: string;
@@ -12,8 +13,6 @@ export type CadModelKindRow = {
   /** The sum, in millimetres, of the « Length » of the objects that have one, and how many do; null when none has. */
   length: { total: number; objects: number } | null;
 };
-
-const byName = (a: string, b: string) => a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" }) || (a < b ? -1 : a > b ? 1 : 0);
 
 /** The kinds of objects, the most numerous first. */
 export function cadModelKinds(model: CadModel): CadModelKindRow[] {

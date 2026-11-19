@@ -35,7 +35,6 @@ import {
   canAccessOwnerResource,
   getAuthenticatedContext,
   getVersionAccessOrThrow,
-  resolveEmbeddedOne,
 } from "./server-context";
 import type { EmbeddedProjectAccess } from "./server-context";
 import {
@@ -48,6 +47,7 @@ import {
   type EstimateVersionEventAuthor,
 } from "./version-list-server";
 import { toNonEmptyString } from "@/lib/value-guards";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = SupabaseClient<Database>;
 
