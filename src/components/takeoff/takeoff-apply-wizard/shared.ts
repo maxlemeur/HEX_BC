@@ -133,6 +133,13 @@ export function mergeSentLinesOf(preview: Pick<TakeoffPreviewConversionResponse,
       quantity: item.transformed.quantity, sourceOrder: item.source_order }));
 }
 
+const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
+
+/** A quantity as the send screen writes it: French digits, up to three decimals. */
+export function formatTakeoffQuantity(value: number): string {
+  return quantityFormat.format(value);
+}
+
 /** What the administrator's mapping rule did to a line, in words; null when no rule touched it. */
 export function mappingRuleEffect(item: Pick<TakeoffPreviewConversionResponse["items"][number], "action" | "rule_name">): string | null {
   const by = item.rule_name ? `par la règle « ${item.rule_name} »` : "par une règle";

@@ -12,6 +12,8 @@ import {
   type TakeoffPageReplacementResponse,
 } from "@/lib/takeoff/page-replacement-contracts";
 
+import { formatTakeoffQuantity } from "./shared";
+
 // TI-682 lot D, PR 2: the estimator's decisions at the confirmation, for every page another takeoff already brought into
 // the estimate. Codex review of 708c7fbf: the database decides per estimate line across all the pages of the application
 // (one take, one removal, one pair per new line), so each choice has one owner here: a page's decision belongs to the
@@ -142,7 +144,6 @@ export type Resolution = {
   merges: Advice[];
 };
 
-const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 /** « a », « a et b », « a, b et c ». */
 const listOf = (items: readonly string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`);
 const placeLabel = (place: { source_file_name: string | null; source_page: number | null }) =>
@@ -336,7 +337,7 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
       const held = outcome?.target.quantity ?? line.quantity;
       // A unit key without a code (« status:… ») is not a unit the estimator reads.
       const unit = outcome?.target.unit_key && !outcome.target.unit_key.startsWith("status:") ? ` ${outcome.target.unit_key}` : "";
-      const measure = held === null ? "" : ` (${quantityFormat.format(held)}${unit})`;
+      const measure = held === null ? "" : ` (${formatTakeoffQuantity(held)}${unit})`;
       const named = (entry: (typeof cut)[number]) => `La ligne DPGF « ${line.title} »${measure} tient la mesure d’un métré appliqué avant `
         + `le cumul, qui mêle ${listOf([...entry.mixes.map((page) => page.label), ...(entry.outside ? ["des pages que ce métré ne relit pas"] : [])])}`
         + ` sans la part de chacune : elle ne sort pas avec ${entry.label} seule.`;
@@ -516,8 +517,8 @@ export function resolveConfirmation(proposal: TakeoffPageReplacementResponse, dr
   // there: its links are checked, it is not asked to be linked here too.
   const merges: Advice[] = proposal.dpgf_merge_refusals.map((refusal) => {
     const unit = refusal.unit_key.startsWith("status:") ? "" : ` ${refusal.unit_key}`;
-    const dpgf = `la ligne DPGF « ${refusal.title} »${refusal.dpgf_quantity === null ? "" : ` (${quantityFormat.format(refusal.dpgf_quantity)}${unit})`}`;
-    const line = `« ${refusal.designation} » (${quantityFormat.format(refusal.quantity)}${refusal.unit.trim() ? ` ${refusal.unit.trim()}` : ""}) de ce métré`;
+    const dpgf = `la ligne DPGF « ${refusal.title} »${refusal.dpgf_quantity === null ? "" : ` (${formatTakeoffQuantity(refusal.dpgf_quantity)}${unit})`}`;
+    const line = `« ${refusal.designation} » (${formatTakeoffQuantity(refusal.quantity)}${refusal.unit.trim() ? ` ${refusal.unit.trim()}` : ""}) de ce métré`;
     const why = "Une ligne DPGF ne reçoit une mesure que par le rapprochement, qui garde au moins sa quantité du DPGF : la base refuse cette fusion.";
     return refusal.linked
       ? { text: `La fusion enverrait ${line}, que le rapprochement relie à une autre ligne DPGF, aussi sur ${dpgf}, que ce métré n’alimente pas. ${why}`,

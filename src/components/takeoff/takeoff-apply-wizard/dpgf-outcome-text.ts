@@ -1,13 +1,13 @@
 import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
 
 import type { DpgfTargetOutcome } from "./page-decisions";
+import { formatTakeoffQuantity } from "./shared";
 
 // TI-682 D4: how the application's confirmation says what a DPGF line will hold. A line that falls says so on the line,
 // with why (the page no longer feeds it) and where the page's new measure went: it never reads as unchanged.
 
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
-const quantity = (value: number | null) => (value === null ? "—" : quantityFormat.format(value));
+const quantity = (value: number | null) => (value === null ? "—" : formatTakeoffQuantity(value));
 
 /** « 40 → 30 (−10) ». */
 export function dpgfChange(outcome: DpgfTargetOutcome) {

@@ -3,7 +3,7 @@
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
-import { mappingRuleEffect } from "./shared";
+import { formatTakeoffQuantity, mappingRuleEffect } from "./shared";
 
 type PreviewItem = TakeoffPreviewConversionResponse["items"][number];
 
@@ -13,8 +13,6 @@ export const DPGF_LINES_TITLE = "Lignes retenues avant le rapprochement DPGF";
 export const DPGF_OUT_OF_SCOPE_NOTE = "Ce compte inclut les lignes que le rapprochement DPGF a classées hors périmètre : elles ne sont "
   + "pas envoyées, et cette liste ne les distingue pas.";
 export const SKIPPED_LINES_TITLE = "Laissées de côté par une règle";
-
-const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 
 function provenance(source: TakeoffJobItem | undefined) {
   if (!source) return "Provenance non renseignée";
@@ -56,7 +54,7 @@ function LinesSection({ id, title, note, items, sourceByItemId }: {
                   {renamed ? <span className="font-normal text-foreground-secondary"> → {item.transformed.designation}</span> : null}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {quantityFormat.format(item.transformed.quantity)} {item.transformed.unit} · {provenance(sourceByItemId.get(item.item_id))}
+                  {formatTakeoffQuantity(item.transformed.quantity)} {item.transformed.unit} · {provenance(sourceByItemId.get(item.item_id))}
                 </p>
                 {effect ? <p className="text-xs font-medium text-foreground-secondary">{effect}</p> : null}
               </li>
