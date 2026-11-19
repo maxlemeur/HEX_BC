@@ -1042,12 +1042,3 @@ export type TakeoffPriceSuggestionQuery = z.infer<
   typeof takeoffPriceSuggestionQuerySchema
 >;
 export type TakeoffRiskRadarQuery = z.infer<typeof takeoffRiskRadarQuerySchema>;
-export type SaveTakeoffReviewDecisionPayload = z.infer<
-  typeof saveTakeoffReviewDecisionSchema
->;
-export type RequestTakeoffPriceSuggestionPayload = z.infer<
-  typeof requestTakeoffPriceSuggestionSchema
->;
-export type ReviewTakeoffPriceSuggestionPayload = z.infer<
-  typeof reviewTakeoffPriceSuggestionSchema
->;

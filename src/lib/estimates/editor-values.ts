@@ -6,7 +6,6 @@ import {
   parseStoredCoefficient,
 } from "@/lib/numeric-input/parsers";
 
-export type JsonRecord = Record<string, unknown>;
 export function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }

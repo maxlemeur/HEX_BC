@@ -161,16 +161,6 @@ async function duplicateSectionInternal(input: {
   };
 }
 
-export async function duplicateSection(
-  sectionId: string,
-  targetVersionId?: string
-) {
-  return duplicateSectionInternal({
-    sectionId,
-    targetVersionId,
-  });
-}
-
 export async function duplicateSectionFromVersion(
   sourceVersionId: string,
   sectionId: string,
