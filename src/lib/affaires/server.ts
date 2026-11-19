@@ -2048,8 +2048,6 @@ export async function fetchAffaireManagerQueueSummary(
   return result.summary;
 }
 
-const DASHBOARD_RECENT_AFFAIRE_LIMIT = 5;
-
 export type AffaireDashboardWorkspaceResult = {
   affaires: AffaireDashboardOverviewResult["recentAffaires"];
   counters: AffaireCountersResult;
@@ -2085,30 +2083,6 @@ export async function fetchAffaireDashboardWorkspace(input: DashboardQuery): Pro
     counters,
     previousCursor: hasPreviousPage ? first ? cursorFor(first) : input.cursor : null,
     nextCursor: hasNextPage ? last ? cursorFor(last) : input.cursor : null,
-  };
-}
-
-export async function fetchAffaireDashboardOverview(): Promise<AffaireDashboardOverviewResult> {
-  const context = await getAuthenticatedContext();
-  const query = normalizeAffaireListQuery({ dir: "desc" });
-  const [list, counters] = await Promise.all([
-    fetchAffaireListRowsWithContext(context, {
-      ...query,
-      size: DASHBOARD_RECENT_AFFAIRE_LIMIT,
-    }),
-    fetchAffaireCountersWithContext(context, query),
-  ]);
-
-  return {
-    recentAffaires: list.items.map((item) => ({
-      projectId: item.projectId,
-      projectName: item.projectName,
-      projectReference: item.projectReference,
-      projectClient: item.projectClient,
-      currentStatus: item.currentStatus,
-      currentUpdatedAt: item.currentUpdatedAt,
-    })),
-    counters,
   };
 }
 

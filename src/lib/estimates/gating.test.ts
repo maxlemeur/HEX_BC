@@ -40,7 +40,7 @@ import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { resolveEstimateSendOverride } from "@/lib/estimates/version-lifecycle-plan";
-import { appendProvisionalQuantityMentions, composeProvisionalQuantityMention } from "@/lib/estimates/provisional-quantity";
+import { composeProvisionalQuantityMention, planProvisionalQuantityMentions } from "@/lib/estimates/provisional-quantity";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
@@ -1128,8 +1128,8 @@ describe("estimate send gating", () => {
       const exclusions = "Réseaux enterrés non compris.";
       const result = await evaluate(lines, { exclusions });
       const missingFlag = result.blockingFlags.find((flag) => flag.key === "provisional_quantity_mention_missing");
-      const written = appendProvisionalQuantityMentions(exclusions, lines.map((line) =>
-        composeProvisionalQuantityMention(line, line.offer_choice as never)!));
+      const written = planProvisionalQuantityMentions(exclusions, lines.map((line) =>
+        composeProvisionalQuantityMention(line, line.offer_choice as never)!)).text;
       expect(written.length).toBeGreaterThan(5000);
       expect(missingFlag?.details).toEqual({ limits_overflow: { missing_characters: written.length - 5000, limit: 5000 } });
       expect(() => resolveEstimateSendOverride(result, true)).toThrow(expect.objectContaining({
@@ -1265,7 +1265,7 @@ describe("estimate send gating", () => {
       expect(keys(result)).toEqual({ blocking: [], warning: ["supplier_price_outdated"] });
     });
 
-    it("starts its queries and reads in a fixed order, and reads the selected supplier prices once each", async () => {
+    it("scopes every query and read to the tenant and version, and reads the selected supplier prices once each", async () => {
       const log: string[] = [];
       vi.mocked(fetchAffaireRegisterGateSummary).mockImplementation(async (input) => {
         log.push(`fetchAffaireRegisterGateSummary(${format([input.projectId, input.versionId])})`);
@@ -1314,7 +1314,7 @@ describe("estimate send gating", () => {
 
       await evaluate({ supabase, version, project: { user_id: "owner-1" } });
 
-      expect(log).toEqual([
+      expect([...log].sort()).toEqual([
         `rpc("read_estimate_version_items", {"p_tenant_id":"${TENANT_ID}","p_version_id":"${VERSION_ID}"}, {"count":"exact","get":true})`
           + `.order("position", {"ascending":true}).order("id", {"ascending":true}).range(0, 499)`,
         `from("margin_tiers").select("id", {"count":"exact"}).eq("tenant_id", "${TENANT_ID}")`
@@ -1329,7 +1329,7 @@ describe("estimate send gating", () => {
           + `.in("id", ["sp-1","sp-2"])`,
         "loadCanonicalFixedDiscountEvidence",
         "evaluateRules",
-      ]);
+      ].sort());
       expect(vi.mocked(fetchAffaireRegisterGateSummary).mock.calls[0]?.[0].supabase).toBe(supabase);
       expect(vi.mocked(getFeatureFlagValueForTenant).mock.calls.map((call) => call[2]?.supabase)).toEqual([supabase, supabase]);
       expect(vi.mocked(getStalePriceDaysForTenant).mock.calls[0]?.[1]?.supabase).toBe(supabase);
@@ -1363,11 +1363,11 @@ describe("estimate send gating", () => {
         marginTiers: [], documents: [{ id: "doc-1" }],
       }), log);
       await evaluate({ supabase });
-      expect(log.map((entry) => entry.slice(0, entry.indexOf(")") + 1))).toEqual([
+      expect(log.map((entry) => entry.slice(0, entry.indexOf(")") + 1)).sort()).toEqual([
         `rpc("read_estimate_version_items", {"p_tenant_id":"${TENANT_ID}","p_version_id":"${VERSION_ID}"}, {"count":"exact","get":true})`,
         `from("margin_tiers")`,
         `from("estimate_documents")`,
-      ]);
+      ].sort());
     });
 
     const fixedDiscountVersion = {

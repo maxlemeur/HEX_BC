@@ -17,10 +17,6 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
-vi.mock("@/lib/takeoff/gemini-client", () => ({
-  callGeminiStructured: vi.fn(),
-}));
-
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { DWG_DATABASE_DXF_WRITER } from "@/lib/cad/dwg-conversion-script";
 import { readDxf } from "@/lib/cad/dxf";
-import { cadPathAt, listCadPaths } from "@/lib/cad/model";
+import { cadPathAt, listCadPaths } from "@/lib/cad/model.test-utils";
 
 // The program text the conversion process runs is run here as it is, on drawings written by hand in the
 // shape LibreDWG's reading gives them: what the reader of src/lib/cad then draws and measures is what counts.

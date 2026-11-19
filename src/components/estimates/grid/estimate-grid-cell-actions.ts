@@ -293,10 +293,6 @@ function descriptorOf(item: EstimateItem, columnKey: string): ColumnDescriptor |
   return COLUMN_DESCRIPTORS[columnKey] ?? null;
 }
 
-export function isEstimateGridCellWritable(item: EstimateItem, columnKey: string) {
-  return Boolean(descriptorOf(item, columnKey)?.parse);
-}
-
 export function readEstimateGridCellText(
   item: EstimateItem,
   columnKey: string,

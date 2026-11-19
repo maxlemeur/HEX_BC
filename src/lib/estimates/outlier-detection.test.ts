@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   detectEstimateOutliers,
-  withOutlierFlagDismissals,
   type EstimateOutlierFlagKey,
   type EstimateOutlierFlagsByItemId,
 } from "@/lib/estimates/outlier-detection";
@@ -95,20 +94,5 @@ describe("outlier detection", () => {
 
     expect(strictResult["l-5"]).toContain("quantity_outlier");
     expect(relaxedResult["l-5"]).toBeUndefined();
-  });
-
-  it("excludes dismissed flags from active outliers", () => {
-    const active = withOutlierFlagDismissals({
-      detectedOutliersByItemId: {
-        "line-1": ["price_outlier", "quantity_outlier"],
-      },
-      dismissedOutliersByItemId: {
-        "line-1": ["price_outlier"],
-      },
-    });
-
-    expect(active).toEqual({
-      "line-1": ["quantity_outlier"],
-    });
   });
 });

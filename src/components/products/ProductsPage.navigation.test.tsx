@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { fetchMock, replaceMock } = vi.hoisted(() => ({
@@ -31,7 +31,10 @@ describe("product sheet return navigation", () => {
     fetchMock.mockReturnValue(new Promise((done) => { resolve = done; }));
     const view = render(<ProductsPage />);
     view.unmount();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     resolve({ items: [{ id: "target-product", designation: "Perfo filaire" }] });
-    await waitFor(() => expect(replaceMock).not.toHaveBeenCalled());
+    // Let the lookup continuation run before asserting it did nothing.
+    await new Promise((done) => setTimeout(done, 0));
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 });

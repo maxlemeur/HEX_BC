@@ -166,13 +166,6 @@ function resolveKeywordMatch(title: string, keyword: string, titleTokens = title
   };
 }
 
-export function scoreSuggestion<TRule extends SuggestionRuleForScoring>(input: {
-  title: string;
-  rule: TRule;
-}): SuggestionScore<TRule> | null {
-  return scorePreparedSuggestion(normalizeWord(input.title), input.rule, splitKeywords(input.rule.match_value));
-}
-
 function scorePreparedSuggestion<TRule extends SuggestionRuleForScoring>(
   normalizedTitle: string,
   rule: TRule,
@@ -296,23 +289,4 @@ export function createSuggestionRanker<TRule extends SuggestionRuleForScoring>(
     cache.set(key, result);
     return result.slice();
   };
-}
-
-export function scoreSuggestionRule<TRule extends SuggestionRuleForScoring>(
-  title: string,
-  rule: TRule
-) {
-  return scoreSuggestion({ title, rule });
-}
-
-export function rankSuggestionRules<TRule extends SuggestionRuleForScoring>(
-  title: string,
-  rules: TRule[],
-  options?: { limit?: number }
-) {
-  return rankSuggestions({
-    title,
-    rules,
-    limit: options?.limit,
-  });
 }

@@ -11,10 +11,6 @@ vi.mock("@/lib/estimates/structure-drafts", () => ({
   generateEstimateStructureDraft: vi.fn(),
   withEstimateAiGenerationLease: vi.fn(),
 }));
-vi.mock("@/lib/takeoff/gemini-client", () => ({
-  callGeminiStructured: vi.fn(),
-}));
-
 import {
   enrichEstimateItemsWithVersionZeroProvenance,
   materializeVersionZeroDraft,

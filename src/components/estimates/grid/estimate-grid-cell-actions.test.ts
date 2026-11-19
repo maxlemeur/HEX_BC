@@ -6,7 +6,6 @@ import type { GridSelection } from "@/hooks/useGridNavigation";
 import {
   describeEstimateGridPlanLeftovers,
   groupEstimateGridWrites,
-  isEstimateGridCellWritable,
   parseClipboardMatrix,
   planEstimateGridClear,
   planEstimateGridFillDown,
@@ -99,16 +98,6 @@ describe("readEstimateGridCellText", () => {
     expect(
       readEstimateGridCellText(item, "unit", { ...context, isV3: false, legacyUnitByItemId: { a: "m2" } }),
     ).toBe("m2");
-  });
-
-  it("knows which cells accept a value", () => {
-    const item = line("a");
-    expect(isEstimateGridCellWritable(item, "quantity")).toBe(true);
-    expect(isEstimateGridCellWritable(item, "pu_ht")).toBe(false);
-    expect(isEstimateGridCellWritable(item, "line_total_ht")).toBe(false);
-    expect(isEstimateGridCellWritable(item, "supplier")).toBe(false);
-    expect(isEstimateGridCellWritable(section("s", "Lot"), "title")).toBe(true);
-    expect(isEstimateGridCellWritable(section("s", "Lot"), "quantity")).toBe(false);
   });
 });
 

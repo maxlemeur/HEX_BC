@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { aciColor, CadReadError, readDxf } from "@/lib/cad/dxf";
 import { arc, circle, dxfBytes, dxfText, insert, layer, line, lwpolyline, rec, text, type DxfFixture } from "@/lib/cad/dxf.test-utils";
-import { listCadPaths } from "@/lib/cad/model";
+import { listCadPaths } from "@/lib/cad/model.test-utils";
 
 // Fictional drawings only. Each test names the rule of the DXF format the
 // reader must respect: a wrong reading here is a wrong quantity in a devis.

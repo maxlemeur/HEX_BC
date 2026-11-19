@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DwgConversionError, dwgFormatCode } from "@/lib/cad/dwg-conversion";
 import { convertDwgToDxf, DWG_CONVERSION_LIMITS, nodeLocksTheNetwork, oneAtATime, runLockedProgram } from "@/lib/cad/dwg-conversion-server";
 import { readDxf } from "@/lib/cad/dxf";
-import { listCadPaths } from "@/lib/cad/model";
+import { listCadPaths } from "@/lib/cad/model.test-utils";
 import { measureCadDrawing } from "@/lib/cad/quantities";
 
 const fixture = (name: string) => new Uint8Array(readFileSync(join(process.cwd(), "src/test/fixtures/cad", name)));

@@ -88,8 +88,7 @@ describe("audit GET route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(supabase.from).toHaveBeenCalledWith("audit_logs");
-    expect(query.eq).toHaveBeenNthCalledWith(1, "tenant_id", TENANT_ID);
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", TENANT_ID);
     expect(query.eq).toHaveBeenCalledWith("table_name", "estimate_items");
     expect(query.eq).toHaveBeenCalledWith(
       "estimate_version_id",

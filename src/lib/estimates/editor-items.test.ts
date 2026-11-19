@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildEstimateItemUpdatePayload, buildVersionDiscountPatch, hasLaborSplitFields, readLaborSplitFields, resolveLaborRoleHourlyRate, type EstimateItem } from "@/lib/estimates/editor-items";
+import { buildEstimateItemUpdatePayload, buildVersionDiscountPatch, readLaborSplitFields, resolveLaborRoleHourlyRate, type EstimateItem } from "@/lib/estimates/editor-items";
 
 function createItem(overrides: Partial<EstimateItem> = {}): EstimateItem {
   return {
@@ -116,9 +116,6 @@ describe("estimate editor item payloads", () => {
       h_mo_atelier: null,
       h_mo_chantier: null,
     });
-
-    expect(hasLaborSplitFields({ title: "legacy line" })).toBe(false);
-    expect(hasLaborSplitFields({ h_mo_atelier: undefined })).toBe(true);
 
     const role = {
       hourly_rate_cents: 4200,

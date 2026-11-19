@@ -61,10 +61,6 @@ export function panCadViewport(viewport: CadViewport, dx: number, dy: number): C
   return { scale: viewport.scale, x: viewport.x - dx / viewport.scale, y: viewport.y + dy / viewport.scale };
 }
 
-export function cadPointAt(viewport: CadViewport, sx: number, sy: number): [number, number] {
-  return [viewport.x + sx / viewport.scale, viewport.y - sy / viewport.scale];
-}
-
 export type CadScene = {
   drawing: CadDrawing;
   /** x0, y0, x1, y1 of each path. The first loop of a hatch holds the box of all its loops. */

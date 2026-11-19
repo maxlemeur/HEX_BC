@@ -49,7 +49,7 @@ import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-compari
 import { listEstimateItemRows } from "@/lib/estimates/version-read-server";
 import {
   buildAffaireHubReadinessSnapshot,
-  fetchAffaireDashboardOverview,
+  fetchAffaireDashboardWorkspace,
   fetchAffaireHubMarginAnalysis,
   fetchAffaireHubPlansSummary,
   fetchAffaireHubSummary,
@@ -2130,14 +2130,14 @@ describe("affaires dashboard metadata race", () => {
     context.supabase.from.mockImplementation(() => versionRead as never);
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
 
-    const overview = await fetchAffaireDashboardOverview();
+    const overview = await fetchAffaireDashboardWorkspace({ view: "recent", cursor: null, direction: "next" });
 
     // The dashboard renders no amount: it must not make the financial read at all.
     expect(context.supabase.from).not.toHaveBeenCalled();
     expect(versionRead.in).not.toHaveBeenCalled();
     // Exact projection prevents fixing availability by returning stale monetary
     // fields or a later currency attached to the RPC's earlier amount.
-    expect(overview.recentAffaires).toEqual(listed.slice(0, 5).map((row) => ({
+    expect(overview.affaires).toEqual(listed.slice(0, 5).map((row) => ({
       projectId: row.project_id, projectName: row.project_name,
       projectReference: row.project_reference, projectClient: row.project_client,
       currentStatus: row.current_status, currentUpdatedAt: row.current_updated_at,

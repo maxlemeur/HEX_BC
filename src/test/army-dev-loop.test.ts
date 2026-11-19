@@ -70,7 +70,25 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// A session iteration reads its source evidence from the real checkout through
+// Git (`git diff HEAD` exits fatally when a modified file vanishes mid-read, as
+// it does while other work edits the tree). The session test pins the
+// supervisor's own checks, so it reads fixed evidence instead; the other tests
+// keep reading the real checkout, whose build inputs they guard.
+const sourceEvidence = vi.hoisted(() => ({ fixed: false }));
+vi.mock("../../scripts/tester-army/local-recipe-common.mjs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../scripts/tester-army/local-recipe-common.mjs")>();
+  return {
+    ...actual,
+    buildSourceEvidence: () => sourceEvidence.fixed
+      ? Promise.resolve({ revision: "0".repeat(40), diffSha256: "0".repeat(64), inputs: [{ path: "src/app/page.tsx", sha256: "1".repeat(64) }] })
+      : actual.buildSourceEvidence(),
+    untrackedJourneyInputs: (...args: Parameters<typeof actual.untrackedJourneyInputs>) =>
+      sourceEvidence.fixed ? [] : actual.untrackedJourneyInputs(...args),
+  };
+});
 
 import { runDevLoopSession } from "../../scripts/tester-army/dev-loop";
 import {
@@ -103,6 +121,7 @@ function temporaryDirectory(prefix = "army-dev-loop-unit-") {
 }
 
 afterEach(() => {
+  sourceEvidence.fixed = false;
   for (const directory of temporary.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
 });
 
@@ -167,6 +186,7 @@ function request(socketPath: string, body: Record<string, unknown>) {
 async function openSession(options: {
   afterBuild?: (count: number, checkout: string) => void;
 } = {}) {
+  sourceEvidence.fixed = true;
   const checkout = temporaryDirectory("army-dev-loop-session-");
   fs.mkdirSync(path.join(checkout, "supabase/migrations"), { recursive: true });
   fs.writeFileSync(path.join(checkout, "supabase/migrations/001_base.sql"), "create table a ();\n");

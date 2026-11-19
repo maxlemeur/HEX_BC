@@ -250,19 +250,3 @@ export function detectEstimateOutliers(input: {
 
   return flagsByItemId;
 }
-
-export function withOutlierFlagDismissals(input: {
-  detectedOutliersByItemId: EstimateOutlierFlagsByItemId;
-  dismissedOutliersByItemId: EstimateOutlierFlagsByItemId;
-}): EstimateOutlierFlagsByItemId {
-  const result: EstimateOutlierFlagsByItemId = {};
-
-  Object.entries(input.detectedOutliersByItemId).forEach(([itemId, flags]) => {
-    const dismissed = new Set(input.dismissedOutliersByItemId[itemId] ?? []);
-    const activeFlags = flags.filter((flag) => !dismissed.has(flag));
-    if (activeFlags.length === 0) return;
-    result[itemId] = activeFlags;
-  });
-
-  return result;
-}
