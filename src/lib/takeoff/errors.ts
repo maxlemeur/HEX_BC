@@ -2,6 +2,7 @@ import { ZodError } from "zod";
 
 import { ApiError } from "@/lib/estimates/errors";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
+import { isRecord } from "@/lib/value-guards";
 
 export enum TakeoffErrorCode {
   BAD_REQUEST = "BAD_REQUEST",
@@ -74,11 +75,6 @@ const BEARER_TOKEN_VALUE_REGEX = /(bearer\s+)[A-Za-z0-9\-._~+/]+=*/gi;
 const TAKEOFF_ERROR_CODES = new Set<TakeoffErrorCode>(
   Object.values(TakeoffErrorCode)
 );
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function redactString(value: string) {
   return value
     .replace(GOOGLE_API_KEY_VALUE_REGEX, "[REDACTED_API_KEY]")

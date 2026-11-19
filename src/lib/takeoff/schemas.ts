@@ -278,7 +278,6 @@ function validateRegexMatchPattern(
   }
 }
 
-
 const takeoffMappingRuleCreateCommonShape = {
   name: takeoffMappingRuleNameSchema,
   match_pattern: takeoffMappingRulePatternSchema,

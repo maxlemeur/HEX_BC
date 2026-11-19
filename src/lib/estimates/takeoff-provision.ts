@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { TakeoffHypothesisCause } from "@/lib/takeoff/hypothesis";
 import type { Json } from "@/types/database";
+import { isRecord } from "@/lib/value-guards";
 
 /**
  * TI-686 D10/D12: the marker the takeoff application writes on an estimate line built from a line an administrator
@@ -50,11 +51,6 @@ export type TakeoffProvision = {
   readable: boolean;
   sources: TakeoffProvisionSource[];
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** The takeoff provision of an estimate line, from its source_metadata; null when the line carries no marker. */
 export function readTakeoffProvision(sourceMetadata: unknown): TakeoffProvision | null {
   if (!isRecord(sourceMetadata)) return null;

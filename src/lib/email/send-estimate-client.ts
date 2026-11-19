@@ -5,6 +5,7 @@ import {
 } from "@/lib/email/send-estimate-contract";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type { SendEstimateInput } from "@/lib/estimates/schemas";
+import { asRecord } from "@/lib/value-guards";
 
 export class EstimateEmailSendError extends Error {
   constructor(message: string, readonly canStartNewRequest = false, readonly requiresDraftReview = false) {
@@ -12,12 +13,6 @@ export class EstimateEmailSendError extends Error {
     this.name = "EstimateEmailSendError";
   }
 }
-
-function record(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown> : null;
-}
-
 export async function sendEstimateEmailRequest(input: EstimateEmailRequestIdentity & {
   payload: SendEstimateInput;
   concurrencyToken?: string;
@@ -42,8 +37,8 @@ export async function sendEstimateEmailRequest(input: EstimateEmailRequestIdenti
   }
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    const root = record(body);
-    const error = record(root?.error);
+    const root = asRecord(body);
+    const error = asRecord(root?.error);
     const confirmedError = root?.ok === false && !("data" in root) &&
       typeof error?.message === "string" && error.message.trim().length > 0;
     const canStartNewRequest =

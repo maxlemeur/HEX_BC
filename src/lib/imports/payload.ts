@@ -1,3 +1,5 @@
+import { asRecord } from "@/lib/value-guards";
+
 export const IMPORT_ROW_PROVENANCE_KEY = "_timax_provenance";
 export const IMPORT_ROW_STRUCTURE_KEY = "_timax_structure";
 
@@ -60,15 +62,6 @@ export function attachImportRowStructure<T extends Record<string, unknown>>(
     [IMPORT_ROW_STRUCTURE_KEY]: structure,
   };
 }
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  return value as Record<string, unknown>;
-}
-
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
 

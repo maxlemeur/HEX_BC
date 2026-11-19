@@ -1,6 +1,7 @@
 import type { CopiedEstimateItem } from "@/lib/estimates/copy-items-server";
 import { badRequest, internalError, notFound } from "@/lib/estimates/errors";
 import type { EstimateItemRow } from "@/lib/estimates/version-read-server";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export function collectSectionSubtreeItems(
   sourceSectionId: string,
@@ -53,7 +54,7 @@ export function collectSectionSubtreeItems(
 }
 
 export function normalizeSectionTitleKey(value: string | null | undefined) {
-  const normalized = toNullableText(value);
+  const normalized = toNonEmptyString(value);
   if (!normalized) return "section";
   return normalized.toLowerCase();
 }
@@ -63,7 +64,7 @@ export function resolveImportedSectionTitle(input: {
   usedTitleKeys: ReadonlySet<string>;
 }) {
   const fallbackTitle = "Section importée";
-  const baseTitle = toNullableText(input.sourceTitle) ?? fallbackTitle;
+  const baseTitle = toNonEmptyString(input.sourceTitle) ?? fallbackTitle;
   const baseKey = normalizeSectionTitleKey(baseTitle);
 
   if (!input.usedTitleKeys.has(baseKey)) {
@@ -282,7 +283,7 @@ export function prepareSectionsImport({ subtrees, targetItems, mode, tenantId, t
     if (!newIdBySourceId) throw internalError("Impossible d'importer la section.");
 
     const sourceRootTitle =
-      toNullableText(subtree.rootSection.title) ?? "Section importée";
+      toNonEmptyString(subtree.rootSection.title) ?? "Section importée";
     const sourceRootTitleKey = normalizeSectionTitleKey(sourceRootTitle);
 
     if (mode === "merge") {
@@ -357,10 +358,4 @@ export function prepareSectionsImport({ subtrees, targetItems, mode, tenantId, t
     importedLinesCount,
     importedSectionsCount: subtrees.length,
   };
-}
-
-function toNullableText(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }

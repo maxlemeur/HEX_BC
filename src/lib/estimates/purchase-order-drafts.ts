@@ -122,7 +122,6 @@ export type EstimatePurchaseOrderDraftPreparation = {
   transferred_lines: z.infer<typeof purchaseTransferSchema>[];
 };
 
-
 export type EstimatePurchaseOrderDraftsCreateInput = z.infer<
   typeof estimatePurchaseOrderDraftsCreateSchema
 >;

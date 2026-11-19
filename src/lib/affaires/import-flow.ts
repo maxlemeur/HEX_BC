@@ -34,6 +34,7 @@ import {
   type ImportStructureRow,
 } from "@/lib/imports/structure";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
+import { asRecord } from "@/lib/value-guards";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -180,15 +181,6 @@ export type ImportFlowStats = {
   ignoredFooterRows: number;
   skippedRows: number;
 };
-
-function asRecord(value: unknown): JsonRecord | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  return value as JsonRecord;
-}
-
 function normalizeText(value: unknown): string {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number" || typeof value === "boolean") return String(value).trim();

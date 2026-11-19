@@ -35,6 +35,7 @@ import {
 } from "@/lib/estimates/diff";
 import { getEstimateVersionDetails } from "@/lib/estimates/server";
 import { readTakeoffProvision, takeoffProvisionHypothesisBasis, type TakeoffProvisionHypothesisBasis } from "@/lib/estimates/takeoff-provision";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 const ESTIMATE_EXPLANATIONS_SELECT = [
   "id",
@@ -297,19 +298,7 @@ type NormalizedExplanationPayload = {
   impact_summary: EstimateExplanationImpactSummary;
   confidence_label: EstimateExplanationConfidenceLabel;
   confidence_score: number;
-};
-
-function toNonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function formatVersionLabel(input: {
+};function formatVersionLabel(input: {
   version_number: number;
   title: string | null;
 }) {

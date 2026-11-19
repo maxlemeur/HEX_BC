@@ -72,7 +72,6 @@ export {
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   isTenantAdmin,
-  toNullableText,
   toRpcUuid,
 } from "./server-context";
 

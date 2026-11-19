@@ -216,7 +216,6 @@ type PdfIssuer = {
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
-
 const changelogStyles = StyleSheet.create({
   page: {
     paddingTop: 24,
@@ -385,9 +384,6 @@ function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value;
 }
-
-
-
 
 async function getVersionAccessOrThrow(
   context: AuthenticatedContext,
@@ -627,12 +623,6 @@ function resolveGenerationPurpose(
   if (options.triggeredBy !== "send") return "manual";
   return options.dispatchId ? "email" : "workflow";
 }
-
-
-
-
-
-
 
 export async function markEstimatePdfProcessing(
   versionId: string,

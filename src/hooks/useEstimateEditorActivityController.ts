@@ -13,6 +13,7 @@ import {
 import { fetchEstimateVersionEvents, type EstimateVersionEvent } from "@/lib/estimates/client";
 import { normalizeEstimateEditorIdentity } from "@/lib/estimates/editor-document-state";
 import type { Database } from "@/types/database";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 const AUDIT_LOG_LIMIT = 25;
 const AUDIT_LOAD_ERROR = "Impossible de charger les logs d'audit.";
@@ -114,17 +115,6 @@ const LOADING_TIMELINE_STATE: TimelineActivityState = {
   ...EMPTY_TIMELINE_STATE,
   isLoading: true,
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toNonEmptyString(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function resolveActivityErrorMessage(payload: unknown, fallback: string) {
   if (!isRecord(payload)) return fallback;
   const nestedError = isRecord(payload.error) ? payload.error : null;

@@ -9,7 +9,7 @@ import {
   type SuggestionCorrectionPayload,
   type SuggestionCorrectionValue,
 } from "@/components/estimates/estimate-editor-table-types";
-import { toNonEmptyString } from "@/lib/estimates/editor-values";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type ItemPatch = EstimateEditorItemPatch;
 type CellPatchEntries = ReadonlyArray<{ itemId: string; patch: ItemPatch }>;

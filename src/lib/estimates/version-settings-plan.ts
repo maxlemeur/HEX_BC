@@ -1,7 +1,8 @@
 import { DEFAULT_MAX_SECTION_DEPTH, clampMaxSectionDepth } from "@/lib/estimates/hierarchy";
 import type { PatchEstimateVersionInput } from "@/lib/estimates/schemas";
-import { normalizeEstimateCurrencyOrThrow, toNullableText } from "@/lib/estimates/version-write-normalization";
+import { normalizeEstimateCurrencyOrThrow } from "@/lib/estimates/version-write-normalization";
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 
@@ -10,10 +11,10 @@ export function prepareEstimateVersionSettingsPatch(input: PatchEstimateVersionI
   const payload: EstimateVersionUpdate = {};
 
   if ("title" in input) {
-    payload.title = toNullableText(input.title);
+    payload.title = toNonEmptyString(input.title);
   }
   if ("exclusions" in input) {
-    payload.exclusions = toNullableText(input.exclusions);
+    payload.exclusions = toNonEmptyString(input.exclusions);
   }
   if ("date_devis" in input) {
     payload.date_devis = input.date_devis;

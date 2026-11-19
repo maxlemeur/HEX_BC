@@ -1,4 +1,4 @@
-import { isRecord, toStringValue } from "@/lib/estimates/client-json";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export type ApiEnvelope<T> = {
   ok?: boolean;
@@ -61,7 +61,7 @@ export function toErrorMessage(payload: unknown, fallback: string): string {
   ];
 
   for (const candidate of candidates) {
-    const parsed = toStringValue(candidate);
+    const parsed = toNonEmptyString(candidate);
     if (parsed) return parsed;
   }
 
@@ -89,8 +89,8 @@ export function extractErrorCode(payload: unknown): string | null {
 
   const envelope = payload as ApiEnvelope<unknown>;
   return (
-    toStringValue(envelope.error?.code) ??
-    toStringValue(payload.code) ??
+    toNonEmptyString(envelope.error?.code) ??
+    toNonEmptyString(payload.code) ??
     null
   );
 }

@@ -12,6 +12,7 @@ import {
   type TakeoffPriceSuggestionCandidate,
 } from "@/lib/takeoff/price-suggestions";
 import { createHash } from "node:crypto";
+import { isRecord } from "@/lib/value-guards";
 
 export type EstimateItemPriceSuggestionRow = {
   id: string;
@@ -145,11 +146,6 @@ export function buildPriceSuggestionQueryText(line: {
 
   return joined.length >= 2 ? joined : line.title.trim();
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function toHexSha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }

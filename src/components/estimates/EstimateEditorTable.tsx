@@ -197,6 +197,7 @@ import {
   type EstimateEditorItemMeta,
   type EstimateEditorItemPatch,
 } from "@/components/estimates/estimate-editor-table-types";
+import { asRecord, toNonEmptyString } from "@/lib/value-guards";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -357,13 +358,6 @@ type ConvertEstimateItemResult = {
   reassigned_children: ConversionReassignedChild[];
 };
 
-function toObjectRecord(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
-
 function toSupplierComparisonAlternativeKind(value: unknown) {
   switch (value) {
     case "best_price":
@@ -379,7 +373,7 @@ function toSupplierComparisonAlternativeKind(value: unknown) {
 function toSupplierComparisonAlternative(
   source: unknown
 ): SupplierComparisonAlternative | null {
-  const record = toObjectRecord(source);
+  const record = asRecord(source);
   if (!record) return null;
 
   const kind =
@@ -448,23 +442,23 @@ function toSupplierComparisonAlternative(
 }
 
 export function parseSupplierComparisonResult(payload: unknown, fallbackItemId: string) {
-  const envelopeRecord = toObjectRecord(payload);
-  const dataRecord = toObjectRecord(envelopeRecord?.data);
+  const envelopeRecord = asRecord(payload);
+  const dataRecord = asRecord(envelopeRecord?.data);
   const directComparisonRecord =
-    toObjectRecord(dataRecord?.comparison) ?? toObjectRecord(envelopeRecord?.comparison);
+    asRecord(dataRecord?.comparison) ?? asRecord(envelopeRecord?.comparison);
   const comparisonsArray =
     (Array.isArray(dataRecord?.comparisons) ? dataRecord.comparisons : null) ??
     (Array.isArray(envelopeRecord?.comparisons) ? envelopeRecord.comparisons : null);
   const selectedFromArray =
     comparisonsArray
-      ?.map((entry) => toObjectRecord(entry))
+      ?.map((entry) => asRecord(entry))
       .find((entry) => {
         if (!entry) return false;
         const itemId =
           toNonEmptyString(entry.item_id) ?? toNonEmptyString(entry.itemId);
         return itemId === fallbackItemId;
       }) ??
-    comparisonsArray?.map((entry) => toObjectRecord(entry)).find(Boolean) ??
+    comparisonsArray?.map((entry) => asRecord(entry)).find(Boolean) ??
     null;
   const comparisonRecord =
     directComparisonRecord ?? selectedFromArray ?? dataRecord ?? envelopeRecord ?? {};
@@ -503,9 +497,9 @@ export function parseSupplierComparisonResult(payload: unknown, fallbackItemId: 
 }
 
 function parseConvertEstimateItemResult(payload: unknown) {
-  const envelopeRecord = toObjectRecord(payload);
-  const dataRecord = toObjectRecord(envelopeRecord?.data) ?? envelopeRecord;
-  const itemRecord = toObjectRecord(dataRecord?.item);
+  const envelopeRecord = asRecord(payload);
+  const dataRecord = asRecord(envelopeRecord?.data) ?? envelopeRecord;
+  const itemRecord = asRecord(dataRecord?.item);
   if (!itemRecord) {
     throw new Error("Impossible de convertir l'élément.");
   }
@@ -514,7 +508,7 @@ function parseConvertEstimateItemResult(payload: unknown) {
     ? dataRecord.reassigned_children
     : [];
   const reassignedChildren = reassignedChildrenSource
-    .map((entry) => toObjectRecord(entry))
+    .map((entry) => asRecord(entry))
     .map((entry) => {
       const id = toNonEmptyString(entry?.id);
       const parentIdRaw =
@@ -593,12 +587,6 @@ async function fetchSupplierComparisons(
 
 function toFiniteNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function toNonEmptyString(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 function normalizeQuickFilterTerm(value: string) {

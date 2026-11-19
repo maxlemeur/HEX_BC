@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth/tenant-context";
 import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = ServerSupabaseClient;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -129,13 +130,6 @@ function parseFlagInteger(input: {
 function parseFeatureFlagEnabled(value: unknown) {
   return value === true;
 }
-
-function normalizeTextValue(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function parseNumericOverride(value: string | null) {
   if (!value) return null;
   const parsed = Number.parseFloat(value.replace(",", "."));
@@ -270,7 +264,7 @@ export function applyLearningBoost(input: {
           overrides.description = correctedValue;
           break;
         case "category_id":
-          overrides.category_id = normalizeTextValue(correctedValue);
+          overrides.category_id = toNonEmptyString(correctedValue);
           break;
         case "k_fo":
           overrides.k_fo = parseNumericOverride(correctedValue);
@@ -279,10 +273,10 @@ export function applyLearningBoost(input: {
           overrides.k_mo = parseNumericOverride(correctedValue);
           break;
         case "labor_role_id":
-          overrides.labor_role_id = normalizeTextValue(correctedValue);
+          overrides.labor_role_id = toNonEmptyString(correctedValue);
           break;
         case "supply_type_id":
-          overrides.supply_type_id = normalizeTextValue(correctedValue);
+          overrides.supply_type_id = toNonEmptyString(correctedValue);
           break;
       }
 
@@ -549,8 +543,8 @@ export async function trackCorrection(input: {
         return null;
       }
 
-      const originalValue = normalizeTextValue(correction.original_value);
-      const correctedValue = normalizeTextValue(correction.corrected_value);
+      const originalValue = toNonEmptyString(correction.original_value);
+      const correctedValue = toNonEmptyString(correction.corrected_value);
 
       if (originalValue === correctedValue) {
         return null;
@@ -631,7 +625,7 @@ export async function reviewLearning(input: {
   const context = await getAuthenticatedContext();
   await assertTenantAdmin(context);
 
-  const normalizedCorrectedValue = normalizeTextValue(input.correctedValue);
+  const normalizedCorrectedValue = toNonEmptyString(input.correctedValue);
 
   if (input.action === "reset") {
     let deleteQuery = context.supabase

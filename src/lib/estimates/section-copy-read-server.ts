@@ -13,7 +13,6 @@ import {
   getVersionAccessOrThrow,
   isTenantAdmin,
   resolveEmbeddedOne,
-  toNullableText,
   type VersionAccessRow,
 } from "@/lib/estimates/server-context";
 import type { ListEstimateImportSourcesQueryInput } from "@/lib/estimates/schemas";
@@ -24,6 +23,7 @@ import type {
   EstimateImportSectionPreviewItem,
   ListEstimateImportSectionsResult,
 } from "@/lib/estimates/section-copy-contracts";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type EstimateImportSourceProject = Pick<
   EstimateProjectRow,
@@ -138,7 +138,7 @@ export async function listEstimateImportSections(
 
       return {
         id: section.id,
-        title: toNullableText(section.title) ?? "Section sans titre",
+        title: toNonEmptyString(section.title) ?? "Section sans titre",
         line_count: lineItems.length,
         total_ht_cents: lineItems.reduce(
           (sum, item) => sum + (item.line_total_ht_cents ?? 0),

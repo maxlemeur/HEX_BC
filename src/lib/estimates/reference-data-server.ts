@@ -13,7 +13,6 @@ import {
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   isTenantAdmin,
-  toNullableText,
 } from "@/lib/estimates/server-context";
 import {
   badRequest,
@@ -33,6 +32,7 @@ import type {
   UpdateSuggestionRuleInput,
 } from "@/lib/estimates/schemas";
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateCategoryInsert =
@@ -71,7 +71,7 @@ export async function createEstimateCategory(
       tenant_id: tenantId,
       user_id: project.user_id,
       name: input.name.trim(),
-      color: toNullableText(input.color),
+      color: toNonEmptyString(input.color),
       position,
     } as EstimateCategoryInsert)
     .select("*")
@@ -367,7 +367,7 @@ export async function createSuggestionRule(
       name: input.name.trim(),
       match_type: input.match_type ?? "keyword",
       match_value: input.match_value.trim(),
-      unit: toNullableText(input.unit),
+      unit: toNonEmptyString(input.unit),
       category_id: categoryId,
       k_fo: input.k_fo ?? null,
       k_mo: input.k_mo ?? null,
@@ -435,7 +435,7 @@ export async function updateSuggestionRule(
   if ("name" in input) payload.name = input.name;
   if ("match_type" in input) payload.match_type = input.match_type;
   if ("match_value" in input) payload.match_value = input.match_value;
-  if ("unit" in input) payload.unit = toNullableText(input.unit);
+  if ("unit" in input) payload.unit = toNonEmptyString(input.unit);
   if ("category_id" in input) payload.category_id = input.category_id ?? null;
   if ("k_fo" in input) payload.k_fo = input.k_fo ?? null;
   if ("k_mo" in input) payload.k_mo = input.k_mo ?? null;

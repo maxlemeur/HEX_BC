@@ -9,7 +9,6 @@ import {
   clampConfidence,
   normalizeRiskSignals,
   readJsonStringArray,
-  toNullableText,
 } from "@/lib/estimates/generated-ouvrage-evidence";
 import { normalizeGeneratedOuvrageParent } from "@/lib/estimates/generated-ouvrage-parent";
 import {
@@ -42,6 +41,7 @@ import {
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import type { Database, Json } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 type CandidateSourceInsert = Database["public"]["Tables"]["estimate_generated_ouvrage_candidate_sources"]["Insert"];
@@ -735,7 +735,7 @@ function readReviewedCandidateSnapshot(value: unknown) {
   }
 
   const record = value as JsonRecord;
-  const designation = toNullableText(record.designation);
+  const designation = toNonEmptyString(record.designation);
   if (!designation) {
     return null;
   }
@@ -775,7 +775,7 @@ function normalizeDesignation(value: string) {
 }
 
 function normalizeSectionTitle(value: string | null | undefined) {
-  const normalized = toNullableText(value);
+  const normalized = toNonEmptyString(value);
   if (!normalized) {
     return "section";
   }
@@ -797,7 +797,7 @@ function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | 
 function pickStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
-    .map((entry) => toNullableText(entry))
+    .map((entry) => toNonEmptyString(entry))
     .filter((entry): entry is string => Boolean(entry));
 }
 
@@ -917,7 +917,7 @@ async function loadConfirmedBriefFragments(input: {
     const brief = data[0] as AffaireBriefRow;
     const fragments: SourceFragmentSeed[] = [];
 
-    const summary = toNullableText(brief.summary);
+    const summary = toNonEmptyString(brief.summary);
     if (summary) {
       fragments.push({
         sourceKind: "internal_note",
@@ -927,7 +927,7 @@ async function loadConfirmedBriefFragments(input: {
       });
     }
 
-    const projectObject = toNullableText(brief.project_object);
+    const projectObject = toNonEmptyString(brief.project_object);
     if (projectObject) {
       fragments.push({
         sourceKind: "internal_note",
@@ -998,7 +998,7 @@ async function loadHistoricalFragments(input: {
 
     return (itemData as HistoricalLineRow[]).map((row) => {
       const parts = [normalizeText(row.title, 220)];
-      const description = toNullableText(row.description);
+      const description = toNonEmptyString(row.description);
       if (description) {
         parts.push(description);
       }
@@ -1050,7 +1050,7 @@ async function loadLibraryFragments(input: {
         fragments.push({
           sourceKind: "library",
           label: "Template de devis",
-          excerpt: [normalizeText(row.name, 180), toNullableText(row.description)]
+          excerpt: [normalizeText(row.name, 180), toNonEmptyString(row.description)]
             .filter((value): value is string => Boolean(value))
             .join(" | "),
           metadata: { templateId: row.id },
@@ -1063,7 +1063,7 @@ async function loadLibraryFragments(input: {
         fragments.push({
           sourceKind: "library",
           label: "Ouvrage",
-          excerpt: [normalizeText(row.name, 180), toNullableText(row.description)]
+          excerpt: [normalizeText(row.name, 180), toNonEmptyString(row.description)]
             .filter((value): value is string => Boolean(value))
             .join(" | "),
           metadata: { assemblyId: row.id },
@@ -1100,10 +1100,10 @@ async function buildSourceFragmentSeeds(input: {
           : "Texte libre saisi",
     excerpt: normalizeMultilineText(input.sourceText, MAX_SOURCE_TEXT_LENGTH),
     sourceDocumentId: input.sourceDocumentId ?? null,
-    sourceFileName: toNullableText(input.sourceFileName),
+    sourceFileName: toNonEmptyString(input.sourceFileName),
     sourcePageFrom: input.sourcePageFrom ?? null,
     sourcePageTo: input.sourcePageTo ?? null,
-    selectionLabel: toNullableText(input.selectionLabel),
+    selectionLabel: toNonEmptyString(input.selectionLabel),
     metadata: {
       origin: "input",
     },
@@ -1128,7 +1128,7 @@ async function buildSourceFragmentSeeds(input: {
   ]);
 
   const noteFragment =
-    toNullableText(input.project.notes) === null
+    toNonEmptyString(input.project.notes) === null
       ? []
       : [
           {
@@ -1432,16 +1432,16 @@ function sanitizePromptCandidates(input: {
         candidateOrder: index,
         designation,
         normalizedDesignation,
-        lotLabel: toNullableText(candidate.lotLabel) ?? input.preferredLotLabel,
+        lotLabel: toNonEmptyString(candidate.lotLabel) ?? input.preferredLotLabel,
         suggestedLotId: input.preferredLotId,
-        unit: toNullableText(candidate.unit)?.slice(0, 64) ?? null,
+        unit: toNonEmptyString(candidate.unit)?.slice(0, 64) ?? null,
         quantity:
           typeof candidate.quantity === "number" && Number.isFinite(candidate.quantity)
             ? toStoredEstimateNumeric(candidate.quantity, 3)
             : null,
         confidence: clampConfidence(candidate.confidence),
         aiStatus: candidate.status,
-        reasoning: toNullableText(candidate.reasoning)?.slice(0, 320) ?? null,
+        reasoning: toNonEmptyString(candidate.reasoning)?.slice(0, 320) ?? null,
         sourceFragmentIds,
       };
     })
@@ -1946,7 +1946,7 @@ function inferLaborQuantity(input: {
   parentQuantity: number | null;
   yieldValue: number | null;
 }) {
-  const unit = toNullableText(input.unit)?.toLowerCase();
+  const unit = toNonEmptyString(input.unit)?.toLowerCase();
   if (input.yieldValue && input.parentQuantity !== null) {
     return multiplyToStoredEstimateNumeric(toStoredEstimateNumeric(input.parentQuantity, 3), toStoredEstimateNumeric(input.yieldValue, 3), 3);
   }
@@ -1971,7 +1971,7 @@ function generateInitialSubdetailComponents(input: {
 } {
   const profile = keywordCostProfile(input.candidate.designation);
   const quantity = input.candidate.quantity ?? 1;
-  const effectiveUnit = toNullableText(input.candidate.unit) ?? "u";
+  const effectiveUnit = toNonEmptyString(input.candidate.unit) ?? "u";
   const fragmentById = new Map(
     input.draftFragments.map((fragment) => [fragment.id, fragment] as const)
   );
@@ -2262,7 +2262,7 @@ function mapSubdetailRowsToResult(input: {
     summary: {
       ...computedSummary,
       pricingSource:
-        toNullableText(
+        toNonEmptyString(
           typeof summaryRecord.pricing_source === "string"
             ? summaryRecord.pricing_source
             : null
@@ -2385,7 +2385,7 @@ function normalizeDraftResult(loaded: DraftLoaded): GeneratedOuvrageDraftResult 
         reviewed
           ? {
               ...reviewed,
-              lotId: toNullableText(payload?.resolved_lot_id ?? payload?.lot_id),
+              lotId: toNonEmptyString(payload?.resolved_lot_id ?? payload?.lot_id),
             }
           : null,
       ] as const;
@@ -2599,11 +2599,11 @@ export async function generateOuvragesFromText(
       excerpt: seed.excerpt,
       normalized_excerpt: seed.excerpt.toLowerCase(),
       source_document_id: seed.sourceDocumentId ?? null,
-      source_file_name: toNullableText(seed.sourceFileName),
+      source_file_name: toNonEmptyString(seed.sourceFileName),
       source_page_from: seed.sourcePageFrom ?? null,
       source_page_to: seed.sourcePageTo ?? null,
-      selection_label: toNullableText(seed.selectionLabel),
-      cctp_section_ref: toNullableText(seed.cctpSectionRef),
+      selection_label: toNonEmptyString(seed.selectionLabel),
+      cctp_section_ref: toNonEmptyString(seed.cctpSectionRef),
       metadata: toJson(seed.metadata ?? {}),
     }));
 

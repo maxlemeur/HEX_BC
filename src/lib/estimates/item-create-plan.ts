@@ -9,6 +9,7 @@ import { resolveEstimateLineNature } from "@/lib/estimates/line-nature";
 import type { CreateEstimateItemInput } from "@/lib/estimates/schemas";
 import { pickV3ItemInputFields } from "@/lib/estimates/v3-persistence";
 import { badRequest } from "@/lib/estimates/errors";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 /**
  * TI-682, lot C : le motif interne d'une exclusion s'écrit par le lot (commit_estimate_batch), jamais par la création
@@ -36,9 +37,9 @@ export function prepareEstimateItemCreation({ input, id, parentId, position, aid
   maxSectionDepth: number;
   versionTaxRateBp: number | null;
 }): AtomicEstimateItemInsert {
-  const sourceProvider = toNullableText(input.source_provider) ?? "manual";
+  const sourceProvider = toNonEmptyString(input.source_provider) ?? "manual";
   const sourceJobId = input.source_job_id ?? null;
-  const sourceFileName = toNullableText(input.source_file_name);
+  const sourceFileName = toNonEmptyString(input.source_file_name);
   const sourcePage = input.source_page ?? null;
 
   if (input.item_type === "section") {
@@ -66,7 +67,7 @@ export function prepareEstimateItemCreation({ input, id, parentId, position, aid
   }
 
   const title = input.title ?? "Nouvelle ligne";
-  const description = toNullableText(input.description);
+  const description = toNonEmptyString(input.description);
   const quantity = input.quantity ?? 1;
   const unitPriceHtCents = input.unit_price_ht_cents ?? 0;
   const taxRateBp = input.tax_rate_bp ?? versionTaxRateBp ?? DEFAULT_TAX_RATE_BP;
@@ -137,10 +138,4 @@ export function prepareEstimateItemCreation({ input, id, parentId, position, aid
     source_file_name: sourceFileName,
     source_page: sourcePage,
   };
-}
-
-function toNullableText(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }

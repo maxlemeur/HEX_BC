@@ -24,10 +24,10 @@ import {
   assertDraftStatus,
   getAuthenticatedContext,
   getVersionAccessOrThrow,
-  toNullableText,
 } from "@/lib/estimates/server-context";
 import { commitV3Copy, planV3LinkedDpgfImport } from "@/lib/estimates/v3-section-copy";
 import { recalculateEstimateVersionTotals } from "@/lib/estimates/version-recalculation-server";
+import { toNonEmptyString } from "@/lib/value-guards";
 const DEFAULT_MARGIN_MULTIPLIER = 1;
 
 type PreparedLinkedDpgfSource = {
@@ -116,14 +116,14 @@ async function importLinkedDpgfSourceIntoVersionInternal(
     v3: input.v3,
   });
 
-  const defaultTitle = toNullableText(latestImport.filename)
+  const defaultTitle = toNonEmptyString(latestImport.filename)
     ? `Import DPGF - ${latestImport.filename}`
     : "Import DPGF";
   const resolvedSectionTitle = await resolveLinkedDpgfImportSectionTitle({
     supabase: input.supabase,
     tenantId: input.tenantId,
     versionId: input.versionId,
-    requestedTitle: toNullableText(input.sectionTitle) ?? defaultTitle,
+    requestedTitle: toNonEmptyString(input.sectionTitle) ?? defaultTitle,
   });
   const createdSectionId = randomUUID();
   const rootPosition = await getNextItemPosition(input.supabase, input.versionId, null);

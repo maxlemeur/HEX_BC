@@ -28,7 +28,6 @@ import {
   fetchVersionComputationContext,
   getCurrentMembershipOrThrow,
   getImportOrThrow,
-  normalizeNullableText,
   toRpcImportItems,
 } from "@/lib/affaires/import-flow-server";
 import {
@@ -55,6 +54,7 @@ import {
   linkTakeoffJobsFromSourceVersionToTargetVersion,
   summarizeTakeoffCarryOverSourceVersion,
 } from "@/lib/takeoff/version-links";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export type ConfirmUnifiedImportFlowMode = "mapping_only" | "version_created";
 
@@ -531,7 +531,7 @@ export async function confirmUnifiedImportFlow(
         id: projectId,
       },
       version: {
-        title: normalizeNullableText(parsed.data.versionTitle) ?? "Import DPGF",
+        title: toNonEmptyString(parsed.data.versionTitle) ?? "Import DPGF",
         ...(saleCoefficients
           ? { sale_coefficient_fo: saleCoefficients.fo, sale_coefficient_mo: saleCoefficients.mo }
           : {}),
@@ -541,7 +541,7 @@ export async function confirmUnifiedImportFlow(
         importId: parsed.data.importId,
         mappingId,
         filename: importRow.filename,
-        sectionTitle: normalizeNullableText(parsed.data.sectionTitle),
+        sectionTitle: toNonEmptyString(parsed.data.sectionTitle),
         items: toRpcImportItems(normalizedRows.validItems, {
           importId: parsed.data.importId,
           mappingId,

@@ -5,9 +5,9 @@ import { z } from "zod";
 
 import {
   getCurrentMembershipOrThrow,
-  normalizeNullableText,
 } from "@/lib/affaires/import-flow-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 const updateAffaireProjectMetadataSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
@@ -49,10 +49,10 @@ export async function updateAffaireProjectMetadataAction(
     .from("estimate_projects")
     .update({
       name: parsed.projectName.trim(),
-      client_name: normalizeNullableText(parsed.clientName),
-      reference: normalizeNullableText(parsed.reference),
+      client_name: toNonEmptyString(parsed.clientName),
+      reference: toNonEmptyString(parsed.reference),
       ...(parsed.siteAddress !== undefined
-        ? { site_address: normalizeNullableText(parsed.siteAddress) }
+        ? { site_address: toNonEmptyString(parsed.siteAddress) }
         : {}),
     })
     .eq("id", parsed.projectId)

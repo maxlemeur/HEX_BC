@@ -9,6 +9,7 @@ import {
   DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN,
   type UpdateEstimateItemInput,
 } from "@/lib/estimates/schemas";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export function assertEstimateItemAidFormat(input: {
   aid: string | null;
@@ -174,7 +175,7 @@ export function prepareEstimateLineUpdate({ input, currentItem, versionTaxRateBp
     ("title" in input ? input.title : currentItem.title) ?? currentItem.title;
   const nextDescription =
     ("description" in input
-      ? toNullableText(input.description)
+      ? toNonEmptyString(input.description)
       : (currentLineDefaults.description ?? null)) ?? null;
   const nextQuantity =
     ("quantity" in input
@@ -325,10 +326,4 @@ export function calculateEstimateLineUpdate({ preparedLine, marginMultiplier,
     line_tax_cents: lineValues.taxLineCents,
     line_total_ttc_cents: lineValues.ttcLineCents,
   };
-}
-
-function toNullableText(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }

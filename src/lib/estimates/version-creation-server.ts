@@ -19,8 +19,8 @@ import { loadLinkedDpgfCreationSource } from "@/lib/estimates/version-creation-s
 import {
   DEFAULT_CURRENCY,
   normalizeEstimateCurrencyOrThrow,
-  toNullableText,
 } from "@/lib/estimates/version-write-normalization";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export async function createEstimate(
   input: CreateEstimateInput & { linked_import_id?: string | null }
@@ -84,9 +84,9 @@ export async function createEstimate(
       : {
           kind: "new",
           name: input.project!.name,
-          reference: toNullableText(input.project!.reference),
-          clientName: toNullableText(input.project!.client_name),
-          notes: toNullableText(input.project!.notes),
+          reference: toNonEmptyString(input.project!.reference),
+          clientName: toNonEmptyString(input.project!.client_name),
+          notes: toNonEmptyString(input.project!.notes),
         },
     source,
   });

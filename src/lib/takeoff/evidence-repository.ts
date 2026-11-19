@@ -8,6 +8,7 @@ import {
   type SupplierPriceEvidenceRow,
   type TakeoffLineEvidenceSyncPlan,
 } from "@/lib/takeoff/evidence-preparation";
+import { isRecord } from "@/lib/value-guards";
 
 type EvidenceSelectResult = {
   count?: number | null;
@@ -44,11 +45,6 @@ type EvidenceSupabaseTable = {
 export type EvidenceSupabaseClient = {
   from: (table: string) => EvidenceSupabaseTable;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function asNullableString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }

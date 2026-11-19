@@ -8,6 +8,7 @@ import type {
   TakeoffLineEvidencePanelResponse,
   TakeoffLineEvidenceStatus,
 } from "@/lib/takeoff/types";
+import { isRecord } from "@/lib/value-guards";
 
 export type SupplierPriceEvidenceRow = {
   id: string;
@@ -63,11 +64,6 @@ type DesiredEvidenceSpec = Omit<
 };
 
 const ACTIVE_EVIDENCE_INVALIDATION_REASON = "snapshot_replaced";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function asNullableString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }

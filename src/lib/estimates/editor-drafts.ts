@@ -1,6 +1,4 @@
-import {
-  isRecord,
-} from "@/lib/estimates/editor-values";
+import { isRecord } from "@/lib/value-guards";
 
 const AUTOSAVE_PREFERENCE_STORAGE_PREFIX =
   "estimate:edit:autosave-enabled:v1:";

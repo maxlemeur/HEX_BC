@@ -11,6 +11,7 @@ import {
   type EstimateDiffResult,
   type EstimateVersionDetailsForDiff,
 } from "./diff";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -142,19 +143,12 @@ export type EstimateVersionChangelogResolution = {
   cacheStatus: EstimateVersionChangelogCacheStatus;
   computedAt: string;
 };
-
-function normalizeTextValue(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function normalizeSnapshotValue(
   value: unknown,
   kind: EstimateDiffFieldChange["kind"]
 ): string | number | null {
   if (kind === "text" || kind === "reference") {
-    return normalizeTextValue(value);
+    return toNonEmptyString(value);
   }
 
   return normalizeNumberValue(value);

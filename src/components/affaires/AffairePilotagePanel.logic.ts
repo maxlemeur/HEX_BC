@@ -79,8 +79,6 @@ export type AffairePilotageStructureMode =
     })
   | null;
 
-
-
 type ReadyToSendBlockingFlag =
   NonNullable<AffaireHubFinishLineSummaryResult>["readyToSend"]["blockingFlags"][number];
 
@@ -113,10 +111,6 @@ export function resolveSubmissionReadiness(
     errorMessage: readyToSend.errorMessage,
   };
 }
-
-
-
-
 
 export function isPdfFinishLineFlag(flag: ReadyToSendBlockingFlag) {
   return flag.category === "pdf" || flag.key === "no_pdf_generated";
@@ -154,8 +148,6 @@ export function describeSubmissionReadinessGroup(
 
   return `${categoryLabel} · ${countLabel}`;
 }
-
-
 
 function describePilotageStructureMode(input: {
   structureMode: AffairePilotageStructureMode;
@@ -210,9 +202,6 @@ function describePilotageStructureMode(input: {
   };
 }
 
-
-
-
 function hasValidatedDpgfMapping(dpgfSource: AffaireHubDpgfSourceResult) {
   return (
     dpgfSource !== null &&
@@ -246,11 +235,6 @@ export function buildTakeoffExceptionsHref(
 
   return `/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`;
 }
-
-
-
-
-
 
 function countDocumentsNeedingReview(intakeWorkspace: AffairePilotageWorkspace) {
   if (!intakeWorkspace) {

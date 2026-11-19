@@ -14,13 +14,9 @@ import type {
   TakeoffDpgfComparisonResponse,
   TakeoffJobItem,
 } from "@/lib/takeoff/types";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export type TakeoffDpgfEstimateItem = z.infer<typeof takeoffDpgfCompareEstimateItemRowSchema>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 const takeoffDpgfManualLinkSchema: z.ZodType<TakeoffDpgfManualLinkRecord> = z.object({
   id: z.string().uuid(),
   tenant_id: z.string().uuid(),
@@ -141,13 +137,6 @@ export function normalizeTakeoffDpgfMappedRows(rows: unknown[]) {
     )
   );
 }
-
-function toNullableText(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 export function resolveMappedRowPayload(payload: Record<string, unknown>) {
   const embedded = payload.mapped_row;
   return isRecord(embedded) ? embedded : payload;
@@ -165,10 +154,10 @@ function extractDpgfMappedRowIndex(payload: Record<string, unknown>) {
 export function extractDpgfMappedRowUnit(payload: Record<string, unknown>) {
   const mappedRow = resolveMappedRowPayload(payload);
   return (
-    toNullableText(mappedRow.unit) ??
-    toNullableText(mappedRow.unite) ??
-    toNullableText(mappedRow.uom) ??
-    toNullableText(mappedRow.measure_unit)
+    toNonEmptyString(mappedRow.unit) ??
+    toNonEmptyString(mappedRow.unite) ??
+    toNonEmptyString(mappedRow.uom) ??
+    toNonEmptyString(mappedRow.measure_unit)
   );
 }
 
@@ -223,7 +212,7 @@ export function normalizeDpgfComparisonEstimateItems(input: {
       const legacyUnit = typeof row.source_page === "number" && !row.source_file_name?.toLowerCase().endsWith(".pdf")
         ? input.legacyUnits.get(row.source_file_name)?.get(row.source_page) ?? null : null;
       const unit = metadata?.dpgf_source_unit !== undefined
-        ? toNullableText(metadata.dpgf_source_unit) : facts ? facts.unit : legacyUnit;
+        ? toNonEmptyString(metadata.dpgf_source_unit) : facts ? facts.unit : legacyUnit;
       return {
         estimate_item_id: row.id,
         mappedRowId: mappingId,

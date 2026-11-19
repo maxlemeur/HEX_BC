@@ -31,6 +31,7 @@ import {
   type CostingWorkbookRows,
 } from "@/lib/catalogue/costing-workbook-file";
 import { cn } from "@/lib/utils";
+import { asRecord } from "@/lib/value-guards";
 
 /**
  * Imports the office's costing workbook (« bible de chiffrage ») into catalogue drafts (TI-690, lot 1). The
@@ -76,11 +77,6 @@ const formatCount = (value: number) => value.toLocaleString("fr-FR");
 function plural(count: number, one: string, many: string) {
   return count === 1 ? one : many;
 }
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
 function isReport(value: unknown): value is CostingWorkbookImportReport {
   const record = asRecord(value);
   return Boolean(

@@ -14,11 +14,7 @@ import {
   type TakeoffMappingPreviewItem,
 } from "@/lib/takeoff/types";
 import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
+import { isRecord } from "@/lib/value-guards";
 function isTakeoffApplyScope(value: unknown): value is TakeoffApplyScope {
   return (
     typeof value === "string" &&

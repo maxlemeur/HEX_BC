@@ -1,3 +1,5 @@
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
+
 type PlanSetLike = {
   name: string | null | undefined;
   metadata?: Record<string, unknown> | null;
@@ -13,22 +15,7 @@ const LOT_LABEL_METADATA_KEYS = [
   "trade_label",
   "scopeLabel",
   "scope_label",
-] as const;
-
-function toTrimmedString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function extractActivityCenterLotLabel(
+] as const;export function extractActivityCenterLotLabel(
   metadata: unknown
 ): string | null {
   if (!isRecord(metadata)) {
@@ -36,7 +23,7 @@ export function extractActivityCenterLotLabel(
   }
 
   for (const key of LOT_LABEL_METADATA_KEYS) {
-    const label = toTrimmedString(metadata[key]);
+    const label = toNonEmptyString(metadata[key]);
     if (label) {
       return label;
     }
@@ -50,6 +37,6 @@ export function resolveActivityCenterLotLabel(
 ): string | null {
   return (
     extractActivityCenterLotLabel(planSet.metadata) ??
-    toTrimmedString(planSet.name)
+    toNonEmptyString(planSet.name)
   );
 }

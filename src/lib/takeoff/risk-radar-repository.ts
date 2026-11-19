@@ -21,6 +21,7 @@ import {
   type TakeoffRiskRadarProjectionPlan,
   type buildTakeoffRiskAlertStatusUpdate,
 } from "@/lib/takeoff/risk-radar-preparation";
+import { isRecord } from "@/lib/value-guards";
 
 const ESTIMATE_RISK_ITEMS_SELECT = [
   "id",
@@ -91,11 +92,6 @@ const ESTIMATE_RISK_ALERTS_SELECT = [
   "first_detected_at",
   "last_detected_at",
 ].join(", ");
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function resolveEmbeddedProjectRecord(value: unknown) {
   if (Array.isArray(value)) {
     return value.find((entry) => isRecord(entry)) ?? null;

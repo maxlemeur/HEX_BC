@@ -1,11 +1,9 @@
 type UpdatePayload = Record<string, unknown>;
 
-
 export type BufferedUpdate<T extends UpdatePayload> = {
   id: string;
   updates: T;
 };
-
 
 export function upsertBufferedUpdate<T extends UpdatePayload>(
   buffer: Map<string, T>,
@@ -33,8 +31,6 @@ export function serializeBufferedUpdates<T extends UpdatePayload>(
  * (TI-534: the FO provision of a changed supply type), from the item as it was before the overlay.
  */
 export type BufferedItemDerivation<TItem> = (source: TItem, merged: TItem) => TItem;
-
-
 
 export function shouldFlushBufferedUpdates(
   pendingUpdateCount: number,

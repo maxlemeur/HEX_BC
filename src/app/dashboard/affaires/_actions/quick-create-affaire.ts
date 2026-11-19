@@ -6,12 +6,12 @@ import { z } from "zod";
 import {
   getCurrentMembershipOrThrow,
   getImportOrThrow,
-  normalizeNullableText,
   type Supabase,
 } from "@/lib/affaires/import-flow-server";
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { createEstimate } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 const affaireProjectMetadataSchema = z.object({
   projectName: z.string().trim().min(1, "Nom projet requis.").max(200),
@@ -192,8 +192,8 @@ export async function initializeAffaireDraft(
     userId: context.userId,
     isTenantAdmin: context.isTenantAdmin,
     projectName: parsed.data.projectName.trim(),
-    clientName: normalizeNullableText(parsed.data.clientName),
-    reference: normalizeNullableText(parsed.data.reference),
+    clientName: toNonEmptyString(parsed.data.clientName),
+    reference: toNonEmptyString(parsed.data.reference),
     linkImportId: parsed.data.linkImportId ?? null,
   });
 }

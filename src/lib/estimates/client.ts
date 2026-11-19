@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type JsonRecord, isRecord, toNumber, toStringValue, toBooleanValue, hasOwnProperty, getRootPayload, extractEntity, pickRecord, pickArray } from "@/lib/estimates/client-json";
+import { type JsonRecord, toNumber, toBooleanValue, hasOwnProperty, getRootPayload, extractEntity, pickRecord, pickArray } from "@/lib/estimates/client-json";
 import { EstimateApiError, isEstimateApiError, toErrorMessage, extractErrorDetails, extractErrorCode } from "@/lib/estimates/client-errors";
 import { type EstimateVersionToken, type BulkUpdateEstimateVersionPatch, parseVersionToken } from "@/lib/estimates/client-version";
 import { readJson, requestJsonUncoordinated } from "@/lib/estimates/client-http";
@@ -33,6 +33,7 @@ import type { EstimateOutlierFlagKey, EstimateOutlierFlagsByItemId } from "@/lib
 import type { EstimateVersionEvent, ImportEstimateSectionsResult, ImportLinkedDpgfSourceResult, MoveEstimateItemInput } from "@/lib/estimates/schemas";
 import type { EstimatePdfLayoutConfiguration, EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import { isEstimateStatus, type EstimateStatus as CanonicalEstimateStatus } from "@/lib/estimates/status";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export type { EstimateImportSourceVersion, EstimateImportSectionPreview, DuplicateEstimateSectionResult } from "@/lib/estimates/section-copy-contracts";
 export type { AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
@@ -682,7 +683,7 @@ function parseOptionalNullableStringProperty(
     if (!hasOwnProperty(record, key)) continue;
     const value = record[key];
     if (value === null) return null;
-    return toStringValue(value);
+    return toNonEmptyString(value);
   }
 
   return undefined;
@@ -732,11 +733,11 @@ function normalizeOutlierDismissedByItemId(
   dismissals.forEach((dismissal) => {
     if (!isRecord(dismissal)) return;
     const itemId =
-      toStringValue(dismissal.item_id) ??
-      toStringValue(dismissal.itemId);
+      toNonEmptyString(dismissal.item_id) ??
+      toNonEmptyString(dismissal.itemId);
     const flagKeyRaw =
-      toStringValue(dismissal.flag_key) ??
-      toStringValue(dismissal.flagKey);
+      toNonEmptyString(dismissal.flag_key) ??
+      toNonEmptyString(dismissal.flagKey);
 
     if (!itemId || !flagKeyRaw || !isEstimateOutlierFlagKey(flagKeyRaw)) {
       return;
@@ -764,14 +765,14 @@ function parseSuggestionLearningProposal(
 ): SuggestionLearningProposal | null {
   if (!isRecord(value)) return null;
 
-  const ruleId = toStringValue(value.rule_id) ?? toStringValue(value.ruleId);
-  const fieldNameRaw = toStringValue(value.field_name) ?? toStringValue(value.fieldName);
+  const ruleId = toNonEmptyString(value.rule_id) ?? toNonEmptyString(value.ruleId);
+  const fieldNameRaw = toNonEmptyString(value.field_name) ?? toNonEmptyString(value.fieldName);
   const correctionCount =
     toNumber(value.correction_count) ?? toNumber(value.correctionCount);
   const firstSeenAt =
-    toStringValue(value.first_seen_at) ?? toStringValue(value.firstSeenAt);
+    toNonEmptyString(value.first_seen_at) ?? toNonEmptyString(value.firstSeenAt);
   const lastSeenAt =
-    toStringValue(value.last_seen_at) ?? toStringValue(value.lastSeenAt);
+    toNonEmptyString(value.last_seen_at) ?? toNonEmptyString(value.lastSeenAt);
 
   if (
     !ruleId ||
@@ -791,7 +792,7 @@ function parseSuggestionLearningProposal(
     ]) ?? null;
 
   const reviewStatusRaw =
-    toStringValue(value.review_status) ?? toStringValue(value.reviewStatus);
+    toNonEmptyString(value.review_status) ?? toNonEmptyString(value.reviewStatus);
   const reviewStatus: SuggestionLearningReviewStatus | null =
     reviewStatusRaw === "approved" || reviewStatusRaw === "rejected"
       ? reviewStatusRaw
@@ -805,16 +806,16 @@ function parseSuggestionLearningProposal(
     first_seen_at: firstSeenAt,
     last_seen_at: lastSeenAt,
     review_status: reviewStatus,
-    decided_by: toStringValue(value.decided_by) ?? toStringValue(value.decidedBy) ?? null,
-    decided_at: toStringValue(value.decided_at) ?? toStringValue(value.decidedAt) ?? null,
+    decided_by: toNonEmptyString(value.decided_by) ?? toNonEmptyString(value.decidedBy) ?? null,
+    decided_at: toNonEmptyString(value.decided_at) ?? toNonEmptyString(value.decidedAt) ?? null,
     is_active: toBooleanValue(value.is_active) ?? toBooleanValue(value.isActive) ?? false,
     sample_original_value:
-      toStringValue(value.sample_original_value) ??
-      toStringValue(value.sampleOriginalValue) ??
+      toNonEmptyString(value.sample_original_value) ??
+      toNonEmptyString(value.sampleOriginalValue) ??
       null,
     sample_item_title:
-      toStringValue(value.sample_item_title) ??
-      toStringValue(value.sampleItemTitle) ??
+      toNonEmptyString(value.sample_item_title) ??
+      toNonEmptyString(value.sampleItemTitle) ??
       null,
   };
 }
@@ -875,8 +876,8 @@ function parseSuggestionLearningRuleBoost(
   if (!isRecord(value)) return null;
 
   const ruleId =
-    toStringValue(value.rule_id) ??
-    toStringValue(value.ruleId) ??
+    toNonEmptyString(value.rule_id) ??
+    toNonEmptyString(value.ruleId) ??
     fallbackRuleId ??
     null;
   if (!ruleId) return null;
@@ -1009,7 +1010,7 @@ function parseEstimatePdfStatus(payload: unknown): EstimatePdfStatusResponse | n
   const root = getRootPayload(payload);
   if (!isRecord(root)) return null;
 
-  const rawStatus = toStringValue(root.status);
+  const rawStatus = toNonEmptyString(root.status);
   if (!rawStatus || !isEstimatePdfStatus(rawStatus)) {
     return null;
   }
@@ -1017,16 +1018,16 @@ function parseEstimatePdfStatus(payload: unknown): EstimatePdfStatusResponse | n
   return {
     status: rawStatus,
     downloadUrl:
-      toStringValue(root.download_url) ?? toStringValue(root.downloadUrl) ?? undefined,
-    filePath: toStringValue(root.file_path) ?? toStringValue(root.filePath) ?? undefined,
+      toNonEmptyString(root.download_url) ?? toNonEmptyString(root.downloadUrl) ?? undefined,
+    filePath: toNonEmptyString(root.file_path) ?? toNonEmptyString(root.filePath) ?? undefined,
     sha256Hash:
-      toStringValue(root.sha256_hash) ?? toStringValue(root.sha256Hash) ?? undefined,
+      toNonEmptyString(root.sha256_hash) ?? toNonEmptyString(root.sha256Hash) ?? undefined,
     generatedAt:
-      toStringValue(root.generated_at) ?? toStringValue(root.generatedAt) ?? undefined,
+      toNonEmptyString(root.generated_at) ?? toNonEmptyString(root.generatedAt) ?? undefined,
     fileSizeBytes:
       toNumber(root.file_size_bytes) ?? toNumber(root.fileSizeBytes) ?? undefined,
     lastError:
-      toStringValue(root.last_error) ?? toStringValue(root.lastError) ?? undefined,
+      toNonEmptyString(root.last_error) ?? toNonEmptyString(root.lastError) ?? undefined,
   };
 }
 
@@ -1039,7 +1040,7 @@ function parseEstimatePdfLayoutConfiguration(
   }
   const lineCount = toNumber(root.lineCount);
   const hasConditions = toBooleanValue(root.hasConditions);
-  const policy = toStringValue(root.terms.policy);
+  const policy = toNonEmptyString(root.terms.policy);
   if (
     lineCount === null ||
     hasConditions === null ||
@@ -1060,7 +1061,7 @@ function parseEstimatePdfLayoutConfiguration(
     terms: {
       available: toBooleanValue(root.terms.available) ?? false,
       policy,
-      title: toStringValue(root.terms.title),
+      title: toNonEmptyString(root.terms.title),
       version: toNumber(root.terms.version),
     },
   };
@@ -1071,15 +1072,15 @@ function parseEstimateSendGatingFlag(
 ): EstimateSendGatingFlag | null {
   if (!isRecord(value)) return null;
 
-  const key = toStringValue(value.key);
-  const categoryRaw = toStringValue(value.category);
-  const severityRaw = toStringValue(value.severity);
+  const key = toNonEmptyString(value.key);
+  const categoryRaw = toNonEmptyString(value.category);
+  const severityRaw = toNonEmptyString(value.severity);
   const count = toNumber(value.count);
-  const label = toStringValue(value.label);
-  const description = toStringValue(value.description);
+  const label = toNonEmptyString(value.label);
+  const description = toNonEmptyString(value.description);
   const itemIdsRaw = pickArray(value, ["item_ids", "itemIds"]);
   const itemIds = itemIdsRaw
-    .map((itemId) => toStringValue(itemId))
+    .map((itemId) => toNonEmptyString(itemId))
     .filter((itemId): itemId is string => Boolean(itemId));
 
   if (
@@ -1124,7 +1125,7 @@ function parseEstimateSendGatingResponse(
   const stalePriceDays =
     toNumber(root.stalePriceDays) ?? toNumber(root.stale_price_days);
   const checkedAt =
-    toStringValue(root.checkedAt) ?? toStringValue(root.checked_at);
+    toNonEmptyString(root.checkedAt) ?? toNonEmptyString(root.checked_at);
   const blockingRaw = pickArray(root, ["blockingFlags", "blocking_flags"]);
   const warningRaw = pickArray(root, ["warningFlags", "warning_flags"]);
 
@@ -1154,15 +1155,15 @@ function extractFilenameFromContentDisposition(
   if (utf8Match?.[1]) {
     try {
       const decoded = decodeURIComponent(utf8Match[1]);
-      return toStringValue(decoded);
+      return toNonEmptyString(decoded);
     } catch {
-      return toStringValue(utf8Match[1]);
+      return toNonEmptyString(utf8Match[1]);
     }
   }
 
   const asciiMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
   if (!asciiMatch?.[1]) return null;
-  return toStringValue(asciiMatch[1]);
+  return toNonEmptyString(asciiMatch[1]);
 }
 
 function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
@@ -1180,32 +1181,32 @@ function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
   })();
 
   const projectId =
-    toStringValue(value.projectId) ??
-    toStringValue(value.project_id) ??
-    (projectNode ? toStringValue(projectNode.id) : null);
+    toNonEmptyString(value.projectId) ??
+    toNonEmptyString(value.project_id) ??
+    (projectNode ? toNonEmptyString(projectNode.id) : null);
   const projectName =
-    toStringValue(value.projectName) ??
-    toStringValue(value.project_name) ??
-    (projectNode ? toStringValue(projectNode.name) : null);
+    toNonEmptyString(value.projectName) ??
+    toNonEmptyString(value.project_name) ??
+    (projectNode ? toNonEmptyString(projectNode.name) : null);
   const versionId =
-    toStringValue(value.versionId) ??
-    toStringValue(value.version_id) ??
-    toStringValue(value.id);
+    toNonEmptyString(value.versionId) ??
+    toNonEmptyString(value.version_id) ??
+    toNonEmptyString(value.id);
   const versionNumber =
     toNumber(value.versionNumber) ?? toNumber(value.version_number);
   const statusValue =
-    toStringValue(value.status) ??
-    toStringValue(value.estimate_status) ??
-    toStringValue(value.version_status);
+    toNonEmptyString(value.status) ??
+    toNonEmptyString(value.estimate_status) ??
+    toNonEmptyString(value.version_status);
   const updatedAt =
-    toStringValue(value.updatedAt) ?? toStringValue(value.updated_at);
+    toNonEmptyString(value.updatedAt) ?? toNonEmptyString(value.updated_at);
   const totalHtCents =
     toNumber(value.totalHtCents) ??
     toNumber(value.total_ht_cents) ??
     toNumber(value.total);
   const currency =
-    normalizeEstimateCurrency(toStringValue(value.currency)) ??
-    normalizeEstimateCurrency(toStringValue(value.currency_code)) ??
+    normalizeEstimateCurrency(toNonEmptyString(value.currency)) ??
+    normalizeEstimateCurrency(toNonEmptyString(value.currency_code)) ??
     "EUR";
 
   if (
@@ -1222,24 +1223,24 @@ function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
   }
 
   const title =
-    toStringValue(value.title) ?? toStringValue(value.version_title) ?? null;
+    toNonEmptyString(value.title) ?? toNonEmptyString(value.version_title) ?? null;
 
   const projectReference =
-    toStringValue(value.projectReference) ??
-    toStringValue(value.project_reference) ??
-    (projectNode ? toStringValue(projectNode.reference) : null) ??
+    toNonEmptyString(value.projectReference) ??
+    toNonEmptyString(value.project_reference) ??
+    (projectNode ? toNonEmptyString(projectNode.reference) : null) ??
     null;
 
   const projectClient =
-    toStringValue(value.projectClient) ??
-    toStringValue(value.project_client_name) ??
-    toStringValue(value.project_client) ??
-    (projectNode ? toStringValue(projectNode.client_name) : null) ??
+    toNonEmptyString(value.projectClient) ??
+    toNonEmptyString(value.project_client_name) ??
+    toNonEmptyString(value.project_client) ??
+    (projectNode ? toNonEmptyString(projectNode.client_name) : null) ??
     null;
 
   const dateDevis =
-    toStringValue(value.dateDevis) ??
-    toStringValue(value.date_devis) ??
+    toNonEmptyString(value.dateDevis) ??
+    toNonEmptyString(value.date_devis) ??
     null;
 
   const validiteJours =
@@ -1296,14 +1297,14 @@ function parseEstimateDraftVersionTarget(
 ): EstimateDraftVersionTarget | null {
   if (!isRecord(value)) return null;
 
-  const id = toStringValue(value.id);
+  const id = toNonEmptyString(value.id);
   const projectId =
-    toStringValue(value.projectId) ?? toStringValue(value.project_id);
+    toNonEmptyString(value.projectId) ?? toNonEmptyString(value.project_id);
   const versionNumber =
     toNumber(value.versionNumber) ?? toNumber(value.version_number);
-  const statusValue = toStringValue(value.status);
+  const statusValue = toNonEmptyString(value.status);
   const updatedAt =
-    toStringValue(value.updatedAt) ?? toStringValue(value.updated_at);
+    toNonEmptyString(value.updatedAt) ?? toNonEmptyString(value.updated_at);
 
   if (
     !id ||
@@ -1321,7 +1322,7 @@ function parseEstimateDraftVersionTarget(
     projectId,
     versionNumber,
     status: statusValue,
-    title: toStringValue(value.title) ?? null,
+    title: toNonEmptyString(value.title) ?? null,
     updatedAt,
   };
 }
@@ -1374,8 +1375,8 @@ function parseEstimateStructureDraftEvidenceEntry(
 ): EstimateStructureDraftEvidenceEntry | null {
   if (!isRecord(value)) return null;
 
-  const type = toStringValue(value.type);
-  const label = toStringValue(value.label);
+  const type = toNonEmptyString(value.type);
+  const label = toNonEmptyString(value.label);
   if (
     !type ||
     !label ||
@@ -1392,7 +1393,7 @@ function parseEstimateStructureDraftEvidenceEntry(
   return {
     type,
     label,
-    excerpt: toStringValue(value.excerpt),
+    excerpt: toNonEmptyString(value.excerpt),
   };
 }
 
@@ -1401,22 +1402,22 @@ function parseEstimateStructureDraftNode(
 ): EstimateStructureDraftNode | null {
   if (!isRecord(value)) return null;
 
-  const id = toStringValue(value.id);
-  const label = toStringValue(value.label);
+  const id = toNonEmptyString(value.id);
+  const label = toNonEmptyString(value.label);
   const normalizedLabel =
-    toStringValue(value.normalizedLabel) ??
-    toStringValue(value.normalized_label);
+    toNonEmptyString(value.normalizedLabel) ??
+    toNonEmptyString(value.normalized_label);
   const orderIndex =
     toNumber(value.orderIndex) ?? toNumber(value.order_index);
   const hierarchyLevel =
     toNumber(value.hierarchyLevel) ?? toNumber(value.hierarchy_level);
   const confidence = toNumber(value.confidence);
   const confidenceLabel =
-    toStringValue(value.confidenceLabel) ??
-    toStringValue(value.confidence_label);
+    toNonEmptyString(value.confidenceLabel) ??
+    toNonEmptyString(value.confidence_label);
   const defaultAction =
-    toStringValue(value.defaultAction) ??
-    toStringValue(value.default_action);
+    toNonEmptyString(value.defaultAction) ??
+    toNonEmptyString(value.default_action);
 
   if (
     !id ||
@@ -1466,13 +1467,13 @@ function parseEstimateStructureDraftNode(
         (entry): entry is EstimateStructureDraftEvidenceEntry => entry !== null
       ),
     facts: pickArray(value, ["facts"])
-      .map((entry) => toStringValue(entry))
+      .map((entry) => toNonEmptyString(entry))
       .filter((entry): entry is string => entry !== null),
     hypotheses: pickArray(value, ["hypotheses"])
-      .map((entry) => toStringValue(entry))
+      .map((entry) => toNonEmptyString(entry))
       .filter((entry): entry is string => entry !== null),
     inferences: pickArray(value, ["inferences"])
-      .map((entry) => toStringValue(entry))
+      .map((entry) => toNonEmptyString(entry))
       .filter((entry): entry is string => entry !== null),
     children,
   };
@@ -1483,8 +1484,8 @@ function parseEstimateStructureDraftSourceSummary(
 ): EstimateStructureDraftSourceSummary | null {
   if (!isRecord(value)) return null;
 
-  const kind = toStringValue(value.kind);
-  const label = toStringValue(value.label);
+  const kind = toNonEmptyString(value.kind);
+  const label = toNonEmptyString(value.label);
   if (!kind || !label || !isEstimateStructureDraftSourceKind(kind)) {
     return null;
   }
@@ -1494,7 +1495,7 @@ function parseEstimateStructureDraftSourceSummary(
     label,
     available: toBooleanValue(value.available) ?? false,
     used: toBooleanValue(value.used) ?? false,
-    detail: toStringValue(value.detail),
+    detail: toNonEmptyString(value.detail),
   };
 }
 
@@ -1536,12 +1537,12 @@ function parseEstimateStructureDraft(
   const root = getRootPayload(payload);
   if (!isRecord(root)) return null;
 
-  const draftId = toStringValue(root.draftId) ?? toStringValue(root.draft_id);
+  const draftId = toNonEmptyString(root.draftId) ?? toNonEmptyString(root.draft_id);
   const versionId =
-    toStringValue(root.versionId) ?? toStringValue(root.version_id);
-  const strategy = toStringValue(root.strategy);
+    toNonEmptyString(root.versionId) ?? toNonEmptyString(root.version_id);
+  const strategy = toNonEmptyString(root.strategy);
   const generatedAt =
-    toStringValue(root.generatedAt) ?? toStringValue(root.generated_at);
+    toNonEmptyString(root.generatedAt) ?? toNonEmptyString(root.generated_at);
   const summary = parseEstimateStructureDraftSummary(
     pickRecord(root, ["summary"]) ?? root.summary
   );
@@ -1573,10 +1574,10 @@ function parseApplyEstimateStructureDraftResult(
   const root = getRootPayload(payload);
   if (!isRecord(root)) return null;
 
-  const draftId = toStringValue(root.draftId) ?? toStringValue(root.draft_id);
+  const draftId = toNonEmptyString(root.draftId) ?? toNonEmptyString(root.draft_id);
   const versionId =
-    toStringValue(root.versionId) ?? toStringValue(root.version_id);
-  const mode = toStringValue(root.mode);
+    toNonEmptyString(root.versionId) ?? toNonEmptyString(root.version_id);
+  const mode = toNonEmptyString(root.mode);
   const createdCount =
     toNumber(root.createdCount) ?? toNumber(root.created_count);
   const mergedCount =
@@ -1597,10 +1598,10 @@ function parseApplyEstimateStructureDraftResult(
   }
 
   const createdItemIds = pickArray(root, ["createdItemIds", "created_item_ids"])
-    .map((entry) => toStringValue(entry))
+    .map((entry) => toNonEmptyString(entry))
     .filter((entry): entry is string => entry !== null);
   const mergedItemIds = pickArray(root, ["mergedItemIds", "merged_item_ids"])
-    .map((entry) => toStringValue(entry))
+    .map((entry) => toNonEmptyString(entry))
     .filter((entry): entry is string => entry !== null);
 
   return {
@@ -1639,22 +1640,22 @@ function parseEstimateTemplateSummaryEntity(
 ): EstimateTemplateSummary | null {
   if (!isRecord(value)) return null;
 
-  const id = toStringValue(value.id);
-  const name = toStringValue(value.name);
-  const createdAt = toStringValue(value.created_at);
-  const updatedAt = toStringValue(value.updated_at);
+  const id = toNonEmptyString(value.id);
+  const name = toNonEmptyString(value.name);
+  const createdAt = toNonEmptyString(value.created_at);
+  const updatedAt = toNonEmptyString(value.updated_at);
   if (!id || !name || !createdAt || !updatedAt) return null;
 
   return {
     id,
     name,
-    description: toStringValue(value.description),
+    description: toNonEmptyString(value.description),
     sourceVersionId:
-      toStringValue(value.source_version_id) ??
-      toStringValue(value.sourceVersionId) ??
+      toNonEmptyString(value.source_version_id) ??
+      toNonEmptyString(value.sourceVersionId) ??
       null,
     createdBy:
-      toStringValue(value.created_by) ?? toStringValue(value.createdBy) ?? null,
+      toNonEmptyString(value.created_by) ?? toNonEmptyString(value.createdBy) ?? null,
     createdAt,
     updatedAt,
     itemCount:
@@ -1706,26 +1707,26 @@ function parseEstimateAssemblySummaryEntity(
 ): EstimateAssemblySummary | null {
   if (!isRecord(value)) return null;
 
-  const id = toStringValue(value.id);
-  const name = toStringValue(value.name);
-  const createdAt = toStringValue(value.created_at);
-  const updatedAt = toStringValue(value.updated_at);
+  const id = toNonEmptyString(value.id);
+  const name = toNonEmptyString(value.name);
+  const createdAt = toNonEmptyString(value.created_at);
+  const updatedAt = toNonEmptyString(value.updated_at);
   if (!id || !name || !createdAt || !updatedAt) return null;
 
   return {
     id,
     name,
-    description: toStringValue(value.description),
+    description: toNonEmptyString(value.description),
     createdBy:
-      toStringValue(value.created_by) ?? toStringValue(value.createdBy) ?? null,
+      toNonEmptyString(value.created_by) ?? toNonEmptyString(value.createdBy) ?? null,
     createdAt,
     updatedAt,
     itemCount: toNumber(value.item_count) ?? toNumber(value.itemCount) ?? 0,
     memberCount:
       toNumber(value.member_count) ?? toNumber(value.memberCount) ?? 0,
-    referenceCode: toStringValue(value.reference_code),
-    unit: toStringValue(value.unit),
-    pricingSource: toStringValue(value.pricing_source),
+    referenceCode: toNonEmptyString(value.reference_code),
+    unit: toNonEmptyString(value.unit),
+    pricingSource: toNonEmptyString(value.pricing_source),
     directCostCents: toNumber(value.ds_cents) ?? 0,
     targetPriceCents: assemblyTargetPriceCents(value),
     averageOutputRate: toNumber(value.avg_output_rate),
@@ -1793,14 +1794,14 @@ function parseInstantiateTemplateResult(payload: unknown) {
   }
 
   const versionId =
-    toStringValue(root.version_id) ??
-    toStringValue(root.versionId);
+    toNonEmptyString(root.version_id) ??
+    toNonEmptyString(root.versionId);
   const projectId =
-    toStringValue(root.project_id) ??
-    toStringValue(root.projectId);
+    toNonEmptyString(root.project_id) ??
+    toNonEmptyString(root.projectId);
   const redirectTo =
-    toStringValue(root.redirect_to) ??
-    toStringValue(root.redirectTo) ??
+    toNonEmptyString(root.redirect_to) ??
+    toNonEmptyString(root.redirectTo) ??
     (versionId ? `/dashboard/estimates/${versionId}/edit` : null);
 
   if (!versionId || !projectId || !redirectTo) {
@@ -1813,7 +1814,7 @@ function parseInstantiateTemplateResult(payload: unknown) {
       ? {
           convertedLines: root.converted_lines.flatMap((line) => {
             if (!isRecord(line)) return [];
-            const title = toStringValue(line.title);
+            const title = toNonEmptyString(line.title);
             const templateHours = toNumber(line.template_hours);
             const convertedHours = toNumber(line.converted_hours);
             return title !== null && templateHours !== null && convertedHours !== null
@@ -1822,8 +1823,8 @@ function parseInstantiateTemplateResult(payload: unknown) {
           }),
           droppedSettings: root.dropped_settings.flatMap((entry) => {
             if (!isRecord(entry)) return [];
-            const setting = toStringValue(entry.setting);
-            const label = toStringValue(entry.label);
+            const setting = toNonEmptyString(entry.setting);
+            const label = toNonEmptyString(entry.label);
             return setting !== null && label !== null ? [{ setting, label }] : [];
           }),
         }

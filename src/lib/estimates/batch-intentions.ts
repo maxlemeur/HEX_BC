@@ -1,3 +1,5 @@
+import { isRecord } from "@/lib/value-guards";
+
 /** Exact, account-scoped requests retained until the server outcome is known. */
 export type EstimateBatchIdentity = {
   actorId: string;
@@ -63,11 +65,6 @@ export function subscribeEstimateBatchIntention(listener: () => void) {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
-
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export function readEstimateBatchIntention(
   identity: EstimateBatchIdentity
 ): EstimateBatchIntention | null {
@@ -82,7 +79,7 @@ export function readEstimateBatchIntention(
   if (raw === null) return null;
   try {
     const value: unknown = JSON.parse(raw);
-    if (!record(value) || value.schemaVersion !== 1 ||
+    if (!isRecord(value) || value.schemaVersion !== 1 ||
       value.actorId !== identity.actorId || value.tenantId !== identity.tenantId ||
       value.versionId !== identity.versionId || typeof value.operationKey !== "string" ||
       !UUID.test(value.operationKey) || typeof value.expectedUpdatedAt !== "string" ||
@@ -94,15 +91,15 @@ export function readEstimateBatchIntention(
     if (value.workflow === "generated-ouvrage") {
       // The workflow client validates all reviewed values before any request.
       // This shared gate only needs a scoped envelope to block other writes.
-      if (!record(body) || body.operationKey !== value.operationKey || body.expectedUpdatedAt !== value.expectedUpdatedAt ||
+      if (!isRecord(body) || body.operationKey !== value.operationKey || body.expectedUpdatedAt !== value.expectedUpdatedAt ||
         body.versionId !== identity.versionId || typeof body.draftId !== "string" || !UUID.test(body.draftId) ||
         !Array.isArray(body.acceptedCandidates) || body.acceptedCandidates.length < 1 || body.acceptedCandidates.length > 12) {
         throw new Error("Invalid ouvrage intention");
       }
-    } else if (value.workflow !== undefined || !record(body) || body.operation_key !== value.operationKey ||
+    } else if (value.workflow !== undefined || !isRecord(body) || body.operation_key !== value.operationKey ||
       body.concurrency_token !== value.expectedUpdatedAt || body.dry_run === true ||
       !Array.isArray(body.operations) || body.operations.length === 0 || body.operations.length > 1000 ||
-      !body.operations.every((operation) => record(operation) &&
+      !body.operations.every((operation) => isRecord(operation) &&
         ["create", "update", "delete", "reorder"].includes(String(operation.op)))) {
       throw new Error("Invalid request");
     }

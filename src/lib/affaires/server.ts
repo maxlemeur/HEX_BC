@@ -323,13 +323,11 @@ export type AffaireHubPlansSummaryResult = {
 
 export type AffaireHubTimelineResult = ListEstimateProjectVersionsResult;
 
-
 export type AffaireHubCoreDataResult = {
   summary: AffaireHubSummaryResult;
   timelineResult: PromiseSettledResult<AffaireHubTimelineResult>;
   dpgfSourceResult: PromiseSettledResult<AffaireHubDpgfSourceResult>;
 };
-
 
 export type MarginSectionBreakdown = {
   sectionId: string;
@@ -2049,7 +2047,6 @@ async function fetchAffaireManagerFilteredPageDataWithContext(
   };
 }
 
-
 export async function fetchAffaireManagerQueueSummary(
   input: Pick<AffaireListQuery, "q" | "status" | "favorites"> = {}
 ): Promise<AffaireManagerQueueSummary> {
@@ -2208,7 +2205,6 @@ export async function fetchAffaireHubSummary(
   return fetchAffaireHubSummaryWithContext(context, project, options);
 }
 
-
 export async function fetchAffaireHubDpgfSource(
   projectId: string
 ): Promise<AffaireHubDpgfSourceResult> {
@@ -2224,7 +2220,6 @@ export const fetchAffaireHubPlansSummary = cache(
     return fetchAffaireHubPlansSummaryWithContext(context, project);
   }
 );
-
 
 async function fetchAffaireHubCoreDataWithContext(
   context: AffaireContext,
@@ -2253,7 +2248,6 @@ export async function fetchAffaireHubCoreData(
   const project = await fetchAffaireHubProjectOrThrow(context, projectId);
   return fetchAffaireHubCoreDataWithContext(context, project, safePage);
 }
-
 
 /* ------------------------------------------------------------------ */
 /*  Margin Analysis                                                     */

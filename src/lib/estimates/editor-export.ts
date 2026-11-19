@@ -12,8 +12,6 @@ import {
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import {
-  isRecord,
-  toNonEmptyString,
   toNullableFiniteNumber,
 } from "@/lib/estimates/editor-values";
 import {
@@ -34,6 +32,7 @@ import {
   type SupportedEstimateCurrency,
 } from "@/lib/money";
 import { sanitizeDownloadFilename } from "@/lib/download-filename";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export const DEFAULT_ESTIMATE_CURRENCY: SupportedEstimateCurrency = "EUR";
 

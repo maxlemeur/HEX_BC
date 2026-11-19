@@ -41,6 +41,7 @@ import {
 } from "./schemas";
 import { assertCanWriteEstimateWorkflows } from "./write-access";
 import { keepTakeoffProvision } from "@/lib/estimates/takeoff-provision";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -457,15 +458,8 @@ function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value;
 }
-
-function toNullableText(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function normalizeSectionTitleKey(value: string | null | undefined) {
-  const normalized = toNullableText(value);
+  const normalized = toNonEmptyString(value);
   if (!normalized) return "section";
   return normalized
     .normalize("NFD")
@@ -788,7 +782,7 @@ function buildExistingSections(
       title: item.title,
       normalized_label: normalizeSectionTitleKey(item.title),
       hierarchy_level: 1,
-      path: toNullableText(item.title) ?? "Section",
+      path: toNonEmptyString(item.title) ?? "Section",
     }));
 
   const byParent = new Map<string, MutableExistingSection[]>();
@@ -813,7 +807,7 @@ function buildExistingSections(
     siblings
       .sort((left, right) => left.position - right.position)
       .forEach((section) => {
-        const label = toNullableText(section.title) ?? "Section";
+        const label = toNonEmptyString(section.title) ?? "Section";
         section.hierarchy_level = level;
         section.path = parentPath ? `${parentPath} > ${label}` : label;
         section.normalized_label = normalizeSectionTitleKey(label);
@@ -850,7 +844,7 @@ function buildExistingSectionsByParent(
 
 function truncatePath(path: string[]) {
   return path
-    .map((segment) => toNullableText(segment))
+    .map((segment) => toNonEmptyString(segment))
     .filter((segment): segment is string => segment !== null)
     .slice(0, ESTIMATE_STRUCTURE_MAX_HIERARCHY_LEVEL);
 }
@@ -868,7 +862,7 @@ export function inferDpgfPath(title: string) {
 
   const explicitParts = normalized
     .split(/\s*(?:>|\/|:| - )\s*/g)
-    .map((part) => toNullableText(part))
+    .map((part) => toNonEmptyString(part))
     .filter((part): part is string => part !== null);
 
   if (explicitParts.length >= 2) {
@@ -905,7 +899,7 @@ function parseProjectNotesPaths(notes: string) {
   return normalized.slice(0, 20).map((line) => {
     const parts = line
       .split(/\s*(?:>|\/|→)\s*/g)
-      .map((part) => toNullableText(part))
+      .map((part) => toNonEmptyString(part))
       .filter((part): part is string => part !== null);
 
     return truncatePath(parts.length > 0 ? parts : [line]);
@@ -1230,7 +1224,7 @@ function mergeGeminiNodesWithHeuristic(input: {
     orderIndex: number,
     hierarchyLevel: number
   ): EstimateStructureDraftNodePayload | null => {
-    const label = toNullableText(node.label);
+    const label = toNonEmptyString(node.label);
     if (!label) {
       return null;
     }
@@ -1771,7 +1765,7 @@ function buildAssemblyLibrarySource(assemblyRows: LibraryRow[]): StructureDraftS
 
   const entries: EstimateStructureSourceEntry[] = [];
   assemblyRows.forEach((assembly, index) => {
-    const label = toNullableText(assembly.name);
+    const label = toNonEmptyString(assembly.name);
     if (!label) return;
     entries.push({
       id: `assembly-${assembly.id}-${index}`,
@@ -1932,7 +1926,7 @@ function buildConfirmedBriefEntries(
 
   const entries: EstimateStructureSourceEntry[] = [];
   const pushBriefEntry = (blockKey: string, entryIndex: number, label: string) => {
-    const text = toNullableText(label);
+    const text = toNonEmptyString(label);
     if (!text) return;
 
     const sourceFileNames = sourceFileNamesByEntry.get(`${blockKey}:${entryIndex}`) ?? [];
@@ -2006,7 +2000,7 @@ async function loadConfirmedBriefSource(input: {
 }
 
 function buildProjectNotesSource(notes: string | null | undefined): StructureDraftSource {
-  const projectNotes = toNullableText(notes);
+  const projectNotes = toNonEmptyString(notes);
   if (!projectNotes) {
     return unavailableSource(
       "project_notes",
@@ -2636,7 +2630,7 @@ function computeSectionPath(
   const parts: string[] = [];
   let cursor: MutableExistingSection | undefined = section;
   while (cursor) {
-    parts.unshift(toNullableText(cursor.title) ?? "Section");
+    parts.unshift(toNonEmptyString(cursor.title) ?? "Section");
     cursor = cursor.parent_id ? sectionById.get(cursor.parent_id) : undefined;
   }
   return parts.join(" > ");
@@ -3009,7 +3003,7 @@ export async function applyEstimateStructureDraft(
   ): Promise<string | null> => {
     const override = overrideByNodeId.get(node.id);
     const action = override?.action ?? node.default_action;
-    const renameTo = toNullableText(override?.rename_to) ?? null;
+    const renameTo = toNonEmptyString(override?.rename_to) ?? null;
     const label = renameTo ?? node.label;
 
     if (action === "skip") {
@@ -3354,7 +3348,7 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
     return {
       ...item,
       source_file_name:
-        toNullableText(item.source_file_name) ?? ESTIMATE_STRUCTURE_SOURCE_FILE_NAME,
+        toNonEmptyString(item.source_file_name) ?? ESTIMATE_STRUCTURE_SOURCE_FILE_NAME,
       source_metadata: {
         // TI-682: a takeoff apply can mark this line later; its marker stays readable after this projection.
         ...keepTakeoffProvision(item.source_metadata),

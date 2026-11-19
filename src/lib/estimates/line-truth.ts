@@ -2,6 +2,7 @@ import {
   readTakeoffProvision, takeoffProvisionHypothesisBasis, type TakeoffProvision, type TakeoffProvisionHypothesisBasis,
 } from "@/lib/estimates/takeoff-provision";
 import { forceReasonLabel } from "@/lib/takeoff/force-reason-labels";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 type EstimateLineTruthSourceKind =
   | "manual"
@@ -53,21 +54,6 @@ type EstimateLineTruthCarrier = {
   source_level?: string | null;
   source_metadata?: unknown;
 };
-
-type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toNonEmptyString(value: unknown) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
 
 function toFiniteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;

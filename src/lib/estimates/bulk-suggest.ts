@@ -5,6 +5,7 @@ import {
   type SuggestionScore,
 } from "@/lib/estimates/suggestion-scoring";
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update"];
@@ -155,13 +156,6 @@ const PREVIEW_FIELD_ORDER: BulkSuggestPreviewField[] = [
   "k_fo",
   "k_mo",
 ];
-
-function toNonEmptyText(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function resolveLookupLabel(
   value: unknown,
   map: Map<string, EstimateCategoryRow>
@@ -182,7 +176,7 @@ function formatPreviewDisplayValue(
 ): string {
   switch (field) {
     case "description": {
-      const text = toNonEmptyText((value as string | null | undefined) ?? null);
+      const text = toNonEmptyString((value as string | null | undefined) ?? null);
       return text ?? "-";
     }
     case "category_id":
@@ -288,11 +282,11 @@ function isNeutralCoefficient(value: number | null | undefined) {
 }
 
 function isNeutralDescription(value: string | null | undefined) {
-  return toNonEmptyText(value) === null;
+  return toNonEmptyString(value) === null;
 }
 
 function isNeutralCategoryId(value: string | null | undefined) {
-  return toNonEmptyText(value) === null;
+  return toNonEmptyString(value) === null;
 }
 
 function hasDefaultSupplyCoefficient(line: EstimateItemRow) {
@@ -313,12 +307,12 @@ function isLineNeutralForSuggestion(line: EstimateItemRow) {
 function toRulePatch(rule: SuggestionRuleRow): SuggestionUpdatePayload {
   const patch: SuggestionUpdatePayload = {};
 
-  const unit = toNonEmptyText(rule.unit);
+  const unit = toNonEmptyString(rule.unit);
   if (unit) {
     patch.description = unit;
   }
 
-  const categoryId = toNonEmptyText(rule.category_id);
+  const categoryId = toNonEmptyString(rule.category_id);
   if (categoryId) {
     patch.category_id = categoryId;
   }
@@ -340,10 +334,10 @@ function hasPatchValue(patch: SuggestionUpdatePayload) {
 
 function toTargetValues(line: EstimateItemRow): SuggestionTargetValues {
   return {
-    description: toNonEmptyText(line.description),
+    description: toNonEmptyString(line.description),
     k_fo: line.k_fo,
     k_mo: line.k_mo,
-    category_id: toNonEmptyText(line.category_id),
+    category_id: toNonEmptyString(line.category_id),
   };
 }
 
@@ -354,7 +348,7 @@ function buildApplicablePatchForLine(
   const patch: SuggestionUpdatePayload = {};
 
   if ("description" in suggestedPatch && isNeutralDescription(line.description)) {
-    patch.description = toNonEmptyText(suggestedPatch.description ?? null);
+    patch.description = toNonEmptyString(suggestedPatch.description ?? null);
   }
 
   if ("k_fo" in suggestedPatch && hasDefaultSupplyCoefficient(line)) {
@@ -372,7 +366,7 @@ function buildApplicablePatchForLine(
   }
 
   if ("category_id" in suggestedPatch && isNeutralCategoryId(line.category_id)) {
-    patch.category_id = toNonEmptyText(suggestedPatch.category_id ?? null);
+    patch.category_id = toNonEmptyString(suggestedPatch.category_id ?? null);
   }
 
   return patch;
@@ -385,13 +379,13 @@ function applyPatchToValues(
   return {
     description:
       "description" in patch
-        ? toNonEmptyText(patch.description ?? null)
+        ? toNonEmptyString(patch.description ?? null)
         : current.description,
     k_fo: "k_fo" in patch ? patch.k_fo ?? null : current.k_fo,
     k_mo: "k_mo" in patch ? patch.k_mo ?? null : current.k_mo,
     category_id:
       "category_id" in patch
-        ? toNonEmptyText(patch.category_id ?? null)
+        ? toNonEmptyString(patch.category_id ?? null)
         : current.category_id,
   };
 }

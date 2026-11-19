@@ -8,6 +8,7 @@ import {
 import { badRequest, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
@@ -81,13 +82,6 @@ function parseFeatureFlagKeyOrThrow(value: string) {
 
   return parsed.data;
 }
-
-function normalizeFeatureFlagValue(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function parseFeatureFlagRow(value: unknown): FeatureFlagRecord | null {
   const parsed = featureFlagRowSchema.safeParse(value);
   if (!parsed.success) {
@@ -106,7 +100,7 @@ function parseFeatureFlagRow(value: unknown): FeatureFlagRecord | null {
     tenant_id: parsed.data.tenant_id,
     flag_key: normalizedKey.data,
     enabled: parsed.data.enabled,
-    value: normalizeFeatureFlagValue(parsed.data.value ?? null),
+    value: toNonEmptyString(parsed.data.value ?? null),
   };
 }
 
@@ -154,7 +148,7 @@ export async function toggleFeatureFlagForTenant(
   const key = parseFeatureFlagKeyOrThrow(input.key);
   const enabled = input.enabled === true;
   const hasExplicitValue = Object.prototype.hasOwnProperty.call(input, "value");
-  const normalizedValue = normalizeFeatureFlagValue(input.value);
+  const normalizedValue = toNonEmptyString(input.value);
   const supabase = await getSupabase(input.supabase);
 
   const membership = await getTenantMembershipOrThrow(supabase, tenantId, userId);
@@ -262,7 +256,7 @@ export async function getFeatureFlagValueForTenant(
       return null;
     }
 
-    return normalizeFeatureFlagValue((data as { value?: unknown }).value);
+    return toNonEmptyString((data as { value?: unknown }).value);
   } catch {
     return null;
   }

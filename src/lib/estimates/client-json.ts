@@ -1,10 +1,6 @@
+import { isRecord } from "@/lib/value-guards";
 
 export type JsonRecord = Record<string, unknown>;
-
-export function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -13,13 +9,6 @@ export function toNumber(value: unknown): number | null {
   }
   return null;
 }
-
-export function toStringValue(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 export function toBooleanValue(value: unknown): boolean | null {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {

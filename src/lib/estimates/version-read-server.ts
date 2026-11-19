@@ -36,7 +36,6 @@ import {
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   resolveEmbeddedOne,
-  toNullableText,
 } from "./server-context";
 import type { EmbeddedProjectAccess } from "./server-context";
 import {
@@ -48,6 +47,7 @@ import {
   type EstimateVersionRow,
   type EstimateVersionEventAuthor,
 } from "./version-list-server";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -117,8 +117,8 @@ function normalizeEstimateVersionEvent(
   row: EstimateVersionEventRow
 ): EstimateVersionEvent {
   const profile = resolveEmbeddedOne(row.profiles);
-  const actorName = toNullableText(profile?.full_name) ?? null;
-  const occurredAt = toNullableText(row.occurred_at) ?? row.created_at;
+  const actorName = toNonEmptyString(profile?.full_name) ?? null;
+  const occurredAt = toNonEmptyString(row.occurred_at) ?? row.created_at;
 
   return {
     id: row.id,
@@ -152,7 +152,7 @@ function normalizeTakeoffJobProvenanceRows(value: unknown): TakeoffJobProvenance
       }
 
       const record = entry as Record<string, unknown>;
-      const id = toNullableText(
+      const id = toNonEmptyString(
         typeof record.id === "string" ? record.id : null
       );
 
@@ -162,15 +162,15 @@ function normalizeTakeoffJobProvenanceRows(value: unknown): TakeoffJobProvenance
 
       return {
         id,
-        level: toNullableText(
+        level: toNonEmptyString(
           typeof record.level === "string" ? record.level : null
         ),
-        completed_at: toNullableText(
+        completed_at: toNonEmptyString(
           typeof record.completed_at === "string"
             ? record.completed_at
             : null
         ),
-        created_at: toNullableText(
+        created_at: toNonEmptyString(
           typeof record.created_at === "string" ? record.created_at : null
         ),
       } satisfies TakeoffJobProvenanceRow;
@@ -190,7 +190,7 @@ async function enrichEstimateItemsWithTakeoffProvenance(input: {
 
   const sourceJobIds = [...new Set(
     input.items
-      .map((item) => toNullableText(item.source_job_id))
+      .map((item) => toNonEmptyString(item.source_job_id))
       .filter((jobId): jobId is string => jobId !== null)
   )];
 
@@ -237,7 +237,7 @@ async function enrichEstimateItemsWithTakeoffProvenance(input: {
   }
 
   return input.items.map((item) => {
-    const sourceJobId = toNullableText(item.source_job_id);
+    const sourceJobId = toNonEmptyString(item.source_job_id);
     if (!sourceJobId) {
       return item;
     }
@@ -249,12 +249,12 @@ async function enrichEstimateItemsWithTakeoffProvenance(input: {
 
     const withProvenance = item as EstimateItemWithProvenanceRow;
     const sourceLevel =
-      toNullableText(withProvenance.source_level) ??
-      toNullableText(takeoffJob.level);
+      toNonEmptyString(withProvenance.source_level) ??
+      toNonEmptyString(takeoffJob.level);
     const sourceExtractedAt =
-      toNullableText(withProvenance.source_extracted_at) ??
-      toNullableText(takeoffJob.completed_at) ??
-      toNullableText(takeoffJob.created_at);
+      toNonEmptyString(withProvenance.source_extracted_at) ??
+      toNonEmptyString(takeoffJob.completed_at) ??
+      toNonEmptyString(takeoffJob.created_at);
     const sourceVersionNumber =
       toNullablePositiveInteger(withProvenance.source_version_number) ??
       toNullablePositiveInteger(

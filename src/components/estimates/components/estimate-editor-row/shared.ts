@@ -30,6 +30,7 @@ import {
   parseNumberInput,
 } from "@/lib/estimates/editor-values";
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export type { SpreadsheetCell, SpreadsheetNavigationResult };
 
@@ -69,7 +70,6 @@ function getNumberDisplayFormatter(minDecimals: number, maxDecimals: number) {
   }
   return formatter;
 }
-
 
 export function getMissingLaborRateMessage(
   role: LaborRole | undefined,
@@ -341,13 +341,6 @@ export function resolveDisplayCurrency(
 ) {
   return normalizeEstimateCurrency(value) ?? fallback;
 }
-
-function toNonEmptyString(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 export function readSourceMetadataText(item: EstimateItem, keys: string[]) {
   const itemRecord = item as Record<string, unknown>;
 

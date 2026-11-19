@@ -60,12 +60,11 @@ import type {
 } from "@/lib/takeoff/types";
 import {
   TakeoffApiError,
-  isRecord,
   isTakeoffApiError,
   TAKEOFF_READ_REQUEST_TIMEOUT_MS,
   TAKEOFF_WRITE_REQUEST_TIMEOUT_MS,
-  toStringValue,
 } from "@/lib/takeoff/client-http";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export {
   TakeoffApiError,
@@ -140,11 +139,11 @@ type TakeoffApiErrorMetadata = {
 function toErrorMessage(payload: unknown, fallbackMessage: string): string {
   if (isRecord(payload)) {
     if (isRecord(payload.error)) {
-      const nested = toStringValue(payload.error.message);
+      const nested = toNonEmptyString(payload.error.message);
       if (nested) return nested;
     }
 
-    const rootMessage = toStringValue(payload.message);
+    const rootMessage = toNonEmptyString(payload.message);
     if (rootMessage) return rootMessage;
   }
 
@@ -155,10 +154,10 @@ function extractErrorCode(payload: unknown): string | null {
   if (!isRecord(payload)) return null;
 
   if (isRecord(payload.error)) {
-    return toStringValue(payload.error.code);
+    return toNonEmptyString(payload.error.code);
   }
 
-  return toStringValue(payload.code);
+  return toNonEmptyString(payload.code);
 }
 
 function extractErrorDetails(payload: unknown): unknown {
@@ -196,16 +195,16 @@ function extractErrorJobId(payload: unknown): string | undefined {
   if (!isRecord(payload)) return undefined;
 
   if (isRecord(payload.error)) {
-    const nested = toStringValue(payload.error.jobId);
+    const nested = toNonEmptyString(payload.error.jobId);
     if (nested) return nested;
   }
 
   const details = extractErrorDetails(payload);
   if (isRecord(details)) {
-    const detailsJobId = toStringValue(details.jobId);
+    const detailsJobId = toNonEmptyString(details.jobId);
     if (detailsJobId) return detailsJobId;
 
-    const detailsSnakeJobId = toStringValue(details.job_id);
+    const detailsSnakeJobId = toNonEmptyString(details.job_id);
     if (detailsSnakeJobId) return detailsSnakeJobId;
   }
 
@@ -216,13 +215,13 @@ function extractErrorLevel(payload: unknown): TakeoffLevel | string | undefined 
   if (!isRecord(payload)) return undefined;
 
   if (isRecord(payload.error)) {
-    const nested = toStringValue(payload.error.level);
+    const nested = toNonEmptyString(payload.error.level);
     if (nested) return nested;
   }
 
   const details = extractErrorDetails(payload);
   if (isRecord(details)) {
-    const detailsLevel = toStringValue(details.level);
+    const detailsLevel = toNonEmptyString(details.level);
     if (detailsLevel) return detailsLevel;
   }
 

@@ -22,6 +22,7 @@ import {
   type EstimateItemPriceSuggestionRow,
 } from "@/lib/takeoff/price-suggestion-preparation";
 import { takeoffPriceSuggestionSnapshotSchema } from "@/lib/takeoff/price-suggestion-contracts";
+import { isRecord } from "@/lib/value-guards";
 
 const TAKEOFF_PRICE_SUGGESTIONS_SELECT = [
   "id",
@@ -655,11 +656,6 @@ export async function listTakeoffPriceSuggestionSourceRows(input: {
 
   return normalizeTakeoffPriceSuggestionSourceRows((data ?? []) as unknown[]);
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function invalidPriceSuggestionResponse(message: string) {
   return new TakeoffError({
     code: TakeoffErrorCode.INTERNAL_ERROR,

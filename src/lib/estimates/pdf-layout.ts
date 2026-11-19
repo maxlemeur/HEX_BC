@@ -1,3 +1,5 @@
+import { isRecord } from "@/lib/value-guards";
+
 export type EstimatePdfPreset =
   | "client_detailed"
   | "decision_summary"
@@ -102,11 +104,6 @@ const CONDITIONS_PLACEMENTS = new Set<EstimatePdfConditionsPlacement>([
   "auto",
   "new_page",
 ]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function normalizeBoolean(value: unknown, fallback: boolean) {
   if (typeof value === "boolean") return value;
   if (value === "1" || value === "true") return true;

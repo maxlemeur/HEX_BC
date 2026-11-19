@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { chatGptIncompleteError, chatGptStreamEvents } from "@/lib/ai/chatgpt-local-inference";
+import { isRecord } from "@/lib/value-guards";
 
 /** What the browser may show before the turn is known to have succeeded. */
 export type AssistantModelDelta = { type: "text"; delta: string };
@@ -22,11 +23,6 @@ const usageSchema = z.object({
 });
 const toolCallSchema = z.object({ call_id: z.string().min(1), name: z.string().min(1), arguments: z.string() });
 const messageSchema = z.object({ content: z.array(z.object({ type: z.string(), text: z.string().optional() })).default([]) });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * One answer of the model: its text, passed on as it arrives, and the tools it
  * asks for. Text already shown stays partial until this resolves; a stream that

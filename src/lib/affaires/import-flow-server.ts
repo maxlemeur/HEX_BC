@@ -85,13 +85,6 @@ function toRpcSourceMetadata(
 }
 
 export type RpcImportItemPayload = RpcImportLinesPayload | RpcImportSectionPayload;
-
-export function normalizeNullableText(value: string | null | undefined): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 export async function getCurrentMembershipOrThrow(
   supabase: Supabase,
   userId: string

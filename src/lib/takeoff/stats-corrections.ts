@@ -1,4 +1,5 @@
 import type { TakeoffCorrectionMetricsEventType, TakeoffMetricsPeriod } from "@/lib/takeoff/metrics-types";
+import { isRecord } from "@/lib/value-guards";
 
 export type TakeoffMetricsAuditLogRow = {
   action: string;
@@ -99,11 +100,6 @@ export const QUICK_VALIDATION_EVENTS = new Set<TakeoffCorrectionMetricsEventType
   "manual_verification",
   "dpgf_keep_takeoff",
 ]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export function readNestedRecord(
   value: unknown,
   key: string

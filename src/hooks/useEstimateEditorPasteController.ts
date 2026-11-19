@@ -21,9 +21,10 @@ import {
   type EstimateItemInsertPayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
-import { isRecord, toFiniteNumber } from "@/lib/estimates/editor-values";
+import { toFiniteNumber } from "@/lib/estimates/editor-values";
 import { commitEstimateV3Operations, type EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import { interpretClipboardRowForV3 } from "@/lib/estimates/v3-paste";
+import { isRecord } from "@/lib/value-guards";
 
 const PASTE_CREATE_BATCH_MAX_OPERATIONS = 100;
 

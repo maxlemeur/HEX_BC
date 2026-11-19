@@ -59,6 +59,7 @@ import {
   type AffaireRegisterSummary,
   type AffaireRegisterTimelineEvent,
 } from "./register";
+import { isRecord } from "@/lib/value-guards";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type Supabase = SupabaseClient<Database>;
@@ -352,11 +353,6 @@ const continueAffaireRegisterWithHypothesisInputSchema = z.object({
   entryId: z.string().uuid("entryId invalide."),
   comment: z.string().trim().max(320).nullable().optional(),
 });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function toStringOrNull(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
