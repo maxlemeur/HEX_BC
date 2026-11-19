@@ -181,6 +181,7 @@ function TakeoffApplyScreen({
       ? { ...current, holdsDpgfLines, generation: current.generation + 1 } : current));
   }, []);
   const { preview, pages } = useTakeoffApplyReads({ jobId, generation, onStrategyChange: handleStrategyChange });
+  // Read under the generation it was computed for only (useTakeoffApplyReads): never an earlier selection's.
   const previewData = preview.data;
 
   // The callers mount the screen only while it is open, and another job or version remounts it: a read after the first
@@ -241,18 +242,16 @@ function TakeoffApplyScreen({
     () => new Map((externalItems ?? []).map((item) => [item.id, item])),
     [externalItems]
   );
-  // Read under the generation it was computed for only (useTakeoffApplyReads): never an earlier selection's.
-  const hasPreviewReady = previewData !== null;
   // Every level (TI-664): the fixed rules block a line on any level, the existing reasons on level C. The lines the
   // mapping plan skips or folds into an assembly are left out first, as the server's guard and the RPC leave them
   // (TI-664 L5c): read from the up-to-date preview, before which nothing is judged nor confirmed.
   const guardResult = useMemo<ApplyGuardResult | null>(() => {
-    if (!jobLevel || !hasGuardItems || !hasPreviewReady || !previewData) return null;
+    if (!jobLevel || !hasGuardItems || !previewData) return null;
     const planned = new Set(previewData.items.filter((item) => item.action === "skip" || item.action === "apply_assembly").map((item) => item.item_id));
     const guarded = externalItems!.map((item) => (planned.has(item.id) ? { ...item, is_excluded: true } : item));
     // A duplicate whose partners the plan all leaves out no longer blocks, as on the server (TI-677).
     return checkApplyGuard(guarded, threshold, { level: jobLevel, leftOut: leftOutByPartners });
-  }, [externalItems, hasGuardItems, hasPreviewReady, jobLevel, previewData, threshold]);
+  }, [externalItems, hasGuardItems, jobLevel, previewData, threshold]);
   const guardBlocking = guardResult !== null && !guardResult.passed;
   // TI-682 lot D: the proposal, read beside the preview for the same generation.
   const proposal = pages.data;
@@ -281,22 +280,11 @@ function TakeoffApplyScreen({
   // The lines the current preview retains, not the review's count read before it (another reviewer may have excluded
   // the last one meanwhile): both confirmations wait for at least one.
   const retainedCount = previewData?.summary.included_count ?? 0;
-  const nothingRetained = hasPreviewReady ? retainedCount === 0 : includedCount === 0;
-  const canConfirm =
-    retainedCount > 0 &&
-    !isSubmitting &&
-    hasPreviewReady &&
-    !guardBlocking &&
-    pagesReady &&
-    !mergeWouldOverwrite;
-  const canAdminOverride =
-    isAdmin &&
-    guardBlocking &&
-    retainedCount > 0 &&
-    !isSubmitting &&
-    hasPreviewReady &&
-    pagesReady &&
-    !mergeWouldOverwrite;
+  const nothingRetained = previewData ? retainedCount === 0 : includedCount === 0;
+  // What both confirmations need (a retained line implies the current preview answered); the guard then picks one.
+  const sendable = retainedCount > 0 && !isSubmitting && pagesReady && !mergeWouldOverwrite;
+  const canConfirm = sendable && !guardBlocking;
+  const canAdminOverride = sendable && isAdmin && guardBlocking;
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (isSubmitting && !nextOpen) return;
