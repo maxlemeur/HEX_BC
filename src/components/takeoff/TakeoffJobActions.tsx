@@ -34,6 +34,8 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
     failed ? ["takeoff-failure", job.jobId, profile?.id, profile?.tenant_role, job.retryCount,
       job.providerBatchUpdatedAt, job.providerReconcileLeaseExpiresAt] : null,
     async () => (await fetchTakeoffJob(job.jobId, { itemsLimit: 1 })).job,
+    // The key changes with the job's own changes: a window focus reads nothing new.
+    { revalidateOnFocus: false },
   );
   const canReconcile = failed ? detail?.can_reconcile : job.canReconcile;
   const canResubmit = failed ? detail?.can_resubmit : job.canResubmit;
