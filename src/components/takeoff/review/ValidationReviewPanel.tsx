@@ -9,7 +9,11 @@ import {
   detectAnomalies,
 } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
-import type { TakeoffApplyBlocker, TakeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
+import {
+  TAKEOFF_NO_INCLUDED_LINE_MESSAGE,
+  type TakeoffApplyBlocker,
+  type TakeoffApplyReadiness,
+} from "@/lib/takeoff/apply-readiness";
 import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
 import type { TakeoffDpgfComparisonSummary } from "@/lib/takeoff/types";
 import { CircleCheckIcon } from "lucide-react";
@@ -526,7 +530,7 @@ export function ValidationReviewPanel({
 
         {summary.total === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground" role="status">
-            Tous les items sont exclus. Réintégrez au moins un item pour pouvoir appliquer l&apos;extraction.
+            {TAKEOFF_NO_INCLUDED_LINE_MESSAGE}
           </p>
         ) : adminMayForce ? (
           <p className="mt-3 text-sm text-warning" role="status">Des lignes bloquées demandent une décision.</p>
