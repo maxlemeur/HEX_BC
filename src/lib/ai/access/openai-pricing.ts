@@ -95,7 +95,7 @@ export function offeredOpenAiModels(listed: ReadonlySet<string> | null): ApiKeyO
 }
 
 export type OpenAiCallBound =
-  | { status: "priced"; inputTokens: number; outputTokens: number; nanoUsd: number }
+  | { status: "priced"; nanoUsd: number }
   | { status: "unknown_price" };
 
 const isLong = (inputTokens: number) => inputTokens > OPENAI_PRICE_TABLE.longContextThreshold;
@@ -113,19 +113,17 @@ function outputRateNano(price: OpenAiModelPrice, inputTokens: number) {
 export function boundCountedCall(input: { model: string; inputTokens: number; maxOutputTokens: number }): OpenAiCallBound {
   const price = openAiQualifiedModel(input.model);
   if (!price) return { status: "unknown_price" };
-  return { status: "priced", inputTokens: input.inputTokens, outputTokens: input.maxOutputTokens,
+  return { status: "priced",
     nanoUsd: inputBoundNano(price, input.inputTokens) + Math.ceil(input.maxOutputTokens * outputRateNano(price, input.inputTokens)) };
 }
 
-/** A text-only call: its UTF-8 bytes, the schema allowance and the framing bound its input tokens. */
-export function boundTextOnlyCall(input: { model: string; textBytes: number; maxOutputTokens: number }): OpenAiCallBound {
-  return boundCountedCall({ model: input.model, inputTokens: input.textBytes + OPENAI_SCHEMA_TOKENS_ALLOWANCE + REQUEST_OVERHEAD_TOKENS,
-    maxOutputTokens: input.maxOutputTokens });
-}
-
-/** What « Tester le modèle » can cost at most, announced before it runs. */
+/**
+ * What « Tester le modèle » can cost at most, announced before it runs. A text-only call: its UTF-8 bytes, the
+ * schema allowance and the framing bound its input tokens.
+ */
 export function boundModelTest(model: string): OpenAiCallBound {
-  return boundTextOnlyCall({ model, textBytes: MODEL_TEST_PROMPT_BYTES_MAX, maxOutputTokens: MODEL_TEST_MAX_OUTPUT_TOKENS });
+  return boundCountedCall({ model, inputTokens: MODEL_TEST_PROMPT_BYTES_MAX + OPENAI_SCHEMA_TOKENS_ALLOWANCE + REQUEST_OVERHEAD_TOKENS,
+    maxOutputTokens: MODEL_TEST_MAX_OUTPUT_TOKENS });
 }
 
 /** The largest output budget, at most `cap`, whose bound with the counted input fits the allotment (0 when none does). */

@@ -19,22 +19,13 @@ import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
 import { InfoPopover } from "@/components/ui/info-popover";
 import { NativeSelect } from "@/components/ui/native-select";
+import { CHATGPT_REASONING_EFFORT_LABELS } from "@/lib/ai/chatgpt-model-preferences";
 import { chatGptSignInErrorMessage } from "@/lib/ai/chatgpt-sign-in-errors";
 
 type Connection = NonNullable<
   Awaited<ReturnType<typeof loadChatGptConnection>>
 >;
 type Models = Awaited<ReturnType<typeof loadChatGptModels>>;
-type ReasoningEffort = NonNullable<Connection["reasoningEffort"]>;
-
-const effortLabels: Record<ReasoningEffort, string> = {
-  none: "Sans raisonnement",
-  low: "Faible",
-  medium: "Moyen",
-  high: "Élevé",
-  xhigh: "Très élevé",
-  max: "Maximum",
-};
 
 /**
  * The ChatGPT subscription, first entry of « Accès IA » in Mon profil: the default source, with every command it
@@ -330,13 +321,13 @@ export function ChatGptConnectionCard() {
               <option value="auto">Automatique</option>
               {!hasCurrentEffortOption && connection.reasoningEffort ? (
                 <option value={connection.reasoningEffort}>
-                  {effortLabels[connection.reasoningEffort]} · sélection
+                  {CHATGPT_REASONING_EFFORT_LABELS[connection.reasoningEffort]} · sélection
                   actuelle
                 </option>
               ) : null}
               {selectedModel?.reasoningEfforts.map((effort) => (
                 <option key={effort} value={effort}>
-                  {effortLabels[effort]}
+                  {CHATGPT_REASONING_EFFORT_LABELS[effort]}
                 </option>
               ))}
             </NativeSelect>

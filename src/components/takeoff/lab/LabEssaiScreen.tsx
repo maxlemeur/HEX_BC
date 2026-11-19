@@ -17,9 +17,9 @@ import { LabPdfCanvas } from "@/components/takeoff/lab/LabPdfCanvas";
 import { errorMessage, formatInteger, formatLatency, labApi } from "@/components/takeoff/lab/lab-api";
 import { renderDecisionsImage } from "@/components/takeoff/lab/lab-pdf";
 import { formatUsd, formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
-import type { ChatGptAvailableModel, ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { CHATGPT_REASONING_EFFORT_LABELS, type ChatGptAvailableModel, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import {
-  configLabel, defaultCampaignName, EFFORT_LABELS, LAB_CAMPAIGN_ERROR, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
+  configLabel, defaultCampaignName, LAB_CAMPAIGN_ERROR, LAB_CONFIG_IDS, LAB_MAX_CONFIGS, LAB_NAME_PATTERN, promptVersionLabel,
   type LabConfigInput, type LabProvider, type LabRun, type LabRunSummary, type LabTaskDescriptor,
 } from "@/lib/takeoff/lab/contracts";
 import type { NormalizedBox } from "@/lib/takeoff/lab/geometry";
@@ -185,7 +185,7 @@ export function LabEssaiScreen() {
     : prompt.length > task.promptMax ? `Le prompt dépasse ${formatInteger(task.promptMax)} caractères.`
     : configs.some((config) => config.provider === "chatgpt") && !chatgptReady ? state.chatgpt.message ?? "ChatGPT n’est pas prêt."
     : configs.some((config) => config.provider === "chatgpt" && !config.model) ? modelsError ?? "Choisissez un modèle ChatGPT."
-    : configs.some((config) => config.provider === "api_key") && !apiKeyReady ? state.api_key.message ?? "Ajoutez votre clé API OpenAI dans Mon profil."
+    : keyConfigured && !apiKeyReady ? state.api_key.message ?? "Ajoutez votre clé API OpenAI dans Mon profil."
     : configs.some((config) => config.provider === "api_key" && !config.model) ? "Choisissez un modèle pour la clé API."
     : configs.some((config) => config.provider === "decisions") && !state.decisions.available ? state.decisions.message
     : configs.some((config) => config.provider === "decisions") && !planLoaded ? "Le plan se charge…"
@@ -297,7 +297,7 @@ export function LabEssaiScreen() {
             <Step index={3} title="Configurations" aside={`${configs.length} / ${LAB_MAX_CONFIGS}`}>
               {modelsError && chatgptReady ? <p className="text-xs text-danger">{modelsError}</p> : null}
               {!chatgptReady && configs.some((config) => config.provider === "chatgpt") ? <p className="text-xs text-warning">{state.chatgpt.message}</p> : null}
-              {!apiKeyReady && configs.some((config) => config.provider === "api_key") ? <p className="text-xs text-warning">{state.api_key.message}</p> : null}
+              {!apiKeyReady && keyConfigured ? <p className="text-xs text-warning">{state.api_key.message}</p> : null}
               {configs.map((config, index) => {
                 const options = config.provider === "api_key" ? apiModels : modelOptions;
                 const efforts = options.find((model) => model.id === config.model)?.reasoningEfforts ?? [];
@@ -339,7 +339,7 @@ export function LabEssaiScreen() {
                           <NativeSelect id={`${fieldId}-${id}-effort`} size="sm" value={config.reasoningEffort ?? "auto"} disabled={!ready}
                             onChange={(event) => updateConfig(index, { reasoningEffort: event.target.value === "auto" ? null : event.target.value as ChatGptReasoningEffort })}>
                             <option value="auto">Automatique</option>
-                            {efforts.map((effort) => <option key={effort} value={effort}>{EFFORT_LABELS[effort]}</option>)}
+                            {efforts.map((effort) => <option key={effort} value={effort}>{CHATGPT_REASONING_EFFORT_LABELS[effort]}</option>)}
                           </NativeSelect>
                         </div>
                       </div>

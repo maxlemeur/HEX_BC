@@ -18,6 +18,11 @@ export async function parseJsonBody(
   }
 }
 
+/** Whether the request declares a JSON body: media type `application/json`, parameters and case ignored. */
+export function isJsonContentType(request: Request) {
+  return request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() === "application/json";
+}
+
 /** Same as `parseJsonBody`, but an empty or blank body reads as `{}`. */
 export async function parseJsonBodyOrEmptyObject(
   request: Request,

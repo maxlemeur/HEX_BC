@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
-  boundCountedCall, boundModelTest, boundTextOnlyCall, costOfOpenAiUsage, formatUsd, formatUsdCeiling, LAB_API_KEY_CEILING_NANO_USD,
+  boundCountedCall, boundModelTest, costOfOpenAiUsage, formatUsd, formatUsdCeiling, LAB_API_KEY_CEILING_NANO_USD,
   LAB_MIN_USEFUL_OUTPUT_TOKENS, labMaxOutputTokens, maxOutputWithin, OPENAI_PRICE_TABLE, OPENAI_SCHEMA_TOKENS_ALLOWANCE, openAiQualifiedModel,
 } from "@/lib/ai/access/openai-pricing";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
@@ -41,7 +41,7 @@ describe("bound of a call whose input OpenAI counted", () => {
   it("prices every counted input token at the 12-hour cache write rate and the whole output budget", () => {
     // Terra: input written to a 12-hour cache costs 2,50 $ / M, output 5 $ / M.
     expect(boundCountedCall({ model: "gpt-6.1-terra", inputTokens: 40_000, maxOutputTokens: 32_000 }))
-      .toEqual({ status: "priced", inputTokens: 40_000, outputTokens: 32_000, nanoUsd: 40_000 * 2_500 + 32_000 * 5_000 });
+      .toEqual({ status: "priced", nanoUsd: 40_000 * 2_500 + 32_000 * 5_000 });
   });
 
   it("is never below what the call can cost when every input token is written for 12 hours", () => {
@@ -89,7 +89,8 @@ describe("output budget from what is left under the ceiling", () => {
   });
 
   it("bounds a text-only call by its bytes, which bound its tokens", () => {
-    expect(boundTextOnlyCall({ model: "gpt-6.1-terra", textBytes: 200, maxOutputTokens: 1_024 }))
+    // The model test: a question of at most 200 bytes, 1 024 output tokens.
+    expect(boundModelTest("gpt-6.1-terra"))
       .toMatchObject({ nanoUsd: (200 + OPENAI_SCHEMA_TOKENS_ALLOWANCE + 1_000) * 2_500 + 1_024 * 5_000 });
   });
 });

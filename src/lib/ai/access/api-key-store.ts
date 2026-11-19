@@ -1,13 +1,13 @@
 import "server-only";
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { z } from "zod";
 
 import { ApiKeyError } from "@/lib/ai/access/api-key-errors";
-import { writePrivateJson, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import { ownerKey, writePrivateJson, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 
 // What MergeOne remembers about a member's key, beside the Keychain: the
 // active version and its masked suffix, how it was verified, the models it
@@ -51,8 +51,6 @@ export type AiAccessFile = z.infer<typeof fileSchema>;
 export type AiAccessItemRef = z.infer<typeof itemRefSchema>;
 
 export const defaultAiAccessDirectory = () => path.join(process.cwd(), ".private", "ai-access");
-
-const ownerKey = (owner: AiAccessOwner) => createHash("sha256").update(JSON.stringify([owner.userId, owner.tenantId])).digest("hex");
 
 const empty = (): AiAccessFile => ({ schema_version: 1, next_version: 1, connections: {}, pending: [], retired: [] });
 

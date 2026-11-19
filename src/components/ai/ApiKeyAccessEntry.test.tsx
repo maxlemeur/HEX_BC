@@ -165,7 +165,7 @@ describe("ApiKeyAccessEntry", () => {
   });
 
   it("says the same on a local server without a Keychain", async () => {
-    state = { status: "unavailable", reason: "no_keychain", message: "La clé API est disponible uniquement sur l’installation Mac de MergeOne : elle est conservée dans le Trousseau macOS." };
+    state = { status: "unavailable", message: "La clé API est disponible uniquement sur l’installation Mac de MergeOne : elle est conservée dans le Trousseau macOS." };
     render(<ApiKeyAccessEntry />);
     expect(await screen.findByText(/disponible uniquement sur l’installation Mac/)).toBeTruthy();
     expect(screen.queryByLabelText("Clé API OpenAI")).toBeNull();

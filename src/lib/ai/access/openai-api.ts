@@ -228,8 +228,8 @@ function authRefusal(reply: Reply): "invalid" | "permission" | "unknown" | null 
   if (reply.status !== 401 && reply.status !== 403) return null;
   const { type, code, permissionWords } = errorFields(reply.body);
   // OpenAI puts these in error.code or error.type: both are read.
-  if ([code, type].some((value) => value !== null && (INVALID_KEY_CODES.has(value) || value === "invalid_api_key"))) return "invalid";
-  if ((code !== null && PERMISSION_CODES.has(code)) || (type !== null && PERMISSION_CODES.has(type)) || permissionWords) return "permission";
+  if ([code, type].some((value) => value !== null && INVALID_KEY_CODES.has(value))) return "invalid";
+  if ([code, type].some((value) => value !== null && PERMISSION_CODES.has(value)) || permissionWords) return "permission";
   return reply.status === 403 ? "permission" : "unknown";
 }
 
@@ -419,21 +419,17 @@ function lowestEffort(model: string): AiReasoningEffort | null {
   return openAiQualifiedModel(model)?.reasoningEfforts[0] ?? null;
 }
 
-function storeError(error: unknown): never {
-  if (isApiKeyError(error)) throw error;
-  if (error instanceof SecretStoreError) {
-    throw new ApiKeyError(error.reason === "locked" ? "AI_KEY_KEYCHAIN_LOCKED"
-      : error.reason === "unavailable" ? "AI_KEY_KEYCHAIN_UNAVAILABLE" : "AI_KEY_KEYCHAIN_FAILED");
-  }
-  throw new ApiKeyError("AI_KEY_UNEXPECTED");
-}
-
 /** Every failure of a use case becomes an ApiKeyError: nothing else crosses the route boundary. */
 async function guarded<T>(effect: () => Promise<T>): Promise<T> {
   try {
     return await effect();
   } catch (error) {
-    return storeError(error);
+    if (isApiKeyError(error)) throw error;
+    if (error instanceof SecretStoreError) {
+      throw new ApiKeyError(error.reason === "locked" ? "AI_KEY_KEYCHAIN_LOCKED"
+        : error.reason === "unavailable" ? "AI_KEY_KEYCHAIN_UNAVAILABLE" : "AI_KEY_KEYCHAIN_FAILED");
+    }
+    throw new ApiKeyError("AI_KEY_UNEXPECTED");
   }
 }
 
@@ -482,7 +478,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
   /** From MergeOne's own record only: the Keychain is not opened, OpenAI not called. */
   async function state(owner: AiAccessOwner): Promise<ApiKeyAccessState> {
     const store = deps.secretStore();
-    if (!store) return { status: "unavailable", reason: "no_keychain", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message };
+    if (!store) return { status: "unavailable", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message };
     const file = await readAiAccessFile(deps.directory(), owner);
     if (file.connections.openai) return view(store, file.connections.openai);
     return wasUnreadable(file) ? { status: "empty", placeLabel: store.placeLabel, notice: UNREADABLE_RECORD } : { status: "empty", placeLabel: store.placeLabel };
@@ -538,12 +534,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     const answer = await generateWith(deps, secret, serializeRequest({ model, reasoningEffort: lowestEffort(model), prompt: MODEL_TEST_PROMPT,
       schema: MODEL_TEST_SCHEMA, schemaName: "mergeone_model_test", files: [] }), MODEL_TEST_MAX_OUTPUT_TOKENS, 60_000);
     const costNanoUsd = costOfOpenAiUsage(answer.model, answer.usage, answer.serviceTier);
-    let valid = false;
-    try {
-      valid = !answer.refused && MODEL_TEST_SCHEMA.safeParse(readAnswer(answer.text, secret).value).success;
-    } catch {
-      valid = false;
-    }
+    const valid = !answer.refused && MODEL_TEST_SCHEMA.safeParse(readAnswer(answer.text, secret).value).success;
     if (!valid) throw new ApiKeyError("AI_KEY_PROVIDER_FAILED", { usage: answer.usage, model: answer.model, requestId: answer.requestId });
     return { costNanoUsd };
   }

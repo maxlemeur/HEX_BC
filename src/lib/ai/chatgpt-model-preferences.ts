@@ -4,6 +4,10 @@ export const DEFAULT_CHATGPT_MODEL = "gpt-6.1-terra";
 export const CHATGPT_REASONING_EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
 export const chatGptReasoningEffortSchema = z.enum(CHATGPT_REASONING_EFFORTS);
 export type ChatGptReasoningEffort = z.infer<typeof chatGptReasoningEffortSchema>;
+/** Reasoning efforts as the screens name them; the API values stay internal. */
+export const CHATGPT_REASONING_EFFORT_LABELS: Record<ChatGptReasoningEffort, string> = {
+  none: "Sans raisonnement", low: "Faible", medium: "Moyen", high: "Élevé", xhigh: "Très élevé", max: "Maximum",
+};
 export const chatGptPreferencesSchema = z.object({
   model: z.string().trim().min(1).max(200),
   reasoningEffort: chatGptReasoningEffortSchema.nullable(),

@@ -6,6 +6,7 @@ import { ApiError, type SupabaseErrorLike } from "@/lib/estimates/errors";
 import { sourceReferenceErrorCodeSchema } from "@/lib/estimates/source-reference-contracts";
 import { SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
 import { SourceReferenceStorageError } from "@/lib/estimates/source-reference-storage";
+import { isJsonContentType } from "@/lib/http/request";
 
 type ErrorCode = z.infer<typeof sourceReferenceErrorCodeSchema>;
 const ERRORS: Record<ErrorCode, [ApiError["status"], string]> = {
@@ -95,7 +96,7 @@ export async function readSourceReferenceJson<T extends z.ZodType>(request: Requ
   const sameOrigin = origin === new URL(request.url).origin;
   if (!sameOrigin) throw sourceReferenceError("SOURCE_REVIEW_WRITE_FORBIDDEN");
   assertSourceReferenceQueryEmpty(request);
-  if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json" || !request.body) throw sourceReferenceError("SOURCE_REVIEW_INVALID_INPUT");
+  if (!isJsonContentType(request) || !request.body) throw sourceReferenceError("SOURCE_REVIEW_INVALID_INPUT");
   const reader = request.body.getReader();
   const bytes = new Uint8Array(8192);
   let length = 0;
