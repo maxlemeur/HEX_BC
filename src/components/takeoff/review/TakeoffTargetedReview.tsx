@@ -3,7 +3,7 @@
 import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target } from "lucide-react";
 
@@ -17,9 +17,8 @@ import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRe
 import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
 import { acceptanceReasonRule, requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
-import {
-  TAKEOFF_APPLY_SENT_TITLE, takeoffApplySentDescription, useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold,
-} from "@/components/takeoff/review/useTakeoffReviewSupport";
+import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +32,6 @@ import { fetchTakeoffDpgfComparison, fetchTakeoffJobWithAllItems, isTakeoffApiEr
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { quantityEntryLabel } from "@/lib/takeoff/quantity-entry";
 import { APPLY_GUARD_REASON_LABELS, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
-import { takeoffApplyLandingHref } from "@/lib/takeoff/apply-landing";
 import { quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
 import { TAKEOFF_RULE_LABELS, ZONE_OVERLAP_DIFFERENCE_LABELS } from "@/lib/takeoff/rules/labels";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
@@ -58,7 +56,7 @@ import {
 } from "@/lib/takeoff/targeted-review";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS, isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import { exclusionReasonText } from "@/lib/takeoff/comparison-selection";
-import type { TakeoffApplyResponse, TakeoffItemPatchField, TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
+import type { TakeoffItemPatchField, TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
 import { cn } from "@/lib/utils";
 
 // Targeted review of a takeoff job (TI-664 step 4), a « tool » screen (TI-658 « Mise en page outil »): only the lines
@@ -132,7 +130,6 @@ function parseQuantity(text: string) {
 
 export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<{ jobId: string; versionId: string; projectId: string }>) {
   const toast = useToast();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
@@ -452,17 +449,12 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
     return () => document.removeEventListener("keydown", listener);
   }, []);
 
-  // Sent: said in a toast, even once the review is left; then, while it is still shown, the estimator lands in the
-  // estimate table on the takeoff's lines (the draft lock taken is already given back).
-  const handleSent = useCallback((response: TakeoffApplyResponse) => {
-    toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
-  }, [toast]);
-  const handleApplied = useCallback((response: TakeoffApplyResponse) => {
+  // Sent: the hook says it in a toast and lands in the estimate table; the review only records it.
+  const handleApplied = useCallback(() => {
     setWizardOpen(false);
     setJob((previous) => (previous ? { ...previous, status: "applied" } : previous));
-    router.push(takeoffApplyLandingHref(versionId, response.summary));
-  }, [router, versionId]);
-  const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied, onSent: handleSent });
+  }, []);
+  const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
 
   const included = items.filter((item) => !item.is_excluded);
   const applyBlocker = !job ? "Chargement du métré…"
@@ -476,9 +468,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
                 : dpgf.error ? "Rapprochement DPGF indisponible : rechargez la revue avant l’application."
                   : dpgf.blocking ? "Des rapprochements DPGF restent à trancher dans la revue complète." : null;
 
-  const reviewHref = `/dashboard/affaires/${projectId}/takeoff/${jobId}/review?versionId=${encodeURIComponent(versionId)}`;
+  const reviewHref = takeoffReviewHref({ projectId, jobId, versionId });
   const targetedHref = (otherJobId: string, itemId: string) =>
-    `/dashboard/affaires/${projectId}/takeoff/${otherJobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`;
+    takeoffReviewHref({ projectId, jobId: otherJobId, versionId, targeted: true, line: itemId });
   const focusIds = current ? [current.item.id, ...(guidance?.partners ?? []).filter((partner) => partner.job_id === jobId).map((partner) => partner.item_id)] : [];
   const rightMax = 720;
   const clampRight = (value: number) => Math.min(rightMax, Math.max(RIGHT_MIN, value));
@@ -518,7 +510,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
       </header>
       {job ? (
         <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={applied} className="mx-4 mt-2"
-          jobHref={(earlier) => `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`} />
+          jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
       ) : null}
       <TakeoffReviewPolicyPanel items={items} providerMeta={providerMeta} context={reviewContext.context} error={reviewContext.error}
         onFocusItem={(itemId) => { entryFocus.current = null; setDraft(null); setSelectedId(itemId); setPinnedId(itemId); }} />
@@ -722,7 +714,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           isSubmitting={apply.submitting} submitError={apply.error} submitErrorGuard={apply.errorGuard} onOpenChange={setWizardOpen}
           onConfirm={(payload: TakeoffApplyWizardSubmitPayload) => apply.confirm(payload)} items={items}
           sourceFileName={job.source_file_name} jobLevel={level} confidenceThreshold={threshold} isAdmin={isAdmin}
-          onReturnToReview={() => setWizardOpen(false)} dpgfReviewHref={`${reviewHref}&reviewMode=production&view=dpgf`} />
+          onReturnToReview={() => setWizardOpen(false)} dpgfReviewHref={takeoffReviewHref({ projectId, jobId, versionId, reviewMode: "production", view: "dpgf" })} />
       ) : null}
     </div>
   );

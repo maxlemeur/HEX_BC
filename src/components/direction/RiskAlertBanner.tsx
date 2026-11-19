@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/feedback/toast-provider";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import type { TakeoffRiskStatus } from "@/lib/takeoff/types";
+import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -40,7 +41,8 @@ function buildAlertHref(alert: DirectionSyntheticAlert) {
   const reviewJobId = alert.latestJobId ?? alert.jobId;
 
   if (reviewJobId) {
-    return `/dashboard/affaires/${alert.projectId}/takeoff/${reviewJobId}/review?versionId=${alert.versionId}&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
+    return takeoffDpgfExceptionsHref({ projectId: alert.projectId, jobId: reviewJobId, versionId: alert.versionId,
+      reviewMode: "validation" });
   }
 
   return `/dashboard/affaires/${alert.projectId}`;

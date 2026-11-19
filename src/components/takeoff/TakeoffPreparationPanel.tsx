@@ -95,17 +95,17 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       if (latest.destination.estimate_version_id !== target && shouldBindTarget) {
         return { ...latest, destination: { ...latest.destination, estimate_version_id: target, confirmed: false } };
       }
-      const selection = planSetId;
-      const didSwitch = (previousSelection.current !== undefined && previousSelection.current !== selection) || (previousSelection.current === undefined && record?.revision === null && !latest.sources.some((source) => source.active));
-      previousSelection.current = selection;
+      const didSwitch = (previousSelection.current !== undefined && previousSelection.current !== planSetId) || (previousSelection.current === undefined && record?.revision === null && !latest.sources.some((source) => source.active));
+      previousSelection.current = planSetId;
+      // An upload, or a document of another plan set than this one: no longer part of the selection.
+      const outsideSelection = (source: (typeof latest.sources)[number]) =>
+        source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId);
       const currentIds = new Set(latest.sources.map((source) => source.document_id));
       const newSources = availableSources.filter((source) => !currentIds.has(source.document_id));
-      const changedSelection = latest.sources.some((source) => source.active && (
-        source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId)
-      ));
+      const changedSelection = latest.sources.some((source) => source.active && outsideSelection(source));
       if (newSources.length === 0 && !changedSelection && !didSwitch) return latest;
       return { ...latest, sources: [
-        ...latest.sources.map((source) => ({ ...source, ...(didSwitch ? { active: source.plan_set_id === planSetId, confirmed: false } : {}), ...(source.active && (source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId)) ? { active: false, confirmed: false } : {}) })),
+        ...latest.sources.map((source) => ({ ...source, ...(didSwitch ? { active: source.plan_set_id === planSetId, confirmed: false } : {}), ...(source.active && outsideSelection(source) ? { active: false, confirmed: false } : {}) })),
         ...newSources.map((source) => ({ ...source, revision: source.revision ?? null, pages: [], active: Boolean(planSetId && source.plan_set_id === planSetId), confirmed: false })),
       ] };
     });

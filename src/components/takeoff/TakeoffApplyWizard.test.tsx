@@ -557,12 +557,13 @@ describe("TakeoffApplyWizard", () => {
       expect(screen.getByText("Trancher dans la revue ciblée")).toHaveAttribute("aria-disabled", "true");
     });
 
-    it("disables the evidence review link while sending", async () => {
+    it("disables the targeted review link while sending", async () => {
       render(<TakeoffApplyWizard {...props} jobId={JOB_ID} onConfirm={vi.fn()} isSubmitting jobLevel="C"
-        items={[{ ...RULE_ITEM, rule_results: [], evidence: null }]} reviewHref="/dashboard/affaires/p/takeoff/j/review?versionId=v" />);
+        items={[{ ...RULE_ITEM, rule_results: [], evidence: null }]}
+        targetedReviewHref="/dashboard/affaires/p/takeoff/j/review/targeted?versionId=v" />);
       await screen.findByText(/Lignes à trancher/);
-      expect(screen.queryByRole("link", { name: "Ouvrir la revue des preuves" })).toBeNull();
-      expect(screen.getByText("Ouvrir la revue des preuves")).toHaveAttribute("aria-disabled", "true");
+      expect(screen.queryByRole("link", { name: "Trancher dans la revue ciblée" })).toBeNull();
+      expect(screen.getByText("Trancher dans la revue ciblée")).toHaveAttribute("aria-disabled", "true");
     });
   });
 

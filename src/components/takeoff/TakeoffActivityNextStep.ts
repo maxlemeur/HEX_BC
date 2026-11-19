@@ -1,4 +1,5 @@
 import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 
 export type TakeoffNextStepAction =
   | { kind: "launch"; label: string }
@@ -88,7 +89,7 @@ export function resolveTakeoffNextStep({
       action: {
         kind: "href",
         label: "Ouvrir la revue",
-        href: `/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${versionId}`,
+        href: takeoffReviewHref({ projectId, jobId: latestJob.jobId, versionId }),
       },
     };
   }

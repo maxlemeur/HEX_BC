@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   AI_API_PROVIDER_LABELS, aiApiProviderSchema, type AiApiProvider, type AiBillingSource, type AiExecutionPlace, type ApiKeyOfferedModel,
 } from "@/lib/ai/access/contracts";
-import { chatGptReasoningEffortSchema, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { CHATGPT_REASONING_EFFORT_LABELS, chatGptReasoningEffortSchema, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 
 // Contracts of the takeoff lab (TI-661), shared by its routes and its screens.
 // The lab stores runs and verdicts as files under TAKEOFF_LAB_OUTPUT_DIR, never
@@ -374,13 +374,8 @@ export type LabBenchReportSummary = {
 // ---------------------------------------------------------------------------
 // Labels shared by the screens
 
-/** Reasoning efforts as the screens name them; the API values stay internal. */
-export const EFFORT_LABELS: Record<ChatGptReasoningEffort, string> = {
-  none: "Sans raisonnement", low: "Faible", medium: "Moyen", high: "Élevé", xhigh: "Très élevé", max: "Maximum",
-};
-
 export function effortLabel(effort: ChatGptReasoningEffort | null) {
-  return effort === null ? "Automatique" : EFFORT_LABELS[effort];
+  return effort === null ? "Automatique" : CHATGPT_REASONING_EFFORT_LABELS[effort];
 }
 
 export function configLabel(config: { provider: LabProvider; api_provider?: AiApiProvider | null; model: string; reasoning_effort: ChatGptReasoningEffort | null }) {

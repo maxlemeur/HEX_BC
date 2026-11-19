@@ -6,6 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { fetchTakeoffJob, type TakeoffActivityCenterResponse } from "@/lib/takeoff/client";
 import { isTakeoffOperatorMutationRole, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/operator-state";
 import type { TakeoffJobSummary } from "@/lib/takeoff/types";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { getTakeoffFailureReasonLabel } from "@/lib/takeoff/visible-status";
 
 export type ActionKind = "reconcile" | "resubmit" | "cancel";
@@ -33,6 +34,8 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
     failed ? ["takeoff-failure", job.jobId, profile?.id, profile?.tenant_role, job.retryCount,
       job.providerBatchUpdatedAt, job.providerReconcileLeaseExpiresAt] : null,
     async () => (await fetchTakeoffJob(job.jobId, { itemsLimit: 1 })).job,
+    // The key changes with the job's own changes: a window focus reads nothing new.
+    { revalidateOnFocus: false },
   );
   const canReconcile = failed ? detail?.can_reconcile : job.canReconcile;
   const canResubmit = failed ? detail?.can_resubmit : job.canResubmit;
@@ -55,7 +58,7 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
       <div className="flex flex-wrap gap-2">
         {reviewEnabled ? (
           <Link
-            href={`/dashboard/affaires/${projectId}/takeoff/${job.jobId}/review?versionId=${job.estimateVersionId}`}
+            href={takeoffReviewHref({ projectId, jobId: job.jobId, versionId: job.estimateVersionId })}
             className={buttonVariants({ variant: "outline" })}
           >
             Revue

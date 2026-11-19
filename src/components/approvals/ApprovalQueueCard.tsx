@@ -9,6 +9,7 @@ import { ChevronRightIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
 
 import { ApprovalQueueStateActions } from "./ApprovalQueueStateActions";
 
@@ -81,7 +82,8 @@ function buildCardHref(item: ApprovalQueueItem): string {
   const reviewJobId = resolveExceptionReviewJobId(item);
 
   if (reviewJobId) {
-    return `/dashboard/affaires/${item.projectId}/takeoff/${reviewJobId}/review?versionId=${item.versionId}&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
+    return takeoffDpgfExceptionsHref({ projectId: item.projectId, jobId: reviewJobId, versionId: item.versionId,
+      reviewMode: "validation" });
   }
 
   return `/dashboard/affaires/${item.projectId}`;

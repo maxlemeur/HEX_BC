@@ -1,7 +1,7 @@
-import { badRequest, ok } from "@/lib/http/api-response";
+import { badRequest } from "@/lib/http/api-response";
 import { LAB_NAME_PATTERN, LabRunRequestSchema } from "@/lib/takeoff/lab/contracts";
 import { executeLabRun, listLabRuns, summarizeLabRun } from "@/lib/takeoff/lab/runs";
-import { labErrorResponse, requireTakeoffLabAccess, requireTakeoffLabWrite } from "@/lib/takeoff/lab/server";
+import { labErrorResponse, labOk, requireTakeoffLabAccess, requireTakeoffLabWrite } from "@/lib/takeoff/lab/server";
 import { requireLabPaths } from "@/lib/takeoff/lab/storage";
 
 /** History of the essais, newest first, optionally for one campaign. */
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const campaign = new URL(request.url).searchParams.get("campaign");
     if (campaign !== null && !LAB_NAME_PATTERN.test(campaign)) throw badRequest("Campagne invalide.");
     const runs = await listLabRuns(await requireLabPaths());
-    return ok(runs.filter((run) => !campaign || run.campaign === campaign).map(summarizeLabRun));
+    return labOk(runs.filter((run) => !campaign || run.campaign === campaign).map(summarizeLabRun));
   } catch (error) {
     return labErrorResponse(error);
   }
@@ -24,11 +24,8 @@ export async function POST(request: Request) {
     const body = LabRunRequestSchema.parse(await request.json().catch(() => {
       throw badRequest("Corps JSON invalide.");
     }));
-    return ok(await executeLabRun(access, body), 201);
+    return labOk(await executeLabRun(access, body), 201);
   } catch (error) {
-    // A refused launch (a key-paid essai's stale page or ceiling among them) is never cached.
-    const response = labErrorResponse(error);
-    response.headers.set("cache-control", "no-store");
-    return response;
+    return labErrorResponse(error);
   }
 }

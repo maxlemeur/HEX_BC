@@ -31,13 +31,13 @@ import {
   TakeoffReviewErrorState,
   TakeoffReviewLoadingState,
 } from "@/components/takeoff/review/TakeoffReviewChrome";
+import { takeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import {
   getStatusCss,
   getStatusLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import {
-  TAKEOFF_APPLY_SENT_TITLE,
-  takeoffApplySentDescription,
   useTakeoffApplyConfirm,
   useTakeoffLowConfidenceThreshold,
 } from "@/components/takeoff/review/useTakeoffReviewSupport";
@@ -106,12 +106,10 @@ import { takeoffCompareDocumentKey } from "@/lib/takeoff/compare-document";
 import { hasBlockingTakeoffDpgfExceptions } from "@/lib/takeoff/dpgf-review-guards";
 import { withRuleStates } from "@/lib/takeoff/rules/rule-states";
 import { checkApplyGuard, hasBlockingTakeoffAnomaly } from "@/lib/takeoff/guards";
-import { takeoffApplyLandingHref } from "@/lib/takeoff/apply-landing";
 import { comparisonSelectionPatches } from "@/lib/takeoff/comparison-selection";
 import { AssistantToggle, useAssistantScreen } from "@/components/assistant/AssistantDock";
 import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import type {
-  TakeoffApplyResponse,
   TakeoffDpgfComparisonResponse,
   TakeoffDpgfComparisonView,
   TakeoffItemBatchPatchResponse,
@@ -636,7 +634,7 @@ export default function TakeoffReviewPage({
           toast.info({ title: "Enregistrez les modifications, puis ouvrez la revue ciblée pour justifier cette ligne." });
           return;
         }
-        router.push(`/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`);
+        router.push(takeoffReviewHref({ projectId, jobId, versionId, targeted: true, line: itemId }));
         return;
       }
       // TI-686 D12: a quantity still to enter is entered with what it rests on, in the targeted review, which lists the
@@ -650,7 +648,7 @@ export default function TakeoffReviewPage({
           return;
         }
         toast.info({ title: message });
-        router.push(`/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}&line=${encodeURIComponent(itemId)}`);
+        router.push(takeoffReviewHref({ projectId, jobId, versionId, targeted: true, line: itemId }));
         return;
       }
       setItems((prev) =>
@@ -1006,8 +1004,7 @@ export default function TakeoffReviewPage({
   );
 
   // ---- Apply readiness
-  const includedItems = items.filter((i) => !i.is_excluded);
-  const hasIncluded = includedItems.length > 0;
+  const includedItems = useMemo(() => items.filter((i) => !i.is_excluded), [items]);
   const hasDirtyOrSaving = items.some((i) => i._dirty || i._saving);
   const hasSaveErrors = items.some((i) => i._error !== null);
   const hasBlockingAnomalies = includedItems.some(hasBlockingTakeoffAnomaly);
@@ -1016,7 +1013,6 @@ export default function TakeoffReviewPage({
     if (!jobLevel) return null;
     return checkApplyGuard(includedItems, lowConfidenceThreshold, { level: jobLevel });
   }, [includedItems, jobLevel, lowConfidenceThreshold]);
-  const hasGuardBlocks = guardResult !== null && !guardResult.passed;
   const hasDpgfBlocks = hasBlockingTakeoffDpgfExceptions(
     dpgfCompareData?.summary ?? null
   );
@@ -1028,106 +1024,36 @@ export default function TakeoffReviewPage({
   // warning, no decision), read again once it is applied here (the estimate then holds its lines) and after a saved
   // change of a line's source page. Exclusion needs no new read: the banner filters the pages by the lines on screen.
   const pagesInEstimate = useTakeoffJobPageContributions(jobId, versionId, { applied: hasAlreadyBeenApplied, revision: savedSourcePages });
-  const meetsApplyConditions =
-    !hasAlreadyBeenApplied &&
-    jobStatus === "completed" &&
-    hasIncluded &&
-    !hasDirtyOrSaving &&
-    !hasSaveErrors &&
-    !hasBlockingAnomalies &&
-    !isDpgfValidationPending &&
-    !hasDpgfValidationError &&
-    !hasDpgfBlocks;
-  const isApplyReady = meetsApplyConditions && !hasGuardBlocks;
-  const canOpenApplyWizard = meetsApplyConditions && (!hasGuardBlocks || isAdmin);
-  const blockedCount = guardResult?.blocked_items.length ?? 0;
-  const forceGuidance = hasGuardBlocks && isAdmin
-    ? blockedCount === 1
-      ? "1 ligne reste à trancher. Vous pouvez la traiter dans la revue ciblée ou la justifier à l’envoi."
-      : `${blockedCount} lignes restent à trancher. Vous pouvez les traiter dans la revue ciblée ou les justifier une par une à l’envoi.`
-    : null;
-  const applyReadinessMessage = useMemo(() => {
-    if (hasAlreadyBeenApplied) {
-      return "Ce métré a déjà été appliqué au chiffrage.";
-    }
-
-    if (!hasIncluded) {
-      return "Aucune ligne retenue. Réintégrez au moins une ligne avant l'envoi au tableau de chiffrage.";
-    }
-
-    if (hasDirtyOrSaving) {
-      return "Attendez la fin des sauvegardes avant l'envoi au tableau de chiffrage.";
-    }
-
-    if (hasSaveErrors) {
-      return "Corrigez les lignes en erreur avant l'envoi au tableau de chiffrage.";
-    }
-
-    if (hasBlockingAnomalies) {
-      return "Corrigez les anomalies bloquantes avant l'envoi au tableau de chiffrage.";
-    }
-
-    if (isDpgfValidationPending) {
-      return "Attendez le chargement du rapprochement DPGF avant l'envoi au tableau de chiffrage.";
-    }
-
-    if (hasDpgfValidationError) {
-      return "Impossible de valider le rapprochement DPGF. Rechargez cette revue avant l'envoi au tableau de chiffrage.";
-    }
-
-    if (hasDpgfBlocks) {
-      return "Des rapprochements DPGF restent à trancher. Ouvrez la revue détaillée pour finaliser les liens manuels.";
-    }
-
-    if (forceGuidance) return forceGuidance;
-    if (hasGuardBlocks) {
-      return `Le contrôle de ${guardResult?.blocked_items.length ?? 0} ligne(s) reste incomplet : complétez les preuves localisées, tranchez les règles en échec ou validez les lignes avant l'application.`;
-    }
-
-    return "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact avant de confirmer.";
-  }, [
-    guardResult,
-    hasBlockingAnomalies,
-    hasDpgfBlocks,
-    hasDpgfValidationError,
+  const readiness = takeoffApplyReadiness({
+    jobStatus,
+    includedCount: includedItems.length,
     hasDirtyOrSaving,
-    hasGuardBlocks,
-    forceGuidance,
-    hasIncluded,
-    hasAlreadyBeenApplied,
     hasSaveErrors,
-    isDpgfValidationPending,
-  ]);
-  // ---- Sent: said in a toast (the toast provider is the root layout's, so it outlives the review), then, while the
-  // review is still shown, the estimator lands in the estimate table on the takeoff's lines (the draft lock taken for the
-  // application is already given back).
-  const handleSent = useCallback(
-    (response: TakeoffApplyResponse) => {
-      toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response.summary) });
-    },
-    [toast]
-  );
-  const handleApplied = useCallback(
-    (response: TakeoffApplyResponse) => {
-      setApplyWizardOpen(false);
-      setJobStatus("applied");
-      router.push(takeoffApplyLandingHref(versionId, response.summary));
-    },
-    [router, versionId]
-  );
+    hasBlockingAnomalies,
+    dpgfPending: isDpgfValidationPending,
+    dpgfError: hasDpgfValidationError,
+    dpgfExceptions: hasDpgfBlocks,
+    guardBlockedCount: guardResult?.blocked_items.length ?? 0,
+    isAdmin,
+  });
+  // ---- Sent: the hook says it in a toast and lands in the estimate table; the review only records it.
+  const handleApplied = useCallback(() => {
+    setApplyWizardOpen(false);
+    setJobStatus("applied");
+  }, []);
   const {
     submitting: applySubmitting,
     error: applyError,
     errorGuard: applyErrorGuard,
     setError: setApplyError,
     confirm: handleApplyConfirm,
-  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied, onSent: handleSent });
+  } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
 
   const handleOpenApplyWizard = useCallback(() => {
-    if (!canOpenApplyWizard) return;
+    if (!readiness.canOpen) return;
     setApplyWizardOpen(true);
     setApplyError(null);
-  }, [canOpenApplyWizard, setApplyError]);
+  }, [readiness.canOpen, setApplyError]);
 
   const reviewTitle = "Revue des exceptions & preuves";
   const backHref = `/dashboard/affaires/${projectId}/takeoff`;
@@ -1137,7 +1063,7 @@ export default function TakeoffReviewPage({
   // other line to review.
   const targetedReviewCount = (guardResult ? guardResult.blocked_items.length + guardResult.medium_items.length : 0)
     + items.filter(isUndecidedHypothesis).length;
-  const targetedReviewHref = `/dashboard/affaires/${projectId}/takeoff/${jobId}/review/targeted?versionId=${encodeURIComponent(versionId)}`;
+  const targetedReviewHref = takeoffReviewHref({ projectId, jobId, versionId, targeted: true });
 
   if (loading) {
     return <TakeoffReviewLoadingState title={reviewTitle} />;
@@ -1228,7 +1154,7 @@ export default function TakeoffReviewPage({
         className="space-y-4"
       >
       <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={hasAlreadyBeenApplied}
-        jobHref={(earlier) => `/dashboard/affaires/${projectId}/takeoff/${earlier.id}/review?versionId=${encodeURIComponent(earlier.estimate_version_id)}`} />
+        jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
 
       {/* ---- Confidence header (Level C only) ---- */}
       {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}
@@ -1247,8 +1173,7 @@ export default function TakeoffReviewPage({
           onExcludeItems={handleExcludeItems}
           onIncludeItems={handleIncludeItems}
           onApplyClick={handleOpenApplyWizard}
-          canOpenApplyWizard={canOpenApplyWizard}
-          forceGuidance={forceGuidance}
+          readiness={readiness}
         />
       ) : currentReviewMode === "validation" ? (
         <LazyValidationReviewPanel
@@ -1265,10 +1190,7 @@ export default function TakeoffReviewPage({
           onIncludeItem={(itemId) => handleIncludeItems([itemId])}
           onOpenDpgfExceptions={openDpgfExceptions}
           onOpenDetailedReview={() => openProductionReview("items")}
-          canOpenApplyWizard={canOpenApplyWizard}
-          isApplyReady={isApplyReady}
-          forceGuidance={forceGuidance}
-          applyReadinessMessage={applyReadinessMessage}
+          readiness={readiness}
           onOpenApplyWizard={handleOpenApplyWizard}
         />
       ) : (
@@ -1307,10 +1229,8 @@ export default function TakeoffReviewPage({
       {/* ---- Apply readiness bar (production mode only, others have built-in bars) ---- */}
       {currentReviewMode === "production" ? (
         <TakeoffApplyReadinessBar
-          isApplyReady={isApplyReady}
-          canOpenApplyWizard={canOpenApplyWizard}
+          readiness={readiness}
           includedCount={includedItems.length}
-          readinessMessage={applyReadinessMessage}
           onOpenApplyWizard={handleOpenApplyWizard}
         />
       ) : null}

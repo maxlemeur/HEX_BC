@@ -37,7 +37,6 @@ export function getErrorReportingDsn(): string | null {
 // A provider error, a stack or a context may quote a key or an Authorization
 // header (personal API keys, « Accès IA »). Every event is redacted before it is
 // logged or delivered: provider-shaped keys and bearer credentials only.
-export { redactSecrets };
 
 function redactValue(value: unknown, depth = 0): unknown {
   if (typeof value === "string") return redactSecrets(value);

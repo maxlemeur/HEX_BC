@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 
 // « Accès IA » (lot 1): three separate questions, never one field.
 // - Who pays: the billing source. The ChatGPT subscription, or a member's own API key.
@@ -18,6 +18,7 @@ export const aiApiProviderSchema = z.enum(AI_API_PROVIDERS);
 export const AI_EXECUTION_PLACES = ["local"] as const;
 export type AiExecutionPlace = (typeof AI_EXECUTION_PLACES)[number];
 
+/** The efforts a request may carry; each model accepts a subset (openai-pricing.ts). */
 export type AiReasoningEffort = ChatGptReasoningEffort;
 
 export const AI_API_PROVIDER_LABELS: Record<AiApiProvider, string> = { openai: "OpenAI" };
@@ -47,7 +48,7 @@ export type ApiKeyConnectionView = {
 };
 
 export type ApiKeyAccessState =
-  | { status: "unavailable"; reason: "not_local" | "no_keychain"; message: string }
+  | { status: "unavailable"; message: string }
   | { status: "empty"; placeLabel: string; /** Something the member should know about the last change (a deferred Keychain cleanup). */ notice?: string }
   | { status: "saved"; connection: ApiKeyConnectionView };
 

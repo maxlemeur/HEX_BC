@@ -1,5 +1,4 @@
-import { ok } from "@/lib/http/api-response";
-import { labErrorResponse, requireTakeoffLabAccess } from "@/lib/takeoff/lab/server";
+import { labErrorResponse, labOk, requireTakeoffLabAccess } from "@/lib/takeoff/lab/server";
 import { requireLabPaths } from "@/lib/takeoff/lab/storage";
 import { readLabCampaign } from "@/lib/takeoff/lab/verdicts";
 
@@ -7,7 +6,7 @@ import { readLabCampaign } from "@/lib/takeoff/lab/verdicts";
 export async function GET(_request: Request, { params }: { params: Promise<{ campaign: string }> }) {
   try {
     await requireTakeoffLabAccess();
-    return ok(await readLabCampaign(await requireLabPaths(), (await params).campaign));
+    return labOk(await readLabCampaign(await requireLabPaths(), (await params).campaign));
   } catch (error) {
     return labErrorResponse(error);
   }

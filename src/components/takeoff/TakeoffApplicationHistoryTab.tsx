@@ -14,6 +14,7 @@ import { ClockIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 
 type Props = {
   projectId: string;
@@ -73,7 +74,7 @@ export default function TakeoffApplicationHistoryTab({
               Appliqué le {formatTimestamp(job.created_at)}
             </p>
             <Link
-              href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}`}
+              href={takeoffReviewHref({ projectId, jobId: job.id, versionId: job.estimate_version_id })}
               className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full justify-center")}
             >
               Ouvrir la revue
@@ -109,7 +110,7 @@ export default function TakeoffApplicationHistoryTab({
               <td>{formatCount(job.items_count)}</td>
               <td>
                 <Link
-                  href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}`}
+                  href={takeoffReviewHref({ projectId, jobId: job.id, versionId: job.estimate_version_id })}
                   className={buttonVariants({ variant: "outline" })}
                 >
                   Ouvrir la revue

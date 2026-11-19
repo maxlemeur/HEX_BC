@@ -19,6 +19,7 @@ import {
 } from "@/lib/estimates/readiness";
 import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
+import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 export type PilotageStepStatus = "done" | "in_progress" | "blocked" | "waiting";
@@ -233,7 +234,7 @@ export function buildTakeoffExceptionsHref(
     return `/dashboard/affaires/${projectId}/takeoff`;
   }
 
-  return `/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`;
+  return takeoffDpgfExceptionsHref({ projectId, jobId: latestJob.jobId, versionId: latestJob.reviewVersionId });
 }
 
 function countDocumentsNeedingReview(intakeWorkspace: AffairePilotageWorkspace) {

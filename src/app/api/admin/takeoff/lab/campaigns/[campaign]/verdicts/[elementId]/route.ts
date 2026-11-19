@@ -1,6 +1,6 @@
-import { badRequest, ok } from "@/lib/http/api-response";
+import { badRequest } from "@/lib/http/api-response";
 import { LabVerdictRequestSchema } from "@/lib/takeoff/lab/contracts";
-import { labErrorResponse, requireTakeoffLabWrite } from "@/lib/takeoff/lab/server";
+import { labErrorResponse, labOk, requireTakeoffLabWrite } from "@/lib/takeoff/lab/server";
 import { requireLabPaths } from "@/lib/takeoff/lab/storage";
 import { saveLabVerdict } from "@/lib/takeoff/lab/verdicts";
 
@@ -12,7 +12,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ camp
     const body = LabVerdictRequestSchema.parse(await request.json().catch(() => {
       throw badRequest("Corps JSON invalide.");
     }));
-    return ok(await saveLabVerdict(await requireLabPaths(), access, campaign, elementId, body.verdict));
+    return labOk(await saveLabVerdict(await requireLabPaths(), access, campaign, elementId, body.verdict));
   } catch (error) {
     return labErrorResponse(error);
   }

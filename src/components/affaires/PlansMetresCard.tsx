@@ -20,6 +20,7 @@ import {
 import { CircleHelpIcon, PanelsTopLeftIcon, TriangleAlertIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 type PlansMetresCardProps = {
@@ -392,7 +393,7 @@ export function PlansMetresCard({
         </Link>
         {canReview ? (
           <Link
-            href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`}
+            href={takeoffDpgfExceptionsHref({ projectId, jobId: latestJob.jobId, versionId: latestJob.reviewVersionId })}
             className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           >
             Revoir l&apos;analyse

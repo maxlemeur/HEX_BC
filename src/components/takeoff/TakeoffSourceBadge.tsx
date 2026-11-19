@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { usePopover } from "@/hooks/usePopover";
 import { SUPPORTED_TAKEOFF_SOURCE_BADGE_PROVIDERS } from "@/lib/takeoff/source-badge";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 const TakeoffLineEvidencePanel = dynamic(
@@ -562,7 +563,7 @@ export function TakeoffSourceBadge({
     : "";
   const normalizedSourceJobId = toNonEmptyString(sourceJobId);
   const jobLink = projectId && normalizedSourceJobId
-    ? `/dashboard/affaires/${projectId}/takeoff/${normalizedSourceJobId}/review?versionId=${versionId}`
+    ? takeoffReviewHref({ projectId, jobId: normalizedSourceJobId, versionId })
     : null;
   const canOpenEvidence =
     !isVersionZeroDraft &&

@@ -1,7 +1,7 @@
-import { badRequest, ok } from "@/lib/http/api-response";
+import { badRequest } from "@/lib/http/api-response";
 import { readLabDocument } from "@/lib/takeoff/lab/dataset";
 import { readLabRun } from "@/lib/takeoff/lab/runs";
-import { labErrorResponse, requireTakeoffLabAccess } from "@/lib/takeoff/lab/server";
+import { labErrorResponse, labOk, requireTakeoffLabAccess } from "@/lib/takeoff/lab/server";
 import { requireLabPaths } from "@/lib/takeoff/lab/storage";
 import { readLabVectorPage } from "@/lib/takeoff/lab/vectors";
 
@@ -18,7 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ docu
     const runId = search.get("run");
     const document = await readLabDocument((await params).documentId);
     const run = runId === null ? null : await readLabRun(await requireLabPaths(), runId);
-    return ok(await readLabVectorPage({ document, page: Number(pageText), run }));
+    return labOk(await readLabVectorPage({ document, page: Number(pageText), run }));
   } catch (error) {
     return labErrorResponse(error);
   }

@@ -50,7 +50,9 @@ function ModelSelect({ id, models, value, onChange, disabled }: {
 
 export function ApiKeyAccessEntry() {
   const id = useId();
-  const [isLocal, setIsLocal] = useState<boolean | null>(null);
+  // A hosted build has no Keychain: no request, the entry says where the key works. Inlined at build time, so the
+  // server and the browser draw the same thing.
+  const hosted = process.env.NODE_ENV === "production";
   /** The page's own address, read once mounted: the field is offered on the loopback address only. */
   const [loopback, setLoopback] = useState<{ allowed: boolean; profileUrl: string } | null>(null);
   const [state, setState] = useState<ApiKeyAccessState | null>(null);
@@ -66,16 +68,11 @@ export function ApiKeyAccessEntry() {
   const [message, setMessage] = useState<{ text: string; revoke?: boolean } | null>(null);
 
   useEffect(() => {
-    // A hosted build has no Keychain: no request, the entry says where the key works.
-    if (process.env.NODE_ENV === "production") {
-      setIsLocal(false);
-      return;
-    }
-    setIsLocal(true);
+    if (hosted) return;
     const page = currentPageUrl();
     setLoopback({ allowed: isLoopbackPage(page), profileUrl: `http://127.0.0.1${page.port ? `:${page.port}` : ""}/dashboard/profile` });
     void aiAccessApi.state().then(setState).catch((cause: unknown) => setLoadError(aiAccessErrorMessage(cause)));
-  }, []);
+  }, [hosted]);
 
   // The models the key listed when it was saved: no Keychain read, no call to OpenAI to draw them.
   const models = state?.status === "saved" ? state.connection.offeredModels : [];
@@ -121,10 +118,11 @@ export function ApiKeyAccessEntry() {
   );
   const title = "Clé API";
 
-  if (isLocal === false) {
+  const unavailable = hosted ? apiKeyErrorMessage("AI_KEY_KEYCHAIN_UNAVAILABLE") : state?.status === "unavailable" ? state.message : null;
+  if (unavailable !== null) {
     return (
       <PageSection variant="plain" headingLevel={3} title={title} actions={<Badge variant="neutral" size="sm">Mac uniquement</Badge>}>
-        <p className="text-sm text-muted-foreground">{apiKeyErrorMessage("AI_KEY_KEYCHAIN_UNAVAILABLE")}</p>
+        <p className="text-sm text-muted-foreground">{unavailable}</p>
       </PageSection>
     );
   }
@@ -136,14 +134,6 @@ export function ApiKeyAccessEntry() {
       </PageSection>
     );
   }
-  if (state.status === "unavailable") {
-    return (
-      <PageSection variant="plain" headingLevel={3} title={title} actions={<Badge variant="neutral" size="sm">Mac uniquement</Badge>}>
-        <p className="text-sm text-muted-foreground">{state.message}</p>
-      </PageSection>
-    );
-  }
-
   const saved = state.status === "saved" ? state.connection : null;
   const keyEntryAllowed = loopback?.allowed === true;
   const showForm = keyEntryAllowed && (!saved || replacing);

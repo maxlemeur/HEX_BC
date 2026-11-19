@@ -32,7 +32,8 @@ export type ChatGptStore = z.infer<typeof storeSchema>;
 
 // This directory is already ignored by Git. Credentials never enter Supabase.
 const root = () => path.join(process.cwd(), ".private", "chatgpt-local");
-const ownerKey = (owner: ChatGptOwner) => createHash("sha256")
+/** File name stem of an owner's private records, shared by the ChatGPT and API key stores. */
+export const ownerKey = (owner: ChatGptOwner) => createHash("sha256")
   .update(JSON.stringify([owner.userId, owner.tenantId])).digest("hex");
 
 export async function writePrivateJson(file: string, value: unknown) {

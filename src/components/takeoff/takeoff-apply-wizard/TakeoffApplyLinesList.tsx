@@ -1,9 +1,11 @@
 "use client";
 
+import { memo } from "react";
+
 import type { TakeoffPreviewConversionResponse } from "@/lib/takeoff/client";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
 
-import { mappingRuleEffect } from "./shared";
+import { formatTakeoffQuantity, mappingRuleEffect } from "./shared";
 
 type PreviewItem = TakeoffPreviewConversionResponse["items"][number];
 
@@ -13,8 +15,6 @@ export const DPGF_LINES_TITLE = "Lignes retenues avant le rapprochement DPGF";
 export const DPGF_OUT_OF_SCOPE_NOTE = "Ce compte inclut les lignes que le rapprochement DPGF a classées hors périmètre : elles ne sont "
   + "pas envoyées, et cette liste ne les distingue pas.";
 export const SKIPPED_LINES_TITLE = "Laissées de côté par une règle";
-
-const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 
 function provenance(source: TakeoffJobItem | undefined) {
   if (!source) return "Provenance non renseignée";
@@ -56,7 +56,7 @@ function LinesSection({ id, title, note, items, sourceByItemId }: {
                   {renamed ? <span className="font-normal text-foreground-secondary"> → {item.transformed.designation}</span> : null}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {quantityFormat.format(item.transformed.quantity)} {item.transformed.unit} · {provenance(sourceByItemId.get(item.item_id))}
+                  {formatTakeoffQuantity(item.transformed.quantity)} {item.transformed.unit} · {provenance(sourceByItemId.get(item.item_id))}
                 </p>
                 {effect ? <p className="text-xs font-medium text-foreground-secondary">{effect}</p> : null}
               </li>
@@ -79,8 +79,10 @@ function LinesSection({ id, title, note, items, sourceByItemId }: {
  * and the read that knows them has side effects): the list is named for what it is, the lines retained before the
  * reconciliation, and its count says so beside it (the re-check of 0fd09a20, finding 4: « Lignes envoyées (2) » named a
  * line out of scope, the caveat came after the list).
+ *
+ * Memoized: its props hold while the rest of the dialog changes (a forcing justification typed, for example).
  */
-export function TakeoffApplyLinesList({
+export const TakeoffApplyLinesList = memo(function TakeoffApplyLinesList({
   items,
   sourceByItemId,
   reconcilesDpgf,
@@ -101,4 +103,4 @@ export function TakeoffApplyLinesList({
       ) : null}
     </div>
   );
-}
+});
