@@ -18,7 +18,7 @@ import {
 } from "@/lib/estimates/read-all-items-server";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database, Json } from "@/types/database";
-import { mapSupabaseError, notFound } from "@/lib/http/api-response";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import {
   enrichEstimateItemsWithGeneratedOuvrageProvenance,
   readGeneratedOuvrageApplicationsForVersion,
@@ -30,7 +30,6 @@ import {
 } from "./version-zero-drafts";
 import { resolveEstimateLineTruth, type EstimateLineTruth } from "./line-truth";
 import {
-  canAccessOwnerResource,
   getAuthenticatedContext,
   getVersionAccessOrThrow,
 } from "./server-context";
@@ -314,32 +313,16 @@ export async function getEstimateVersionDetails(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
 
-  const { data: versionData, error: versionError } = await supabase
-    .from("estimate_versions")
-    .select(
-      "*, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
-    )
-    .eq("id", versionId)
-    .eq("tenant_id", tenantId)
-    .single();
-
-  if (versionError || !versionData) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = versionData as unknown as EstimateVersionDetailsRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== tenantId ||
-    !canAccessOwnerResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
+  const { version, project } = await getVersionAccessOrThrow<EstimateVersionDetailsRow, EmbeddedProjectAccess>(
+    supabase,
+    versionId,
+    context,
+    {
+      mode: "owner_or_admin",
+      versionColumns: "*",
+      projectColumns: "name, reference, estimate_reference, site_address, client_name, notes",
+    }
+  );
 
   // Contexte des feuilles de chiffrage (BDC, DPGF) : une version qu'elles lisent sur ses montants figés
   // ne reçoit ni taux, ni barème, ni drapeau du jour. Lot 2, sous-lot 2.7 : l'export d'une v3 relit son

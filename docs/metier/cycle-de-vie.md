@@ -56,6 +56,15 @@ antérieure obsolète. L'historique des décisions reste conservé.
 
 Les rôles `admin` et `director` décident les revues ; les écritures de devis sont
 réservées à `admin` et `engineer`, sous les règles de propriété et de verrou.
+Une version s'ouvre dans l'éditeur pour le propriétaire de l'affaire ou un `admin`
+du tenant, affaire archivée comprise. Les brouillons IA (structure, version zéro,
+ouvrages générés) suivent la même règle et refusent une affaire archivée (409),
+sauf la relecture d'une opération déjà engagée (reçu, abandon, rejeu d'une
+insertion). Les lectures d'approbation, l'historique des versions et les accès
+serveur au PDF admettent en plus un `director` ; le fichier PDF publié reste
+réservé au propriétaire et aux `admin` par les règles de la base. Ces règles et les
+rôles de l'approbation sont déclarés dans
+[server-context.ts](../../src/lib/estimates/server-context.ts).
 Les décisions de revue (`approved`, `approved_with_reservations`,
 `changes_requested`) ne sont pas les statuts du devis.
 
