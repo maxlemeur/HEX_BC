@@ -1,13 +1,11 @@
 import { readAllRows } from "@/lib/supabase/read-all";
 import { internalError, mapSupabaseError } from "@/lib/http/api-response";
-import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import * as durableIntake from "@/lib/workflows/affaire-intake-lifecycle";
-import { buildAffaireIntakeMissingPieces, isAffaireIntakeReanalysisPending } from "@/lib/affaires/intake";
+import { isAffaireIntakeReanalysisPending } from "@/lib/affaires/intake";
 import { requireAffaireAccess, type AffaireAccessProject } from "@/lib/affaires/access-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
-import { hasStoredIntakePlan, hasStoredStandalonePlan, type StandalonePlanRow } from "@/lib/affaires/plan-presence";
 import { syncAffaireRegisterMissingPieces, syncAffairePlanGap } from "@/lib/affaires/register-server";
 import {
   type AffaireIntakeDocumentRow,
@@ -19,6 +17,7 @@ import {
 } from "@/lib/affaires/intake-rows";
 import { generateAffaireBriefDraft } from "@/lib/affaires/intake-brief-generation";
 import { fetchAffaireBriefForProject, persistAffaireBriefDraft } from "@/lib/affaires/intake-brief-store";
+import { getMissingPiecesForProject } from "@/lib/affaires/intake-missing-pieces";
 
 export async function refreshAffaireBriefFromDocuments(input: {
   supabase: AffaireIntakeSupabaseClient;
@@ -112,40 +111,6 @@ export async function refreshAffaireBriefFromDocuments(input: {
   });
   await syncAffairePlanGap({ projectId: input.project.id, actorUserId: input.actorUserId });
   return draft;
-}
-
-export async function getMissingPiecesForProject(input: {
-  supabase: AffaireIntakeSupabaseClient;
-  project: AffaireAccessProject;
-  documents: AffaireIntakeDocumentRow[];
-  /** The affaire's plan files when a portfolio read already holds them. */
-  standalonePlanRows?: readonly StandalonePlanRow[];
-}) {
-  const activeDocuments = input.documents.filter((document) => !document.deletion_token);
-  const candidatePlans = activeDocuments.filter((document) =>
-    document.upload_status === "uploaded" && document.classification_status === "classified" && document.document_kind === "plans"
-  );
-  const hasIntakePlan = candidatePlans.length > 0 && await hasStoredIntakePlan({
-    supabase: input.supabase as never, serverClient: () => createServiceRoleClient() as never,
-    projectId: input.project.id, documents: candidatePlans,
-  });
-  const missing = buildAffaireIntakeMissingPieces(activeDocuments
-    .filter((document) => hasIntakePlan || !candidatePlans.includes(document))
-    .map((document) => ({
-      uploadStatus: document.upload_status,
-      classificationStatus: document.classification_status,
-      documentKind: document.document_kind,
-    })));
-  if (!missing.some((piece) => piece.code === "missing_plans")) return missing;
-  const hasPlan = await hasStoredStandalonePlan({
-    // Project access has already been checked; use the server client so a
-    // director with dossier read rights gets the same presence boolean.
-    supabase: createServiceRoleClient() as never,
-    projectId: input.project.id,
-    tenantId: input.project.tenant_id,
-    rows: input.standalonePlanRows,
-  });
-  return hasPlan ? missing.filter((piece) => piece.code !== "missing_plans") : missing;
 }
 
 /** Reconcile system gaps after a plan file has been uploaded or removed. */

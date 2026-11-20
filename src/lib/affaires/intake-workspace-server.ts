@@ -36,7 +36,7 @@ import {
   normalizeAffaireBriefDraftFromRows,
   fetchAffaireBriefForProject,
 } from "@/lib/affaires/intake-brief-store";
-import { getMissingPiecesForProject } from "@/lib/affaires/intake-derived-state-server";
+import { getMissingPiecesForProject } from "@/lib/affaires/intake-missing-pieces";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 

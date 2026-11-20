@@ -1,5 +1,4 @@
 import { validateXlsxArchiveBudget } from "@/lib/affaires/intake-office-archive";
-export { SPREADSHEET_MAX_ARCHIVE_ENTRIES } from "@/lib/affaires/intake-office-archive";
 import * as XLSX from "xlsx";
 import { getAffaireIntakeFileExtension, isMimeTypeSupportedForAiClassification } from "@/lib/affaires/intake";
 import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
