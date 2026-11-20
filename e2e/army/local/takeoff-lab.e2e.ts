@@ -14,7 +14,7 @@ import { signIn, waitForHydration } from "../critical/hydration-support";
 import { querySql } from "./calculation-gate-support";
 import { createLocalChatGptOwner, prepareChatGptServerWorkspace } from "./chatgpt-server-support";
 import { labFictionalApiKey } from "./lab-fictional-key";
-import { labSessionCookies, rawLabRequest, type LabRawRequest } from "./takeoff-lab-support";
+import { holdLabHistoryUntilLaunch, labSessionCookies, launchLabRun, rawLabRequest, type LabRawRequest } from "./takeoff-lab-support";
 
 // Takeoff lab (TI-661), on the owned local stack and the local ChatGPT server
 // (scripts/dev-chatgpt-local.mjs on 127.0.0.1) with the ARMY provider fixture:
@@ -494,6 +494,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
   await control("normal");
   const metadata = path.resolve(".private/ai-access", `${createHash("sha256").update(JSON.stringify([memberOwner.userId, memberOwner.tenantId])).digest("hex")}.json`);
   const transportStart = (await readTransport()).length;
+  let heldHistory: Awaited<ReturnType<typeof holdLabHistoryUntilLaunch>> | undefined;
   try {
     await signIn({ app, screen, browser }, origin, member.email);
     await app.open(`${origin}/dashboard/profile`);
@@ -528,6 +529,8 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
 
     // The lab, ChatGPT disconnected: drawing it reaches neither the Keychain nor OpenAI; the source is picked explicitly.
     const beforeLab = (await readTransport()).length;
+    // #398: the page's history loads answer only after the launch was clicked, before the launch is sent.
+    heldHistory = await holdLabHistoryUntilLaunch(browser);
     await app.open(`${origin}${LAB}`);
     await waitForHydration(browser);
     await expect(screen.getByText("ChatGPT non prêt", { exact: true })).toBeVisible();
@@ -543,9 +546,8 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     await config.getByLabel("Effort").selectOption({ value: "medium" });
     await expect(screen.getByRole("status", "Plafond de la clé API")).toHaveText("Clé API OpenAI · facturé sur votre compte · plafond 1,00 $ US. "
       + "OpenAI compte l’entrée avant l’analyse ; la sortie est limitée à ce qui reste sous le plafond.");
-    const [launched] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }),
-      screen.getByRole("button", "Lancer · 1 configuration").click()]);
-    expect(launched.status).toBe(201);
+    expect(await launchLabRun(browser, () => screen.getByRole("button", "Lancer · 1 configuration").click())).toBe(201);
+    expect(heldHistory.reproduced()).toBe(true);
     const column = screen.getByRole("region", "Configuration A · Clé API OpenAI · gpt-6.1-terra · Moyen");
     await expect(column).toContainText("Terminé");
     await expect(column).toContainText("Précision 1,00 · Rappel 1,00 · Quantités 1,00");
@@ -582,9 +584,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     // A provider that echoes the key (answer, model id, request id): nothing of it is stored or shown.
     await control("echo");
     await screen.getByLabel("Campagne", { exact: true }).fill("cle-api-echo");
-    const [echoed] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }),
-      screen.getByRole("button", "Lancer · 1 configuration").click()]);
-    expect(echoed.status).toBe(201);
+    expect(await launchLabRun(browser, () => screen.getByRole("button", "Lancer · 1 configuration").click())).toBe(201);
     await expect(screen.getByRole("region", "Configuration A · Clé API OpenAI · gpt-6.1-terra · Moyen")).toContainText("Tuyauterie cuivre DN20 [clé masquée]");
     await control("normal");
     const echoRun = (await storedRuns()).map((entry) => entry.run).find((entry) => entry.campaign === "cle-api-echo");
@@ -630,6 +630,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     await writeFile(path.join(artifacts, "lab05-evidence.json"), JSON.stringify({ runId: run.id, echoRunId: echoRun.id, suffix,
       keySha256: createHash("sha256").update(key).digest("hex"), transport: sent.length, screenshots: { profileScreenshot, labScreenshot } }, null, 2));
   } finally {
+    heldHistory?.release();
     // The sentinel: the key is in no stored file, transport entry, evidence, result file of this journey written so far,
     // nor anywhere in the server's whole output, including on the refusals above. The runner's own reports redact its
     // registered secret; a scan of the finished campaign by the key's SHA-256 is the check after the run.
