@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { quantityScore } from "./report";
+import { compareReaders, quantityScore } from "./report";
 import type { JudgedPin, Poste } from "./types";
 
 const target: Poste = { id: "vanne-ef", organ: "vanne", basis: "installed", discriminants: ["EF"], requiresDn: true };
@@ -22,4 +22,12 @@ it("withholds whole-poste exactness when an extra position has an unresolved req
   const result = quantityScore([pin(2, "DN 20"), pin(20, null)], [pin(2, "DN 20")], [target]);
   expect(result.exact).toBe(1);
   expect(result.wholePostes).toEqual([{ poste: target.id, expected: 1, proposed: 2, unresolvedDn: 1, exact: false }]);
+});
+
+it("reports one reader agreement and both reader-only positions despite equal totals", () => {
+  const left = [pin(1, "DN 20"), pin(50, "DN 20")];
+  const right = [pin(1, "DN 20"), pin(150, "DN 20")];
+  expect(compareReaders(left, right)).toEqual([
+    { poste: target.id, dn: "DN 20", matches: [[[1, 10], [1, 10]]], leftOnly: [[50, 10]], rightOnly: [[150, 10]] },
+  ]);
 });

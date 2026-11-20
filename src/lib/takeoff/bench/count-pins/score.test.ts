@@ -40,3 +40,40 @@ it("reports abstentions and does not credit a supplied example in the held-out s
   expect(score.withoutSuppliedExamples.dn).toMatchObject({ tp: 0, precision: null, recall: 0 });
   expect(scorePage([], [], [], []).spatial.drawing).toMatchObject({ precision: null, recall: null });
 });
+
+it("reserves the supplied prediction before pairing independent discoveries", () => {
+  const score = scorePage([pin(10), pin(7)], [pin(10), pin(13)], [0], []);
+  expect(score.spatial.drawing.tp).toBe(2);
+  expect(score.withoutSuppliedExamples.drawing).toMatchObject({ tp: 0, fp: 1, fn: 1, precision: 0, recall: 0 });
+});
+
+it("awards the fewest typed true positives on a distance tie in either prediction order", () => {
+  const truth = [pin(0), pin(4, "DN 32")];
+  const predictions = [pin(2), pin(2, "DN 32")];
+  const expected = { tp: 0, fp: 2, fn: 2 };
+  expect(scorePage(predictions, truth, [], []).spatial.dn).toMatchObject(expected);
+  expect(scorePage([...predictions].reverse(), [...truth].reverse(), [], []).spatial.dn).toMatchObject(expected);
+});
+
+it("takes the strictly shorter match even below a billionth of a point", () => {
+  const score = scorePage([pin(2.0000000002), pin(2, "DN 32")], [pin(0)], [], []);
+  expect(score.pairs).toEqual([[1, 0]]);
+  expect(score.spatial.dn).toMatchObject({ tp: 0, fp: 2, fn: 1 });
+});
+
+it("counts a mark on the legend boundary as a false positive before matching", () => {
+  const score = scorePage([pin(2)], [pin(5)], [], [{ name: "legend", contains: (point) => point.x <= 2 }]);
+  for (const metrics of Object.values(score.spatial)) {
+    expect(metrics).toMatchObject({ tp: 0, fp: 1, fn: 1 });
+  }
+  expect(score.negativeZones).toEqual({ legend: 1 });
+});
+
+it.each([
+  ["sheet", { sheet: "b" }],
+  ["physical page", { page: 2 }],
+  ["generation", { generation: "a2" }],
+])("rejects a lone prediction from a foreign %s", (_, identity) => {
+  const score = scorePage([{ ...pin(2), ...identity }], [pin(2)], [], []);
+  expect(score.spatial.drawing).toMatchObject({ tp: 0, fp: 1, fn: 1 });
+});

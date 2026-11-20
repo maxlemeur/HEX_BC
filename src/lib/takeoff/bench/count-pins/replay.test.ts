@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { replayTiles, tileLayout } from "./replay";
 
 const page = { sheet: "scan", generation: "revision-a", page: 2, width: 400, height: 300 };
+const source = { sheet: page.sheet, generation: page.generation, page: page.page };
 const targets = [{ id: "vanne-ef", organ: "vanne", basis: "installed", discriminants: ["EF"], requiresDn: true }] as const;
 
 it("owns an overlap centre once, including on a tile boundary, and uses the actual crop extent", () => {
@@ -10,7 +11,7 @@ it("owns an overlap centre once, including on a tile boundary, and uses the actu
     const x = (200 - crop.x0) / (crop.x1 - crop.x0);
     const y = (75 - crop.y0) / (crop.y1 - crop.y0);
     const pins = id < 2 ? [{ poste: "vanne-ef", dn: 20, x0: x - 0.02, x1: x + 0.02, y0: y - 0.03, y1: y + 0.03 }] : [];
-    return { id, status: "complete", pins };
+    return { id, source, status: "complete", pins };
   });
   const result = replayTiles(page, targets, recordings);
   expect(result.status).toBe("complete");
@@ -21,7 +22,7 @@ it("owns an overlap centre once, including on a tile boundary, and uses the actu
 it("keeps exactly one owner when affine roundoff differs between overlapping crops", () => {
   const smallPage = { ...page, width: 50, height: 100 };
   const recordings = tileLayout(smallPage).map(({ id, crop }) => ({
-    id,
+    id, source,
     status: "complete",
     pins: id < 2 ? [{
       poste: "vanne-ef", dn: 20,
@@ -35,15 +36,41 @@ it("keeps exactly one owner when affine roundoff differs between overlapping cro
 
 it("keeps useful coverage while withholding the score input for absent, truncated or invalid tiles", () => {
   const result = replayTiles(page, targets, [
-    { id: 0, status: "complete", pins: [] },
-    { id: 1, status: "truncated", pins: [] },
-    { id: 2, status: "complete", pins: [{ poste: "vanne-ef", dn: 20, x0: 0.8, x1: 0.2, y0: 0, y1: 2 }] },
+    { id: 0, source, status: "complete", pins: [] },
+    { id: 1, source, status: "truncated", pins: [] },
+    { id: 2, source, status: "complete", pins: [{ poste: "vanne-ef", dn: 20, x0: 0.8, x1: 0.2, y0: 0, y1: 2 }] },
   ]);
   expect(result).toMatchObject({
     status: "partial", pins: [], tiles: { planned: 4, complete: 1, truncated: 1, invalid: 1, missing: 1 },
   });
   const unknown = replayTiles(page, targets, Array.from({ length: 4 }, (_, id) => ({
-    id, status: "complete", pins: [{ poste: "foreign", dn: 20, x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.4 }],
+    id, source, status: "complete", pins: [{ poste: "foreign", dn: 20, x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.4 }],
   })));
   expect(unknown.tiles.invalid).toBe(4);
+});
+
+it("refuses unbound generation A page 1 tiles presented as generation B page 2", () => {
+  const original = { ...page, page: 1, generation: "revision-a" };
+  const recordings = tileLayout(original).map(({ id }) => ({
+    id, status: "complete", pins: id === 0 ? [{ poste: "vanne-ef", dn: 20, x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.4 }] : [],
+  }));
+  expect(replayTiles({ ...page, generation: "revision-b" }, targets, recordings)).toMatchObject({
+    status: "partial", pins: [], tiles: { complete: 0 },
+  });
+});
+
+it.each([
+  ["generation", { generation: "revision-b" }],
+  ["physical page", { page: 2 }],
+  ["sheet", { sheet: "foreign" }],
+])("accepts the source recordings only on their own %s", (_, mismatch) => {
+  const original = { ...page, page: 1 };
+  const source = { sheet: original.sheet, page: original.page, generation: original.generation };
+  const recordings = tileLayout(original).map(({ id }) => ({
+    id, source, status: "complete", pins: id === 0 ? [{ poste: "vanne-ef", dn: 20, x0: 0.2, x1: 0.4, y0: 0.2, y1: 0.4 }] : [],
+  }));
+  expect(replayTiles(original, targets, recordings)).toMatchObject({ status: "complete", pins: [expect.objectContaining(source)] });
+  expect(replayTiles({ ...original, ...mismatch }, targets, recordings)).toMatchObject({
+    status: "partial", pins: [], tiles: { complete: 0, invalid: 4 },
+  });
 });

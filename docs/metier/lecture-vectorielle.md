@@ -783,14 +783,21 @@ déterministe. Le programme fonctionne hors ligne et le reçu indique zéro
 appel et zéro revue humaine. `--help` liste les méthodes et `--seed` permet
 de choisir la graine (676 par défaut). Le reçu identifie le commit, l'état
 du worktree, Node, PDF.js, la configuration et les empreintes des PDF et
-annotations. Voir le [code du banc](../../src/lib/takeoff/bench/count-pins/).
+annotations. Le CLI exige un checkout propre. L'option `--allow-dirty`
+autorise une mesure de travail et inscrit `reproducible: false` dans son
+reçu. Voir le [code du banc](../../src/lib/takeoff/bench/count-pins/).
 
-Le score forme le plus grand nombre de paires à une distance maximale de
-4 points, puis minimise leur distance totale. Une paire doit appartenir au
-même plan, à la même génération d'octets et à la même page originale. Les
-positions sont mesurées à l'échelle 1, origine en haut à gauche de la
-CropBox visible après rotation et prise en compte de UserUnit. Le score
-juge ensuite chaque paire sur trois axes :
+Tout repère dans une zone négative, bord compris, compte comme faux positif
+et est exclu de l'appariement. Le score forme le plus grand nombre de paires
+à une distance maximale de 4 points, puis minimise leur distance totale sans
+tolérance d'arrondi sur la somme. À distance totale égale, il retient le moins
+de vrais positifs typés au total (poste et poste avec DN), puis le moins de
+vrais positifs de poste si l'égalité persiste. Ce choix est indépendant de
+l'ordre des repères. Une paire doit appartenir au même plan, à la même
+génération d'octets et à la même page originale. Les positions sont mesurées
+à l'échelle 1, origine en haut à gauche de la CropBox visible après rotation
+et prise en compte de UserUnit. Le score juge ensuite chaque paire sur
+trois axes :
 
 - **Dessin** — un repère au bon endroit.
 - **Poste** — le bon identifiant dans la liste. La liste fictive a une seule
@@ -804,18 +811,26 @@ sa précision et réduit son rappel. Une précision sans prédiction est
 indéfinie. Deux DN intervertis peuvent donner deux quantités exactes et
 aucun repère correctement typé. Le reçu indique les quantités par poste sur
 la totalité d'un dossier et les scores spatiaux par page, dossier, poste,
-support et densité. Les exemples fournis sont comptés et leur emplacement
-est retiré d'une seconde mesure. Celle-ci porte toujours sur les mêmes
-pages, et le temps de préparation des exemples fictifs n'est pas mesuré.
+support et densité. Les faux positifs de famille inconnue figurent sur une
+ligne sans attribution. Leur présence rend la précision par famille
+indéterminée. Pour le score hors exemples, le banc réserve d'abord les
+occurrences fournies et leurs prédictions les plus proches dans un
+appariement un à un, avant de juger les découvertes sur les mêmes pages.
+Le reçu compte les exemples fournis. Leur temps de préparation n'est pas
+mesuré.
 
 Les scans sans calque sont des abstentions pour les méthodes vectorielles.
-Leurs occurrences restent dans le dénominateur du rappel. Le rejeu des tuiles
-attribue un seul propriétaire à chaque centre dans les zones de recouvrement.
+Leurs occurrences restent dans le dénominateur du rappel. Une portée de
+quantité incomplètement lue laisse l'exactitude indéterminée pour tous ses
+postes, y compris ceux sans occurrence attendue. Chaque enregistrement de
+tuile doit correspondre au plan, à la génération et à la page originale. Le
+rejeu attribue un seul propriétaire à chaque centre dans le recouvrement.
 Une réponse absente, invalide ou tronquée laisse la page non évaluée pour le
-rejeu et pour sa fusion. Le reçu donne la couverture, le score des pages
-évaluées et un score sur les seules pages communes aux méthodes choisies.
-Les plans vides, les légendes, les détails et les doublons restent visibles
-dans le reçu.
+rejeu et pour sa fusion. Le reçu donne la couverture et les scores des pages
+évaluées et des pages communes. Sur les pages que les deux lecteurs ont
+terminées, il indique les accords à 4 points pour le même poste et le même DN
+émis, ainsi que les positions propres à chaque lecteur. Les plans vides, les
+légendes, les détails et les doublons restent visibles dans le reçu.
 
 Pour qualifier une famille sur des documents réels, il faut des dossiers
 indépendants réservés et des zones intégralement vérifiées par un métreur,

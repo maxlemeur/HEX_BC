@@ -4,7 +4,7 @@ import type { JudgedPin, PageFrame, Poste } from "./types";
 
 export const TILE_OVERLAP = 12;
 export const WIDE_PAGE = 700;
-export const REPLAY_SCHEMA_VERSION = 1;
+export const REPLAY_SCHEMA_VERSION = 2;
 
 const unit = z.number().min(0).max(1);
 const tilePin = z.object({
@@ -12,9 +12,12 @@ const tilePin = z.object({
   dn: z.number().int().positive().max(3000).nullable(),
   x0: unit, y0: unit, x1: unit, y1: unit,
 }).strict().refine((b) => b.x0 < b.x1 && b.y0 < b.y1);
+const source = z.object({
+  sheet: z.string().min(1), generation: z.string().min(1), page: z.number().int().positive(),
+}).strict();
 const response = z.discriminatedUnion("status", [
-  z.object({ id: z.number().int(), status: z.literal("complete"), pins: z.array(tilePin).max(500) }).strict(),
-  z.object({ id: z.number().int(), status: z.literal("truncated"), pins: z.array(z.unknown()).optional() }).strict(),
+  z.object({ id: z.number().int(), source, status: z.literal("complete"), pins: z.array(tilePin).max(500) }).strict(),
+  z.object({ id: z.number().int(), source, status: z.literal("truncated"), pins: z.array(z.unknown()).optional() }).strict(),
 ]);
 
 export function tileLayout({ width, height }: PageFrame) {
@@ -67,6 +70,11 @@ export function replayTiles(page: PageFrame, targets: readonly Poste[], recordin
       tiles.invalid++;
       continue;
     }
+    const recorded = parsed.data.source;
+    if (recorded.sheet !== page.sheet || recorded.generation !== page.generation || recorded.page !== page.page) {
+      tiles.invalid++;
+      continue;
+    }
     if (parsed.data.status === "truncated") {
       tiles.truncated++;
       continue;
@@ -86,7 +94,7 @@ export function replayTiles(page: PageFrame, targets: readonly Poste[], recordin
       const y = tileCentre(hit.y0, hit.y1, crop.y0, crop.y1, core.y0, core.y1);
       if (x < core.x0 || y < core.y0 || x >= core.x1 || y >= core.y1) continue;
       pins.push({
-        x, y, box, sheet: page.sheet, generation: page.generation, page: page.page,
+        x, y, box, ...recorded,
         poste: hit.poste, organ: catalogue.get(hit.poste)!.organ,
         dn: hit.dn === null ? null : "DN " + hit.dn,
         method: "tile-replay", evidence: ["tile-" + id],

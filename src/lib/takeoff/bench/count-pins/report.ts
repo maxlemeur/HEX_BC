@@ -1,7 +1,9 @@
-import { metrics, type scorePage } from "./score";
+import { MATCH_RADIUS, matchPoints, metrics, type scorePage } from "./score";
 import type { JudgedPin, Poste } from "./types";
 
-export function quantityScore(proposals: JudgedPin[], truth: JudgedPin[], targets: readonly Poste[]) {
+export function quantityScore(
+  proposals: JudgedPin[], truth: JudgedPin[], targets: readonly Poste[], complete = true,
+) {
   const requiresDn = new Set(targets.filter((target) => target.requiresDn).map((target) => target.id));
   function counts(pins: JudgedPin[]) {
     const totals = new Map<string, number>();
@@ -20,9 +22,10 @@ export function quantityScore(proposals: JudgedPin[], truth: JudgedPin[], target
   });
   const found = perKey.filter((key) => key.expected > 0 && key.proposed > 0);
   return {
+    complete,
     keys: expected.size, found: found.length,
-    exact: found.filter((key) => key.expected === key.proposed).length,
-    withinOne: found.filter((key) => Math.abs(key.expected - key.proposed) <= 1).length,
+    exact: complete ? found.filter((key) => key.expected === key.proposed).length : null,
+    withinOne: complete ? found.filter((key) => Math.abs(key.expected - key.proposed) <= 1).length : null,
     missed: expected.size - found.length,
     extra: perKey.length - expected.size,
     perKey,
@@ -36,7 +39,7 @@ export function quantityScore(proposals: JudgedPin[], truth: JudgedPin[], target
         expected: entries.reduce((sum, entry) => sum + entry.expected, 0),
         proposed: entries.reduce((sum, entry) => sum + entry.proposed, unresolvedDn),
         unresolvedDn,
-        exact: unresolvedDn === 0 && entries.every((entry) => entry.expected === entry.proposed),
+        exact: complete ? unresolvedDn === 0 && entries.every((entry) => entry.expected === entry.proposed) : null,
       };
     }),
   };
@@ -57,4 +60,23 @@ export function aggregateSpatial(scores: Spatial[]) {
     return metrics(tp, predicted, expected);
   }
   return { drawing: aggregate("drawing"), poste: aggregate("poste"), dn: aggregate("dn") };
+}
+
+export function compareReaders(left: JudgedPin[], right: JudgedPin[]) {
+  const key = (pin: JudgedPin) => JSON.stringify([pin.poste, pin.dn]);
+  const point = ({ x, y }: JudgedPin): [number, number] => [x, y];
+  return [...new Set([...left, ...right].map(key))].sort().map((id) => {
+    const [poste, dn] = JSON.parse(id) as [string | null, string | null];
+    const leftGroup = left.filter((pin) => key(pin) === id);
+    const rightGroup = right.filter((pin) => key(pin) === id);
+    const pairs = poste === null ? [] : matchPoints(leftGroup, rightGroup, MATCH_RADIUS);
+    const matchedLeft = new Set(pairs.map(([i]) => i));
+    const matchedRight = new Set(pairs.map(([, j]) => j));
+    return {
+      poste, dn,
+      matches: pairs.map(([i, j]) => [point(leftGroup[i]), point(rightGroup[j])]),
+      leftOnly: leftGroup.filter((_, i) => !matchedLeft.has(i)).map(point),
+      rightOnly: rightGroup.filter((_, j) => !matchedRight.has(j)).map(point),
+    };
+  });
 }

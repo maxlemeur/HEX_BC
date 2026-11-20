@@ -5,7 +5,7 @@ import { FICTION_TARGETS, fictionalSheets } from "./fiction";
 import { combine } from "./fusion";
 import { readDeterministic } from "./propose";
 import { replayTiles, tileLayout } from "./replay";
-import { aggregateSpatial, quantityScore } from "./report";
+import { aggregateSpatial, compareReaders, quantityScore } from "./report";
 import { MATCH_RADIUS, metrics, scorePage } from "./score";
 import { indexSymbolPage } from "./symbols";
 import type { JudgedPin, PageFrame, Pin, Poste } from "./types";
@@ -37,10 +37,11 @@ function typePins(pins: Pin[], targets: readonly Poste[]): JudgedPin[] {
 }
 
 function syntheticRecordings(page: PageFrame, points: Awaited<ReturnType<typeof fictionalSheets>>[number]["replay"], truncated?: number) {
+  const source = { sheet: page.sheet, generation: page.generation, page: page.page };
   return tileLayout(page).map(({ id, crop }) => {
-    if (id === truncated) return { id, status: "truncated" };
+    if (id === truncated) return { id, source, status: "truncated" };
     return {
-      id, status: "complete",
+      id, source, status: "complete",
       pins: points.flatMap(([x, y, poste, dn]) => {
         const box = { x0: x - 2, y0: y - 2, x1: x + 2, y1: y + 2 };
         if (!boxContains(crop, { x: box.x0, y: box.y0 }) || !boxContains(crop, { x: box.x1, y: box.y1 })) return [];
@@ -114,7 +115,11 @@ type MethodResult = MeasuredPage["results"][number];
 type EvaluatedPage = { page: MeasuredPage; result: MethodResult & { score: NonNullable<MethodResult["score"]> } };
 
 function spatialByFamily(pages: EvaluatedPage[]) {
-  return FICTION_TARGETS.map(({ id, organ }) => {
+  const knownFamilies = new Set<string>(FICTION_TARGETS.map(({ organ }) => organ));
+  const unattributed = pages.flatMap(({ result }) =>
+    result.score.unmatched.filter(({ organ }) => organ === null || !knownFamilies.has(organ)),
+  );
+  const byFamily = FICTION_TARGETS.map(({ id, organ }) => {
     const scores = pages.map(({ page, result }) => {
       const familyTruth = page.truth.filter((pin) => pin.organ === organ);
       // Use the original geometric pairs: a wrong family can cause both a
@@ -130,8 +135,21 @@ function spatialByFamily(pages: EvaluatedPage[]) {
         dn: metrics(dnPairs.length, predicted.filter((pin) => pin.dn !== null).length, familyTruth.filter((pin) => pin.dn !== null).length),
       };
     });
-    return { poste: id, organ, spatial: aggregateSpatial(scores) };
+    const spatial = aggregateSpatial(scores);
+    if (spatial && unattributed.length) {
+      for (const axis of Object.values(spatial)) axis.precision = null;
+    }
+    return { poste: id, organ, spatial };
   });
+  return [...byFamily, {
+    poste: null,
+    organ: null,
+    spatial: pages.length ? {
+      drawing: metrics(0, unattributed.length, 0),
+      poste: metrics(0, unattributed.filter((pin) => pin.poste !== null).length, 0),
+      dn: metrics(0, unattributed.filter((pin) => pin.dn !== null).length, 0),
+    } : null,
+  }];
 }
 
 function summarize(method: Method, pages: MeasuredPage[], common: Set<MeasuredPage>) {
@@ -139,7 +157,6 @@ function summarize(method: Method, pages: MeasuredPage[], common: Set<MeasuredPa
   const rated = selected.flatMap(({ page, result }): EvaluatedPage[] =>
     result.score ? [{ page, result: { ...result, score: result.score } }] : [],
   );
-  const ratedPages = new Set(rated.map(({ page }) => page));
   const spatial = (entries: EvaluatedPage[]) => aggregateSpatial(entries.map(({ result }) => result.score.spatial));
   const by = (key: "dossier" | "support" | "density") => Object.fromEntries([...new Set(pages.map((page) => page[key]))].map((value) => {
     const group = rated.filter(({ page }) => page[key] === value);
@@ -176,13 +193,16 @@ function summarize(method: Method, pages: MeasuredPage[], common: Set<MeasuredPa
     bySupport: by("support"),
     byDensity: by("density"),
     quantitiesByDossier: [...new Set(pages.map((page) => page.dossier))].map((dossier) => {
-      const expected = pages.filter((page) => page.dossier === dossier);
-      const entries = rated.filter(({ page }) => page.dossier === dossier);
+      const scope = selected.filter(({ page }) => page.dossier === dossier);
+      const completePages = scope.filter(({ result }) => result.status === "complete");
       return {
         dossier,
-        quantities: expected.every((page) => ratedPages.has(page))
-          ? quantityScore(entries.flatMap(({ result }) => result.pins), expected.flatMap((page) => page.truth), FICTION_TARGETS)
-          : null,
+        quantities: quantityScore(
+          completePages.flatMap(({ result }) => result.pins),
+          scope.flatMap(({ page }) => page.truth),
+          FICTION_TARGETS,
+          completePages.length === scope.length,
+        ),
       };
     }),
   };
@@ -201,6 +221,14 @@ export async function runCountBench(methods: Method[], seed: number) {
     humanReview: null,
     commonPages: [...common].map(({ frame }) => frame),
     methods: methods.map((method) => summarize(method, pages, common)),
+    readerComparisons: pages.flatMap(({ frame, results }) =>
+      results.flatMap((left, i) => results.slice(i + 1).map((right) => ({
+        frame, leftMethod: left.method, rightMethod: right.method,
+        groups: left.status === "complete" && right.status === "complete"
+          ? compareReaders(left.pins, right.pins)
+          : null,
+      }))),
+    ),
     pages,
   };
 }
