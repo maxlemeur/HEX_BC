@@ -10,7 +10,7 @@ import { takeoffScopeFreeLevels } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
 import { sha256Hex } from "@/lib/takeoff/sha256";
-import { getTakeoffDecisionsCapability, isTakeoffDecisionsSelected } from "@/lib/takeoff/takeoff-decisions-server";
+import { isTakeoffDecisionsSelected } from "@/lib/takeoff/takeoff-decisions-server";
 import { isClassified } from "@/lib/takeoff/vectors/classify";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION } from "@/lib/takeoff/vectors/group-decisions";
@@ -147,17 +147,6 @@ export function takeoffVectorLocalGroupsHook(input: {
       await provider.assertOwnerActive();
       await input.beforeCall?.();
     } };
-}
-
-/**
- * The hook of a level C job when MERGEONE_TAKEOFF_VECTORS=1, MERGEONE_TAKEOFF_DECISIONS=1 and Decisions is configured
- * (MERGEONE_OPENAI_DECISIONS=1 and its key), with the user the job acts for; otherwise none: no call, the groups
- * without keyword class stay « à revoir ».
- */
-export function takeoffVectorDecisionsHook(input: { jobId: string; tenantId: string; userId: string | null; beforeCall?: () => Promise<void> }):
-  TakeoffVectorDecisionsHook | undefined {
-  if (!isTakeoffVectorReadingEnabled() || !input.userId || getTakeoffDecisionsCapability().status !== "available") return undefined;
-  return { owner: { tenantId: input.tenantId, userId: input.userId }, projectId: `takeoff-job:${input.jobId}`, beforeCall: input.beforeCall };
 }
 
 export type VectorPageOutcome = {
@@ -363,7 +352,7 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
   onPage?: () => Promise<void>;
   /** Identity of the job, for the log of a failed page. */
   context?: { jobId: string; tenantId: string };
-  /** Decisions for the groups without keyword class (takeoffVectorDecisionsHook); none: keywords only. */
+  /** The classification of the groups without keyword class (takeoffVectorLocalGroupsHook); none: keywords only. */
   decisions?: TakeoffVectorDecisionsHook;
   /** The extraction of a page (tests); its killable child process by default. */
   extract?: (bytes: Uint8Array, page: number) => Promise<VectorPageExtraction>;

@@ -74,8 +74,10 @@ it("requires a chosen model without switching billing paths", async () => {
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: null }] } as never);
   await expect(resolveLocalTakeoffProvider(client as never, job)).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
 });
-it("keeps legacy Gemini jobs on Gemini, even with a connected plan", async () => {
-  expect(await resolveLocalTakeoffProvider(client as never, { ...job, execution_provider: "gemini" })).toBeNull();
+it("refuses a legacy Gemini job before reading its creator's access or plan, even with a connected plan", async () => {
+  await expect(resolveLocalTakeoffProvider(client as never, { ...job, execution_provider: "gemini", execution_host_id: null }))
+    .rejects.toMatchObject({ status: 422, code: "AI_PROVIDER", retryable: false });
+  expect(client.from).not.toHaveBeenCalled();
   expect(readChatGptStore).not.toHaveBeenCalled();
 });
 it("never falls back when the reserved plan is disconnected", async () => {

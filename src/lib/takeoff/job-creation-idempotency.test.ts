@@ -8,14 +8,14 @@ import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-ser
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }));
+// The creator, plan and host checks of a pending local receipt are covered in chatgpt-takeoff.test.ts.
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
-  return { ...actual, getTakeoffExecutionOwner: vi.fn() };
+  return { ...actual, getTakeoffExecutionOwner: vi.fn(), assertLocalTakeoffResumeReady: vi.fn() };
 });
 vi.mock("@/lib/takeoff/preparation-server", () => ({ assertConfirmedTakeoffPreparation: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
-  getTakeoffGeminiDeliveryConfigForTenant: vi.fn().mockResolvedValue({ useBatchApi: false }),
   getTakeoffChunkingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200 }),
 }));
 

@@ -23,7 +23,7 @@ export const takeoffJobSummaryResponseSchema = z.object({
   dispatch_updated_at: timestamp.nullable().optional(), provider_reconcile_due_at: timestamp.nullable().optional(),
   provider_reconcile_attempt_count: count.optional(), provider_reconcile_lease_expires_at: timestamp.nullable().optional(),
   operator_state: z.enum(["none", "submitted_to_provider", "awaiting_provider_result", "provider_failed", "orphan_to_reconcile"]).nullable().optional(),
-  operator_state_label: z.string().nullable().optional(), can_reconcile: z.boolean().optional(), can_cancel: z.boolean().optional(), can_resubmit: z.boolean().optional(),
+  operator_state_label: z.string().nullable().optional(), can_cancel: z.boolean().optional(), can_resubmit: z.boolean().optional(),
   started_at: timestamp.nullable(), completed_at: timestamp.nullable(), created_at: timestamp, updated_at: timestamp,
   items_count: count.nullable().optional(), version_number: z.number().int().positive().nullable().optional(),
   metrics: z.object({ token_count: count.nullable(), cost_cents: count.nullable(), duration_ms: count.nullable() }),

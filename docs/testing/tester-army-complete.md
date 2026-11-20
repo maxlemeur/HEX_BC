@@ -45,7 +45,7 @@ sur le poste ; en CI, une seconde tentative
 | Atomicité/reprise | `generated-atomic`, `generated-recovery`, `navigation-lease`, `batch-client`, `assembly-totals` | Prérequis autonomes ; aucun résultat final préinséré |
 | Import | `import-format-completion` (XLS/PDF), `dpgf-import` (CSV), `import-optima-v2` (XLSX) | Confirmation et valeurs persistées ; binaire XLS BIFF8 et provenance PDF |
 | Dossier | `intake-dossier` | Téléversement, repli de classification sans provider, reclassification manuelle, document principal et brief |
-| Métré | `worker-lifecycle` | Vrai worker et processeurs A/B, réponse Gemini injectée, succès/application, échec/retry, annulation et erreur terminale |
+| Métré | `worker-lifecycle` | Vrai worker et processeurs A/B/C sur un job ChatGPT local réclamé par son hôte, fournisseur contrôlé, succès/application, échec et relance planifiée, annulation, erreur terminale ; un ancien job Gemini reste lisible et sa relance est refusée |
 | Mobile | `mobile` | Chromium 390 × 844 : navigation, saisie décimale/rechargement et export XLSX réel |
 | Exploration | Commande locale dédiée | Trois personas authentifiés, lecture seule, budgets par objectif et assertions exactes des destinations |
 

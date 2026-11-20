@@ -554,7 +554,6 @@ export type TakeoffActivityCenterJobRow = {
   technicalStatusRaw: TakeoffJobStatus | string;
   operatorState?: TakeoffJobOperatorState | null;
   operatorStateLabel?: string | null;
-  canReconcile?: boolean;
   canCancel?: boolean;
   canResubmit?: boolean;
   itemCount: number;

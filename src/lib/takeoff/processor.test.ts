@@ -7,20 +7,21 @@ vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture")
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
-vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ resolveLocalTakeoffProvider: vi.fn().mockResolvedValue(null), assertLocalTakeoffExecutionHost: vi.fn().mockResolvedValue(null) }));
-// The vector reading's hooks pass through to the real ones; the routing test (TI-704) reads which one a job gets.
+const HOST_ID = "urn:uuid:55555555-5555-4555-8555-555555555555";
+vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ resolveLocalTakeoffProvider: vi.fn(), assertLocalTakeoffExecutionHost: vi.fn() }));
+// The vector reading's hook passes through to the real one; the routing test (TI-704) reads what a job gets.
 vi.mock("@/lib/takeoff/vectors/worker-server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/takeoff/vectors/worker-server")>();
-  return { ...actual, readTakeoffVectorPages: vi.fn(actual.readTakeoffVectorPages), takeoffVectorDecisionsHook: vi.fn(actual.takeoffVectorDecisionsHook),
+  return { ...actual, readTakeoffVectorPages: vi.fn(actual.readTakeoffVectorPages),
     takeoffVectorLocalGroupsHook: vi.fn(actual.takeoffVectorLocalGroupsHook) };
 });
 
 import { PDFDocument } from "pdf-lib";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
-import { readTakeoffVectorPages, takeoffVectorDecisionsHook, takeoffVectorLocalGroupsHook } from "@/lib/takeoff/vectors/worker-server";
+import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider, type LocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { readTakeoffVectorPages, takeoffVectorLocalGroupsHook } from "@/lib/takeoff/vectors/worker-server";
 
-import type { CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
+import type { StructuredCall, StructuredCallResult } from "@/lib/ai/structured-call";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import {
   PLAN_SET_MAX_FILES,
@@ -30,11 +31,15 @@ import {
   processLevelA,
   processLevelB,
   processLevelC,
-  reconcileTakeoffBatchJob,
 } from "@/lib/takeoff/processor";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
+
+beforeEach(() => {
+  vi.mocked(assertLocalTakeoffExecutionHost).mockResolvedValue(HOST_ID);
+  vi.mocked(resolveLocalTakeoffProvider).mockRejectedValue(new Error("Each test gives its provider."));
+});
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -68,8 +73,12 @@ type TakeoffJobRow = {
   estimate_version_id: string;
   level: string;
   status: string;
+  execution_provider: "gemini" | "chatgpt_local";
+  execution_host_id: string | null;
   plan_set_id?: string | null;
   preparation_snapshot?: unknown;
+  processing_lease_token?: string | null;
+  processing_lease_expires_at?: string | null;
   processing_strategy: string | null;
   provider_batch_id: string | null;
   provider_batch_state: string | null;
@@ -154,19 +163,6 @@ type AuditLogPayload = {
   [key: string]: unknown;
 };
 
-type ProviderEventPayload = {
-  tenant_id: string;
-  takeoff_job_id: string;
-  estimate_version_id: string;
-  provider: string;
-  processing_strategy: string;
-  provider_batch_id: string | null;
-  provider_batch_state: string | null;
-  provider_state_raw: string | null;
-  message: string | null;
-  metadata: Record<string, unknown>;
-};
-
 type SupabaseMockOptions = {
   job?: Partial<TakeoffJobRow>;
   existingResults?: StoredTakeoffResultRow[];
@@ -205,8 +201,6 @@ type SupabaseMockOptions = {
   failCompletedJobUpdate?: boolean;
   failRunMetricsDeleteWhenNonEmpty?: boolean;
   failTakeoffItemsInsertOnce?: boolean;
-  failProviderBatchSnapshotRpc?: boolean;
-  failScheduleBatchReconcileUpdate?: boolean;
 };
 
 type SupabaseMockState = {
@@ -240,7 +234,6 @@ type SupabaseMockState = {
     metadata: Record<string, unknown>;
   } | null;
   auditLogs: AuditLogPayload[];
-  providerEvents: ProviderEventPayload[];
   downloadRequests: string[];
 };
 
@@ -302,10 +295,10 @@ function buildTakeoffExchange(
   };
 }
 
-function buildGeminiResult(
+function buildProviderResult(
   exchange: TakeoffExchange,
-  overrides: Partial<CallGeminiStructuredResult<TakeoffExchange>> = {}
-): CallGeminiStructuredResult<TakeoffExchange> {
+  overrides: Partial<StructuredCallResult<TakeoffExchange>> = {}
+): StructuredCallResult<TakeoffExchange> {
   const tokenCount = overrides.tokenCount ?? 1_400;
   return {
     data: exchange,
@@ -316,13 +309,19 @@ function buildGeminiResult(
       outputTokens: 0,
       totalTokens: tokenCount,
     },
-    costCents: overrides.costCents ?? 42,
+    costCents: overrides.costCents ?? 0,
     durationMs: overrides.durationMs ?? 1_800,
-    model: overrides.model ?? "gemini-3-flash-preview",
+    model: overrides.model ?? PROVIDER_MODEL,
     promptVersion: overrides.promptVersion ?? "takeoff-a-v1",
-    providerBatchId: overrides.providerBatchId ?? null,
-    providerBatchStateRaw: overrides.providerBatchStateRaw ?? null,
   };
+}
+
+const PROVIDER_MODEL = "account-model";
+
+/** The job's local provider, answering through `call`. */
+function localProvider(call: unknown, model = PROVIDER_MODEL): () => Promise<LocalTakeoffProvider> {
+  return async () => ({ model, call: call as StructuredCall, assertOwnerActive: vi.fn(),
+    selection: { profileId: "profile", model, reasoningEffort: null } });
 }
 
 function getAuditMetadata(
@@ -352,7 +351,7 @@ function createTakeoffProcessorSupabaseMock(
 ): {
   supabase: {
     from: (table: string) => unknown;
-    rpc: (fn: string, args: Record<string, unknown>) => Promise<QueryResponse<unknown>>;
+    rpc: (fn: string, args: Record<string, unknown>) => { maybeSingle: () => Promise<QueryResponse<TakeoffJobRow | null>> };
     storage: {
       from: (
         bucket: string
@@ -377,6 +376,8 @@ function createTakeoffProcessorSupabaseMock(
     estimate_version_id: ESTIMATE_VERSION_ID,
     level: "A",
     status: "pending",
+    execution_provider: "chatgpt_local",
+    execution_host_id: HOST_ID,
     plan_set_id: null,
     processing_strategy: "sync",
     provider_batch_id: null,
@@ -472,7 +473,6 @@ function createTakeoffProcessorSupabaseMock(
           }
         : null,
     auditLogs: [],
-    providerEvents: [],
     downloadRequests: [],
   };
 
@@ -488,9 +488,6 @@ function createTakeoffProcessorSupabaseMock(
   const failRunMetricsDeleteWhenNonEmpty =
     options.failRunMetricsDeleteWhenNonEmpty ?? false;
   let takeoffItemsInsertFailuresRemaining = options.failTakeoffItemsInsertOnce ? 1 : 0;
-  const failProviderBatchSnapshotRpc = options.failProviderBatchSnapshotRpc ?? false;
-  const failScheduleBatchReconcileUpdate =
-    options.failScheduleBatchReconcileUpdate ?? false;
   let cancellationApplied = false;
 
   let resultIdSequence = 0;
@@ -555,26 +552,6 @@ function createTakeoffProcessorSupabaseMock(
         const simulatedError = {
           code: "PGRST301",
           message: "Simulated completion update failure",
-        };
-
-        if (withRow) {
-          return {
-            data: null,
-            error: simulatedError,
-          } as QueryResponse<TakeoffJobRow | null>;
-        }
-
-        return { data: null, error: simulatedError } as QueryResponse<null>;
-      }
-
-      if (
-        failScheduleBatchReconcileUpdate &&
-        payload.status === undefined &&
-        payload.provider_reconcile_due_at !== undefined
-      ) {
-        const simulatedError = {
-          code: "PGRST301",
-          message: "Simulated reconcile scheduling failure",
         };
 
         if (withRow) {
@@ -1150,86 +1127,26 @@ function createTakeoffProcessorSupabaseMock(
         };
       }),
     },
-    rpc: vi.fn(
-      async (fn: string, args: Record<string, unknown>): Promise<QueryResponse<unknown>> => {
-        if (fn !== "persist_takeoff_provider_batch_snapshot" && fn !== "persist_takeoff_provider_batch_snapshot_fenced") {
-          throw new Error(`Unexpected rpc: ${fn}`);
-        }
-
-        if (failProviderBatchSnapshotRpc) {
-          return {
-            data: null,
-            error: {
-              code: "PGRST301",
-              message: "Simulated provider batch snapshot rpc failure",
-            },
-          };
-        }
-
-        if (args.p_should_update_snapshot === true) {
-          state.job = {
-            ...state.job,
-            processing_strategy:
-              typeof args.p_processing_strategy === "string"
-                ? args.p_processing_strategy
-                : (state.job.processing_strategy ?? "sync"),
-            provider_batch_id:
-              typeof args.p_provider_batch_id === "string" || args.p_provider_batch_id === null
-                ? (args.p_provider_batch_id as string | null)
-                : state.job.provider_batch_id,
-            provider_batch_state:
-              typeof args.p_provider_batch_state === "string" ||
-              args.p_provider_batch_state === null
-                ? (args.p_provider_batch_state as string | null)
-                : state.job.provider_batch_state,
-            provider_batch_updated_at:
-              typeof args.p_provider_batch_updated_at === "string" ||
-              args.p_provider_batch_updated_at === null
-                ? (args.p_provider_batch_updated_at as string | null)
-                : state.job.provider_batch_updated_at,
-          };
-        }
-
-        if (args.p_should_insert_event === true) {
-          state.providerEvents.push({
-            tenant_id:
-              typeof args.p_tenant_id === "string" ? args.p_tenant_id : state.job.tenant_id,
-            takeoff_job_id:
-              typeof args.p_job_id === "string" ? args.p_job_id : state.job.id,
-            estimate_version_id:
-              typeof args.p_estimate_version_id === "string"
-                ? args.p_estimate_version_id
-                : state.job.estimate_version_id,
-            provider: typeof args.p_provider === "string" ? args.p_provider : "gemini",
-            processing_strategy:
-              typeof args.p_processing_strategy === "string"
-                ? args.p_processing_strategy
-                : (state.job.processing_strategy ?? "sync"),
-            provider_batch_id:
-              typeof args.p_provider_batch_id === "string" || args.p_provider_batch_id === null
-                ? (args.p_provider_batch_id as string | null)
-                : null,
-            provider_batch_state:
-              typeof args.p_provider_batch_state === "string" ||
-              args.p_provider_batch_state === null
-                ? (args.p_provider_batch_state as string | null)
-                : null,
-            provider_state_raw:
-              typeof args.p_provider_state_raw === "string" ||
-              args.p_provider_state_raw === null
-                ? (args.p_provider_state_raw as string | null)
-                : null,
-            message:
-              typeof args.p_message === "string" || args.p_message === null
-                ? (args.p_message as string | null)
-                : null,
-            metadata: isRecord(args.p_metadata) ? deepClone(args.p_metadata) : {},
-          });
-        }
-
-        return { data: fn.endsWith("_fenced") ? true : null, error: null };
-      }
-    ),
+    // claim_local_takeoff_job as the migration writes it: the job's own host, from pending or failed, into processing.
+    rpc: vi.fn((fn: string, args: Record<string, unknown>) => {
+      if (fn !== "claim_local_takeoff_job") throw new Error(`Unexpected rpc: ${fn}`);
+      return {
+        maybeSingle: async (): Promise<QueryResponse<TakeoffJobRow | null>> => {
+          const job = state.job;
+          if (job.id !== args.p_job_id || job.tenant_id !== args.p_tenant_id || job.execution_provider !== "chatgpt_local"
+            || job.execution_host_id !== args.p_host_id || !["pending", "failed"].includes(job.status)) {
+            return { data: null, error: null };
+          }
+          state.job = { ...job, status: "processing", started_at: args.p_started_at as string, completed_at: null,
+            error_code: null, error_message: null, processing_lease_token: args.p_lease_token as string,
+            processing_lease_expires_at: args.p_lease_expires_at as string, model: args.p_model as string, thinking_level: null,
+            prompt_version: args.p_prompt_version as string, processing_strategy: "sync",
+            retry_count: job.retry_count + (job.status === "failed" ? 1 : 0) };
+          state.statusTransitions.push("processing");
+          return { data: deepClone(state.job), error: null };
+        },
+      };
+    }),
     from: vi.fn((table: string) => {
       if (table === "takeoff_jobs") {
         return {
@@ -1295,17 +1212,6 @@ function createTakeoffProcessorSupabaseMock(
         };
       }
 
-      if (table === "takeoff_job_provider_events") {
-        return {
-          insert: vi.fn(
-            async (payload: ProviderEventPayload): Promise<QueryResponse<null>> => {
-              state.providerEvents.push(deepClone(payload));
-              return { data: null, error: null };
-            }
-          ),
-        };
-      }
-
       if (table === "feature_flags") {
         return {
           select: vi.fn(() => createFeatureFlagsSelectBuilder()),
@@ -1341,12 +1247,12 @@ describe("processLevelA", () => {
       document_name: "niveau-a.csv",
     };
     const mock = createTakeoffProcessorSupabaseMock({ job: { preparation_snapshot: snapshot }, downloadFile: { bytes, mimeType: "text/csv" } });
-    const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(buildTakeoffExchange([
+    const callProvider = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([
       { designation: "Tube fictif R+1", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Ligne 2" },
     ])));
-    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
     expect(result.status).toBe("completed");
-    const sent = callGemini.mock.calls[0][0];
+    const sent = callProvider.mock.calls[0][0];
     expect(sent.prompt).toContain('"exclusions":["RDC","Zone 2"]');
     expect(sent.prompt).toContain('"levels":["R+1"]');
     expect(sent.prompt).toContain('"unit":"u"');
@@ -1358,13 +1264,13 @@ describe("processLevelA", () => {
   // source_file n'est pas un fichier et reste une preuve brute.
   it("keeps the uploaded file over a sheet name given as source_file", async () => {
     const mock = createTakeoffProcessorSupabaseMock();
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(
         buildTakeoffExchange([
           { designation: "Tableau secours", quantity: 3, unit: "u", source_page: 1,
             source_file: "Feuil1", confidence: 0.93, evidence: "Ligne 2" },
         ]),
-        { model: "gemini-3.1-flash-lite-preview", promptVersion: "takeoff-a-v1" }
+        { model: PROVIDER_MODEL, promptVersion: "takeoff-a-v1" }
       )
     );
 
@@ -1373,7 +1279,7 @@ describe("processLevelA", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(result.status).toBe("completed");
@@ -1392,56 +1298,63 @@ describe("processLevelA", () => {
     vi.clearAllMocks();
   });
 
-  it("uses the local creator plan instead of submitting a configured Gemini batch", async () => {
-    const mock = createTakeoffProcessorSupabaseMock({ job: { processing_strategy: "batch" } });
-    const call = vi.fn().mockResolvedValue(buildGeminiResult(buildTakeoffExchange([
+  it("runs a local job with its creator's plan and records the plan's model on the job and its result", async () => {
+    const mock = createTakeoffProcessorSupabaseMock();
+    const call = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([
       { designation: "Tube cuivre", quantity: 12, unit: "m" },
-    ]), { model: "account-model", costCents: 0 }));
-    vi.mocked(resolveLocalTakeoffProvider).mockResolvedValueOnce({ model: "account-model", call,
-      selection: { profileId: "profile", model: "account-model", reasoningEffort: null }, assertOwnerActive: vi.fn() });
-    const callGemini = vi.fn(); const submitGeminiBatch = vi.fn();
-    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW, callGemini, submitGeminiBatch });
+    ])));
+    vi.mocked(resolveLocalTakeoffProvider).mockImplementationOnce(localProvider(call));
+    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW });
     expect(result.status).toBe("completed");
+    expect(resolveLocalTakeoffProvider).toHaveBeenCalledWith(mock.supabase, expect.objectContaining({ id: JOB_ID, execution_provider: "chatgpt_local" }));
     expect(call).toHaveBeenCalledTimes(1);
-    expect(callGemini).not.toHaveBeenCalled(); expect(submitGeminiBatch).not.toHaveBeenCalled();
-    expect(mock.state.job).toMatchObject({ model: "account-model", thinking_level: null, processing_strategy: "sync", cost_cents: 0 });
-    expect(mock.state.takeoffResults[0].provider_meta).toMatchObject({ provider: "chatgpt", model: "account-model" });
+    expect(mock.state.job).toMatchObject({ model: PROVIDER_MODEL, thinking_level: null, processing_strategy: "sync", cost_cents: 0 });
+    expect(mock.state.takeoffResults[0].provider_meta).toMatchObject({ provider: "chatgpt", model: PROVIDER_MODEL });
     expect(mock.state.takeoffItems[0]).toMatchObject({ designation: "Tube cuivre", quantity: 12, unit: "m" });
   });
 
-  it("does not escalate or call Gemini when the selected plan rejects the extraction", async () => {
-    const mock = createTakeoffProcessorSupabaseMock({ featureFlags: { TAKEOFF_AI_ESCALATION_ENABLED: "true" } });
+  it("refuses a job of a former provider before claiming it or reading any provider", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({ job: { execution_provider: "gemini", execution_host_id: null } });
+    const call = vi.fn();
+    await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW, resolveProvider: localProvider(call) }))
+      .rejects.toMatchObject({ code: TakeoffErrorCode.AI_PROVIDER, status: 422, retryable: false });
+    expect(mock.supabase.rpc).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
+    expect(mock.state.statusTransitions).toEqual([]);
+    expect(mock.state.job).toMatchObject({ status: "pending", error_code: null, model: null });
+    expect(mock.state.takeoffResults).toEqual([]);
+  });
+
+  it("fails the job once, without another provider call, when the plan rejects the extraction", async () => {
+    const mock = createTakeoffProcessorSupabaseMock();
     const call = vi.fn().mockRejectedValue(new TakeoffError({ code: TakeoffErrorCode.AI_SCHEMA, message: "Plan rejected", retryable: false }));
-    vi.mocked(resolveLocalTakeoffProvider).mockResolvedValueOnce({ model: "account-model", call,
-      selection: { profileId: "profile", model: "account-model", reasoningEffort: null }, assertOwnerActive: vi.fn() });
-    const callGemini = vi.fn();
-    await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW, callGemini }))
+    await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW, resolveProvider: localProvider(call) }))
       .rejects.toMatchObject({ code: "AI_SCHEMA", retryable: false });
-    expect(call).toHaveBeenCalledTimes(1); expect(callGemini).not.toHaveBeenCalled();
+    expect(call).toHaveBeenCalledTimes(1);
     expect(mock.state.job.status).toBe("failed");
   });
 
   it("persists a terminal failure when local plan preflight rejects the job", async () => {
-    const mock = createTakeoffProcessorSupabaseMock(); const callGemini = vi.fn();
+    const mock = createTakeoffProcessorSupabaseMock();
     vi.mocked(resolveLocalTakeoffProvider).mockRejectedValueOnce(new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "Choose a model", retryable: false }));
-    await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW, callGemini })).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
-    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "AI_PROVIDER", error_message: "Choose a model" });
-    expect(callGemini).not.toHaveBeenCalled();
+    await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW })).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
+    // The plan could not be read: the claim records only the provider.
+    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "AI_PROVIDER", error_message: "Choose a model", model: "chatgpt" });
   });
 
-  it("does not call Gemini or persist when the synchronous lease is lost", async () => {
+  it("does not call the provider or persist when the synchronous lease is lost", async () => {
     const mock = createTakeoffProcessorSupabaseMock();
-    const callGemini = vi.fn();
+    const call = vi.fn();
 
     await expect(processLevelA(JOB_ID, {
       supabase: mock.supabase as never,
       tenantId: TENANT_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(call),
       renewLease: vi.fn().mockRejectedValue(new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "lease lost", retryable: false })),
     })).rejects.toMatchObject({ code: TakeoffErrorCode.CONFLICT });
 
-    expect(callGemini).not.toHaveBeenCalled();
+    expect(call).not.toHaveBeenCalled();
     expect(mock.state.takeoffResults).toHaveLength(0);
     expect(mock.state.job.status).toBe("processing");
   });
@@ -1453,7 +1366,7 @@ describe("processLevelA", () => {
         mimeType: "text/csv",
       },
     });
-    const callGemini = vi.fn();
+    const callProvider = vi.fn();
 
     await expect(
       processLevelA(JOB_ID, {
@@ -1461,7 +1374,7 @@ describe("processLevelA", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
@@ -1469,7 +1382,7 @@ describe("processLevelA", () => {
       retryable: false,
     });
 
-    expect(callGemini).not.toHaveBeenCalled();
+    expect(callProvider).not.toHaveBeenCalled();
     expect([mock.state.initialStatus, ...mock.state.statusTransitions]).toEqual([
       "pending",
       "processing",
@@ -1496,400 +1409,6 @@ describe("processLevelA", () => {
         severity: "error",
       })
     );
-  });
-
-  it("falls back from Flash-Lite to Flash when the primary structured response is invalid", async () => {
-    const mock = createTakeoffProcessorSupabaseMock({
-      featureFlags: {
-        TAKEOFF_AI_ESCALATION_ENABLED: "true",
-      },
-    });
-    const callGemini = vi
-      .fn()
-      .mockRejectedValueOnce(
-        new TakeoffError({
-          code: TakeoffErrorCode.AI_SCHEMA,
-          message: "Schema mismatch",
-          retryable: false,
-          details: {
-            provider_details: {
-              provider_status: 200,
-              provider_code: "AI_SCHEMA",
-            },
-          },
-        })
-      )
-      .mockResolvedValueOnce(
-        buildGeminiResult(
-          buildTakeoffExchange([
-            {
-              designation: "Tableau secours",
-              quantity: 3,
-              unit: "u",
-              source_page: 1,
-              source_file: "niveau-a.csv",
-              confidence: 0.93,
-              evidence: "Fallback Flash",
-            },
-          ]),
-          {
-            model: "gemini-3-flash-preview",
-            promptVersion: "takeoff-a-v1",
-          }
-        )
-      );
-
-    const result = await processLevelA(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => FIXED_NOW,
-      callGemini,
-    });
-
-    expect(result.status).toBe("completed");
-    expect(callGemini).toHaveBeenCalledTimes(2);
-    expect(callGemini).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        context: expect.objectContaining({
-          level: "A",
-          model: "gemini-3.1-flash-lite-preview",
-          promptVersion: "takeoff-a-v1",
-        }),
-      })
-    );
-    expect(callGemini).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        context: expect.objectContaining({
-          level: "A",
-          model: "gemini-3-flash-preview",
-          promptVersion: "takeoff-a-v1",
-        }),
-      })
-    );
-    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
-      model: "gemini-3-flash-preview",
-      prompt_version: "takeoff-a-v1",
-      thinking_level: "low",
-      routing: {
-        strategy: "single_model_with_fallback",
-        primary_model: "gemini-3.1-flash-lite-preview",
-        primary_thinking_level: "low",
-        escalated: true,
-        escalation_trigger: "primary_model_error",
-        final_model: "gemini-3-flash-preview",
-        final_thinking_level: "low",
-      },
-    });
-  });
-
-  it("submits Level A in batch mode when the tenant enables it", async () => {
-    const mock = createTakeoffProcessorSupabaseMock({
-      job: {
-        processing_strategy: "batch",
-      },
-      featureFlags: {
-        TAKEOFF_GEMINI_BATCH_MODE: "true",
-      },
-    });
-    const submitGeminiBatch = vi.fn().mockResolvedValue({
-      durationMs: 125,
-      model: "gemini-3-flash-preview",
-      promptVersion: "takeoff-a-v1",
-      providerBatchId: "batches/test-submit",
-      providerBatchStateRaw: "JOB_STATE_SUBMITTED",
-    });
-
-    const result = await processLevelA(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => FIXED_NOW,
-      submitGeminiBatch,
-    });
-
-    expect(result).toEqual(
-      expect.objectContaining({
-        status: "submitted_to_provider",
-        providerBatchId: "batches/test-submit",
-      })
-    );
-    expect(submitGeminiBatch).toHaveBeenCalledTimes(1);
-    expect(submitGeminiBatch.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        context: expect.objectContaining({
-          level: "A",
-          model: "gemini-3-flash-preview",
-        }),
-      })
-    );
-    expect(mock.state.job.processing_strategy).toBe("batch");
-    expect(mock.state.job.status).toBe("processing");
-    expect(mock.state.job.provider_reconcile_due_at).toBe(FIXED_NOW.toISOString());
-  });
-
-  it("keeps accepted batches in processing when reconcile scheduling persistence fails", async () => {
-    const mock = createTakeoffProcessorSupabaseMock({
-      job: {
-        processing_strategy: "batch",
-      },
-      featureFlags: {
-        TAKEOFF_GEMINI_BATCH_MODE: "true",
-      },
-      failScheduleBatchReconcileUpdate: true,
-    });
-    const submitGeminiBatch = vi.fn().mockImplementation(async (options) => {
-      await options.onBatchLifecycleEvent?.({
-        provider: "gemini",
-        providerBatchId: "batches/test-schedule-failure",
-        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
-        observedAt: "2026-02-25T10:00:01.000Z",
-        isTerminal: false,
-        message: "submitted",
-      });
-
-      return {
-        durationMs: 50,
-        model: "gemini-3-flash-preview",
-        promptVersion: "takeoff-a-v1",
-        providerBatchId: "batches/test-schedule-failure",
-        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
-      };
-    });
-
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    try {
-      const result = await processLevelA(JOB_ID, {
-        supabase: mock.supabase as never,
-        tenantId: TENANT_ID,
-        userId: USER_ID,
-        now: () => FIXED_NOW,
-        submitGeminiBatch,
-      });
-
-      expect(result).toEqual(
-        expect.objectContaining({
-          status: "submitted_to_provider",
-          providerBatchId: "batches/test-schedule-failure",
-        })
-      );
-      expect(mock.state.job.status).toBe("processing");
-      expect(mock.state.job.provider_batch_id).toBe("batches/test-schedule-failure");
-      expect(mock.state.job.provider_batch_state).toBe("submitted");
-      expect(mock.state.job.provider_reconcile_due_at).toBeNull();
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      warnSpy.mockRestore();
-    }
-  });
-
-  it("persists batch provider snapshot and transitions during submission and reconcile", async () => {
-    const mock = createTakeoffProcessorSupabaseMock({
-      job: {
-        processing_strategy: "batch",
-      },
-      featureFlags: {
-        TAKEOFF_GEMINI_BATCH_MODE: "true",
-      },
-    });
-    const submitGeminiBatch = vi.fn().mockImplementation(async (options) => {
-      await options.onBatchLifecycleEvent?.({
-        provider: "gemini",
-        providerBatchId: "batches/test-1",
-        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
-        observedAt: "2026-02-25T10:00:01.000Z",
-        isTerminal: false,
-        message: "submitted",
-      });
-      return {
-        durationMs: 50,
-        model: "gemini-3-flash-preview",
-        promptVersion: "takeoff-a-v1",
-        providerBatchId: "batches/test-1",
-        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
-      };
-    });
-
-    const submission = await processLevelA(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => FIXED_NOW,
-      submitGeminiBatch,
-    });
-    expect(submission.status).toBe("submitted_to_provider");
-    mock.state.job.provider_reconcile_lease_token = "99999999-9999-4999-8999-999999999999";
-    mock.state.job.provider_reconcile_lease_expires_at = "2026-02-25T10:05:00.000Z";
-    const renewBatchLease = vi.fn().mockResolvedValue(undefined);
-
-    const waiting = await reconcileTakeoffBatchJob(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => new Date("2026-02-25T10:00:03.000Z"),
-      pollGeminiBatchOnce: vi.fn().mockImplementation(async (options) => {
-        await options.onBatchLifecycleEvent?.({
-          provider: "gemini",
-          providerBatchId: "batches/test-1",
-          providerBatchStateRaw: "JOB_STATE_RUNNING",
-          observedAt: "2026-02-25T10:00:03.000Z",
-          isTerminal: false,
-          message: "running",
-        });
-
-        return {
-          status: "pending" as const,
-          durationMs: 30,
-          model: "gemini-3-flash-preview",
-          promptVersion: "takeoff-a-v1",
-          providerBatchId: "batches/test-1",
-          providerBatchStateRaw: "JOB_STATE_RUNNING",
-        };
-      }),
-      renewLease: renewBatchLease,
-    });
-    expect(waiting.status).toBe("awaiting_provider_result");
-
-    const completed = await reconcileTakeoffBatchJob(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => new Date("2026-02-25T10:00:05.000Z"),
-      pollGeminiBatchOnce: vi.fn().mockImplementation(async (options) => {
-        await options.onBatchLifecycleEvent?.({
-          provider: "gemini",
-          providerBatchId: "batches/test-1",
-          providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
-          observedAt: "2026-02-25T10:00:05.000Z",
-          isTerminal: true,
-          message: "succeeded",
-        });
-
-        return {
-          ...buildGeminiResult(
-            buildTakeoffExchange([
-              {
-                designation: "Tube PVC",
-                quantity: 12,
-                unit: "ml",
-                source_page: 1,
-                source_file: "niveau-a.csv",
-              },
-            ]),
-            {
-              model: "gemini-3-flash-preview",
-              promptVersion: "takeoff-a-v1",
-              providerBatchId: "batches/test-1",
-              providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
-            }
-          ),
-          status: "succeeded" as const,
-        };
-      }),
-      renewLease: renewBatchLease,
-    });
-    expect(completed.status).toBe("completed");
-    expect(renewBatchLease).toHaveBeenCalledTimes(7);
-
-    expect(mock.state.job.provider_batch_id).toBe("batches/test-1");
-    expect(mock.state.job.provider_batch_state).toBe("succeeded");
-    expect(mock.state.job.provider_batch_updated_at).toBe(
-      "2026-02-25T10:00:05.000Z"
-    );
-    expect(
-      mock.state.providerEvents.map((event) => event.provider_batch_state)
-    ).toEqual(["submitted", "running", "succeeded"]);
-  });
-
-  it("does not partially persist provider batch state when the atomic RPC fails", async () => {
-    const mock = createTakeoffProcessorSupabaseMock({
-      job: {
-        processing_strategy: "batch",
-      },
-      featureFlags: {
-        TAKEOFF_GEMINI_BATCH_MODE: "true",
-      },
-      failProviderBatchSnapshotRpc: true,
-    });
-    const submitGeminiBatch = vi.fn().mockImplementation(async (options) => {
-      await options.onBatchLifecycleEvent?.({
-        provider: "gemini",
-        providerBatchId: "batches/test-atomic-failure",
-        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
-        observedAt: "2026-02-25T10:00:01.000Z",
-        isTerminal: false,
-        message: "submitted",
-      });
-
-      return {
-        durationMs: 50,
-        model: "gemini-3-flash-preview",
-        promptVersion: "takeoff-a-v1",
-        providerBatchId: "batches/test-atomic-failure",
-        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
-      };
-    });
-
-    await expect(
-      processLevelA(JOB_ID, {
-        supabase: mock.supabase as never,
-        tenantId: TENANT_ID,
-        userId: USER_ID,
-        now: () => FIXED_NOW,
-        submitGeminiBatch,
-      })
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
-
-    expect(mock.state.job.provider_batch_id).toBeNull();
-    expect(mock.state.job.provider_batch_state).toBeNull();
-    expect(mock.state.job.provider_batch_updated_at).toBeNull();
-    expect(mock.state.providerEvents).toHaveLength(0);
-  });
-
-  it("clears stale batch metadata when retrying a failed job in sync mode", async () => {
-    const mock = createTakeoffProcessorSupabaseMock({
-      job: {
-        status: "failed",
-        retry_count: 1,
-        processing_strategy: "sync",
-        provider_batch_id: "batches/old-attempt",
-        provider_batch_state: "failed",
-        provider_batch_updated_at: "2026-02-24T08:00:00.000Z",
-        error_code: TakeoffErrorCode.AI_TIMEOUT,
-        error_message: "Previous timeout",
-      },
-    });
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(
-        buildTakeoffExchange([
-          {
-            designation: "Tube PVC",
-            quantity: 6,
-            unit: "ml",
-            source_page: 1,
-            source_file: "niveau-a.csv",
-          },
-        ])
-      )
-    );
-
-    await processLevelA(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => FIXED_NOW,
-      callGemini,
-    });
-
-    expect(mock.state.job.processing_strategy).toBe("sync");
-    expect(mock.state.job.provider_batch_id).toBeNull();
-    expect(mock.state.job.provider_batch_state).toBeNull();
-    expect(mock.state.job.provider_batch_updated_at).toBeNull();
   });
 
   it("restores previous Level A persistence snapshot when persisting new items fails", async () => {
@@ -1942,8 +1461,8 @@ describe("processLevelA", () => {
       ],
       failTakeoffItemsInsertOnce: true,
     });
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(
         buildTakeoffExchange([
           {
             designation: "Nouveau poste",
@@ -1964,7 +1483,7 @@ describe("processLevelA", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toBeInstanceOf(TakeoffError);
 
@@ -1983,8 +1502,8 @@ describe("processLevelA", () => {
     const mock = createTakeoffProcessorSupabaseMock({
       cancelOnResultInsert: true,
     });
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(
         buildTakeoffExchange([
           {
             designation: "Tube PVC",
@@ -2005,7 +1524,7 @@ describe("processLevelA", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       status: 409,
@@ -2051,12 +1570,12 @@ describe("processLevelB", () => {
     const exchange = buildTakeoffExchange([
       { designation: "Symbole R+1", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Plan retenu" },
     ], [], { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" });
-    const callGemini = vi.fn().mockImplementation(async (input) => {
+    const callProvider = vi.fn().mockImplementation(async (input) => {
       const sentPdf = await PDFDocument.load(Buffer.from(input.files[0].data, "base64"));
       expect(sentPdf.getPageCount()).toBe(1);
-      return buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" });
+      return buildProviderResult(exchange, { model: PROVIDER_MODEL, promptVersion: "takeoff-b-v1" });
     });
-    const result = await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    const result = await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
     expect(result.status).toBe("completed");
     expect(mock.state.takeoffItems[0].source_page).toBe(2);
     expect(vi.mocked(mock.supabase.from).mock.calls.filter(([table]) => table === "plan_files")).toEqual([]);
@@ -2100,9 +1619,9 @@ describe("processLevelB", () => {
         file_type: "application/pdf",
       }
     );
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(exchange, {
-        model: "gemini-3.1-pro-preview",
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(exchange, {
+        model: PROVIDER_MODEL,
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2112,11 +1631,11 @@ describe("processLevelB", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(result.status).toBe("completed");
-    expect(callGemini).toHaveBeenCalledWith(
+    expect(callProvider).toHaveBeenCalledWith(
       expect.objectContaining({
         files: [expect.objectContaining({ mimeType: "application/pdf" })],
       })
@@ -2168,8 +1687,8 @@ describe("processLevelB", () => {
       [],
       { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" }
     );
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" })
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(exchange, { model: PROVIDER_MODEL, promptVersion: "takeoff-b-v1" })
     );
 
     const result = await processLevelB(JOB_ID, {
@@ -2177,11 +1696,11 @@ describe("processLevelB", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(result.status).toBe("completed");
-    const prompt = String(callGemini.mock.calls[0]?.[0]?.prompt);
+    const prompt = String(callProvider.mock.calls[0]?.[0]?.prompt);
     expect(prompt).toContain("- source: Plan R+1.pdf");
     expect(prompt).not.toContain(uploadUuid);
     expect(mock.state.takeoffItems).toEqual([
@@ -2208,7 +1727,7 @@ describe("processLevelB", () => {
     });
   });
 
-  it("fails explicitly when the source PDF is corrupted before Gemini is called", async () => {
+  it("fails explicitly when the source PDF is corrupted before the provider is called", async () => {
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
         level: "B",
@@ -2221,7 +1740,7 @@ describe("processLevelB", () => {
         mimeType: "application/pdf",
       },
     });
-    const callGemini = vi.fn();
+    const callProvider = vi.fn();
 
     await expect(
       processLevelB(JOB_ID, {
@@ -2229,14 +1748,14 @@ describe("processLevelB", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
       retryable: false,
     });
 
-    expect(callGemini).not.toHaveBeenCalled();
+    expect(callProvider).not.toHaveBeenCalled();
     expect(mock.state.job.status).toBe("failed");
     expect(mock.state.job.error_code).toBe(TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED);
   });
@@ -2262,7 +1781,7 @@ describe("processLevelB", () => {
         metadata: {},
       })),
     });
-    const callGemini = vi.fn();
+    const callProvider = vi.fn();
 
     await expect(
       processLevelB(JOB_ID, {
@@ -2270,7 +1789,7 @@ describe("processLevelB", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
@@ -2281,7 +1800,7 @@ describe("processLevelB", () => {
     });
 
     expect(mock.state.downloadRequests).toEqual([]);
-    expect(callGemini).not.toHaveBeenCalled();
+    expect(callProvider).not.toHaveBeenCalled();
   });
 
   it("rejects aggregate declared bytes before any Storage download", async () => {
@@ -2306,7 +1825,7 @@ describe("processLevelB", () => {
         metadata: {},
       })),
     });
-    const callGemini = vi.fn();
+    const callProvider = vi.fn();
 
     await expect(
       processLevelB(JOB_ID, {
@@ -2314,7 +1833,7 @@ describe("processLevelB", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
@@ -2325,7 +1844,7 @@ describe("processLevelB", () => {
     });
 
     expect(mock.state.downloadRequests).toEqual([]);
-    expect(callGemini).not.toHaveBeenCalled();
+    expect(callProvider).not.toHaveBeenCalled();
   });
 
   it("rechecks real aggregate PDF pages before copying the merged document", async () => {
@@ -2376,7 +1895,7 @@ describe("processLevelB", () => {
         },
       },
     });
-    const callGemini = vi.fn();
+    const callProvider = vi.fn();
 
     await expect(
       processLevelB(JOB_ID, {
@@ -2384,7 +1903,7 @@ describe("processLevelB", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
@@ -2399,7 +1918,7 @@ describe("processLevelB", () => {
       firstPlanPath,
       secondPlanPath,
     ]);
-    expect(callGemini).not.toHaveBeenCalled();
+    expect(callProvider).not.toHaveBeenCalled();
   });
 
   // M1b : dans un jeu multi-fichiers, le fichier de chaque page (libellé d'origine et référence)
@@ -2444,8 +1963,8 @@ describe("processLevelB", () => {
       [],
       { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" }
     );
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" })
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(exchange, { model: PROVIDER_MODEL, promptVersion: "takeoff-b-v1" })
     );
 
     await processLevelB(JOB_ID, {
@@ -2453,7 +1972,7 @@ describe("processLevelB", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(mock.state.takeoffItems).toEqual([
@@ -2577,9 +2096,9 @@ describe("processLevelB", () => {
       },
     ];
 
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(exchange, {
-        model: "gemini-3.1-pro-preview",
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(exchange, {
+        model: PROVIDER_MODEL,
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2589,7 +2108,7 @@ describe("processLevelB", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(mock.state.takeoffItems).toEqual(
@@ -2642,9 +2161,9 @@ describe("processLevelB", () => {
         },
       },
     });
-    const retryCallGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(exchange, {
-        model: "gemini-3.1-pro-preview",
+    const retryCallProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(exchange, {
+        model: PROVIDER_MODEL,
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2654,7 +2173,7 @@ describe("processLevelB", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini: retryCallGemini,
+      resolveProvider: localProvider(retryCallProvider),
     });
 
     expect(retryMock.state.job.status).toBe("completed");
@@ -2742,32 +2261,32 @@ describe("processLevelB", () => {
       }
     );
 
-    const callGemini = vi
+    const callProvider = vi
       .fn()
       .mockResolvedValueOnce(
-        buildGeminiResult(chunk1, {
+        buildProviderResult(chunk1, {
           tokenCount: 400,
           costCents: 20,
           durationMs: 900,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-b-v1",
         })
       )
       .mockResolvedValueOnce(
-        buildGeminiResult(chunk2, {
+        buildProviderResult(chunk2, {
           tokenCount: 450,
           costCents: 23,
           durationMs: 1_000,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-b-v1",
         })
       )
       .mockResolvedValueOnce(
-        buildGeminiResult(chunk3, {
+        buildProviderResult(chunk3, {
           tokenCount: 500,
           costCents: 26,
           durationMs: 1_100,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2777,7 +2296,7 @@ describe("processLevelB", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(result.status).toBe("completed");
@@ -2785,7 +2304,7 @@ describe("processLevelB", () => {
     expect(result.tokenCount).toBe(1_350);
     expect(result.costCents).toBe(69);
     expect(result.durationMs).toBe(3_000);
-    expect(callGemini).toHaveBeenCalledTimes(3);
+    expect(callProvider).toHaveBeenCalledTimes(3);
     expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
       processing_mode: "pdf_vision_chunked",
       page_count: 6,
@@ -2858,23 +2377,23 @@ describe("processLevelB", () => {
       }
     );
 
-    const callGemini = vi
+    const callProvider = vi
       .fn()
       .mockResolvedValueOnce(
-        buildGeminiResult(chunkWithoutTables, {
+        buildProviderResult(chunkWithoutTables, {
           tokenCount: 300,
           costCents: 15,
           durationMs: 700,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-b-v1",
         })
       )
       .mockResolvedValueOnce(
-        buildGeminiResult(chunkWithTables, {
+        buildProviderResult(chunkWithTables, {
           tokenCount: 420,
           costCents: 20,
           durationMs: 850,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2884,12 +2403,12 @@ describe("processLevelB", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(result.status).toBe("completed");
     expect(result.tablesCount).toBe(1);
-    expect(callGemini).toHaveBeenCalledTimes(2);
+    expect(callProvider).toHaveBeenCalledTimes(2);
     expect(mock.state.takeoffResults[0]?.tables).toHaveLength(1);
     expect(mock.state.takeoffItems).toEqual(
       expect.arrayContaining([
@@ -2975,23 +2494,23 @@ describe("processLevelB", () => {
       },
     ];
 
-    const callGemini = vi
+    const callProvider = vi
       .fn()
       .mockResolvedValueOnce(
-        buildGeminiResult(chunk1, {
+        buildProviderResult(chunk1, {
           tokenCount: 500,
           costCents: 25,
           durationMs: 900,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-b-v1",
         })
       )
       .mockResolvedValueOnce(
-        buildGeminiResult(chunk2, {
+        buildProviderResult(chunk2, {
           tokenCount: 520,
           costCents: 26,
           durationMs: 950,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -3001,7 +2520,7 @@ describe("processLevelB", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(result.status).toBe("completed");
@@ -3057,9 +2576,9 @@ describe("processLevelB", () => {
       confidence: 0.52,
     };
 
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(emptyExchange, {
-        model: "gemini-3.1-pro-preview",
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(emptyExchange, {
+        model: PROVIDER_MODEL,
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -3070,7 +2589,7 @@ describe("processLevelB", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE,
@@ -3083,324 +2602,6 @@ describe("processLevelB", () => {
     );
   });
 
-  it("escalates Level B from Flash to Pro when the extracted structure is empty", async () => {
-    const pdfBytes = await createPdfArrayBuffer(1);
-    const mock = createTakeoffProcessorSupabaseMock({
-      featureFlags: {
-        TAKEOFF_AI_ESCALATION_ENABLED: "true",
-        TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE: "0.75",
-        TAKEOFF_AI_ESCALATION_MAX_COST_CENTS: "500",
-      },
-      job: {
-        level: "B",
-        source_file_name: "niveau-b-empty.pdf",
-        source_file_path: DEFAULT_SOURCE_PATH_B,
-        source_file_type: "application/pdf",
-      },
-      downloadFile: {
-        bytes: pdfBytes,
-        mimeType: "application/pdf",
-      },
-    });
-
-    const weakExchange: TakeoffExchange = {
-      items: [],
-      warnings: [],
-      tables: [
-        {
-          page: 1,
-          title: "Extraction incomplète",
-          headers: ["designation", "quantity", "unit"],
-          rows: [{ row_index: 0, cells: ["Support mural", "8", "u"] }],
-        },
-      ],
-      metadata: {
-        level: "B",
-        prompt_version: "takeoff-b-v1",
-        file_type: "application/pdf",
-        schema_version: "v1",
-      },
-      confidence: 0.42,
-    };
-    const escalatedExchange = buildTakeoffExchange(
-      [
-        {
-          designation: "Support mural",
-          quantity: 8,
-          unit: "u",
-          source_page: 1,
-          source_file: "niveau-b-empty.pdf",
-          confidence: 0.86,
-          evidence: "Escalade Pro",
-        },
-      ],
-      [],
-      {
-        level: "B",
-        prompt_version: "takeoff-b-v1",
-        file_type: "application/pdf",
-      }
-    );
-
-    const callGemini = vi
-      .fn()
-      .mockResolvedValueOnce(
-        buildGeminiResult(weakExchange, {
-          tokenCount: 120_000,
-          costCents: 11,
-          durationMs: 1_200,
-          model: "gemini-3-flash-preview",
-          promptVersion: "takeoff-b-v1",
-          tokenUsage: {
-            inputTokens: 100_000,
-            reasoningTokens: 0,
-            outputTokens: 20_000,
-            totalTokens: 120_000,
-          },
-        })
-      )
-      .mockResolvedValueOnce(
-        buildGeminiResult(escalatedExchange, {
-          tokenCount: 120_000,
-          costCents: 44,
-          durationMs: 2_400,
-          model: "gemini-3.1-pro-preview",
-          promptVersion: "takeoff-b-v1",
-          tokenUsage: {
-            inputTokens: 100_000,
-            reasoningTokens: 0,
-            outputTokens: 20_000,
-            totalTokens: 120_000,
-          },
-        })
-      );
-
-    const result = await processLevelB(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => FIXED_NOW,
-      callGemini,
-    });
-
-    expect(result.status).toBe("completed");
-    expect(result.itemsCount).toBe(1);
-    expect(result.tokenCount).toBe(240_000);
-    expect(result.costCents).toBe(55);
-    expect(result.durationMs).toBe(3_600);
-    expect(callGemini).toHaveBeenCalledTimes(2);
-    expect(callGemini).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        context: expect.objectContaining({
-          level: "B",
-          model: "gemini-3-flash-preview",
-        }),
-      })
-    );
-    expect(callGemini).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        context: expect.objectContaining({
-          level: "B",
-          model: "gemini-3.1-pro-preview",
-        }),
-      })
-    );
-    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
-      model: "gemini-3.1-pro-preview",
-      prompt_version: "takeoff-b-v1",
-      thinking_level: "medium",
-      routing: {
-        strategy: "primary_then_escalation",
-        primary_model: "gemini-3-flash-preview",
-        primary_thinking_level: "medium",
-        escalated: true,
-        escalation_trigger: "weak_level_b_result",
-        final_model: "gemini-3.1-pro-preview",
-        final_thinking_level: "medium",
-        budget: {
-          decision: "allow",
-          reason: "within_budget",
-          observed_cost_cents: 11,
-          estimated_escalation_cost_cents: 44,
-          projected_total_cost_cents: 55,
-          max_allowed_cost_cents: 500,
-        },
-      },
-    });
-    expect(mock.state.takeoffResults[0]?.token_count).toBe(240_000);
-    expect(mock.state.takeoffResults[0]?.cost_cents).toBe(55);
-    expect(mock.state.job.token_count).toBe(240_000);
-    expect(mock.state.job.cost_cents).toBe(55);
-  });
-
-  it("keeps the primary Level B result and traces budget_blocked when projected escalation cost exceeds the ceiling", async () => {
-    const pdfBytes = await createPdfArrayBuffer(1);
-    const mock = createTakeoffProcessorSupabaseMock({
-      featureFlags: {
-        TAKEOFF_AI_ESCALATION_ENABLED: "true",
-        TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE: "0.75",
-        TAKEOFF_AI_ESCALATION_MAX_COST_CENTS: "50",
-      },
-      job: {
-        level: "B",
-        source_file_name: "niveau-b-budget.pdf",
-        source_file_path: DEFAULT_SOURCE_PATH_B,
-        source_file_type: "application/pdf",
-      },
-      downloadFile: {
-        bytes: pdfBytes,
-        mimeType: "application/pdf",
-      },
-    });
-
-    const weakExchange: TakeoffExchange = {
-      items: [],
-      warnings: [],
-      tables: [
-        {
-          page: 1,
-          title: "Extraction incomplète",
-          headers: ["designation", "quantity", "unit"],
-          rows: [{ row_index: 0, cells: ["Support mural", "8", "u"] }],
-        },
-      ],
-      metadata: {
-        level: "B",
-        prompt_version: "takeoff-b-v1",
-        file_type: "application/pdf",
-        schema_version: "v1",
-      },
-      confidence: 0.42,
-    };
-
-    const callGemini = vi.fn().mockResolvedValueOnce(
-      buildGeminiResult(weakExchange, {
-        costCents: 11,
-        model: "gemini-3-flash-preview",
-        promptVersion: "takeoff-b-v1",
-        tokenUsage: {
-          inputTokens: 100_000,
-          reasoningTokens: 0,
-          outputTokens: 20_000,
-          totalTokens: 120_000,
-        },
-      })
-    );
-
-    await expect(
-      processLevelB(JOB_ID, {
-        supabase: mock.supabase as never,
-        tenantId: TENANT_ID,
-        userId: USER_ID,
-        now: () => FIXED_NOW,
-        callGemini,
-      })
-    ).rejects.toMatchObject({
-      code: TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE,
-      details: expect.objectContaining({
-        provider_meta: expect.objectContaining({
-          routing: expect.objectContaining({
-            escalation_block_reason: "budget_blocked",
-          }),
-        }),
-      }),
-    });
-
-    expect(callGemini).toHaveBeenCalledTimes(1);
-    expect(mock.state.job.status).toBe("failed");
-    expect(mock.state.job.error_code).toBe(
-      TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE
-    );
-  });
-
-  it("blocks escalation when the dossier is already too expensive before the premium rerun", async () => {
-    const pdfBytes = await createPdfArrayBuffer(1);
-    const mock = createTakeoffProcessorSupabaseMock({
-      featureFlags: {
-        TAKEOFF_AI_ESCALATION_ENABLED: "true",
-        TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE: "0.75",
-        TAKEOFF_AI_ESCALATION_MAX_COST_CENTS: "80",
-      },
-      job: {
-        level: "B",
-        source_file_name: "niveau-b-deja-cher.pdf",
-        source_file_path: DEFAULT_SOURCE_PATH_B,
-        source_file_type: "application/pdf",
-      },
-      downloadFile: {
-        bytes: pdfBytes,
-        mimeType: "application/pdf",
-      },
-    });
-
-    const expensivePrimaryExchange = buildTakeoffExchange(
-      [
-        {
-          designation: "Support mural",
-          quantity: 8,
-          unit: "u",
-          source_page: 1,
-          source_file: "niveau-b-deja-cher.pdf",
-          confidence: 0.42,
-          evidence: "Flash",
-        },
-      ],
-      [],
-      {
-        level: "B",
-        prompt_version: "takeoff-b-v1",
-        file_type: "application/pdf",
-      }
-    );
-    expensivePrimaryExchange.confidence = 0.42;
-
-    const callGemini = vi.fn().mockResolvedValueOnce(
-      buildGeminiResult(expensivePrimaryExchange, {
-        costCents: 70,
-        model: "gemini-3-flash-preview",
-        promptVersion: "takeoff-b-v1",
-        tokenUsage: {
-          inputTokens: 100_000,
-          reasoningTokens: 0,
-          outputTokens: 20_000,
-          totalTokens: 120_000,
-        },
-      })
-    );
-
-    const result = await processLevelB(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => FIXED_NOW,
-      callGemini,
-    });
-
-    expect(result.status).toBe("completed");
-    expect(result.itemsCount).toBe(1);
-    expect(callGemini).toHaveBeenCalledTimes(1);
-    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
-      model: "gemini-3-flash-preview",
-      routing: {
-        strategy: "primary_then_escalation",
-        escalation_candidate: true,
-        escalated: false,
-        escalation_trigger: "weak_level_b_result",
-        escalation_block_reason: "budget_blocked",
-        final_model: "gemini-3-flash-preview",
-        budget: {
-          decision: "block",
-          reason: "budget_blocked",
-          observed_cost_cents: 70,
-          estimated_escalation_cost_cents: 44,
-          projected_total_cost_cents: 114,
-          max_allowed_cost_cents: 80,
-        },
-      },
-    });
-  });
 });
 
 describe("processLevelC", () => {
@@ -3408,41 +2609,28 @@ describe("processLevelC", () => {
     vi.clearAllMocks();
   });
 
-  // TI-704 option B, written before the routing was tested: a local ChatGPT job with Decisions configured gets the
-  // Decisions hook (a server key and its spending), or a server job gets its creator's local plan.
-  it("reads a local ChatGPT job's vector groups with its creator's plan, never Decisions, and a server job's with Decisions", async () => {
+  // TI-704 option B: with Decisions configured too, a job's vector groups are read by its creator's plan, never by
+  // Decisions (a server key and its spending).
+  it("reads a job's vector groups with its creator's plan, never Decisions", async () => {
     for (const [name, value] of Object.entries({ MERGEONE_TAKEOFF_VECTORS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", MERGEONE_OPENAI_DECISIONS: "1",
       OPENAI_DECISIONS_API_KEY: "fictional-key", MERGEONE_CHATGPT_LOCAL: "1", CI: "", VERCEL: "" })) vi.stubEnv(name, value);
     try {
       const planSetId = "55555555-5555-4555-8555-555555555555";
       const planPath = `${TENANT_ID}/${planSetId}/f1/Plan-R-1.pdf`;
-      const setup = async () => createTakeoffProcessorSupabaseMock({
+      const mock = createTakeoffProcessorSupabaseMock({
         job: { level: "C", plan_set_id: planSetId, source_file_name: "Plan R+1.pdf", source_file_path: null, source_file_type: "application/pdf" },
         planFiles: [{ id: "88888888-8888-4888-8888-888888888881", plan_set_id: planSetId, file_path: planPath, file_name: "Plan-R-1.pdf",
           file_type: "application/pdf", page_count: 1, metadata: { original_file_name: "Plan R+1.pdf" } }],
         planFileDownloads: { [planPath]: { bytes: await createPdfArrayBuffer(1), mimeType: "application/pdf" } },
       });
       const exchange = buildTakeoffExchange([{ designation: "Tube cuivre", quantity: 12, unit: "m" }]);
-      const selection = { profileId: "profile", model: "account-model", reasoningEffort: null };
-      const call = vi.fn().mockResolvedValue(buildGeminiResult(exchange, { model: "account-model", costCents: 0 }));
-      vi.mocked(resolveLocalTakeoffProvider).mockResolvedValueOnce({ model: "account-model", call, selection, assertOwnerActive: vi.fn() });
+      const call = vi.fn().mockResolvedValue(buildProviderResult(exchange));
       vi.mocked(readTakeoffVectorPages).mockResolvedValueOnce([]);
-      const local = await setup();
-      await processLevelC(JOB_ID, { supabase: local.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini: vi.fn() });
+      await processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(call) });
       expect(call).toHaveBeenCalled();
-      expect(takeoffVectorDecisionsHook).not.toHaveBeenCalled();
+      expect(takeoffVectorLocalGroupsHook).toHaveBeenCalledTimes(1);
       expect(vi.mocked(readTakeoffVectorPages).mock.calls[0]?.[1]?.decisions).toMatchObject({ owner: { tenantId: TENANT_ID, userId: USER_ID },
-        local: { selection } });
-
-      vi.clearAllMocks();
-      vi.mocked(readTakeoffVectorPages).mockResolvedValueOnce([]);
-      const server = await setup();
-      const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-c-v1" }));
-      await processLevelC(JOB_ID, { supabase: server.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
-      expect(takeoffVectorLocalGroupsHook).not.toHaveBeenCalled();
-      const decisions = vi.mocked(readTakeoffVectorPages).mock.calls[0]?.[1]?.decisions;
-      expect(decisions).toMatchObject({ owner: { tenantId: TENANT_ID, userId: USER_ID } });
-      expect(decisions?.local).toBeUndefined();
+        local: { selection: { profileId: "profile", model: PROVIDER_MODEL, reasoningEffort: null } } });
     } finally {
       vi.unstubAllEnvs();
     }
@@ -3479,10 +2667,10 @@ describe("processLevelC", () => {
       metadata: { level: "C", prompt_version: "takeoff-c-v1", file_type: "application/pdf", schema_version: "v1" },
       confidence: 0.9,
     });
-    const callGemini = vi.fn();
+    const callProvider = vi.fn();
     for (const index of [1, 2, 3]) {
-      callGemini.mockResolvedValueOnce(
-        buildGeminiResult(chunkExchange(index), { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-c-v1" })
+      callProvider.mockResolvedValueOnce(
+        buildProviderResult(chunkExchange(index), { model: PROVIDER_MODEL, promptVersion: "takeoff-c-v1" })
       );
     }
 
@@ -3491,11 +2679,11 @@ describe("processLevelC", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(result).toMatchObject({ status: "completed", chunksCount: 3 });
-    const prompts = callGemini.mock.calls.map((call) => String(call[0]?.prompt));
+    const prompts = callProvider.mock.calls.map((call) => String(call[0]?.prompt));
     expect(prompts.map((prompt) => /- source: (.*)/.exec(prompt)?.[1])).toEqual([
       expect.stringMatching(/^Plan R\+1\.pdf \| chunk 1\/3 \| pages /),
       expect.stringMatching(/^Plan R\+1\.pdf \| chunk 2\/3 \| pages /),
@@ -3619,32 +2807,32 @@ describe("processLevelC", () => {
       confidence: 0.75,
     };
 
-    const callGemini = vi
+    const callProvider = vi
       .fn()
       .mockResolvedValueOnce(
-        buildGeminiResult(chunk1, {
+        buildProviderResult(chunk1, {
           tokenCount: 600,
           costCents: 30,
           durationMs: 1_000,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-c-v1",
         })
       )
       .mockResolvedValueOnce(
-        buildGeminiResult(chunk2, {
+        buildProviderResult(chunk2, {
           tokenCount: 700,
           costCents: 35,
           durationMs: 1_100,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-c-v1",
         })
       )
       .mockResolvedValueOnce(
-        buildGeminiResult(chunk3, {
+        buildProviderResult(chunk3, {
           tokenCount: 500,
           costCents: 20,
           durationMs: 900,
-          model: "gemini-3.1-pro-preview",
+          model: PROVIDER_MODEL,
           promptVersion: "takeoff-c-v1",
         })
       );
@@ -3654,7 +2842,7 @@ describe("processLevelC", () => {
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      resolveProvider: localProvider(callProvider),
     });
 
     expect(result).toMatchObject({
@@ -3671,7 +2859,7 @@ describe("processLevelC", () => {
         totalTokens: 1_800,
       },
     });
-    expect(callGemini).toHaveBeenCalledTimes(3);
+    expect(callProvider).toHaveBeenCalledTimes(3);
     expect(mock.state.takeoffItems).toHaveLength(3);
     expect(mock.state.takeoffItems).toEqual(
       expect.arrayContaining([
@@ -3754,12 +2942,12 @@ describe("processLevelC", () => {
       confidence: 0.85,
     };
 
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(validExchange, {
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(validExchange, {
         tokenCount: 900,
         costCents: 40,
         durationMs: 900,
-        model: "gemini-3.1-pro-preview",
+        model: PROVIDER_MODEL,
         promptVersion: "takeoff-c-v1",
       })
     );
@@ -3770,7 +2958,7 @@ describe("processLevelC", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toBeInstanceOf(TakeoffError);
 
@@ -3802,7 +2990,7 @@ describe("processLevelC", () => {
         mimeType: "application/pdf",
       },
     });
-    const callGemini = vi.fn();
+    const callProvider = vi.fn();
 
     await expect(
       processLevelC(JOB_ID, {
@@ -3810,7 +2998,7 @@ describe("processLevelC", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
@@ -3821,7 +3009,7 @@ describe("processLevelC", () => {
       }),
     });
 
-    expect(callGemini).not.toHaveBeenCalled();
+    expect(callProvider).not.toHaveBeenCalled();
     expect(mock.state.job.status).toBe("failed");
   });
 
@@ -3866,12 +3054,12 @@ describe("processLevelC", () => {
       confidence: 0.85,
     };
 
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(validExchange, {
+    const callProvider = vi.fn().mockResolvedValue(
+      buildProviderResult(validExchange, {
         tokenCount: 1_200,
         costCents: 40,
         durationMs: 900,
-        model: "gemini-3.1-pro-preview",
+        model: PROVIDER_MODEL,
         promptVersion: "takeoff-c-v1",
       })
     );
@@ -3882,7 +3070,7 @@ describe("processLevelC", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        resolveProvider: localProvider(callProvider),
       })
     ).rejects.toMatchObject({
       code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
@@ -3918,10 +3106,10 @@ describe("hypothesis preselection", () => {
       document_name: "niveau-a.csv",
     };
     const mock = createTakeoffProcessorSupabaseMock({ job: { preparation_snapshot: snapshot }, downloadFile: { bytes, mimeType: "text/csv" } });
-    const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(buildTakeoffExchange([
+    const callProvider = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([
       { designation: "Tube fictif R+1", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Ligne 2" },
     ])));
-    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
     expect(result.status).toBe("completed");
     expect(mock.state.takeoffItems).toHaveLength(1);
     expect(mock.state.takeoffItems[0]).toMatchObject({
@@ -3940,8 +3128,8 @@ describe("hypothesis preselection", () => {
       { designation: "Soudures inox", quantity: 48, unit: "u", source_page: 1, confidence: 0.95, evidence: "Supposées" },
       { designation: "Vanne DN 20", quantity: 4, unit: "u", source_page: 1, confidence: 0.95, evidence: "Repères V1 à V4" },
     ], [], { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" });
-    const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" }));
-    const result = await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    const callProvider = vi.fn().mockResolvedValue(buildProviderResult(exchange, { model: PROVIDER_MODEL, promptVersion: "takeoff-b-v1" }));
+    const result = await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
     expect(result.status).toBe("completed");
     const [weld, valve] = mock.state.takeoffItems;
     expect(weld).toMatchObject({ designation: "Soudures inox", metadata: { rule_inputs: { non_observable: "weld" } },
@@ -3960,8 +3148,8 @@ describe("hypothesis preselection", () => {
     const exchange = buildTakeoffExchange([
       { designation: "Soudures inox", quantity: 48, unit: "u", source_page: 1, confidence: 0.95, evidence: "Supposées" },
     ], [], { level: "B", prompt_version: "takeoff-b-v1", file_type: "application/pdf" });
-    const callGemini = vi.fn().mockResolvedValue(buildGeminiResult(exchange, { model: "gemini-3.1-pro-preview", promptVersion: "takeoff-b-v1" }));
-    await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, callGemini });
+    const callProvider = vi.fn().mockResolvedValue(buildProviderResult(exchange, { model: PROVIDER_MODEL, promptVersion: "takeoff-b-v1" }));
+    await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
     expect(mock.state.takeoffItems[0]).toMatchObject({ designation: "Soudures inox", is_excluded: false, exclusion_reason: null });
     expect(mock.state.takeoffItems[0].metadata.rule_inputs).toBeUndefined();
   });

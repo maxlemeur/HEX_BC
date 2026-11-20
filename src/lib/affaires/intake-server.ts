@@ -35,7 +35,7 @@ import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { resolveChatGptIntakeOwner } from "@/lib/ai/chatgpt-workflow-owner";
 import { canTranscribeIntakeDocument, scheduleIntakeTranscriptionAfterRetry, transcribeIntakeDocument } from "@/lib/affaires/intake-transcription-server";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
+import type { StructuredCallFile } from "@/lib/ai/structured-call";
 import * as durableIntake from "@/lib/workflows/affaire-intake-lifecycle";
 
 import {
@@ -773,7 +773,7 @@ async function classifyAffaireIntakeDocument(input: {
   if (isAffaireIntakeCadDocument(input.fileName)) return { result: heuristicResult, source: "heuristic",
     analysisFailure: { code: "UNSUPPORTED_FORMAT", message: "Ce format CAO/BIM n’est pas lisible par l’IA. Ajoutez un export PDF pour les plans.", scope: "document" } };
 
-  let filePayload: (GeminiStructuredFile & { issues?: string[] }) | null = null;
+  let filePayload: (StructuredCallFile & { issues?: string[] }) | null = null;
   let payloadFailure: IntakeAnalysisFailure | undefined;
 
   try {

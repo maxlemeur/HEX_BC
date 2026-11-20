@@ -8,7 +8,6 @@ import { TakeoffJobActions, type ActionKind } from "./TakeoffJobActions";
 import {
   cancelTakeoffJob,
   isTakeoffApiError,
-  reconcileTakeoffJob,
   resubmitTakeoffJob,
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
@@ -57,18 +56,7 @@ export default function TakeoffJobsTable({
       setPendingActions((current) => ({ ...current, [jobId]: action }));
 
       try {
-        if (action === "reconcile") {
-          const response = await reconcileTakeoffJob(jobId);
-          if (response.dispatch?.status === "persistence_unconfirmed") {
-            setActionNotice(
-              `Vérification demandée, mais sa reprise automatique n'a pas pu être confirmée. Réessayez depuis cette analyse (suivi ${response.dispatch.correlation_id}).`
-            );
-          } else if (response.dispatch?.status === "queued_for_recovery") {
-            setActionNotice(
-              `Vérification demandée. Le démarrage immédiat a échoué ; la reprise automatique est activée (suivi ${response.dispatch.correlation_id}).`
-            );
-          }
-        } else if (action === "resubmit") {
+        if (action === "resubmit") {
           const response = await resubmitTakeoffJob(jobId);
           if (response.dispatch?.status === "persistence_unconfirmed") {
             setActionNotice(
@@ -91,10 +79,8 @@ export default function TakeoffJobsTable({
         setActionError(
           isTakeoffApiError(err)
             ? err.message
-            : action === "reconcile"
-              ? "Impossible de vérifier la reprise de cette analyse."
-              : action === "resubmit"
-                ? "Impossible de soumettre à nouveau cette analyse."
+            : action === "resubmit"
+              ? "Impossible de soumettre à nouveau cette analyse."
               : "Impossible d'annuler cette analyse."
         );
       } finally {
