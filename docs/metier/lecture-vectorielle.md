@@ -758,3 +758,97 @@ la réserve v1, et le rapport le dit. Les chiffres jugés au devis ne changent p
 
 Les règles fixes qui lisent cette lecture (DN × réseau, doublons Z1/Z2 et recalage,
 aires, pièces, quantités à saisir) sont décrites dans [regles-metre.md](regles-metre.md).
+
+## Banc de comptage par repères
+
+Le banc compare des méthodes sur les mêmes plans fictifs. Chaque occurrence
+installée y a une position de référence. Les symboles de légende et de détail
+sont des zones négatives, même s'ils ressemblent à des occurrences installées.
+
+Depuis la racine du dépôt, avec les dépendances installées et la version de
+Node de `.nvmrc` :
+
+```sh
+mkdir -p outputs
+mise exec node@$(cat .nvmrc) -- node --conditions=react-server --import tsx \
+  scripts/run-takeoff-count-pins-bench.ts --methods label,all-deterministic \
+  > outputs/count-pins-receipt.json
+```
+
+Sans `--methods`, le reçu compare les libellés, les répétitions sans attribution,
+un ou deux exemples par famille et par page, le rattachement aux conduites avec
+ou sans exemples et les fusions. `tile-replay` joue des réponses de tuiles
+écrites pour les fictions. `fusion-with-replay` les combine avec la lecture
+déterministe. Le programme fonctionne hors ligne et le reçu indique zéro
+appel et zéro revue humaine. `--help` liste les méthodes et `--seed` permet
+de choisir la graine (676 par défaut). Le reçu identifie le commit, l'état
+du worktree, Node, PDF.js, la configuration et les empreintes des PDF et
+annotations. Le CLI vérifie le checkout qui contient son script, avec tous
+les fichiers non suivis et sans les variables Git héritées. L'option
+`--allow-dirty` autorise une mesure de travail et inscrit
+`reproducible: false` dans son reçu. Voir le [code du banc](../../src/lib/takeoff/bench/count-pins/).
+
+Tout repère dans une zone négative, bord compris, compte comme faux positif
+et est exclu de l'appariement. Chaque côté de la zone est élargi de
+`1e-6` point pour absorber l'arrondi de projection. Le score forme le plus
+grand nombre de paires à une distance maximale de 4 points, puis minimise
+leur distance totale sans tolérance d'arrondi sur la somme. À égalité,
+aucun crédit typé pour une paire qui ne figure pas dans tous les appariements
+optimaux. Une paire doit appartenir au même plan, à la même génération
+d'octets et à la même page originale. Les positions sont mesurées
+à l'échelle 1, origine en haut à gauche de la CropBox visible après rotation
+et prise en compte de UserUnit. Le score juge ensuite chaque paire sur
+trois axes :
+
+- **Dessin** — un repère au bon endroit.
+- **Poste** — le bon identifiant dans la liste. La liste fictive a une seule
+  entrée par famille. Un lecteur qui ne fournit que la famille doit s'abstenir
+  si plusieurs postes restent compatibles.
+- **Poste et DN** — le bon poste et le diamètre nominal lorsqu'il est requis.
+
+Un mauvais poste ou DN émis peut créer à la fois un faux positif et un faux
+négatif. Une abstention sur l'attribut retire la prédiction du dénominateur de
+sa précision et réduit son rappel. Une précision sans prédiction est
+indéfinie. Deux DN intervertis peuvent donner deux quantités exactes et
+aucun repère correctement typé. Le reçu indique les quantités par poste sur
+la totalité d'un dossier et les scores spatiaux par page, dossier, poste,
+support et densité. Par famille, le score de dessin crédite les occurrences
+appariées dans tous les optima et compte les repères qui peuvent rester sans
+paire comme faux positifs. En cas d'égalité entre appariements optimaux, les
+vrais positifs de dessin par famille sont une borne inférieure et les faux
+positifs une borne supérieure, tandis que les décomptes par page sont
+exacts. Les repères de famille inconnue qui peuvent
+rester sans paire figurent sur la ligne sans attribution. Ils rendent la
+précision indéterminée pour les familles à portée ou pour toutes les
+familles en l'absence de référence proche.
+
+Pour le score hors exemples, chaque repère est attribué à la vérité terrain
+la plus proche dans le rayon. En cas d'égalité, l'exemple fourni prime.
+Pour un exemple fourni, un seul écho est écarté du score hors exemples.
+Chaque écho supplémentaire compte comme doublon et faux positif sur les
+trois axes, indépendamment de sa famille ou de son DN.
+Les repères les plus proches d'une occurrence indépendante suivent
+l'appariement habituel. Le reçu compte les exemples fournis et les échos
+en double. Le temps de préparation des exemples n'est pas mesuré.
+
+Les scans sans calque sont des abstentions pour les méthodes vectorielles.
+Leurs occurrences restent dans le dénominateur du rappel. Une portée de
+quantité incomplètement lue laisse l'exactitude indéterminée pour tous ses
+postes, y compris ceux sans occurrence attendue. Chaque enregistrement de
+tuile doit correspondre au plan, à la génération et à la page originale. Le
+rejeu attribue un seul propriétaire à chaque centre dans le recouvrement.
+Une réponse absente, invalide ou tronquée laisse la page non évaluée pour le
+rejeu et pour sa fusion. Le reçu donne la couverture et les scores des pages
+évaluées et des pages communes. Sur les pages que les deux lecteurs ont
+terminées, il indique les accords à 4 points pour le même poste et le même DN
+émis, ainsi que les positions propres à chaque lecteur. Quand un groupe
+contient une paire sans DN émis, `agreement: "poste-only"` indique un accord
+sur le poste seul. Les plans vides, les
+légendes, les détails et les doublons restent visibles dans le reçu.
+
+Pour qualifier une famille sur des documents réels, il faut des dossiers
+indépendants réservés et des zones intégralement vérifiées par un métreur,
+y compris des zones vides. L'exactitude d'un poste entier exige la vérification
+de toute sa portée. Les totaux de référence seuls ne permettent pas de
+mesurer la précision ou le rappel des repères. L'accord de deux lecteurs
+ne remplace pas une vérification indépendante.
