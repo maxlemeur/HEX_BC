@@ -3,16 +3,16 @@ import type { Instrumentation } from "next";
 export async function register() {
   // Les hooks process ne concernent que le runtime Node ; l'Edge Runtime ne
   // doit meme pas charger le module (voir error-reporter.ts).
-  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { installProcessErrorHooks } = await import(
+      "@/lib/observability/error-reporter"
+    );
+    installProcessErrorHooks();
 
-  const { installProcessErrorHooks } = await import(
-    "@/lib/observability/error-reporter"
-  );
-  installProcessErrorHooks();
-
-  if (process.env.NODE_ENV === "development") {
-    const { startLocalTakeoffRetryRecovery } = await import("@/lib/takeoff/local-retry-recovery");
-    startLocalTakeoffRetryRecovery();
+    if (process.env.NODE_ENV === "development") {
+      const { startLocalTakeoffRetryRecovery } = await import("@/lib/takeoff/local-retry-recovery");
+      startLocalTakeoffRetryRecovery();
+    }
   }
 }
 
