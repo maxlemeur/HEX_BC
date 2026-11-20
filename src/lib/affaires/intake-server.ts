@@ -20,7 +20,6 @@ import {
   ApiError,
   badRequest,
   conflict,
-  forbidden,
   internalError,
   mapSupabaseError,
   notFound,
@@ -84,9 +83,8 @@ import {
   type AffaireIntakeReadinessSnapshot,
   type AffaireIntakeUploadStatus,
   type AffaireIntakeWorkspaceMissingPiece,
-  type AffaireProjectAccess,
-  type AffaireProjectAccessRow,
 } from "@/lib/affaires/intake";
+import { AFFAIRE_ACCESS_PROJECT_COLUMNS, canAccessAffaire, requireAffaireAccess, type AffaireAccessProject } from "@/lib/affaires/access-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { readLinkedDriveDocument, readLinkedDriveFile } from "@/lib/affaires/google-drive/content";
 import { hasStoredIntakePlan, hasStoredStandalonePlan, readStandalonePlanRowsByProject, type StandalonePlanRow } from "@/lib/affaires/plan-presence";
@@ -262,7 +260,6 @@ export type AffaireIntakeWorkspace = {
   briefDraft: AffaireIntakeBriefDraft | null;
 };
 
-const PROJECT_SELECT = "id, tenant_id, user_id, name, reference, client_name, is_archived";
 const UPLOAD_SELECT = [
   "id",
   "tenant_id",
@@ -860,15 +857,9 @@ async function classifyAffaireIntakeDocument(input: {
   }
 }
 
-export async function requireAffaireProjectOwnerOrAdmin(
-  projectId: string
-): Promise<AffaireProjectAccess> {
-  return requireAffaireProjectAccess(projectId, "owner_or_admin");
-}
-
 /** Resolve only an active, classified DPGF of the current affair: a stored copy or a Drive link. */
 async function getAffaireIntakeDpgf(projectId: string, documentId: string) {
-  const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
+  const { context, project } = await requireAffaireAccess(projectId, "write");
   const { data, error } = await context.supabase
     .from("affaire_intake_documents")
     .select("id, tenant_id, file_name, mime_type, size_bytes, storage_path, drive_connection_id, drive_file_id" as never)
@@ -957,66 +948,11 @@ export async function readAffaireIntakeDpgfFile(projectId: string, documentId: s
   return new File([blob], document.file_name, { type: document.mime_type ?? blob.type });
 }
 
-export async function requireAffaireProjectReadAccess(
-  projectId: string
-): Promise<AffaireProjectAccess> {
-  return requireAffaireProjectAccess(projectId, "reader");
-}
-
 /** The affaire's brief as its readers see it (owner, admin or director), or null when none was drafted yet. */
 export async function readAffaireBriefDraft(projectId: string) {
-  const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  const { context, project } = await requireAffaireAccess(projectId, "read");
   const brief = await fetchAffaireBriefForProject({ supabase: context.supabase, projectId: project.id });
   return brief?.draft ?? null;
-}
-
-async function requireAffaireProjectBriefEditor(
-  projectId: string
-): Promise<AffaireProjectAccess> {
-  return requireAffaireProjectAccess(projectId, "brief_editor");
-}
-
-async function requireAffaireProjectAccess(
-  projectId: string,
-  mode: "owner_or_admin" | "reader" | "brief_editor"
-): Promise<AffaireProjectAccess> {
-  const context = await getAuthenticatedContext();
-  const { data, error } = await context.supabase
-    .from("estimate_projects")
-    .select(PROJECT_SELECT)
-    .eq("id", projectId)
-    .eq("tenant_id", context.tenantId)
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger l'affaire.");
-  }
-
-  const project = data as AffaireProjectAccessRow | null;
-
-  if (!project || project.is_archived) {
-    throw notFound("Affaire introuvable.");
-  }
-
-  const isOwner = project.user_id === context.userId;
-  const isAdmin = context.tenantRole === "admin";
-  const isDirector = context.tenantRole === "director";
-
-  const hasAccess =
-    mode === "reader"
-      ? isOwner || isAdmin || isDirector
-      : mode === "brief_editor"
-        ? isOwner || isAdmin || isDirector
-        : isOwner || isAdmin;
-
-  if (!hasAccess) {
-    throw forbidden("Accès refusé à cette affaire.");
-  }
-
-  return {
-    context,
-    project,
-  };
 }
 
 async function insertAffaireIntakeEvent(input: {
@@ -1133,7 +1069,7 @@ function buildReceivedPiecesEntries(
 }
 
 function buildFallbackAffaireBrief(input: {
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   uploadId: string;
   documents: AffaireBriefGenerationDocument[];
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
@@ -1293,7 +1229,7 @@ function buildFallbackAffaireBrief(input: {
 }
 
 function buildBriefGenerationPrompt(input: {
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   documents: AffaireBriefGenerationDocument[];
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
 }) {
@@ -1780,7 +1716,7 @@ async function fetchAffaireBriefForProject(input: {
 }
 
 async function generateAffaireBriefDraft(input: {
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   uploadId: string;
   documents: AffaireBriefGenerationDocument[];
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
@@ -1839,7 +1775,7 @@ async function generateAffaireBriefDraft(input: {
 
 async function persistAffaireBriefDraft(input: {
   supabase: AffaireIntakeSupabaseClient;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   uploadId: string;
   draft: AffaireIntakeBriefDraft;
   actorUserId?: string | null;
@@ -1971,7 +1907,7 @@ async function persistAffaireBriefDraft(input: {
 
 async function refreshAffaireBriefFromDocuments(input: {
   supabase: AffaireIntakeSupabaseClient;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   uploadId: string;
   documents: AffaireIntakeDocumentRow[];
   actorUserId?: string | null;
@@ -2065,7 +2001,7 @@ async function refreshAffaireBriefFromDocuments(input: {
 
 async function getMissingPiecesForProject(input: {
   supabase: AffaireIntakeSupabaseClient;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   documents: AffaireIntakeDocumentRow[];
   /** The affaire's plan files when a portfolio read already holds them. */
   standalonePlanRows?: readonly StandalonePlanRow[];
@@ -2099,7 +2035,7 @@ async function getMissingPiecesForProject(input: {
 
 /** Reconcile system gaps after a plan file has been uploaded or removed. */
 export async function reconcileAffairePlanPresence(projectId: string) {
-  const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
+  const { context, project } = await requireAffaireAccess(projectId, "write");
   const { data: upload, error: uploadError } = await context.supabase
     .from("affaire_intake_uploads")
     .select("id" as never)
@@ -2227,7 +2163,7 @@ export async function createAffaireIntakeUpload(
   projectId: string,
   formData: FormData
 ): Promise<CreateAffaireIntakeUploadResult> {
-  const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
+  const { context, project } = await requireAffaireAccess(projectId, "write");
   const files = collectFilesFromFormData(formData);
 
   if (files.length === 0) {
@@ -2788,7 +2724,7 @@ async function processClaimedAffaireIntakeUpload(input: {
       }>(
         supabase
           .from("estimate_projects")
-          .select(PROJECT_SELECT as never)
+          .select(AFFAIRE_ACCESS_PROJECT_COLUMNS)
           .eq("id", upload.project_id)
           .maybeSingle()
       ),
@@ -2798,7 +2734,7 @@ async function processClaimedAffaireIntakeUpload(input: {
     const refreshedDocuments = (refreshedDocsData ?? [])
       .map(normalizeDocumentRow)
       .filter((row): row is AffaireIntakeDocumentRow => row !== null);
-    const project = projectData as AffaireProjectAccessRow | null;
+    const project = projectData as AffaireAccessProject | null;
 
     if (project && !project.is_archived) {
       await refreshAffaireBriefFromDocuments({
@@ -2878,7 +2814,7 @@ class IntakeDocumentReadError extends Error {}
  * reclaimed explicitly after ten minutes, using the new caller's own account.
  */
 export async function retryAffaireDocumentAnalysis(input: { projectId: string; documentId: string }) {
-  const { context, project } = await requireAffaireProjectOwnerOrAdmin(input.projectId);
+  const { context, project } = await requireAffaireAccess(input.projectId, "write");
   const availability = await getIntakeAnalysisAvailability(context);
   if (!availability.available) throw badRequest(availability.message);
   const table = () => context.supabase.from("affaire_intake_documents");
@@ -2989,7 +2925,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
 export const fetchAffaireIntakeWorkspace = cache(async (
   projectId: string
 ): Promise<AffaireIntakeWorkspace> => {
-  const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  const { context, project } = await requireAffaireAccess(projectId, "read");
   // The brief is independent of the latest upload and its documents. Keep the
   // original error order by awaiting it later, with early rejections observed.
   const briefPromise = startConcurrentRead(fetchAffaireBriefForProject({
@@ -3036,7 +2972,8 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     };
   }
 
-  const analysisAvailabilityPromise = project.user_id === context.userId || context.tenantRole === "admin"
+  const canManageDocuments = canAccessAffaire(context, project.user_id, "write");
+  const analysisAvailabilityPromise = canManageDocuments
     ? startConcurrentRead(getIntakeAnalysisAvailability(context))
     : undefined;
 
@@ -3098,7 +3035,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     projectId: project.id,
     uploadId: upload.id,
     analysisAvailability,
-    canManageDocuments: project.user_id === context.userId || context.tenantRole === "admin",
+    canManageDocuments,
     documents: workspaceDocuments,
     missingPieces,
     readiness: buildStoredDocumentsReadiness(documents, missingPieces),
@@ -3155,15 +3092,13 @@ export async function fetchAffaireIntakeManagerSignals(input: {
   const { data: projectData, error: projectError } = await readAllRowsInChunks(input.projectIds, (ids) =>
     context.supabase
       .from("estimate_projects")
-      .select(PROJECT_SELECT, { count: "exact" })
+      .select(AFFAIRE_ACCESS_PROJECT_COLUMNS, { count: "exact" })
       .eq("tenant_id", context.tenantId)
       .in("id", ids));
   if (projectError) throw mapSupabaseError(projectError, "Impossible de charger les affaires.");
 
-  // Same rule as requireAffaireProjectAccess in "reader" mode.
-  const projects = ((projectData ?? []) as AffaireProjectAccessRow[]).filter((project) =>
-    !project.is_archived && (project.user_id === context.userId
-      || context.tenantRole === "admin" || context.tenantRole === "director"));
+  const projects = ((projectData ?? []) as AffaireAccessProject[]).filter((project) =>
+    !project.is_archived && canAccessAffaire(context, project.user_id, "read"));
   const readByProject = async (table: string, columns: string, live = false) => {
     const { data, error } = await readAllRowsInChunks(projects.map((project) => project.id), (ids) => {
       const query = context.supabase.from(table as never).select(columns as never, { count: "exact" })
@@ -3194,7 +3129,7 @@ export async function fetchAffaireIntakeManagerSignals(input: {
   });
 
   const signals = new Map<string, AffaireIntakeManagerSignal>();
-  const readSignal = async (project: AffaireProjectAccessRow) => {
+  const readSignal = async (project: AffaireAccessProject) => {
     const briefs = briefRows.get(project.id) ?? [];
     // The workspace reader refuses an affaire with several briefs or one whose draft does not parse.
     if (briefs.length > 1) return;
@@ -3226,7 +3161,8 @@ export async function fetchAffaireIntakeManagerSignals(input: {
 export async function resolveAffaireBriefPlanGap(input: {
   projectId: string; entryIndex: number; expectedUpdatedAt: string;
 }) {
-  const { context, project } = await requireAffaireProjectBriefEditor(input.projectId);
+  // The brief is completed by every reader of the affaire, a director included: read access is enough.
+  const { context, project } = await requireAffaireAccess(input.projectId, "read");
   const { data, error } = await createServiceRoleClient().rpc("resolve_affaire_brief_plan_gap" as never, {
     p_project_id: project.id, p_entry_index: input.entryIndex,
     p_expected_updated_at: input.expectedUpdatedAt, p_actor_user_id: context.userId,
@@ -3243,9 +3179,8 @@ export async function updateAffaireBrief(input: {
   vigilancePoints: string[];
   assumptions: string[];
 }) {
-  const { context, project } = await requireAffaireProjectBriefEditor(
-    input.projectId
-  );
+  // The brief is completed by every reader of the affaire, a director included: read access is enough.
+  const { context, project } = await requireAffaireAccess(input.projectId, "read");
   const existing = await fetchAffaireBriefForProject({
     supabase: context.supabase,
     projectId: project.id,
@@ -3348,9 +3283,8 @@ export async function updateAffaireBrief(input: {
 }
 
 export async function confirmAffaireBrief(input: { projectId: string; expectedUpdatedAt: string }) {
-  const { context, project } = await requireAffaireProjectBriefEditor(
-    input.projectId
-  );
+  // The brief is completed by every reader of the affaire, a director included: read access is enough.
+  const { context, project } = await requireAffaireAccess(input.projectId, "read");
   const existing = await fetchAffaireBriefForProject({
     supabase: context.supabase,
     projectId: project.id,
@@ -3411,9 +3345,7 @@ export async function reclassifyAffaireDocument(input: {
   documentId: string;
   category: AffaireIntakeDocumentKind;
 }) {
-  const { context, project } = await requireAffaireProjectOwnerOrAdmin(
-    input.projectId
-  );
+  const { context, project } = await requireAffaireAccess(input.projectId, "write");
 
   const { data, error } = await resolveSupabaseQuery<{
     data: unknown;
@@ -3547,7 +3479,7 @@ export async function reclassifyAffaireDocument(input: {
 // plans and the current brief follow the remaining active pieces.
 export async function refreshAffaireIntakeFromActiveDocuments(input: {
   supabase: AffaireIntakeSupabaseClient;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   uploadId: string;
   actorUserId: string;
   readDrive?: boolean;
@@ -3586,9 +3518,7 @@ export async function setAffaireDocumentAsPrimary(input: {
   projectId: string;
   documentId: string;
 }) {
-  const { context, project } = await requireAffaireProjectOwnerOrAdmin(
-    input.projectId
-  );
+  const { context, project } = await requireAffaireAccess(input.projectId, "write");
 
   const { data, error } = await resolveSupabaseQuery<{
     data: unknown;

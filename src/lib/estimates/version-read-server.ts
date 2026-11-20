@@ -3,11 +3,9 @@ import { parseEstimateEditorResponse } from "@/lib/estimates/editor-read-contrac
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import {
-  resolveEstimateEngineVersion,
-  shouldPreserveStoredEstimateV2Snapshot,
-} from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
+import { resolveEstimateCostingSheetSource } from "@/lib/estimates/engine/amounts-source";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 import {
@@ -326,12 +324,14 @@ export async function getEstimateVersionDetails(
     }
   );
 
-  // Lot 2, sous-lot 2.7 : une v3 n'a ni instantané v2 ni barème ; son export relit le gel v3
-  // (v3-export.ts) et ce contexte reste celui d'un brouillon (rôles, ventilation).
+  // Contexte des feuilles de chiffrage (BDC, DPGF) : une version qu'elles lisent sur ses montants figés
+  // ne reçoit ni taux, ni barème, ni drapeau du jour. Lot 2, sous-lot 2.7 : l'export d'une v3 relit son
+  // propre document (v3-export.ts) et garde ce contexte (noms des rôles, ventilation).
+  const exportEngine = options?.includeExportCalculationContext === true ? resolveEstimateEngineVersion(version) : null;
   const preserveStoredSnapshot =
-    options?.includeExportCalculationContext === true &&
-    !usesSaleCoefficients(resolveEstimateEngineVersion(version)) &&
-    shouldPreserveStoredEstimateV2Snapshot(version);
+    exportEngine !== null &&
+    !usesSaleCoefficients(exportEngine) &&
+    resolveEstimateCostingSheetSource(exportEngine, version) === "frozen";
   const exportLaborSplitEnabled =
     options?.includeExportCalculationContext === true && !preserveStoredSnapshot
       ? await isFeatureEnabled(tenantId, "EST_031_LABOR_SPLIT", { supabase })

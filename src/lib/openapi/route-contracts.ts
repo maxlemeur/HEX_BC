@@ -502,7 +502,7 @@ const administrationContracts: RouteContract[] = [
   {
     id: "import-affaire-google-drive", method: "post", path: "/api/affaires/{projectId}/intake/google-drive",
     summary: "Parcourir Drive, gérer des liens, vérifier la version d’une pièce ou retirer un compte", tags: ["Affaires"],
-    description: "Drive désactivé par défaut. Autorisation tenant/affaire à chaque opération. Les opérations de sélection désignent un compte Google enregistré du membre, jamais un jeton. Lier un fichier n’en copie pas le contenu. check_version désigne la pièce active de l’affaire par son documentId et lit ses métadonnées avec le compte qui l’a liée. Le champ versionStatus vaut unchanged, newer ou unknown. Le contrôle ne modifie pas la pièce et ne déclenche aucune analyse.",
+    description: "Drive désactivé par défaut. Autorisation tenant/affaire à chaque opération. Les opérations de sélection désignent un compte Google enregistré du membre, jamais un jeton. Lier un fichier n’en copie pas le contenu. check_version désigne la pièce active de l’affaire par son documentId et lit ses métadonnées avec le compte qui l’a liée. Le champ versionStatus vaut unchanged, newer ou unknown. Le contrôle ne modifie pas la pièce et ne déclenche aucune analyse. disconnect retire le compte puis révoque son accès chez Google, sauf s'il reste connecté ailleurs dans MergeOne ; la réponse indique revoked et stillUsed.",
     pathParameters: [projectIdParameter],
     body: { schema: driveRequestSchema, description: "Au plus 20 fichiers par lien, 50 Mo par fichier. Origine identique requise." },
   },
@@ -519,7 +519,7 @@ const administrationContracts: RouteContract[] = [
   },
   {
     id:"manage-google-drive-connection",method:"post",path:"/api/google-drive/connection",tags:["Affaires"],summary:"Gérer le compte Drive et ses écritures explicites",
-    description:"Vérifie le membre, le tenant et la version affichée. Désactiver l'écriture efface son jeton, sans révoquer tout le compte Google. Le Picker reçoit uniquement un jeton drive.file court. Commentaire et renommage sont limités aux fichiers autorisés par Google, avec vérification des capacités du fichier. Même origine obligatoire, réponse privée sans cache.",
+    description:"Vérifie le membre, le tenant et la version affichée. Retirer le compte (disconnect) le supprime puis révoque son accès chez Google, sauf si le même compte Google reste connecté ailleurs dans MergeOne ; la réponse indique revoked et stillUsed, et un échec chez Google n'empêche pas le retrait. Désactiver l'écriture efface son jeton, sans révoquer tout le compte Google. Le Picker reçoit uniquement un jeton drive.file court. Commentaire et renommage sont limités aux fichiers autorisés par Google, avec vérification des capacités du fichier. Même origine obligatoire, réponse privée sans cache.",
     body:{schema:driveConnectionRequestSchema,description:"Action explicite du propriétaire ; aucun jeton fourni par le navigateur."},
   },
   {

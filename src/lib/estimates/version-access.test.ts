@@ -42,7 +42,6 @@ import {
 } from "@/lib/estimates/pdf-generator";
 import { DEFAULT_ESTIMATE_PDF_LAYOUT } from "@/lib/estimates/pdf-layout";
 import { getEstimateApprovalSummary, listEstimateApprovalDecisionJournal } from "@/lib/estimates/rules-engine";
-import { getAuthenticatedContext } from "@/lib/estimates/server-context";
 import {
   applyEstimateStructureDraft,
   generateEstimateStructureDraft,
@@ -100,6 +99,21 @@ function membership(person: Person): Row {
   };
 }
 
+function projectRow(isArchived: boolean): Row {
+  return {
+    id: PROJECT_ID,
+    tenant_id: TENANT_ID,
+    user_id: PEOPLE.owner.userId,
+    name: "Affaire fictive",
+    reference: "REF-FICTIVE",
+    estimate_reference: null,
+    site_address: null,
+    client_name: "Client fictif",
+    notes: null,
+    is_archived: isArchived,
+  };
+}
+
 function versionRow(isArchived: boolean): Row {
   return {
     id: VERSION_ID,
@@ -133,24 +147,15 @@ function versionRow(isArchived: boolean): Row {
     approval_status: "not_required",
     approval_summary: null,
     approval_evaluated_at: null,
-    estimate_projects: {
-      id: PROJECT_ID,
-      tenant_id: TENANT_ID,
-      user_id: PEOPLE.owner.userId,
-      name: "Affaire fictive",
-      reference: "REF-FICTIVE",
-      estimate_reference: null,
-      site_address: null,
-      client_name: "Client fictif",
-      notes: null,
-      is_archived: isArchived,
-    },
+    estimate_projects: projectRow(isArchived),
   };
 }
 
 function signIn(person: Person, isArchived: boolean) {
   const tables: Record<string, Row[]> = {
     tenant_memberships: (Object.keys(PEOPLE) as Person[]).map(membership),
+    // The affaire itself, read by the entry points that follow the affaire rule.
+    estimate_projects: [projectRow(isArchived)],
     estimate_versions: [versionRow(isArchived)],
     estimate_items: [
       { id: ITEM_ID, tenant_id: TENANT_ID, version_id: VERSION_ID, item_type: "line", source_metadata: null },
@@ -228,6 +233,8 @@ type Expected = Record<Person, string>;
 const EDITOR: Expected = { owner: "reached", admin: "reached", director: "hidden", member: "hidden", outsider: "hidden" };
 const EDITOR_ON_ARCHIVED: Expected = { ...EDITOR, owner: "archived", admin: "archived" };
 const EDITOR_OR_APPROVAL_READER: Expected = { ...EDITOR, director: "reached" };
+const AFFAIRE_READER: Expected = { ...EDITOR, director: "reached" };
+const HIDDEN_FROM_EVERYONE: Expected = { owner: "hidden", admin: "hidden", director: "hidden", member: "hidden", outsider: "hidden" };
 const WRITERS_ONLY = { director: WRITER_ROLE_REQUIRED };
 
 const RULES: Array<{ rule: string; entryPoints: EntryPoint[]; active: Expected; archived: Expected }> = [
@@ -239,14 +246,23 @@ const RULES: Array<{ rule: string; entryPoints: EntryPoint[]; active: Expected; 
         name: "readEstimateLineOfferChoiceSuggestion",
         call: () => readEstimateLineOfferChoiceSuggestion({ versionId: VERSION_ID, itemId: ITEM_ID }),
       },
-      {
-        name: "loadEstimateReading (assistant)",
-        call: async () => loadEstimateReading(await getAuthenticatedContext(), { versionId: VERSION_ID, projectId: PROJECT_ID }),
-        hiddenAs: "AssistantToolError: Ce devis est introuvable ou vous n’y avez pas accès.",
-      },
     ],
     active: EDITOR,
     archived: EDITOR,
+  },
+  {
+    // The assistant's estimate tools follow the affaire read rule (`requireAffaireAccess`), not this loader.
+    rule: "assistant estimate reads: the affaire's read rule, owner, admin or director, refused to everyone on an archived affaire",
+    entryPoints: [
+      {
+        name: "loadEstimateReading (assistant)",
+        call: () => loadEstimateReading({ versionId: VERSION_ID, projectId: PROJECT_ID }),
+        // An archived affaire is answered like a missing one, with the same words.
+        hiddenAs: "AssistantToolError: Ce devis est introuvable ou vous n’y avez pas accès.",
+      },
+    ],
+    active: AFFAIRE_READER,
+    archived: HIDDEN_FROM_EVERYONE,
   },
   {
     rule: "AI drafts (structure, version zero, generated ouvrages): the editor's rule, refused on an archived project",

@@ -17,10 +17,8 @@ import {
 } from "@/lib/estimate-calculations";
 import { buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
-import {
-  resolveEstimateEngineVersionForDisplay,
-  shouldPreserveStoredEstimateV2Snapshot,
-} from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateAmountsSource } from "@/lib/estimates/engine/amounts-source";
 import { isLegacyEngine, requireHistoricalEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import {
   loadMarginTiersForTotals,
@@ -157,10 +155,7 @@ export default async function PrintEstimatePage({
     tenantId: version.tenant_id,
     versionId,
   });
-  const preserveStoredSnapshot =
-    isLegacyEngine(calcEngineVersion)
-      ? version.status !== "draft"
-      : shouldPreserveStoredEstimateV2Snapshot(version);
+  const preserveStoredSnapshot = resolveEstimateAmountsSource(calcEngineVersion, version) === "frozen";
   const selectedCurrency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   const layoutDescription = describeEstimatePdfLayout(previewLayout.layout);
   const project = resolveEmbeddedOne(version.estimate_projects);

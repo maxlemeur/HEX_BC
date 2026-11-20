@@ -2,7 +2,8 @@
 
 import { z } from "zod";
 
-import { fetchAffaireIntakeWorkspace, requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { fetchAffaireRegisterSummary } from "@/lib/affaires/register-server";
 import { fetchAffaireHubPlansSummary, fetchAffaireHubSummary } from "@/lib/affaires/server";
 import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
@@ -16,7 +17,7 @@ const inputSchema = z.object({ projectId: z.uuid(), candidateIds: z.array(z.stri
 
 export async function suggestCockpitNextActionAction(input: { projectId: string; candidateIds: string[] }): Promise<CockpitDecisionSuggestion> {
   const parsed = inputSchema.parse(input);
-  const { context } = await requireAffaireProjectOwnerOrAdmin(parsed.projectId);
+  const { context } = await requireAffaireAccess(parsed.projectId, "write");
   const capability = getOpenAiDecisionsCapability();
   if (capability.status !== "available") return { status: "unavailable", action_id: null, message: capability.message, request_fingerprint: null };
   const before = await readCockpitDecisionFingerprint(context, parsed.projectId);

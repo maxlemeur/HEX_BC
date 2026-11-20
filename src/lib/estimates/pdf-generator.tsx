@@ -12,9 +12,7 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 
-import {
-  shouldPreserveStoredEstimateV2Snapshot,
-} from "@/lib/estimates/calc-engine-version";
+import { hasFreshCalcSnapshot, resolveEstimateAmountsSource } from "@/lib/estimates/engine/amounts-source";
 import {
   engineFreezesSnapshot,
   isLegacyEngine,
@@ -610,8 +608,7 @@ export async function markEstimatePdfProcessing(
     access = await getVersionAccessOrThrow<VersionWithProject, EmbeddedProject>(
       context.supabase, versionId, context, PDF_VERSION_ACCESS
     );
-    if (access.version.updated_at !== frozen.updated_at ||
-        access.version.calc_snapshot_content_revision !== access.version.content_revision) {
+    if (access.version.updated_at !== frozen.updated_at || !hasFreshCalcSnapshot(access.version)) {
       throw conflict("Le devis a changé pendant la préparation du PDF.", undefined, "VERSION_CONFLICT");
     }
   }
@@ -756,9 +753,14 @@ export async function generateEstimatePdfNow(
       context, access, versionId, claim, publicationClient, logoDataUri, allowDevelopmentTerms,
       clientContract, layout: effectiveLayout, termsSnapshot });
     const identity = () => resolveOfferIdentity({ context, access, versionId, claim, issuer, publicationClient });
+    const amountsSource = resolveEstimateAmountsSource(engine, access.version);
     if (usesSaleCoefficients(engine)) {
       // Lot 2, sous-lot 2.7 (D7, D8, D14) : le document d'une v3 relit son gel (aucun recalcul) et
-      // se publie sous le contrat client 2, rendu par le même document commercial.
+      // se publie sous le contrat client 2, rendu par le même document commercial. L'émission fige
+      // d'abord : un gel qui ne décrit plus la révision courante n'est jamais imprimé.
+      if (amountsSource !== "frozen") {
+        throw conflict("Le devis a changé pendant la préparation du PDF.", undefined, "VERSION_CONFLICT");
+      }
       const { version } = access;
       const prepared = prepareEstimateV3DocumentData({ calcEngineVersion: 3, items, currency: version.currency,
         version: { ...version, gross_ht_cents: version.gross_ht_cents ?? null, discount_applied_cents: version.discount_applied_cents ?? null,
@@ -774,10 +776,7 @@ export async function generateEstimatePdfNow(
     }
     const calcEngineVersion = requireHistoricalEngine(engine);
     const lineItems = items.filter((item) => item.item_type === "line");
-    const preserveStoredSnapshot =
-      isLegacyEngine(calcEngineVersion)
-        ? access.version.status !== "draft"
-        : shouldPreserveStoredEstimateV2Snapshot(access.version);
+    const preserveStoredSnapshot = amountsSource === "frozen";
 
     const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(
       new Set(

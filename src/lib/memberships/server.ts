@@ -4,6 +4,7 @@ import {
   readActiveTenantMembership,
   readAuthenticatedUser,
 } from "@/lib/auth/tenant-context";
+import { removeMemberDriveConnection } from "@/lib/affaires/google-drive/connections";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database } from "@/types/database";
 import { membershipCandidateEmailSchema } from "./schemas";
@@ -377,14 +378,19 @@ export async function deleteMembership(membershipId: string) {
     }
   }
 
-  const { error } = await supabase
-    .from("tenant_memberships")
-    .delete()
-    .eq("id", targetMembership.id);
+  await removeMemberDriveConnection(
+    { tenantId: targetMembership.tenant_id, userId: targetMembership.user_id },
+    async () => {
+      const { error } = await supabase
+        .from("tenant_memberships")
+        .delete()
+        .eq("id", targetMembership.id);
 
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de retirer le membre.");
-  }
+      if (error) {
+        throw mapSupabaseError(error, "Impossible de retirer le membre.");
+      }
+    }
+  );
 
   return {
     deleted_id: targetMembership.id,

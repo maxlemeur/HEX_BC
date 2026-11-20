@@ -27,6 +27,7 @@ function line(id: string, parentId: string | null, title: string, position: numb
 }
 
 const reading: EstimateReading = {
+  view: "editor",
   version: { id: "v-1", label: "V1", title: "Chaufferie", status: "draft", engine: 3, currency: "EUR", amountsBasis: "draft_calculation" },
   params: { coefficient_vente_fo: "1.2500" },
   totals: {
