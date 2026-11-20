@@ -29,6 +29,14 @@ export type EstimateSettingsState = {
   rounding_step_cents: number;
 };
 
+export type SettingsSection =
+  | "margin"
+  | "discount"
+  | "tax"
+  | "rounding"
+  | "exclusions"
+  | "general";
+
 const MAX_CASCADE_DISCOUNT_STEPS = 4;
 
 function clampCascadeDiscountStepBp(value: number): number {

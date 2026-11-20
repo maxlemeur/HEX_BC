@@ -1,25 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { applyStatusReasonRules, type EstimateStatusReason } from "@/lib/estimates/status-reason";
-import {
-  applyOfferChoiceRules,
-  describeOfferChoice,
-  readOfferProvisionalQuantity,
-  readOfferReserve,
-  type EstimateOfferChoiceInput,
-} from "@/lib/estimates/offer-choice";
-import { composeProvisionalQuantityMention } from "@/lib/estimates/provisional-quantity";
-import { persistEstimateSettingsWithLockRecovery } from "@/hooks/estimate-editor-settings-save";
+import { saveEstimateEditorSettings } from "@/hooks/estimate-editor-settings-save";
 import { useEstimateEditorDocument } from "@/hooks/useEstimateEditorDocument";
 import { useEstimateEditorReadController, useEstimateEditorReadState } from "@/hooks/useEstimateEditorReadController";
 import { normalizeEstimateEditorIdentity } from "@/lib/estimates/editor-document-state";
 import { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
 import {
-  buildEditorSettingsFromVersion,
-  buildHistoricalSettingsPayload,
   haveEstimateSettingsChanged,
   type EstimateSettingsState,
+  type SettingsSection,
 } from "@/lib/estimates/editor-settings-state";
 import { isOlderEstimateVersionToken } from "@/lib/estimates/editor-mutations";
 import {
@@ -30,34 +20,26 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentProps,
 } from "react";
 
-import type { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
-import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
-import type { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
-import type { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
-import type { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
-import type { VersionZeroDraftDialog } from "@/components/estimates/VersionZeroDraftDialog";
-import type { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
-import type { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
-import type { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
 import type {
-  EstimateEditorTable,
-  EstimateSectionDuplicateTarget,
-} from "@/components/estimates/EstimateEditorTable";
-import type { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
-import type { PriceReuseDialog } from "@/components/estimates/PriceReuseDialog";
-import type { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
-import type { EstimateV3GridModel } from "@/components/estimates/v3/V3LineCells";
-import type {
-  EstimateSettingsSummaryBar,
-  SettingsSection,
-} from "@/components/estimates/EstimateSettingsSummaryBar";
-import { useToast } from "@/components/feedback/toast-provider";
+  BulkSuggestDialogProps,
+  EstimateChecklistProps,
+  EstimateEditorAlertsProps,
+  EstimateEditorDrawerProps,
+  EstimateEditorTableProps,
+  EstimateEditorToolbarProps,
+  EstimateSendGatingDialogProps,
+  EstimateSettingsSummaryBarProps,
+  EstimateStructureDraftDialogProps,
+  GeneratedOuvrageDialogProps,
+  ImportFromEstimateDialogProps,
+  PriceReuseDialogProps,
+  SupplierPreselectionDialogProps,
+  VersionZeroDraftDialogProps,
+} from "@/hooks/estimate-editor-view-props";
 import { useUserContext } from "@/lib/auth/user-context";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
-import { isEstimateEditorOperationScopeCurrent } from "@/hooks/estimate-editor-operation-scope";
 import { estimateEditorAutoSaveStatusClassName } from "@/hooks/estimate-editor-autosave-status";
 import { buildEstimateEditorTableVirtualization } from "@/hooks/estimate-editor-virtualization-runtime";
 import { type EstimateEditorActivityController } from "@/hooks/useEstimateEditorActivityController";
@@ -71,14 +53,21 @@ import type { EstimateEditorHistoryController } from "@/hooks/useEstimateEditorH
 import { useEstimateEditorImportController } from "@/hooks/useEstimateEditorImportController";
 import { useEstimateEditorItemsController } from "@/hooks/useEstimateEditorItemsController";
 import {
-  computeDraftBreakdown,
-  computeLineValuesWithLaborContext as computeLineValuesWithLaborContextFromMaps,
   useEstimateEditorCalculation,
 } from "@/hooks/useEstimateEditorCalculation";
 import { useEstimateEditorOrderingController } from "@/hooks/useEstimateEditorOrderingController";
 import { useEstimateEditorPasteController } from "@/hooks/useEstimateEditorPasteController";
 import { useEstimateEditorQualityController } from "@/hooks/useEstimateEditorQualityController";
 import { useEstimateEditorStructureController } from "@/hooks/useEstimateEditorStructureController";
+import { useEstimateEditorLaborRolesController } from "@/hooks/useEstimateEditorLaborRolesController";
+import { useEstimateEditorLineNormalization } from "@/hooks/useEstimateEditorLineNormalization";
+import { useEstimateEditorMarginTiersController } from "@/hooks/useEstimateEditorMarginTiersController";
+import { useEstimateEditorOfferChoices } from "@/hooks/useEstimateEditorOfferChoices";
+import {
+  useEstimateEditorSectionCopyToVersion,
+  useEstimateEditorSectionDuplicateTargets,
+} from "@/hooks/useEstimateEditorSectionCopy";
+import { useEstimateEditorSettingsDrawer } from "@/hooks/useEstimateEditorSettingsDrawer";
 import { useEstimateEditorSupplierController } from "@/hooks/useEstimateEditorSupplierController";
 import { useEstimateEditorStatusController } from "@/hooks/useEstimateEditorStatusController";
 import { useEstimateEditorSuggestionsController } from "@/hooks/useEstimateEditorSuggestionsController";
@@ -91,20 +80,17 @@ import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { LABOR_SPLIT_FEATURE_FLAG_KEY } from "@/lib/feature-flag-keys";
 import { useEstimateV3Settings } from "@/hooks/useEstimateV3Settings";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import { hasFreshCalcSnapshot } from "@/lib/estimates/engine/amounts-source";
-import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import {
-  reconcilesEditorTotals, resolveEditorEngineContext,
+  reconcilesEditorTotals, resolveEditorEngineContext, resolveEditorStoredMarginMultiplier,
   resolveEditorQualityItems,
 } from "@/lib/estimates/editor-engine";
 import {
-  convertEstimateV3Items, ESTIMATE_V3_EDITOR_WRITER, recomputeEstimateV3AfterLaborRate,
+  convertEstimateV3Items, ESTIMATE_V3_EDITOR_WRITER,
 } from "@/lib/estimates/v3-editor-writer";
 import {
-  buildEditorItemSyncBaseline, buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
-  ESTIMATE_V3_PRICING_STATUS_OPTIONS,
+  buildEstimateV3ItemUpdatePayload, buildEstimateV3SummaryView, indexEstimateV3Lines,
+  type EstimateV3GridModel,
 } from "@/lib/estimates/v3-editor";
-import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
 import {
   DEFAULT_TAX_RATE_BP,
   ESTIMATE_VERSION_CONFLICT_MESSAGE,
@@ -118,15 +104,14 @@ import {
   buildVersionTotalsPatch,
   resolveLaborRoleHourlyRate,
   type EditorEstimateItem,
-  type EstimateItem,
   type EstimateVersionRow,
+  type EstimateVersionView,
   type EstimateVersionTotalsPatch,
   type LaborRole,
 } from "@/lib/estimates/editor-items";
 import {
   foProvisionsBySupplyType,
   withBufferedFoProvision,
-  withRederivedFoProvision,
   withServerFoProvisions,
   type FoProvisionBySupplyTypeId,
 } from "@/lib/estimates/fo-provision";
@@ -134,27 +119,12 @@ import {
   ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
   ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
 } from "@/lib/estimate-editor-virtualization";
-import { acquireEstimateDraftLock, releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
-import {
-  createEstimateLaborRole,
-  createMarginTier as createMarginTierClient,
-  updateMarginTier as updateMarginTierClient,
-  deleteMarginTier as deleteMarginTierClient,
-  updateEstimateLaborRole,
-} from "@/lib/estimates/reference-data-client";
-import { duplicateEstimateSection } from "@/lib/estimates/section-copy-client";
-import { fetchEstimateDraftVersions } from "@/lib/estimates/version-list-client";
 import { fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
 import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
 import type {
   EstimateEditorData,
   VersionZeroDraftSummary,
 } from "@/lib/estimates/editor-read-contracts";
-import { saveEstimateVersion } from "@/lib/estimates/version-settings-client";
-import {
-  readEstimateLineOfferChoiceSuggestion,
-  setEstimateLineOfferChoice,
-} from "@/lib/estimates/offer-choice-client";
 import type {
   SuggestionLearningState as SuggestionLearningClientState,
 } from "@/lib/estimates/suggestion-learning-client";
@@ -162,52 +132,15 @@ import type { Database } from "@/types/database";
 import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
 import { useFocusItemHighlight } from "@/hooks/useFocusItemHighlight";
 import { formatEstimateEditorAuditTimestamp } from "@/lib/estimates/audit-timestamp";
+import {
+  getProjectName,
+  resolveEstimateActionError,
+  resolveLatestSavedAt,
+} from "@/lib/estimates/editor-presentation";
 
-type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 type SupplyType = EstimateEditorData["supplyTypes"][number];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
-type EstimateVersionView = EstimateVersionRow & {
-  estimate_projects: { name: string } | { name: string }[] | null;
-};
-
-type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
-
-function getProjectName(
-  value: EstimateVersionView["estimate_projects"]
-) {
-  if (!value) return "";
-  if (Array.isArray(value)) return value[0]?.name ?? "";
-  return value.name ?? "";
-}
-
-function resolveLatestSavedAt(
-  first: string | null | undefined,
-  second: string | null | undefined
-) {
-  if (!first) return second ?? null;
-  if (!second) return first;
-  return Date.parse(first) >= Date.parse(second) ? first : second;
-}
-
-function formatSectionDuplicateTargetLabel(input: {
-  versionNumber: number;
-  title: string | null;
-}) {
-  const title = input.title?.trim();
-  if (title && title.length > 0) {
-    return `V${input.versionNumber} - ${title}`;
-  }
-  return `V${input.versionNumber} - Sans titre`;
-}
-
-function resolveEstimateActionError(message: string) {
-  const normalized = message.toLowerCase();
-  if (normalized.includes("row-level security") || normalized.includes("read-only")) {
-    return "Cette version est en lecture seule.";
-  }
-  return message;
-}
 
 export type EstimateEditorStateModel = {
   state: {
@@ -247,29 +180,21 @@ export type EstimateEditorStateModel = {
         canRetryHistoryRecovery: boolean;
         /** Lot 2, sous-lot 2.6 : lignes du moteur v3 pour la grille, nul en v1/v2. */
         v3Grid: EstimateV3GridModel | null;
-        toolbarProps: ComponentProps<typeof EstimateEditorToolbar>;
-        alertsProps: ComponentProps<typeof EstimateEditorAlerts>;
-        summaryBarProps: ComponentProps<typeof EstimateSettingsSummaryBar>;
+        toolbarProps: EstimateEditorToolbarProps;
+        alertsProps: EstimateEditorAlertsProps;
+        summaryBarProps: EstimateSettingsSummaryBarProps;
         editorTableProps: EstimateEditorTableProps;
-        drawerProps: ComponentProps<typeof EstimateEditorDrawer>;
-        bulkSuggestDialogProps: ComponentProps<typeof BulkSuggestDialog>;
-        supplierPreselectionDialogProps: ComponentProps<
-          typeof SupplierPreselectionDialog
-        >;
-        importFromEstimateDialogProps:
-          | ComponentProps<typeof ImportFromEstimateDialog>
-          | null;
-        priceReuseDialogProps: ComponentProps<typeof PriceReuseDialog> | null;
-        estimateStructureDraftDialogProps:
-          | ComponentProps<typeof EstimateStructureDraftDialog>
-          | null;
-        generatedOuvrageDialogProps:
-          | ComponentProps<typeof GeneratedOuvrageDialog>
-          | null;
-        versionZeroDraftDialogProps:
-          | ComponentProps<typeof VersionZeroDraftDialog>
-          | null;
-        sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog>;
+        /** The finalization checklist the page shows at the head of the table, while its panel is open. */
+        checklistProps: EstimateChecklistProps | null;
+        drawerProps: EstimateEditorDrawerProps;
+        bulkSuggestDialogProps: BulkSuggestDialogProps;
+        supplierPreselectionDialogProps: SupplierPreselectionDialogProps;
+        importFromEstimateDialogProps: ImportFromEstimateDialogProps | null;
+        priceReuseDialogProps: PriceReuseDialogProps | null;
+        estimateStructureDraftDialogProps: EstimateStructureDraftDialogProps | null;
+        generatedOuvrageDialogProps: GeneratedOuvrageDialogProps | null;
+        versionZeroDraftDialogProps: VersionZeroDraftDialogProps | null;
+        sendGatingDialogProps: EstimateSendGatingDialogProps;
       };
 };
 
@@ -298,7 +223,6 @@ export function useEstimateEditorState({
   externalActionError?: { message: string; key: number } | null;
 }): EstimateEditorStateModel {
   const router = useRouter();
-  const toast = useToast();
   const resolvedVersionId = normalizeEstimateEditorIdentity(versionId)!;
   const {
     autoOpenVersionZero: shouldAutoOpenVersionZero,
@@ -335,8 +259,6 @@ export function useEstimateEditorState({
     rules: SuggestionRule[];
     learning: SuggestionLearningClientState | null;
   } | null>(null);
-  const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
-  const [drawerScrollTarget, setDrawerScrollTarget] = useState<SettingsSection | null>(null);
   const settingsSaveGenerationRef = useRef(0);
   const settingsSavePromiseRef = useRef<{
     versionId: string;
@@ -372,12 +294,15 @@ export function useEstimateEditorState({
     if (message === null || !historyRecoveryNoticeRef.current) setActionNotice(message);
   }, []);
 
-  const [isSavingMarginTiers, setIsSavingMarginTiers] = useState(false);
-  const [marginTiersError, setMarginTiersError] = useState<string | null>(null);
+  const {
+    isSaving: isSavingMarginTiers,
+    error: marginTiersError,
+    reset: resetMarginTiers,
+    createTier: handleCreateTier,
+    updateTier: handleUpdateTier,
+    deleteTier: handleDeleteTier,
+  } = useEstimateEditorMarginTiersController({ editorDocument, documentScope });
   const [totalsOutOfSync, setTotalsOutOfSync] = useState(false);
-  const [sectionDuplicateTargets, setSectionDuplicateTargets] = useState<
-    EstimateSectionDuplicateTarget[]
-  >([]);
   const {
     canUndo,
     canRedo,
@@ -410,12 +335,11 @@ export function useEstimateEditorState({
       settingsSaveGenerationRef.current += 1;
       settingsSavePromiseRef.current = null;
       setActiveSettingsSave(null);
-      setIsSavingMarginTiers(false);
-      setMarginTiersError(null);
+      resetMarginTiers();
       setActionError(null);
       setActionNotice(null);
     }
-  }, [readTenantId, resolvedVersionId, settingsSaveIdentity]);
+  }, [readTenantId, resetMarginTiers, resolvedVersionId, settingsSaveIdentity]);
 
   const getItemsSnapshot = useCallback(() => itemsRef.current, [itemsRef]);
   const getVersionSnapshot = useCallback(() => {
@@ -664,41 +588,7 @@ export function useEstimateEditorState({
     },
   });
 
-  useEffect(() => {
-    if (!resolvedVersionId) {
-      return deferEffectStateUpdate(() => {
-        setSectionDuplicateTargets([]);
-      });
-    }
-
-    let active = true;
-
-    async function loadSectionDuplicateTargets() {
-      try {
-        const targets = await fetchEstimateDraftVersions(resolvedVersionId);
-        if (!active) return;
-
-        setSectionDuplicateTargets(
-          targets.map((target) => ({
-            versionId: target.id,
-            label: formatSectionDuplicateTargetLabel({
-              versionNumber: target.versionNumber,
-              title: target.title,
-            }),
-          }))
-        );
-      } catch {
-        if (!active) return;
-        setSectionDuplicateTargets([]);
-      }
-    }
-
-    void loadSectionDuplicateTargets();
-
-    return () => {
-      active = false;
-    };
-  }, [reloadNonce, resolvedVersionId]);
+  const sectionDuplicateTargets = useEstimateEditorSectionDuplicateTargets(resolvedVersionId, reloadNonce);
 
   const projectName = getProjectName(version?.estimate_projects ?? null);
 
@@ -739,10 +629,11 @@ export function useEstimateEditorState({
       virtualizationModeFlagValue,
     ]
   );
-  const handleOpenSettingsDrawer = useCallback((section?: SettingsSection) => {
-    setIsSettingsDrawerOpen(true);
-    setDrawerScrollTarget(section ?? null);
-  }, []);
+  const {
+    isOpen: isSettingsDrawerOpen,
+    open: handleOpenSettingsDrawer,
+    close: closeSettingsDrawer,
+  } = useEstimateEditorSettingsDrawer({ autoOpenSettingsSection, isLoading, settings });
   const {
     audit: {
       entries: auditLogs,
@@ -759,66 +650,6 @@ export function useEstimateEditorState({
     refreshAudit: loadAuditLogs,
     refreshTimeline: loadTimelineEvents,
   } = activityController.actions;
-
-  const autoOpenedSettingsRef = useRef(false);
-  useEffect(() => {
-    if (
-      !autoOpenSettingsSection ||
-      autoOpenedSettingsRef.current ||
-      isLoading ||
-      !settings
-    ) {
-      return;
-    }
-
-    autoOpenedSettingsRef.current = true;
-    handleOpenSettingsDrawer(autoOpenSettingsSection);
-  }, [
-    autoOpenSettingsSection,
-    handleOpenSettingsDrawer,
-    isLoading,
-    settings,
-  ]);
-  const drawerScrollTargetRef = useRef<SettingsSection | null>(null);
-  useEffect(() => {
-    drawerScrollTargetRef.current = drawerScrollTarget;
-  }, [drawerScrollTarget]);
-  useEffect(() => {
-    if (!isSettingsDrawerOpen) return;
-    const target = drawerScrollTargetRef.current;
-    if (!target) return;
-    drawerScrollTargetRef.current = null;
-    setDrawerScrollTarget(null);
-    const sectionIdMap: Record<SettingsSection, string> = {
-      margin: "estimate-margin",
-      discount: "estimate-discount",
-      tax: "estimate-tax",
-      rounding: "estimate-rounding",
-      exclusions: "estimate-exclusions",
-      general: "estimate-project-name",
-    };
-    const targetId = sectionIdMap[target];
-    const scrollToTarget = () => {
-      const el = document.getElementById(targetId);
-      if (!el) return;
-      let scrollable: HTMLElement | null = el.parentElement;
-      while (scrollable) {
-        const ov = getComputedStyle(scrollable).overflowY;
-        if (ov === "auto" || ov === "scroll") break;
-        scrollable = scrollable.parentElement;
-      }
-      if (scrollable) {
-        const containerRect = scrollable.getBoundingClientRect();
-        const elRect = el.getBoundingClientRect();
-        const offset = elRect.top - containerRect.top + scrollable.scrollTop - containerRect.height / 2;
-        scrollable.scrollTo({ top: Math.max(0, offset), behavior: "smooth" });
-      }
-    };
-    // Retry at increasing delays to handle drawer animation and async renders
-    const delays = [50, 150, 350];
-    const timers = delays.map((delay) => setTimeout(scrollToTarget, delay));
-    return () => timers.forEach(clearTimeout);
-  }, [isSettingsDrawerOpen]);
   const laborRateById = useMemo(() => {
     const map = new Map<string, number>();
     laborRoles.forEach((role) => {
@@ -940,34 +771,21 @@ export function useEstimateEditorState({
     });
   }, [focusItemId, handleChecklistFocusItem]);
 
-  const laborRateMaps = useMemo(
-    () => ({
-      laborRateById,
-      laborRateAtelierById,
-      laborRateChantierById,
-    }),
-    [laborRateAtelierById, laborRateById, laborRateChantierById]
-  );
-
-  const computeLineValuesWithLaborContext = useCallback(
-    (
-      item: EstimateItem,
-      options: {
-        marginMultiplier: number;
-        taxRateBp: number;
-        rateOverrideByRoleId?: string;
-        hourlyRateCents?: number;
-        hourlyRateAtelierCents?: number;
-        hourlyRateChantierCents?: number;
-        vatReverseCharge?: boolean;
-      }
-    ) =>
-      computeLineValuesWithLaborContextFromMaps(item, laborRateMaps, {
-        ...options,
-        isLaborSplitEnabled,
-      }),
-    [isLaborSplitEnabled, laborRateMaps]
-  );
+  const {
+    computeLineValuesWithLaborContext,
+    normalizePatchedItem,
+  } = useEstimateEditorLineNormalization({
+    laborRateById,
+    laborRateAtelierById,
+    laborRateChantierById,
+    isLaborSplitEnabled,
+    isV3,
+    calcEngineVersion,
+    settings,
+    editorDocument,
+    getItemsSnapshot,
+    foProvisionBySupplyTypeId,
+  });
 
   const {
     totals,
@@ -1095,476 +913,65 @@ export function useEstimateEditorState({
     return promise;
   }
 
-  async function performSaveSettings() {
-    if (!editorDocument.isCurrent(documentScope)) return;
-    if (!settings || !version || (!totals && !isV3)) return;
-    if (version.id !== resolvedVersionId) return;
-    if (isReadOnly) {
-      setActionError(readOnlyActionErrorMessage);
-      return;
-    }
-    if (isConflictLocked) {
-      setActionError(
-        conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
-      );
-      return;
-    }
-
-    const targetRouteVersionId = resolvedVersionId;
-    const targetVersionId = version.id;
-    const settingsSnapshot = settings;
-    const totalsSnapshot = totals;
-    const operationId = settingsSaveGenerationRef.current + 1;
-    settingsSaveGenerationRef.current = operationId;
-    const settingsSaveScope = {
-      routeVersionId: targetRouteVersionId,
-      versionId: targetVersionId,
-      generation: operationId,
-    };
-    setActiveSettingsSave({
-      routeVersionId: targetRouteVersionId,
-      operationId,
-    });
-    setActionError(null);
-
-    const documentSaveScope = editorDocument.captureScope();
-    const isCurrentSettingsSave = () =>
-      editorDocument.isCurrent(documentSaveScope) && isEstimateEditorOperationScopeCurrent(settingsSaveScope, {
-        routeVersionId: activeRouteVersionIdRef.current,
-        versionId: versionRef.current?.id ?? null,
-        generation: settingsSaveGenerationRef.current,
-      });
-
-    try {
-      if (
-        !(await ensureGroupedActionCanProceed(
-          "sauvegarder les paramètres",
-          { allowPendingSettings: true }
-        ))
-      ) {
-        return;
-      }
-      if (!isCurrentSettingsSave()) return;
-
-      const currentGuard = settingsSaveGuardRef.current;
-      if (currentGuard.isBlocked) {
-        setActionError(currentGuard.message);
-        return;
-      }
-
-      // Revue de 2.6 (F26-27) : Ctrl+S, la fermeture du tiroir et la navigation posent aussi la question de propagation
-      // de la TVA (tiroir rendu visible), et rien ne part avant la réponse ; Échap n'enregistre rien.
-      if (isV3 && v3Settings && !(await v3Settings.askTaxPropagation(() => handleOpenSettingsDrawer("tax")))) return;
-      if (!isCurrentSettingsSave()) return;
-      const versionSnapshot = getVersionSnapshot();
-      if (!versionSnapshot || versionSnapshot.id !== targetVersionId) return;
-      // Lot 2, sous-lot 2.6 : charge v3 du module pur (D5, D6, D8), jamais de taux dérivé ni de total client.
-      const v3Save = isV3 ? (v3Settings?.buildSavePayload() ?? null) : null;
-      if (isV3 && !v3Save?.ok) {
-        setActionError(v3Save?.ok === false ? v3Save.message : "Réglages du moteur de calcul 3 indisponibles.");
-        return;
-      }
-      const settingsPayload = v3Save?.ok ? { payload: v3Save.payload as EstimateVersionUpdate, discountPatch: {} }
-        : totalsSnapshot ? buildHistoricalSettingsPayload(settingsSnapshot, versionSnapshot, totalsSnapshot) : null;
-      if (!settingsPayload) return;
-      const { payload, discountPatch } = settingsPayload;
-
-      const persistSettings = () =>
-        saveEstimateVersion(
-          targetVersionId,
-          payload,
-          versionSnapshot.updated_at,
-          versionSnapshot.content_revision
-        );
-
-      let saved: Awaited<ReturnType<typeof saveEstimateVersion>>;
-      try {
-        saved = await persistEstimateSettingsWithLockRecovery({
-          persist: persistSettings,
-          recoverLock: recoverDraftLock,
-          isCurrent: isCurrentSettingsSave,
-        });
-      } catch (error) {
-        if (!isCurrentSettingsSave()) return;
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible de sauvegarder le chiffrage."
-            )
-          );
-        }
-        return;
-      }
-      if (!isCurrentSettingsSave()) return;
-      // The server repriced every line at these settings, on every engine, and a v3 « Oui » also
-      // rewrote each line's VAT rate: an undo captured before would write back the lines of the
-      // previous ones, with their totals on v1 and their VAT rate on v3.
-      clearUndoRedoHistory();
-      discardBulkSuggestUndo();
-
-      const updatedVersion = saved.version;
-      const mergedVersion = {
-        ...versionSnapshot,
-        ...payload,
-        ...updatedVersion,
-      } as EstimateVersionView;
-      if (versionRef.current?.id === targetVersionId &&
-          isOlderEstimateVersionToken(mergedVersion.updated_at, versionRef.current.updated_at)) {
-        setActionError("Le devis a changé après l'enregistrement. Rechargez pour vérifier les paramètres.");
-        return;
-      }
-      const nextSavedSettings = (isV3 || !totalsSnapshot
-        ? buildEditorSettingsFromVersion(mergedVersion, { marginTiers: settingsSnapshot.margin_tiers ?? [], discountCents: 0 })
-        : {
-            ...settingsSnapshot,
-            margin_multiplier: mergedVersion.margin_multiplier,
-            margin_mode: settingsSnapshot.margin_mode ?? "fixed",
-            discount_cents: mergedVersion.discount_amount_cents ?? totalsSnapshot.discountCents,
-            discount_amount_cents: mergedVersion.discount_amount_cents ?? null,
-            discount_bp: mergedVersion.discount_bp,
-            ...discountPatch,
-          }) as EstimateSettingsState;
-      editorDocument.transaction(() => {
-        editorDocument.setConfirmedVersion(mergedVersion, documentSaveScope);
-        editorDocument.setConfirmedSettings(nextSavedSettings);
-        editorDocument.setDraftSettings(nextSavedSettings);
-        const currentItemsById = new Map(editorDocument.getSnapshot().confirmedItems.map((item) => [item.id, item]));
-        editorDocument.acceptItems(saved.items.map((item) => ({ ...currentItemsById.get(item.id), ...item })), deriveBufferedItem, documentSaveScope);
-      });
-      // v3 : « Oui » réécrit le taux des lignes au serveur (D8) ; leur état relu devient la référence.
-      if (isV3) markItemsSynced(saved.items.map((item) => ({ id: item.id, updates: buildEditorItemSyncBaseline(item) })));
-      if (isCurrentSettingsSave()) {
-        clearConflictDraft({ onlyIfRestored: true });
-        return true;
-      }
-    } finally {
-      if (isCurrentSettingsSave()) {
-        setActiveSettingsSave((previous) =>
-          previous?.operationId === operationId ? null : previous
-        );
-      }
-    }
-  }
-
-  const handleCreateRole = useCallback(
-    async (payload: { name: string; hourly_rate_cents: number }) => {
-      if (!editorDocument.isCurrent(documentScope)) return;
-      setActionError(null);
-      if (settingsSaveGuardRef.current.isBlocked) {
-        setActionError(settingsSaveGuardRef.current.message);
-        return;
-      }
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setActionError(
-          conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
-        );
-        return;
-      }
-      if (!profile?.id) {
-        setActionError("Impossible de charger votre profil.");
-        return;
-      }
-
-      const nextPosition =
-        laborRoles.reduce((max, role) => Math.max(max, role.position), 0) + 1;
-
-      if (!version?.id) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      let data: LaborRole;
-      try {
-        data = await createEstimateLaborRole(version.id, {
-          name: payload.name,
-          hourly_rate_cents: payload.hourly_rate_cents,
-          is_active: true,
-          position: nextPosition,
-        });
-      } catch (error) {
-        if (!editorDocument.isCurrent(documentScope)) return;
-        setActionError(
-          error instanceof Error ? error.message : "Impossible de créer le rôle."
-        );
-        return;
-      }
-
-      if (!editorDocument.isCurrent(documentScope)) return;
-      setLaborRoles((prev) =>
-        [...prev, data].sort((a, b) => a.position - b.position)
-      );
-    },
-    [
-      conflictState?.message,
+  function performSaveSettings() {
+    return saveEstimateEditorSettings({
       editorDocument,
       documentScope,
-      isConflictLocked,
-      isReadOnly,
-      laborRoles,
-      setLaborRoles,
-      profile,
-      readOnlyActionErrorMessage,
-      version?.id,
-    ]
-  );
-
-  const handleUpdateRole = useCallback(
-    async (id: string, updates: Partial<LaborRole>) => {
-      if (!editorDocument.isCurrent(documentScope)) return;
-      setActionError(null);
-      if (settingsSaveGuardRef.current.isBlocked) {
-        setActionError(settingsSaveGuardRef.current.message);
-        return;
-      }
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setActionError(
-          conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
-        );
-        return;
-      }
-      if (!version?.id) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      try {
-        await updateEstimateLaborRole(version.id, id, updates);
-      } catch (error) {
-        if (!editorDocument.isCurrent(documentScope)) return;
-        setActionError(error instanceof Error ? error.message : "Impossible de mettre à jour le rôle.");
-        return;
-      }
-
-      if (!editorDocument.isCurrent(documentScope)) return;
-      setLaborRoles((prev) =>
-        prev.map((role) => (role.id === id ? { ...role, ...updates } : role))
-      );
-
-      // v3 (revue, F26-23) : un lot v3 recalcule et stocke lignes et totaux au nouveau taux (l'aperçu le suit déjà).
-      if (isV3 && updates.hourly_rate_cents !== undefined && !isReadOnly && !isConflictLocked) {
-        const snapshot = getVersionSnapshot() ?? version;
-        await recomputeEstimateV3AfterLaborRate(snapshot.id, snapshot.updated_at, itemsRef.current, id)?.catch((error: unknown) => {
-          if (editorDocument.isCurrent(documentScope)) setActionError(`Le taux horaire est enregistré, mais les montants du devis n'ont pas été recalculés : ${error instanceof Error ? error.message : "erreur inconnue"}`);
-        });
-      }
-      if (updates.hourly_rate_cents === undefined || !settings || isV3) return;
-
-      const nextHourlyRate = updates.hourly_rate_cents ?? 0;
-      if (!editorDocument.isCurrent(documentScope)) return;
-      const snapshot = itemsRef.current;
-      const affectedLines = snapshot.filter(
-        (item) => item.item_type === "line" && item.labor_role_id === id
-      );
-
-      if (affectedLines.length === 0) return;
-
-      const updatedLines = affectedLines.map((item) => {
-        const taxRate = settings.tax_rate_bp ?? item.tax_rate_bp ?? 0;
-        const { lineInput, lineValues } = computeLineValuesWithLaborContext(item, {
-          marginMultiplier: settings.margin_multiplier,
-          taxRateBp: taxRate,
-          rateOverrideByRoleId: id,
-          hourlyRateCents: nextHourlyRate,
-          vatReverseCharge: settings.contractor_role === "subcontractor",
-        });
-        return {
-          ...item,
-          tax_rate_bp: lineInput.tax_rate_bp,
-          k_fo: lineInput.k_fo,
-          h_mo: lineInput.h_mo,
-          k_mo: lineInput.k_mo,
-          pu_ht_cents: lineValues.puHtCents,
-          line_total_ht_cents: lineValues.saleLineCents,
-          line_tax_cents: lineValues.taxLineCents,
-          line_total_ttc_cents: lineValues.ttcLineCents,
-        };
-      });
-
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.item_type !== "line") return item;
-          const updated = updatedLines.find((line) => line.id === item.id);
-          return updated ?? item;
-        })
-      );
-
-      if (isReadOnly || isConflictLocked) return;
-
-      updatedLines.forEach((item) => {
-        enqueueBufferedItemUpdate(item.id, buildEstimateItemUpdatePayload(item));
-      });
-    },
-    [
-      enqueueBufferedItemUpdate,
-      itemsRef,
-      setItems,
-      setLaborRoles,
-      conflictState?.message,
-      editorDocument,
-      documentScope,
-      getVersionSnapshot,
-      isConflictLocked,
-      isReadOnly,
-      isV3,
-      readOnlyActionErrorMessage,
       settings,
       version,
-      computeLineValuesWithLaborContext,
-    ]
-  );
+      totals,
+      isV3,
+      v3Settings,
+      resolvedVersionId,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      isConflictLocked,
+      conflictState,
+      settingsSaveGenerationRef,
+      activeRouteVersionIdRef,
+      versionRef,
+      settingsSaveGuardRef,
+      setActiveSettingsSave,
+      setActionError,
+      ensureGroupedActionCanProceed,
+      handleOpenSettingsDrawer,
+      getVersionSnapshot,
+      recoverDraftLock,
+      handleVersionConflict,
+      clearUndoRedoHistory,
+      discardBulkSuggestUndo,
+      deriveBufferedItem,
+      markItemsSynced,
+      clearConflictDraft,
+    });
+  }
+
+  const {
+    createRole: handleCreateRole,
+    updateRole: handleUpdateRole,
+  } = useEstimateEditorLaborRolesController({
+    editorDocument,
+    documentScope,
+    settingsSaveGuardRef,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+    isConflictLocked,
+    conflictState,
+    profile,
+    laborRoles,
+    setLaborRoles,
+    version,
+    getVersionSnapshot,
+    itemsRef,
+    setItems,
+    isV3,
+    settings,
+    computeLineValuesWithLaborContext,
+    enqueueBufferedItemUpdate,
+    setActionError,
+  });
 
   const canEditMarginTiers = profile?.tenant_role === "admin" && !isSaveBlocked;
-
-  const applyConfirmedMarginTiers = useCallback((update: (
-    tiers: NonNullable<EstimateSettingsState["margin_tiers"]>
-  ) => NonNullable<EstimateSettingsState["margin_tiers"]>) => {
-    if (!editorDocument.isCurrent(documentScope)) return;
-    editorDocument.transaction(() => {
-      editorDocument.setConfirmedSettings((previous) => previous
-        ? { ...previous, margin_tiers: update(previous.margin_tiers ?? []) } : previous);
-      editorDocument.setDraftSettings((current) => current
-        ? { ...current, margin_tiers: update(current.margin_tiers ?? []) } : current);
-    });
-  }, [editorDocument, documentScope]);
-
-  const handleCreateTier = useCallback(
-    async (payload: { threshold_cents: number; multiplier: number }) => {
-      if (!editorDocument.isCurrent(documentScope)) return;
-      setMarginTiersError(null);
-      setIsSavingMarginTiers(true);
-      try {
-        const data = await createMarginTierClient(payload);
-        applyConfirmedMarginTiers((tiers) => [...tiers, data].sort((left, right) => left.threshold_cents - right.threshold_cents));
-      } catch (error) {
-        if (!editorDocument.isCurrent(documentScope)) return;
-        setMarginTiersError(
-          error instanceof Error ? error.message : "Erreur création tranche."
-        );
-      } finally {
-        if (editorDocument.isCurrent(documentScope)) setIsSavingMarginTiers(false);
-      }
-    },
-    [applyConfirmedMarginTiers, editorDocument, documentScope]
-  );
-
-  const handleUpdateTier = useCallback(
-    async (
-      id: string,
-      updates: { threshold_cents?: number; multiplier?: number }
-    ) => {
-      if (!editorDocument.isCurrent(documentScope)) return;
-      setMarginTiersError(null);
-      setIsSavingMarginTiers(true);
-      try {
-        const data = await updateMarginTierClient(id, updates);
-        applyConfirmedMarginTiers((tiers) => tiers.map((tier) => tier.id === id ? data : tier)
-          .sort((left, right) => left.threshold_cents - right.threshold_cents));
-      } catch (error) {
-        if (!editorDocument.isCurrent(documentScope)) return;
-        setMarginTiersError(
-          error instanceof Error
-            ? error.message
-            : "Erreur mise à jour tranche."
-        );
-      } finally {
-        if (editorDocument.isCurrent(documentScope)) setIsSavingMarginTiers(false);
-      }
-    },
-    [applyConfirmedMarginTiers, editorDocument, documentScope]
-  );
-
-  const handleDeleteTier = useCallback(async (id: string) => {
-    if (!editorDocument.isCurrent(documentScope)) return;
-    setMarginTiersError(null);
-    setIsSavingMarginTiers(true);
-    try {
-      await deleteMarginTierClient(id);
-      applyConfirmedMarginTiers((tiers) => tiers.filter((tier) => tier.id !== id));
-    } catch (error) {
-      if (!editorDocument.isCurrent(documentScope)) return;
-      setMarginTiersError(
-        error instanceof Error
-          ? error.message
-          : "Erreur suppression tranche."
-      );
-    } finally {
-      if (editorDocument.isCurrent(documentScope)) setIsSavingMarginTiers(false);
-    }
-  }, [applyConfirmedMarginTiers, editorDocument, documentScope]);
-
-  const normalizePatchedItem = useCallback(
-    (item: EditorEstimateItem) => {
-      if (item.item_type !== "line") return item;
-      if (isV3) {
-        // v3 : la ligne garde ses saisies ; PU, nets et heures totales viennent du moteur v3. Un changement de type
-        // FO redérive la provision FO, comme le déclencheur à l'écriture (TI-534).
-        const current = getItemsSnapshot().find((candidate) => candidate.id === item.id);
-        // TI-682, lot C : la ligne reste celle que la base garde (« a été Non chiffrée » collant, motif effacé quand
-        // le statut quitte Inclus, Pour mémoire, Hors lot et Sans objet). L'indicateur suit la ligne attendue en base
-        // (confirmée, plus les enregistrements en vol) : l'écriture fusionnée du délai d'enregistrement s'y compare.
-        const saved = (editorDocument.getExpectedItem(item.id) as EditorEstimateItem | undefined) ?? null;
-        const statusTracked = current ? applyStatusReasonRules(current, item, saved) : item;
-        // TI-682, lot C, PR 4 : la réserve écrite est celle que la base garde : la réserve enregistrée, effacée si le
-        // statut qui sera écrit ne lui convient plus (jamais une saisie de la grille).
-        const tracked = saved ? applyOfferChoiceRules(saved, { ...statusTracked, offer_choice: saved.offer_choice ?? null })
-          : statusTracked;
-        return withRederivedFoProvision(current, tracked, foProvisionBySupplyTypeId);
-      }
-      const taxRate =
-        item.tax_rate_bp ?? settings?.tax_rate_bp ?? 0;
-      let marginMultiplier = settings?.margin_multiplier ?? 1;
-      if (isUnifiedEngine(calcEngineVersion) && settings?.margin_mode === "tiered") {
-        const currentItems = getItemsSnapshot();
-        const postPatchItems = currentItems.some((current) => current.id === item.id)
-          ? currentItems.map((current) => current.id === item.id ? item : current)
-          : [...currentItems, item];
-        marginMultiplier = computeDraftBreakdown({
-            items: postPatchItems,
-            settings,
-            calcEngineVersion,
-            isLaborSplitEnabled,
-            ...laborRateMaps,
-        }).totals.appliedMarginMultiplier;
-      }
-      const { lineInput, lineValues } = computeLineValuesWithLaborContext(item, {
-        marginMultiplier,
-        taxRateBp: taxRate,
-        vatReverseCharge: settings?.contractor_role === "subcontractor",
-      });
-      return {
-        ...item,
-        tax_rate_bp: lineInput.tax_rate_bp,
-        k_fo: lineInput.k_fo,
-        h_mo: lineInput.h_mo,
-        k_mo: lineInput.k_mo,
-        pu_ht_cents: lineValues.puHtCents,
-        line_total_ht_cents: lineValues.saleLineCents,
-        line_tax_cents: lineValues.taxLineCents,
-        line_total_ttc_cents: lineValues.ttcLineCents,
-      };
-    },
-    [
-      calcEngineVersion,
-      computeLineValuesWithLaborContext,
-      editorDocument,
-      foProvisionBySupplyTypeId,
-      getItemsSnapshot,
-      isLaborSplitEnabled,
-      isV3,
-      laborRateMaps,
-      settings,
-    ]
-  );
 
   const applyItemCreationVersionToken = useCallback(
     (updatedAt: string, contentRevision?: number) => {
@@ -2109,112 +1516,17 @@ export function useEstimateEditorState({
     convertItems: handleConvertItems,
   } = structureController.actions;
 
-  const handleDuplicateSectionToVersion = useCallback<
-    NonNullable<EstimateEditorTableProps["onDuplicateSectionToVersion"]>
-  >(
-    async ({ sectionId, targetVersionId }) => {
-      if (isReadOnly) {
-        setActionError(readOnlyActionErrorMessage);
-        return;
-      }
-      if (isConflictLocked) {
-        setActionError(
-          conflictState?.message ?? ESTIMATE_VERSION_CONFLICT_MESSAGE
-        );
-        return;
-      }
-
-      const versionSnapshot = versionRef.current;
-      if (!versionSnapshot) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      if (targetVersionId === versionSnapshot.id) {
-        await handleDuplicateSection(sectionId);
-        return;
-      }
-
-      if (hasUnsavedSettings) {
-        setActionError(
-          "Enregistrez le paramétrage avant de dupliquer cette section vers une autre version."
-        );
-        return;
-      }
-
-      if (
-        !(await ensureGroupedActionCanProceed(
-          "dupliquer cette section vers une autre version"
-        ))
-      ) {
-        return;
-      }
-
-      const synchronizedVersionSnapshot = versionRef.current;
-      if (!synchronizedVersionSnapshot) {
-        setActionError("Version introuvable.");
-        return;
-      }
-
-      setActionError(null);
-      let targetLockAcquired = false;
-      let redirected = false;
-
-      try {
-        const lockResult = await acquireEstimateDraftLock(targetVersionId);
-        const isOwnedByCurrentUser =
-          lockResult.lock?.isOwnedByCurrentUser !== false;
-
-        if (!lockResult.acquired || !isOwnedByCurrentUser) {
-          const holderName = lockResult.lock?.holderName?.trim() ?? "";
-          const holder = holderName.length > 0 ? holderName : "un autre utilisateur";
-          setActionError(`La version cible est verrouillée par ${holder}.`);
-          return;
-        }
-
-        targetLockAcquired = true;
-        const duplicated = await duplicateEstimateSection(synchronizedVersionSnapshot.id, sectionId, {
-          targetVersionId,
-        });
-        // Sous-lot 2.8b (A6, P-12) : section v1/v2 copiée dans une v3, lignes dont les heures changent.
-        const converted = describeV3ConvertedLines(duplicated.convertedLines);
-        if (converted) {
-          toast.warning({ title: "Section copiée au moteur de calcul 3", description: converted, durationMs: 15_000 });
-        }
-
-        redirected = true;
-        router.push(`/dashboard/estimates/${targetVersionId}/edit`);
-      } catch (error) {
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error
-              ? error.message
-              : "Impossible de dupliquer la section vers cette version."
-          )
-        );
-      } finally {
-        if (targetLockAcquired && !redirected) {
-          try {
-            await releaseEstimateDraftLock(targetVersionId);
-          } catch {
-            // Best-effort cleanup of a lock acquired for a failed cross-version duplication.
-          }
-        }
-      }
-    },
-    [
-      conflictState?.message,
-      ensureGroupedActionCanProceed,
-      handleDuplicateSection,
-      versionRef,
-      hasUnsavedSettings,
-      isConflictLocked,
-      isReadOnly,
-      readOnlyActionErrorMessage,
-      router,
-      toast,
-    ]
-  );
+  const handleDuplicateSectionToVersion = useEstimateEditorSectionCopyToVersion({
+    isReadOnly,
+    readOnlyActionErrorMessage,
+    isConflictLocked,
+    conflictState,
+    versionRef,
+    hasUnsavedSettings,
+    ensureGroupedActionCanProceed,
+    handleDuplicateSection,
+    setActionError,
+  });
 
   // The table recomputes every section total when this object changes: keep it across unrelated renders.
   const sectionCalculation = useMemo<EstimateEditorTableProps["sectionCalculation"]>(
@@ -2316,17 +1628,6 @@ export function useEstimateEditorState({
       onOpenSettings: () => handleOpenSettingsDrawer(),
       isFinalizationPanelOpen,
       onToggleFinalizationPanel: handleToggleFinalizationPanel,
-      headerRight: isFinalizationPanelOpen ? (
-        <EstimateChecklist
-          checklist={checklist}
-          isCollapsed={isChecklistCollapsed}
-          anomalyCount={qualityCounts.totalFlagsCount}
-          affectedLineCount={qualityCounts.linesWithAnomaliesCount}
-          onToggleCollapsed={handleToggleChecklistCollapsed}
-          onCriterionClick={handleChecklistCriterionClick}
-          onShowAnomalies={handleShowChecklistAnomalies}
-        />
-      ) : null,
     }),
     [
       categories,
@@ -2392,13 +1693,8 @@ export function useEstimateEditorState({
       bulkSuggestionEligibleCount,
       supplierPreselectionEligibleCount,
       checklistScrollTargetItemId,
-      checklist,
       isFinalizationPanelOpen,
-      isChecklistCollapsed,
-      handleChecklistCriterionClick,
-      handleToggleChecklistCollapsed,
       handleToggleFinalizationPanel,
-      handleShowChecklistAnomalies,
       settings?.currency,
       totals?.appliedMarginMultiplier,
       totals?.discountCents,
@@ -2408,26 +1704,60 @@ export function useEstimateEditorState({
       resolvedVersionId,
     ]
   );
+  const checklistProps = useMemo<EstimateChecklistProps | null>(
+    () =>
+      isFinalizationPanelOpen
+        ? {
+            checklist,
+            isCollapsed: isChecklistCollapsed,
+            anomalyCount: qualityCounts.totalFlagsCount,
+            affectedLineCount: qualityCounts.linesWithAnomaliesCount,
+            onToggleCollapsed: handleToggleChecklistCollapsed,
+            onCriterionClick: handleChecklistCriterionClick,
+            onShowAnomalies: handleShowChecklistAnomalies,
+          }
+        : null,
+    [
+      checklist,
+      handleChecklistCriterionClick,
+      handleShowChecklistAnomalies,
+      handleToggleChecklistCollapsed,
+      isChecklistCollapsed,
+      isFinalizationPanelOpen,
+      qualityCounts.linesWithAnomaliesCount,
+      qualityCounts.totalFlagsCount,
+    ]
+  );
 
-  // TI-682, lot C, PR 4 : réserve écrite d'une ligne « Non chiffrée », par un administrateur du tenant. Les saisies en
-  // attente partent d'abord (la ligne doit être enregistrée « Non chiffrée ») ; la route répond par le jeton de version
-  // que la file d'écriture publie, et la ligne confirmée prend la réserve.
-  const canDeclareOfferReserve = profile?.tenant_role === "admin" && !isReadOnly && !isConflictLocked && !isViewerReadOnly;
-  const saveOfferChoice = useCallback(async (itemId: string, choice: EstimateOfferChoiceInput | null) => {
-    const flushed = await flushBufferedItemUpdates();
-    if (flushed === "error" || flushed === "blocked") {
-      throw new Error("Les modifications en cours du devis doivent être enregistrées avant la réserve ou la quantité provisionnelle.");
-    }
-    const token = versionRef.current?.updated_at;
-    if (!token || !editorDocument.isCurrent(documentScope)) throw new Error("Le devis a changé. Rechargez-le.");
-    const receipt = await setEstimateLineOfferChoice(resolvedVersionId, itemId, choice, token);
-    if (!editorDocument.isCurrent(documentScope)) return;
-    editorDocument.acknowledgeItems([{ id: itemId, updates: { offer_choice: receipt.item.offer_choice } }]);
-  }, [documentScope, editorDocument, flushBufferedItemUpdates, resolvedVersionId, versionRef]);
-
-  // TI-682, lot C, PR 5 : « Établie sur » part de la note de la ligne de métré.
-  const suggestEstablishedOn = useCallback((itemId: string) => readEstimateLineOfferChoiceSuggestion(resolvedVersionId, itemId),
-    [resolvedVersionId]);
+  const { requestSend: recheckSend } = statusController.actions;
+  const {
+    canDeclareOfferReserve,
+    saveOfferChoice,
+    suggestEstablishedOn,
+    reservedLineTitles,
+    provisionalQuantityMentions,
+    statusReasonLines,
+    saveStatusReasonFromSendDialog,
+    reserveLines,
+    openLimitsFromSendDialog,
+  } = useEstimateEditorOfferChoices({
+    profile,
+    isReadOnly,
+    isConflictLocked,
+    isViewerReadOnly,
+    editorDocument,
+    documentScope,
+    versionRef,
+    resolvedVersionId,
+    isV3,
+    items,
+    sendGating,
+    flushBufferedItemUpdates,
+    handlePatchItem,
+    recheckSend,
+    closeSendGatingDialog,
+    handleOpenSettingsDrawer,
+  });
 
   const v3Grid = useMemo<EstimateV3GridModel | null>(
     () => (v3Breakdown === undefined ? null : {
@@ -2437,21 +1767,6 @@ export function useEstimateEditorState({
     }),
     [v3Breakdown, allowedTaxRatesBp, canDeclareOfferReserve, saveOfferChoice, suggestEstablishedOn]
   );
-
-  // Titres des lignes « Non chiffrée » réservées, pour le paragraphe des précisions (insertion éditable).
-  const reservedLineTitles = useMemo(() => (isV3 ? items : [])
-    .filter((item) => readOfferReserve(item) !== null)
-    .map((item) => item.title?.trim() || "Sans titre"), [isV3, items]);
-  // TI-682, lot C, PR 5 : les phrases des quantités provisionnelles, écrites d'après les lignes actuelles.
-  const provisionalQuantityMentions = useMemo(() => (isV3 ? items : []).flatMap((item) => {
-    const provisional = readOfferProvisionalQuantity(item);
-    const mention = provisional ? composeProvisionalQuantityMention(item, provisional) : null;
-    return mention ? [mention] : [];
-  }), [isV3, items]);
-
-  const closeSettingsDrawer = useCallback(() => {
-    setIsSettingsDrawerOpen(false);
-  }, []);
   const closeEstimateStructureDraftDialog = useCallback(
     (result?: { createdItemIds?: string[]; mergedItemIds?: string[] }) => {
       closeEstimateStructureDraftDialogAction();
@@ -2467,7 +1782,7 @@ export function useEstimateEditorState({
     },
     [closeEstimateStructureDraftDialogAction, highlightAiMutationItems]
   );
-  const toolbarProps: ComponentProps<typeof EstimateEditorToolbar> | null = version
+  const toolbarProps: EstimateEditorToolbarProps | null = version
     ? {
         projectName,
         versionNumber: version.version_number,
@@ -2531,7 +1846,7 @@ export function useEstimateEditorState({
       }
     : null;
 
-  const alertsProps = useMemo<ComponentProps<typeof EstimateEditorAlerts>>(
+  const alertsProps = useMemo<EstimateEditorAlertsProps>(
     () => ({
       statusError,
       isViewerReadOnly,
@@ -2611,9 +1926,7 @@ export function useEstimateEditorState({
     ]
   );
 
-  const summaryBarProps = useMemo<
-    ComponentProps<typeof EstimateSettingsSummaryBar> | null
-  >(
+  const summaryBarProps = useMemo<EstimateSettingsSummaryBarProps | null>(
     () =>
       settings
         ? {
@@ -2629,22 +1942,9 @@ export function useEstimateEditorState({
     [handleOpenSettingsDrawer, isExpert, qualityCounts.byFlag.missing_price, settings, totals, v3Breakdown]
   );
 
-  const snapshotContext = version?.calc_snapshot_context;
-  const snapshotMultiplier = snapshotContext && typeof snapshotContext === "object" && !Array.isArray(snapshotContext)
-    ? snapshotContext.effective_margin_multiplier
-    : undefined;
-  // Lot 2, sous-lot 2.6 : une v3 n'a pas de multiplicateur de marge (marque nette, D5) ; jamais
-  // `effective_margin_multiplier`, que la v2 affiche comme multiplicateur.
-  const storedMarginMultiplier = isV3 ? undefined : isUnifiedEngine(calcEngineVersion) && version != null &&
-    hasFreshCalcSnapshot(version) &&
-    typeof snapshotMultiplier === "number" && Number.isFinite(snapshotMultiplier) &&
-    snapshotMultiplier >= 0 && snapshotMultiplier <= 100
-    ? snapshotMultiplier
-    : isLegacyEngine(calcEngineVersion) || settings?.margin_mode !== "tiered"
-      ? settings?.margin_multiplier
-      : undefined;
+  const storedMarginMultiplier = resolveEditorStoredMarginMultiplier({ isV3, calcEngineVersion, version, settings });
 
-  const drawerProps: ComponentProps<typeof EstimateEditorDrawer> | null =
+  const drawerProps: EstimateEditorDrawerProps | null =
     version && settings
       ? {
           isOpen: isSettingsDrawerOpen,
@@ -2702,7 +2002,7 @@ export function useEstimateEditorState({
         }
       : null;
 
-  const bulkSuggestDialogProps = useMemo<ComponentProps<typeof BulkSuggestDialog>>(
+  const bulkSuggestDialogProps = useMemo<BulkSuggestDialogProps>(
     () => ({
       isOpen: isBulkSuggestDialogOpen,
       rows: bulkSuggestPreview,
@@ -2731,9 +2031,7 @@ export function useEstimateEditorState({
     ]
   );
 
-  const supplierPreselectionDialogProps: ComponentProps<
-    typeof SupplierPreselectionDialog
-  > = {
+  const supplierPreselectionDialogProps: SupplierPreselectionDialogProps = {
     isOpen: isSupplierPreselectionDialogOpen,
     review: supplierPreselectionReview,
     selectedItemIds: selectedSupplierPreselectionItemIds,
@@ -2746,9 +2044,7 @@ export function useEstimateEditorState({
     onToggleAll: handleToggleAllSupplierPreselectionItems,
   };
 
-  const importFromEstimateDialogProps = useMemo<
-    ComponentProps<typeof ImportFromEstimateDialog> | null
-  >(
+  const importFromEstimateDialogProps = useMemo<ImportFromEstimateDialogProps | null>(
     () =>
       isImportFromEstimateDialogOpen && version
         ? {
@@ -2766,7 +2062,7 @@ export function useEstimateEditorState({
     ]
   );
 
-  const priceReuseDialogProps = useMemo<ComponentProps<typeof PriceReuseDialog> | null>(
+  const priceReuseDialogProps = useMemo<PriceReuseDialogProps | null>(
     () =>
       isPriceReuseDialogOpen && version
         ? { isOpen: true, targetVersionId: version.id, onClose: closePriceReuseDialog, onConfirm: handleConfirmPriceReuse,
@@ -2775,9 +2071,7 @@ export function useEstimateEditorState({
     [closePriceReuseDialog, ensureGroupedActionCanProceed, handleConfirmPriceReuse, isPriceReuseDialogOpen, version]
   );
 
-  const estimateStructureDraftDialogProps = useMemo<
-    ComponentProps<typeof EstimateStructureDraftDialog> | null
-  >(
+  const estimateStructureDraftDialogProps = useMemo<EstimateStructureDraftDialogProps | null>(
     () => {
       if (!isEstimateStructureDraftDialogOpen || !version) {
         return null;
@@ -2802,48 +2096,7 @@ export function useEstimateEditorState({
     ]
   );
 
-  // TI-682, lot C : les lignes exclues après « Non chiffrée » sans motif interne, nommées dans la fenêtre d'envoi, où
-  // leur motif se saisit sur place (enregistré par le lot, puis l'envoi est contrôlé de nouveau).
-  const statusReasonItemIds = sendGating?.blockingFlags.find((flag) => flag.key === "excluded_without_reason")?.itemIds;
-  const statusReasonLines = useMemo(() => (statusReasonItemIds ?? []).map((itemId) => {
-    const item = items.find((candidate) => candidate.id === itemId);
-    return {
-      id: itemId,
-      title: item?.title?.trim() || "Sans titre",
-      statusLabel: ESTIMATE_V3_PRICING_STATUS_OPTIONS.find((option) => option.value === item?.pricing_status)?.label ?? "",
-    };
-  }), [items, statusReasonItemIds]);
-  const { requestSend: recheckSend } = statusController.actions;
-  const saveStatusReasonFromSendDialog = useCallback(async (itemId: string, reason: EstimateStatusReason) => {
-    await handlePatchItem(itemId, { status_reason: reason }, { persist: true });
-    const flushed = await flushBufferedItemUpdates();
-    if (flushed === "error" || flushed === "blocked") return;
-    await recheckSend();
-  }, [flushBufferedItemUpdates, handlePatchItem, recheckSend]);
-
-  // TI-682, lot C, PR 4 : les lignes réservées, nommées dans la fenêtre d'envoi avec leur base ; les précisions s'ouvrent
-  // depuis la fenêtre pour y insérer le paragraphe des réserves.
-  const reserveItemIds = useMemo(() => [...new Set((sendGating ? [...sendGating.blockingFlags, ...sendGating.warningFlags] : [])
-    .filter((flag) => flag.key === "offer_reserve_declared" || flag.key === "offer_limits_required"
-      || flag.key === "provisional_quantity_mention_missing" || flag.key === "takeoff_hypothesis_without_mention"
-      || flag.key === "offer_choice_unreadable")
-    .flatMap((flag) => flag.itemIds))], [sendGating]);
-  // PR 5 : une quantité provisionnelle se lit par la phrase que les précisions doivent porter.
-  const reserveLines = useMemo(() => reserveItemIds.map((itemId) => {
-    const item = items.find((candidate) => candidate.id === itemId);
-    const reserve = item ? readOfferReserve(item) : null;
-    const provisional = item ? readOfferProvisionalQuantity(item) : null;
-    const mention = item && provisional ? composeProvisionalQuantityMention(item, provisional) : null;
-    const description = reserve ? describeOfferChoice(reserve)
-      : provisional ? (mention ?? "La ligne n'a pas de quantité : la phrase ne peut pas être écrite.") : "";
-    return { id: itemId, title: item?.title?.trim() || "Sans titre", description };
-  }), [items, reserveItemIds]);
-  const openLimitsFromSendDialog = useCallback(() => {
-    closeSendGatingDialog();
-    handleOpenSettingsDrawer("exclusions");
-  }, [closeSendGatingDialog, handleOpenSettingsDrawer]);
-
-  const sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog> = {
+  const sendGatingDialogProps: EstimateSendGatingDialogProps = {
     isOpen: isSendGatingDialogOpen,
     isSubmitting: isUpdatingStatus,
     phaseLabel: sendWorkflowPhaseLabel,
@@ -2925,6 +2178,7 @@ export function useEstimateEditorState({
       alertsProps,
       summaryBarProps: summaryBarProps!,
       editorTableProps,
+      checklistProps,
       drawerProps: drawerProps!,
       bulkSuggestDialogProps,
       supplierPreselectionDialogProps,

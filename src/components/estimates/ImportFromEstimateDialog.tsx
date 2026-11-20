@@ -21,19 +21,12 @@ import {
   fetchEstimateImportableSections,
   fetchEstimateImportSources,
   type ImportEstimateSectionsMode,
-  type ImportEstimateSectionsPayload,
 } from "@/lib/estimates/section-copy-client";
 import type {
   EstimateImportSectionPreview,
   EstimateImportSourceVersion,
 } from "@/lib/estimates/section-copy-contracts";
-
-type ImportFromEstimateDialogProps = {
-  isOpen: boolean;
-  targetVersionId: string;
-  onClose: () => void;
-  onConfirm: (input: ImportEstimateSectionsPayload) => Promise<void>;
-};
+import type { ImportFromEstimateDialogProps } from "@/hooks/estimate-editor-view-props";
 
 function formatSourceLabel(source: EstimateImportSourceVersion) {
   const title = source.title?.trim();

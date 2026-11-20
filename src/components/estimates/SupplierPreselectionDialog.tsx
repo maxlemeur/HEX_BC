@@ -14,23 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { EstimateSupplierPreselectionReview } from "@/lib/estimates/supplier-preselection";
 import { supplierOfferZeroPriceLabel } from "@/lib/estimates/supplier-offer-price";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { formatCurrency } from "@/lib/money";
-
-type SupplierPreselectionDialogProps = {
-  isOpen: boolean;
-  review: EstimateSupplierPreselectionReview | null;
-  selectedItemIds: string[];
-  isLoading: boolean;
-  isApplying: boolean;
-  error: string | null;
-  onClose: () => void;
-  onConfirm: () => void;
-  onToggleItem: (itemId: string, checked: boolean) => void;
-  onToggleAll: (checked: boolean) => void;
-};
+import type { SupplierPreselectionDialogProps } from "@/hooks/estimate-editor-view-props";
 
 function formatAlternativeLabel(unitPriceCents: number) {
   return formatCurrency(unitPriceCents, "EUR");

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { IconButton } from "@/components/ui/icon-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { EstimateTotals } from "@/lib/estimate-calculations";
+import type { SettingsSection } from "@/lib/estimates/editor-settings-state";
 import { formatMarkupRatio } from "@/lib/estimates/line-margin";
 import {
   formatEstimateV3TaxRate,
@@ -13,6 +13,7 @@ import {
 } from "@/lib/estimates/v3-editor";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { MoreHorizontalIcon, SettingsIcon } from "lucide-react";
+import type { EstimateSettingsSummaryBarProps } from "@/hooks/estimate-editor-view-props";
 
 function formatSignedCurrency(
   cents: number,
@@ -23,32 +24,6 @@ function formatSignedCurrency(
   if (cents < 0) return `−${formatted}`;
   return formatted;
 }
-
-export type SettingsSection =
-  | "margin"
-  | "discount"
-  | "tax"
-  | "rounding"
-  | "exclusions"
-  | "general";
-
-type EstimateSettingsSummaryBarProps = {
-  totals: EstimateTotals | null;
-  currency: SupportedEstimateCurrency;
-  taxRateBp: number;
-  isExpert: boolean;
-  onOpenSettings: (section?: SettingsSection) => void;
-  /**
-   * Lot 2, sous-lot 2.6 : pied d'une v3 (aperçu du moteur pur, D7, D8), présent seulement sur une
-   * v3 ; nul tant que l'aperçu est indisponible. Aucune marge v2 (multiplicateur ×1) n'y figure.
-   */
-  v3Summary?: EstimateV3SummaryView | null;
-  /**
-   * TI-539 : nombre de lignes dont la fourniture attendue n'a pas de coût. Un coût manquant n'est pas un
-   * coût nul voulu : tant qu'il en reste, le total affiché est annoncé provisoire et incomplet.
-   */
-  missingSupplyCostCount?: number;
-};
 
 /** Mots de l'annonce d'un total calculé avec des fournitures sans coût (TI-539). */
 export function provisionalTotalNotice(missingSupplyCostCount: number): string | null {

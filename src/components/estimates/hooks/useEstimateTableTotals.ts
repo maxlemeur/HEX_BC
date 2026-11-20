@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 
-import type { EstimateSectionCalculation } from "@/components/estimates/hooks/useEstimateVisibility";
+import type { EstimateSectionCalculation } from "@/lib/estimates/editor-table-types";
 import { computeAllSectionTotals, type SectionTotals } from "@/lib/estimate-calculations";
 import { ITEMS_BY_PARENT_ROOT_KEY } from "@/lib/estimates/editor-item-tree";
 import type { Database } from "@/types/database";
