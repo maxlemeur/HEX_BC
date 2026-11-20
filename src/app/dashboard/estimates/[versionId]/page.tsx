@@ -31,10 +31,8 @@ import {
 import { buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import { EstimateV3DraftSummary } from "@/components/estimates/v3/EstimateV3DraftSummary";
-import {
-  resolveEstimateEngineVersionForDisplay,
-  shouldPreserveStoredEstimateV2Snapshot,
-} from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateAmountsSource } from "@/lib/estimates/engine/amounts-source";
 import { isLegacyEngine, requireHistoricalEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { readStoredEstimateV3DraftSummary } from "@/lib/estimates/v3-editor";
 import {
@@ -408,10 +406,7 @@ export default async function EstimateDetailPage({
     });
   }
   const calcEngineVersion = requireHistoricalEngine(estimateEngine);
-  const preserveStoredSnapshot =
-    isLegacyEngine(calcEngineVersion)
-      ? version.status !== "draft"
-      : shouldPreserveStoredEstimateV2Snapshot(version);
+  const preserveStoredSnapshot = resolveEstimateAmountsSource(calcEngineVersion, version) === "frozen";
   const project = resolveEmbeddedOne(version.estimate_projects);
   const tenantRole = userContext.profile?.tenant_role ?? null;
   const canEditVersion = tenantRole === "admin" || tenantRole === "engineer";

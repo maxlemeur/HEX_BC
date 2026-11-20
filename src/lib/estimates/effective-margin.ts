@@ -1,4 +1,5 @@
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { hasFreshCalcSnapshot } from "@/lib/estimates/engine/amounts-source";
 import { isLegacyEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { computeEstimateV3NetMarginBp } from "@/lib/estimates/engine-v3";
 import type { V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
@@ -8,8 +9,8 @@ export type EffectiveMarginVersion = {
   margin_bp?: number | null;
   margin_multiplier?: number | null;
   margin_mode?: "fixed" | "tiered" | null;
-  content_revision?: number | string | null;
-  calc_snapshot_content_revision?: number | string | null;
+  content_revision?: number | null;
+  calc_snapshot_content_revision?: number | null;
   calc_snapshot_context?: unknown;
   /** Moteur 3 : HT net et identité, comparés à la preuve vivante (D5). */
   total_ht_cents?: number | null;
@@ -27,9 +28,8 @@ function isCents(value: unknown): value is number {
 }
 
 function evidenceMatches(version: EffectiveMarginVersion, evidence: V3MarginEvidence): boolean {
-  const currentRevision = Number(version.content_revision);
   return evidence.source === "authenticated_live" && version.status === "draft" &&
-    Number.isSafeInteger(currentRevision) && evidence.version.content_revision === currentRevision &&
+    evidence.version.content_revision === version.content_revision &&
     (["id", "tenant_id", "project_id", "status", "updated_at"] as const).every((key) =>
       typeof version[key] === "string" && version[key] === evidence.version[key]) &&
     evidence.net_ht_cents === version.total_ht_cents && isCents(evidence.cost_subtotal_cents);
@@ -57,7 +57,7 @@ export function resolveV3NetMarginBp(
 
 /** Déboursé Σ D d'un gel v3 frais (lié à la révision courante), sinon `null`. */
 export function readFreshV3CostSubtotalCents(version: EffectiveMarginVersion): number | null {
-  if (!hasFreshSnapshot(version)) return null;
+  if (!hasFreshCalcSnapshot(version)) return null;
   const context = version.calc_snapshot_context;
   if (!context || typeof context !== "object" || Array.isArray(context)) return null;
   const frozen = context as Record<string, unknown>;
@@ -86,16 +86,6 @@ function readSnapshotMultiplier(context: unknown): number | null {
 
 function multiplierToBasisPoints(multiplier: number): number {
   return Math.max(0, Math.round((1 - 1 / multiplier) * 10_000));
-}
-
-function hasFreshSnapshot(version: EffectiveMarginVersion): boolean {
-  const contentRevision = Number(version.content_revision);
-  const snapshotRevision = Number(version.calc_snapshot_content_revision);
-  return (
-    Number.isSafeInteger(contentRevision) &&
-    contentRevision > 0 &&
-    snapshotRevision === contentRevision
-  );
 }
 
 /**
@@ -129,7 +119,7 @@ export function resolveEffectiveMarginBp(
       : multiplierToBasisPoints(configuredMultiplier);
   }
 
-  const snapshotMultiplier = hasFreshSnapshot(version)
+  const snapshotMultiplier = hasFreshCalcSnapshot(version)
     ? readSnapshotMultiplier(version.calc_snapshot_context)
     : null;
   if (snapshotMultiplier !== null) {

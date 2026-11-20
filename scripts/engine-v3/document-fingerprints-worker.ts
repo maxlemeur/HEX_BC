@@ -11,7 +11,8 @@ import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 import { computeStoredDiscountCents } from "@/lib/estimate-calculations";
-import { resolveCalcEngineVersion, shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
+import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateAmountsSource } from "@/lib/estimates/engine/amounts-source";
 import { buildCanonicalEstimateSealPayload, computeEstimateSealHash } from "@/lib/estimates/estimate-seal";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
@@ -405,10 +406,7 @@ async function addSealVerification(stage: Stage, versionId: string) {
  */
 function mirrorStoredDocument(version: VersionRow, items: ItemRow[], layoutOptions: unknown) {
   const calcEngineVersion = resolveCalcEngineVersion(version);
-  const preserveStoredSnapshot = calcEngineVersion === 1
-    ? version.status !== "draft"
-    : shouldPreserveStoredEstimateV2Snapshot(version);
-  if (!preserveStoredSnapshot) throw new Error("The stored-document mirror applies only to issued or frozen versions.");
+  if (resolveEstimateAmountsSource(calcEngineVersion, version) !== "frozen") throw new Error("The stored-document mirror applies only to issued or frozen versions.");
   const layout = applyEstimateTermsPolicy(
     normalizeEstimatePdfLayoutOptions(layoutOptions ?? DEFAULT_ESTIMATE_PDF_LAYOUT),
     toEstimatePdfTermsConfiguration(null),
@@ -445,7 +443,7 @@ function mirrorStoredDocument(version: VersionRow, items: ItemRow[], layoutOptio
     items,
     breakdown,
     calcEngineVersion,
-    preserveStoredSnapshot,
+    preserveStoredSnapshot: true,
     vatReverseCharge,
     taxRateBp: version.tax_rate_bp,
     currency: version.currency,

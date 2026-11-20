@@ -289,8 +289,8 @@ export type RulesEngineVersion = Pick<
   margin_multiplier?: number | null;
   discount_bp?: number | null;
   calc_engine_version?: number | null;
-  content_revision?: number | string | null;
-  calc_snapshot_content_revision?: number | string | null;
+  content_revision?: number | null;
+  calc_snapshot_content_revision?: number | null;
   calc_snapshot_context?: Json | null;
   margin_mode?: "fixed" | "tiered" | null;
 };

@@ -12,7 +12,6 @@
 
 import {
   type CalcEngineVersion,
-  engineFreezesSnapshot,
   EstimateEngineUnavailableError,
   type EstimateEngineVersion,
   EstimateEngineVersionError,
@@ -100,57 +99,4 @@ export function resolveCalcEngineVersionForDisplay(
     }
     throw error;
   }
-}
-
-/**
- * Indique si les montants figes d'une version v2 decrivent exactement sa
- * revision courante. Le statut n'entre volontairement pas dans ce contrat :
- * une revue peut figer un brouillon avant son approbation, tandis qu'une
- * mutation ulterieure rend automatiquement ce snapshot obsolete.
- */
-export function hasFreshEstimateV2Snapshot(
-  version:
-    | {
-        calc_engine_version?: number | null;
-        content_revision?: number | null;
-        calc_snapshot_content_revision?: number | null;
-      }
-    | null
-    | undefined
-): boolean {
-  const contentRevision = version?.content_revision;
-  const snapshotRevision = version?.calc_snapshot_content_revision;
-
-  return (
-    engineFreezesSnapshot(resolveCalcEngineVersion(version)) &&
-    Number.isInteger(contentRevision) &&
-    Number.isInteger(snapshotRevision) &&
-    snapshotRevision === contentRevision
-  );
-}
-
-/**
- * Politique de lecture des surfaces contractuelles v2.
- *
- * - un brouillon n'utilise le snapshot que lorsqu'il correspond a sa revision ;
- * - une version finalisee ne recharge jamais des tarifs ou flags vivants. Les
- *   rares v2 historiques sans nouvelles colonnes utilisent ainsi le repli
- *   stocke et deterministe de `buildStoredEstimateBreakdown`.
- */
-export function shouldPreserveStoredEstimateV2Snapshot(
-  version:
-    | {
-        calc_engine_version?: number | null;
-        content_revision?: number | null;
-        calc_snapshot_content_revision?: number | null;
-        status?: string | null;
-      }
-    | null
-    | undefined
-): boolean {
-  return (
-    engineFreezesSnapshot(resolveCalcEngineVersion(version)) &&
-    ((typeof version?.status === "string" && version.status !== "draft") ||
-      hasFreshEstimateV2Snapshot(version))
-  );
 }
