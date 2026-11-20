@@ -1,16 +1,10 @@
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
-import {
-  listTakeoffCompletionNotifications,
-  TAKEOFF_COMPLETION_LABELS,
-  takeoffCompletionFailureReason,
-} from "@/lib/takeoff/completion-notifications";
+import { listTakeoffCompletionNotifications } from "@/lib/takeoff/completion-notifications";
+import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS } from "@/lib/takeoff/completion-outcome";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
 
 import { markTakeoffCompletionRead } from "./actions";
-
-const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
-  dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Paris",
-});
 
 const deliveryLabels: Record<string, string> = {
   unavailable: "Livraison indisponible",
@@ -37,7 +31,7 @@ export default async function NotificationsPage({
         <ul aria-label="Notifications de métré" className="mt-4 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
           {notifications.map((notice) => {
             const projectHref = `/dashboard/affaires/${notice.project_id}`;
-            const reviewHref = takeoffEnabled && notice.outcome === "success" && notice.job_id && notice.job?.estimate_version_id
+            const reviewHref = takeoffEnabled && notice.outcome === "success" && notice.job_id && notice.job
               ? takeoffReviewHref({
                 projectId: notice.project_id, jobId: notice.job_id, versionId: notice.job.estimate_version_id,
               })
@@ -53,7 +47,7 @@ export default async function NotificationsPage({
                     {TAKEOFF_COMPLETION_LABELS[notice.outcome]} · {notice.project?.name ?? "Affaire"}
                   </h2>
                   <p className="text-sm text-slate-600">
-                    <time dateTime={notice.finished_at}>{dateFormatter.format(new Date(notice.finished_at))}</time>
+                    <time dateTime={notice.finished_at}>{formatTakeoffCompletionDate(notice.finished_at)}</time>
                     {notice.read_at ? " · Lue" : " · Non lue"}
                   </p>
                   {notice.outcome === "failure" && (

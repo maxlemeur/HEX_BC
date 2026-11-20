@@ -21,7 +21,7 @@ if (mailCollector) {
 }
 const log = path.resolve(process.env.E2E_COVERAGE_NETWORK_LOG ?? "");
 if (!log.startsWith(path.resolve(".e2e/army/coverage") + path.sep)) throw new Error("Coverage network evidence must stay in its owned directory.");
-function inspect(kind, input) {
+function inspect(kind, input, method) {
   let url;
   try {
     if (typeof input === "string" || input instanceof URL) url = new URL(input);
@@ -32,14 +32,14 @@ function inspect(kind, input) {
   // A separate local Edge process could otherwise contact a real provider.
   const worker = process.env.E2E_ARMY_BLOCK_WORKERS === "1" && url.pathname.startsWith("/functions/v1/");
   const allowed = (origins.includes(url.origin) && !worker) ||
-    (url.origin === mailCollector && url.pathname === "/emails" && !url.search);
+    (kind === "fetch" && method === "POST" && url.origin === mailCollector && url.pathname === "/emails" && !url.search);
   fs.appendFileSync(log, JSON.stringify({ time: new Date().toISOString(), kind, origin: url.origin, pathname: url.pathname, allowed }) + "\n");
   if (!allowed) throw new Error("Coverage campaign blocked outbound server request.");
   return url;
 }
 const originalFetch = globalThis.fetch;
 globalThis.fetch = function(input, init) {
-  const target = inspect("fetch", input);
+  const target = inspect("fetch", input, String(init?.method ?? input?.method ?? "GET").toUpperCase());
   const options = target.origin === mailCollector ? { ...init, redirect: "error" } : init;
   return originalFetch.call(this, input, options);
 };

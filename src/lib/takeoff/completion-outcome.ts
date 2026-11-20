@@ -2,6 +2,20 @@ import { TAKEOFF_RETRY_BACKOFF_SECONDS, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/
 
 export type TakeoffAnalysisOutcome = "success" | "failure" | "canceled";
 
+export const TAKEOFF_COMPLETION_LABELS: Readonly<Record<TakeoffAnalysisOutcome, string>> = {
+  success: "Analyse terminée",
+  failure: "Analyse échouée",
+  canceled: "Analyse annulée",
+};
+
+const completionDate = new Intl.DateTimeFormat("fr-FR", {
+  dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Paris",
+});
+
+export function formatTakeoffCompletionDate(timestamp: string) {
+  return completionDate.format(new Date(timestamp));
+}
+
 export function toTakeoffAnalysisOutcome(value: unknown): TakeoffAnalysisOutcome | null {
   return value === "success" || value === "failure" || value === "canceled" ? value : null;
 }

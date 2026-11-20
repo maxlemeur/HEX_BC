@@ -203,7 +203,7 @@ type SupabaseMockOptions = {
     bytes: ArrayBuffer;
     mimeType: string;
   };
-  cancelOnResultInsert?: boolean;
+  cancelBeforeResultCommit?: boolean;
   failCompletedJobUpdate?: boolean;
   failRunMetricsDeleteWhenNonEmpty?: boolean;
   failTakeoffItemsInsertOnce?: boolean;
@@ -357,7 +357,8 @@ function createTakeoffProcessorSupabaseMock(
 ): {
   supabase: {
     from: (table: string) => unknown;
-    rpc: (fn: string, args: Record<string, unknown>) => { maybeSingle: () => Promise<QueryResponse<TakeoffJobRow | null>> };
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<QueryResponse<string | null>> |
+      { maybeSingle: () => Promise<QueryResponse<TakeoffJobRow | null>> };
     storage: {
       from: (
         bucket: string
@@ -489,12 +490,11 @@ function createTakeoffProcessorSupabaseMock(
       mimeType: "text/csv",
     } satisfies { bytes: ArrayBuffer; mimeType: string });
   const planFileDownloads = options.planFileDownloads ?? {};
-  const cancelOnResultInsert = options.cancelOnResultInsert ?? false;
+  const cancelBeforeResultCommit = options.cancelBeforeResultCommit ?? false;
   const failCompletedJobUpdate = options.failCompletedJobUpdate ?? false;
   const failRunMetricsDeleteWhenNonEmpty =
     options.failRunMetricsDeleteWhenNonEmpty ?? false;
   let takeoffItemsInsertFailuresRemaining = options.failTakeoffItemsInsertOnce ? 1 : 0;
-  let cancellationApplied = false;
 
   let resultIdSequence = 0;
 
@@ -847,17 +847,6 @@ function createTakeoffProcessorSupabaseMock(
         ...payload,
       });
 
-      if (cancelOnResultInsert && !cancellationApplied && state.job.status === "processing") {
-        cancellationApplied = true;
-        state.job = {
-          ...state.job,
-          status: "canceled",
-          completed_at: FIXED_NOW.toISOString(),
-          error_code: null,
-          error_message: null,
-        };
-        state.statusTransitions.push("canceled");
-      }
       return insertedId;
     }
 
@@ -1135,6 +1124,37 @@ function createTakeoffProcessorSupabaseMock(
     },
     // claim_local_takeoff_job as the migration writes it: the job's own host, from pending or failed, into processing.
     rpc: vi.fn((fn: string, args: Record<string, unknown>) => {
+      if (fn === "finalize_local_takeoff_result") {
+        const job = state.job;
+        if (job.id !== args.p_job_id || job.tenant_id !== args.p_tenant_id ||
+            job.status !== "processing" || job.processing_lease_token !== args.p_lease_token) {
+          return Promise.resolve({ data: null, error: null });
+        }
+        if (cancelBeforeResultCommit) {
+          state.job = { ...job, status: "canceled", completed_at: FIXED_NOW.toISOString() };
+          state.statusTransitions.push("canceled");
+          return Promise.resolve({ data: null, error: null });
+        }
+        if (failCompletedJobUpdate || (failRunMetricsDeleteWhenNonEmpty && state.takeoffRunMetrics.length > 0) ||
+            takeoffItemsInsertFailuresRemaining > 0) {
+          takeoffItemsInsertFailuresRemaining = Math.max(0, takeoffItemsInsertFailuresRemaining - 1);
+          return Promise.resolve({ data: null, error: { code: "PGRST301", message: "Simulated atomic completion failure" } });
+        }
+        const id = nextResultId();
+        const { job_duration_ms, run_metrics, ...result } = args.p_result as Omit<StoredTakeoffResultRow, "id" | "raw_response"> & {
+          job_duration_ms: number; run_metrics?: StoredTakeoffRunMetricRow[];
+        };
+        const scope = { tenant_id: job.tenant_id, job_id: job.id };
+        state.takeoffResults = [{ id, raw_response: null, ...deepClone(result), ...scope }];
+        state.takeoffItems = (args.p_items as StoredTakeoffItemRow[]).map(item => ({ ...deepClone(item), ...scope, result_id: id }));
+        state.takeoffRunMetrics = (run_metrics ?? []).map(metric => ({ ...deepClone(metric), ...scope, result_id: id }));
+        state.job = { ...job, status: "completed", completed_at: args.p_completed_at as string, duration_ms: job_duration_ms,
+          token_count: result.token_count, cost_cents: result.cost_cents, model: args.p_model as string,
+          prompt_version: args.p_prompt_version as string, error_code: null, error_message: null,
+          processing_lease_token: null, processing_lease_expires_at: null };
+        state.statusTransitions.push("completed");
+        return Promise.resolve({ data: id, error: null });
+      }
       if (fn !== "claim_local_takeoff_job") throw new Error(`Unexpected rpc: ${fn}`);
       return {
         maybeSingle: async (): Promise<QueryResponse<TakeoffJobRow | null>> => {
@@ -1417,7 +1437,7 @@ describe("processLevelA", () => {
     );
   });
 
-  it("restores previous Level A persistence snapshot when persisting new items fails", async () => {
+  it("keeps the previous Level A result when the atomic completion transaction fails", async () => {
     const previousResultId = "66666666-6666-4666-8666-666666666666";
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
@@ -1506,7 +1526,7 @@ describe("processLevelA", () => {
 
   it("stops persistence and preserves canceled status when cancellation happens mid-processing", async () => {
     const mock = createTakeoffProcessorSupabaseMock({
-      cancelOnResultInsert: true,
+      cancelBeforeResultCommit: true,
     });
     const callProvider = vi.fn().mockResolvedValue(
       buildProviderResult(
@@ -2909,7 +2929,7 @@ describe("processLevelC", () => {
     );
   });
 
-  it("does not duplicate chunk metrics when completion update fails after initial metric persist", async () => {
+  it("keeps a single set of chunk metrics on the failure diagnostic when the completion transaction fails", async () => {
     const pdfBytes = await createPdfArrayBuffer(8);
     const mock = createTakeoffProcessorSupabaseMock({
       job: {

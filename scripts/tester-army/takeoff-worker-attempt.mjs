@@ -10,7 +10,7 @@ const [projectId, versionId, jobId, prefix, mode = "success"] = process.argv.sli
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 assert([projectId, versionId, jobId].every((value) => uuid.test(value ?? "")));
 assert(/^ARMY-[A-Za-z0-9-]+$/.test(prefix ?? ""));
-assert(["success", "transient", "terminal", "hold"].includes(mode));
+assert(["success", "transient", "terminal", "hold", "crash-after-result"].includes(mode));
 assert.equal(process.env.E2E_ARMY_TAKEOFF_WORKER, "1", "Dedicated owned-worker profile required.");
 assert.equal(process.env.E2E_ARMY_BLOCK_WORKERS, "1", "The ordinary app must keep blocking Edge workers.");
 assert.equal(process.env.MERGEONE_CHATGPT_LOCAL, "1", "The owned worker claims local jobs as this host.");
@@ -22,6 +22,19 @@ assert(["postgres:", "postgresql:"].includes(database.protocol));
 assert.equal(backend.hostname, process.env.E2E_ALLOWED_SUPABASE_HOST);
 assert(!["45585", "33485"].includes(backend.port) && !["45585", "33485"].includes(database.port), "Long-lived recipe stack is not a worker target.");
 await import("./coverage-network-guard.mjs");
+if (mode === "crash-after-result") {
+  const guardedFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const response = await guardedFetch(input, init);
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    const writesResult = url.pathname === "/rest/v1/takeoff_items" || url.pathname === "/rest/v1/rpc/finalize_local_takeoff_result";
+    if (url.origin === backend.origin && writesResult && init?.method === "POST" && response.ok) {
+      await response.arrayBuffer();
+      process.exit(70);
+    }
+    return response;
+  };
+}
 assert(!process.env.OPENAI_DECISIONS_API_KEY, "The owned worker holds no Decisions key.");
 process.env.SENTRY_DSN = "";
 

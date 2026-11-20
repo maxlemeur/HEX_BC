@@ -1,13 +1,14 @@
 import { readAllRowsInChunks } from "@/lib/supabase/read-all";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import {
   applyTakeoffJobsListFilters,
-  getAuthenticatedTakeoffContext,
   resolveVersionIdsForProject,
   type AuthenticatedTakeoffContext,
 } from "@/lib/takeoff/job-read-server";
+import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import type {
   TakeoffActivityCenterResponse,
   TakeoffActivityCenterJobRow,
@@ -577,16 +578,26 @@ async function batchEnrich(
 export async function listActivityCenterJobs(
   input: ListActivityCenterJobsInput
 ): Promise<TakeoffActivityCenterResponse> {
-  const { supabase, tenantId, tenantRole } = await getAuthenticatedTakeoffContext();
+  const { context: { supabase, tenantId, tenantRole } } = await requireAffaireAccess(input.project_id, "read");
+  await assertTakeoffEnabled(tenantId, { supabase });
 
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
 
-  const versions = await resolveVersionIdsForProject({
-    supabase,
-    tenantId,
-    projectId: input.project_id,
-  });
+  const [versions, completionResult] = await Promise.all([
+    resolveVersionIdsForProject({ supabase, tenantId, projectId: input.project_id }),
+    supabase.rpc("list_affaire_takeoff_completions" as never, {
+      p_project_id: input.project_id,
+      p_limit: Math.trunc(limit),
+      p_offset: Math.min(Math.trunc(offset), 2_147_483_647),
+    } as never),
+  ]);
+  if (completionResult.error) throw mapSupabaseError(completionResult.error, "Impossible de charger les fins d’analyse.");
+  const analysisCompletions = ((completionResult.data ?? []) as Array<{ event_id: string; outcome: string; finished_at: string }>)
+    .flatMap((event) => {
+      const outcome = toTakeoffAnalysisOutcome(event.outcome);
+      return outcome ? [{ eventId: event.event_id, outcome, finishedAt: event.finished_at }] : [];
+    });
   const versionIds = versions.map((v) => v.id);
   const versionNumberMap = new Map(versions.map((v) => [v.id, v.version_number]));
 
@@ -594,6 +605,7 @@ export async function listActivityCenterJobs(
     return {
       counters: { technicalJobs: 0, usableJobs: 0, blockingExceptionsJobs: 0 },
       jobs: [],
+      analysisCompletions,
       pagination: { limit, offset, total: 0 },
     };
   }
@@ -818,6 +830,7 @@ export async function listActivityCenterJobs(
   return {
     counters,
     jobs,
+    analysisCompletions,
     pagination: { limit, offset, total },
   };
 }

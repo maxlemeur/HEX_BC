@@ -58,7 +58,7 @@ type TakeoffWorkerRepository = {
     jobId: string;
     tenantId: string;
     nowIso: string;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   clearRetrySchedule: (input: {
     jobId: string;
     tenantId: string;
@@ -144,7 +144,7 @@ function createSupabaseTakeoffWorkerRepository(
     },
 
     async markUnsupportedLevelAsFailed(input) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("takeoff_jobs")
         .update({
           status: "failed",
@@ -157,7 +157,9 @@ function createSupabaseTakeoffWorkerRepository(
         })
         .eq("id", input.jobId)
         .eq("tenant_id", input.tenantId)
-        .eq("status", "pending");
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
 
       if (error) {
         throw toTakeoffError(error, {
@@ -167,6 +169,7 @@ function createSupabaseTakeoffWorkerRepository(
           jobId: input.jobId,
         });
       }
+      return data !== null;
     },
 
     async clearRetrySchedule(input) {
@@ -400,7 +403,7 @@ function gateFailedJobRetry(attempt: TakeoffJobAttempt): TakeoffJobAttemptOutcom
     : scheduledRetryOutcome(attempt, job);
 }
 
-function scheduledRetryOutcome(attempt: TakeoffJobAttempt, job: TakeoffWorkerJobRow) {
+function scheduledRetryOutcome(attempt: TakeoffJobAttempt, job: TakeoffWorkerJobRow, fallback?: TakeoffError) {
   const remaining = Date.parse(job.next_retry_at ?? "") - attempt.now().getTime();
   return attemptOutcome(attempt, job, {
     status: "failed_retryable",
@@ -411,8 +414,8 @@ function scheduledRetryOutcome(attempt: TakeoffJobAttempt, job: TakeoffWorkerJob
     nextRunInSeconds: Math.max(0, Math.ceil(remaining / 1000)),
     nextRunAt: job.next_retry_at,
     durationMs: elapsedMs(attempt),
-    errorCode: job.error_code,
-    errorMessage: job.error_message,
+    errorCode: job.error_code ?? fallback?.code,
+    errorMessage: job.error_message ?? fallback?.message,
   });
 }
 
@@ -461,11 +464,17 @@ function selectLevelProcessor(
 async function failUnsupportedLevel(attempt: TakeoffJobAttempt) {
   const { job } = attempt;
   const nowIso = attempt.now().toISOString();
-  await attempt.repository.markUnsupportedLevelAsFailed({
+  const changed = await attempt.repository.markUnsupportedLevelAsFailed({
     jobId: job.id,
     tenantId: job.tenant_id,
     nowIso,
   });
+  if (!changed) {
+    const current = await attempt.repository.getJobById(job.id);
+    if (current?.status === "canceled") return settleCanceledJob(attempt, current);
+    return untouchedJobOutcome(attempt, current?.status === "processing" || current?.status === "pending"
+      ? "in_progress" : "noop_terminal");
+  }
 
   return attemptOutcome(attempt, job, {
     status: "failed_terminal",
@@ -558,17 +567,22 @@ async function settleLevelProcessingFailure(attempt: TakeoffJobAttempt, error: u
     });
   }
 
-  if (current.status === "failed" && current.analysis_outcome === "failure") {
+  if (current.status === "failed" && (current.analysis_outcome === "failure" ||
+    (!current.next_retry_at && current.last_error_at && current.last_error_at !== job.last_error_at))) {
+    return failJobTerminally(attempt, current, currentRetryCount, mappedError);
+  }
+  if (current.status === "pending") {
+    // The callback reports the rejected attempt. Durable recovery still owns
+    // the accepted job, which has not acquired a worker lease.
     return failJobTerminally(attempt, current, currentRetryCount, mappedError);
   }
   const scheduled = current.status === "failed" && current.next_retry_at && currentRetryCount < TAKEOFF_RETRY_MAX;
   if (scheduled && (current.next_retry_at !== job.next_retry_at || currentRetryCount !== attempt.retryCount)) {
-    return scheduledRetryOutcome(attempt, current);
+    return scheduledRetryOutcome(attempt, current, mappedError);
   }
-  // An unchanged due schedule stays available for the recovery poll. A
-  // failure before claiming a pending job has also settled no analysis.
+  // An unchanged due schedule stays available for the recovery poll.
   return attemptOutcome(attempt, current, {
-    status: current.status === "pending" || scheduled ? "in_progress" : "noop_terminal",
+    status: scheduled ? "in_progress" : "noop_terminal",
     retryCount: currentRetryCount,
     retryable: false,
     shouldRequeue: false,

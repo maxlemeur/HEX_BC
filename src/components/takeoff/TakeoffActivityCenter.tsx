@@ -12,6 +12,7 @@ import {
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
+import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS } from "@/lib/takeoff/completion-outcome";
 import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
 import {
   JourneyFacts,
@@ -253,7 +254,8 @@ export default function TakeoffActivityCenter({
   );
   // Nothing to follow yet: the next step alone says how to start. The panel does not depend
   // on the view, so switching views never removes the control that has the focus.
-  const showTracking = !summaryError && (hasAnalyses || hasActiveJobFilters);
+  const sharedCompletions = hasAnalyses ? [] : summaryData?.analysisCompletions ?? [];
+  const showTracking = !summaryError && (hasAnalyses || hasActiveJobFilters || sharedCompletions.length > 0);
 
   const resetJobFilters = useCallback(() => {
     setFiltersExpanded(false);
@@ -615,7 +617,18 @@ export default function TakeoffActivityCenter({
             aria-labelledby={`tab-${activeTab}`}
           >
             {activeTab === "jobs" &&
-              (listData ? (
+              (sharedCompletions.length > 0 && !hasActiveJobFilters ? (
+                <ul className="journey-panel-body divide-y" aria-label="Fins d’analyse de l’affaire">
+                  {sharedCompletions.map(({ eventId, outcome, finishedAt }) => (
+                    <li key={eventId} className="flex flex-wrap justify-between gap-2 py-2">
+                      <span>{TAKEOFF_COMPLETION_LABELS[outcome]}</span>
+                      <time dateTime={finishedAt} className="text-sm text-muted-foreground">
+                        {formatTakeoffCompletionDate(finishedAt)}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              ) : listData ? (
                 listData.jobs.length === 0 && hasActiveJobFilters ? (
                   <p className="px-4 py-5 text-sm text-muted-foreground sm:px-6">
                     Aucune analyse ne correspond à ces filtres.

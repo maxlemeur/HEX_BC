@@ -74,7 +74,8 @@ export async function ownedWorkerJobOwner() {
   return { execution_provider: "chatgpt_local" as const, execution_host_id: await ownedWorkerHostId(), processing_strategy: "sync" as const };
 }
 
-export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
+export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string,
+  mode: "success" | "transient" | "terminal" | "hold" | "crash-after-result" = "success",
   options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner;
     trigger?: "retry"; mailCollector?: string;
     providerItems?: Array<{ designation: string; quantity: number; unit: string; source_page: number; confidence: number; evidence: string }> } = {}) {
@@ -139,7 +140,7 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
   return { provider, done, release: () => child.stdin.end("release\n"), stop: () => { child.stdin.end(); if (child.exitCode === null) child.kill("SIGTERM"); } };
 }
 
-export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "local" | "historical" = "local") {
+export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "local" | "historical" = "local", owner?: WorkerOwner) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${title}`, title }, ui.army);
   const before = await readEstimate(ui.browser, ids.versionId);
@@ -150,7 +151,7 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "lo
   const filePath = path.join(directory, fileName);
   await writeFile(filePath, "designation;quantity;unit\nARMY worker pipe;12.5;m\nARMY worker valve;3;u\n");
   const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
-  const { userId } = await localClient();
+  const userId = owner?.userId ?? (await localClient()).userId;
   const jobId = randomUUID();
   const sourcePath = `${tenantId}/${jobId}/${fileName}`;
   const bytes = await readFile(filePath);

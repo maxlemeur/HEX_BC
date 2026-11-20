@@ -24,6 +24,8 @@ const PLAN_SET_B_ID = "55555555-5555-4555-8555-555555555555";
 const JOB_A_ID = "66666666-6666-4666-8666-666666666666";
 const JOB_B_ID = "77777777-7777-4777-8777-777777777777";
 const JOB_C_ID = "88888888-8888-4888-8888-888888888888";
+const EVENT_ID = "99999999-9999-4999-8999-999999999999";
+const FINISHED_AT = "2026-11-20T08:00:00.000Z";
 
 type QueryRow = Record<string, unknown>;
 type SelectOptions = {
@@ -146,6 +148,8 @@ function createSupabaseMock(input?: {
   }>;
   jobPatches?: Record<string, QueryRow>;
   planFilePatches?: Record<string, QueryRow>;
+  archived?: boolean;
+  director?: boolean;
 }) {
   const versions = [
     {
@@ -311,7 +315,16 @@ function createSupabaseMock(input?: {
   ];
 
   return {
+    rpc: vi.fn(async (name: string) => {
+      if (name !== "list_affaire_takeoff_completions") throw new Error(`Unexpected RPC: ${name}`);
+      return { data: input?.director ? [{ event_id: EVENT_ID, outcome: "success", finished_at: FINISHED_AT }] : [], error: null };
+    }),
     from: vi.fn((table: string) => {
+      if (table === "estimate_projects") {
+        return { select: vi.fn(() => createSelectBuilder([
+          { id: PROJECT_ID, tenant_id: TENANT_ID, user_id: "owner", is_archived: input?.archived ?? false },
+        ])) };
+      }
       if (table === "estimate_versions") {
         return {
           select: vi.fn((_columns?: string, options?: SelectOptions) =>
@@ -323,7 +336,7 @@ function createSupabaseMock(input?: {
       if (table === "takeoff_jobs") {
         return {
           select: vi.fn((_columns?: string, options?: SelectOptions) =>
-            createSelectBuilder(takeoffJobs, options)
+            createSelectBuilder(input?.director ? [] : takeoffJobs, options)
           ),
         };
       }
@@ -398,6 +411,26 @@ describe("listActivityCenterJobs", () => {
       tenantRole: "admin",
       supabase: createSupabaseMock() as never,
     } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+  });
+
+  it("returns just the shared end when a non-owner director cannot read the job", async () => {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID, tenantRole: "director", userId: "director", supabase: createSupabaseMock({ director: true }),
+    } as never);
+    const response = await listActivityCenterJobs({ project_id: PROJECT_ID });
+    expect(response.jobs).toEqual([]);
+    expect(response).toMatchObject({ analysisCompletions: [
+      { eventId: EVENT_ID, outcome: "success", finishedAt: FINISHED_AT },
+    ] });
+  });
+
+  it("refuses to load even the shared end after the affaire is archived", async () => {
+    const supabase = createSupabaseMock({ director: true, archived: true });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID, tenantRole: "director", userId: "director", supabase,
+    } as never);
+    await expect(listActivityCenterJobs({ project_id: PROJECT_ID })).rejects.toMatchObject({ status: 404 });
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("computes blocking counters from the full filtered result set, not only the current page", async () => {

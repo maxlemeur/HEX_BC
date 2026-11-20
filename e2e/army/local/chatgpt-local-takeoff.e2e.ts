@@ -20,6 +20,7 @@ import { TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
 import { callServerAction, serverActionId } from "./engine-v3-creators-support";
 import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
 import { localTakeoffWorkerClient } from "../takeoff/fixtures";
+import { activateOwnedTakeoffNotices, readOwnedTakeoffNotice } from "../takeoff/completion-support";
 
 // The takeoff jobs of the ChatGPT local journeys, on this file's own development server: the local-only provider
 // rules (LOCAL01 to LOCAL06), the profile's OAuth start, the PDF takeoff on the plan, and V3C08.
@@ -253,11 +254,12 @@ test("LOCAL03 historical Gemini jobs remain readable but cannot be restarted", {
     rejected: ["resubmit", "internal-worker", "foreign-host-resubmit"], resultRemainsReadable: true, forbiddenRequests: 0 });
 });
 
-if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubmitted once concurrently", {
+if (!existsSync(liveProbePath)) test("LOCAL05 a definitively ended ChatGPT job rejects both concurrent relaunches", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
 }, async ({ app, screen, browser }) => {
   if (!await preparePlanFixture()) throw new Error("LOCAL05 requires a separate temporary ChatGPT profile.");
   try {
+    await activateOwnedTakeoffNotices();
     await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
     const prefix = `ARMY-local-retry-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
@@ -274,18 +276,18 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubm
     await expect.poll(() => Date.now() >= Date.parse(failed.job.completed_at!) + 5_000, { timeout: 20_000 }).toBe(true);
     await setDecisionsControl({});
     const attempts = await Promise.all([0, 1].map(() => apiRequest(browser, "POST", `/api/takeoff/jobs/${jobId}/resubmit`)));
-    expect(attempts.map(attempt => attempt.status).sort()).toEqual([200, 409]);
-    await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
-    const completed = (await read()).body.data;
-    expect(completed.job.retry_count).toBe(1);
-    expect(completed.result?.provider_meta).toMatchObject({ provider: "chatgpt" });
-    expect(completed.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "Tuyauterie cuivre DN20", quantity: 12.5, unit: "m" })]));
+    expect(attempts.map(attempt => attempt.status)).toEqual([409, 409]);
+    for (const attempt of attempts) expect(JSON.stringify(attempt.body)).toContain("Préparez une nouvelle analyse");
+    const after = (await read()).body.data;
+    expect(after).toMatchObject({ job: { status: "failed", retry_count: failed.job.retry_count }, items: { data: [] } });
+    expect(after.result?.id).toBe(failed.result?.id);
+    expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "failure" });
     expect((await readEstimate(browser, estimate.versionId)).items).toEqual(before.items);
     const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
     expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
     await recordEvidence(army, "local-concurrent-resubmit", { estimate, jobId, attemptStatuses: attempts.map(attempt => attempt.status),
-      finalStatus: completed.job.status, retryCount: completed.job.retry_count, provider: "chatgpt", estimateUnchanged: true,
-      boundary: "Simulated Responses timeout and success on an owned local backend; no paid API." });
+      finalStatus: after.job.status, retryCount: after.job.retry_count, provider: "chatgpt", estimateUnchanged: true,
+      boundary: "Simulated Responses timeout on an owned local backend; the ended job cannot be replayed." });
   } finally {
     await setDecisionsControl({});
     if (fixtureStore) await rm(fixtureStore, { force: true });

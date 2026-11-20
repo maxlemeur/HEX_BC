@@ -813,6 +813,24 @@ describe("takeoff job server helpers (TKF-009)", () => {
     );
   });
 
+  it("lets an administrator reset a legacy failure without changing its creator and audits the administrator", async () => {
+    const originalCreator = "ab000000-0000-4000-8000-000000000001";
+    const supabase = createSupabaseMock({ jobs: [baseJob({
+      status: "failed", completed_at: "2026-02-25T08:00:00.000Z", created_by: originalCreator,
+    })] });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase, userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin",
+    } as never);
+
+    await resubmitTakeoffJob(JOB_ID);
+    expect(supabase.__state.jobsById.get(JOB_ID)).toMatchObject({
+      status: "pending", created_by: originalCreator,
+    });
+    expect(supabase.__state.auditLogs).toContainEqual(expect.objectContaining({
+      action: "takeoff.job.resubmitted", record_id: JOB_ID, user_id: USER_ID,
+    }));
+  });
+
   it("refuses to resubmit a job of a former provider without changing it or auditing", async () => {
     const job = baseJob({ status: "failed", execution_provider: "gemini" });
     const supabase = createSupabaseMock({ jobs: [job] });

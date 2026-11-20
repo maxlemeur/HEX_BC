@@ -24147,7 +24147,7 @@
           "Takeoff"
         ],
         "summary": "Consulter le centre d'activite Takeoff",
-        "description": "Retourne les analyses et les alertes d’une affaire. analysisCompletion contient l’identifiant d’événement, l’issue et la date de fin lorsque l’analyse est close.",
+        "description": "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue et la date de fin, indépendamment des détails réservés de chaque analyse.",
         "parameters": [
           {
             "name": "project_id",
@@ -29151,6 +29151,7 @@
               "TAKEOFF_TENANT_UNAUTHORIZED",
               "TAKEOFF_TENANT_INACTIVE",
               "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
+              "TAKEOFF_WORKER_NOT_STARTED",
               "AI_RATE_LIMIT",
               "AI_TIMEOUT",
               "AI_SCHEMA",
@@ -29223,6 +29224,7 @@
                   "TAKEOFF_TENANT_UNAUTHORIZED",
                   "TAKEOFF_TENANT_INACTIVE",
                   "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
+                  "TAKEOFF_WORKER_NOT_STARTED",
                   "AI_RATE_LIMIT",
                   "AI_TIMEOUT",
                   "AI_SCHEMA",

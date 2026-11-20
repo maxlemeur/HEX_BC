@@ -3,24 +3,9 @@ import "server-only";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
-import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import { getTakeoffFailureReasonLabel } from "@/lib/takeoff/visible-status";
 
 const PAGE_SIZE = 30;
-
-export const TAKEOFF_COMPLETION_LABELS = {
-  success: "Analyse terminée",
-  failure: "Analyse échouée",
-  canceled: "Analyse annulée",
-} as const;
-
-export function takeoffCompletionFailureReason(code: string | null | undefined) {
-  if (code === TakeoffErrorCode.FORBIDDEN) return "L’accès nécessaire au traitement n’est plus disponible.";
-  if (code === TakeoffErrorCode.AI_PROVIDER) return "Le service d’analyse n’a pas pu terminer le métré.";
-  return getTakeoffFailureReasonLabel({ errorCode: code })
-    ?? "Le traitement n’a pas pu terminer le métré. Consultez l’activité de l’affaire.";
-}
 
 export async function listTakeoffCompletionNotifications(page: number) {
   const { supabase, tenantId } = await getAuthenticatedTenantContext();

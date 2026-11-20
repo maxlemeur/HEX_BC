@@ -63,6 +63,7 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
           last_error_at: input.nowIso,
           next_retry_at: null,
         };
+        return true;
       }
     ),
     clearRetrySchedule: vi.fn(
@@ -916,10 +917,10 @@ describe("processTakeoffJobAttempt attempt endings", () => {
 
       expect(outcome).toEqual(
         expectedOutcome({
-          status: "in_progress",
+          status: "failed_terminal",
           trigger: "create",
           level: "B",
-          durationMs: 2000,
+          durationMs: 3000,
           errorCode: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
           errorMessage: "Le tenant a été suspendu avant l'appel fournisseur.",
         })
@@ -930,6 +931,10 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         ["processLevelB", JOB_ID, expect.anything()],
         ["isTenantActive", TENANT_ID],
         ["getJobById", JOB_ID],
+        ["logger.error", "Takeoff async worker reached terminal failure", expect.objectContaining({
+          error_code: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
+        })],
+        ["reportError", expect.objectContaining({ source: "takeoff.async-worker" })],
       ]);
     });
 
@@ -1093,11 +1098,12 @@ describe("processTakeoffJobAttempt attempt endings", () => {
 
       const outcome = await harness.run("create");
 
-      expect(outcome.status).toBe("in_progress");
+      expect(outcome.status).toBe("failed_terminal");
       expect(outcome.error_code).toBe(TakeoffErrorCode.AI_TIMEOUT);
       expect(outcome.should_requeue).toBe(false);
       expect(harness.state.job.status).toBe("pending");
       expect(harness.repository.clearRetrySchedule).not.toHaveBeenCalled();
+      expect(reportError).toHaveBeenCalledWith(expect.objectContaining({ source: "takeoff.async-worker" }));
     });
 
     it("maps an unexpected processor exception to the async processing failure", async () => {
@@ -1110,15 +1116,15 @@ describe("processTakeoffJobAttempt attempt endings", () => {
 
         expect(outcome).toEqual(
           expectedOutcome({
-            status: "in_progress",
+            status: "failed_terminal",
             trigger: "create",
-            durationMs: 2000,
+            durationMs: 3000,
             errorCode: TakeoffErrorCode.INTERNAL_ERROR,
             errorMessage: "Le traitement async du job takeoff a echoue.",
           })
         );
         expect(consoleError).toHaveBeenCalledWith("Unexpected takeoff error", expect.any(Error));
-        expect(vi.mocked(reportError)).not.toHaveBeenCalled();
+        expect(vi.mocked(reportError)).toHaveBeenCalledWith(expect.objectContaining({ source: "takeoff.async-worker" }));
       } finally {
         consoleError.mockRestore();
       }

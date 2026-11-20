@@ -1,4 +1,6 @@
 alter table public.takeoff_jobs
+  add column analysis_requested_by uuid,
+  add column analysis_queued_at timestamptz,
   add column analysis_outcome text,
   add column analysis_finished_at timestamptz,
   add column analysis_completion_event_id uuid,
@@ -19,6 +21,7 @@ create table private.takeoff_completion_activation (
   active_from timestamptz not null
 );
 revoke all on private.takeoff_completion_activation from public, anon, authenticated, service_role;
+
 
 create table public.takeoff_completion_notifications (
   id uuid primary key default gen_random_uuid(),
@@ -173,6 +176,22 @@ using (
   and private.takeoff_completion_visible(tenant_id, project_id)
 );
 
+-- Affaire readers need the event independently of the job's operator-only
+-- row policy. This projection contains no job or delivery fields.
+create function public.list_affaire_takeoff_completions(p_project_id uuid, p_limit integer default 20, p_offset integer default 0)
+returns table (event_id uuid, outcome text, finished_at timestamptz)
+language sql stable security definer set search_path = pg_catalog as $$
+  select n.id, n.outcome, n.finished_at
+  from public.takeoff_completion_notifications n
+  where n.project_id = p_project_id
+    and private.takeoff_completion_visible(n.tenant_id, n.project_id)
+  order by n.finished_at desc, n.id desc
+  limit greatest(1, least(coalesce(p_limit, 20), 100))
+  offset greatest(coalesce(p_offset, 0), 0);
+$$;
+revoke all on function public.list_affaire_takeoff_completions(uuid, integer, integer) from public, anon, service_role;
+grant execute on function public.list_affaire_takeoff_completions(uuid, integer, integer) to authenticated;
+
 create function public.mark_takeoff_completion_notification_read(p_id uuid)
 returns boolean
 language sql security definer
@@ -193,20 +212,45 @@ grant execute on function public.mark_takeoff_completion_notification_read(uuid)
 -- checks the database clock after the UPDATE has acquired the job lock.
 create function private.set_takeoff_analysis_outcome()
 returns trigger
-language plpgsql
+language plpgsql security definer
 set search_path = pg_catalog
 as $$
 declare
   finished_at timestamptz := clock_timestamp();
-  worker_write boolean := current_user in ('service_role', 'postgres');
+  writer_role text := coalesce(nullif(current_setting('role', true), 'none'), session_user::text);
+  worker_write boolean := writer_role in ('service_role', 'postgres');
+  activated boolean := exists (select 1 from private.takeoff_completion_activation a where a.active_from <= finished_at);
 begin
   if tg_op = 'INSERT' then
     if new.analysis_outcome is not null or new.analysis_finished_at is not null
-      or new.analysis_completion_event_id is not null then
+      or new.analysis_completion_event_id is not null or new.analysis_requested_by is not null
+      or new.analysis_queued_at is not null then
       raise exception 'TAKEOFF_ANALYSIS_FIELDS_RESERVED' using errcode = '42501';
     end if;
     return new;
   end if;
+  if new.analysis_requested_by is distinct from old.analysis_requested_by then
+    raise exception 'TAKEOFF_ANALYSIS_REQUESTER_RESERVED' using errcode = '42501';
+  end if;
+  new.analysis_queued_at := old.analysis_queued_at;
+
+  -- The deployed pre-M3 writers retain their behavior before activation.
+  if not activated and old.analysis_outcome is null then
+    new.analysis_outcome := null;
+    new.analysis_finished_at := old.analysis_finished_at;
+    new.analysis_completion_event_id := old.analysis_completion_event_id;
+    return new;
+  end if;
+
+  if activated and old.status in ('failed', 'canceled') and new.status = 'pending' then
+    new.analysis_queued_at := finished_at;
+    -- This trigger runs after the existing authenticated reset allowlist.
+    -- Attribute the accepted reset from its own session, not its payload.
+    if writer_role = 'authenticated' then
+      new.analysis_requested_by := (select auth.uid());
+    end if;
+  end if;
+
   if old.execution_provider = 'chatgpt_local' and old.status = 'failed'
     and old.next_retry_at is not null and new.status = 'pending'
   then
@@ -222,7 +266,12 @@ begin
     or new.analysis_completion_event_id is distinct from old.analysis_completion_event_id
     or (new.analysis_outcome is distinct from old.analysis_outcome and (
       not worker_write or old.analysis_outcome is not null or new.analysis_outcome is distinct from 'failure'
-      or new.status <> 'failed' or old.status not in ('pending', 'processing')
+      or new.status <> 'failed' or (
+        old.status not in ('pending', 'processing') and not (
+          old.status = 'failed' and old.next_retry_at is not null and new.next_retry_at is null
+          and new.error_code = 'TAKEOFF_WORKER_NOT_STARTED'
+        )
+      )
     ))
   then
     raise exception 'TAKEOFF_ANALYSIS_FIELDS_RESERVED' using errcode = '42501';
@@ -268,7 +317,8 @@ language plpgsql security definer
 set search_path = pg_catalog
 as $$
 declare
-  affaire_id uuid;
+  affaire_id uuid := (to_jsonb(new) ->> 'project_id')::uuid;
+  requester_id uuid := coalesce(new.analysis_requested_by, new.created_by);
   logical_email text;
   initial_state text := 'unavailable';
 begin
@@ -278,10 +328,12 @@ begin
     return null;
   end if;
 
-  -- Derive through the historical estimate FK first. A versionless job after
-  -- project-scoped admission has a plan set. No dependency on the new job FK.
-  select v.project_id into affaire_id from public.estimate_versions v
-    where v.id = new.estimate_version_id and v.tenant_id = new.tenant_id;
+  -- A job admitted by affaire carries its frozen scope. Use the historical
+  -- sources only when that field is absent so both migrations can land first.
+  if affaire_id is null then
+    select v.project_id into affaire_id from public.estimate_versions v
+      where v.id = new.estimate_version_id and v.tenant_id = new.tenant_id;
+  end if;
   if affaire_id is null then
     select s.project_id into affaire_id from public.plan_sets s
       where s.id = new.plan_set_id and s.tenant_id = new.tenant_id;
@@ -292,9 +344,9 @@ begin
 
   if new.analysis_outcome = 'canceled' then
     initial_state := 'suppressed';
-  elsif private.takeoff_completion_recipient_can_read(new.tenant_id, affaire_id, new.created_by) then
+  elsif private.takeoff_completion_recipient_can_read(new.tenant_id, affaire_id, requester_id) then
     select nullif(trim(u.email), '') into logical_email from auth.users u
-      where u.id = new.created_by and u.email_confirmed_at is not null and u.deleted_at is null;
+      where u.id = requester_id and u.email_confirmed_at is not null and u.deleted_at is null;
     if logical_email is not null then
       initial_state := 'pending';
     end if;
@@ -304,10 +356,10 @@ begin
     id, tenant_id, project_id, subject_kind, job_id, recipient_user_id, outcome, finished_at,
     recipient_email, delivery_state, provider_key, next_attempt_at, last_delivery_code
   ) values (
-    new.analysis_completion_event_id, new.tenant_id, affaire_id, 'job', new.id, new.created_by,
+    new.analysis_completion_event_id, new.tenant_id, affaire_id, 'job', new.id, requester_id,
     new.analysis_outcome, new.analysis_finished_at, logical_email, initial_state,
     'takeoff-completion/' || new.tenant_id::text || '/job/' || new.id::text || '/'
-      || coalesce(new.created_by::text, 'unavailable'),
+      || coalesce(requester_id::text, 'unavailable'),
     case when initial_state = 'pending' then new.analysis_finished_at end,
     case when initial_state = 'unavailable' then 'RECIPIENT_UNAVAILABLE' end
   );
@@ -324,30 +376,173 @@ create or replace function public.recover_stale_local_takeoff_jobs(
   p_stale_after interval default interval '10 minutes'
 )
 returns table (job_id uuid, error_code text)
-language plpgsql
+language plpgsql security definer
 set search_path = pg_catalog
 as $$
+declare
+  cutoff timestamptz := (select active_from from private.takeoff_completion_activation);
+  recovery_at timestamptz := least(p_now, clock_timestamp());
 begin
-  if p_now is null or p_stale_after is null or p_stale_after < interval '1 minute' then
+  if p_now is null or p_stale_after < interval '1 minute' then
     raise exception 'TAKEOFF_RECOVERY_ARGUMENT_INVALID' using errcode = '22023';
   end if;
+  if cutoff is null or clock_timestamp() < cutoff then
+    return query
+    with recovered as (
+      update public.takeoff_jobs as job_row
+      set status = 'failed', completed_at = p_now, next_retry_at = null,
+        last_error_at = p_now, error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN',
+        error_message = 'Le worker a expire pendant un appel dont le resultat fournisseur est inconnu. Une reprise manuelle est requise.',
+        processing_lease_token = null, processing_lease_expires_at = null,
+        provider_reconcile_due_at = null, provider_reconcile_lease_token = null,
+        provider_reconcile_lease_expires_at = null
+      where job_row.execution_provider = 'chatgpt_local'
+        and job_row.status = 'processing' and job_row.provider_batch_id is null
+        and (job_row.processing_lease_expires_at <= p_now or
+          (job_row.processing_lease_expires_at is null and coalesce(job_row.started_at, job_row.updated_at) <= p_now - p_stale_after))
+      returning job_row.id, job_row.error_code
+    ) select recovered.id, recovered.error_code from recovered;
+    return;
+  end if;
+  if p_stale_after is null then
+    raise exception 'TAKEOFF_RECOVERY_ARGUMENT_INVALID' using errcode = '22023';
+  end if;
+
   return query
   update public.takeoff_jobs as job_row
-  set status = 'failed', completed_at = p_now, next_retry_at = null,
-    last_error_at = p_now, error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN',
-    error_message = 'Le traitement a été interrompu. Son résultat est inconnu et nécessite une vérification manuelle.',
+  set status = 'failed', completed_at = recovery_at, next_retry_at = null,
+    last_error_at = recovery_at,
+    error_code = case when job_row.status = 'processing' then 'TAKEOFF_WORKER_OUTCOME_UNKNOWN'
+      else 'TAKEOFF_WORKER_NOT_STARTED' end,
+    error_message = case when job_row.status = 'processing'
+      then 'Le traitement a été interrompu. Son résultat est inconnu et nécessite une vérification manuelle.'
+      else 'L’analyse n’a pas pu démarrer. Vérifiez le poste autorisé avant de préparer une nouvelle analyse.' end,
     analysis_outcome = 'failure',
     processing_lease_token = null, processing_lease_expires_at = null,
     provider_reconcile_due_at = null, provider_reconcile_lease_token = null,
     provider_reconcile_lease_expires_at = null
-  where job_row.execution_provider = 'chatgpt_local'
-    and job_row.status = 'processing' and job_row.provider_batch_id is null
-    and (job_row.processing_lease_expires_at <= least(p_now, clock_timestamp()) or
-      (job_row.processing_lease_expires_at is null
-        and coalesce(job_row.started_at, job_row.updated_at) <= least(p_now, clock_timestamp()) - p_stale_after))
+  where job_row.execution_provider = 'chatgpt_local' and job_row.provider_batch_id is null
+    and job_row.analysis_outcome is null
+    and (
+      (job_row.status = 'processing' and (
+        job_row.processing_lease_expires_at <= recovery_at or
+        (job_row.processing_lease_expires_at is null
+          and coalesce(job_row.started_at, job_row.updated_at) <= recovery_at - p_stale_after)))
+      or (job_row.status = 'pending' and
+        greatest(cutoff, coalesce(job_row.analysis_queued_at, job_row.created_at)) <= recovery_at - p_stale_after)
+      or (job_row.status = 'failed' and job_row.retry_count < 3 and job_row.next_retry_at is not null and
+        greatest(cutoff, job_row.next_retry_at) <= recovery_at - p_stale_after)
+    )
   returning job_row.id, job_row.error_code;
 end;
 $$;
+revoke all on function public.recover_stale_local_takeoff_jobs(timestamptz, interval) from public, anon, authenticated;
+grant execute on function public.recover_stale_local_takeoff_jobs(timestamptz, interval) to service_role;
+
+create function private.insert_local_takeoff_result_items(p_tenant_id uuid, p_job_id uuid, p_result_id uuid, p_items jsonb)
+returns void language sql set search_path = pg_catalog as $$
+  insert into public.takeoff_items (
+    id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence,
+    source_file_name, source_page, metadata, is_excluded, exclusion_reason, rules_stale
+  )
+  select coalesce(item.id, gen_random_uuid()), p_tenant_id, p_job_id, p_result_id,
+    item.designation, item.quantity, item.unit, item.confidence, item.evidence, item.source_file_name,
+    item.source_page, coalesce(item.metadata, '{}'::jsonb), coalesce(item.is_excluded, false),
+    item.exclusion_reason, coalesce(item.rules_stale, false)
+  from jsonb_populate_recordset(null::public.takeoff_items, p_items) item;
+$$;
+revoke all on function private.insert_local_takeoff_result_items(uuid, uuid, uuid, jsonb) from public, anon, authenticated, service_role;
+
+-- The worker cannot leave a successful result visible without its terminal
+-- job update. The row lock arbitrates with cancellation and stale recovery.
+create function public.finalize_local_takeoff_result(
+  p_job_id uuid, p_tenant_id uuid, p_lease_token uuid, p_completed_at timestamptz,
+  p_model text, p_prompt_version text, p_result jsonb, p_items jsonb, p_vector jsonb default null
+)
+returns uuid language plpgsql security definer set search_path = pg_catalog as $$
+declare
+  result_row public.takeoff_results;
+  new_result_id uuid;
+begin
+  perform 1 from public.takeoff_jobs j
+  where j.id = p_job_id and j.tenant_id = p_tenant_id and j.status = 'processing'
+    and j.execution_provider = 'chatgpt_local' and j.processing_lease_token = p_lease_token
+  for update;
+  if not found then return null; end if;
+
+  if not exists (select 1 from public.takeoff_jobs j where j.id = p_job_id
+      and j.processing_lease_expires_at > clock_timestamp()) then
+    return null;
+  end if;
+
+  result_row := jsonb_populate_record(null::public.takeoff_results, p_result);
+  delete from public.takeoff_run_metrics where job_id = p_job_id and tenant_id = p_tenant_id;
+  delete from public.takeoff_items where job_id = p_job_id and tenant_id = p_tenant_id;
+  delete from public.takeoff_results where job_id = p_job_id and tenant_id = p_tenant_id;
+  insert into public.takeoff_results (tenant_id, job_id, extracted_json, warnings, tables, provider_meta, raw_response,
+    confidence, token_count, cost_cents, duration_ms)
+  values (p_tenant_id, p_job_id, result_row.extracted_json, result_row.warnings, result_row.tables, result_row.provider_meta,
+    result_row.raw_response, result_row.confidence, result_row.token_count, result_row.cost_cents, result_row.duration_ms)
+  returning id into new_result_id;
+
+  perform private.insert_local_takeoff_result_items(p_tenant_id, p_job_id, new_result_id, p_items);
+
+  -- Optional vector measurements and source selection succeed together, or
+  -- this subtransaction leaves the model reading intact. A lost RPC response
+  -- cannot cause the worker to undo an already committed selection.
+  if p_vector is not null then
+    begin
+      insert into public.takeoff_vector_pages (
+        id, tenant_id, job_id, result_id, plan_file_id, source_file_name, source_page, reading, schema_version, rule_anchors
+      )
+      select p.id, p_tenant_id, p_job_id, new_result_id, p.plan_file_id, p.source_file_name, p.source_page,
+        p.reading, p.schema_version, p.rule_anchors
+      from jsonb_populate_recordset(null::public.takeoff_vector_pages, p_vector->'pages') p;
+
+      perform private.insert_local_takeoff_result_items(p_tenant_id, p_job_id, new_result_id, p_vector->'items');
+
+      insert into public.takeoff_item_geometries (takeoff_item_id, tenant_id, job_id, vector_page_id, geometry, schema_version)
+      select g.takeoff_item_id, p_tenant_id, p_job_id, g.vector_page_id, g.geometry, g.schema_version
+      from jsonb_populate_recordset(null::public.takeoff_item_geometries, p_vector->'geometries') g;
+
+      if jsonb_array_length(p_vector->'choices') > 0 then
+        perform public.select_takeoff_quantity_sources(p_job_id, p_tenant_id, p_vector->'choices');
+      end if;
+    exception when data_exception or integrity_constraint_violation then
+      raise log 'takeoff.vector.persistence_failed job=% code=%', p_job_id, sqlstate;
+    end;
+  end if;
+
+  if jsonb_array_length(p_result->'run_metrics') > 0 then
+    begin
+      insert into public.takeoff_run_metrics (
+        tenant_id, job_id, result_id, level, provider, model, chunk_index, chunk_start_page, chunk_end_page,
+        input_tokens, reasoning_tokens, output_tokens, total_tokens, cost_cents, duration_ms, timed_out,
+        budget_exceeded, metadata
+      )
+      select p_tenant_id, p_job_id, new_result_id, m.level, m.provider, m.model, m.chunk_index,
+        m.chunk_start_page, m.chunk_end_page, m.input_tokens, m.reasoning_tokens, m.output_tokens,
+        m.total_tokens, m.cost_cents, m.duration_ms, m.timed_out, m.budget_exceeded, m.metadata
+      from jsonb_populate_recordset(null::public.takeoff_run_metrics, p_result->'run_metrics') m;
+    exception when data_exception or integrity_constraint_violation then
+      raise log 'takeoff.level_c.metrics_persistence_failed job=% code=%', p_job_id, sqlstate;
+    end;
+  end if;
+
+  update public.takeoff_jobs set
+    status = 'completed', completed_at = p_completed_at, model = p_model, prompt_version = p_prompt_version,
+    token_count = result_row.token_count, cost_cents = result_row.cost_cents,
+    duration_ms = coalesce((p_result->>'job_duration_ms')::integer, result_row.duration_ms),
+    error_code = null, error_message = null, next_retry_at = null,
+    processing_lease_token = null, processing_lease_expires_at = null
+  where id = p_job_id and tenant_id = p_tenant_id;
+  return new_result_id;
+end;
+$$;
+revoke all on function public.finalize_local_takeoff_result(uuid, uuid, uuid, timestamptz, text, text, jsonb, jsonb, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.finalize_local_takeoff_result(uuid, uuid, uuid, timestamptz, text, text, jsonb, jsonb, jsonb)
+  to service_role;
 
 create function public.claim_takeoff_completion_email(p_id uuid default null)
 returns setof public.takeoff_completion_notifications

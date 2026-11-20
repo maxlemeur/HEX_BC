@@ -7,7 +7,7 @@ import { fetchTakeoffJob, type TakeoffActivityCenterResponse } from "@/lib/takeo
 import { isTakeoffOperatorMutationRole, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/operator-state";
 import type { TakeoffJobSummary } from "@/lib/takeoff/types";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
-import { getTakeoffFailureReasonLabel } from "@/lib/takeoff/visible-status";
+import { getTakeoffFailureReasonLabel, takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
 
 export type ActionKind = "resubmit" | "cancel";
 type ActivityJob = TakeoffActivityCenterResponse["jobs"][number];
@@ -45,8 +45,10 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
       {failed && (
         <div className="space-y-1 text-xs text-muted-foreground">
           {detail ? (
-            <p>{getTakeoffFailureReasonLabel({ errorCode: detail.error_code })
-              ?? (detail.error_code ? `Analyse interrompue (code ${detail.error_code}).` : "Analyse interrompue sans code de diagnostic.")}</p>
+            <p>{job.analysisCompletion?.outcome === "failure"
+              ? takeoffCompletionFailureReason(detail.error_code)
+              : getTakeoffFailureReasonLabel({ errorCode: detail.error_code })
+                ?? (detail.error_code ? `Analyse interrompue (code ${detail.error_code}).` : "Analyse interrompue sans code de diagnostic.")}</p>
           ) : error ? (
             <p>Motif de l’échec indisponible. <button type="button" className="underline" onClick={() => void mutate()}>Relire le diagnostic</button></p>
           ) : <p>Chargement du motif de l’échec…</p>}

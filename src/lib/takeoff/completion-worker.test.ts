@@ -4,6 +4,7 @@ vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => (
 vi.mock("@/lib/observability/error-reporter", () => ({ reportError: vi.fn() }));
 
 import { processTakeoffJobAttempt } from "@/lib/takeoff/async-worker";
+import { reportError } from "@/lib/observability/error-reporter";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { normalizeTakeoffWorkerJobRow } from "@/lib/takeoff/job-lifecycle";
 
@@ -27,6 +28,54 @@ function fixture(status: string) {
 }
 
 describe("durable takeoff failure decisions", () => {
+  it("reports a rejected admission without settling the accepted pending job", async () => {
+    const { options } = fixture("pending");
+    const outcome = await processTakeoffJobAttempt(id, {
+      ...options, trigger: "create", processLevelCFn: vi.fn().mockRejectedValue(new TakeoffError({
+        code: TakeoffErrorCode.CONFLICT, message: "fixture admission rejected", retryable: false,
+      })),
+    });
+    expect(outcome).toMatchObject({ status: "failed_terminal", error_code: "CONFLICT", should_requeue: false });
+    expect(reportError).toHaveBeenCalledWith(expect.objectContaining({ source: "takeoff.async-worker",
+      context: expect.objectContaining({ job_id: id, error_code: "CONFLICT" }) }));
+  });
+
+  it("keeps the thrown diagnostic on a freshly committed retry with missing diagnostic fields", async () => {
+    const { row, options } = fixture("pending");
+    const outcome = await processTakeoffJobAttempt(id, {
+      ...options, trigger: "create", processLevelCFn: vi.fn(async () => {
+        row.status = "failed";
+        row.next_retry_at = nextRetryAt;
+        throw new TakeoffError({ code: TakeoffErrorCode.AI_TIMEOUT, message: "fixture timeout", retryable: true });
+      }),
+    });
+    expect(outcome).toMatchObject({ error_code: "AI_TIMEOUT", error_message: "fixture timeout", next_run_in_seconds: 5 });
+  });
+
+  it("reports a freshly persisted terminal failure before notifications are activated", async () => {
+    const { row, options, repository } = fixture("pending");
+    const outcome = await processTakeoffJobAttempt(id, {
+      ...options, trigger: "create", processLevelCFn: vi.fn(async () => {
+        row.status = "failed";
+        row.last_error_at = now.toISOString();
+        throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "fixture provider failure", retryable: false });
+      }),
+    });
+    expect(outcome).toMatchObject({ status: "failed_terminal", error_code: "AI_PROVIDER" });
+    expect(row.last_error_at).toBe(now.toISOString());
+    expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
+  });
+
+  it("does not report unsupported-level failure when cancellation won the pending update", async () => {
+    const { row, repository, options } = fixture("pending");
+    row.level = "Z";
+    repository.markUnsupportedLevelAsFailed.mockImplementation(async () => {
+      row.status = "canceled";
+      return false;
+    });
+    const outcome = await processTakeoffJobAttempt(id, { ...options, trigger: "create" });
+    expect(outcome).toMatchObject({ status: "canceled", should_requeue: false });
+  });
   it("keeps a retry committed by the processor despite a later exception", async () => {
     const { row, options, repository } = fixture("pending");
     const outcome = await processTakeoffJobAttempt(id, {
