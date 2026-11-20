@@ -48,9 +48,10 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 // The vector reading in the takeoff worker (TI-662), opt-in with
 // MERGEONE_TAKEOFF_VECTORS=1 and level C only: each retained page of each
 // original PDF (never the merged copy, which loses its layer names) is
-// extracted in its killable process and read with keywords. With
-// MERGEONE_TAKEOFF_DECISIONS=1 too (and Decisions configured,
-// getTakeoffDecisionsCapability), the groups left without class are then
+// extracted in its killable process and read with keywords. The worker runs
+// only local ChatGPT jobs and passes their hook (option B below): the Decisions
+// classification that follows has no production caller since the server
+// provider was removed. With a Decisions hook, the groups left without class are then
 // classified (group-decisions-server.ts: rules, then Decisions, then the
 // propagation of a colour, TI-704) and the page read again with its answers
 // (a Decisions class under its accepted margin is a proposal: kept with its

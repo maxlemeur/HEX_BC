@@ -8,7 +8,11 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
 const HOST_ID = "urn:uuid:55555555-5555-4555-8555-555555555555";
-vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ resolveLocalTakeoffProvider: vi.fn(), assertLocalTakeoffExecutionHost: vi.fn() }));
+// The real local host check runs, against this host; the creator's plan is each test's provider.
+vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn(), readChatGptStore: vi.fn() }));
+vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>(), resolveLocalTakeoffProvider: vi.fn(),
+}));
 // The vector reading's hook passes through to the real one; the routing test (TI-704) reads what a job gets.
 vi.mock("@/lib/takeoff/vectors/worker-server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/takeoff/vectors/worker-server")>();
@@ -18,7 +22,8 @@ vi.mock("@/lib/takeoff/vectors/worker-server", async (importOriginal) => {
 
 import { PDFDocument } from "pdf-lib";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider, type LocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
+import { resolveLocalTakeoffProvider, type LocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { readTakeoffVectorPages, takeoffVectorLocalGroupsHook } from "@/lib/takeoff/vectors/worker-server";
 
 import type { StructuredCall, StructuredCallResult } from "@/lib/ai/structured-call";
@@ -37,7 +42,8 @@ import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-util
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
 
 beforeEach(() => {
-  vi.mocked(assertLocalTakeoffExecutionHost).mockResolvedValue(HOST_ID);
+  for (const [name, value] of Object.entries({ MERGEONE_CHATGPT_LOCAL: "1", CI: "", VERCEL: "" })) vi.stubEnv(name, value);
+  vi.mocked(getChatGptHostId).mockResolvedValue(HOST_ID);
   vi.mocked(resolveLocalTakeoffProvider).mockRejectedValue(new Error("Each test gives its provider."));
 });
 
@@ -1317,7 +1323,7 @@ describe("processLevelA", () => {
     const mock = createTakeoffProcessorSupabaseMock({ job: { execution_provider: "gemini", execution_host_id: null } });
     const call = vi.fn();
     await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW, resolveProvider: localProvider(call) }))
-      .rejects.toMatchObject({ code: TakeoffErrorCode.AI_PROVIDER, status: 422, retryable: false });
+      .rejects.toMatchObject({ code: TakeoffErrorCode.AI_PROVIDER, status: 422, retryable: false, message: expect.stringContaining("Cet ancien métré") });
     expect(mock.supabase.rpc).not.toHaveBeenCalled();
     expect(call).not.toHaveBeenCalled();
     expect(mock.state.statusTransitions).toEqual([]);

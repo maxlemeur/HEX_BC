@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect } from "e2e";
@@ -49,17 +49,22 @@ export async function signUpWorkerOwner(ui: WorkerUi, tag: string): Promise<Work
 
 /**
  * The local host the owned worker child runs as: the identity MergeOne local keeps in `.private/chatgpt-local/host.json`
- * of its working directory, which the child shares (getChatGptHostId writes it the same way when it is missing). A local
- * job is claimed only by its own host.
+ * of its working directory, which the child shares (getChatGptHostId writes the same value when it is missing). A local
+ * job is claimed only by its own host. The file appears whole (linked from a written copy): parallel journeys never
+ * read it half written.
  */
 export async function ownedWorkerHostId() {
   const directory = path.resolve(".private/chatgpt-local");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const file = path.join(directory, "host.json");
+  const written = path.join(directory, `host.${randomUUID()}.tmp`);
   try {
-    await writeFile(file, JSON.stringify(`urn:uuid:${randomUUID()}`), { flag: "wx", mode: 0o600 });
+    await writeFile(written, JSON.stringify(`urn:uuid:${randomUUID()}`), { flag: "wx", mode: 0o600 });
+    await link(written, file);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  } finally {
+    await rm(written, { force: true });
   }
   return z.string().regex(/^urn:uuid:[0-9a-f-]{36}$/).parse(JSON.parse(await readFile(file, "utf8")));
 }

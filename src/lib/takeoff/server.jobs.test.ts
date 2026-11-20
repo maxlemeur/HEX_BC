@@ -12,7 +12,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
 
-// The creator, plan and host checks of a local job are covered in chatgpt-takeoff.test.ts.
+// The resume check is reduced to its refusal of a former provider's job; chatgpt-takeoff.test.ts covers the real one.
 vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ assertLocalTakeoffResumeReady: vi.fn() }));
 
 import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";

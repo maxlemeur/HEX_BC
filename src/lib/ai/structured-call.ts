@@ -21,9 +21,7 @@ export type StructuredCallOptions<T> = {
   prompt: string;
   schema: z.ZodType<T>;
   files?: StructuredCallFile[];
-  thinkingLevel?: "low" | "medium" | "high";
   timeoutMs?: number;
-  maxRetries?: number;
   context?: StructuredCallContext;
 };
 

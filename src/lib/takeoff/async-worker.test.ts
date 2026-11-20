@@ -18,6 +18,7 @@ type WorkerJobRow = {
   tenant_id: string;
   level: string;
   status: string;
+  execution_provider: string | null;
   retry_count: number;
   error_code: string | null;
   error_message: string | null;
@@ -114,6 +115,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "pending",
+      execution_provider: "chatgpt_local",
       retry_count: 0,
       error_code: null,
       error_message: null,
@@ -144,6 +146,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "pending",
+      execution_provider: "chatgpt_local",
       retry_count: 0,
       error_code: null,
       error_message: null,
@@ -196,6 +199,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
+      execution_provider: "chatgpt_local",
       retry_count: 3,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out",
@@ -244,6 +248,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
+      execution_provider: "chatgpt_local",
       retry_count: 1,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out",
@@ -274,6 +279,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
+      execution_provider: "chatgpt_local",
       retry_count: 1,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out",
@@ -314,6 +320,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
+      execution_provider: "chatgpt_local",
       retry_count: 1,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out during previous attempt",
@@ -358,6 +365,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "processing",
+      execution_provider: "chatgpt_local",
       retry_count: 1,
       error_code: null,
       error_message: null,
@@ -412,6 +420,7 @@ function workerJob(overrides: Partial<WorkerJobRow> = {}): WorkerJobRow {
     tenant_id: TENANT_ID,
     level: "A",
     status: "pending",
+    execution_provider: "chatgpt_local",
     retry_count: 0,
     error_code: null,
     error_message: null,
@@ -592,6 +601,23 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         })
       );
       expect(harness.sequence()).toEqual([["getJobById", JOB_ID]]);
+    });
+
+    it("refuses a job of a former provider before any write or processing", async () => {
+      const harness = createAttemptHarness(
+        workerJob({ status: "failed", execution_provider: "gemini", retry_count: 1, next_retry_at: at(-60), error_code: "AI_TIMEOUT" })
+      );
+
+      await expect(harness.run("retry")).rejects.toMatchObject({
+        code: TakeoffErrorCode.AI_PROVIDER,
+        status: 422,
+        retryable: false,
+        message: expect.stringContaining("Cet ancien métré"),
+      });
+      expect(harness.sequence()).toEqual([
+        ["getJobById", JOB_ID],
+        ["isTenantActive", TENANT_ID],
+      ]);
     });
 
     it("leaves a job of a suspended tenant untouched", async () => {

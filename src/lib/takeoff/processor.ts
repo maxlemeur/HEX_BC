@@ -23,7 +23,6 @@ import {
   takeoffAuditMetadataBuilders,
 } from "@/lib/takeoff/audit";
 import {
-  assertTakeoffJobUsesLocalProvider,
   TakeoffError,
   TakeoffErrorCode,
   toTakeoffError,
@@ -2820,7 +2819,6 @@ async function processTakeoffLevel(
       });
     }
 
-    assertTakeoffJobUsesLocalProvider(job);
     const hostId = await assertLocalTakeoffExecutionHost(job);
     let resolved: { provider: LocalTakeoffProvider } | { error: unknown };
     try { resolved = { provider: await resolveProvider(context.supabase, job) }; }

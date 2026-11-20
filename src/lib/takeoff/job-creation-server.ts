@@ -65,7 +65,7 @@ export type CreatePreparedPlanSetJobInput = {
   sourceVersionId?: string;
 };
 
-export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSetJobInput, executionProvider?: "gemini" | "chatgpt_local") {
+export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSetJobInput, executionProvider?: "chatgpt_local") {
   const context = await getAuthenticatedContext();
   const deterministic = await getTakeoffJobById({
     supabase: context.supabase, tenantId: context.tenantId,

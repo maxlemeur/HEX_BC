@@ -63,6 +63,7 @@ export type TakeoffWorkerJobRow = {
   tenant_id: string;
   level: string;
   status: string;
+  execution_provider: string | null;
   retry_count: number | null;
   error_code: string | null;
   error_message: string | null;
@@ -81,6 +82,7 @@ export function normalizeTakeoffWorkerJobRow(row: unknown): TakeoffWorkerJobRow 
     tenant_id: record.tenant_id,
     level: text(record.level) ?? "",
     status: text(record.status) ?? "",
+    execution_provider: text(record.execution_provider),
     retry_count: typeof record.retry_count === "number" ? record.retry_count : null,
     error_code: text(record.error_code),
     error_message: text(record.error_message),

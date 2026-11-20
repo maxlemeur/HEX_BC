@@ -4,9 +4,11 @@ import { z } from "zod";
 
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn(), getChatGptHostId: vi.fn().mockResolvedValue("urn:uuid:host") }));
 vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ callLocalChatGptStructured: vi.fn() }));
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 import { readChatGptStore, getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
-import { getTakeoffExecutionOwner, parseTakeoffProvider, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { assertLocalTakeoffResumeReady, getTakeoffExecutionOwner, parseTakeoffProvider, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 
 const job = { id: "job", tenant_id: "tenant", created_by: "creator", execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:host" } as TakeoffJobProcessingRow;
@@ -79,6 +81,14 @@ it("refuses a legacy Gemini job before reading its creator's access or plan, eve
     .rejects.toMatchObject({ status: 422, code: "AI_PROVIDER", retryable: false });
   expect(client.from).not.toHaveBeenCalled();
   expect(readChatGptStore).not.toHaveBeenCalled();
+});
+it("refuses to resume a legacy Gemini job before reading its creator's membership, plan or host", async () => {
+  await expect(assertLocalTakeoffResumeReady(client as never, "tenant", { execution_provider: "gemini", execution_host_id: null, created_by: "creator" }))
+    .rejects.toMatchObject({ status: 422, code: "AI_PROVIDER", retryable: false, message: expect.stringContaining("Cet ancien métré") });
+  expect(createServiceRoleClient).not.toHaveBeenCalled();
+  expect(client.from).not.toHaveBeenCalled();
+  expect(readChatGptStore).not.toHaveBeenCalled();
+  expect(getChatGptHostId).not.toHaveBeenCalled();
 });
 it("never falls back when the reserved plan is disconnected", async () => {
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] });

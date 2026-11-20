@@ -347,10 +347,8 @@ const BRIEF_SOURCE_SELECT = [
 ].join(", ");
 
 const AFFAIRE_INTAKE_CLASSIFICATION_MODEL = "gemini-3-flash-preview";
-const AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL = "low" as const;
 const AFFAIRE_BRIEF_PROMPT_VERSION = "dos01_affaire_brief_v2";
 const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
-const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
 
 const affaireBriefEntrySchema = z
   .object({
@@ -822,7 +820,6 @@ async function classifyAffaireIntakeDocument(input: {
       }),
       schema: affaireIntakeClassificationAiResultSchema,
       files: [filePayload],
-      thinkingLevel: AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL,
       context: {
         model: AFFAIRE_INTAKE_CLASSIFICATION_MODEL,
         promptVersion: AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
@@ -1808,7 +1805,6 @@ async function generateAffaireBriefDraft(input: {
             missingPieces: input.missingPieces,
           }),
           schema: affaireBriefGenerationSchema,
-          thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
           context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
         }, input.aiOwner),
       });

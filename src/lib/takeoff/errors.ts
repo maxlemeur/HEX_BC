@@ -19,7 +19,6 @@ export enum TakeoffErrorCode {
   TAKEOFF_FILE_TOO_LARGE = "TAKEOFF_FILE_TOO_LARGE",
   TAKEOFF_FILE_TYPE_INVALID = "TAKEOFF_FILE_TYPE_INVALID",
   TAKEOFF_PDF_CORRUPTED = "TAKEOFF_PDF_CORRUPTED",
-  TAKEOFF_PDF_INSPECTION_TIMEOUT = "TAKEOFF_PDF_INSPECTION_TIMEOUT",
   TAKEOFF_PDF_NOT_INTERPRETABLE = "TAKEOFF_PDF_NOT_INTERPRETABLE",
   TAKEOFF_LEVEL_UNSUPPORTED = "TAKEOFF_LEVEL_UNSUPPORTED",
   TAKEOFF_ESTIMATE_VERSION_ID_INVALID = "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
@@ -27,8 +26,6 @@ export enum TakeoffErrorCode {
   TAKEOFF_TENANT_UNAUTHORIZED = "TAKEOFF_TENANT_UNAUTHORIZED",
   TAKEOFF_TENANT_INACTIVE = "TAKEOFF_TENANT_INACTIVE",
   TAKEOFF_WORKER_OUTCOME_UNKNOWN = "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
-  IDEMPOTENCY_KEY_INVALID = "IDEMPOTENCY_KEY_INVALID",
-  IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED",
   AI_RATE_LIMIT = "AI_RATE_LIMIT",
   AI_TIMEOUT = "AI_TIMEOUT",
   AI_SCHEMA = "AI_SCHEMA",
@@ -181,7 +178,6 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
   if (
     code === TakeoffErrorCode.CONFLICT ||
-    code === TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED ||
     code === TakeoffErrorCode.TAKEOFF_JOB_NOT_RETRIABLE ||
     code === TakeoffErrorCode.TAKEOFF_JOB_NOT_CANCELABLE ||
     code === TakeoffErrorCode.TAKEOFF_JOB_ADMISSION_LIMIT
@@ -191,10 +187,6 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
   if (code === TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE) {
     return 413;
-  }
-
-  if (code === TakeoffErrorCode.TAKEOFF_PDF_INSPECTION_TIMEOUT) {
-    return 503;
   }
 
   if (
@@ -214,10 +206,6 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
   if (code === TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT) {
     return 500;
-  }
-
-  if (code === TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID) {
-    return 422;
   }
 
   if (

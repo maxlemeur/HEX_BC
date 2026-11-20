@@ -5,7 +5,7 @@ import {
   TAKEOFF_RETRY_BACKOFF_SECONDS,
   TAKEOFF_RETRY_MAX,
 } from "@/lib/takeoff/constants";
-import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { assertTakeoffJobUsesLocalProvider, TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   normalizeTakeoffWorkerJobRow,
   type TakeoffLeaseRenewal,
@@ -123,6 +123,7 @@ function createSupabaseTakeoffWorkerRepository(
             "tenant_id",
             "level",
             "status",
+            "execution_provider",
             "retry_count",
             "error_code",
             "error_message",
@@ -731,6 +732,9 @@ export async function processTakeoffJobAttempt(
       errorMessage: "Le tenant est suspendu; le worker n'a execute aucun effet externe.",
     });
   }
+
+  // Before any write: a job of a former provider is never run, retried nor scheduled again.
+  assertTakeoffJobUsesLocalProvider(job);
 
   if (job.status === "failed") {
     const retryGateOutcome = await gateFailedJobRetry(attempt);
