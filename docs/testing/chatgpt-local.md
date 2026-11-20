@@ -80,16 +80,16 @@ par un ancien worker Gemini, même avec le rôle de service. Seul le RPC de clai
 local peut le démarrer sur l’hôte réservé. Garder le serveur ouvert pendant
 l’analyse.
 
-Les formulaires de téléversement et de lancement depuis un jeu de plans proposent
-**Fournisseur IA** : Automatique ou ChatGPT (forfait local). Les deux exigent
-une connexion et un modèle disponibles sur ce Mac. Une ancienne préparation
+Le lancement depuis un jeu de plans propose **Fournisseur IA** : Automatique ou
+ChatGPT (forfait local). Les deux exigent une connexion et un modèle disponibles
+sur ce Mac. Une ancienne préparation
 enregistrée avec Gemini reste lisible, mais demande une nouvelle sélection et
 confirmation avant lancement. Les résultats historiques restent consultables.
 
 Sans compte sélectionné, l’analyse est refusée avant l’envoi de la source. Un
 refus, un quota ou une panne ChatGPT ne déclenche aucun appel Gemini de secours.
 Les traitements métier peuvent conserver leurs replis heuristiques existants.
-Un métré ChatGPT en échec s’arrête sans escalade Gemini ni retry automatique.
+Un métré ChatGPT en échec s’arrête sans relance automatique du forfait ni autre fournisseur.
 Une perte de connexion ou un arrêt brutal n’autorise pas un changement de
 fournisseur. Après expiration de lease, la reprise manuelle reste réservée au
 Mac d’origine. Une déconnexion du forfait ou une membership révoquée bloque
@@ -99,8 +99,9 @@ est utilisé ; changer de connexion entre deux tentatives change donc ce forfait
 Son résultat identifie `provider: chatgpt`, le modèle et les jetons consommés ;
 `cost_cents: 0` signifie usage du forfait, sans prix API calculé.
 
-Les anciennes tâches Gemini ne sont plus lancées ni réconciliées par cette
-version. La clé API personnelle est décrite plus bas ([Clé API OpenAI](#clé-api-openai)) ;
+Le chemin Gemini a été retiré : les anciennes tâches Gemini restent consultables
+(listes, détail, exports), et toute relance ou reprise est refusée avant tout
+traitement (`AI_PROVIDER`). La clé API personnelle est décrite plus bas ([Clé API OpenAI](#clé-api-openai)) ;
 elle ne remplace jamais le forfait dans ces traitements. Ces
 changements n'ont pas été déployés : le site hébergé et ses traitements déjà
 enregistrés conservent leur fonctionnement tant qu'ils ne sont pas modifiés.

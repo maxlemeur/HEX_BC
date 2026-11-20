@@ -16,7 +16,7 @@ import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/h
 import {
   TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, expectLandedOnTakeoffLine, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
 } from "./fixtures";
-import { signUpWorkerOwner, startOwnedWorker, type WorkerUi } from "./worker-support";
+import { ownedWorkerJobOwner, signUpWorkerOwner, startOwnedWorker, type WorkerUi } from "./worker-support";
 import { ZONE_PLANS, buildZonePlanPdf } from "./zone-plans-fixture";
 
 // TI-664 (métré L5): the fixed rules decide, the user settles what fails. Two zone plans of one level, read by the
@@ -91,7 +91,7 @@ async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: s
     expect((await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
     const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
       created_by: owner.userId, level: "C", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
-      source_file_type: "application/pdf", source_file_size_bytes: bytes.length, execution_provider: "gemini" } as never).select("id").single();
+      source_file_type: "application/pdf", source_file_size_bytes: bytes.length, ...await ownedWorkerJobOwner() } as never).select("id").single();
     expect(inserted.error).toBeNull();
     const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, rules: true, owner }).done;
     expect(completed.job).toMatchObject({ status: "completed", level: "C" });

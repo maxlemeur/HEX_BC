@@ -421,12 +421,13 @@ est une constante nommée et versionnée dans le code.
 
 ## Decisions dans le métré
 
-Le worker lit les plans d'un métré de niveau C avec `MERGEONE_TAKEOFF_VECTORS=1`. Il
-classe en plus les groupes restés sans classe par Decisions avec
-`MERGEONE_TAKEOFF_DECISIONS=1`, à condition que Decisions soit configuré
-(`MERGEONE_OPENAI_DECISIONS=1` et sa clé, `getTakeoffDecisionsCapability()`). Les appels
-sont faits pour l'utilisateur du métré, sur son tenant
-([`worker-server.ts`](../../src/lib/takeoff/vectors/worker-server.ts)).
+Le worker lit les plans d'un métré de niveau C avec `MERGEONE_TAKEOFF_VECTORS=1`. Avec
+`MERGEONE_TAKEOFF_DECISIONS=1`, il classe en plus les groupes restés sans classe. Seul le
+forfait ChatGPT local exécute désormais les métrés : le worker les fait classer par le
+forfait du créateur (TI-704 option B, plus bas), jamais par Decisions. Le classement par
+Decisions décrit ici reste dans
+[`worker-server.ts`](../../src/lib/takeoff/vectors/worker-server.ts), sans appelant en
+production depuis le retrait du fournisseur serveur.
 
 - Chaque page est lue par mots-clés, ses groupes sont classés (règles, Decisions,
   propagation), puis la page est relue avec les réponses.

@@ -76,10 +76,10 @@ describe("ChatGPT plan inference", () => {
     fetchMock.mockResolvedValue(stream([completed]));
     await expect(callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.literal(99) }) })).rejects.toThrow();
   });
-  it("sends the persisted reasoning effort on the actual Responses request independently of Gemini settings", async () => {
+  it("sends the persisted reasoning effort on the actual Responses request", async () => {
     vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: "gpt-6.1-terra", reasoningEffort: "max" });
     const fetchMock = vi.fn().mockResolvedValue(stream([completed])); vi.stubGlobal("fetch", fetchMock);
-    const result = await callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.number() }), thinkingLevel: "low" });
+    const result = await callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.number() }) });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: "gpt-6.1-terra", reasoning: { effort: "max" } });
     expect(result.reasoningEffort).toBe("max");
   });

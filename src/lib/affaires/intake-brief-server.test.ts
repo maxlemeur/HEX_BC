@@ -9,10 +9,6 @@ vi.mock("@/lib/affaires/register-server", () => ({
   syncAffaireRegisterMissingPieces: vi.fn(),
 }));
 
-vi.mock("@/lib/takeoff/gemini-client", () => ({
-  callGeminiStructured: vi.fn(),
-}));
-
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-server";
 import {

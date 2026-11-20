@@ -4,12 +4,6 @@ import { forbidden } from "@/lib/http/api-response";
 import { getFeatureFlagValueForTenant, isFeatureEnabled } from "@/lib/feature-flags";
 import { parseLowConfidenceThreshold } from "@/lib/takeoff/guards";
 import {
-  TAKEOFF_AI_ESCALATION_ENABLED_DEFAULT,
-  TAKEOFF_AI_ESCALATION_ENABLED_FLAG_KEY,
-  TAKEOFF_AI_ESCALATION_MAX_COST_CENTS_DEFAULT,
-  TAKEOFF_AI_ESCALATION_MAX_COST_CENTS_FLAG_KEY,
-  TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE_DEFAULT,
-  TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE_FLAG_KEY,
   TAKEOFF_C_MAX_COST_CENTS_DEFAULT,
   TAKEOFF_C_MAX_COST_CENTS_FLAG_KEY,
   TAKEOFF_C_CHUNK_OVERLAP_PAGES_DEFAULT,
@@ -27,11 +21,8 @@ import {
   TAKEOFF_C_TIMEOUT_MS_FLAG_KEY,
   TAKEOFF_C_TIMEOUT_MS_MAX,
   TAKEOFF_C_TIMEOUT_MS_MIN,
-  TAKEOFF_GEMINI_BATCH_MODE_DEFAULT,
-  TAKEOFF_GEMINI_BATCH_MODE_FLAG_KEY,
   TAKEOFF_MODULE_ENABLED_FLAG_KEY,
 } from "@/lib/takeoff/constants";
-import type { TakeoffLevel } from "@/lib/takeoff/types";
 import type { Database } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
@@ -47,16 +38,6 @@ export type TakeoffLevelCProcessingConfig = TakeoffChunkingConfig & {
   timeoutMs: number;
   maxTotalTokens: number;
   maxCostCents: number;
-};
-
-export type TakeoffEscalationConfig = {
-  enabled: boolean;
-  minConfidence: number;
-  maxCostCents: number;
-};
-
-export type TakeoffGeminiDeliveryConfig = {
-  useBatchApi: boolean;
 };
 
 function parseBooleanEnvFlag(value: string | undefined): boolean | null {
@@ -76,14 +57,6 @@ function parsePositiveIntegerOrFallback(value: string | null, fallback: number) 
   return normalized;
 }
 
-function parseBooleanFlagOrFallback(value: string | null, fallback: boolean) {
-  if (typeof value !== "string") return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
-}
-
 function parseNonNegativeIntegerOrFallback(value: string | null, fallback: number) {
   if (!value) return fallback;
   const parsed = Number(value);
@@ -91,14 +64,6 @@ function parseNonNegativeIntegerOrFallback(value: string | null, fallback: numbe
   const normalized = Math.trunc(parsed);
   if (normalized < 0) return fallback;
   return normalized;
-}
-
-function parseConfidenceThresholdOrFallback(value: string | null, fallback: number) {
-  if (!value) return fallback;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  if (parsed < 0 || parsed > 1) return fallback;
-  return parsed;
 }
 
 function parseChunkingConfig(input: {
@@ -246,76 +211,6 @@ export async function getTakeoffLowConfidenceThresholdForTenant(
 
   // Read as the apply trigger reads it (TI-677): the guard and the trigger block the same lines.
   return parseLowConfidenceThreshold(thresholdRaw);
-}
-
-export async function getTakeoffEscalationConfigForTenant(
-  tenantId: string,
-  input?: { supabase?: Supabase }
-): Promise<TakeoffEscalationConfig> {
-  const [enabledRaw, minConfidenceRaw, maxCostCentsRaw] = await Promise.all([
-    getFeatureFlagValueForTenant(tenantId, TAKEOFF_AI_ESCALATION_ENABLED_FLAG_KEY, input),
-    getFeatureFlagValueForTenant(
-      tenantId,
-      TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE_FLAG_KEY,
-      input
-    ),
-    getFeatureFlagValueForTenant(
-      tenantId,
-      TAKEOFF_AI_ESCALATION_MAX_COST_CENTS_FLAG_KEY,
-      input
-    ),
-  ]);
-
-  const envEnabled = parseBooleanEnvFlag(process.env.TAKEOFF_AI_ESCALATION_ENABLED);
-  const envMinConfidence = parseConfidenceThresholdOrFallback(
-    process.env.TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE ?? null,
-    TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE_DEFAULT
-  );
-  const envMaxCostCents = parsePositiveIntegerOrFallback(
-    process.env.TAKEOFF_AI_ESCALATION_MAX_COST_CENTS ?? null,
-    TAKEOFF_AI_ESCALATION_MAX_COST_CENTS_DEFAULT
-  );
-
-  return {
-    enabled: parseBooleanFlagOrFallback(
-      enabledRaw,
-      envEnabled ?? TAKEOFF_AI_ESCALATION_ENABLED_DEFAULT
-    ),
-    minConfidence: parseConfidenceThresholdOrFallback(
-      minConfidenceRaw,
-      envMinConfidence
-    ),
-    maxCostCents: parsePositiveIntegerOrFallback(
-      maxCostCentsRaw,
-      envMaxCostCents
-    ),
-  };
-}
-
-export async function getTakeoffGeminiDeliveryConfigForTenant(
-  tenantId: string,
-  level: TakeoffLevel,
-  input?: { supabase?: Supabase }
-): Promise<TakeoffGeminiDeliveryConfig> {
-  if (level !== "A") {
-    return {
-      useBatchApi: false,
-    };
-  }
-
-  const batchModeRaw = await getFeatureFlagValueForTenant(
-    tenantId,
-    TAKEOFF_GEMINI_BATCH_MODE_FLAG_KEY,
-    input
-  );
-  const envBatchMode = parseBooleanEnvFlag(process.env.TAKEOFF_GEMINI_BATCH_MODE);
-
-  return {
-    useBatchApi: parseBooleanFlagOrFallback(
-      batchModeRaw,
-      envBatchMode ?? TAKEOFF_GEMINI_BATCH_MODE_DEFAULT
-    ),
-  };
 }
 
 export async function assertTakeoffEnabled(

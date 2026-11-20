@@ -10,8 +10,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // - a page without source PDF keeps the previous plan painted under its
 //   geometry beside « n’est pas disponible ».
 // How a class was read (TI-662 L3d, the worker's Decisions), written before the
-// code: the army journey TKW10 covers one Decisions network and one failed
-// call; mixed sources and the « à revoir » count are only reachable here:
+// code; no army journey reads a classified group any more, so these cases are
+// only reachable here:
 // - a network does not say its source, or shows a Decisions class at a higher
 //   confidence than its least sure group, or its sources in the order of its
 //   groups instead of one order;

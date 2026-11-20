@@ -8,7 +8,7 @@ import { StructuredAiError, structuredAiFailureMessage } from "@/lib/ai/structur
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { classifyAutonomousAffaireDocument, isIntakeDecisionsSelected } from "@/lib/affaires/intake-decisions";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
+import type { StructuredCallFile } from "@/lib/ai/structured-call";
 import {
   isAffaireIntakeCadDocument,
   affaireIntakeClassificationAiResultSchema,
@@ -21,7 +21,6 @@ import {
 import { addIssue } from "@/lib/affaires/intake-rows";
 
 const AFFAIRE_INTAKE_CLASSIFICATION_MODEL = "gemini-3-flash-preview";
-const AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL = "low" as const;
 
 export function getSafeProviderErrorCode(error: unknown) {
   if (error instanceof StructuredAiError) return error.code;
@@ -53,7 +52,7 @@ export async function classifyAffaireIntakeDocument(input: {
   if (isAffaireIntakeCadDocument(input.fileName)) return { result: heuristicResult, source: "heuristic",
     analysisFailure: { code: "UNSUPPORTED_FORMAT", message: "Ce format CAO/BIM n’est pas lisible par l’IA. Ajoutez un export PDF pour les plans.", scope: "document" } };
 
-  let filePayload: (GeminiStructuredFile & { issues?: string[] }) | null = null;
+  let filePayload: (StructuredCallFile & { issues?: string[] }) | null = null;
   let payloadFailure: IntakeAnalysisFailure | undefined;
 
   try {
@@ -102,7 +101,6 @@ export async function classifyAffaireIntakeDocument(input: {
       }),
       schema: affaireIntakeClassificationAiResultSchema,
       files: [filePayload],
-      thinkingLevel: AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL,
       context: {
         model: AFFAIRE_INTAKE_CLASSIFICATION_MODEL,
         promptVersion: AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,

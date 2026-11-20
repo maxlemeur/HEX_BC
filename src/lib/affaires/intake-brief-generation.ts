@@ -18,7 +18,6 @@ import { getSafeProviderErrorCode } from "@/lib/affaires/intake-classification";
 
 export const AFFAIRE_BRIEF_PROMPT_VERSION = "dos01_affaire_brief_v2";
 const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
-const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
 
 const affaireBriefEntrySchema = z
   .object({
@@ -537,7 +536,6 @@ export async function generateAffaireBriefDraft(input: {
             missingPieces: input.missingPieces,
           }),
           schema: affaireBriefGenerationSchema,
-          thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
           context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
         }, input.aiOwner),
       });

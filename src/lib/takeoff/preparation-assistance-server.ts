@@ -112,7 +112,7 @@ export async function generateTakeoffPreparationAssistance(input: {
           "Les champs scope contiennent des listes de libellés. Retourne uniquement proposals et questions selon le schéma.",
           JSON.stringify(evidence),
         ].join("\n"),
-        schema: generatedSchema, maxRetries: 0, timeoutMs: 30_000,
+        schema: generatedSchema, timeoutMs: 30_000,
         context: { tenantId: input.owner.tenantId, model: MODEL, promptVersion: PROMPT_VERSION },
       }, input.owner);
       const data = generatedSchema.parse(generated.data);
