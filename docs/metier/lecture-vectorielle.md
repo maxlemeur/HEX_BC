@@ -814,15 +814,19 @@ aucun repère correctement typé. Le reçu indique les quantités par poste sur
 la totalité d'un dossier et les scores spatiaux par page, dossier, poste,
 support et densité. Par famille, le score de dessin crédite les occurrences
 appariées dans tous les optima et compte les repères qui peuvent rester sans
-paire comme faux positifs. Les repères de famille inconnue qui peuvent
+paire comme faux positifs. En cas d'égalité entre appariements optimaux, les
+vrais positifs de dessin par famille sont une borne inférieure et les faux
+positifs une borne supérieure, tandis que les décomptes par page sont
+exacts. Les repères de famille inconnue qui peuvent
 rester sans paire figurent sur la ligne sans attribution. Ils rendent la
 précision indéterminée pour les familles à portée ou pour toutes les
 familles en l'absence de référence proche.
 
 Pour le score hors exemples, chaque repère est attribué à la vérité terrain
 la plus proche dans le rayon. En cas d'égalité, l'exemple fourni prime.
-Par exemple fourni, le repère qui en est le plus proche est écarté du score
-hors exemples. Ses autres échos comptent comme doublons et faux positifs.
+Pour un exemple fourni, un seul écho est écarté du score hors exemples.
+Chaque écho supplémentaire compte comme doublon et faux positif sur les
+trois axes, indépendamment de sa famille ou de son DN.
 Les repères les plus proches d'une occurrence indépendante suivent
 l'appariement habituel. Le reçu compte les exemples fournis et les échos
 en double. Le temps de préparation des exemples n'est pas mesuré.
@@ -837,8 +841,9 @@ Une réponse absente, invalide ou tronquée laisse la page non évaluée pour le
 rejeu et pour sa fusion. Le reçu donne la couverture et les scores des pages
 évaluées et des pages communes. Sur les pages que les deux lecteurs ont
 terminées, il indique les accords à 4 points pour le même poste et le même DN
-émis, ainsi que les positions propres à chaque lecteur. Si aucun DN n'a été
-émis, `agreement: "poste-only"` indique un accord sur le poste seul. Les plans vides, les
+émis, ainsi que les positions propres à chaque lecteur. Quand un groupe
+contient une paire sans DN émis, `agreement: "poste-only"` indique un accord
+sur le poste seul. Les plans vides, les
 légendes, les détails et les doublons restent visibles dans le reçu.
 
 Pour qualifier une famille sur des documents réels, il faut des dossiers

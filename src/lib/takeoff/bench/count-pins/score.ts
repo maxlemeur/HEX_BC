@@ -158,8 +158,9 @@ function scoreWithoutExamples(
 ) {
   const references = orderedPins(truth, truth.map((_, i) => i));
   const echoes = new Set<number>();
-  const firstEcho = new Map<number, { prediction: number; distance: number }>();
-  for (const { pin, index } of orderedPins(proposed, eligible)) {
+  const echoedExamples = new Set<number>();
+  for (const index of eligible) {
+    const pin = proposed[index];
     let nearest: { truthIndex: number; distance: number } | undefined;
     for (const reference of references) {
       const d = matchDistance(pin, reference.pin, MATCH_RADIUS);
@@ -171,34 +172,33 @@ function scoreWithoutExamples(
     }
     if (!nearest || !supplied.has(nearest.truthIndex)) continue;
     echoes.add(index);
-    const previous = firstEcho.get(nearest.truthIndex);
-    if (!previous || nearest.distance < previous.distance) {
-      firstEcho.set(nearest.truthIndex, { prediction: index, distance: nearest.distance });
-    }
+    echoedExamples.add(nearest.truthIndex);
   }
-  const consumed = new Set([...firstEcho.values()].map(({ prediction }) => prediction));
+  const duplicateEchoes = echoes.size - echoedExamples.size;
   const eligibleSet = new Set(eligible);
-  const remaining = proposed.flatMap((pin, i) => consumed.has(i) ? [] : [{ pin, index: i }]);
+  const remaining = proposed.flatMap((pin, i) => echoes.has(i) ? [] : [{ pin, index: i }]);
   const independent = truth.filter((_, i) => !supplied.has(i));
-  const discoveries = remaining.flatMap(({ index }, i) => eligibleSet.has(index) && !echoes.has(index) ? [i] : []);
+  const discoveries = remaining.flatMap(({ index }, i) => eligibleSet.has(index) ? [i] : []);
   const pins = remaining.map(({ pin }) => pin);
   const matching = matchScoredPins(pins, independent, discoveries);
   return {
-    spatial: spatialScore(pins, independent, matching.pairs, matching.forcedPairs),
-    consumed: consumed.size,
-    duplicateEchoes: echoes.size - consumed.size,
+    spatial: spatialScore(pins, independent, matching.pairs, matching.forcedPairs, duplicateEchoes),
+    consumed: echoedExamples.size,
+    duplicateEchoes,
   };
 }
 
-function spatialScore(proposed: JudgedPin[], truth: JudgedPin[], pairs: Pair[], forcedPairs: Pair[]) {
+function spatialScore(
+  proposed: JudgedPin[], truth: JudgedPin[], pairs: Pair[], forcedPairs: Pair[], duplicateEchoes = 0,
+) {
   const named = forcedPairs.filter(([i, j]) => correctPoste(proposed[i], truth[j]));
   const sized = named.filter(([i, j]) => correctDn(proposed[i], truth[j]));
   return {
-    drawing: metrics(pairs.length, proposed.length, truth.length),
-    poste: metrics(named.length, proposed.filter((p) => p.poste !== null).length, truth.length),
+    drawing: metrics(pairs.length, proposed.length + duplicateEchoes, truth.length),
+    poste: metrics(named.length, proposed.filter((p) => p.poste !== null).length + duplicateEchoes, truth.length),
     dn: metrics(
       sized.length,
-      proposed.filter((p) => p.dn !== null).length,
+      proposed.filter((p) => p.dn !== null).length + duplicateEchoes,
       truth.filter((p) => p.dn !== null).length,
     ),
   };

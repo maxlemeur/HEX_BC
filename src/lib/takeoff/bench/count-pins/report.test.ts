@@ -37,3 +37,9 @@ it("labels two missing diameters as agreement on the poste only", () => {
     { poste: target.id, dn: null, agreement: "poste-only", matches: [[[1, 10], [1, 10]]], leftOnly: [], rightOnly: [] },
   ]);
 });
+
+it("keeps reader-only marks without labelling an empty match group as agreement", () => {
+  expect(compareReaders([pin(202, null)], [])).toEqual([
+    { poste: target.id, dn: null, matches: [], leftOnly: [[202, 10]], rightOnly: [] },
+  ]);
+});

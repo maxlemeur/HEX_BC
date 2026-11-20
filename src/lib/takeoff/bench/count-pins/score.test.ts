@@ -110,3 +110,19 @@ it("withholds every typed credit on the equal-distance alternating cycle", () =>
     expect(spatial.poste.tp).toBe(0);
   }
 });
+
+it.each([
+  ["diameter", "vanne-ef"],
+  ["poste and diameter", null],
+])("charges an echo missing its %s as a false positive on all axes in every order", (_, poste) => {
+  const truth = [pin(11), pin(30)];
+  const predictions = [pin(10, null, poste), pin(11), pin(30)];
+  const orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+  for (const order of orders) {
+    const score = scorePage(order.map((i) => predictions[i]), truth, [0], []);
+    expect(score.suppliedExamples).toEqual({ occurrences: 1, spatiallyPaired: 1, duplicateEchoes: 1 });
+    for (const axis of Object.values(score.withoutSuppliedExamples)) {
+      expect(axis).toEqual({ tp: 1, fp: 1, fn: 0, precision: 0.5, recall: 1 });
+    }
+  }
+});
