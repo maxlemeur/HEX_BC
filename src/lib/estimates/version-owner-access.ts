@@ -2,6 +2,7 @@ import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { notFound } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
+import { canAccessOwnerResource } from "@/lib/estimates/server-context";
 
 type AuthenticatedContext = Pick<AuthenticatedTenantContext, "supabase" | "tenantId" | "userId" | "tenantRole">;
 
@@ -17,16 +18,6 @@ type VersionAccessRow = Pick<
 > & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
-
-function canAccessOwnerResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    input.context.tenantRole === "admin"
-  );
-}
 
 export async function getOwnedEstimateVersion(
   context: AuthenticatedContext,

@@ -26,7 +26,7 @@ export async function readStandalonePlanRowsByProject(input: {
   projectIds: readonly string[];
 }) {
   const { data, error } = await readAllRowsInChunks(input.projectIds, (projectIds) => input.supabase
-    .from("plan_files" as never)
+    .from("plan_files")
     .select(STANDALONE_PLAN_SELECT as never, { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .in("plan_sets.project_id", projectIds) as never);
@@ -50,7 +50,7 @@ export async function hasStoredStandalonePlan(input: {
   let rows = input.rows;
   if (!rows) {
     const { data, error } = await readAllRows(() => input.supabase
-      .from("plan_files" as never)
+      .from("plan_files")
       .select(STANDALONE_PLAN_SELECT as never, { count: "exact" })
       .eq("tenant_id", input.tenantId)
       .eq("plan_sets.project_id", input.projectId));
@@ -78,7 +78,7 @@ type IntakePlanDocument = { id?: string; storage_path: string | null; size_bytes
 /** A Drive plan has no stored bytes in the dossier: it counts through its complete métré working copy, in this affaire. */
 async function hasDrivePlanWorkingCopy(supabase: SupabaseClient<Database>, projectId: string, document: IntakePlanDocument) {
   if (!document.id || !document.drive_file_id || !document.plan_copy_generation) return false;
-  const { data, error } = await supabase.from("plan_files" as never)
+  const { data, error } = await supabase.from("plan_files")
     .select("file_path, file_size_bytes, metadata, plan_sets!inner(project_id)" as never)
     .eq("plan_sets.project_id", projectId)
     .contains("metadata", { source: "affaire-intake", intake_document_id: document.id, intake_drive_file_id: document.drive_file_id,

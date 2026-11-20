@@ -3,7 +3,6 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { test, type Browser } from "@e2e-dev/web";
 import { expect, type App, type Screen } from "e2e";
 
-// Destination after coordination: e2e/army/local/generated-ouvrage-access.e2e.ts.
 import { recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
 import { isolatedLocalBackend } from "./isolated-backend";
 

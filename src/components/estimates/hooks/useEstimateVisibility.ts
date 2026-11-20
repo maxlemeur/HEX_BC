@@ -11,14 +11,11 @@ import type {
   EstimateQualityFlagKey,
   EstimateQualityFlagsByItemId,
 } from "@/lib/estimate-quality";
+import { getParentKey } from "@/lib/estimates/editor-item-tree";
+import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
-
-export type EstimateQualityFilter =
-  | "all_lines"
-  | "with_anomalies"
-  | EstimateQualityFlagKey;
 
 type BulkMoveDestination = {
   id: string | null;
@@ -49,12 +46,7 @@ type UseEstimateVisibilityParams = {
   isLaborSplitEnabled: boolean;
 };
 
-const ROOT_KEY = "root";
 const EMPTY_ITEMS: EstimateItem[] = [];
-
-export function getParentKey(id: string | null) {
-  return id ?? ROOT_KEY;
-}
 
 function buildItemsByParentMap(items: EstimateItem[]) {
   const map = new Map<string, EstimateItem[]>();

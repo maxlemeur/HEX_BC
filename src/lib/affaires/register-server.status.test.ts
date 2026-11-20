@@ -12,6 +12,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { updateAffaireRegisterEntryStatus } from "@/lib/affaires/register-server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
+const OWNER_ID = "66666666-6666-4666-8666-666666666666";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const ENTRY_ID = "44444444-4444-4444-8444-444444444444";
@@ -257,5 +258,34 @@ describe("updateAffaireRegisterEntryStatus", () => {
 
     expect(updatePayloads).toHaveLength(0);
     expect(eventPayloads).toHaveLength(0);
+  });
+
+  it("keeps the owner and due date of an entry through a status change", async () => {
+    const followUp = {
+      ownerUserId: OWNER_ID,
+      ownerName: "Marie Curie",
+      dueDate: "2026-03-20",
+      updatedAt: NOW,
+      updatedByUserId: USER_ID,
+      comment: null,
+    };
+    const clarified = createClarifiedEntryRow();
+    const { supabase, updatePayloads } = createSupabaseMock({
+      entryRow: createEntryRow({ metadata: { followUp } }),
+      updatedEntryRow: { ...clarified, metadata: { ...clarified.metadata, followUp } },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await updateAffaireRegisterEntryStatus({
+      projectId: PROJECT_ID,
+      entryId: ENTRY_ID,
+      status: "clarify_with_client",
+      comment: "Verifier le perimetre client.",
+    });
+
+    expect(updatePayloads).toEqual([
+      expect.objectContaining({ metadata: expect.objectContaining({ followUp }) }),
+    ]);
+    expect(result.entry.followUp).toEqual(followUp);
   });
 });

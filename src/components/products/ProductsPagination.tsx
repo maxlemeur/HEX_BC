@@ -2,7 +2,6 @@
 
 import { ListPagination, type ListPaginationProps } from "@/components/catalogue/ListPagination";
 
-/** Pagination of the products table. */
 export function ProductsPagination<Size extends number>(
   props: Omit<ListPaginationProps<Size>, "label" | "itemsLabel">
 ) {

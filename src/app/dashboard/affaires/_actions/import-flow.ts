@@ -12,7 +12,6 @@ import {
   type ImportLaborRoleCandidate,
   type ImportLaborRoleResolution,
   type ImportWorkbookParameters,
-  type InvalidImportFlowLineReason,
   type NormalizeImportFlowRowsOptions,
   type NormalizeImportFlowRowsResult,
 } from "@/lib/affaires/import-flow";
@@ -33,10 +32,9 @@ import {
 import {
   resolveImportSaleCoefficients,
   v3LineContext,
-  type ImportSaleCoefficients,
 } from "@/lib/affaires/import-engine-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
-import { IMPORT_CONTROL_TOLERANCE_CENTS, type ImportUnitPriceCheck } from "@/lib/imports/optima-profile";
+import { IMPORT_CONTROL_TOLERANCE_CENTS } from "@/lib/imports/optima-profile";
 import {
   createMapping,
   findPerUnitDurationsMappedToLineHours,
@@ -44,6 +42,7 @@ import {
 } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { ConfirmUnifiedImportFlowResult, ImportFlowLinesPreview } from "@/lib/affaires/import-flow-results";
 import type {
   TakeoffCarryOverStatus,
   TakeoffCarryOverSummary,
@@ -55,36 +54,6 @@ import {
   summarizeTakeoffCarryOverSourceVersion,
 } from "@/lib/takeoff/version-links";
 import { toNonEmptyString } from "@/lib/value-guards";
-
-export type ConfirmUnifiedImportFlowMode = "mapping_only" | "version_created";
-
-export type ImportFlowCreationTotals = {
-  totalHtCents: number;
-  totalTaxCents: number;
-  totalTtcCents: number;
-};
-
-export type ConfirmUnifiedImportFlowResult = {
-  mode: ConfirmUnifiedImportFlowMode;
-  importId: string;
-  projectId: string | null;
-  mappingId: string | null;
-  versionId: string | null;
-  redirectTo: string | null;
-  takeoffCarryOver: TakeoffCarryOverStatus | null;
-  totals: ImportFlowCreationTotals | null;
-  stats: {
-    totalRows: number;
-    validRows: number;
-    invalidRows: number;
-    insertedRows: number;
-    skippedRows: number;
-    insertedSections: number;
-    zeroPriceRows: number;
-    ignoredRows: number;
-    ignoredFooterRows: number;
-  };
-};
 
 const structureDecisionSchema = z.union([
   z.object({
@@ -140,43 +109,6 @@ const previewUnifiedImportFlowLinesSchema = z.object({
 export type PreviewUnifiedImportFlowLinesInput = z.infer<typeof previewUnifiedImportFlowLinesSchema>;
 
 const PREVIEW_LINE_LIMIT = 200;
-
-export type ImportFlowLinesPreview = {
-  validLineCount: number;
-  ignoredParameterRows: number;
-  invalidLines: Array<{ rowIndex: number; reason: InvalidImportFlowLineReason }>;
-  invalidLineCount: number;
-  hours: {
-    linesWithHours: number;
-    convertedLines: number;
-    totalLineHours: number;
-    lines: Array<{
-      rowIndex: number;
-      title: string;
-      quantity: number;
-      hoursPerUnit: number | null;
-      lineHours: number;
-    }>;
-  };
-  workbookParameters: ImportWorkbookParameters | null;
-  versionMarginMultiplier: number;
-  laborRoles: ImportLaborRoleCandidate[];
-  laborRole: {
-    status: ImportLaborRoleResolution["status"];
-    roleId: string | null;
-    matchingRoleIds: string[];
-  };
-  unitPriceChecks: {
-    checked: number;
-    toleranceCents: number;
-    outOfTolerance: ImportUnitPriceCheck[];
-  };
-  // Columns named as a duration per unit but read as the line's total hours (2.3 review, C-01).
-  perUnitDurationsAsLineHours: string[];
-  // Lot 2, sous-lot 2.8: engine of the estimate the import creates, and the v3 sale coefficients.
-  engine: 2 | 3;
-  saleCoefficients: ImportSaleCoefficients | null;
-};
 
 // Sale coefficients of the v3 an import creates (2.8, E4): resolved by src/lib/affaires/import-engine-server.ts,
 // shared since 2.10a with the quick creation from an import and the wizard's linked DPGF source.

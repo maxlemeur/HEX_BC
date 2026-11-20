@@ -1,4 +1,3 @@
-// Hydro Express company information constants
 export const COMPANY_INFO = {
   name: "HYDRO EXPRESS SAS",
   tagline: "Solutions de Sertissage & Plomberie",

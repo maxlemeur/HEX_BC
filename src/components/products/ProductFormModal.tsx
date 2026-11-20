@@ -28,7 +28,7 @@ import {
   type ProductCatalogueStatus,
   type ProductValidationField,
 } from "@/lib/catalogue/product-validation";
-import { parseEuroToCents } from "@/lib/money";
+import { euroInputFromCents, parseEuroToCents } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /** A supply type of the tenant, as `/api/catalogue?view=page` lists them. */
@@ -150,10 +150,6 @@ function initialUnit(product: ProductRecord | null) {
   return product?.catalogue_status === "draft" ? "" : "u";
 }
 
-function euroInputFromCents(value: number) {
-  return (value / 100).toFixed(2).replace(".", ",");
-}
-
 function initialFormState(product: ProductRecord | null): ProductFormState {
   return {
     reference: product?.reference ?? "",
@@ -180,7 +176,6 @@ function nullableText(value: string) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Les details techniques restent deplies si le produit en porte deja. */
 function hasTechnicalDetails(product: ProductRecord | null) {
   if (!product) return false;
   return Boolean(

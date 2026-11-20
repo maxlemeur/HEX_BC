@@ -1,8 +1,7 @@
 import { parseTakeoffRiskRadarResponse } from "@/lib/takeoff/risk-response-contracts";
-import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import {
   fetchTakeoffRiskRadar,
   parseTakeoffRiskRadarQuery,
@@ -20,12 +19,6 @@ export async function GET(
 
     return ok(parseTakeoffRiskRadarResponse(data, { jobId, versionId: query.version_id, severity: query.severity, status: query.status, scope: query.scope, lotId: query.lot_id }));
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

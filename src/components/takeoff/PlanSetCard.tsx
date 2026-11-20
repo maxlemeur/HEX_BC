@@ -228,9 +228,7 @@ export function PlanSetCard({
 
   return (
     <Card className="overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-      {/* Header row */}
       <div className="flex w-full flex-wrap items-center gap-2 px-4 py-4 sm:flex-nowrap sm:gap-4 sm:px-6">
-        {/* Accordion trigger */}
         <button
           type="button"
           className="flex min-w-0 basis-full items-center gap-3 text-left transition hover:opacity-80 sm:basis-auto sm:flex-1 sm:gap-4"
@@ -238,10 +236,8 @@ export function PlanSetCard({
           aria-controls={regionId}
           onClick={handleToggle}
         >
-          {/* Chevron */}
           <ChevronRightIcon className={`size-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`} aria-hidden="true" />
 
-          {/* Set info */}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="line-clamp-2 text-sm font-semibold text-foreground sm:truncate">
@@ -258,7 +254,6 @@ export function PlanSetCard({
             )}
           </div>
 
-          {/* Compact metadata */}
           <div className="hidden shrink-0 items-center gap-4 text-xs text-muted-foreground sm:flex">
             <span>
               {planSet.file_count}{" "}
@@ -276,7 +271,6 @@ export function PlanSetCard({
         </button>
 
         <div className="ml-auto flex items-center gap-1 sm:ml-0">
-          {/* Edit set button */}
           <IconButton
             label={`Modifier le jeu "${planSet.name}"`}
             icon={<PencilIcon aria-hidden="true" />}
@@ -284,7 +278,6 @@ export function PlanSetCard({
             onClick={handleStartEdit}
           />
 
-          {/* Delete set button */}
           <IconButton
             label={`Supprimer le jeu "${planSet.name}"`}
             icon={<Trash2Icon aria-hidden="true" />}
@@ -295,7 +288,6 @@ export function PlanSetCard({
         </div>
       </div>
 
-      {/* Body — expanded content */}
       <div
         id={regionId}
         role="region"
@@ -311,7 +303,6 @@ export function PlanSetCard({
               {planSet.total_size_bytes > 0 ? ` · ${formatFileSize(planSet.total_size_bytes)}` : ""}
             </p>
 
-            {/* Set edit form */}
             {editingSet && (
               <div className="mb-4 rounded-lg border border-border bg-surface-subtle p-4">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -372,13 +363,11 @@ export function PlanSetCard({
               </div>
             )}
 
-            {/* Upload zone */}
             <PlanFileUploadZone
               setId={planSet.id}
               onUploadsComplete={handleUploadsComplete}
             />
 
-            {/* Files list */}
             {filesError && (
               <Alert variant="danger" className="mt-4">
                 <AlertDescription>
@@ -408,7 +397,6 @@ export function PlanSetCard({
               </div>
             )}
 
-            {/* Extraction link */}
             {files && files.length > 0 && (
               <div className="mt-4 flex justify-end">
                 <Link
@@ -423,7 +411,6 @@ export function PlanSetCard({
         )}
       </div>
 
-      {/* Live announcements */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>

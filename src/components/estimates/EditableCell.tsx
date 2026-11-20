@@ -12,9 +12,9 @@ import {
   type MouseEvent,
 } from "react";
 
-import {
+import type {
+  SpreadsheetCell,
   useSpreadsheetNavigation,
-  type SpreadsheetCell,
 } from "@/hooks/useSpreadsheetNavigation";
 import { InvalidDraftReason } from "@/components/ui/invalid-draft-reason";
 import { NUMERIC_INPUT_ERROR } from "@/lib/numeric-input/parsers";
@@ -236,5 +236,3 @@ export function EditableCell<TCommitValue = string>({
     </div>
   );
 }
-
-export default EditableCell;

@@ -3,10 +3,8 @@
 import dynamic from "next/dynamic";
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  previewUnifiedImportFlowLines,
-  type ImportFlowLinesPreview,
-} from "@/app/dashboard/affaires/_actions/import-flow";
+import { previewUnifiedImportFlowLines } from "@/app/dashboard/affaires/_actions/import-flow";
+import type { ImportFlowLinesPreview } from "@/lib/affaires/import-flow-results";
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
 import type { MappingTemplateExactMatch } from "@/lib/mappings/server";
 

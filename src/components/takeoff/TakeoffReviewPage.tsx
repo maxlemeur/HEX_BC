@@ -121,15 +121,7 @@ import type {
 } from "@/lib/takeoff/types";
 import { getBusinessLevelLabel } from "@/lib/takeoff/job-list-labels";
 
-// ---------------------------------------------------------------------------
-// Exported types
-// ---------------------------------------------------------------------------
-
 export type { ReviewItem } from "@/lib/takeoff/review-item-edits";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 type TakeoffReviewPageProps = {
   jobId: string;
@@ -140,20 +132,12 @@ type TakeoffReviewPageProps = {
 type ViewTab = "tables" | "items" | "compare" | "dpgf";
 type DpgfFetchMode = "summary" | "detail";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const AUTO_SAVE_DEBOUNCE_MS = 500;
 const REVIEW_ITEMS_PAGE_SIZE = 200;
 const DPGF_COMPARE_PAGE_SIZE = 200;
 const DEFAULT_COMPARE_THRESHOLD = 0.8;
 const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
 const TAKEOFF_JOBS_LIST_PAGE_MAX = 100;
-
-// ---------------------------------------------------------------------------
-// Main orchestrator
-// ---------------------------------------------------------------------------
 
 export default function TakeoffReviewPage({
   jobId,
@@ -215,7 +199,6 @@ export default function TakeoffReviewPage({
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [router, searchParams]);
 
-  // ---- Tab state from URL
   const viewParam = searchParams.get("view");
   const compareWithParam = searchParams.get("compareWith");
   const thresholdParam = searchParams.get("threshold");
@@ -296,7 +279,6 @@ export default function TakeoffReviewPage({
     [router, searchParams]
   );
 
-  // ---- Data state
   const [items, setItems] = useState<ReviewItem[]>([]);
   // TI-682 lot D: one more each time a save changes a line's source page: the pages already in the estimate are read again.
   const [savedSourcePages, setSavedSourcePages] = useState(0);
@@ -317,7 +299,6 @@ export default function TakeoffReviewPage({
   const [applySelectionSubmitting, setApplySelectionSubmitting] = useState(false);
   const [applySelectionError, setApplySelectionError] = useState<string | null>(null);
 
-  // ---- DPGF comparison state
   const [dpgfCompare, setDpgfCompare] = useState<{
     data: TakeoffDpgfComparisonResponse;
     mode: DpgfFetchMode;
@@ -328,7 +309,6 @@ export default function TakeoffReviewPage({
   // TI-721: the read in flight. A newer read aborts it, so the comparison shown is always the last one asked for.
   const dpgfCompareReadRef = useRef<AbortController | null>(null);
 
-  // ---- Assisted review state
   const [assistedReviewedIds, setAssistedReviewedIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -339,18 +319,14 @@ export default function TakeoffReviewPage({
     null
   );
 
-  // ---- Exclusion modal state
   const [exclusionModalOpen, setExclusionModalOpen] = useState(false);
   const [exclusionTargetIds, setExclusionTargetIds] = useState<string[]>([]);
 
-  // ---- « Envoyer au tableau de chiffrage » dialog state
   const [applyWizardOpen, setApplyWizardOpen] = useState(false);
 
-  // ---- Auto-save
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
 
-  // ---- Fetch data
   useEffect(() => {
     let canceled = false;
     const abortController = new AbortController();
@@ -392,7 +368,6 @@ export default function TakeoffReviewPage({
         setJobVersionNumber(firstPage.job.version_number ?? null);
         setGlobalConfidence(firstPage.result?.confidence ?? null);
 
-        // Extract tables from result if available
         const resultTables = firstPage.result?.tables;
         if (Array.isArray(resultTables)) {
           setTables(resultTables as TakeoffTable[]);
@@ -407,7 +382,6 @@ export default function TakeoffReviewPage({
           }))
         );
 
-        // If Level B and tables exist, default to tables view
         if (
           firstPage.job.level === "B" &&
           Array.isArray(resultTables) &&
@@ -495,7 +469,6 @@ export default function TakeoffReviewPage({
     };
   }, [jobFileName, jobPlanSetId, jobId, versionId]);
 
-  // ---- Compare loading
   useEffect(() => {
     if (!compareWithJobId) {
       setCompareLoading(false);
@@ -543,7 +516,6 @@ export default function TakeoffReviewPage({
     };
   }, [compareThreshold, compareWithJobId, jobId]);
 
-  // ---- DPGF comparison lazy loading
   const loadDpgfComparison = useCallback(
     async (mode: DpgfFetchMode) => {
       dpgfCompareReadRef.current?.abort();
@@ -624,7 +596,6 @@ export default function TakeoffReviewPage({
   // on a view change before its read starts), it shows the loading state.
   const dpgfCompareDetail = dpgfCompare?.mode === "detail" ? dpgfCompare.data : null;
 
-  // ---- Item update helpers
   const updateItemField = useCallback(
     (itemId: string, field: string, value: unknown) => {
       const selected = items.find((item) => item.id === itemId);
@@ -711,7 +682,6 @@ export default function TakeoffReviewPage({
     [jobId]
   );
 
-  // ---- Auto-save logic
   const performSave = useCallback(async () => {
     if (savingRef.current) return;
 
@@ -720,7 +690,6 @@ export default function TakeoffReviewPage({
 
     savingRef.current = true;
 
-    // Mark saving
     setItems((prev) =>
       prev.map((item) =>
         item._dirty ? { ...item, _saving: true } : item
@@ -781,7 +750,6 @@ export default function TakeoffReviewPage({
     }
   }, [applyPatchResults, items, jobId, nextPatchSequence, toast]);
 
-  // Trigger auto-save debounce when items change
   const hasDirty = items.some((i) => i._dirty);
   useEffect(() => {
     if (!hasDirty || applySelectionSubmitting) return;
@@ -843,7 +811,6 @@ export default function TakeoffReviewPage({
     });
   }, [items]);
 
-  // ---- Exclusion actions (shared between views)
   const handleExcludeItems = useCallback(
     (itemIds: string[]) => {
       const includedIds = itemIds.filter((id) => {
@@ -881,7 +848,6 @@ export default function TakeoffReviewPage({
     [setActiveTab, toast]
   );
 
-  // ---- Evidence panel handlers
   const handleOpenEvidencePanel = useCallback((itemId: string) => {
     setEvidencePanelItemId(itemId);
   }, []);
@@ -1003,7 +969,6 @@ export default function TakeoffReviewPage({
     [exclusionTargetIds]
   );
 
-  // ---- Apply readiness
   const includedItems = useMemo(() => items.filter((i) => !i.is_excluded), [items]);
   const hasDirtyOrSaving = items.some((i) => i._dirty || i._saving);
   const hasSaveErrors = items.some((i) => i._error !== null);
@@ -1156,13 +1121,11 @@ export default function TakeoffReviewPage({
       <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={hasAlreadyBeenApplied}
         jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
 
-      {/* ---- Confidence header (Level C only) ---- */}
       {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}
       {jobLevel === "C" && (
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
       )}
 
-      {/* ---- Mode-conditional content ---- */}
       {currentReviewMode === "assisted" ? (
         <AssistedReviewPanel
           items={items}
@@ -1236,7 +1199,6 @@ export default function TakeoffReviewPage({
       ) : null}
       </div>
 
-      {/* ---- Exclusion modal ---- */}
       {exclusionModalOpen ? <ExclusionReasonDialog
         open
         onOpenChange={setExclusionModalOpen}
@@ -1244,7 +1206,6 @@ export default function TakeoffReviewPage({
         onConfirm={handleExclusionConfirm}
       /> : null}
 
-      {/* ---- Apply wizard ---- */}
       {applyWizardOpen ? <TakeoffApplyWizard
         open={applyWizardOpen}
         jobId={jobId}
@@ -1268,7 +1229,6 @@ export default function TakeoffReviewPage({
         onOpenDpgfReview={() => openProductionReview("dpgf")}
       /> : null}
 
-      {/* ---- Evidence panel ---- */}
       {evidencePanelItemId != null && (() => {
         const panelItem = items.find((i) => i.id === evidencePanelItemId);
         if (!panelItem) return null;

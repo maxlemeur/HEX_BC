@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-read-server", () => ({
   getEstimateVersionDetails: vi.fn(),
   listEstimateItems: vi.fn(),
 }));
@@ -15,7 +15,7 @@ import {
   streamEstimateVersionXlsx,
   type WorkbookWriterFactory,
 } from "@/lib/estimates/export-stream";
-import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
+import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/version-read-server";
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 

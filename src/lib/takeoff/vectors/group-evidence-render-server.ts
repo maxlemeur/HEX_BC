@@ -519,14 +519,6 @@ export function startGroupEvidenceRender(bytes: Uint8Array, page: number, option
   };
 }
 
-/** Draws a page's legend blocks and group images in one child process; never throws. */
-export async function renderGroupEvidence(bytes: Uint8Array, plan: EvidenceImagePlan, options: RenderOptions = {}): Promise<GroupEvidenceImages> {
-  if (plan.legends.length === 0 && plan.groups.length === 0) {
-    return { legends: [], groups: [], issue: null, dropped_images: 0, render_ms: { page: null, legends: [], groups: [] }, duration_ms: 0, reused_windows: 0 };
-  }
-  return startGroupEvidenceRender(bytes, plan.page, options).draw(plan);
-}
-
 /**
  * How a page is drawn (TI-704): its processes, and whether they start with its extraction or once it has ended. On a
  * server, one process once the extraction has ended (a process holds up to 1.8 GB on the heaviest development page, the

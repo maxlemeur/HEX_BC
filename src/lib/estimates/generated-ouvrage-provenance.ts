@@ -74,9 +74,9 @@ type GeneratedOuvrageWorkSnapshotRow = {
   metadata: Json;
 };
 
-export function toJson(
-  value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null
-) {
+export function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean): NonNullable<Json>;
+export function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null): Json;
+export function toJson(value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null) {
   return value as Json;
 }
 

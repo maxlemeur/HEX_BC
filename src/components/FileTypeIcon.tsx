@@ -220,7 +220,6 @@ function getFileTypeConfig(mimeType: string, filename?: string) {
     };
   }
 
-  // Fallback to extension-based detection
   if (filename) {
     const ext = getExtension(filename);
     if (EXTENSION_CONFIG[ext]) {
@@ -239,7 +238,6 @@ export function FileTypeIcon({ mimeType, filename, className = "" }: FileTypeIco
   const config = getFileTypeConfig(mimeType, filename);
   const IconComponent = config.icon;
 
-  // Check if custom size classes are provided
   const hasCustomSize = className.includes("!h-") || className.includes("!w-");
   const sizeClasses = hasCustomSize ? "" : "h-10 w-10";
   const iconSizeClasses = hasCustomSize ? "h-6 w-6" : "h-5 w-5";

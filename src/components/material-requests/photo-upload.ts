@@ -45,7 +45,6 @@ const NOTHING_KEPT_BY_KIND: Record<UploadKind, string> = {
   quote: "Aucune pièce n’a été gardée : vous pouvez réessayer.",
 };
 
-/** Where the upload is, in words the operator reads while it runs. */
 export function photoUploadStepLabel(progress: PhotoUploadStep, kind: UploadKind = "photo"): string {
   const noun = kind === "quote" ? "pièce" : "photo";
   if (progress.step === "converting") {

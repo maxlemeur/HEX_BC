@@ -4,9 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeEstimateBreakdown,
-  buildEstimateV2SnapshotProjection,
-  buildStoredEstimateBreakdown,
 } from "@/lib/estimate-calculations";
+import { buildEstimateV2SnapshotProjection, buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import { type MarginTier } from "@/lib/estimates/margin-tiers";
 import {
   LABOR_RATES,

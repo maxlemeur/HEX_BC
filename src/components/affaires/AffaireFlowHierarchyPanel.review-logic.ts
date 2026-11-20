@@ -23,7 +23,7 @@ function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
-function dedupe(values: string[]) {
+export function dedupe(values: string[]) {
   return [...new Set(values)];
 }
 

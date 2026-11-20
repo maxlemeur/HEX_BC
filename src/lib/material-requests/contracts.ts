@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
+
 /**
  * Material requests ("demandes de matériel", TI-690): what a field technician asks the office for, on a
  * scrap of paper, in a text message or over the phone, rewritten by the office into clean lines.
@@ -28,13 +30,6 @@ export type MaterialRequestLineStatus = (typeof MATERIAL_REQUEST_LINE_STATUSES)[
 
 export const MATERIAL_REQUEST_FILE_ROTATIONS = [0, 90, 180, 270] as const;
 
-/**
- * TI-691: how many units a price is for. A price stays in whole cents, so a screw at 0,034 € is 340 cents for 100.
- * The amount of a line is quantity × price / price_per, rounded half away from zero to the cent (computed by the
- * purchase that follows the consultation; nothing computes it in this delivery).
- */
-export const MATERIAL_REQUEST_PRICE_PER = [1, 10, 100, 1000] as const;
-export type MaterialRequestPricePer = (typeof MATERIAL_REQUEST_PRICE_PER)[number];
 export type MaterialRequestFileRotation = (typeof MATERIAL_REQUEST_FILE_ROTATIONS)[number];
 
 /**
@@ -153,7 +148,7 @@ export type MaterialRequestLine = {
    * not deleted alone. There is no way back in this delivery.
    */
   unit_price_ht_cents: number | null;
-  price_per: MaterialRequestPricePer;
+  price_per: PurchaseOrderPricePer;
   price_quote_id: string | null;
 };
 

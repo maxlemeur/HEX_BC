@@ -7,8 +7,10 @@ import { validateFileForUpload } from "@/lib/file-validation";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
-} from "@/lib/purchase-orders";
+} from "@/lib/purchase-orders/access";
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
 import { toDevisResponseItem } from "@/lib/purchase-orders/devis-response";
+import { DEVIS_BUCKET } from "@/lib/storage/buckets";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
@@ -86,7 +88,7 @@ export async function GET(
 
   const signedResults = await Promise.all(
     devis.map((item) =>
-      supabase.storage.from("devis").createSignedUrl(
+      supabase.storage.from(DEVIS_BUCKET).createSignedUrl(
         item.storage_path,
         SIGNED_URL_TTL_SECONDS
       )
@@ -144,7 +146,7 @@ export async function POST(
   const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     tenant_id: string;
-    status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+    status: OrderStatus;
   }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
@@ -190,7 +192,7 @@ export async function POST(
   const nextPosition = (lastPositionData?.[0]?.position ?? 0) + 1;
 
   const { error: uploadError } = await supabase.storage
-    .from("devis")
+    .from(DEVIS_BUCKET)
     .upload(storagePath, file, {
       contentType: getUploadContentType(file),
       upsert: false,
@@ -218,7 +220,7 @@ export async function POST(
     .single();
 
   if (insertError || !inserted) {
-    await supabase.storage.from("devis").remove([storagePath]);
+    await supabase.storage.from(DEVIS_BUCKET).remove([storagePath]);
     return NextResponse.json(
       { error: insertError?.message ?? "Impossible d'enregistrer le devis." },
       { status: 400 }
@@ -226,7 +228,7 @@ export async function POST(
   }
 
   const { data: signedData } = await supabase.storage
-    .from("devis")
+    .from(DEVIS_BUCKET)
     .createSignedUrl(inserted.storage_path, SIGNED_URL_TTL_SECONDS);
 
   const item = toDevisResponseItem(inserted, signedData?.signedUrl ?? null);

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { ApiError } from "@/lib/http/api-response";
 import { computeTotalsFromInputs, OrderTotalNegativeError } from "@/lib/order-calculations";
-import { canWritePurchaseOrders } from "@/lib/purchase-orders";
+import { canWritePurchaseOrders } from "@/lib/purchase-orders/access";
 import { createPurchaseOrderSchema, purchaseOrderWriteReceiptSchema } from "@/lib/purchase-orders/schemas";
 import { purchaseOrderInputError, purchaseOrderWriteError, toPurchaseOrderLinePayload } from "@/lib/purchase-orders/write";
 

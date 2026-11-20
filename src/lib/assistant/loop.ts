@@ -38,13 +38,18 @@ export class AssistantToolError extends Error {
   }
 }
 
+/** A refusal the application worded for its user: an `Error` carrying a 4xx `status`. */
+export function isUserFacingRefusal(error: unknown): error is Error {
+  const status = (error as { status?: unknown } | null)?.status;
+  return error instanceof Error && typeof status === "number" && status >= 400 && status < 500;
+}
+
 /** A refusal the application worded for its user (4xx) is told to the model as is; anything else stays a failure. */
 export async function withUserFacingRefusals<T>(read: () => Promise<T>): Promise<T> {
   try {
     return await read();
   } catch (error) {
-    const status = (error as { status?: unknown } | null)?.status;
-    if (error instanceof Error && typeof status === "number" && status >= 400 && status < 500) throw new AssistantToolError(error.message);
+    if (isUserFacingRefusal(error)) throw new AssistantToolError(error.message);
     throw error;
   }
 }

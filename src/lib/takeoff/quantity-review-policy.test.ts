@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { commercialLengthQuantity, financialReviewRecommended, isQuantityWarning, quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
+import { financialReviewRecommended, isQuantityWarning, quantityConfidence } from "@/lib/takeoff/quantity-review-policy";
 
 describe("TI-681 quantity review policy", () => {
   it.each([
@@ -15,16 +15,6 @@ describe("TI-681 quantity review policy", () => {
     expect(financialReviewRecommended(null, 5_000_000)).toBeNull();
     expect(financialReviewRecommended(60_000, null)).toBeNull();
     expect(financialReviewRecommended(100_000, null)).toBe(true);
-  });
-
-  it("rounds the consolidated length once and keeps other dimensions unchanged", () => {
-    expect(commercialLengthQuantity(2.2 + 2.2, "ml")).toBe(5);
-    expect(commercialLengthQuantity(12.14, "m")).toBe(13);
-    expect(commercialLengthQuantity(12, "m")).toBe(12);
-    expect(commercialLengthQuantity(12.14, "m²")).toBe(12.14);
-    expect(commercialLengthQuantity(12.14, "u")).toBe(12.14);
-    expect(commercialLengthQuantity(214, "cm")).toBe(300);
-    expect(commercialLengthQuantity(0, "m")).toBe(0);
   });
 
   it("reports explained confidence without claiming measured reliability", () => {

@@ -746,7 +746,7 @@ async function listDirectionPlansMetricsByProjectId(
       const projectIds = batch.map((version) => version.project_id);
       const versionIds = batch.map((version) => version.id);
       const { data, error } = await (readAllRowsInChunks(projectIds, (pageIds) => context.supabase
-        .from("affaire_register_entries" as never)
+        .from("affaire_register_entries")
         .select("project_id, version_id, status, id" as never, { count: "exact" })
         .eq("tenant_id" as never, context.tenantId as never)
         .eq("is_active" as never, true as never)

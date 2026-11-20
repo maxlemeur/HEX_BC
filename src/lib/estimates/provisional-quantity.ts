@@ -145,11 +145,6 @@ export function countStaleProvisionalQuantityMentions(
   return stale;
 }
 
-/** The limits text with the sentences it does not contain yet, appended after what is written (never replacing it). */
-export function appendProvisionalQuantityMentions(exclusions: string | null | undefined, mentions: readonly string[]): string {
-  return planProvisionalQuantityMentions(exclusions, mentions).text;
-}
-
 /**
  * The insertion of the missing sentences: the text it would write, the sentences it adds, and by how many characters
  * that text would exceed the limits text bound once trimmed as it is saved (0 when it fits). Nothing is truncated.

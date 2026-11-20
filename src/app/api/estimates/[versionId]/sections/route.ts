@@ -2,7 +2,7 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 import { parseImportSectionsPreviewResponse } from "@/lib/estimates/section-copy-response";
 
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { listEstimateImportSections } from "@/lib/estimates/server";
+import { listEstimateImportSections } from "@/lib/estimates/section-copy-read-server";
 import { uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(

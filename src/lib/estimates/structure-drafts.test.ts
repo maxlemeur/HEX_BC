@@ -10,11 +10,12 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/affaires/import-flow-server", () => ({
   fetchMappedRowsForImport: vi.fn(),
 }));
-vi.mock("@/lib/takeoff/gemini-client", () => ({
-  callGeminiStructured: vi.fn(),
+vi.mock("@/lib/ai/structured-ai", () => ({
+  callStructuredAi: vi.fn(),
 }));
 
 import { fetchMappedRowsForImport } from "@/lib/affaires/import-flow-server";
+import { callStructuredAi } from "@/lib/ai/structured-ai";
 import {
   applyEstimateStructureDraft,
   generateEstimateStructureDraft,
@@ -22,7 +23,6 @@ import {
   withEstimateAiGenerationLease,
 } from "@/lib/estimates/structure-drafts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -766,7 +766,7 @@ describe("generateEstimateStructureDraft", () => {
     vi.mocked(fetchMappedRowsForImport).mockResolvedValue([]);
   });
 
-  it("rejects a replayed generation before the Gemini provider sink", async () => {
+  it("rejects a replayed generation before the AI provider", async () => {
     const { supabase, draftNodesInsert, rpc } = createGenerateStructureSupabaseMock({
       assemblies: [
         {
@@ -787,7 +787,7 @@ describe("generateEstimateStructureDraft", () => {
       status: 409,
     });
 
-    expect(vi.mocked(callGeminiStructured)).not.toHaveBeenCalled();
+    expect(vi.mocked(callStructuredAi)).not.toHaveBeenCalled();
     expect(draftNodesInsert).not.toHaveBeenCalled();
     expect(rpc).toHaveBeenCalledTimes(1);
   });

@@ -74,7 +74,6 @@ async function readJobs(context: Context, ids: readonly string[]): Promise<DpgfC
   return (data ?? []) as unknown as DpgfComposedJob[];
 }
 
-/** The compositions of the given DPGF targets (the version's DPGF lines, as read for the reconciliation). */
 export async function loadDpgfTargetCompositions(context: Context,
   targets: ReadonlyArray<{ id: string; updated_at: string; source_metadata: Record<string, unknown> | null }>): Promise<DpgfCompositions> {
   const stored = targets.map((target) => ({ target, stored: readStoredDpgfComposition(target.source_metadata) }));

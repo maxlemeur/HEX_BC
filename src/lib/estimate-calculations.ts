@@ -1,4 +1,4 @@
-import { bankersRound, computeTaxCents } from "@/lib/money";
+import { bankersRound, computeTaxCents, MAX_CENTS } from "@/lib/money";
 import { allocateProRata } from "@/lib/estimate-allocation";
 import {
   aggregateEstimateV2Sections,
@@ -9,26 +9,10 @@ import {
   resolveMarginMultiplier,
   type MarginTier,
 } from "@/lib/estimates/margin-tiers";
-import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-
-export { allocateProRata } from "@/lib/estimate-allocation";
-export {
-  buildEstimateV2SnapshotProjection,
-  buildStoredEstimateBreakdown,
-  UNASSIGNED_SUPPLY_TYPE_KEY,
-  type EstimateV2SnapshotLine,
-  type EstimateV2SnapshotProjection,
-} from "@/lib/estimate-v2-snapshot";
-
-/* ---------- constants ---------- */
+import type { CalcEngineVersion } from "@/lib/estimates/engine/capabilities";
 
 /** Maximum allowed margin multiplier (A6 overflow guard). */
 export const MAX_MARGIN_MULTIPLIER = 100;
-
-/** Maximum PostgreSQL integer value – caps computed cents to avoid DB overflow. */
-export const MAX_CENTS = 2_147_483_647;
-
-/* ---------- shared types ---------- */
 
 export type EstimateLineLike = {
   quantity: number | null;
@@ -106,7 +90,6 @@ export type CascadeDiscountComputation = {
   subtotalAfterDiscountCents: number;
   steps: DiscountStepTotal[];
 };
-/* ---------- helpers ---------- */
 
 function toSafeNumber(value: number | null | undefined, fallback: number) {
   return Number.isFinite(value ?? NaN) ? (value ?? fallback) : fallback;
@@ -217,8 +200,6 @@ function applyRounding(value: number, mode: RoundingMode, step: number) {
   if (mode === "down") return Math.floor(ratio) * safeStep;
   return Math.round(ratio) * safeStep;
 }
-
-/* ---------- line-level computation ---------- */
 
 export function computeEstimateLineValues(
   item: EstimateLineLike,
@@ -345,8 +326,6 @@ export function computeCascadeDiscountCents(
     steps,
   };
 }
-
-/* ---------- totals computation ---------- */
 
 export function computeEstimateTotals({
   lineItems,

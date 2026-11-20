@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES } from "@/lib/takeoff/trade-keys";
 import {
   applyDecisions, classifyByKeywords, isLocalModelPromptVersion, isMeasuredNetwork, LOCAL_MODEL_ACCEPTED_PROBABILITY,
 } from "@/lib/takeoff/vectors/classify";

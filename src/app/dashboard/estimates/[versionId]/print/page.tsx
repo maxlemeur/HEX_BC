@@ -7,14 +7,15 @@ import {
   SealIntegrityBadge,
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
+import { LABOR_SPLIT_FEATURE_FLAG_KEY } from "@/lib/feature-flag-keys";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { getUserContext } from "@/lib/auth/server";
 import {
-  buildStoredEstimateBreakdown,
   computeEstimateTotals,
   computeReadOnlyTotals,
   computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
+import { buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import {
   resolveEstimateEngineVersionForDisplay,
@@ -27,17 +28,15 @@ import {
 } from "@/lib/estimates/margin-tiers-loader";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
-import {
-  isMissingEstimateRoundingAdjustmentSchema,
-  resolveEstimatePdfPreviewLayout,
-} from "@/lib/estimates/pdf-generator";
+import { resolveEstimatePdfPreviewLayout } from "@/lib/estimates/pdf-generator";
 import { formatEstimateReference } from "@/lib/estimates/reference";
 import {
   describeEstimatePdfLayout,
   parseEstimatePdfLayoutSearchParams,
 } from "@/lib/estimates/pdf-layout";
-import { verifyEstimateSeal } from "@/lib/estimates/server";
+import { verifyEstimateSeal } from "@/lib/estimates/version-seal-server";
 import { normalizeEstimateCurrency } from "@/lib/money";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { EstimatePrintLayoutButton } from "./EstimatePrintLayoutButton";
@@ -64,8 +63,6 @@ type PrintPageProps = {
 
 const PRINT_VERSION_SELECT =
   "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
-const LEGACY_PRINT_VERSION_SELECT =
-  "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 
 function resolveEstimatePortalUrl(versionId: string) {
   const portalBaseUrl = process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL?.trim();
@@ -79,14 +76,6 @@ function resolveEstimatePortalUrl(versionId: string) {
   } catch {
     return null;
   }
-}
-
-function resolveProject(
-  value: EstimateVersion["estimate_projects"]
-) {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
 }
 
 export default async function PrintEstimatePage({
@@ -110,30 +99,11 @@ export default async function PrintEstimatePage({
     requestedLayout
   );
 
-  const versionPromise = (async () => {
-    const primaryResult = await supabase
-      .from("estimate_versions")
-      .select(PRINT_VERSION_SELECT)
-      .eq("id", versionId)
-      .single();
-
-    if (!isMissingEstimateRoundingAdjustmentSchema(primaryResult.error)) {
-      return primaryResult;
-    }
-
-    const legacyResult = await supabase
-      .from("estimate_versions")
-      .select(LEGACY_PRINT_VERSION_SELECT)
-      .eq("id", versionId)
-      .single();
-
-    return {
-      ...legacyResult,
-      data: legacyResult.data
-        ? { ...legacyResult.data, rounding_adjustment_cents: 0 }
-        : null,
-    };
-  })();
+  const versionPromise = supabase
+    .from("estimate_versions")
+    .select(PRINT_VERSION_SELECT)
+    .eq("id", versionId)
+    .single();
 
   const [versionResult, userContext, previewLayout] = await Promise.all([
     versionPromise,
@@ -162,7 +132,7 @@ export default async function PrintEstimatePage({
       <EstimateEngineUnavailableNotice
         versionNumber={version.version_number}
         projectId={version.project_id}
-        projectName={resolveProject(version.estimate_projects)?.name}
+        projectName={resolveEmbeddedOne(version.estimate_projects)?.name}
       />
     );
   }
@@ -172,7 +142,7 @@ export default async function PrintEstimatePage({
         supabase={supabase}
         tenantId={version.tenant_id}
         versionId={versionId}
-        project={resolveProject(version.estimate_projects)}
+        project={resolveEmbeddedOne(version.estimate_projects)}
         issuer={{ name: userContext.profile?.full_name, role: userContext.profile?.job_title,
           phone: userContext.profile?.phone, email: userContext.profile?.work_email ?? userContext.userEmail }}
         previewLayout={previewLayout}
@@ -193,10 +163,10 @@ export default async function PrintEstimatePage({
       : shouldPreserveStoredEstimateV2Snapshot(version);
   const selectedCurrency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   const layoutDescription = describeEstimatePdfLayout(previewLayout.layout);
-  const project = resolveProject(version.estimate_projects);
+  const project = resolveEmbeddedOne(version.estimate_projects);
   const isLaborSplitEnabled = preserveStoredSnapshot
     ? true
-    : await isFeatureEnabled(version.tenant_id, "EST_031_LABOR_SPLIT", {
+    : await isFeatureEnabled(version.tenant_id, LABOR_SPLIT_FEATURE_FLAG_KEY, {
         supabase,
       });
   const laborRoleIds = preserveStoredSnapshot ? [] : Array.from(

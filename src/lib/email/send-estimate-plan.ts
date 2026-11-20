@@ -11,7 +11,6 @@ function resolveLegacyPortalUrl(versionId: string, requestUrl: string, configure
         : `${configuredBaseUrl}/`;
       return new URL(`estimates/${versionId}`, normalizedBaseUrl).toString();
     } catch {
-      // Fallback handled below.
     }
   }
 

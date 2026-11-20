@@ -12,6 +12,7 @@ import type {
   TakeoffProcessingStrategy,
   TakeoffProviderBatchState,
 } from "@/lib/takeoff/types";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 
@@ -60,15 +61,6 @@ const GEMINI_BATCH_STATE_MAP: Record<string, TakeoffProviderBatchState> = {
   JOB_STATE_CANCELED: "cancelled",
   JOB_STATE_EXPIRED: "expired",
 };
-
-function normalizeNullableText(value: string | null | undefined) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
 
 export function resolveTakeoffProcessingStrategy(useBatchApi: boolean): TakeoffProcessingStrategy {
   return useBatchApi ? "batch" : "sync";
@@ -142,11 +134,11 @@ export async function persistTakeoffProviderBatchSnapshot(
   const nextProviderBatchId =
     input.providerBatchId === undefined
       ? input.currentSnapshot?.provider_batch_id ?? null
-      : normalizeNullableText(input.providerBatchId);
+      : toNonEmptyString(input.providerBatchId);
   const nextProviderStateRaw =
     input.providerStateRaw === undefined
       ? input.currentSnapshot?.provider_state_raw ?? null
-      : normalizeNullableText(input.providerStateRaw);
+      : toNonEmptyString(input.providerStateRaw);
   const nextProviderBatchState =
     input.providerBatchState ?? input.currentSnapshot?.provider_batch_state ?? null;
   const currentSnapshot = input.currentSnapshot ?? null;
@@ -196,7 +188,7 @@ export async function persistTakeoffProviderBatchSnapshot(
       p_provider_batch_state: nextSnapshot.provider_batch_state,
       p_provider_batch_updated_at: nextSnapshot.provider_batch_updated_at,
       p_provider_state_raw: nextSnapshot.provider_state_raw,
-      p_message: normalizeNullableText(input.message),
+      p_message: toNonEmptyString(input.message),
       p_metadata: input.metadata ?? {},
       p_should_update_snapshot: snapshotChanged,
       p_should_insert_event: shouldInsertEvent,

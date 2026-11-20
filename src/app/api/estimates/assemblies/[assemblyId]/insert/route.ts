@@ -1,6 +1,6 @@
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { insertAssemblyIntoVersionSchema } from "@/lib/estimates/schemas";
-import { insertAssemblyIntoVersion } from "@/lib/estimates/server";
+import { insertAssemblyIntoVersion } from "@/lib/estimates/assemblies-server";
 import { uuidRouteParam, parseJsonBodyOrEmptyObject } from "@/lib/http/request";
 
 export async function POST(

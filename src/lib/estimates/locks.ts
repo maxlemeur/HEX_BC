@@ -11,12 +11,11 @@ import {
   mapSupabaseError,
   notFound,
 } from "@/lib/http/api-response";
-import { canAccessOwnerResource, isTenantAdmin } from "./server-context";
+import { assertDraftStatus, canAccessOwnerResource, isTenantAdmin } from "./server-context";
 import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = SupabaseClient<Database>;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type DraftLockRow = Database["public"]["Tables"]["draft_locks"]["Row"] & {
   session_id: string;
 };
@@ -79,15 +78,6 @@ export type ReleaseDraftLockResult = {
   released: boolean;
   lock: DraftLock | null;
 };
-
-function isDraftStatus(status: EstimateStatus) {
-  return status === "draft";
-}
-
-function assertDraftStatus(status: EstimateStatus) {
-  if (isDraftStatus(status)) return;
-  throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
-}
 
 function toLockExpiryIsoDate() {
   return new Date(Date.now() + DRAFT_LOCK_TTL_SECONDS * 1000).toISOString();

@@ -9,7 +9,8 @@ import { getPdfPageCount } from "@/lib/takeoff/chunking";
 import { takeoffScopeFreeLevels } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
-import { getTakeoffDecisionsCapability } from "@/lib/takeoff/takeoff-decisions-server";
+import { sha256Hex } from "@/lib/takeoff/sha256";
+import { getTakeoffDecisionsCapability, isTakeoffDecisionsSelected } from "@/lib/takeoff/takeoff-decisions-server";
 import { isClassified } from "@/lib/takeoff/vectors/classify";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION } from "@/lib/takeoff/vectors/group-decisions";
@@ -137,7 +138,7 @@ export function takeoffVectorLocalGroupsHook(input: {
   provider: { selection: LocalGroupsSelection; assertOwnerActive: () => Promise<void> };
   beforeCall?: () => Promise<void>;
 }): TakeoffVectorDecisionsHook | undefined {
-  if (!isTakeoffVectorReadingEnabled() || process.env.MERGEONE_TAKEOFF_DECISIONS !== "1" || !isLocalChatGptEnabled() || !input.userId) return undefined;
+  if (!isTakeoffVectorReadingEnabled() || !isTakeoffDecisionsSelected() || !isLocalChatGptEnabled() || !input.userId) return undefined;
   // Before each plan request, as before each level C one: the creator is still a member (their plan receives the
   // images), then the job's own check (tenant, lease).
   const { provider } = input;
@@ -194,7 +195,6 @@ export function preparationCalibration(snapshot: TakeoffPreparationSnapshot | un
 
 /** A page's stop: one of classifyVectorGroups, or its document's caps reached (« call_limit »). */
 type PageStop = { reason: NonNullable<VectorPageDecisions["stop"]>["reason"]; message: string };
-const sha256 = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 /**
  * What the review says of a stop: the worker's own words (the provider's messages speak of the preparation), the
  * render messages of classifyVectorGroups kept.
@@ -413,7 +413,7 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
         if (run && reading.mode !== "raster") {
           ({ reading, decisions } = await decidePage(run, {
             bytes, extraction, reading, readOptions, allowance, take,
-            fingerprint: () => (fingerprint ??= sha256(`${run.hook.local ? GROUP_LOCAL_MODEL_PROMPT_VERSION : GROUP_DECISIONS_PROMPT_VERSION}:${sha256(bytes)}`)),
+            fingerprint: () => (fingerprint ??= sha256Hex(`${run.hook.local ? GROUP_LOCAL_MODEL_PROMPT_VERSION : GROUP_DECISIONS_PROMPT_VERSION}:${sha256Hex(bytes)}`)),
             log: { jobId: options.context?.jobId ?? null, tenantId: options.context?.tenantId ?? null, document: original.document, page },
           }));
         }

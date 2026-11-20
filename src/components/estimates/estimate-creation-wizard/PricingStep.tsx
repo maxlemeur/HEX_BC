@@ -2,7 +2,7 @@
 
 import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
 import { getCommercialRoundingOptions } from "@/components/estimates/rounding-options";
-import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
+import { NumberInput } from "@/components/ui-legacy/NumberInput";
 import {
   PROJECT_FAMILY_OPTIONS,
   resolveWizardV3Rounding,
@@ -13,7 +13,10 @@ import { Button } from "@/components/ui/button";
 import { FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input, controlSizes, controlSurface } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { parseRatePercentDraft } from "@/lib/estimates/editor-values";
+import {
+  parseNonNegativeNumberInput,
+  parseRatePercentDraft,
+} from "@/lib/estimates/editor-values";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { cn } from "@/lib/utils";
 
@@ -81,14 +84,6 @@ const NUMBER_INPUT_CLASS = cn(controlSurface, controlSizes.md, "w-full pr-9");
 const PERCENT_SUFFIX_CLASS =
   "pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted-foreground";
 
-function parseNonNegativePercent(value: string) {
-  const parsedValue = parseLocalizedNumberInput(value);
-  if (parsedValue === null) {
-    return null;
-  }
-  return Math.max(parsedValue, 0);
-}
-
 /** Moteurs 1 et 2 : marge fixe ou par tranche, inchangée par le sous-lot 2.10a. */
 function MarginFields({
   data,
@@ -139,7 +134,7 @@ function MarginFields({
               min={0}
               value={Number(data.marginBp) > 0 ? Number(data.marginBp) / 100 : 0}
               formatValue={(percent) => ((percent ?? 0) > 0 ? String(percent) : "")}
-              parseValue={parseNonNegativePercent}
+              parseValue={parseNonNegativeNumberInput}
               emptyValue={0}
               onValueChange={(percent) =>
                 updateField("marginBp", String(Math.round(percent * 100)))

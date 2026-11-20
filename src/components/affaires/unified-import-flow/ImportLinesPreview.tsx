@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 
-import type { ImportFlowLinesPreview } from "@/app/dashboard/affaires/_actions/import-flow";
+import type { ImportFlowLinesPreview } from "@/lib/affaires/import-flow-results";
 import type { InvalidImportFlowLineReason } from "@/lib/affaires/import-flow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

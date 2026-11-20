@@ -8,7 +8,6 @@ type BlueprintCreationAnimationProps = {
   onComplete: () => void;
 };
 
-// Plan technique SVG paths (architecture/maison)
 const PLAN_PATHS = [
   // Cadre extérieur
   "M100,100 L700,100 L700,500 L100,500 Z",
@@ -76,7 +75,6 @@ export function BlueprintCreationAnimation({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
-      {/* Blueprint grid background */}
       <div
         className="absolute inset-0"
         style={{
@@ -94,10 +92,8 @@ export function BlueprintCreationAnimation({
         }}
       />
 
-      {/* Plan technique animé */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="relative w-full max-w-4xl" style={{ aspectRatio: "4/3" }}>
-          {/* Lignes du plan */}
           <svg
             viewBox="0 0 800 600"
             className="w-full h-full drop-shadow-sm"
@@ -122,12 +118,10 @@ export function BlueprintCreationAnimation({
             ))}
           </svg>
 
-          {/* Nom du projet + crayon (stage 2+) */}
           <AnimatePresence>
             {stage >= 2 && (
               <div className="absolute top-[30%] left-[15%] md:left-[20%] font-mono text-3xl md:text-5xl font-bold tracking-tight text-brand-blue-dark">
                 <span className="relative inline-block py-2">
-                  {/* Texte révélé par clip-path */}
                   <motion.span
                     className="block"
                     initial={{ clipPath: "inset(0 100% 0 0)" }}
@@ -140,7 +134,6 @@ export function BlueprintCreationAnimation({
                     {projectName}
                   </motion.span>
 
-                  {/* Crayon animé */}
                   {stage === 2 && (
                     <motion.div
                       className="absolute -top-8 -right-8 text-primary drop-shadow-md z-20"
@@ -192,7 +185,6 @@ export function BlueprintCreationAnimation({
         </div>
       </div>
 
-      {/* Checkmark de validation (stage 3) */}
       <AnimatePresence>
         {stage === 3 && (
           <motion.div
@@ -241,7 +233,6 @@ export function BlueprintCreationAnimation({
         )}
       </AnimatePresence>
 
-      {/* Status text */}
       <div className="absolute bottom-[15%] left-0 right-0 flex justify-center z-20">
         <AnimatePresence mode="wait">
           {stage !== 3 ? (

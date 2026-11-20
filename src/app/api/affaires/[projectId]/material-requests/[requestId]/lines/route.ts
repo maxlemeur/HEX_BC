@@ -3,7 +3,8 @@ import {
   bulkUpdateMaterialRequestLinesSchema,
   createMaterialRequestLinesSchema,
 } from "@/lib/material-requests/contracts";
-import { readJsonBody, requestParamsSchema } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { requestParamsSchema } from "@/lib/material-requests/http";
 import { bulkUpdateMaterialRequestLines, createMaterialRequestLines } from "@/lib/material-requests/server";
 
 type Context = { params: Promise<{ projectId: string; requestId: string }> };

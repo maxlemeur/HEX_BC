@@ -5,8 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   confirmUnifiedImportFlow,
   getUnifiedImportFlowTakeoffCarryOverPreview,
-  type ConfirmUnifiedImportFlowResult,
 } from "@/app/dashboard/affaires/_actions/import-flow";
+import type { ConfirmUnifiedImportFlowResult } from "@/lib/affaires/import-flow-results";
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
 
 import { getTakeoffCarryOverPreviewCopy } from "./takeoffPreview";

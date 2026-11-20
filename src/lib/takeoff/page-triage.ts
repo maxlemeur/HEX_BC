@@ -302,7 +302,6 @@ export function acceptTakeoffPageTriage(source: TakeoffPreparationSource): Takeo
   return reconcileTakeoffPageTriageStatuses({ ...withSelection(source, retained, triage.page_count), page_triage: { ...triage, accepted: true } });
 }
 
-/** Manual retain/remove of one page from the triage table. */
 export function setTakeoffSourcePageRetained(source: TakeoffPreparationSource, page: number, retained: boolean): TakeoffPreparationSource {
   const pageCount = source.page_triage?.page_count ?? source.page_count;
   if (!pageCount || page < 1 || page > pageCount) return source;

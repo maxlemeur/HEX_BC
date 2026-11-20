@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 // Pagination faults are covered with the real SDK in read-all.test.ts.
 vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture"));
 
-
-import { evaluateRules, type RulesEngineVersion } from "@/lib/estimates/rules-engine";
+import { evaluateRules } from "@/lib/estimates/rules-engine";
+import type { RulesEngineVersion } from "@/lib/estimates/approval-types";
 // Contrat de la preuve vivante de marque v3 (2.5) : le type recopié au rouge est remplacé par
 // l'import du module, comme prévu par docs/testing/estimate-engine-v3-2.5.md §9.4.
 import type { V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";

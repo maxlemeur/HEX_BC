@@ -1,12 +1,11 @@
 import { parseTakeoffJobCreateResponse, parseTakeoffJobListResponse } from "@/lib/takeoff/job-response-contracts";
 import { parseEstimateVersionId, parseTakeoffLevel } from "@/lib/takeoff/job-creation-input";
-import { NextResponse } from "next/server";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { badRequest, ok } from "@/lib/http/api-response";
 import { MAX_FILE_SIZE_BYTES } from "@/lib/file-validation";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
-import { TakeoffError, TakeoffErrorCode, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { TakeoffError, TakeoffErrorCode, toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
@@ -70,13 +69,7 @@ export async function GET(request: Request) {
     const data = await listTakeoffJobs(query);
     return ok(parseTakeoffJobListResponse(data, { versionId: query.estimate_version_id, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }
 
@@ -135,12 +128,6 @@ export async function POST(request: Request) {
       201
     );
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

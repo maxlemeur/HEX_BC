@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { EvidenceImagePlan } from "@/lib/takeoff/vectors/group-evidence-images";
 import { GROUP_EVIDENCE_IMAGES } from "@/lib/takeoff/vectors/group-evidence-images";
 import {
-  groupEvidenceRenderPlan, renderGroupEvidence, renderShares, startGroupEvidenceRender, startGroupEvidenceRenders, type GroupImageEvent,
+  groupEvidenceRenderPlan, renderShares, startGroupEvidenceRender, startGroupEvidenceRenders, type GroupImageEvent,
 } from "@/lib/takeoff/vectors/group-evidence-render-server";
 
 // Ways the images of the v2 group questions (TI-704,
@@ -32,6 +32,9 @@ import {
 //   for in local mode; a server's drawing beside its extraction.
 
 const SPAWN = { timeout: 90_000 } as const;
+/** A page drawn in one session, as the worker draws it. */
+const renderGroupEvidence = (bytes: Uint8Array, evidence: EvidenceImagePlan, options?: Parameters<typeof startGroupEvidenceRender>[2]) =>
+  startGroupEvidenceRender(bytes, evidence.page, options).draw(evidence);
 const P = GROUP_EVIDENCE_IMAGES.panelPx, C = GROUP_EVIDENCE_IMAGES.captionPx;
 
 async function pixels(data: string) {
@@ -161,7 +164,6 @@ describe("images of the v2 group questions (group-evidence-render-server.ts)", (
     await expect(renderGroupEvidence(bytes, evidencePlan(), { maxBytes: 200 })).resolves.toMatchObject({ groups: [null], issue: "too_large" });
     await expect(renderGroupEvidence(bytes, evidencePlan(), { timeoutMs: 1 })).resolves.toMatchObject({ groups: [null], legends: [null], issue: "timeout" });
     await expect(renderGroupEvidence(new Uint8Array([1, 2, 3, 4]), evidencePlan())).resolves.toMatchObject({ groups: [null], issue: "render_failed" });
-    await expect(renderGroupEvidence(bytes, { page: 1, legends: [], groups: [] })).resolves.toMatchObject({ groups: [], legends: [], issue: null });
   });
 });
 

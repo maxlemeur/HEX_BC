@@ -147,7 +147,6 @@ export function describeError(error: unknown): CallError {
 
 export type CallOutcome = { outcome: "counted"; status: Exclude<CallStatus, "ok" | "stopped"> } | { outcome: "stop"; reason: StopReason };
 
-/** How the bench treats an error of a provider call (or of the ChatGPT pre-flight). */
 export function classifyCallError(error: unknown): CallOutcome {
   if (error instanceof z.ZodError || error instanceof SyntaxError || (error instanceof Error && error.name === "ZodError")) {
     // Only the parse of an answer carries the tokens it consumed; any other parse is the provider protocol's.
@@ -185,7 +184,6 @@ function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-/** Page count and production chunks of each document, before any call. */
 export async function planBenchDocuments(documents: readonly BenchRunDocument[]): Promise<PlannedDocument[]> {
   const plans: PlannedDocument[] = [];
   for (const document of documents) {

@@ -6,8 +6,7 @@ import {
   computeInitialDiscountCents,
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
-import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
-import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
+import { type CalcEngineVersion, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import type { EstimateV3Breakdown } from "@/lib/estimates/engine-v3";
 import { applyEstimateV3PreviewToItems, indexEstimateV3Lines } from "@/lib/estimates/v3-editor";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
@@ -18,6 +17,7 @@ import type {
 } from "@/lib/estimates/editor-items";
 import { readLaborSplitFields } from "@/lib/estimates/editor-items";
 import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
+import { toFiniteNumber } from "@/lib/estimates/editor-values";
 
 type EstimateEditorCalculationInput = {
   items: EditorEstimateItem[];
@@ -89,10 +89,6 @@ export function computeDraftBreakdown(input: {
     laborRateChantierById: input.laborRateChantierById,
     calcEngineVersion: input.calcEngineVersion,
   });
-}
-
-function toFiniteNumber(value: number | null | undefined, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 export function buildLineCalculationInput(

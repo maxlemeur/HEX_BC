@@ -1,4 +1,4 @@
-import { NETWORKS } from "@/lib/takeoff/bench/keys";
+import { NETWORKS } from "@/lib/takeoff/trade-keys";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import type { RoomSurface } from "@/lib/takeoff/vectors/surfaces";
 import type { TakeoffItem } from "@/lib/takeoff/types";

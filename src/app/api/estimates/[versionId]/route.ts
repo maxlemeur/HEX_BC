@@ -3,10 +3,8 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { patchEstimateVersionSchema } from "@/lib/estimates/schemas";
-import {
-  getEstimateVersionDetails,
-  patchEstimateVersion,
-} from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
+import { patchEstimateVersion } from "@/lib/estimates/version-settings-server";
 import { parseJsonBody, resolveConcurrencyToken, uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(

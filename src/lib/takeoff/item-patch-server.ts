@@ -31,9 +31,6 @@ import type {
   TakeoffItemPatchResult,
 } from "@/lib/takeoff/types";
 
-export { takeoffItemBatchPatchSchema } from "@/lib/takeoff/item-patch-preparation";
-
-
 /** The saved lines as they stand after the rules ran; a line that cannot be read back keeps its saved answer. */
 async function readTakeoffItemsAfterRules(input: {
   supabase: Awaited<ReturnType<typeof getAuthenticatedTakeoffContext>>["supabase"];

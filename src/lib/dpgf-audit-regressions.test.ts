@@ -73,10 +73,6 @@ describe("K-01: error response sanitization", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// JSON rows retained by the canonical import pipeline
-// ---------------------------------------------------------------------------
-
 describe("canonical JSON row normalization", () => {
   it("normalizeRowsFromJson filters out all-null rows", async () => {
     const { normalizeRowsFromJson } = await import("@/lib/imports/parser");

@@ -23,10 +23,6 @@ import { ChevronDownIcon } from "lucide-react";
 
 import { EmptyState } from "@/components/layout/empty-state";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type TakeoffTableViewProps = {
   tables: TakeoffTable[];
   items: ReviewItem[];
@@ -52,10 +48,6 @@ const EDITABLE_COLUMN_HEADER_HINTS: Record<EditableColumnField, string[]> = {
   unit: ["unite", "unit", "uom", "udm"],
   evidence: ["evidence", "source", "commentaire", "comment"],
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function normalizeHeaderLabel(value: string) {
   return value
@@ -132,10 +124,6 @@ function isTableIncluded(tableItems: ReviewItem[]): boolean {
   return tableItems.length > 0 && tableItems.every((i) => !i.is_excluded);
 }
 
-// ---------------------------------------------------------------------------
-// Table card component
-// ---------------------------------------------------------------------------
-
 function TableCard({
   card,
   collapsed,
@@ -167,7 +155,6 @@ function TableCard({
     [table.headers]
   );
 
-  // Spreadsheet navigation scoped to this card
   const navigationRows: SpreadsheetNavigationRow[] = useMemo(
     () =>
       tableItems.map((item) => ({
@@ -203,7 +190,6 @@ function TableCard({
         excluded ? "bg-surface-subtle" : "bg-surface"
       }`}
     >
-      {/* Card header */}
       <div className="flex flex-wrap items-center gap-3 px-4 py-3">
         <Button
           variant="ghost"
@@ -260,7 +246,6 @@ function TableCard({
         </div>
       </div>
 
-      {/* Card body */}
       {!collapsed && (
         <div
           className="relative overflow-x-auto border-t border-border"
@@ -404,7 +389,6 @@ function TableCard({
                         );
                       }
 
-                      // Other columns: show raw cell value (read-only display)
                       return (
                         <td key={ci} className="text-sm text-foreground-secondary">
                           {cellValue || (
@@ -424,10 +408,6 @@ function TableCard({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main TakeoffTableView
-// ---------------------------------------------------------------------------
-
 export function TakeoffTableView({
   tables,
   items,
@@ -436,14 +416,12 @@ export function TakeoffTableView({
   onIncludeItems,
   onSyncToItems,
 }: TakeoffTableViewProps) {
-  // ---- Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [pageFilter, setPageFilter] = useState<string>("all");
   const [tableFilter, setTableFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<InclusionStatusFilter>("all");
   const [collapsedCards, setCollapsedCards] = useState<Set<number>>(new Set());
 
-  // ---- Build card data: associate items with tables
   const cards: TableCardData[] = useMemo(() => {
     type AssignedItem = {
       item: ReviewItem;
@@ -463,7 +441,6 @@ export function TakeoffTableView({
       }
     };
 
-    // First pass: use metadata mapping when available.
     items.forEach((item, originalIndex) => {
       const tableIndex =
         typeof item.metadata.table_index === "number"
@@ -570,7 +547,6 @@ export function TakeoffTableView({
     });
   }, [tables, items]);
 
-  // ---- Unique pages
   const allPages = useMemo(() => {
     const pages = new Set<number>();
     for (const table of tables) {
@@ -579,7 +555,6 @@ export function TakeoffTableView({
     return Array.from(pages).sort((a, b) => a - b);
   }, [tables]);
 
-  // ---- Unique table options for filter
   const allTableOptions = useMemo(() => {
     return cards.map((card) => {
       const title = card.table.title?.trim();
@@ -591,11 +566,9 @@ export function TakeoffTableView({
     });
   }, [cards]);
 
-  // ---- Filter cards
   const filteredCards = useMemo(() => {
     let result = cards;
 
-    // Search by title
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       result = result.filter((c) => {
@@ -604,19 +577,16 @@ export function TakeoffTableView({
       });
     }
 
-    // Filter by page
     if (pageFilter !== "all") {
       const pageNum = Number(pageFilter);
       result = result.filter((c) => c.table.page === pageNum);
     }
 
-    // Filter by table
     if (tableFilter !== "all") {
       const selectedTable = Number(tableFilter);
       result = result.filter((c) => c.tableIndex === selectedTable);
     }
 
-    // Filter by status
     if (statusFilter === "included") {
       result = result.filter((c) => isTableIncluded(c.items));
     } else if (statusFilter === "excluded") {
@@ -630,7 +600,6 @@ export function TakeoffTableView({
     return result;
   }, [cards, searchQuery, pageFilter, tableFilter, statusFilter]);
 
-  // ---- Group by page
   const groupedByPage = useMemo(() => {
     const groups = new Map<number, TableCardData[]>();
     for (const card of filteredCards) {
@@ -642,7 +611,6 @@ export function TakeoffTableView({
     return Array.from(groups.entries()).sort(([a], [b]) => a - b);
   }, [filteredCards]);
 
-  // ---- Collapse/expand
   const toggleCollapse = useCallback((tableIndex: number) => {
     setCollapsedCards((prev) => {
       const next = new Set(prev);
@@ -663,7 +631,6 @@ export function TakeoffTableView({
     setCollapsedCards(new Set());
   }, []);
 
-  // ---- Empty state
   if (tables.length === 0) {
     return (
       <EmptyState
@@ -675,7 +642,6 @@ export function TakeoffTableView({
 
   return (
     <div className="space-y-4">
-      {/* ---- Filters ---- */}
       <div className="flex flex-wrap items-center gap-3">
         <Input
           type="search"
@@ -748,7 +714,6 @@ export function TakeoffTableView({
         </span>
       </div>
 
-      {/* ---- Grouped cards ---- */}
       {filteredCards.length === 0 ? (
         <EmptyState
           variant="compact"
@@ -757,7 +722,6 @@ export function TakeoffTableView({
       ) : (
         groupedByPage.map(([page, pageCards]) => (
           <div key={page}>
-            {/* Page separator */}
             {allPages.length > 1 && (
               <div className="sticky top-0 z-10 mb-3 flex items-center gap-3">
                 <div className="h-px flex-1 bg-border" />

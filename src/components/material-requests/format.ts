@@ -2,10 +2,11 @@ import {
   MATERIAL_REQUEST_FILE_MAX_BYTES,
   MATERIAL_REQUEST_MAX_FILES,
   type MaterialRequestLine,
-  type MaterialRequestPricePer,
 } from "@/lib/material-requests/contracts";
 import { MATERIAL_REQUEST_QUOTE_MAX_FILES } from "@/lib/material-requests/quote-contracts";
 import { formatEUR } from "@/lib/money";
+import { PURCHASE_ORDER_STATUS_LABELS } from "@/lib/purchase-orders/lifecycle";
+import type { PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
 import { isValidOrderQuantity, orderQuantityToMilliunits } from "@/lib/purchase-orders/quantities";
 
 /** « 2026-11-12 » → « 12/11/2026 », without a time zone in the way. */
@@ -61,12 +62,12 @@ export function checkQuoteFileSelection(files: readonly File[], alreadyThere: nu
 }
 
 /** « 1 000 » with a no-break space: « les 1 000 » never breaks across two lines. */
-export function formatPricePer(per: MaterialRequestPricePer): string {
+export function formatPricePer(per: PurchaseOrderPricePer): string {
   return per === 1000 ? "1 000" : String(per);
 }
 
 /** « 11,50 € », or « 3,40 € les 100 » for a price given for several units. */
-export function formatQuotedPrice(cents: number, per: MaterialRequestPricePer): string {
+export function formatQuotedPrice(cents: number, per: PurchaseOrderPricePer): string {
   return per === 1 ? formatEUR(cents) : `${formatEUR(cents)} les ${formatPricePer(per)}`;
 }
 
@@ -77,7 +78,7 @@ export function formatQuotedPrice(cents: number, per: MaterialRequestPricePer): 
 export function quotedAmountCents(
   quantity: number | null,
   cents: number | null,
-  per: MaterialRequestPricePer,
+  per: PurchaseOrderPricePer,
 ): number | null {
   if (quantity === null || cents === null || !isValidOrderQuantity(quantity)) return null;
   const divisor = BigInt(1000 * per);
@@ -85,16 +86,8 @@ export function quotedAmountCents(
 }
 
 /** A purchase order's status in words (as on the orders list); an unknown one is shown as the server wrote it. */
-const PURCHASE_ORDER_STATUS_LABELS: Record<string, string> = {
-  draft: "Brouillon",
-  sent: "Envoyée",
-  confirmed: "Confirmée",
-  received: "Reçue",
-  canceled: "Annulée",
-};
-
 export function purchaseOrderStatusLabel(status: string): string {
-  return PURCHASE_ORDER_STATUS_LABELS[status] ?? status;
+  return (PURCHASE_ORDER_STATUS_LABELS as Record<string, string>)[status] ?? status;
 }
 
 /**

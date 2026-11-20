@@ -8,12 +8,10 @@ import {
   deleteEstimateItemSchema,
   updateEstimateItemSchema,
 } from "@/lib/estimates/schemas";
-import {
-  createEstimateItem,
-  deleteEstimateItem,
-  listEstimateItems,
-  updateEstimateItem,
-} from "@/lib/estimates/server";
+import { createEstimateItem } from "@/lib/estimates/item-create-server";
+import { deleteEstimateItem } from "@/lib/estimates/item-structure-server";
+import { listEstimateItems } from "@/lib/estimates/version-read-server";
+import { updateEstimateItem } from "@/lib/estimates/item-update-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(

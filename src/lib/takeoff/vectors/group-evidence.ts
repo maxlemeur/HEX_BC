@@ -1,8 +1,8 @@
-import { NETWORK_CODES, NETWORKS, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES, NETWORKS, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import { isNetworkClass } from "@/lib/takeoff/vectors/classify";
 import { isGrey, isNearWhite, lightnessSaturation, parseHexColor } from "@/lib/takeoff/vectors/colors";
 import type { VectorText } from "@/lib/takeoff/vectors/extraction";
-import { distanceToSegment, pointsToMetres, SegmentIndex, type Box, type Segment } from "@/lib/takeoff/vectors/geometry";
+import { boxContains, distanceToSegment, pointsToMetres, SegmentIndex, type Box, type Segment } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines, readLabelBlocks, type LabelBlock } from "@/lib/takeoff/vectors/labels";
 import { commonNetwork, isTintOrShade } from "@/lib/takeoff/vectors/legend";
 import { LEADER_REACH_PT, leaderTips } from "@/lib/takeoff/vectors/measure";
@@ -313,8 +313,8 @@ export function evidenceLayout(model: PageModel, reading: Pick<VectorPageReading
   const { extraction } = model;
   const lines = mergeTextLines(extraction.texts);
   const blocks = readLegendBlocks(model, reading, lines);
-  const inLegend = (x: number, y: number) => blocks.some(({ box }) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1)
-    || reading.legend.boxes.some((box) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1);
+  const inLegend = (x: number, y: number) => blocks.some(({ box }) => boxContains(box, { x, y }))
+    || reading.legend.boxes.some((box) => boxContains(box, { x, y }));
   const keyNearWhite = extraction.groups.map((key) => isNearWhite(key.color));
   const hiddenLayers = new Set(extraction.layers.filter((layer) => !layer.visible).map((layer) => layer.id));
   const keyHidden = extraction.groups.map((key) => key.layer !== null && hiddenLayers.has(key.layer));
@@ -365,7 +365,6 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
     mode: reading.mode, scale: { status: reading.scale.status, denominator: reading.scale.denominator },
     layers: extraction.layers.filter((layer) => layer.visible).map((layer) => layer.name), classified_colours: {},
   };
-  // Colours of the keyword reading's networks.
   const networkOf = reading.groups.map((group) => (isNetworkClass(group.class) ? group.class : null));
   // A network's colour: a colour group's own, or a layer's when it has a single one (a layer of several holds symbols
   // and fittings in the standard CAD colours other layers use too).
@@ -407,12 +406,10 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
     tally.set(text, (tally.get(text) ?? 0) + 1);
     attached.set(best.group, tally);
   }
-  // Network segments of the keyword reading, for the band hint.
   const networkIds = model.segments.flatMap((_, id) => (networkOf[model.segmentGroup[id]] !== null && !model.segmentNearWhite[id] ? [id] : []));
   // Cells of twice the band's reach: a query meets few network segments (the default 24 pt cells hold hundreds on a dense plan).
   const networkIndex = new SegmentIndex(networkIds.map((id) => model.segments[id]), width, 2 * GROUP_EVIDENCE.band.reachPt);
   const parallel = Math.sin((GROUP_EVIDENCE.band.parallelDeg * Math.PI) / 180);
-  // Each candidate's own visible segments and paths, gathered once.
   const wanted = new Set(candidates.map((candidate) => candidate.group));
   const ownSegments = new Map<number, number[]>(candidates.map((candidate) => [candidate.group, []]));
   model.segments.forEach((_, id) => {
@@ -451,7 +448,6 @@ export function buildGroupEvidence(model: PageModel, reading: VectorPageReading,
     return { share: total > 0 ? round(bandedTotal / total, 3) : 0, network: lead ? commonNetwork(compatible.map(([network]) => network)) ?? lead[0] : null,
       agreement: bandedTotal > 0 ? round(agreeing / bandedTotal, 3) : null };
   };
-  // Texts within reach of each candidate's strokes (outside the legends).
   const near = new Map<number, Array<{ text: string; distance: number }>>(candidates.map((candidate) => [candidate.group, []]));
   const allIndex = new SegmentIndex(model.segments.map((segment, id) => (wanted.has(model.segmentGroup[id]) && !model.segmentNearWhite[id] ? segment : NONE)), width);
   const reach = GROUP_EVIDENCE.nearTextReachPt;

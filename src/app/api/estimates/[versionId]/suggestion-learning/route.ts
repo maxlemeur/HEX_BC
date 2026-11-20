@@ -1,25 +1,14 @@
-import { z } from "zod";
-
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { trackSuggestionCorrectionsSchema } from "@/lib/estimates/schemas";
 import { getLearnings, trackCorrection } from "@/lib/estimates/suggestion-learning";
-import { parseJsonBody } from "@/lib/http/request";
-
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
-
-async function getParams(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return paramsSchema.parse(params);
-}
+import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const { versionId } = await getParams(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const data = await getLearnings({
       versionId,
       includeInactive: false,
@@ -35,7 +24,7 @@ export async function POST(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const { versionId } = await getParams(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const body = trackSuggestionCorrectionsSchema.parse(await parseJsonBody(request, badRequest));
     const data = await trackCorrection({
       versionId,

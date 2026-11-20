@@ -247,7 +247,6 @@ export function GeneratedOuvrageCandidateCard({
           disabled={selectionDisabled}
         />
         <div className="min-w-0 flex-1">
-          {/* Header: designation + AI confidence */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-foreground">
               {candidate.editedDesignation}
@@ -262,14 +261,12 @@ export function GeneratedOuvrageCandidateCard({
             )}
           </div>
 
-          {/* Readiness stepper */}
           <ReadinessStepper
             parentReady={parentReadiness.isReady}
             subdetailReviewed={candidate.subdetailReviewed}
             selected={candidate.selected}
           />
 
-          {/* Actionable guidance block */}
           {nextStep === "parent" && (
             <div className={cn(GUIDANCE_CLASS, "border-warning-border bg-warning-subtle")}>
               <p className="font-medium text-warning">
@@ -320,7 +317,6 @@ export function GeneratedOuvrageCandidateCard({
             </div>
           )}
 
-          {/* Reasoning - hidden when parent incomplete */}
           {candidate.reasoning && parentReadiness.isReady && (
             <p className="mt-1 text-xs text-muted-foreground italic">
               {candidate.reasoning}
@@ -345,9 +341,7 @@ export function GeneratedOuvrageCandidateCard({
             </div>
           )}
 
-          {/* Action buttons - primary CTA adapts to current step */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {/* Primary CTA - changes based on next required step */}
             {nextStep === "parent" && (
               <Button
                 type="button"
@@ -379,12 +373,10 @@ export function GeneratedOuvrageCandidateCard({
               </Button>
             )}
 
-            {/* Divider between primary and secondary */}
             {nextStep !== "ready" && (
               <span className="h-4 w-px bg-border" aria-hidden="true" />
             )}
 
-            {/* Select/deselect - hidden when it's the primary CTA or parent incomplete */}
             {parentReadiness.isReady && nextStep !== "select" && (
               <Button
                 type="button"
@@ -396,7 +388,6 @@ export function GeneratedOuvrageCandidateCard({
               </Button>
             )}
 
-            {/* Subdetail toggle - hidden when it's the primary CTA or parent incomplete */}
             {parentReadiness.isReady && nextStep !== "subdetail" && (
               <Button
                 type="button"
@@ -418,7 +409,6 @@ export function GeneratedOuvrageCandidateCard({
               </Button>
             )}
 
-            {/* Edit - hidden when "Compléter la ligne" is already the primary CTA */}
             {nextStep !== "parent" && (
               <Button
                 type="button"
@@ -430,7 +420,6 @@ export function GeneratedOuvrageCandidateCard({
               </Button>
             )}
 
-            {/* Reject - always available */}
             <Button
               type="button"
               variant="ghost"
@@ -443,7 +432,6 @@ export function GeneratedOuvrageCandidateCard({
             </Button>
           </div>
 
-          {/* Subdetail editor - only shown when parent is ready */}
           {subdetailOpen && parentReadiness.isReady ? (
             <div aria-live="polite">
               {subdetailState?.status === "loading" ? (
@@ -621,7 +609,6 @@ function EditMode({
           </NativeSelect>
         </div>
 
-        {/* Live readiness feedback */}
         {parentReadiness.isReady ? (
           <p className="rounded-lg border border-success-border bg-success-subtle px-3 py-2 text-xs text-success">
             Ligne complète. Validez pour passer à l&apos;étape suivante.

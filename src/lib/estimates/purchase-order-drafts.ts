@@ -12,13 +12,13 @@ import {
   unauthorized,
   type SupabaseErrorLike,
 } from "@/lib/http/api-response";
-import {
-  getEstimateSupplierComparisons,
-  listEstimateItemRows,
-  type EstimateSupplierComparisonAlternative,
-  type EstimateSupplierComparisonCoverageStatus,
-  type EstimateSupplierComparisonRiskFlag,
-} from "@/lib/estimates/server";
+import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
+import { listEstimateItemRows } from "@/lib/estimates/version-read-server";
+import type {
+  EstimateSupplierComparisonAlternative,
+  EstimateSupplierComparisonCoverageStatus,
+  EstimateSupplierComparisonRiskFlag,
+} from "@/lib/estimates/supplier-comparison";
 import { computeTotalsFromInputs, MAX_ORDER_AMOUNT_CENTS, type LineTotals } from "@/lib/order-calculations";
 import type {
   estimatePurchaseOrderDraftsCreateSchema,

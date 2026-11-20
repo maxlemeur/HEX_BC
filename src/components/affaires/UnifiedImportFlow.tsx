@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { startTransition, useCallback, useMemo, useState } from "react";
 
-import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
+import type { ConfirmUnifiedImportFlowResult } from "@/lib/affaires/import-flow-results";
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
 import { useConfirm } from "@/components/feedback/confirm-provider";
 import { useUiMode } from "@/hooks/useUiMode";

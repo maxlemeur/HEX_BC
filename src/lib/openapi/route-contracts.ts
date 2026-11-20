@@ -31,10 +31,12 @@ import type {
   OpenApiResponseDefinition,
   OpenApiSchemaDefinition,
 } from "@/lib/openapi/registry";
+import { DATE_ONLY_PATTERN } from "@/lib/date-only";
+import { jsonResponse } from "@/lib/openapi/registry-helpers";
 
 export const routeContractUuidSchema = z.string().uuid();
 const uuidSchema = routeContractUuidSchema;
-const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const dateOnlySchema = z.string().regex(DATE_ONLY_PATTERN);
 const jsonRecordSchema = z.record(z.string(), z.unknown());
 
 const orderLookupOutputSchema = z.object({ id: uuidSchema, name: z.string() });
@@ -179,16 +181,6 @@ function toRequestBody(
         io: "input",
       },
     })),
-  };
-}
-
-function jsonResponse(
-  description: string,
-  schema: OpenApiSchemaDefinition
-): OpenApiResponseDefinition {
-  return {
-    description,
-    contents: [{ contentType: "application/json", schema }],
   };
 }
 

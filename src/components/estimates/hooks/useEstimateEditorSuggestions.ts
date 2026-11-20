@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { type SuggestionPreview } from "@/components/estimates/components/EstimateSuggestionRow";
-import { type SuggestionLearningState } from "@/components/estimates/estimate-editor-table-types";
+import { type SuggestionLearningState } from "@/lib/estimates/editor-table-types";
 import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { sendEstimateSuggestionRuleFeedback } from "@/lib/estimates/client";
 import { createSuggestionRanker } from "@/lib/estimates/suggestion-scoring";

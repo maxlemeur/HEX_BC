@@ -4,7 +4,7 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedTenantContext: vi.fn(),
 }));
 
-vi.mock("@/lib/purchase-orders", () => ({
+vi.mock("@/lib/purchase-orders/access", () => ({
   canWritePurchaseOrders: vi.fn(),
   getAccessiblePurchaseOrderOrNull: vi.fn(),
 }));
@@ -25,7 +25,7 @@ import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
-} from "@/lib/purchase-orders";
+} from "@/lib/purchase-orders/access";
 
 const orderParams = { params: Promise.resolve({ id: ORDER_ID }) };
 const devisParams = {

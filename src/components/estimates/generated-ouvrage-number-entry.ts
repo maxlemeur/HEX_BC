@@ -1,4 +1,4 @@
-import { MAX_CENTS } from "@/lib/estimate-calculations";
+import { MAX_CENTS } from "@/lib/money";
 import { toStoredEstimateNumeric } from "@/lib/estimates/stored-item-numeric";
 import { formatCentsInput, parseCurrencyToCents } from "@/lib/money";
 

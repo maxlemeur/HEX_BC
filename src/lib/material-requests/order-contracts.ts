@@ -78,9 +78,6 @@ export const createMaterialRequestOrdersSchema = z
   .strict();
 export type CreateMaterialRequestOrdersData = z.output<typeof createMaterialRequestOrdersSchema>;
 
-/** How an order made from a request is delivered: the request's delivery place, copied (line-kinds.ts). */
-export { PURCHASE_ORDER_DELIVERY_MODE_LABELS, type PurchaseOrderDeliveryMode } from "@/lib/purchase-orders/line-kinds";
-
 /** Error codes of the order routes, beside the generic ones (FORBIDDEN, NOT_FOUND, VALIDATION_ERROR). */
 /** 422: no line of the request is ready to be ordered. */
 export const MATERIAL_REQUEST_ORDER_NOTHING_READY = "MATERIAL_REQUEST_ORDER_NOTHING_READY";

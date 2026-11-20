@@ -263,8 +263,6 @@ export function IntakeDropzone({
         hiddenSurface={hideSurface}
       />
 
-
-      {/* Client-side validation errors */}
       {clientErrors.length > 0 && (
         <ul className="mt-2 space-y-1" role="alert">
           {clientErrors.map((err, i) => (
@@ -275,7 +273,6 @@ export function IntakeDropzone({
         </ul>
       )}
 
-      {/* Server results */}
       {state.phase === "done" && state.results.length > 0 && (
         <div className="mt-3 space-y-1.5">
           {state.results.map((file) => (
@@ -305,7 +302,6 @@ export function IntakeDropzone({
         </div>
       )}
 
-      {/* Server error */}
       {state.phase === "error" && (
         <div className="mt-2 rounded-lg border border-danger/20 bg-error-light px-3 py-2 text-sm text-danger" role="alert">
           {state.message}

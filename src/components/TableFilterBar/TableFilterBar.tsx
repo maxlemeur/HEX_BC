@@ -45,7 +45,6 @@ export function TableFilterBar<T extends Record<string, unknown>>({
   const hasFilters = filters && filters.length > 0;
   const hasSort = sortOptions && sortOptions.length > 0;
 
-  // Memoized handlers for filter changes
   const handleFilterChange = useCallback(
     (key: string, value: string | string[] | DateRangeValue) => {
       setFilter(key, value);
@@ -62,7 +61,6 @@ export function TableFilterBar<T extends Record<string, unknown>>({
 
   return (
     <div className={`table-filter-bar ${hasFilters ? "table-filter-bar--has-filters" : ""}`}>
-      {/* Primary row: Search + Sort */}
       <div className="table-filter-bar__primary">
         {search && (
           <FilterSearch
@@ -83,7 +81,6 @@ export function TableFilterBar<T extends Record<string, unknown>>({
         )}
       </div>
 
-      {/* Filter pills row */}
         {hasFilters && (
           <div className="table-filter-bar__filters">
             {filters.map((filterConfig) => {
@@ -112,7 +109,6 @@ export function TableFilterBar<T extends Record<string, unknown>>({
         </div>
       )}
 
-      {/* Result count bar */}
       {showResultCount && (
         <ResultCount
           filteredCount={filteredCount}

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { canWritePurchaseOrders } from "@/lib/purchase-orders";
+import { canWritePurchaseOrders } from "@/lib/purchase-orders/access";
 
 const ACTIVE_TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
@@ -25,13 +25,12 @@ function createClient(role: "admin" | "engineer" | "viewer" | "director") {
 }
 
 describe("purchase-order write role resolution", () => {
-  it("uses the authoritative active tenant instead of an inactive default", async () => {
+  it("reads the role in the given tenant", async () => {
     const { client, tenantEq } = createClient("engineer");
 
     await expect(
-      canWritePurchaseOrders(client as never, USER_ID)
+      canWritePurchaseOrders(client as never, USER_ID, ACTIVE_TENANT_ID)
     ).resolves.toBe(true);
-    expect(client.rpc).toHaveBeenCalledWith("current_tenant_id");
     expect(tenantEq).toHaveBeenCalledWith("tenant_id", ACTIVE_TENANT_ID);
   });
 

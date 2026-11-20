@@ -23,22 +23,12 @@ import {
   type EstimateV3ItemInput,
 } from "../../src/lib/estimates/engine-v3";
 import { buildSourceEvidence, newEvidenceDirectory } from "../tester-army/local-recipe-common.mjs";
+import { mulberry32 } from "./parity-cases";
 
 const SEED = 20261017;
 const ROLE_ID = "00000000-0000-4000-8009-000000000001";
 const RATE_CENTS = 4000;
 const WARM_UP = 20;
-
-function mulberry32(seed: number) {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const uuid = (kind: number, n: number) =>
   `00000000-0000-4000-8${String(kind).padStart(3, "0")}-${String(n).padStart(12, "0")}`;

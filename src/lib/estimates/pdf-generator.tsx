@@ -110,8 +110,6 @@ type SupabaseErrorLike = {
 
 const VERSION_ACCESS_SELECT =
   "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
-const LEGACY_VERSION_ACCESS_SELECT =
-  "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
@@ -384,26 +382,12 @@ async function getVersionAccessOrThrow(
   context: AuthenticatedContext,
   versionId: string,
 ): Promise<VersionAccess> {
-  let { data, error } = await context.supabase
+  const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(VERSION_ACCESS_SELECT)
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
     .single();
-
-  if (isMissingEstimateRoundingAdjustmentSchema(error)) {
-    const legacyResult = await context.supabase
-      .from("estimate_versions")
-      .select(LEGACY_VERSION_ACCESS_SELECT)
-      .eq("id", versionId)
-      .eq("tenant_id", context.tenantId)
-      .single();
-
-    data = legacyResult.data
-      ? { ...legacyResult.data, rounding_adjustment_cents: 0, gross_ht_cents: null, discount_applied_cents: null, commercial_rounding_cents: null }
-      : null;
-    error = legacyResult.error;
-  }
 
   if (error || !data) {
     throw notFound("Version de chiffrage introuvable.");
@@ -470,7 +454,7 @@ async function loadEstimateTermsTemplate(input: {
     .maybeSingle();
 
   if (error) {
-    if (isMissingEstimateTermsSchema(error)) {
+    if (isEstimateTermsSchemaUnavailable(error)) {
       return canUseDevelopmentEstimateTerms()
         ? createDevelopmentEstimateTermsTemplate(input.tenantId, "development")
         : null;
@@ -506,21 +490,9 @@ function normalizedSupabaseError(error: SupabaseErrorLike) {
     .toLowerCase();
 }
 
-export function isMissingEstimateRoundingAdjustmentSchema(
-  error: SupabaseErrorLike | null | undefined,
-) {
-  if (!error) return false;
-  const code = error.code?.toUpperCase() ?? "";
-  const message = normalizedSupabaseError(error);
-
-  return (
-    code === "42703" &&
-    message.includes("rounding_adjustment_cents") &&
-    message.includes("estimate_versions")
-  );
-}
-
-function isMissingEstimateTermsSchema(error: SupabaseErrorLike) {
+// PostgREST answers PGRST205 / « schema cache » for a table it has not reloaded yet,
+// which happens for a moment after a deployment that touches the schema.
+function isEstimateTermsSchemaUnavailable(error: SupabaseErrorLike) {
   const code = error.code?.toUpperCase() ?? "";
   const message = normalizedSupabaseError(error);
 

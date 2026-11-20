@@ -29,12 +29,13 @@ import { assertNormalizedBox } from "@/lib/takeoff/lab/geometry";
 import { scoreLabExtraction } from "@/lib/takeoff/lab/score";
 import {
   canonicalJson, elementIdOf, listJsonFiles, outputSubdirectory, readDecisionsTokenCap, readLabJson, requireLabPaths, runFile,
-  sha256Hex, writeLabJson, type LabPaths,
+  writeLabJson, type LabPaths,
 } from "@/lib/takeoff/lab/storage";
 import { findLabTask, vectorGroupsQuestionTemplate, type LabTask } from "@/lib/takeoff/lab/tasks";
 import { runVectorGroupsConfig, choiceLabel } from "@/lib/takeoff/lab/vectors";
 import { isDecisionsRunStop } from "@/lib/takeoff/vectors/group-decisions-server";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
+import { sha256Hex } from "@/lib/takeoff/sha256";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 
 // One essai of the takeoff lab (TI-661): a document (whole PDF, or one page
@@ -151,9 +152,6 @@ function chatGptChoiceSchema(task: LabTask) {
   const values = task.question!.choices.map((choice) => choice.value) as [string, ...string[]];
   return z.object({ choix: z.enum(values), confiance: z.number().finite().min(0).max(1) }).strict();
 }
-
-// ---------------------------------------------------------------------------
-// Stored runs and the Decisions budget
 
 export async function listLabRuns(paths: LabPaths): Promise<LabRun[]> {
   const files = await listJsonFiles(outputSubdirectory(paths, "runs"));
@@ -335,9 +333,6 @@ async function preflightDecisions(paths: LabPaths, request: LabRunRequest, task:
   if (task.id !== LAB_VECTOR_TASK_ID && !request.image) throw badRequest("Decisions a besoin de l’image de la page ou de la zone : rechargez le document.");
   return cap - budget.used;
 }
-
-// ---------------------------------------------------------------------------
-// The essai
 
 const STOP_MESSAGES: Record<LabStopReason, string> = {
   quota: "Limite du forfait ChatGPT : essai arrêté, sans relance.",

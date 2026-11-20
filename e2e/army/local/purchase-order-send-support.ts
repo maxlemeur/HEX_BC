@@ -61,7 +61,6 @@ export function inventedAddress(army: ArmyState, local: string): string {
   return `${local}@${army.runPrefix.toLowerCase()}.invalid`;
 }
 
-/** Opens the send dialog of an order from its page. */
 export async function openSendDialog({ screen, browser }: Ui, order: { id: string; reference: string }) {
   await browser.goto(`/dashboard/orders/${order.id}`, { waitUntil: "domcontentloaded" });
   // The button is in the server's HTML before React handles it: a press then is lost.
@@ -72,7 +71,6 @@ export async function openSendDialog({ screen, browser }: Ui, order: { id: strin
   return dialog;
 }
 
-/** Sends from the open dialog and answers what the server said. */
 export async function sendFromDialog({ browser }: Ui, dialog: Awaited<ReturnType<typeof openSendDialog>>, orderId: string) {
   const [response] = await Promise.all([
     browser.waitForResponse(`**/api/purchase-orders/${orderId}/send`, { timeout: 60_000 }),

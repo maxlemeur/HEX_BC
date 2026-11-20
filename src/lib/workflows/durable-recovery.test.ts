@@ -67,21 +67,13 @@ describe("durable workflow recovery", () => {
         trigger_kind: "process",
       },
     ]);
-    const triggerTakeoff = vi.fn().mockResolvedValue({
-      triggered: false,
-      correlationId: "correlation",
-      statusCode: 503,
-    });
     const processIntake = vi.fn();
-    const persistTakeoffDispatch = vi.fn().mockResolvedValue(true);
     const drainStorageCleanup = vi
       .fn()
       .mockResolvedValue(STORAGE_CLEANUP_RESULT);
 
     const result = await recoverDurableWorkflows({
       client,
-      triggerTakeoff,
-      persistTakeoffDispatch,
       processIntake,
       drainStorageCleanup,
       drainEmailOutbox: async () => EMAIL_OUTBOX_RESULT,
@@ -89,8 +81,6 @@ describe("durable workflow recovery", () => {
     });
 
     expect(processIntake).not.toHaveBeenCalled();
-    expect(triggerTakeoff).not.toHaveBeenCalled();
-    expect(persistTakeoffDispatch).not.toHaveBeenCalled();
     expect(result.dispatchedCount).toBe(0);
     expect(result.failedCount).toBe(0);
     expect(result.skippedCount).toBe(2);
@@ -123,8 +113,6 @@ describe("durable workflow recovery", () => {
         trigger_kind: "process",
       },
     ]);
-    const triggerTakeoff = vi.fn().mockRejectedValue(new Error("poisoned item"));
-    const persistTakeoffDispatch = vi.fn();
     const processIntake = vi.fn().mockRejectedValue(new Error("poisoned item"));
     const drainStorageCleanup = vi
       .fn()
@@ -132,8 +120,6 @@ describe("durable workflow recovery", () => {
     const retryStore = createRetryStore();
     const deps = {
       client,
-      triggerTakeoff,
-      persistTakeoffDispatch,
       processIntake,
       drainStorageCleanup,
       drainEmailOutbox: async () => EMAIL_OUTBOX_RESULT,
@@ -159,10 +145,9 @@ describe("durable workflow recovery", () => {
     expect(retryStore.dead.has(INTAKE_ID)).toBe(true);
     expect(retryStore.counts.get(INTAKE_ID)).toBe(MAX_DURABLE_RECOVERY_ATTEMPTS);
 
-    triggerTakeoff.mockClear();
     const capped = await recoverDurableWorkflows(deps);
 
-    expect(triggerTakeoff).not.toHaveBeenCalled();
+    expect(processIntake).toHaveBeenCalledTimes(MAX_DURABLE_RECOVERY_ATTEMPTS);
     expect(capped.dispatchedCount).toBe(0);
     expect(capped.failedCount).toBe(0);
     expect(capped.deadCount).toBe(1);
@@ -208,15 +193,12 @@ describe("durable workflow recovery", () => {
         };
       },
     };
-    const triggerTakeoff = vi.fn().mockRejectedValue(new Error("poisoned item"));
     const drainStorageCleanup = vi
       .fn()
       .mockResolvedValue(STORAGE_CLEANUP_RESULT);
     const deps = {
       client,
       tableClient,
-      triggerTakeoff,
-      persistTakeoffDispatch: vi.fn(),
       processIntake: vi.fn().mockRejectedValue(new Error("poisoned item")),
       drainStorageCleanup,
       drainEmailOutbox: async () => EMAIL_OUTBOX_RESULT,
@@ -232,9 +214,7 @@ describe("durable workflow recovery", () => {
     expect(intakeRow.next_retry_at).toBeNull();
     expect(intakeRow.last_error).toBe("La reprise durable a epuise son budget de tentatives.");
 
-    triggerTakeoff.mockClear();
     const capped = await recoverDurableWorkflows(deps);
-    expect(triggerTakeoff).not.toHaveBeenCalled();
     expect(capped.deadCount).toBe(1);
   });
 });

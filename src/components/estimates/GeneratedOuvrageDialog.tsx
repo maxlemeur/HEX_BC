@@ -238,7 +238,6 @@ function GeneratedOuvrageDialogSession({
     };
   }, [isOpen]);
 
-  // Reset state on close
   useEffect(() => {
     if (!isOpen) {
       generateRequestRef.current += 1;

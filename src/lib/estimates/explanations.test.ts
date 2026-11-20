@@ -8,18 +8,18 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-read-server", () => ({
   getEstimateVersionDetails: vi.fn(),
 }));
 
-vi.mock("@/lib/takeoff/gemini-client", () => ({
-  callGeminiStructured: vi.fn(),
+vi.mock("@/lib/ai/structured-ai", () => ({
+  callStructuredAi: vi.fn(),
 }));
 
+import { callStructuredAi } from "@/lib/ai/structured-ai";
 import { getEstimateDeltaExplanation, getEstimateLineExplanation } from "@/lib/estimates/explanations";
-import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const LINE_ID = "22222222-2222-4222-8222-222222222222";
@@ -519,7 +519,7 @@ describe("estimate explanations service", () => {
     );
     expect(explanation.impact_summary.delta_ht_cents).toBe(-68500);
     expect(explanation.impact_summary.top_drivers[0]).toContain("Mur beton: -685,00");
-    expect(vi.mocked(callGeminiStructured)).not.toHaveBeenCalled();
+    expect(vi.mocked(callStructuredAi)).not.toHaveBeenCalled();
     expect(supabase.__spies.explanationInsert).toHaveBeenCalledTimes(1);
   });
 
@@ -573,7 +573,7 @@ describe("estimate explanations service", () => {
           ],
         }) as never
       );
-    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
 
     const explanation = await getEstimateDeltaExplanation({
       versionId: VERSION_ID,
@@ -637,7 +637,7 @@ describe("estimate explanations service", () => {
           ],
         }) as never
       );
-    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
 
     const explanation = await getEstimateDeltaExplanation({
       versionId: VERSION_ID,
@@ -718,7 +718,7 @@ describe("estimate explanations service", () => {
       }) as never
     );
     vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
-    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
 
     const explanation = await getEstimateLineExplanation({
       versionId: VERSION_ID,
@@ -745,7 +745,7 @@ describe("estimate explanations service", () => {
     vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails({
       items: details.items.map((item) => ({ ...item, source_job_id: "99999999-9999-4999-8999-999999999999" })),
     }) as never);
-    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
 
     const explanation = await getEstimateLineExplanation({ versionId: VERSION_ID, lineId: LINE_ID, includeDetail: true });
 
@@ -781,7 +781,7 @@ describe("estimate explanations service", () => {
         takeoff_provision: { version: 1, job_id: "c3000000-0000-4000-8000-000000000201", sources: [source] },
       } })),
     }) as never);
-    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
 
     const explanation = await getEstimateLineExplanation({ versionId: VERSION_ID, lineId: LINE_ID, includeDetail: true });
 
@@ -794,7 +794,7 @@ describe("estimate explanations service", () => {
       fingerprintProbeSupabase as never
     );
     vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
-    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+    vi.mocked(callStructuredAi).mockRejectedValue(new Error("AI provider down"));
 
     await getEstimateLineExplanation({
       versionId: VERSION_ID,
@@ -853,7 +853,7 @@ describe("estimate explanations service", () => {
       }) as never
     );
     vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
-    vi.mocked(callGeminiStructured).mockClear();
+    vi.mocked(callStructuredAi).mockClear();
 
     const explanation = await getEstimateLineExplanation({
       versionId: VERSION_ID,
@@ -861,7 +861,7 @@ describe("estimate explanations service", () => {
       includeDetail: true,
     });
 
-    expect(vi.mocked(callGeminiStructured)).not.toHaveBeenCalled();
+    expect(vi.mocked(callStructuredAi)).not.toHaveBeenCalled();
     expect(explanation.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
     expect(explanation.provenance).toHaveLength(1);
     expect(explanation.provenance[0]).toMatchObject({
@@ -930,7 +930,6 @@ describe("estimate explanations service", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
     vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
-    vi.mocked(callGeminiStructured).mockClear();
 
     const explanation = await getEstimateLineExplanation({
       versionId: VERSION_ID,
@@ -938,7 +937,7 @@ describe("estimate explanations service", () => {
       includeDetail: true,
     });
 
-    expect(vi.mocked(callGeminiStructured)).not.toHaveBeenCalled();
+    expect(vi.mocked(callStructuredAi)).not.toHaveBeenCalled();
     expect(supabase.__spies.explanationInsert).not.toHaveBeenCalled();
     expect(explanation.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
     expect(explanation.summary_short).toBe("Resume historique.");

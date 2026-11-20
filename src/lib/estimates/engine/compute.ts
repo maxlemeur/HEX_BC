@@ -5,6 +5,7 @@ import {
 } from "@/lib/estimate-calculations";
 import {
   assertNever,
+  type CalcEngineVersion,
   EstimateEngineUnavailableError,
 } from "@/lib/estimates/engine/capabilities";
 import {
@@ -15,7 +16,7 @@ import {
 
 /** Entrée du moteur historique (1 ou 2), inchangée. */
 export type HistoricalVersionComputationInput = Omit<EstimateComputationInput, "calcEngineVersion"> & {
-  calcEngineVersion: 1 | 2;
+  calcEngineVersion: CalcEngineVersion;
 };
 
 /** Entrée du moteur 3 : sa propre forme (colonnes v3), jamais une entrée v2 réinterprétée. */

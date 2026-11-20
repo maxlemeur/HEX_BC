@@ -25,14 +25,14 @@ vi.mock("next/headers", () => ({
   })),
 }));
 
+import { bulkUpdateEstimateItems } from "@/lib/estimates/item-bulk-server";
+import { createEstimateItem } from "@/lib/estimates/item-create-server";
 import {
-  bulkUpdateEstimateItems,
-  createEstimateItem,
   computeAssemblyMetrics,
   insertAssemblyIntoVersion,
   insertTemplateIntoVersion,
-  patchEstimateVersion,
-} from "@/lib/estimates/server";
+} from "@/lib/estimates/assemblies-server";
+import { patchEstimateVersion } from "@/lib/estimates/version-settings-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type { Database } from "@/types/database";

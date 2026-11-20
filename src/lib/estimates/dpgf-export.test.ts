@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-read-server", () => ({
   getEstimateVersionDetails: vi.fn(),
 }));
 
@@ -9,7 +9,7 @@ import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { normalizeMappedRowsForEstimateCreation } from "@/lib/affaires/import-flow";
 import { detectImportProfile } from "@/lib/imports/optima-profile";
 import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
-import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { resolveEstimateLineTruth } from "@/lib/estimates/line-truth";
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

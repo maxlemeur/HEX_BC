@@ -42,7 +42,7 @@ import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 //   DECISIONS_ACCEPTED_MARGIN;
 // - a call leaves once its own images are drawn (TI-704 latency: never the
 //   page's last one), the calls after it formed as the images come, in their
-//   order (callBatches); an image that cannot be drawn stops the page at its
+//   order (streamedBatches); an image that cannot be drawn stops the page at its
 //   call: none from it on, those before it applied (render_failed);
 // - then the propagation of the same colour, over every candidate;
 // - the worker gives fewer calls (`limits`): what its document has left; the
@@ -99,26 +99,6 @@ export const GROUP_DECISIONS_CALL_TIMEOUT_MS = 45_000;
  * images pass it is split, the legend images past half of it are not sent. A refused call would stop the job's calls.
  */
 export const GROUP_DECISIONS_CALL_IMAGE_BYTES = 10 * 1024 * 1024;
-
-/** The calls of the groups asked: in their order, at most batchSize each, their images and the legend's within `maxBytes`. */
-export function callBatches<T>(groups: readonly T[], bytesOf: (group: T) => number, legendBytes: number,
-  batchSize: number = GROUP_DECISIONS_LIMITS.batchSize, maxBytes: number = GROUP_DECISIONS_CALL_IMAGE_BYTES): T[][] {
-  const batches: T[][] = [];
-  let current: T[] = [];
-  let bytes = legendBytes;
-  for (const group of groups) {
-    const size = bytesOf(group);
-    if (current.length > 0 && (current.length >= batchSize || bytes + size > maxBytes)) {
-      batches.push(current);
-      current = [];
-      bytes = legendBytes;
-    }
-    current.push(group);
-    bytes += size;
-  }
-  if (current.length > 0) batches.push(current);
-  return batches;
-}
 
 export type GroupDecisionsDecide = (input: Parameters<typeof callOpenAiDecisions>[0]) => Promise<OpenAiDecisionsResult>;
 /** Starts a page's drawing session (group-evidence-render-server.ts startGroupEvidenceRender). */
@@ -259,7 +239,7 @@ export function streamImages(session: GroupEvidenceSession, plan: Omit<EvidenceI
 }
 
 /**
- * The calls of `groups`, formed as their images are drawn: those of callBatches, in their order (at most `batchSize`
+ * The calls of `groups`, formed as their images are drawn, in their order (at most `batchSize`
  * each, their images and the legend's within `maxBytes`). `next()` gives the next call once its images are drawn
  * (its last waits for the image after it only to know it would pass the bytes), null when no group is left, « failed »
  * when an image of it cannot be drawn; `taken()` the groups placed in calls.

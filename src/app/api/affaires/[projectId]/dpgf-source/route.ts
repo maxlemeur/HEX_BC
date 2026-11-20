@@ -3,7 +3,7 @@ import { parseLinkedDpgfSourceResponse } from "@/lib/estimates/section-copy-resp
 import { z } from "zod";
 
 import { notFound, ok, toErrorResponse } from "@/lib/http/api-response";
-import { getAffaireLinkedDpgfSource } from "@/lib/estimates/server";
+import { getAffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-read-server";
 
 const paramsSchema = z.object({
   projectId: z.string().uuid("ID projet invalide."),

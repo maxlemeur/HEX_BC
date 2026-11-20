@@ -11,13 +11,12 @@
  */
 
 import {
+  type CalcEngineVersion,
   engineFreezesSnapshot,
   EstimateEngineUnavailableError,
   type EstimateEngineVersion,
   EstimateEngineVersionError,
 } from "@/lib/estimates/engine/capabilities";
-
-export type CalcEngineVersion = 1 | 2;
 
 const LEGACY_CALC_ENGINE_VERSION: CalcEngineVersion = 1;
 

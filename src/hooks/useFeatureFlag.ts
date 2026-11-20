@@ -5,6 +5,7 @@ import useSWR from "swr";
 
 import { useUserContext } from "@/lib/auth/user-context";
 import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
+import { normalizeFeatureFlagKey } from "@/lib/feature-flag-keys";
 
 type FeatureFlagListItem = {
   flag_key: string;
@@ -24,10 +25,6 @@ type ApiEnvelope<T> = {
     message?: string;
   };
 };
-
-function normalizeFeatureFlagKey(value: string) {
-  return value.trim().toUpperCase();
-}
 
 async function fetchFeatureFlags([
   route,

@@ -35,6 +35,8 @@ import {
   type TakeoffJobStatusCounters,
   type TakeoffJobSummary,
   type TakeoffJobListPeriod,
+  type TakeoffDispatchOutcome,
+  type TakeoffDispatchStatus,
 } from "@/lib/takeoff/types";
 
 const DEFAULT_TAKEOFF_JOBS_LIST_LIMIT = 20;
@@ -43,11 +45,11 @@ const DEFAULT_TAKEOFF_JOB_ITEMS_LIMIT = 50;
 
 const TAKEOFF_PROJECT_VERSIONS_BATCH_SIZE = 1000;
 
-const TAKEOFF_JOB_LIST_PERIOD_DAYS: Record<TakeoffJobListPeriod, number> = {
+const TAKEOFF_JOB_LIST_PERIOD_DAYS: Record<string, number> = {
   "7d": 7,
   "30d": 30,
   "90d": 90,
-};
+} satisfies Record<TakeoffJobListPeriod, number>;
 
 const TAKEOFF_JOB_LIST_SELECT = [
   "id",
@@ -322,14 +324,8 @@ export type TakeoffJobDetailRow = {
   retry_count: number | null;
   next_retry_at: string | null;
   last_error_at: string | null;
-  dispatch_status: "started" | "queued" | "trigger_failed" | null;
-  dispatch_outcome:
-    | "accepted"
-    | "configuration_missing"
-    | "http_error"
-    | "timeout"
-    | "network_error"
-    | null;
+  dispatch_status: TakeoffDispatchStatus | null;
+  dispatch_outcome: TakeoffDispatchOutcome | null;
   dispatch_trigger: "create" | "retry" | "manual" | "reconcile" | null;
   dispatch_correlation_id: string | null;
   dispatch_status_code: number | null;
@@ -570,7 +566,7 @@ export async function listTakeoffItemsByJobId(input: {
 }
 
 function resolveTakeoffJobsPeriodStart(
-  period: ListTakeoffJobsQuery["period"]
+  period: string | null | undefined
 ): string | null {
   if (!period) return null;
   const periodDays = TAKEOFF_JOB_LIST_PERIOD_DAYS[period];
@@ -578,7 +574,7 @@ function resolveTakeoffJobsPeriodStart(
   return new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000).toISOString();
 }
 
-async function resolveVersionIdsForProject(input: {
+export async function resolveVersionIdsForProject(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
   projectId: string;
@@ -625,14 +621,15 @@ type TakeoffJobsListFilterQuery = {
   in: (column: string, values: string[]) => TakeoffJobsListFilterQuery;
 };
 
-type TakeoffJobsListFilterInput = Pick<
-  ListTakeoffJobsQuery,
-  "estimate_version_id" | "status" | "level" | "period"
-> & {
+type TakeoffJobsListFilterInput = {
+  estimate_version_id?: string | null;
+  status?: string | null;
+  level?: string | null;
+  period?: string | null;
   version_ids?: string[];
 };
 
-function applyTakeoffJobsListFilters<TQuery extends TakeoffJobsListFilterQuery>(
+export function applyTakeoffJobsListFilters<TQuery extends TakeoffJobsListFilterQuery>(
   query: TQuery,
   input: TakeoffJobsListFilterInput
 ): TQuery {

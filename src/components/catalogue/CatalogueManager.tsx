@@ -381,7 +381,6 @@ export function CatalogueManager() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ===== CATALOGUE TAB ===== */}
         <TabsContent value="catalogue" className="mt-4 space-y-6">
           <PageSection
             title="Catalogue articles"
@@ -592,7 +591,6 @@ export function CatalogueManager() {
           </PageSection>
         </TabsContent>
 
-        {/* ===== LIAISON TAB ===== */}
         <TabsContent value="liaison" className="mt-4">
           <PageSection
             title="Liaison des lignes importées au catalogue"
@@ -726,7 +724,6 @@ export function CatalogueManager() {
                   </AlertDescription>
                 </Alert>
 
-                {/* Summary counters */}
                 <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div className="rounded-lg border border-border bg-surface-subtle px-4 py-3 text-center">
                     <dt className="text-micro uppercase tracking-wide text-muted-foreground">Analysées</dt>

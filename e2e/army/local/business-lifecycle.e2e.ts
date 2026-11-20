@@ -5,7 +5,7 @@ import path from "node:path";
 import { test, type Browser } from "@e2e-dev/web";
 import { credentials, expect, secrets, type App, type Screen } from "e2e";
 
-import type { EstimateApprovalSummary } from "../../../src/lib/estimates/rules-engine";
+import type { EstimateApprovalSummary } from "../../../src/lib/estimates/approval-types";
 import { apiRequest, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave } from "../critical/fixtures";
 import { isOwnedLoopback, requiredFixturePath } from "./owned-business-inputs";
 

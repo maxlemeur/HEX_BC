@@ -2,7 +2,7 @@ import { parseEstimateEventsResponse } from "@/lib/estimates/write-response-cont
 import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { listEstimateVersionEvents } from "@/lib/estimates/server";
+import { listEstimateVersionEvents } from "@/lib/estimates/version-read-server";
 import { uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(

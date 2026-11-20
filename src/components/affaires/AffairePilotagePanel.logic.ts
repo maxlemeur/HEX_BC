@@ -213,18 +213,6 @@ function hasValidatedDpgfMapping(dpgfSource: AffaireHubDpgfSourceResult) {
   );
 }
 
-function isDocumentProcessing(
-  document: NonNullable<AffairePilotageWorkspace>["documents"][number],
-) {
-  return isAffaireIntakeDocumentProcessing(document);
-}
-
-function isDocumentNeedingReview(
-  document: NonNullable<AffairePilotageWorkspace>["documents"][number],
-) {
-  return isAffaireIntakeDocumentNeedingReview(document);
-}
-
 export function buildTakeoffExceptionsHref(
   projectId: string,
   plansSummary: AffaireHubPlansSummaryData
@@ -242,7 +230,7 @@ function countDocumentsNeedingReview(intakeWorkspace: AffairePilotageWorkspace) 
     return 0;
   }
 
-  return intakeWorkspace.documents.filter(isDocumentNeedingReview).length;
+  return intakeWorkspace.documents.filter(isAffaireIntakeDocumentNeedingReview).length;
 }
 
 function countDocumentsProcessing(intakeWorkspace: AffairePilotageWorkspace) {
@@ -250,7 +238,7 @@ function countDocumentsProcessing(intakeWorkspace: AffairePilotageWorkspace) {
     return 0;
   }
 
-  return intakeWorkspace.documents.filter(isDocumentProcessing).length;
+  return intakeWorkspace.documents.filter(isAffaireIntakeDocumentProcessing).length;
 }
 
 export function buildPilotageSteps(input: {

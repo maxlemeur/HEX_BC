@@ -15,10 +15,6 @@ import { ApprovalQueueStateActions } from "./ApprovalQueueStateActions";
 
 type BadgeTone = "neutral" | "info" | "success" | "warning" | "danger" | "brand";
 
-// ---------------------------------------------------------------------------
-// Exception pill tones
-// ---------------------------------------------------------------------------
-
 const EXCEPTION_GROUP_TONES: Record<ExceptionGroupKey, BadgeTone> = {
   price: "warning",
   quantities: "danger",
@@ -27,10 +23,6 @@ const EXCEPTION_GROUP_TONES: Record<ExceptionGroupKey, BadgeTone> = {
   missing_documents: "neutral",
 };
 
-// ---------------------------------------------------------------------------
-// Reviewer state badges
-// ---------------------------------------------------------------------------
-
 const REVIEWER_STATE_BADGE: Record<ReviewerState, { label: string; variant: BadgeTone }> = {
   seen: { label: "Vu", variant: "neutral" },
   review_laurent: { label: "À revoir", variant: "warning" },
@@ -38,19 +30,11 @@ const REVIEWER_STATE_BADGE: Record<ReviewerState, { label: string; variant: Badg
   acceptable: { label: "Acceptable", variant: "success" },
 };
 
-// ---------------------------------------------------------------------------
-// Risk score badge
-// ---------------------------------------------------------------------------
-
 function riskScoreSeverity(score: number): { variant: "danger" | "warning" | "info"; label: string } {
   if (score >= 70) return { variant: "danger", label: "Critique" };
   if (score >= 40) return { variant: "warning", label: "Attention" };
   return { variant: "info", label: "Info" };
 }
-
-// ---------------------------------------------------------------------------
-// Visual state border
-// ---------------------------------------------------------------------------
 
 const VISUAL_STATE_BORDER: Record<string, string> = {
   new: "border-l-primary border-l-4",
@@ -58,10 +42,6 @@ const VISUAL_STATE_BORDER: Record<string, string> = {
   seen: "",
   resolved: "",
 };
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 function resolveExceptionReviewJobId(item: ApprovalQueueItem): string | null {
   if (item.latestJobId) {
@@ -106,7 +86,6 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
         href={href}
         className="group block flex-1 rounded-control focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
       >
-        {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <h2
@@ -127,13 +106,11 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
           )}
         </div>
 
-        {/* Subtitle */}
         <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">
           {item.clientName && <span>{item.clientName} &middot; </span>}
           {item.versionLabel}
         </p>
 
-        {/* Metrics */}
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground-secondary">
           <span className="tabular-nums">{formatEUR(item.amountHtCents)} HT</span>
           {marginPercent !== null && (
@@ -146,7 +123,6 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
           )}
         </div>
 
-        {/* Exception pills */}
         {item.exceptionGroups.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {item.exceptionGroups.map((group) => (
@@ -199,7 +175,6 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
           </div>
         )}
 
-        {/* Submission message excerpt */}
         {item.submissionMessage && (
           <p className="mt-2 line-clamp-2 break-words text-micro italic text-muted-foreground">
             {item.submissionMessage}
@@ -212,7 +187,6 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
         </span>
       </Link>
 
-      {/* Footer */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="text-micro text-muted-foreground">{item.requestAgeLabel}</span>

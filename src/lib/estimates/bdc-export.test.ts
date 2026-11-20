@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-read-server", () => ({
   getEstimateVersionDetails: vi.fn(),
+}));
+vi.mock("@/lib/estimates/supplier-comparison-server", () => ({
   getEstimateSupplierComparisons: vi.fn(),
 }));
 vi.mock("@/lib/estimates/supplier-export-search", async (original) => ({
@@ -11,7 +13,8 @@ vi.mock("@/lib/estimates/supplier-export-search", async (original) => ({
 
 import { type WorkbookWriterFactory } from "@/lib/estimates/export-stream";
 import { getSupplierComparisonsForExport, streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
-import { getEstimateSupplierComparisons, getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { loadSupplierExportSearch } from "@/lib/estimates/supplier-export-search";
 
 beforeEach(() => { vi.mocked(loadSupplierExportSearch).mockResolvedValue(null); });

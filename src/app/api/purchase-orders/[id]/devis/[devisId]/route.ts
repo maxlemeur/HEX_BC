@@ -5,8 +5,10 @@ import { jsonApiError } from "@/lib/http/api-response";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
-} from "@/lib/purchase-orders";
+} from "@/lib/purchase-orders/access";
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
 import { toDevisResponseItem } from "@/lib/purchase-orders/devis-response";
+import { DEVIS_BUCKET } from "@/lib/storage/buckets";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
@@ -42,7 +44,7 @@ export async function PATCH(
   const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     tenant_id: string;
-    status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+    status: OrderStatus;
   }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
@@ -91,7 +93,7 @@ export async function PATCH(
   }
 
   const { data: signedData } = await supabase.storage
-    .from("devis")
+    .from(DEVIS_BUCKET)
     .createSignedUrl(updated.storage_path, SIGNED_URL_TTL_SECONDS);
 
   const item = toDevisResponseItem(updated, signedData?.signedUrl ?? null);
@@ -116,7 +118,7 @@ export async function DELETE(
   const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     tenant_id: string;
-    status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+    status: OrderStatus;
   }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
@@ -177,7 +179,7 @@ export async function DELETE(
   }
 
   const { error: removeError } = await supabase.storage
-    .from("devis")
+    .from(DEVIS_BUCKET)
     .remove([devis.storage_path]);
 
   if (removeError) {

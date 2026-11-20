@@ -2,9 +2,9 @@ import { z } from "zod";
 
 import { getTenantSettingsActorContext } from "@/lib/auth/tenant-context";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { normalizeFeatureFlagKey } from "@/lib/feature-flag-keys";
 import {
   listFeatureFlagsForTenant,
-  normalizeFeatureFlagKey,
   toggleFeatureFlagForTenant,
 } from "@/lib/feature-flags";
 import { parseJsonBody } from "@/lib/http/request";

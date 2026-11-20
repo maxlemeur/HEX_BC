@@ -34,14 +34,12 @@ export function AcceptanceConfirmationEmailTemplate({
       <Preview>{`Devis V${versionNumber} accepté - ${projectName}`}</Preview>
       <Body style={bodyStyle}>
         <Container style={containerStyle}>
-          {/* Header */}
           <Section style={headerStyle}>
             <Heading as="h1" style={logoTextStyle}>
               {companyName}
             </Heading>
           </Section>
 
-          {/* Title */}
           <Section style={contentStyle}>
             <Heading as="h2" style={titleStyle}>
               Devis accepté - {projectName}
@@ -49,7 +47,6 @@ export function AcceptanceConfirmationEmailTemplate({
             <Text style={versionBadgeStyle}>Version V{versionNumber}</Text>
           </Section>
 
-          {/* Confirmation */}
           <Section style={contentStyle}>
             <div style={confirmationBoxStyle}>
               <Text style={confirmationTextStyle}>
@@ -60,7 +57,6 @@ export function AcceptanceConfirmationEmailTemplate({
 
           <Hr style={hrStyle} />
 
-          {/* Total */}
           <Section style={contentStyle}>
             <Text style={totalLabelStyle}>Montant TTC</Text>
             <Text style={totalValueStyle}>{totalTtcFormatted}</Text>
@@ -68,7 +64,6 @@ export function AcceptanceConfirmationEmailTemplate({
 
           <Hr style={hrStyle} />
 
-          {/* Footer */}
           <Section style={contentStyle}>
             <Text style={footerStyle}>
               Ce message est un accuse de réception automatique envoyé par{" "}
@@ -82,8 +77,6 @@ export function AcceptanceConfirmationEmailTemplate({
     </Html>
   );
 }
-
-export default AcceptanceConfirmationEmailTemplate;
 
 // ---------------------------------------------------------------------------
 // Styles (inline for email compatibility)

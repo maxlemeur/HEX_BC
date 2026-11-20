@@ -1,8 +1,5 @@
-import {
-  computeEstimateLineValues,
-  MAX_CENTS,
-} from "@/lib/estimate-calculations";
-import { bankersRound } from "@/lib/money";
+import { computeEstimateLineValues } from "@/lib/estimate-calculations";
+import { bankersRound, MAX_CENTS } from "@/lib/money";
 
 export type GeneratedOuvrageCostProjectionInput = {
   components: readonly {

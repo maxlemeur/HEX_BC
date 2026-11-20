@@ -8,7 +8,7 @@ import {
   type SuggestionCorrectionFieldName,
   type SuggestionCorrectionPayload,
   type SuggestionCorrectionValue,
-} from "@/components/estimates/estimate-editor-table-types";
+} from "@/lib/estimates/editor-table-types";
 import { toNonEmptyString } from "@/lib/value-guards";
 
 type ItemPatch = EstimateEditorItemPatch;

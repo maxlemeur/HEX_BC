@@ -249,7 +249,6 @@ for (const [code, fault] of [["BC01", "lost"], ["BC02", "malformed"]] as const) 
       expect(resumed.items.map((item) => item.id).sort()).toEqual(originalIds);
       expect(observed.requests.filter((entry) => entry.pathname.endsWith("/items/bulk"))).toHaveLength(0);
       if (code === "BC01") {
-        // Save the preserved edit, without entering it again after the reload.
         expect(bufferedQuantity).toBe("4"); await ui.browser.keyboard.press("Control+s");
         const newer = await exactTotals(ui, versionId, [4000, 800, 4800]);
         await editorReady(ui, items[0].title);

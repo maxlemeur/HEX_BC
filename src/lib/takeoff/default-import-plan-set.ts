@@ -11,6 +11,11 @@ export const AFFAIRE_INTAKE_PLAN_SET_METADATA = {
   source: "affaire-intake",
   default_import_plan_set: true,
 } as const;
+
+export function isIntakeSyncedPlanSet(source: string | null | undefined) {
+  return source === AFFAIRE_INTAKE_PLAN_SET_METADATA.source;
+}
+
 export function hasDefaultImportPlanSetMarker(metadata: unknown) {
   return (
     isRecord(metadata) &&

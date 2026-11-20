@@ -40,8 +40,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
-  buildEstimateV2SnapshotProjection,
-  buildStoredEstimateBreakdown,
   computeAllSectionTotals,
   computeEstimateBreakdown,
   computeInitialDiscountCents,
@@ -53,19 +51,17 @@ import {
   type EstimateBreakdown,
   type EstimateItemRecord,
   type EstimateTotals,
-  type EstimateV2SnapshotProjection,
   type EstimateVersionForCalc,
   type MarginMode,
   type RoundingMode,
   type SectionTotals,
 } from "../../src/lib/estimate-calculations";
-import type { CalcEngineVersion } from "../../src/lib/estimates/calc-engine-version";
+import { buildEstimateV2SnapshotProjection, buildStoredEstimateBreakdown, type EstimateV2SnapshotProjection } from "../../src/lib/estimate-v2-snapshot";
+import type { CalcEngineVersion } from "../../src/lib/estimates/engine/capabilities";
 import {
   resolveMarginMultiplier,
   type MarginTier,
 } from "../../src/lib/estimates/margin-tiers";
-
-/* ---------- contrat de la fixture ---------- */
 
 export const FROZEN_CORPUS_FORMAT = "engine-frozen-corpus/1";
 export const FROZEN_CORPUS_SEED = 20_261_016;
@@ -234,8 +230,6 @@ export type FrozenCorpusFile = {
   cases: FrozenCorpusCase[];
 };
 
-/* ---------- sérialisation canonique ---------- */
-
 function canonicalize(value: unknown, label: string): unknown {
   if (value === null) return null;
   if (Array.isArray(value)) {
@@ -312,8 +306,6 @@ function tabulateBreakdown(breakdown: EstimateBreakdown, label: string): FrozenC
     invariants: breakdown.invariants,
   };
 }
-
-/* ---------- chaîne de calcul rejouée ---------- */
 
 /** Colonnes d'un brouillon que les entrées ne portent pas : jamais lues par les moteurs en entrée. */
 const DRAFT_ITEM_CONSTANTS = {
@@ -538,8 +530,6 @@ export function computeFrozenCorpusOutput(
   };
 }
 
-/* ---------- couverture ---------- */
-
 function featuresOf(corpusCase: FrozenCorpusCase): string[] {
   const { version, marginTiers, vatReverseCharge, isLaborSplitEnabled } = corpusCase.input;
   const items = corpusCase.input.items.map(toItemRecord);
@@ -610,8 +600,6 @@ export function describeFrozenCorpusCoverage(
     Object.fromEntries([...map].sort(([left], [right]) => left.localeCompare(right)));
   return { v1: sorted(counts.v1), v2: sorted(counts.v2) };
 }
-
-/* ---------- génération déterministe ---------- */
 
 type Random = {
   int(min: number, max: number): number;
@@ -1000,8 +988,6 @@ export function serializeFrozenCorpus(
   const headerJson = JSON.stringify(header, null, 2);
   return `${headerJson.slice(0, -2)},\n  "cases": [\n${lines.join(",\n")}\n  ]\n}\n`;
 }
-
-/* ---------- ligne de commande ---------- */
 
 function git(root: string, args: string[]): string | null {
   try {

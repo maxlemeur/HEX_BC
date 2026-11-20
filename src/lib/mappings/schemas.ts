@@ -130,6 +130,30 @@ const mappingRecordRawSchema = z.record(z.string(), mappingValueSchema);
 
 export type SourceToTargetMapping = Record<string, MappingTargetField>;
 
+export function filterMappingToSourceColumns<TTarget extends string>(
+  mapping: Record<string, TTarget>,
+  sourceColumns: string[]
+): Record<string, TTarget> {
+  if (sourceColumns.length === 0 || Object.keys(mapping).length === 0) {
+    return mapping;
+  }
+
+  const sourceSet = new Set(sourceColumns);
+  const filteredMapping: Record<string, TTarget> = {};
+  let removedEntries = false;
+
+  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
+    if (!sourceSet.has(sourceColumn)) {
+      removedEntries = true;
+      continue;
+    }
+
+    filteredMapping[sourceColumn] = targetField;
+  }
+
+  return removedEntries ? filteredMapping : mapping;
+}
+
 function normalizeMapping(
   input: Record<string, string | null | undefined>
 ): SourceToTargetMapping {

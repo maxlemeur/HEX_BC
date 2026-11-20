@@ -314,8 +314,6 @@ export async function typeTitle(ui: Ui, itemId: string, title: string) {
   await ui.browser.keyboard.press("Tab");
 }
 
-/* ---------- API projections ---------- */
-
 export type VersionView = {
   totals: [number, number, number];
   gross: number | null;

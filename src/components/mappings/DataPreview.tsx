@@ -7,7 +7,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { plural } from "@/lib/text/plural";
 
-type MappingValidation = {
+export type MappingValidation = {
   is_valid: boolean;
   missing_required_fields: string[];
   duplicate_target_assignments: Array<{ target: string; sources: string[] }>;
@@ -15,14 +15,14 @@ type MappingValidation = {
   mapped_targets_count: number;
 };
 
-type MappingPreviewRow = {
+export type MappingPreviewRow = {
   row_index: number;
   raw_row: Record<string, unknown>;
   mapped_row: Record<string, unknown>;
   missing_required_fields: string[];
 };
 
-type DuplicatesSummary = {
+export type DuplicatesSummary = {
   total_groups: number;
   total_rows_impacted: number;
 };
@@ -82,7 +82,6 @@ export function DataPreview({
             </p>
           </div>
 
-          {/* Preview limit selector — integrated into header */}
           {previewLimit !== undefined && onPreviewLimitChange ? (
             <div className="flex items-center gap-2">
               <label className="text-xs text-muted-foreground" htmlFor="preview-limit">

@@ -2,10 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/**
- * Simple popover state hook. Returns isOpen state and toggle/close callbacks.
- * Supports both click (toggle) and hover (with configurable delay).
- */
 export function usePopover({ hoverDelay = 200 }: { hoverDelay?: number } = {}) {
   const [isOpen, setIsOpen] = useState(false);
   const [containerEl, setContainerEl] = useState<HTMLElement | null>(null);
@@ -34,7 +30,6 @@ export function usePopover({ hoverDelay = 200 }: { hoverDelay?: number } = {}) {
     hoverTimeoutRef.current = setTimeout(() => setIsOpen(false), 150);
   }, []);
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);

@@ -1,8 +1,7 @@
 import { parseTakeoffJobCompareResponse } from "@/lib/takeoff/compare-response-contracts";
-import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import {
   compareTakeoffJobs,
   parseCompareTakeoffJobsQuery,
@@ -20,12 +19,6 @@ export async function GET(
 
     return ok(parseTakeoffJobCompareResponse(data, { jobId, withJobId: query.with, threshold: query.threshold }));
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

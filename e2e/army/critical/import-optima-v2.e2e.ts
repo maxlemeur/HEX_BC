@@ -346,7 +346,6 @@ async function uploadThroughAffaire(ui: Ui, projectId: string, fixturePath: stri
 
 const EDITOR_URL = /\/dashboard\/estimates\/[0-9a-f-]{36}\/edit(?:[?#].*)?$/i;
 
-/** Confirms the previewed import and returns the version it created. */
 async function confirmPreviewedImport({ screen, browser }: Ui, army: ArmyState, projectId: string) {
   const nextPreview = screen.getByRole("button", "Suivant : Confirmation", { exact: true });
   await expect(nextPreview).toBeEnabled({ timeout: 30_000 });

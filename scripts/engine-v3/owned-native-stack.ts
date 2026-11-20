@@ -18,10 +18,10 @@ import path from "node:path";
 
 import {
   assertNativeRuntimeHost,
+  currentNativeRuntimeHost,
   enableNativeStack,
   findAvailablePort,
   parseLocalSupabaseStatus,
-  type NativeRuntimeHost,
 } from "../../src/test/local-supabase-ci";
 import {
   acquireNativeStackSlot,
@@ -59,19 +59,6 @@ export type OwnedStack = {
 };
 
 export type OwnedStackCleanup = { stop: string; destroy: string; workdirRemoved: boolean };
-
-function currentNativeRuntimeHost(): NativeRuntimeHost {
-  const report = process.report?.getReport() as
-    | { header?: { glibcVersionRuntime?: string } }
-    | undefined;
-  return {
-    arch: process.arch,
-    glibcVersion: report?.header?.glibcVersionRuntime,
-    platform: process.platform,
-    release: os.release(),
-    uid: process.getuid?.(),
-  };
-}
 
 function hostEphemeralPortRanges(): number[][] {
   if (process.platform !== "linux") {

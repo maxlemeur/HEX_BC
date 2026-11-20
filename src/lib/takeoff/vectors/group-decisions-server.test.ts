@@ -6,7 +6,6 @@ import { isMeasuredNetwork } from "@/lib/takeoff/vectors/classify";
 import type { VectorGroupKey, VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
 import { GROUP_DECISIONS_DEVELOPER, GROUP_DECISIONS_LIMITS } from "@/lib/takeoff/vectors/group-decisions";
 import {
-  callBatches,
   classifyVectorGroups,
   decisionsOfOutcome,
   GROUP_DECISIONS_CALL_IMAGE_BYTES,
@@ -15,6 +14,7 @@ import {
   type GroupDecisionsDecide,
   type GroupDecisionsOutcome,
   type GroupDecisionsRender,
+  streamedBatches,
 } from "@/lib/takeoff/vectors/group-decisions-server";
 import type { EvidenceImagePlan } from "@/lib/takeoff/vectors/group-evidence-images";
 import type { GroupEvidenceImages, GroupEvidenceSession, GroupImage } from "@/lib/takeoff/vectors/group-evidence-render-server";
@@ -446,11 +446,17 @@ describe("classification of a page (group-decisions-server.ts classifyVectorGrou
   it("splits a call whose images pass 10 MB with the legend's, never a call past the adapter's bound (review of the PR)", async () => {
     expect(GROUP_DECISIONS_CALL_IMAGE_BYTES).toBe(10 * 1024 * 1024);
     const mb = 1024 * 1024;
+    const batches = async (sizes: number[], legendBytes: number) => {
+      const stream = streamedBatches(sizes.map((_, group) => group), async (index) => ({ ...IMAGE, data: "A".repeat(sizes[index]) }), legendBytes, GROUP_DECISIONS_LIMITS.batchSize);
+      const formed: number[][] = [];
+      for (let batch = await stream.next(); Array.isArray(batch); batch = await stream.next()) formed.push(batch.map((entry) => entry.group));
+      return formed;
+    };
     // 25 groups of 1 MB of base64, 3 MB of legend: 7 per call, the last 4.
-    expect(callBatches(Array.from({ length: 25 }, (_, index) => index), () => mb, 3 * mb).map((batch) => batch.length)).toEqual([7, 7, 7, 4]);
+    expect((await batches(Array.from({ length: 25 }, () => mb), 3 * mb)).map((batch) => batch.length)).toEqual([7, 7, 7, 4]);
     // Small images: 20 per call at most; one image past the bound alone still makes its call.
-    expect(callBatches(Array.from({ length: 45 }, (_, index) => index), () => 1000, 0).map((batch) => batch.length)).toEqual([20, 20, 5]);
-    expect(callBatches([1, 2], () => 11 * mb, 0)).toEqual([[1], [2]]);
+    expect((await batches(Array.from({ length: 45 }, () => 1000), 0)).map((batch) => batch.length)).toEqual([20, 20, 5]);
+    expect(await batches([11 * mb, 11 * mb], 0)).toEqual([[0], [1]]);
     // In the classification: 30 groups of 1 MB images, 3 calls of 10 instead of 2 of 20 and 10.
     const { decide, seen } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
     const big = { ...IMAGE, data: "A".repeat(mb) };

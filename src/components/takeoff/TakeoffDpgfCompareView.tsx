@@ -27,7 +27,6 @@ import {
   type ReviewStatusFilter,
   type SortKey,
 } from "@/components/takeoff/takeoff-dpgf-compare-view/constants";
-import { buildManualLinkCandidates } from "@/components/takeoff/takeoff-dpgf-compare-view/manualLinkCandidates";
 import {
   buildProofGroups,
   buildSearchText,
@@ -127,8 +126,6 @@ function SummaryCard({
     </div>
   );
 }
-
-export { buildManualLinkCandidates };
 
 export default function TakeoffDpgfCompareView({
   data,

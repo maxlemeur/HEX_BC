@@ -20,7 +20,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UserProvider, useUserContext } from "@/lib/auth/user-context";
-import type { UserProfile } from "@/lib/auth/server";
+import type { UserProfile } from "@/lib/auth/user-context";
 import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
 import type { PreparationAdvancedControlsContext } from "@/components/takeoff/TakeoffPreparationPanel";
 import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparationPanel";

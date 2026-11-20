@@ -6,7 +6,6 @@ import type { GridSelection } from "@/hooks/useGridNavigation";
 import {
   describeEstimateGridPlanLeftovers,
   groupEstimateGridWrites,
-  isEstimateGridCellWritable,
   parseClipboardMatrix,
   planEstimateGridClear,
   planEstimateGridFillDown,
@@ -99,16 +98,6 @@ describe("readEstimateGridCellText", () => {
     expect(
       readEstimateGridCellText(item, "unit", { ...context, isV3: false, legacyUnitByItemId: { a: "m2" } }),
     ).toBe("m2");
-  });
-
-  it("knows which cells accept a value", () => {
-    const item = line("a");
-    expect(isEstimateGridCellWritable(item, "quantity")).toBe(true);
-    expect(isEstimateGridCellWritable(item, "pu_ht")).toBe(false);
-    expect(isEstimateGridCellWritable(item, "line_total_ht")).toBe(false);
-    expect(isEstimateGridCellWritable(item, "supplier")).toBe(false);
-    expect(isEstimateGridCellWritable(section("s", "Lot"), "title")).toBe(true);
-    expect(isEstimateGridCellWritable(section("s", "Lot"), "quantity")).toBe(false);
   });
 });
 
@@ -231,6 +220,19 @@ describe("planEstimateGridPaste", () => {
     expect(plan.rejected.map((entry) => [entry.rowId, entry.columnKey])).toEqual([["b", "k_mo"]]);
     expect(describeEstimateGridPlanLeftovers(plan)).toContain("4 cellules calculées");
     expect(describeEstimateGridPlanLeftovers({ writes: [], rejected: [], readOnlyCount: 0 })).toBeNull();
+  });
+
+  it("never writes the supplier cell: it opens the comparison panel", () => {
+    const item = line("a");
+    const plan = planEstimateGridPaste(
+      single("a", "supplier"),
+      [["Fournisseur Durand"]],
+      [{ rowId: "a", columnKeys: ["supplier"] }],
+      () => item,
+      context,
+    );
+    expect(plan.writes).toEqual([]);
+    expect(plan.readOnlyCount).toBe(1);
   });
 
   it("resolves a type by label or code and refuses an ambiguous or disabled one", () => {

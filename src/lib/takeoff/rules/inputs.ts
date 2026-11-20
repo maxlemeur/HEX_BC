@@ -1,5 +1,5 @@
 import { readItemKey, unquote } from "@/lib/takeoff/bench/item-keys";
-import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
+import type { MaterialCode, NetworkCode } from "@/lib/takeoff/trade-keys";
 import { findNetworkDiameterEntries, resolveNetworkSize } from "@/lib/takeoff/rules/network-diameters";
 import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/types";
 import { printedSize as printedVectorSize, type SizeNotation } from "@/lib/takeoff/vectors/vocabulary";

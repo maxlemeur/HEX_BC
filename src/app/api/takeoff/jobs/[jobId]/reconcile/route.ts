@@ -1,13 +1,9 @@
 import { parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
-import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/http/api-response";
+import { ok } from "@/lib/http/api-response";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
-import {
-  TakeoffError,
-  toTakeoffErrorResponse,
-} from "@/lib/takeoff/errors";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { reconcileTakeoffJobNow } from "@/lib/takeoff/server";
 
 export async function POST(
@@ -58,12 +54,6 @@ export async function POST(
 
     return ok(parseTakeoffJobActionResponse({ ...data, ...(dispatch ? { dispatch } : {}) }, { jobId, command: "reconcile" }));
   } catch (error) {
-    if (error instanceof TakeoffError) {
-      return NextResponse.json(toTakeoffErrorResponse(error), {
-        status: error.status,
-      });
-    }
-
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

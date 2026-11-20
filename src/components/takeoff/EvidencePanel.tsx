@@ -23,10 +23,6 @@ import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
 import { ChevronLeftIcon, ChevronRightIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { toNonEmptyString } from "@/lib/value-guards";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type EvidencePanelProps = {
   item: ReviewItem;
   itemIndex: number;
@@ -38,10 +34,6 @@ type EvidencePanelProps = {
   onMarkVerified: (itemId: string) => void;
   requiresLocalizedProof?: boolean;
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function getConfidenceLabel(confidence: number | null): {
   label: string;
@@ -135,10 +127,6 @@ function buildSignedDocumentHref(url: string, sourcePage: number | null): string
   }
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 const INVALID_SOURCE_PAGE_MESSAGE =
   "Saisissez un numéro de page entier supérieur à 0.";
 
@@ -193,7 +181,6 @@ export function EvidencePanel({
     [isEditing, onClose]
   );
 
-  // Arrow keys move between items (not while editing)
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (isEditing) return;
@@ -210,7 +197,6 @@ export function EvidencePanel({
     [isEditing, onNavigate]
   );
 
-  // Evidence edit handlers
   const handleStartEdit = useCallback(() => {
     const focusOrigin = document.activeElement;
     setEditValue(item.evidence ?? "");
@@ -297,7 +283,6 @@ export function EvidencePanel({
         onKeyDown={handleKeyDown}
         className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md"
       >
-        {/* ---- Header ---- */}
         <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -331,9 +316,7 @@ export function EvidencePanel({
           </div>
         </div>
 
-        {/* ---- Scrollable body ---- */}
         <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
-          {/* Designation */}
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">
               Désignation
@@ -343,7 +326,6 @@ export function EvidencePanel({
             </p>
           </div>
 
-          {/* Confidence gauge */}
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">
               Confiance
@@ -362,7 +344,6 @@ export function EvidencePanel({
             </div>
           </div>
 
-          {/* Source */}
           {(item.source_file_name || item.source_page !== null || signedDocumentHref) && (
             <div>
               <p className="text-xs font-medium uppercase text-muted-foreground">
@@ -392,7 +373,6 @@ export function EvidencePanel({
             </div>
           )}
 
-          {/* Anomalies */}
           {anomalies.length > 0 && (
             <div className="rounded-lg border border-warning-border bg-warning-subtle p-3">
               <p className="flex items-center gap-1.5 text-xs font-medium text-warning">
@@ -407,7 +387,6 @@ export function EvidencePanel({
             </div>
           )}
 
-          {/* Evidence text */}
           <div>
             <div className="flex items-center justify-between gap-2">
               {isEditing ? (
@@ -544,7 +523,6 @@ export function EvidencePanel({
           </div>
         ) : null}
 
-        {/* ---- Footer ---- */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
           <span className="text-micro text-muted-foreground">
             ← → naviguer · Échap fermer

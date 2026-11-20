@@ -33,7 +33,7 @@ import {
   type EstimateDiffEntry,
   type EstimateVersionDetailsForDiff,
 } from "@/lib/estimates/diff";
-import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { readTakeoffProvision, takeoffProvisionHypothesisBasis, type TakeoffProvisionHypothesisBasis } from "@/lib/estimates/takeoff-provision";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 

@@ -24,8 +24,6 @@ function formatSignedCurrency(
   return formatted;
 }
 
-/* ---------- types ---------- */
-
 export type SettingsSection =
   | "margin"
   | "discount"
@@ -59,8 +57,6 @@ export function provisionalTotalNotice(missingSupplyCostCount: number): string |
     ? "Total provisoire et incomplet : 1 fourniture sans coût."
     : `Total provisoire et incomplet : ${missingSupplyCostCount} fournitures sans coût.`;
 }
-
-/* ---------- sub-components ---------- */
 
 type ChipVariant = "default" | "primary" | "highlight";
 
@@ -237,8 +233,6 @@ function V3SummaryItems({
   );
 }
 
-/* ---------- main component ---------- */
-
 export function EstimateSettingsSummaryBar({
   totals,
   currency,
@@ -313,26 +307,22 @@ export function EstimateSettingsSummaryBar({
 
           {isExpert ? (
             <>
-              {/* TVA */}
               <SummaryChip
                 label="TVA"
                 value={derived.tvaPercent}
                 onClick={openSection("tax")}
               />
-              {/* Remise */}
               <SummaryChip
                 label="Remise"
                 value={derived.discountDisplay}
                 onClick={openSection("discount")}
               />
-              {/* Total HT */}
               <SummaryChip
                 label="Total HT"
                 value={derived.totalHt}
                 variant="primary"
                 onClick={openSection("general")}
               />
-              {/* Total TTC */}
               <SummaryChip
                 label="TTC à payer"
                 value={derived.totalTtc}
@@ -362,7 +352,6 @@ export function EstimateSettingsSummaryBar({
                 variant="primary"
                 onClick={openSection("general")}
               />
-              {/* Overflow popover for simplified mode */}
               <Popover open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
                 <PopoverTrigger
                   openOnHover

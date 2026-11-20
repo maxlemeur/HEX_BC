@@ -54,7 +54,6 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(contextProfile);
   const [initialized, setInitialized] = useState(false);
 
-  // Form state
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [jobTitle, setJobTitle] = useState("");
@@ -111,7 +110,6 @@ export default function ProfilePage() {
     }
 
     setSuccess(true);
-    // Update local profile state
     setProfile((prev) =>
       prev
         ? {
@@ -135,7 +133,6 @@ export default function ProfilePage() {
         : null,
     );
 
-    // Clear success message after 3 seconds
     setTimeout(() => setSuccess(false), 3000);
   }
 
@@ -186,7 +183,6 @@ export default function ProfilePage() {
           }
         >
           <form onSubmit={onSubmit}>
-            {/* Read-only section */}
             <dl className="mb-5 flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border-subtle pb-5">
               <div className="min-w-0">
                 <dt className="text-xs text-muted-foreground">
@@ -210,7 +206,6 @@ export default function ProfilePage() {
               </div>
             </dl>
 
-            {/* Editable fields */}
             <div className="grid gap-5 sm:grid-cols-2">
               <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
                 <FieldLabel htmlFor="profile-name">
@@ -311,7 +306,6 @@ export default function ProfilePage() {
               </section>
             </details>
 
-            {/* Messages */}
             {error ? (
               <Alert variant="danger" className="mt-5">
                 {error}

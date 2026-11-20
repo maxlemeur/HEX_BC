@@ -8,8 +8,6 @@ import {
 } from "@/lib/order-calculations";
 // Dependency-free words only (no validation schema): this module is in the « orders » page bundle.
 import {
-  PURCHASE_ORDER_AMOUNT_LINE_UNIT,
-  PURCHASE_ORDER_DELIVERY_MODE_LABELS,
   PURCHASE_ORDER_DELIVERY_MODES,
   PURCHASE_ORDER_LINE_KINDS,
   type PurchaseOrderDeliveryMode,
@@ -23,21 +21,10 @@ import { orderQuantityToMilliunits } from "@/lib/purchase-orders/quantities";
  * from. An order without these fields (from an estimate, or typed by hand) reads as before.
  */
 
-export { PURCHASE_ORDER_DELIVERY_MODE_LABELS, type PurchaseOrderDeliveryMode };
-
 /** The request's delivery place, copied on the order; null for an order that has a site. */
 export function deliveryModeOf(value: unknown): PurchaseOrderDeliveryMode | null {
   return PURCHASE_ORDER_DELIVERY_MODES.find((mode) => mode === value) ?? null;
 }
-
-export { PURCHASE_ORDER_AMOUNT_LINE_UNIT, type PurchaseOrderLineKind };
-/** The supplier's shipping and a global discount: amounts of the order, not articles. */
-export type PurchaseOrderAmountKind = Exclude<PurchaseOrderLineKind, "article">;
-
-export const PURCHASE_ORDER_LINE_KIND_LABELS: Record<PurchaseOrderAmountKind, string> = {
-  shipping: "Port",
-  discount: "Remise",
-};
 
 export function lineKindOf(value: unknown): PurchaseOrderLineKind {
   return PURCHASE_ORDER_LINE_KINDS.find((kind) => kind === value) ?? "article";

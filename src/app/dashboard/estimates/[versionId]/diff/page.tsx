@@ -18,7 +18,7 @@ import {
   normalizeEstimateDiffMode,
   type EstimateDiffMode,
 } from "@/lib/estimates/diff";
-import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 

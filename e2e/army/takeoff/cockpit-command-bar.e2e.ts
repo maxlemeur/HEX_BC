@@ -1,30 +1,9 @@
-import { nativeTest as test, describe, expect, buildEstimateName, createEstimateViaWizard, loginWithUi, localClient, type NativeUi as Page } from "./native-ui";
+import { nativeTest as test, describe, expect, extractProjectId, buildEstimateName, createEstimateViaWizard, loginWithUi, localClient, type NativeUi as Page } from "./native-ui";
 
 import { randomUUID } from "node:crypto";
 
 
 async function getAuthenticatedSupabaseClient() { return (await localClient()).client; }
-
-async function extractProjectId(page: Page, versionId: string) {
-  const response = await page.request.get(`/api/estimates/${versionId}`, {
-    failOnStatusCode: false,
-  });
-  expect(response.status()).toBe(200);
-
-  const payload = (await response.json()) as {
-    data?: { version?: { project_id?: string }; project_id?: string };
-    project_id?: string;
-  };
-
-  const projectId =
-    payload.data?.version?.project_id ??
-    payload.data?.project_id ??
-    payload.project_id ??
-    null;
-
-  expect(projectId, "project_id should be present in estimate version response").toBeTruthy();
-  return projectId as string;
-}
 
 async function extractProjectContext(projectId: string) {
   const sb = await getAuthenticatedSupabaseClient();

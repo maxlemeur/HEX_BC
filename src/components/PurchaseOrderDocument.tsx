@@ -9,18 +9,16 @@ import {
   BusinessDocumentFooter,
   BusinessDocumentFrame,
 } from "@/components/documents/BusinessDocumentPrimitives";
+import { formatLotPrice, signedLineAmount } from "@/lib/purchase-orders/order-lines";
 import {
-  formatLotPrice,
+  PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS,
   PURCHASE_ORDER_DELIVERY_MODE_LABELS,
-  PURCHASE_ORDER_LINE_KIND_LABELS,
-  signedLineAmount,
   type PurchaseOrderAmountKind,
   type PurchaseOrderDeliveryMode,
   type PurchaseOrderLineKind,
-} from "@/lib/purchase-orders/order-lines";
+} from "@/lib/purchase-orders/line-kinds";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 
-// Types
 export type SupplierData = {
   id?: string;
   name: string;
@@ -72,20 +70,16 @@ export type SupplierOption = { id: string; name: string };
 export type SiteOption = { id: string; name: string; project_code?: string | null };
 
 type PurchaseOrderDocumentProps = {
-  // Mode
   editable?: boolean;
 
-  // Header
   issuerName: string;
   issuerRole: string;
   issuerPhone?: string;
   issuerEmail?: string;
   orderDate: string;
 
-  // Reference
   reference?: string;
 
-  // Fournisseur
   supplier: SupplierData | null;
   supplierId?: string;
   supplierReadOnly?: boolean;
@@ -96,7 +90,6 @@ type PurchaseOrderDocumentProps = {
   onSupplierCreate?: () => void;
   isSupplierCreateDisabled?: boolean;
 
-  // Site de livraison
   deliverySite: DeliverySiteData | null;
   deliverySiteId?: string;
   onDeliverySiteChange?: (id: string) => void;
@@ -112,21 +105,17 @@ type PurchaseOrderDocumentProps = {
   /** Edit: adds the supplier's shipping or a global discount. */
   onAmountLineAdd?: (kind: PurchaseOrderAmountKind) => void;
 
-  // Date livraison
   expectedDeliveryDate?: string | null;
   onExpectedDeliveryDateChange?: (date: string) => void;
 
-  // Notes
   notes?: string | null;
   onNotesChange?: (notes: string) => void;
 
-  // Items
   items: OrderItemData[];
   onItemChange?: (key: string, field: string, value: string | number) => void;
   onItemRemove?: (key: string) => void;
   onItemAdd?: () => void;
 
-  // Totaux
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
@@ -239,14 +228,10 @@ export function PurchaseOrderDocument({
 
   return (
     <BusinessDocumentFrame>
-      {/* Header */}
       <div className="mb-6">
-        {/* Ligne 1: Logo | espace | Établissement */}
         <BusinessDocumentBrandHeader />
 
-        {/* Ligne 2: Émis par | Bon de Commande (centré) */}
         <div className="mt-5 grid grid-cols-[240px_minmax(0,1fr)_190px] items-start gap-x-5 print:mt-3 print:grid-cols-[220px_minmax(0,1fr)_160px] print:gap-x-3">
-          {/* Émis par */}
           <div className="min-w-0 text-sm">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Émis par
@@ -268,7 +253,6 @@ export function PurchaseOrderDocument({
             </p>
           </div>
 
-          {/* Titre - centré */}
           <div className="min-w-0 justify-self-center pt-3 text-center print:pt-2">
             <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-foreground print:mb-1 print:text-[25px]">
               Bon de Commande
@@ -286,9 +270,7 @@ export function PurchaseOrderDocument({
         </div>
       </div>
 
-      {/* Info Grid: Supplier + Delivery */}
       <div className="mb-8 grid grid-cols-2 gap-8 print:mb-4 print:gap-7">
-        {/* Supplier Box */}
         <div className="purchase-order-party-card flex flex-col justify-between rounded-xl border border-border bg-surface-subtle p-6 print:p-5">
           <div>
             <h3 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
@@ -357,7 +339,6 @@ export function PurchaseOrderDocument({
           </div>
         </div>
 
-        {/* Delivery & Project Box */}
         <div className="purchase-order-party-card rounded-xl border border-border bg-surface-subtle p-6 print:p-5">
           <h3 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             informations livraison
@@ -493,7 +474,6 @@ export function PurchaseOrderDocument({
         </div>
       </div>
 
-      {/* Notes / Instructions */}
       <div className="mb-6 rounded-xl border border-border bg-surface p-5 print:mb-4 print:p-3">
           <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-blue print:mb-1">
             Instructions complémentaires
@@ -517,7 +497,6 @@ export function PurchaseOrderDocument({
           )}
       </div>
 
-      {/* Items Table */}
       <div className="mb-6 overflow-x-auto rounded-xl border border-border shadow-sm print:mb-4">
         <table className="w-full">
           <thead>
@@ -543,7 +522,7 @@ export function PurchaseOrderDocument({
                 <td className="px-6 py-4 font-medium text-foreground break-words print:px-4 print:py-2 print:text-foreground">
                   {amountKind ? (
                     <span className="mb-1 mr-2 inline-flex rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-brand-blue">
-                      {PURCHASE_ORDER_LINE_KIND_LABELS[amountKind]}
+                      {PURCHASE_ORDER_AMOUNT_LINE_DESIGNATIONS[amountKind]}
                     </span>
                   ) : null}
                   {editable ? (
@@ -708,10 +687,8 @@ export function PurchaseOrderDocument({
         )}
       </div>
 
-      {/* Financial Summary */}
       <div className="mb-8 flex justify-end print:mb-4">
         <div className="w-full max-w-[320px] space-y-2">
-          {/* Totals Table */}
           <div className="rounded-xl border border-border overflow-hidden">
             {/* Total HT - Highlighted for B2B */}
             <div className="flex justify-between items-center px-5 py-3 bg-brand-blue print-color-adjust">
@@ -722,7 +699,6 @@ export function PurchaseOrderDocument({
                 {totalsPending ? "À vérifier" : formatEUR(totalHtCents)}
               </span>
             </div>
-            {/* TVA */}
             <div className="flex justify-between items-center px-5 py-2 bg-surface-subtle border-b border-border">
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 TVA
@@ -731,7 +707,6 @@ export function PurchaseOrderDocument({
                 {totalsPending ? "À vérifier" : formatEUR(totalTaxCents)}
               </span>
             </div>
-            {/* Total TTC */}
             <div className="flex justify-between items-center px-5 py-2 bg-surface-subtle">
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Total TTC
@@ -744,7 +719,6 @@ export function PurchaseOrderDocument({
         </div>
       </div>
 
-      {/* Confirmation Note */}
       <div className="note-container mb-12 rounded-r-xl p-5 print-color-adjust print:mb-4 print:p-3">
         <div className="flex items-center gap-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-orange/15 text-brand-orange">
@@ -771,7 +745,6 @@ export function PurchaseOrderDocument({
         </div>
       </div>
 
-      {/* Footer */}
       <BusinessDocumentFooter />
     </BusinessDocumentFrame>
   );

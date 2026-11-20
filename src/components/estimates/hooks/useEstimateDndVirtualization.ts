@@ -34,9 +34,13 @@ import {
 import {
   type SuggestionPreview,
 } from "@/components/estimates/components/EstimateSuggestionRow";
+import {
+  ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_OVERSCAN,
+  ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_ROW_ESTIMATE,
+} from "@/lib/estimate-editor-virtualization";
+import { getParentKey } from "@/lib/estimates/editor-item-tree";
 import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
 import type { Database } from "@/types/database";
-import { getParentKey } from "@/components/estimates/hooks/useEstimateVisibility";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -48,8 +52,6 @@ type EstimateVirtualizationConfig = {
   containerHeight?: number;
 };
 
-const DEFAULT_VIRTUAL_ROW_ESTIMATE = 36;
-const DEFAULT_VIRTUAL_OVERSCAN = 8;
 const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
 const EMPTY_ITEMS: EstimateItem[] = [];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
@@ -205,8 +207,8 @@ export function useEstimateDndVirtualization({
   } = useVirtualList({
     count: flattenedRows.length,
     enabled: shouldVirtualize && hasVisibleRows,
-    estimateSize: virtualization?.rowEstimate ?? DEFAULT_VIRTUAL_ROW_ESTIMATE,
-    overscan: virtualization?.overscan ?? DEFAULT_VIRTUAL_OVERSCAN,
+    estimateSize: virtualization?.rowEstimate ?? ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_ROW_ESTIMATE,
+    overscan: virtualization?.overscan ?? ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_OVERSCAN,
     getPinnedIndex,
   });
 

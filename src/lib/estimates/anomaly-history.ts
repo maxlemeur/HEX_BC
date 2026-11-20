@@ -118,7 +118,6 @@ export async function getCurrentAnomalySummary(
   tenantId: string,
   filters: AnomalyFilters
 ): Promise<CurrentAnomalySummaryResult> {
-  // 1. Fetch all line items across active versions with version/project/owner info
   let itemsQuery = supabase
     .from("estimate_items")
     .select(
@@ -199,7 +198,6 @@ export async function getCurrentAnomalySummary(
 
   const allItems = (rawItems ?? []) as unknown as ItemWithJoins[];
 
-  // Build version metadata and group items
   const versionMetaMap = new Map<string, VersionMeta>();
   const itemsByVersionId = new Map<string, EstimateItemRow[]>();
   const ownerOptionsMap = new Map<string, AnomalyOwnerOption>();
@@ -226,12 +224,10 @@ export async function getCurrentAnomalySummary(
       });
     }
 
-    // Apply owner filter
     if (filters.owner_user_id && project.user_id !== filters.owner_user_id) {
       continue;
     }
 
-    // Apply search filter
     const versionLabel = resolveVersionLabel(version);
     if (filters.search) {
       const lowerSearch = filters.search.toLowerCase();
@@ -255,7 +251,6 @@ export async function getCurrentAnomalySummary(
     itemsByVersionId.set(version.id, versionItems);
   }
 
-  // 2. Batch-load external data in parallel
   const allSelectedSupplierPriceIds = new Set<string>();
   const allVersionIds = Array.from(itemsByVersionId.keys());
 
@@ -307,7 +302,6 @@ export async function getCurrentAnomalySummary(
     );
   }
 
-  // Build stale supplier price set
   const stalePriceIds = new Set<string>();
   const supplierPrices = (supplierPricesResult.data ?? []) as {
     id: string;
@@ -325,7 +319,6 @@ export async function getCurrentAnomalySummary(
     }
   }
 
-  // Build dismissals map by version
   type DismissalRaw = { version_id: string; item_id: string; flag_key: string };
   const dismissedByVersion = new Map<
     string,
@@ -345,7 +338,6 @@ export async function getCurrentAnomalySummary(
     warningOverride,
   });
 
-  // 3. Per-version: detect outliers and compute quality flags
   const currentAnomalies: CurrentAnomalyRow[] = [];
   const affectedVersions = new Set<string>();
   let totalAnomalies = 0;
@@ -360,7 +352,6 @@ export async function getCurrentAnomalySummary(
     const dismissedOutlierFlagsByItemId =
       dismissedByVersion.get(versionId) ?? {};
 
-    // Build stale supplier price item ids for this version
     const staleSupplierPriceItemIds = new Set<string>();
     for (const item of items) {
       const priceId = item.selected_supplier_price_id;
@@ -369,7 +360,6 @@ export async function getCurrentAnomalySummary(
       }
     }
 
-    // Check if any line has labor split
     const hasAtLeastOneSplitLine = items.some(
       (item) => item.item_type === "line" && hasStoredLaborSplit(item)
     );
@@ -565,7 +555,6 @@ export async function getAnomalyTrend(
   // key = `${record_id}::${flag_key}`, value = opened_at timestamp
   const openFlags = new Map<string, string>();
 
-  // Transitions
   type Transition = {
     date: string;
     type: "opened" | "resolved";
@@ -590,12 +579,10 @@ export async function getAnomalyTrend(
       beforeFlags = computeSimpleFlags(beforeData);
       afterFlags = new Set();
     } else {
-      // UPDATE
       beforeFlags = computeSimpleFlags(beforeData);
       afterFlags = computeSimpleFlags(afterData);
     }
 
-    // Find newly appeared flags
     for (const flag of afterFlags) {
       if (!beforeFlags.has(flag)) {
         const compositeKey = `${recordId}::${flag}`;
@@ -610,7 +597,6 @@ export async function getAnomalyTrend(
       }
     }
 
-    // Find resolved flags
     for (const flag of beforeFlags) {
       if (!afterFlags.has(flag)) {
         const compositeKey = `${recordId}::${flag}`;
@@ -631,7 +617,6 @@ export async function getAnomalyTrend(
     }
   }
 
-  // Group transitions by month
   const periodMap = new Map<string, { opened: number; resolved: number }>();
 
   for (const t of transitions) {
@@ -667,7 +652,6 @@ export async function getAnomalyTrend(
     });
   }
 
-  // Compute average resolution by flag type
   const resolutionsByFlag = new Map<string, number[]>();
   for (const t of transitions) {
     if (t.type === "resolved" && t.resolutionMs !== undefined) {

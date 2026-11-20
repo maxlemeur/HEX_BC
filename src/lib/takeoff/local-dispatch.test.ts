@@ -17,19 +17,16 @@ it("follows worker retry and reconciliation outcomes locally without an Edge inv
   vi.mocked(processTakeoffJobAttempt)
     .mockResolvedValueOnce({ should_requeue: true, requeue_reason: "reconcile", next_run_in_seconds: 0 } as never)
     .mockResolvedValueOnce({ should_requeue: true, requeue_reason: "retry", next_run_in_seconds: 0 } as never);
-  const fetchFn = vi.fn();
-  await triggerTakeoffJobProcessing({ jobId: "fixture-job", fetchFn });
+  await triggerTakeoffJobProcessing({ jobId: "fixture-job" });
   await (vi.mocked(after).mock.calls[0][0] as () => Promise<void>)();
   expect(vi.mocked(processTakeoffJobAttempt).mock.calls.map(([, options]) => options.trigger)).toEqual(["create", "reconcile", "retry"]);
-  expect(fetchFn).not.toHaveBeenCalled();
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 it("rejects a foreign host before scheduling or calling any provider", async () => {
   for (const host of ["evil.test", "user@evil.test"]) {
     vi.mocked(headers).mockResolvedValue(new Headers({ host }) as never);
     vi.mocked(after).mockClear();
-    const fetchFn = vi.fn();
-    await expect(triggerTakeoffJobProcessing({ jobId: "fixture-job", fetchFn })).rejects.toThrow();
-    expect(after).not.toHaveBeenCalled(); expect(fetchFn).not.toHaveBeenCalled();
+    await expect(triggerTakeoffJobProcessing({ jobId: "fixture-job" })).rejects.toThrow();
+    expect(after).not.toHaveBeenCalled();
   }
 });

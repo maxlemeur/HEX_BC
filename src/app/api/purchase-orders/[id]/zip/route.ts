@@ -6,23 +6,19 @@ import { Readable } from "stream";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { jsonApiError } from "@/lib/http/api-response";
 import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
-import { assertCompletePurchaseOrderSnapshot, getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
+import { assertCompletePurchaseOrderSnapshot, getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders/access";
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
+import { PURCHASE_ORDER_DELIVERY_MODE_LABELS } from "@/lib/purchase-orders/line-kinds";
+import { DEVIS_BUCKET } from "@/lib/storage/buckets";
 
 export const runtime = "nodejs";
-
-type PurchaseOrderStatus =
-  | "draft"
-  | "sent"
-  | "confirmed"
-  | "received"
-  | "canceled";
 
 type OrderRow = {
   id: string;
   reference: string;
   order_number: number;
   edit_revision: number;
-  status: PurchaseOrderStatus;
+  status: OrderStatus;
   order_date: string;
   expected_delivery_date: string | null;
   notes: string | null;
@@ -51,12 +47,6 @@ type OrderItemRow = {
   line_total_ht_cents: number;
   // TI-691: a price for 10, 100 or 1 000 units; a discount's totals are negative.
   price_per: number;
-};
-
-const DELIVERY_MODE_LABELS: Record<NonNullable<OrderRow["delivery_mode"]>, string> = {
-  site: "Livraison sur chantier",
-  office: "Livraison au bureau",
-  counter: "Retrait au comptoir",
 };
 
 type DevisRow = {
@@ -107,7 +97,7 @@ function sanitizeFilename(value: string) {
 function buildOrderHtml(order: OrderRow, items: OrderItemRow[]) {
   const supplierName = order.suppliers?.name ?? "Fournisseur";
   const siteName = order.delivery_sites?.name
-    ?? (order.delivery_mode ? DELIVERY_MODE_LABELS[order.delivery_mode] : null)
+    ?? (order.delivery_mode ? PURCHASE_ORDER_DELIVERY_MODE_LABELS[order.delivery_mode] : null)
     ?? "Chantier";
   const affaireName = order.project?.name?.trim() ?? "";
   const reference = order.reference || String(order.order_number);
@@ -346,7 +336,7 @@ export async function GET(
   const usedNames = new Set<string>();
   for (const [index, item] of devis.entries()) {
     try {
-      const { data } = await supabase.storage.from("devis").download(item.storage_path);
+      const { data } = await supabase.storage.from(DEVIS_BUCKET).download(item.storage_path);
       if (!data) {
         continue;
       }

@@ -2,10 +2,6 @@ import { act,cleanup,render,screen,waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 const mockToast = {
   success: vi.fn(),
   error: vi.fn(),
@@ -34,11 +30,6 @@ function successfulSend(messageId: string | null = "email-1", redirected = false
   } as Response);
 }
 
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function renderModal(props: Partial<Parameters<typeof SendEstimateModal>[0]> = {}) {
   const defaultProps = {
     open: true,
@@ -56,10 +47,6 @@ function renderModal(props: Partial<Parameters<typeof SendEstimateModal>[0]> = {
   const result = render(<SendEstimateModal {...defaultProps} />);
   return { ...result, props: defaultProps };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("SendEstimateModal", () => {
   beforeEach(() => {

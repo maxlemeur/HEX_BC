@@ -41,7 +41,7 @@ import {
   MobileEstimateList,
   type MobileEstimateListRow,
 } from "@/components/estimates/components/estimate-editor-table/MobileEstimateList";
-import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
+import { EstimateEditorCommandBar } from "@/components/estimates/components/EstimateEditorCommandBar";
 import { ConfirmModal } from "@/components/ui-legacy/ConfirmModal";
 import { useToast } from "@/components/feedback/toast-provider";
 import { useConfirm } from "@/components/feedback/confirm-provider";
@@ -139,11 +139,12 @@ import {
 import {
   type TreeConnectorMeta,
 } from "@/lib/estimates/tree-connectors";
+import { getParentKey } from "@/lib/estimates/editor-item-tree";
 import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
 import {
   type SuggestionCorrectionPayload,
   type SuggestionLearningState,
-} from "@/components/estimates/estimate-editor-table-types";
+} from "@/lib/estimates/editor-table-types";
 import type { Database } from "@/types/database";
 import { resolveApiErrorMessage } from "@/components/estimates/components/estimate-editor-row/shared";
 
@@ -185,18 +186,13 @@ const EstimateArticleSheet = dynamic(
   { loading: () => null }
 );
 
-export type {
-  SuggestionCorrectionPayload,
-  SuggestionLearningRuleBoost,
-  SuggestionLearningState,
-} from "@/components/estimates/estimate-editor-table-types";
 import {
   type AppliedSuggestionContext,
-  type EstimateQualityFilter,
   type EstimateVirtualizationConfig,
   type EstimateEditorItemMeta,
   type EstimateEditorItemPatch,
-} from "@/components/estimates/estimate-editor-table-types";
+} from "@/lib/estimates/editor-table-types";
+import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";
 import { asRecord, toNonEmptyString } from "@/lib/value-guards";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
 
@@ -616,7 +612,7 @@ function filterItemsByQuickFilter(items: EstimateItem[], searchTerm: string) {
   const childrenByParent = new Map<string, EstimateItem[]>();
 
   items.forEach((item) => {
-    const parentKey = item.parent_id ?? "root";
+    const parentKey = getParentKey(item.parent_id);
     const siblings = childrenByParent.get(parentKey) ?? [];
     siblings.push(item);
     childrenByParent.set(parentKey, siblings);
@@ -681,10 +677,7 @@ export function resolveEstimateEditorGridStyle(
   isLaborSplitEnabled: boolean,
   customWidths: Readonly<EstimateColumnWidths> = {},
   order: readonly EstimateColumnId[] = DEFAULT_ESTIMATE_COLUMN_ORDER,
-  _isV3 = false,
 ): CSSProperties | undefined {
-  // Retained for callers that also render historical engines. K FO is now one column in every mode.
-  void _isV3;
   const columnIds: EstimateColumnId[] = [];
   const desktopColumns: string[] = [];
   const tabletColumns: string[] = [];
@@ -1037,9 +1030,8 @@ export function EstimateEditorTable({
         isLaborSplitEnabled,
         customColumnWidths,
         columnOrder.order,
-        isV3Grid,
       ),
-    [customColumnWidths, viewportVisibleColumns, isLaborSplitEnabled, columnOrder.order, isV3Grid],
+    [customColumnWidths, viewportVisibleColumns, isLaborSplitEnabled, columnOrder.order],
   );
   const moveColumnInOrder = columnOrder.moveColumn;
   const handleMoveColumn = useCallback(
@@ -1133,7 +1125,6 @@ export function EstimateEditorTable({
     previousSimplifiedRef.current = isSimplified;
   }, [columnPreset, columnVisibility.hasManualOverride, isSimplified, setColumnPresetAuto]);
 
-  // Compute super-header FO/MO group spans for the grid
   const superHeaderSpans = useMemo(() => {
     const foStart = 4; // PR.FO is always column 4 (after designation, qty, unit)
     const supplierSpan = viewportVisibleColumns.has("supplier") ? 1 : 0;
@@ -2358,7 +2349,6 @@ export function EstimateEditorTable({
     sectionLevelById,
   ]);
 
-  // Scroll shadow detection for horizontal overflow indicator
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -2424,7 +2414,7 @@ export function EstimateEditorTable({
             }
             showFullTableOnMobile={showFullTableOnMobile}
             toolbarNode={
-              <EstimateEditorToolbar
+              <EstimateEditorCommandBar
                 uiMode={uiMode}
                 isViewerMode={isViewerMode}
                 qualityCounts={qualityCounts}

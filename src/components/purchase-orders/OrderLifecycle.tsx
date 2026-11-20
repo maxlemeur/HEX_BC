@@ -27,6 +27,7 @@ import {
   refusalMessage,
   type OrderStatus,
 } from "@/lib/purchase-orders/lifecycle";
+import { PURCHASE_ORDER_PRICE_PER } from "@/lib/purchase-orders/line-kinds";
 
 /**
  * Ordering and receiving an order of an affaire (TI-691, lot 2 « l'achat », delivery 3b-1). A draft is confirmed once
@@ -35,7 +36,6 @@ import {
  * be sent to its supplier by e-mail (OrderSend.tsx): it is then « envoyée », and confirmed the same way.
  */
 
-const PRICE_LOTS = [1, 10, 100, 1000] as const;
 const PROOF_MISSING = "Joignez la confirmation du fournisseur (bon, e-mail ou capture) pour confirmer la commande.";
 const PROOF_NAME = "Confirmation de commande";
 /** What the devis bucket keeps (003_create_devis_storage.sql): PDF and three image types, 10 MB at most. */
@@ -321,7 +321,7 @@ function ConfirmationDialog({
                       const per = Number(event.target.value);
                       setDrafts((current) => ({ ...current, [line.id]: { ...current[line.id], pricePer: per } }));
                     }}>
-                    {PRICE_LOTS.map((per) => <option key={per} value={per}>{per === 1 ? "pour 1" : formatPriceLot(per)}</option>)}
+                    {PURCHASE_ORDER_PRICE_PER.map((per) => <option key={per} value={per}>{per === 1 ? "pour 1" : formatPriceLot(per)}</option>)}
                   </NativeSelect>
                 </td>
                 <td className="py-2 text-right whitespace-nowrap" data-testid={`confirmation-line-total-${line.id}`}>

@@ -1,6 +1,6 @@
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { estimateSupplierComparisonsRequestSchema } from "@/lib/estimates/schemas";
-import { getEstimateSupplierComparisons } from "@/lib/estimates/server";
+import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(

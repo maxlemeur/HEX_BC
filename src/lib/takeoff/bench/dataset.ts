@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -18,6 +17,8 @@ import {
   type TakeoffBenchManifest,
 } from "@/lib/takeoff/bench/schemas";
 import type { ScoreTruthFile } from "@/lib/takeoff/bench/score";
+import { sha256Hex } from "@/lib/takeoff/sha256";
+import { byText } from "@/lib/text/compare";
 
 // The private dataset as the bench reads it (TI-660). It is refused without
 // manifest.json, raw/ and truth/, and unless takeoff:bench:check passes (every
@@ -54,14 +55,6 @@ export type BenchDataset = {
   skipped: Array<{ id: string; reason: string }>;
 };
 
-function sha256(bytes: Uint8Array) {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-function byText(left: string, right: string) {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 async function truthJsonFiles(root: string, directory = "truth"): Promise<string[]> {
   const files: string[] = [];
   for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
@@ -75,8 +68,8 @@ async function truthJsonFiles(root: string, directory = "truth"): Promise<string
 
 /** SHA-256 of the sorted lines `<path>\t<sha256>\n` of some files, paths relative to `root` (the dataset SHA's rule). */
 export async function filesSha256(root: string, files: readonly string[]) {
-  const lines = await Promise.all([...files].sort(byText).map(async (file) => `${file}\t${sha256(await readFile(path.join(root, file)))}\n`));
-  return createHash("sha256").update(lines.join("")).digest("hex");
+  const lines = await Promise.all([...files].sort(byText).map(async (file) => `${file}\t${sha256Hex(await readFile(path.join(root, file)))}\n`));
+  return sha256Hex(lines.join(""));
 }
 
 export async function datasetSha256(datasetRoot: string) {
@@ -93,7 +86,7 @@ export async function readVerifiedPdf(datasetRoot: string, document: ManifestDoc
   if (bytes.length !== document.file_size) {
     throw new BenchDatasetError(`${document.raw_path}: size ${bytes.length} bytes, the manifest says ${document.file_size}.`);
   }
-  if (sha256(bytes) !== document.sha256) throw new BenchDatasetError(`${document.raw_path}: SHA-256 differs from the manifest.`);
+  if (sha256Hex(bytes) !== document.sha256) throw new BenchDatasetError(`${document.raw_path}: SHA-256 differs from the manifest.`);
   return bytes;
 }
 

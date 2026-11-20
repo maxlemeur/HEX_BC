@@ -50,7 +50,6 @@ function harness(options: { conflict?: boolean; document?: Row; brief?: Row | nu
     estimate_projects: [{ id: projectId, tenant_id: tenantId, user_id: options.owner ?? userId, name: "Affaire fictive", reference: null, client_name: null, is_archived: false }],
     affaire_intake_documents: [document], affaire_briefs: options.brief === null ? [] : [brief], affaire_intake_events: [], affaire_brief_source_links: [],
   };
-  const calls: string[] = [];
   const supabase = { from: (table: string) => {
     const rows = tables[table];
     if (!rows) throw new Error(`Unexpected table: ${table}`);
@@ -58,7 +57,6 @@ function harness(options: { conflict?: boolean; document?: Row; brief?: Row | nu
     let values: Row | Row[] = {};
     const filters: Array<(row: Row) => boolean> = [];
     const execute = (single: boolean) => {
-      calls.push(`${operation}:${table}`);
       let matching = rows.filter((row) => filters.every((filter) => filter(row)));
       if (operation === "update") {
         if (options.conflict && table === "affaire_intake_documents") matching = [];
@@ -85,7 +83,7 @@ function harness(options: { conflict?: boolean; document?: Row; brief?: Row | nu
     return query;
   } };
   vi.mocked(getAuthenticatedContext).mockResolvedValue({ userId, tenantId, tenantRole: options.role ?? "admin", supabase } as never);
-  return { document, brief, calls, tables };
+  return { document, brief, tables };
 }
 
 describe("human classification confirmation", () => {
@@ -108,7 +106,6 @@ describe("human classification confirmation", () => {
       documents: [expect.objectContaining({ classified_at: classifiedAt })],
     }));
     expect(state.tables.affaire_intake_events).toEqual([expect.objectContaining({ actor_user_id: userId, document_id: documentId, event_type: "document.reclassified" })]);
-    expect(state.calls).toHaveLength(9);
   });
 
   it.each([null, { last_generated_at: "2026-10-31T10:00:00.000Z" }])("repairs a missing or outdated brief without invalidating current plan copies: %j", async (brief) => {

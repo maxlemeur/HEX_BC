@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  appendProvisionalQuantityMentions,
   composeProvisionalQuantityMention,
   countStaleProvisionalQuantityMentions,
   OFFER_LIMITS_MAX_LENGTH,
@@ -71,11 +70,11 @@ describe("provisional quantity sentence", () => {
   it("appends the missing sentences after the text already written, once each", () => {
     const first = composeProvisionalQuantityMention(line(), choice)!;
     const second = composeProvisionalQuantityMention(line({ title: "Soudures", quantity: 40, unit_code: "u" }), choice)!;
-    expect(appendProvisionalQuantityMentions(null, [first])).toBe(first);
-    expect(appendProvisionalQuantityMentions("Néant.  \n", [first, second])).toBe(`Néant.\n\n${first}\n${second}`);
+    expect(planProvisionalQuantityMentions(null, [first]).text).toBe(first);
+    expect(planProvisionalQuantityMentions("Néant.  \n", [first, second]).text).toBe(`Néant.\n\n${first}\n${second}`);
     const already = `Néant.\n${first.replace(/ /g, "  ")}`;
-    expect(appendProvisionalQuantityMentions(already, [first, second])).toBe(`${already}\n\n${second}`);
-    expect(appendProvisionalQuantityMentions(already, [first])).toBe(already);
+    expect(planProvisionalQuantityMentions(already, [first, second]).text).toBe(`${already}\n\n${second}`);
+    expect(planProvisionalQuantityMentions(already, [first]).text).toBe(already);
   });
 
   it("keeps what the quantity rests on, and what confirms it, on one bounded line", () => {

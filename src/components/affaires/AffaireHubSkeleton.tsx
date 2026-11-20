@@ -5,7 +5,6 @@ export function AffaireHubSkeleton() {
     <div role="status" aria-live="polite" aria-busy="true">
       <span className="sr-only">Chargement de l’affaire…</span>
       <div aria-hidden="true">
-        {/* Breadcrumb */}
         <div className="mb-6 flex items-center gap-2">
           <Skeleton className="h-3.5 w-15" />
           <Skeleton className="h-3.5 w-2" />
@@ -14,7 +13,6 @@ export function AffaireHubSkeleton() {
           <Skeleton className="h-3.5 w-30 min-w-0" />
         </div>
 
-        {/* Header: title + actions */}
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <Skeleton className="h-7 w-70 max-w-full" />
@@ -26,7 +24,6 @@ export function AffaireHubSkeleton() {
           </div>
         </div>
 
-        {/* Financial summary card */}
         <div className="mb-6 rounded-lg border border-border bg-surface p-5 shadow-card">
           <Skeleton className="mb-4 h-4 w-35" />
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -39,7 +36,6 @@ export function AffaireHubSkeleton() {
           </div>
         </div>
 
-        {/* Version timeline card */}
         <div className="mb-6 rounded-lg border border-border bg-surface p-5 shadow-card">
           <Skeleton className="mb-4 h-4 w-30" />
           <div className="space-y-4">
@@ -56,7 +52,6 @@ export function AffaireHubSkeleton() {
           </div>
         </div>
 
-        {/* DPGF source + Quick actions */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="rounded-lg border border-border bg-surface p-5 shadow-card">
             <Skeleton className="mb-3 h-4 w-30" />

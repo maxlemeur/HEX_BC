@@ -46,10 +46,6 @@ const STATUS_CSS: Record<string, string> = {
   archived: "status-badge status-archived",
 };
 
-/* ------------------------------------------------------------------ */
-/*  Financial summary                                                  */
-/* ------------------------------------------------------------------ */
-
 function KpiLabel({ dotClass, children }: { dotClass: string; children: React.ReactNode }) {
   return (
     <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted-foreground">
@@ -144,10 +140,6 @@ export function FinancialSummaryCard({
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Version timeline                                                   */
-/* ------------------------------------------------------------------ */
 
 export function VersionTimelineCard({
   timeline,
@@ -329,10 +321,6 @@ export function VersionTimelineCard({
     </PageSection>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  DPGF source                                                        */
-/* ------------------------------------------------------------------ */
 
 const IMPORT_STATUS_LABEL: Record<string, string> = {
   pending: "En attente",

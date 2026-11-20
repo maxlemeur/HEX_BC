@@ -79,7 +79,6 @@ export function visionReport(input: {
 
 const seconds = (ms: number | null) => (ms === null ? "—" : (ms / 1000).toFixed(1));
 
-/** The markdown section of the vision pass. */
 export function renderVisionSection(report: VisionReport) {
   const verdicts = Object.entries(report.lines.verdicts).map(([verdict, count]) => `${verdict} ${count}`).join(", ") || "aucune";
   return [

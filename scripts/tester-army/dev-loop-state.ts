@@ -585,7 +585,6 @@ export function supervisorModules(root: string) {
   return [...seen].sort();
 }
 
-/** Content digest of supervisorModules(root). */
 export function supervisorModulesDigest(root: string) {
   const hash = createHash("sha256");
   for (const file of supervisorModules(root)) {

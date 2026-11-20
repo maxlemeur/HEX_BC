@@ -121,13 +121,6 @@ export function readLaborSplitFields(
   };
 }
 
-export function hasLaborSplitFields(
-  source: EstimateItem | Record<string, unknown>
-): boolean {
-  const record = source as Record<string, unknown>;
-  return LABOR_SPLIT_FIELD_KEYS.some((key) => key in record);
-}
-
 /**
  * Recopie les colonnes de main-d'oeuvre eclatee de `source` vers `target`,
  * uniquement pour les cles REELLEMENT presentes sur la source.

@@ -1,7 +1,7 @@
 import { degrees, PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 
-import type { NetworkCode } from "@/lib/takeoff/bench/keys";
+import type { NetworkCode } from "@/lib/takeoff/trade-keys";
 import { applyCorrespondences, applyDecisions, classifyByKeywords } from "@/lib/takeoff/vectors/classify";
 import { isGrey, isNearWhite } from "@/lib/takeoff/vectors/colors";
 import { extractVectorPage, type VectorGroupKey, type VectorPageExtraction, type VectorPath, type VectorText } from "@/lib/takeoff/vectors/extraction";

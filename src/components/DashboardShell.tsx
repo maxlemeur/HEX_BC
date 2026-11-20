@@ -62,12 +62,10 @@ function ModeToggleSwitch({
       onClick={onToggle}
       className="sidebar-mode-toggle group relative flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border border-white/20 bg-white/10 p-0.5 transition-colors duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/50 focus-visible:outline-offset-2"
     >
-      {/* Track labels */}
       <span className="sidebar-mode-toggle__labels absolute inset-0 flex items-center justify-between px-1.5 text-[9px] font-bold uppercase tracking-wider">
         <span className={`transition-opacity duration-200 ${isExpert ? "opacity-0" : "opacity-60 text-white"}`}>S</span>
         <span className={`transition-opacity duration-200 ${isExpert ? "opacity-60 text-white" : "opacity-0"}`}>E</span>
       </span>
-      {/* Sliding thumb */}
       <span
         className={`sidebar-mode-toggle__thumb pointer-events-none relative z-10 h-5 w-5 rounded-full shadow-md transition-all duration-200 ease-in-out ${
           isExpert
@@ -94,8 +92,6 @@ export function DashboardShell({
   tenantName?: string | null;
 }>) {
   const pathname = usePathname();
-  // The navigation is always the workspace top bar + drawer (see dashboard-navigation-mode.ts).
-  const navigationMode = "workspace" as const;
   const isProductionWorkspace = isProductionWorkspaceRoute(pathname);
   const isToolWorkspace = isToolWorkspaceRoute(pathname);
   const userInitials = buildInitials(displayName);
@@ -115,7 +111,6 @@ export function DashboardShell({
   const mainContentRef = useRef<HTMLElement>(null);
   const previousPathnameRef = useRef(pathname);
 
-  // Determine active shortcut context from current route
   const shortcutContext = useMemo(() => {
     if (/\/dashboard\/estimates\/[^/]+\/edit/.test(pathname)) return "editor" as const;
     return "navigation" as const;
@@ -128,7 +123,6 @@ export function DashboardShell({
     return "comfortable" as const;
   }, [pathname]);
 
-  // Global listener for "?" key to open shortcuts modal
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (drawerOpen) return;
@@ -233,21 +227,20 @@ export function DashboardShell({
   );
   const navigationContextValue = useMemo(
     () => ({
-      mode: navigationMode,
       pathname,
       drawerOpen,
       menuButtonRef,
       openDrawer,
       groups: navGroups,
     }),
-    [drawerOpen, navigationMode, navGroups, openDrawer, pathname]
+    [drawerOpen, navGroups, openDrawer, pathname]
   );
 
 
   return (
     <div
       className="flex min-h-screen flex-col bg-background"
-      data-navigation-mode={navigationMode}
+      data-navigation-mode="workspace"
     >
       <a
         href="#dashboard-main-content"
@@ -298,7 +291,6 @@ export function DashboardShell({
         </div>
       </header>
       </DashboardNavigationProvider>
-      {/* Drawer backdrop. */}
       {drawerOpen ? (
         <div
           className="fixed inset-0 z-[55] bg-black/40"
@@ -385,7 +377,6 @@ export function DashboardShell({
         </nav>
 
         <div className="sidebar-footer shrink-0 border-t border-white/10 p-4">
-          {/* Keyboard shortcuts button */}
           <button
             type="button"
             className="mb-2 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white/90"

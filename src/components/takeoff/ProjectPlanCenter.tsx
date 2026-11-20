@@ -238,7 +238,6 @@ export function ProjectPlanCenter({ projectId, initialPlanSets, hasTakeoffAnalys
         </JourneyFacts>
       </div>
 
-      {/* Create modal */}
       <PlanSetFormModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -247,7 +246,6 @@ export function ProjectPlanCenter({ projectId, initialPlanSets, hasTakeoffAnalys
         error={createError}
       />
 
-      {/* Live announcements */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>

@@ -90,7 +90,6 @@ export type PageReplacementInput = {
   dpgfTargets?: ReadonlyMap<string, Pick<TakeoffPageReplacementDpgfTarget, "reference" | "earlier" | "fed">>;
 };
 
-/** What applying this takeoff would replace, page by page. */
 export function buildPageReplacementProposal(input: PageReplacementInput): TakeoffPageReplacementResponse {
   const { ownLines, estimateRows, mergeRequired } = input;
   const normalizedJobId = input.jobId;

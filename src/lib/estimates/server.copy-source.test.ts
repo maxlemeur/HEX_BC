@@ -19,7 +19,7 @@ vi.mock("@/lib/estimates/server-context", async (importOriginal) => ({
   assertDraftLockOwnedByCurrentUser: vi.fn(),
 }));
 
-import { duplicateSectionFromVersion, importSectionsFromVersion } from "@/lib/estimates/server";
+import { duplicateSectionFromVersion, importSectionsFromVersion } from "@/lib/estimates/section-copy-server";
 import {
   assertDraftLockOwnedByCurrentUser,
   getAuthenticatedContext,

@@ -2,6 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { maxPriceValidTo } from "@/lib/catalogue/price-validity";
+import { normalizedReference } from "@/lib/catalogue/product-price-template-client";
 
 import { CatalogueApiError } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -67,10 +68,6 @@ export type ProductPriceTemplateImportResult = {
   created_prices: number;
   skipped_prices: number;
 };
-
-function normalizedReference(value: string) {
-  return value.trim().toLocaleLowerCase("fr-FR");
-}
 
 function normalizedSupplierName(value: string) {
   return value

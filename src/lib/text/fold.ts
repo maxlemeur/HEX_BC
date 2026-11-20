@@ -7,3 +7,8 @@ export function stripAccents(value: string): string {
 export function foldText(value: string): string {
   return stripAccents(value).toLowerCase();
 }
+
+/** The folded words of a label: lowercase, accent-free, each run of other characters than a-z and 0-9 one space. */
+export function foldWords(value: string): string {
+  return foldText(value).replace(/[^a-z0-9]+/g, " ").trim();
+}

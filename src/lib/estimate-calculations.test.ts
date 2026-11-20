@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  allocateProRata,
   computeAllSectionTotals,
   computeEstimateLineValues,
   computeEstimateTotals,
@@ -9,13 +8,13 @@ import {
   computeSectionTotals,
   normalizeDraftItems,
   MAX_MARGIN_MULTIPLIER,
-  MAX_CENTS,
-  UNASSIGNED_SUPPLY_TYPE_KEY,
   type EstimateLineLike,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
+import { allocateProRata } from "@/lib/estimate-allocation";
+import { UNASSIGNED_SUPPLY_TYPE_KEY } from "@/lib/estimate-v2-snapshot";
 import { getMarginTiers } from "@/lib/estimates/margin-tiers";
-import { bankersRound } from "@/lib/money";
+import { bankersRound, MAX_CENTS } from "@/lib/money";
 import { createSeededRandom } from "@/test/seeded-random";
 
 function createLine(overrides: Partial<EstimateLineLike> = {}): EstimateLineLike {

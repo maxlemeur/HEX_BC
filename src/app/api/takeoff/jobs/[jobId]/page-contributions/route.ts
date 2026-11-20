@@ -1,7 +1,5 @@
-import { NextResponse } from "next/server";
-
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { getTakeoffJobPageContributions } from "@/lib/takeoff/page-contributions-server";
 
 // TI-682 lot D: the pages of this takeoff that another takeoff already brought into the reviewed estimate version
@@ -11,7 +9,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     const versionId = new URL(request.url).searchParams.get("version_id");
     return ok(await getTakeoffJobPageContributions((await params).jobId, versionId));
   } catch (error) {
-    if (error instanceof TakeoffError) return NextResponse.json(toTakeoffErrorResponse(error), { status: error.status });
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

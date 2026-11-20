@@ -57,7 +57,6 @@ export function buildTreeConnectorSegments(meta: TreeConnectorMeta): TreeConnect
     });
   }
 
-  // Parent -> current node branch.
   if (depth > 0) {
     const parentColumn = depth - 1;
     verticalSegments.push({
@@ -69,7 +68,6 @@ export function buildTreeConnectorSegments(meta: TreeConnectorMeta): TreeConnect
     });
   }
 
-  // Current section trunk continuing to visible children.
   if (meta.hasVisibleChildren) {
     verticalSegments.push({
       axis: "vertical",

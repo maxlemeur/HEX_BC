@@ -8,11 +8,9 @@ import {
 } from "react";
 
 import type { NavGroup } from "@/lib/navigation/build-nav-groups";
-import type { DashboardNavigationMode } from "@/lib/navigation/dashboard-navigation-mode";
 import { MenuIcon } from "lucide-react";
 
 export type DashboardNavigationContextValue = {
-  mode: DashboardNavigationMode;
   pathname: string;
   drawerOpen: boolean;
   menuButtonRef: RefObject<HTMLButtonElement | null>;
@@ -48,7 +46,7 @@ export function WorkspaceNavigationButton({
 }>) {
   const navigation = useDashboardNavigation();
 
-  if (!navigation || navigation.mode !== "workspace") {
+  if (!navigation) {
     return null;
   }
 

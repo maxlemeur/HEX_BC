@@ -1,7 +1,5 @@
-import { NextResponse } from "next/server";
-
-import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { getTakeoffJobPageReplacement } from "@/lib/takeoff/page-replacement-server";
 
 // TI-682 lot D, PR 2: what applying this takeoff would replace, page by page, in the version it writes into (its own),
@@ -11,7 +9,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
     const body = await request.json().catch(() => null);
     return ok(await getTakeoffJobPageReplacement((await params).jobId, body));
   } catch (error) {
-    if (error instanceof TakeoffError) return NextResponse.json(toTakeoffErrorResponse(error), { status: error.status });
-    return toErrorResponse(error);
+    return toTakeoffRouteErrorResponse(error);
   }
 }

@@ -58,7 +58,6 @@ export function designationRuleResults(items: readonly TakeoffItem[]): TakeoffRu
   return items.map((_, index) => results.get(String(index)) ?? []);
 }
 
-/** Failed rule codes of a document's lines, counted. */
 export function failedCodes(results: ReadonlyArray<readonly TakeoffRuleResult[] | null>) {
   const counts: Record<string, number> = {};
   for (const entry of results.flatMap((list) => list ?? [])) {

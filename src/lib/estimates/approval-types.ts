@@ -297,8 +297,6 @@ export type RulesEngineVersion = Pick<
 
 export type RulesEngineProject = Pick<EstimateProjectRow, "id" | "client_name">;
 
-export type RulesEngineItem = Pick<EstimateItemRow, "id" | "category_id">;
-
 export type RulesEngineItemAccess = Pick<
   EstimateItemRow,
   "id" | "category_id"
@@ -359,20 +357,11 @@ export type EvaluateRulesResult = {
   unavailableSignals: EstimateRuleUnavailableSignal[];
 };
 
-export type EstimateRuleRecord = EstimateRuleRow;
-
 export type EstimateApprovalDecisionCommentInput = {
   scopeType: EstimateReviewCommentScope;
   scopeId: string | null;
   comment: string;
 };
-
-export type SubmitEstimateApprovalAction =
-  | "request"
-  | "submit_for_review"
-  | "approve"
-  | "reject"
-  | "decide";
 
 export type SubmitEstimateApprovalInput =
   | {
@@ -412,12 +401,6 @@ export type SubmitEstimateApprovalResult = {
   cycle?: SubmitEstimateReviewRequestResult["cycle"];
   requestedApprovalCount?: number;
   requestedRuleIds?: string[];
-};
-
-export type SubmitEstimateReviewRequestInput = {
-  versionId: string;
-  submissionMessage?: string | null;
-  assignedReviewerId?: string | null;
 };
 
 export type SubmitEstimateReviewRequestResult = {

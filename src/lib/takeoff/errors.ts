@@ -1,6 +1,7 @@
+import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { ApiError } from "@/lib/http/api-response";
+import { ApiError, toErrorResponse } from "@/lib/http/api-response";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
 import { isRecord } from "@/lib/value-guards";
 
@@ -659,6 +660,13 @@ export function toTakeoffErrorResponse(
       level: normalized.level,
     },
   };
+}
+
+export function toTakeoffRouteErrorResponse(error: unknown) {
+  if (error instanceof TakeoffError) {
+    return NextResponse.json(toTakeoffErrorResponse(error), { status: error.status });
+  }
+  return toErrorResponse(error);
 }
 
 export function mapGeminiErrorToTakeoffError(error: unknown): TakeoffError {

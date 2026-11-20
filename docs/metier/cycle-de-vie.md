@@ -34,7 +34,7 @@ historique, mais reste en lecture seule tant que sa source est vivante.
 Les écrivains vérifient aussi la révision attendue ; un conflit doit être résolu
 en rechargeant l'état courant, sans écraser une modification concurrente.
 
-Sources : [server.ts](../../src/lib/estimates/server.ts),
+Sources : [version-lifecycle-server.ts](../../src/lib/estimates/version-lifecycle-server.ts),
 [locks.ts](../../src/lib/estimates/locks.ts),
 [lock-session.ts](../../src/lib/estimates/lock-session.ts),
 [write-access.ts](../../src/lib/estimates/write-access.ts).

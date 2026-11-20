@@ -20,14 +20,13 @@ import {
   MATERIAL_REQUEST_QUOTE_MAX_FILES,
   MATERIAL_REQUEST_QUOTE_NOTES_MAX,
   MATERIAL_REQUEST_QUOTE_PICKER_ACCEPT,
-  MATERIAL_REQUEST_PRICE_PER,
   MATERIAL_REQUEST_QUOTE_STATUS_LABELS,
-  type MaterialRequestPricePer,
   type MaterialRequestQuote,
   type MaterialRequestQuoteStatus,
 } from "@/lib/material-requests/quote-contracts";
 import { formatEUR } from "@/lib/money";
 import { parseAmountCents } from "@/lib/numeric-input/parsers";
+import { PURCHASE_ORDER_PRICE_PER, type PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
 import { cn } from "@/lib/utils";
 
 import { CellMessages, ConfirmButton, TextCell, usePendingWrites } from "./cells";
@@ -162,7 +161,7 @@ function retainBlocker(
 function lineAmount(
   line: MaterialRequestLine | undefined,
   cents: number | null,
-  per: MaterialRequestPricePer,
+  per: PurchaseOrderPricePer,
 ): number | null {
   return line ? quotedAmountCents(line.quantity, cents, per) : null;
 }
@@ -802,7 +801,7 @@ function QuotePriceEntry({
   const inputId = `${ids}-price`;
   const errorId = `${ids}-error`;
   const stored = entry.price_per;
-  const [choice, setChoice] = useState<MaterialRequestPricePer | null>(null);
+  const [choice, setChoice] = useState<PurchaseOrderPricePer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const per = choice ?? stored;
   const supplier = quote.supplier_name;
@@ -823,14 +822,14 @@ function QuotePriceEntry({
   useEffect(() => () => reportUnreadable(false), [reportUnreadable]);
 
   // A saved lot is no longer a choice to keep, unless another was chosen while it travelled: that one still waits.
-  const settle = (lot: MaterialRequestPricePer) => setChoice((current) => (current === lot ? null : current));
-  const saveFor = (lot: MaterialRequestPricePer) => async (cents: number | null) => {
+  const settle = (lot: PurchaseOrderPricePer) => setChoice((current) => (current === lot ? null : current));
+  const saveFor = (lot: PurchaseOrderPricePer) => async (cents: number | null) => {
     const result = await quotes.savePrice(quote.id, entry.line_id, cents, lot);
     if (result.ok) settle(lot);
     return result;
   };
 
-  const choose = async (next: MaterialRequestPricePer) => {
+  const choose = async (next: PurchaseOrderPricePer) => {
     setError(null);
     if (field.draft !== null) {
       // The lot goes with the price the field shows, never with the one saved before it: an unreadable text holds
@@ -850,7 +849,7 @@ function QuotePriceEntry({
   };
 
   // The saved amount, which the field shows, sent for another lot.
-  const saveLotOfShownPrice = async (lot: MaterialRequestPricePer) => {
+  const saveLotOfShownPrice = async (lot: PurchaseOrderPricePer) => {
     if (entry.unit_price_ht_cents === null) return;
     const result = await quotes.savePrice(quote.id, entry.line_id, entry.unit_price_ht_cents, lot);
     if (result.ok) {
@@ -893,9 +892,9 @@ function QuotePriceEntry({
           aria-label={`Prix donné pour, ligne ${position}, ${supplier}`}
           aria-describedby={error ? errorId : undefined}
           value={String(per)}
-          onChange={(event) => void choose(Number(event.currentTarget.value) as MaterialRequestPricePer)}
+          onChange={(event) => void choose(Number(event.currentTarget.value) as PurchaseOrderPricePer)}
         >
-          {MATERIAL_REQUEST_PRICE_PER.map((option) => (
+          {PURCHASE_ORDER_PRICE_PER.map((option) => (
             <option key={option} value={String(option)}>
               {`pour ${formatPricePer(option)}`}
             </option>

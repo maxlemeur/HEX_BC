@@ -23,6 +23,7 @@ import {
 import type { EstimateLineMargin } from "@/lib/estimates/line-margin";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-units";
+import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
 import {
   ESTIMATE_LINE_PRICING_STATUSES,
   MEASUREMENT_UNITS,
@@ -59,14 +60,8 @@ const V3_INPUT_ITEM_KEYS = [
 ] as const;
 
 /** Libellés de la grille (contrat d'écran §4.2) ; le référentiel garde ses libellés d'import. */
-export const ESTIMATE_V3_PRICING_STATUS_OPTIONS: ReadonlyArray<{ value: EstimateLinePricingStatus; label: string }> = [
-  { value: "priced", label: "Chiffrée" },
-  { value: "included", label: "Inclus" },
-  { value: "for_memory", label: "Pour mémoire" },
-  { value: "not_priced", label: "Non chiffrée" },
-  { value: "out_of_scope", label: "Hors lot" },
-  { value: "not_applicable", label: "Sans objet" },
-];
+export const ESTIMATE_V3_PRICING_STATUS_OPTIONS: ReadonlyArray<{ value: EstimateLinePricingStatus; label: string }> =
+  ESTIMATE_LINE_PRICING_STATUSES.map((value) => ({ value, label: ESTIMATE_V3_STATUS_DOCUMENT_LABELS[value] }));
 
 function readRecord(source: object, key: string): unknown {
   return (source as Record<string, unknown>)[key];

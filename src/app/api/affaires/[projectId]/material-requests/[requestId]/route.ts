@@ -1,6 +1,7 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { updateMaterialRequestSchema } from "@/lib/material-requests/contracts";
-import { readJsonBody, requestParamsSchema } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { requestParamsSchema } from "@/lib/material-requests/http";
 import { deleteMaterialRequest, getMaterialRequestDetail, updateMaterialRequest } from "@/lib/material-requests/server";
 
 type Context = { params: Promise<{ projectId: string; requestId: string }> };

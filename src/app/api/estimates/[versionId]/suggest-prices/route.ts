@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
-import { suggestEstimateCataloguePrices } from "@/lib/estimates/server";
+import { suggestEstimateCataloguePrices } from "@/lib/estimates/supplier-comparison-server";
 import { uuidRouteParam } from "@/lib/http/request";
 
 const suggestPricesQuerySchema = z.object({

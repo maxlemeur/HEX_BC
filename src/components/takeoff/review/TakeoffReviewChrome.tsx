@@ -9,10 +9,6 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TakeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 
-// ---------------------------------------------------------------------------
-// Loading / error states of the review page
-// ---------------------------------------------------------------------------
-
 export function TakeoffReviewLoadingState({ title }: { title: string }) {
   return (
     <div className="animate-fade-in">
@@ -57,10 +53,6 @@ export function TakeoffReviewErrorState({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Apply readiness bar (production mode)
-// ---------------------------------------------------------------------------
 
 export function TakeoffApplyReadinessBar({
   readiness,

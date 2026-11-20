@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readDxf } from "@/lib/cad/dxf";
 import { circle, dxfBytes, hatch, insert, layer, line, lwpolyline, rec, text, type DxfFixture } from "@/lib/cad/dxf.test-utils";
 import {
-  buildCadScene, cadDisplayColor, cadPointAt, cadSceneExtents, cadViewLimits, drawCadView, fitCadViewport, panCadViewport, zoomCadViewport,
+  buildCadScene, cadDisplayColor, cadSceneExtents, cadViewLimits, drawCadView, fitCadViewport, panCadViewport, zoomCadViewport,
   type CadViewContext, type CadViewport,
 } from "@/lib/cad/view";
 
@@ -11,6 +11,8 @@ const read = (fixture: DxfFixture) => readDxf(dxfBytes(fixture));
 const SIZE = { width: 400, height: 300 };
 /** A sheet of 1 000 × 750 units seen whole: 0,4 pixel per unit, (0, 750) at the top left corner. */
 const VIEW: CadViewport = { scale: 0.4, x: 0, y: 750 };
+/** The drawing point under the pixel (sx, sy): the viewport's top left corner plus the pixels at its scale, y up. */
+const cadPointAt = (viewport: CadViewport, sx: number, sy: number): [number, number] => [viewport.x + sx / viewport.scale, viewport.y - sy / viewport.scale];
 
 type Call = (string | number)[];
 const round = (value: number) => Math.round(value * 1000) / 1000;

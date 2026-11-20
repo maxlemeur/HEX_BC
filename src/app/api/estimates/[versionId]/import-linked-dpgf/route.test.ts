@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/linked-dpgf-import-server", () => ({
   importLinkedDpgfSourceIntoVersion: vi.fn(),
 }));
 
 import { POST } from "@/app/api/estimates/[versionId]/import-linked-dpgf/route";
-import { importLinkedDpgfSourceIntoVersion } from "@/lib/estimates/server";
+import { importLinkedDpgfSourceIntoVersion } from "@/lib/estimates/linked-dpgf-import-server";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const IMPORT_ID = "22222222-2222-4222-8222-222222222222";

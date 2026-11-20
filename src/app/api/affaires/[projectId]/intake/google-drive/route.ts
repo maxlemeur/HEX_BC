@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { z } from "zod";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { withPrivateNoStore } from "@/lib/http/response";
 import { driveRequestSchema } from "@/lib/affaires/google-drive/contracts";
 import { driveState, executeDriveRequest } from "@/lib/affaires/google-drive/server";
 import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
@@ -9,13 +10,9 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 type Context = { params: Promise<{ projectId: string }> };
 async function projectId(context: Context) { return z.string().uuid().parse((await context.params).projectId); }
-function noStore(response: Response) {
-  response.headers.set("Cache-Control", "private, no-store");
-  return response;
-}
 export async function GET(_request: Request, context: Context) {
-  try { return noStore(ok(await driveState(await projectId(context)))); }
-  catch (error) { return noStore(toErrorResponse(error)); }
+  try { return withPrivateNoStore(ok(await driveState(await projectId(context)))); }
+  catch (error) { return withPrivateNoStore(toErrorResponse(error)); }
 }
 export async function POST(request: Request, context: Context) {
   try {
@@ -46,6 +43,6 @@ export async function POST(request: Request, context: Context) {
         catch { console.error("Drive link processing incomplete", { uploadId }); }
       });
     }
-    return noStore(ok(result));
-  } catch (error) { return noStore(toErrorResponse(error)); }
+    return withPrivateNoStore(ok(result));
+  } catch (error) { return withPrivateNoStore(toErrorResponse(error)); }
 }

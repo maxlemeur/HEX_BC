@@ -369,12 +369,6 @@ export type AffaireRegisterFollowUp = z.infer<
   typeof affaireRegisterFollowUpSchema
 >;
 
-export type AffaireRegisterOwnerOption = {
-  userId: string;
-  label: string;
-  role: "admin" | "director" | "engineer";
-};
-
 export type AffaireRegisterReviewExportRow = {
   entryId: string;
   section: AffaireRegisterReviewExportSection;

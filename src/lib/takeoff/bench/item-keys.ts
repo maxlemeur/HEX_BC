@@ -1,16 +1,14 @@
 import { DIMENSION_PATTERNS, normalizeDimensionText } from "@/lib/estimates/price-reuse-matching";
 import { designationSimilarity } from "@/lib/takeoff/benchmark";
-import { findDiameterEntries, type DiameterEntry } from "@/lib/takeoff/bench/diameters";
+import { entryId, findDiameterEntries, type DiameterEntry } from "@/lib/takeoff/diameters";
+import { ORGANS, type LineKind, type OrganCode } from "@/lib/takeoff/bench/keys";
 import {
   MATERIALS,
   NETWORKS,
-  ORGANS,
   type KeyInfo,
-  type LineKind,
   type MaterialCode,
   type NetworkCode,
-  type OrganCode,
-} from "@/lib/takeoff/bench/keys";
+} from "@/lib/takeoff/trade-keys";
 import { toUnitToken } from "@/lib/takeoff/units";
 
 // Deterministic reader of an extracted takeoff item's key (TI-660), versioned
@@ -227,10 +225,6 @@ function diameterText(kind: string, value: string) {
   return value;
 }
 
-function entryId(entry: DiameterEntry) {
-  return `${entry.family}:${entry.od_mm}`;
-}
-
 // « 1"1/4 » and « 1 1/4" » (one-digit whole part), « 3/4" », « 2" »; the mark touches the number, so that a
 // closing quote after a word or a space (« DN 20 "EF" ») is no inch mark.
 const INCH_SIZE = /(?<![\w./"])(?:(\d)"\s*(\d+\/\d+)|(\d)\s+(\d+\/\d+)"|(\d+\/\d+)"|(\d+)")(?![\w/])/g;
@@ -349,7 +343,6 @@ function roomCandidates(field: string): string[][] {
   return ranks.map((texts) => texts.map((text) => text.replace(PRINTED_AREA, " ").trim()).filter((text) => text.length > 0));
 }
 
-/** The labels the candidates resemble most, at or above ROOM_MIN_SIMILARITY. */
 function closestRooms(candidates: readonly string[], labels: readonly string[]) {
   let best = ROOM_MIN_SIMILARITY;
   let found = new Set<string>();

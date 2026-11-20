@@ -1,16 +1,15 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { prepareEstimateDocumentData, type EstimateItem } from "@/lib/estimates/prepare-estimate-document-data";
 import { computeEstimateBreakdown } from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
-import type { ClientContract1 } from "@/lib/estimates/offer-contract";
+import { captureOfferClientContract as capture } from "@/lib/estimates/offer-contract-capture";
 
 // Specialist exception written before capture code: a missing FREE line in the
 // actual calculation Map becomes a zero placeholder in the preparer, numerically
 // indistinguishable from a genuine free line. Army cannot corrupt that Map.
-const MODULE = path.resolve("src/lib/estimates/offer-contract-capture.ts");
 const vector = JSON.parse(readFileSync(path.resolve("src/test/fixtures/offer-contract-legacy-vectors.json"), "utf8"))
   .vectors.find((entry: { id: string }) => entry.id === "source-defaults/engine2/payload4");
 const originalItem = vector.input.items[0] as EstimateItem;
@@ -44,13 +43,7 @@ function captureInput(model: ReturnType<typeof source>) {
       amountDueCents: totals.roundedTtcCents, roundingAdjustmentCents: totals.roundingAdjustmentCents }, exclusions: null,
   };
 }
-let capture: (input: ReturnType<typeof captureInput>) => ClientContract1;
 describe("offer capture source completeness with the actual calculator and preparer", () => {
-  beforeAll(async () => {
-    if (!existsSync(MODULE)) throw new Error("MISSING_PRECONDITION: capture module absent; no business RED/PASS.");
-    const api = await import(/* @vite-ignore */ MODULE);
-    capture = api.captureOfferClientContract;
-  });
   it("refuses a missing real zero-value calculation entry even though rendered zeros and footer still reconcile", () => {
     const model = source();
     expect(model.breakdown.lineById.has(model.items[0].id)).toBe(true);

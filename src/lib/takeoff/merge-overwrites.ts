@@ -1,5 +1,6 @@
 import { isDpgfTargetLine } from "@/lib/takeoff/dpgf-target-line";
 import { unitKey } from "@/lib/takeoff/page-replacement";
+import { byText } from "@/lib/text/compare";
 
 // « Fusionner » (merge), as the database's writer pairs a takeoff's lines with the lines of the destination section,
 // replayed on the screen so that a send which would overwrite an ordinary line is refused before anything is written (the
@@ -81,7 +82,6 @@ function sectionKeys(line: MergeSectionLine, writer: MergeWriter): Keys | null {
 }
 
 // uuid order is byte order, which is the order of their lower-case text.
-const byText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 const bySection = (left: MergeSectionLine, right: MergeSectionLine) =>
   (left.position ?? Number.POSITIVE_INFINITY) - (right.position ?? Number.POSITIVE_INFINITY)
   || byText(left.id.toLowerCase(), right.id.toLowerCase());

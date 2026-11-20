@@ -1,7 +1,7 @@
 import type { GroupClass } from "@/lib/takeoff/vectors/classify";
 import type { VectorPageExtraction, VectorPath, VectorText } from "@/lib/takeoff/vectors/extraction";
 import { FILL_GROUP_ID, fillRooms, type FillRejection } from "@/lib/takeoff/vectors/fill";
-import { angleGap, pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, type Point } from "@/lib/takeoff/vectors/geometry";
+import { angleGap, pointInRing, returnsToStart, ringArea, squarePointsToSquareMetres, textCentre, type Point } from "@/lib/takeoff/vectors/geometry";
 import { mergeTextLines } from "@/lib/takeoff/vectors/labels";
 import { groupId, type PageModel } from "@/lib/takeoff/vectors/page-model";
 
@@ -49,11 +49,6 @@ export type RoomSurface = {
   fill_rejected: FillRejection | null;
 };
 
-function lineCentre(text: VectorText): Point {
-  const c = Math.cos(text.angle), s = Math.sin(text.angle);
-  return { x: text.x + (c * text.width) / 2 + (s * text.height) / 2, y: text.y + (s * text.width) / 2 - (c * text.height) / 2 };
-}
-
 const LABEL_PREFIX = /(?:^|\s)(?:s|surf(?:ace)?\.?|aire)\s*[=:]\s*$/i;
 
 /**
@@ -72,7 +67,6 @@ function roomLabel(text: VectorText, before: string, texts: readonly VectorText[
   const above = texts.filter((other) => other !== text && angleGap(other.angle, text.angle) < 0.02 && !AREA_PATTERN.test(other.str)
     && up(other) > 0.5 * h && up(other) < 3.4 * h
     && along(other) < text.width + h && along(other) + other.width > -h).sort((left, right) => up(right) - up(left));
-  // Keep the lines stacked right above the surface (each within 1.7 heights of the next).
   const kept: VectorText[] = [];
   let bottom = 0;
   for (const line of [...above].reverse()) {
@@ -102,7 +96,7 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
     const printed = Number(match[1].replace(",", "."));
     if (!Number.isFinite(printed) || printed <= 0) return [];
     const room = roomLabel(text, text.str.slice(0, match.index), lines);
-    return room ? [{ text, room, printed, anchor: lineCentre(text) }] : [];
+    return room ? [{ text, room, printed, anchor: textCentre(text) }] : [];
   });
   const rings: Array<{ area: number; path: VectorPath } | null> = rooms.map(({ text, anchor }) => {
     let best: { area: number; path: VectorPath } | null = null;
@@ -116,7 +110,6 @@ export function readRoomSurfaces(extraction: VectorPageExtraction, denominator: 
     }
     return best;
   });
-  // The rooms no ring bounds, filled between the walls when the page has some and a measurable scale.
   const fills = walls && denominator !== null && rings.some((ring) => ring === null)
     ? fillRooms({ extraction, model: walls.model, classes: walls.classes, denominator,
       rooms: rooms.map(({ text, printed, anchor }, index) => ({ anchor, printed_m2: printed, height: text.height, fill: rings[index] === null })) })

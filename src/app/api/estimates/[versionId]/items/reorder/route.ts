@@ -3,7 +3,7 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { reorderEstimateItemsSchema } from "@/lib/estimates/schemas";
-import { reorderEstimateItems } from "@/lib/estimates/server";
+import { reorderEstimateItems } from "@/lib/estimates/item-structure-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(

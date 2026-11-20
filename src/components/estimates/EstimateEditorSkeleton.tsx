@@ -63,7 +63,6 @@ export function EstimateEditorSkeleton() {
         </div>
       </ProductionRibbon>
 
-      {/* Table */}
       <Card className="mt-6 overflow-hidden" aria-hidden="true">
         <div className="flex items-center gap-3 border-b border-border bg-surface-subtle px-4 py-3">
           {TABLE_COLUMN_WIDTHS.map((width, column) => (

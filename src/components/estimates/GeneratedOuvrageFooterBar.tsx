@@ -42,7 +42,6 @@ export function GeneratedOuvrageFooterBar({
 }: GeneratedOuvrageFooterBarProps) {
   const isDiscarded = draftStatus === "discarded";
 
-  // Determine status copy and tone
   let statusCopy: string;
   let statusTone: StatusTone;
 

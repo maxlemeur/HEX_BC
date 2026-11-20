@@ -38,7 +38,7 @@ export const PARITY_ESTIMATE_COUNT = 300;
 
 type Random = () => number;
 
-function mulberry32(seed: number): Random {
+export function mulberry32(seed: number): Random {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6d2b79f5) >>> 0;

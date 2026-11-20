@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { blockingRules, isRuleBlocked } from "@/lib/takeoff/rules/blocking";
+import { blockingRules } from "@/lib/takeoff/rules/blocking";
 import { TAKEOFF_RULE_VERSIONS, evaluateTakeoffRules, type RuleLine, type RulePage } from "@/lib/takeoff/rules/evaluate";
 import { ruleFailureKeys } from "@/lib/takeoff/rules/failure-keys";
 import { nonObservableCause, ruleInputsFromDesignation, ruleInputsFromVector } from "@/lib/takeoff/rules/inputs";
@@ -11,7 +11,7 @@ import type { TakeoffRuleInputs, TakeoffRuleResult } from "@/lib/takeoff/rules/t
 import { ZONE_OVERLAP, commonLength, minCommonLength, settlePair } from "@/lib/takeoff/rules/zone-overlap";
 import { MM_PER_POINT } from "@/lib/takeoff/vectors/geometry";
 import { BAND_MAX_PT } from "@/lib/takeoff/vectors/measure";
-import { NETWORK_CODES } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES } from "@/lib/takeoff/trade-keys";
 
 // Ways the fixed quantity rules of TI-664 could let a wrong quantity through,
 // or block a right one, written before the code. Every plan, label and quantity
@@ -197,7 +197,6 @@ function zones(overrides: { z1?: Partial<RuleLine>; z2?: Partial<RuleLine>; z2An
   return evaluateTakeoffRules({ pages, lines });
 }
 
-/** Every order of `items`. */
 function permutations(items: number[]): number[][] {
   return items.length <= 1 ? [items]
     : items.flatMap((item, index) => permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest]));
@@ -362,7 +361,7 @@ describe("inputs read in a designation", () => {
     expect(rule(evaluateTakeoffRules({ pages: [], lines: [service(false)] }).results, "service", "non_observable")).toMatchObject({ status: "fail" });
     const entered = rule(evaluateTakeoffRules({ pages: [], lines: [service(true)] }).results, "service", "non_observable");
     expect(entered).toMatchObject({ status: "pass", code: "NON_OBSERVABLE_ENTERED", acceptable: false });
-    expect(isRuleBlocked([entered as TakeoffRuleResult], false, false)).toBe(false);
+    expect(blockingRules([entered as TakeoffRuleResult], false).length > 0).toBe(false);
   });
 
   // TI-686 D12: an entry is a quantity attested with its category, never a bare edit. The rule keeps its version: a
@@ -390,7 +389,7 @@ describe("inputs read in a designation", () => {
       quantity_entered: entered, inputs: ruleInputsFromDesignation({ designation: "Soudures inox", unit: "u", quantity: 48 }) });
     const proposed = rule(evaluateTakeoffRules({ pages: [], lines: [soudures(48)] }).results, "weld", "non_observable");
     expect(proposed).toMatchObject({ status: "fail", code: "NON_OBSERVABLE_TO_ENTER", acceptable: false });
-    expect(isRuleBlocked([proposed as TakeoffRuleResult], false, true)).toBe(true);
+    expect(blockingRules([proposed as TakeoffRuleResult], true).length > 0).toBe(true);
     expect(rule(evaluateTakeoffRules({ pages: [], lines: [soudures(52)] }).results, "weld", "non_observable"))
       .toMatchObject({ status: "fail", code: "NON_OBSERVABLE_TO_ENTER" });
     expect(rule(evaluateTakeoffRules({ pages: [], lines: [soudures(52, true)] }).results, "weld", "non_observable"))
@@ -1439,8 +1438,8 @@ describe("coverage of an overview by its enlarged plans (TI-684, D14)", () => {
     // V settles the line as verified: the failure is acceptable, and a verified line is not blocked by it.
     const failure = coverage(plans([detail, overview], [short, b, { id: "G", slot: 1, segments: [[0, 1, 15, 1]], quantity: 9 }]).results, "G");
     expect(failure).toMatchObject({ status: "fail", acceptable: true });
-    expect(isRuleBlocked([failure as TakeoffRuleResult], false, true)).toBe(false);
-    expect(isRuleBlocked([failure as TakeoffRuleResult], false, false)).toBe(true);
+    expect(blockingRules([failure as TakeoffRuleResult], true).length > 0).toBe(false);
+    expect(blockingRules([failure as TakeoffRuleResult], false).length > 0).toBe(true);
   });
 
   it("charges a line's reduction for the duplicates it must remove itself, never for those another line settled", () => {
@@ -1902,14 +1901,13 @@ describe("blocking", () => {
     rule: "dn_network", status: "fail", code: "DN_NETWORK_DN_MISSING", version: 1, acceptable, reason: "Fictional",
   });
 
-  it("lets a verified line through an acceptable failure only, and blocks stale results", () => {
-    expect(isRuleBlocked([fail(true)], false, false)).toBe(true);
-    expect(isRuleBlocked([fail(true)], false, true)).toBe(false);
-    expect(isRuleBlocked([fail(false)], false, true)).toBe(true);
-    expect(isRuleBlocked([], true, true)).toBe(true);
-    expect(isRuleBlocked(null, false, false)).toBe(false);
+  it("lets a verified line through an acceptable failure only", () => {
+    expect(blockingRules([fail(true)], false).length > 0).toBe(true);
+    expect(blockingRules([fail(true)], true).length > 0).toBe(false);
+    expect(blockingRules([fail(false)], true).length > 0).toBe(true);
+    expect(blockingRules(null, false).length > 0).toBe(false);
     expect(blockingRules([fail(true), fail(false)], true)).toHaveLength(1);
     const pass: TakeoffRuleResult = { rule: "non_observable", status: "pass", code: "NON_OBSERVABLE_ENTERED", version: 1, acceptable: false, reason: "Fictional" };
-    expect(isRuleBlocked([pass], false, false)).toBe(false);
+    expect(blockingRules([pass], false).length > 0).toBe(false);
   });
 });

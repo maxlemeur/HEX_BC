@@ -2,8 +2,6 @@ import { createRequire } from "node:module";
 import { PassThrough, Readable } from "node:stream";
 
 import {
-  allocateProRata,
-  buildStoredEstimateBreakdown,
   computeEstimateBreakdown,
   computeInitialDiscountCents,
   computeReadOnlyTotals,
@@ -12,6 +10,8 @@ import {
   type EstimateItemRecord,
   type EstimateVersionForCalc,
 } from "@/lib/estimate-calculations";
+import { allocateProRata } from "@/lib/estimate-allocation";
+import { buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import {
   resolveCalcEngineVersion,
   resolveEstimateEngineVersion,
@@ -20,7 +20,7 @@ import {
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { internalError } from "@/lib/http/api-response";
-import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
+import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/version-read-server";
 import {
   loadEstimateV3ExportDocument,
   writeEstimateV3Workbook,

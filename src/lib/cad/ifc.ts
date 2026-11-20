@@ -143,7 +143,6 @@ function numberOf(field: unknown): number | null {
 
 function textOf(field: unknown): string {
   const value = fieldValue(field);
-  // One line, without the characters that end one, and cut.
   return typeof value === "string" ? value.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ").trim().slice(0, MAX_TEXT).trimEnd() : "";
 }
 
@@ -398,7 +397,6 @@ function readModel(reading: Reading, schema: string): IfcModel {
   const software = applicationLine ? textOf(applicationLine.ApplicationFullName) : "", version = applicationLine ? textOf(applicationLine.Version) : "";
   const application = (software && version && !software.includes(version) ? `${software} ${version}` : software).slice(0, 80) || null;
 
-  // The storeys, from the lowest.
   const storeyLines = reading.ids(web.IFCBUILDINGSTOREY, true).slice(0, MAX_STOREYS).map((id) => {
     const line = reading.line(id), elevation = line ? numberOf(line.Elevation) : null;
     return { id, name: (line && textOf(line.Name)) || "Niveau sans nom", elevation: elevation !== null && Math.abs(elevation * units.length) <= MAX_METRES ? Math.round(elevation * units.length * 1000) / 1000 + 0 : null };
@@ -504,7 +502,6 @@ function readModel(reading: Reading, schema: string): IfcModel {
 
   const { mesh, apart } = readMesh(reading, entries, storeyLines.length);
 
-  // The classes by name, and the rows by class, type, section and storey.
   const order = classNames.map((_, index) => index).sort((a, b) => (classNames[a] < classNames[b] ? -1 : classNames[a] > classNames[b] ? 1 : 0));
   const place = new Map(order.map((cls, index) => [cls, index]));
   const rows = new Map<string, IfcRow>();

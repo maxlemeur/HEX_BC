@@ -14,10 +14,10 @@ import {
 import {
   MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN,
   type CreateQuoteInput,
-  type MaterialRequestPricePer,
   type MaterialRequestQuote,
   type MaterialRequestQuoteRetained,
 } from "@/lib/material-requests/quote-contracts";
+import type { PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
 
 import { uploadMaterialRequestQuoteFiles, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
@@ -62,7 +62,7 @@ export type MaterialRequestQuotesApi = {
   /** « Consultation envoyée »: the quote is recorded with the message the office copied. */
   createQuote: (input: CreateQuoteInput, supplierName: string) => Promise<QuoteCreationResult>;
   /** The price of one line, in cents for `per` units: the two are always sent together. */
-  savePrice: (quoteId: string, lineId: string, cents: number | null, per: MaterialRequestPricePer) => Promise<SaveResult>;
+  savePrice: (quoteId: string, lineId: string, cents: number | null, per: PurchaseOrderPricePer) => Promise<SaveResult>;
   /** The office dropped a price that could not be saved: the line holds the saved price again. */
   forgetPriceFailure: (quoteId: string, lineId: string) => void;
   /**
@@ -89,7 +89,7 @@ export type MaterialRequestQuotesApi = {
   addFiles: (quoteId: string, files: readonly File[], onStep?: (progress: PhotoUploadStep) => void) => Promise<SaveResult>;
 };
 
-type PriceWrites = { pending: number; value: number | null; per: MaterialRequestPricePer };
+type PriceWrites = { pending: number; value: number | null; per: PurchaseOrderPricePer };
 
 /** At its turn in the queue, a retain is either held back, with why, or sent and answered. */
 type RetainTurn = { held: string } | { retained: MaterialRequestQuoteRetained };
@@ -240,7 +240,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
   );
 
   const savePrice = useCallback(
-    async (quoteId: string, lineId: string, cents: number | null, per: MaterialRequestPricePer): Promise<SaveResult> => {
+    async (quoteId: string, lineId: string, cents: number | null, per: PurchaseOrderPricePer): Promise<SaveResult> => {
       const byLine = pending.current.get(quoteId) ?? new Map<string, PriceWrites>();
       pending.current.set(quoteId, byLine);
       const writes = byLine.get(lineId) ?? { pending: 0, value: null, per: 1 };

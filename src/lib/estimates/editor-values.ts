@@ -6,7 +6,6 @@ import {
   parseStoredCoefficient,
 } from "@/lib/numeric-input/parsers";
 
-export type JsonRecord = Record<string, unknown>;
 export function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -20,6 +19,14 @@ export function parseNumberInput(value: string): number | null {
 
 export function parseNullableNumberInput(value: string): number | null {
   return parseDecimalInput(value);
+}
+
+export function parseNonNegativeNumberInput(value: string): number | null {
+  const parsedValue = parseDecimalInput(value);
+  if (parsedValue === null) {
+    return null;
+  }
+  return Math.max(parsedValue, 0);
 }
 
 // Grid and settings adapters of the D11 per-quantity parsers (2.3 review): the reading of the

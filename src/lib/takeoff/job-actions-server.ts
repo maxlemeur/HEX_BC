@@ -3,6 +3,7 @@ import "server-only";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
+import { TAKEOFF_RETRY_BACKOFF_SECONDS, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   getAuthenticatedTakeoffContext,
@@ -27,10 +28,6 @@ const TAKEOFF_PROVIDER_TERMINAL_STATES = new Set<TakeoffProviderBatchState>([
   "cancelled",
   "expired",
 ]);
-
-const TAKEOFF_RETRY_MAX = 3;
-
-const TAKEOFF_RETRY_BACKOFF_SECONDS = [5, 15, 45] as const;
 
 function getTakeoffRetryBackoffMs(retryCount: number) {
   const clamped = Math.max(

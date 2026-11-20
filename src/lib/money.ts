@@ -1,5 +1,8 @@
 import { parseAmountCents } from "@/lib/numeric-input/parsers";
 
+/** Maximum PostgreSQL integer value – caps computed cents to avoid DB overflow. */
+export const MAX_CENTS = 2_147_483_647;
+
 export const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
 
 export type SupportedEstimateCurrency =
@@ -93,6 +96,11 @@ export function formatEUR(cents: number) {
 export function formatCentsInput(cents: number | null) {
   if (!Number.isFinite(cents ?? NaN)) return "";
   return ((cents ?? 0) / 100).toFixed(2);
+}
+
+/** Cents as a French form value: « 1234,50 » (comma, two decimals, no grouping). */
+export function euroInputFromCents(cents: number) {
+  return (cents / 100).toFixed(2).replace(".", ",");
 }
 
 export function parseEuroToCents(input: string) {

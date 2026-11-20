@@ -25,6 +25,7 @@ import {
 
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
+  filterMappingToSourceColumns,
   mappingTargetFieldSchema,
   type MappingTargetField,
   type SourceToTargetMapping,
@@ -603,7 +604,6 @@ function extractSampleValues(
       }
 
       if (samples.size < maxSamples) {
-        // Truncate long values for display
         samples.add(text.length > 40 ? text.slice(0, 37) + "..." : text);
       }
     }
@@ -626,30 +626,6 @@ function applyMappingToPayload(payload: JsonRecord, mapping: SourceToTargetMappi
   }
 
   return mapped;
-}
-
-function filterMappingToSourceColumns(
-  mapping: SourceToTargetMapping,
-  sourceColumns: string[]
-): SourceToTargetMapping {
-  if (sourceColumns.length === 0 || Object.keys(mapping).length === 0) {
-    return mapping;
-  }
-
-  const sourceSet = new Set(sourceColumns);
-  const filteredMapping: SourceToTargetMapping = {};
-  let removedEntries = false;
-
-  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
-    if (!sourceSet.has(sourceColumn)) {
-      removedEntries = true;
-      continue;
-    }
-
-    filteredMapping[sourceColumn] = targetField;
-  }
-
-  return removedEntries ? filteredMapping : mapping;
 }
 
 function computeValidation(mapping: SourceToTargetMapping): MappingValidation {

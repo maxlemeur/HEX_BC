@@ -30,10 +30,7 @@ import { resolveV3NetMarginBp } from "@/lib/estimates/effective-margin";
 import { usesSaleCoefficients, type EstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { loadV3MarginEvidence, type V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
-import {
-  listEstimateProjectVersions,
-  type ListEstimateProjectVersionsResult,
-} from "@/lib/estimates/server";
+import { listEstimateProjectVersions, type ListEstimateProjectVersionsResult } from "@/lib/estimates/version-list-server";
 import {
   resolveEstimateStructureModeSummary,
   type EstimateStructureModeSummary,
@@ -75,6 +72,7 @@ import {
   type NormalizedAffaireListQuery,
 } from "./schemas";
 import { hasDefaultImportPlanSetMarker } from "@/lib/takeoff/default-import-plan-set";
+import { toSafeInteger } from "@/lib/value-guards";
 import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "./register-server";
 
 type AffaireContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
@@ -382,21 +380,6 @@ export type AffaireHubMarginV3Notice = { versionEvolutionUnavailableV3: number[]
 
 /** Ce que reçoit la carte « Analyse de marge » du hub : l'analyse, l'avis v3 seul, ou rien. */
 export type AffaireHubMarginCardData = AffaireHubMarginAnalysisResult | AffaireHubMarginV3Notice;
-
-function toSafeInteger(value: number | string | null | undefined): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.trunc(value);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return 0;
-}
 
 function toNullableSafeInteger(
   value: number | string | null | undefined
@@ -1270,7 +1253,7 @@ async function resolveTakeoffReviewVersionId(input: {
       : await (async () => {
           const { data: currentVersionData, error: currentVersionError } =
             await input.context.supabase
-              .from("estimate_versions" as never)
+              .from("estimate_versions")
               .select("id" as never)
               .eq("tenant_id" as never, input.context.tenantId as never)
               .eq("project_id" as never, input.projectId as never)
@@ -1297,7 +1280,7 @@ async function resolveTakeoffReviewVersionId(input: {
   }
 
   const { data: linkData, error: linkError } = await input.context.supabase
-    .from("takeoff_version_links" as never)
+    .from("takeoff_version_links")
     .select("target_version_id" as never)
     .eq("tenant_id" as never, input.context.tenantId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
@@ -1326,7 +1309,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("project_id" as never, project.id as never),
     context.supabase
-      .from("takeoff_jobs" as never)
+      .from("takeoff_jobs")
       .select(
         "id, status, level, processing_strategy, provider_batch_state, source_file_name, created_at, error_code, error_message, estimate_version_id, plan_set_id, estimate_versions!inner(project_id)" as never
       )
@@ -1420,7 +1403,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
 
   if (planSetCount > 0) {
     const { count: planFilesCount, error: planFilesCountError } = await context.supabase
-      .from("plan_files" as never)
+      .from("plan_files")
       .select("id, plan_sets!inner(project_id)" as never, { count: "exact", head: true })
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("plan_sets.project_id" as never, project.id as never)
@@ -1494,13 +1477,13 @@ async function fetchAffaireHubPlansSummaryWithContext(
     const [defaultPlanFilesResult, defaultPlanSetLatestJobResult] =
       await Promise.all([
         context.supabase
-          .from("plan_files" as never)
+          .from("plan_files")
           .select("file_name, file_type, page_count, created_at" as never)
           .eq("tenant_id" as never, context.tenantId as never)
           .eq("plan_set_id" as never, defaultPlanSetId as never)
           .order("created_at" as never, { ascending: true }),
         context.supabase
-          .from("takeoff_jobs" as never)
+          .from("takeoff_jobs")
           .select(
             "status, created_at, estimate_version_id, plan_set_id" as never,
           )
@@ -2065,8 +2048,6 @@ export async function fetchAffaireManagerQueueSummary(
   return result.summary;
 }
 
-const DASHBOARD_RECENT_AFFAIRE_LIMIT = 5;
-
 export type AffaireDashboardWorkspaceResult = {
   affaires: AffaireDashboardOverviewResult["recentAffaires"];
   counters: AffaireCountersResult;
@@ -2102,30 +2083,6 @@ export async function fetchAffaireDashboardWorkspace(input: DashboardQuery): Pro
     counters,
     previousCursor: hasPreviousPage ? first ? cursorFor(first) : input.cursor : null,
     nextCursor: hasNextPage ? last ? cursorFor(last) : input.cursor : null,
-  };
-}
-
-export async function fetchAffaireDashboardOverview(): Promise<AffaireDashboardOverviewResult> {
-  const context = await getAuthenticatedContext();
-  const query = normalizeAffaireListQuery({ dir: "desc" });
-  const [list, counters] = await Promise.all([
-    fetchAffaireListRowsWithContext(context, {
-      ...query,
-      size: DASHBOARD_RECENT_AFFAIRE_LIMIT,
-    }),
-    fetchAffaireCountersWithContext(context, query),
-  ]);
-
-  return {
-    recentAffaires: list.items.map((item) => ({
-      projectId: item.projectId,
-      projectName: item.projectName,
-      projectReference: item.projectReference,
-      projectClient: item.projectClient,
-      currentStatus: item.currentStatus,
-      currentUpdatedAt: item.currentUpdatedAt,
-    })),
-    counters,
   };
 }
 
@@ -2249,15 +2206,10 @@ export async function fetchAffaireHubCoreData(
   return fetchAffaireHubCoreDataWithContext(context, project, safePage);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Margin Analysis                                                     */
-/* ------------------------------------------------------------------ */
-
 async function fetchAffaireHubMarginAnalysisWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
 ): Promise<AffaireHubMarginCardData> {
-  // 1. Fetch all versions
   const { data: versionsData, error: versionsError } = await readAllRows(() => context.supabase
     .from("estimate_versions")
     .select(
@@ -2275,10 +2227,8 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const versions = (versionsData ?? []) as MarginAnalysisVersionRow[];
   if (versions.length === 0) return null;
 
-  // 2. Current version = highest version_number
   const currentVersion = versions[versions.length - 1];
 
-  // 3. Fetch all items for current version
   const { data: itemsData, error: itemsError } = await readAllRows(() => context.supabase
     .from("estimate_items")
     .select(MARGIN_ANALYSIS_ITEM_COLUMNS, { count: "exact" })
@@ -2292,10 +2242,8 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const items = (itemsData ?? []) as MarginAnalysisItem[];
   if (items.length === 0) return marginEvolutionV3Notice([currentVersion]);
 
-  // 4. Fetch labor roles for rate lookup
   const laborRateById = await readMarginLaborRates(context, items);
 
-  // 5. Identify root sections
   const rootSections = items.filter(
     (item) => item.item_type === "section" && item.parent_id === null
   );
@@ -2436,7 +2384,6 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   const globalMarginPercent =
     globalCostCents > 0 ? ((globalSaleCents - globalCostCents) / globalCostCents) * 100 : 0;
 
-  // 8. Build sections array
   const sections: MarginSectionBreakdown[] = rootSections
     .sort((a, b) => a.position - b.position)
     .map((section) => {
@@ -2459,7 +2406,6 @@ async function fetchAffaireHubMarginAnalysisWithContext(
       };
     });
 
-  // 9. Build version evolution
   const versionEvolution = buildMarginVersionEvolution(versions, v3Totals);
 
   return {

@@ -1,6 +1,6 @@
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { createEstimateCategorySchema } from "@/lib/estimates/schemas";
-import { createEstimateCategory } from "@/lib/estimates/server";
+import { createEstimateCategory } from "@/lib/estimates/reference-data-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(

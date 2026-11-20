@@ -14,7 +14,7 @@ import { conflict } from "@/lib/http/api-response";
 import { ESTIMATE_EXPORT_PROGRESS_COMPLETE } from "@/lib/estimates/export-stream";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";
-import { getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { formatOfferChoice, formatOfferProvisionalQuantity } from "@/lib/estimates/offer-choice";
 import { formatStatusReason } from "@/lib/estimates/status-reason";
 import { TAKEOFF_PROVISION_EXPORT_HEADER, takeoffProvisionExportLabel } from "@/lib/estimates/takeoff-provision";

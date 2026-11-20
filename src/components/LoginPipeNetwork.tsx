@@ -47,7 +47,6 @@ const JOINTS: [number, number][] = [
   [650, 160],
 ];
 
-/** Fluid packets flowing through the pipes */
 const PACKETS: {
   pipe: number;
   duration: number;
@@ -63,8 +62,6 @@ const PACKETS: {
   { pipe: 6, duration: 4.5, delay: 1, color: "blue", mobileHidden: true },
   { pipe: 9, duration: 5, delay: 3, color: "orange", mobileHidden: true },
 ];
-
-/* ─── Component ─── */
 
 export default function LoginPipeNetwork() {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -100,7 +97,6 @@ export default function LoginPipeNetwork() {
         aria-hidden="true"
       >
         <defs>
-          {/* Glow filter for fluid packets */}
           <filter id="pipeGlow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur
               in="SourceGraphic"
@@ -113,20 +109,17 @@ export default function LoginPipeNetwork() {
             </feMerge>
           </filter>
 
-          {/* Orange gradient (brand) */}
           <linearGradient id="orangePacket" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" style={{ stopColor: "var(--brand-orange-light)" }} />
             <stop offset="100%" style={{ stopColor: "var(--warning-border)" }} />
           </linearGradient>
 
-          {/* Blue gradient (accent) */}
           <linearGradient id="bluePacket" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" style={{ stopColor: "var(--info-border)" }} />
             <stop offset="100%" style={{ stopColor: "var(--info-light)" }} />
           </linearGradient>
         </defs>
 
-        {/* Pipe bodies */}
         {PIPES.map((d, i) => (
           <path
             key={`pipe-${i}`}
@@ -139,7 +132,6 @@ export default function LoginPipeNetwork() {
           />
         ))}
 
-        {/* Pipe joints / elbows — slightly brighter */}
         {JOINTS.map(([cx, cy], i) => (
           <circle
             key={`joint-${i}`}
@@ -173,8 +165,6 @@ export default function LoginPipeNetwork() {
     </div>
   );
 }
-
-/* ─── Right panel echo (light background) ─── */
 
 const ECHO_PIPES: {
   d: string;
@@ -244,7 +234,6 @@ export function LoginPipeEcho() {
         </g>
       ))}
 
-      {/* Junction dots with pulse */}
       {ECHO_DOTS.map(({ cx, cy, r, delay }) => (
         <circle
           key={`${cx}-${cy}`}

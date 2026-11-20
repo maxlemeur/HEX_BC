@@ -17,11 +17,6 @@ import { compactRecord } from "@/lib/catalogue/product-writes";
 type SupplierInsert = Database["public"]["Tables"]["suppliers"]["Insert"];
 type SupplierUpdate = Database["public"]["Tables"]["suppliers"]["Update"];
 
-async function getAuthenticatedClient() {
-  const { supabase, userId } = await getAuthenticatedTenantContext();
-  return { supabase, userId };
-}
-
 const SUPPLIER_WRITE_REFUSAL =
   "L'ajout et la modification de fournisseurs sont réservés aux administrateurs et aux ingénieurs.";
 const SHARED_SUPPLIER_REFUSAL =
@@ -50,7 +45,7 @@ async function supplierWriteRefusal(writer: WriterClient, supplierId: string) {
 }
 
 export async function listSuppliers() {
-  const { supabase } = await getAuthenticatedClient();
+  const { supabase } = await getAuthenticatedTenantContext();
   const { data, error } = await supabase
     .from("suppliers")
     .select("*")
@@ -71,7 +66,7 @@ export async function listSuppliers() {
 }
 
 export async function getSupplierUsage(supplierId: string) {
-  const { supabase } = await getAuthenticatedClient();
+  const { supabase } = await getAuthenticatedTenantContext();
   const { count, error } = await supabase
     .from("purchase_orders")
     .select("id", { count: "exact", head: true })

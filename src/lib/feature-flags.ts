@@ -5,6 +5,7 @@ import {
   DEFAULT_STALE_PRICE_DAYS,
   parseStalePriceDays,
 } from "@/lib/catalogue/stale-prices";
+import { normalizeFeatureFlagKey } from "@/lib/feature-flag-keys";
 import { badRequest, forbidden, mapSupabaseError } from "@/lib/http/api-response";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
@@ -50,10 +51,6 @@ const featureFlagRowSchema = z.object({
   enabled: z.boolean(),
   value: z.union([z.string(), z.null()]).optional(),
 });
-
-export function normalizeFeatureFlagKey(value: string) {
-  return value.trim().toUpperCase();
-}
 
 function parseTenantIdOrThrow(value: string) {
   const parsed = tenantIdSchema.safeParse(value);

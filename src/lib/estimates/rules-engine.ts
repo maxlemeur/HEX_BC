@@ -5,7 +5,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
-import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { buildAffaireRegisterSubmissionSignalMessage, fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
 import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";
@@ -25,19 +24,9 @@ import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { readAllEstimateItems } from "./read-all-items-server";
 import { canAccessOwnerResource } from "./server-context";
 import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
-import { isTenantAdmin } from "@/lib/estimates/server-context";
+import { getAuthenticatedContext, isTenantAdmin } from "@/lib/estimates/server-context";
 import { asFiniteNumber } from "@/lib/value-guards";
-
-async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
-  const context = await getAuthenticatedTenantContext();
-
-  return {
-    supabase: context.supabase,
-    userId: context.userId,
-    tenantId: context.tenantId,
-    tenantRole: context.tenantRole,
-  };
-}
+import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 
 const TENANT_DIRECTOR_ROLE: TenantRole = "director";
 
@@ -115,7 +104,7 @@ function formatChangeFieldValue(input: {
   }
 
   if (input.field === "discount_amount_cents") {
-    const currency = ["EUR", "USD", "GBP"].includes(input.currency ?? "") ? input.currency! : "EUR";
+    const currency = (SUPPORTED_ESTIMATE_CURRENCIES as readonly string[]).includes(input.currency ?? "") ? input.currency! : "EUR";
     return typeof input.value === "number" && Number.isFinite(input.value)
       ? new Intl.NumberFormat("fr-FR", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(input.value / 100)
       : String(input.value);
@@ -146,12 +135,6 @@ function formatChangeFieldValue(input: {
   }
 
   return String(input.value);
-}
-
-function toRulesSupabaseClient(
-  supabase: SupabaseClient<Database> | Supabase
-): Supabase {
-  return supabase;
 }
 
 function isTenantDirector(tenantRole: TenantRole) {
@@ -358,7 +341,7 @@ async function loadEstimateRulesWithApprovals(input: {
   tenantId: string;
   versionId: string;
 }): Promise<EstimateRulesWithApprovals> {
-  const supabase = toRulesSupabaseClient(input.supabase);
+  const supabase = input.supabase;
 
   const { data: rulesData, error: rulesError } = await readAllRows(() => supabase
     .from("estimate_rules")
@@ -421,7 +404,7 @@ export async function evaluateRules(input: {
   /** Started earlier by a caller that reads them alongside its items. */
   rulesWithApprovals?: Promise<EstimateRulesWithApprovals>;
 }): Promise<EvaluateRulesResult> {
-  const supabase = toRulesSupabaseClient(input.supabase);
+  const supabase = input.supabase;
   const { rules, approvals } = await (input.rulesWithApprovals ?? loadEstimateRulesWithApprovals({
     supabase,
     tenantId: input.tenantId,
@@ -3921,6 +3904,3 @@ export async function deleteEstimateRuleForCurrentTenant(ruleId: string) {
     deleted_id: data.id,
   };
 }
-
-export type { EstimateReviewDecision, EstimateReviewCommentScope, EstimateReviewCorrectionStatus, EstimateVersionApprovalStatus, RulesEngineVersion, RulesEngineProject, RulesEngineItem, RulesEngineItemAccess, RuleViolationSeverity, EstimateRuleViolation, EstimateRuleUnavailableSignal, EvaluateRulesResult, EstimateRuleRecord, EstimateApprovalDecisionCommentInput, SubmitEstimateApprovalAction, SubmitEstimateApprovalInput, SubmitEstimateApprovalResult, SubmitEstimateReviewRequestInput, SubmitEstimateReviewRequestResult, EstimateApprovalCommentTarget, EstimateApprovalCorrectionEvent, EstimateApprovalCorrectionItem, EstimateApprovalCorrectionChecklist, EstimateApprovalChangeField, EstimateApprovalChangesSinceLastCycle, EstimateApprovalReviewComment, EstimateApprovalReviewer, EstimateApprovalReviewCycle, EstimateApprovalSubmissionSignal, EstimateApprovalSummary } from "@/lib/estimates/approval-types";
-export { checkMarginRule, checkDiscountRule, checkApprovalRule } from "@/lib/estimates/rule-evaluation";

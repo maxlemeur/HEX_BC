@@ -31,7 +31,7 @@ import type {
 } from "@/lib/affaires/server";
 import type { EstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal";
 import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
-import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
+import type { ConfirmUnifiedImportFlowResult } from "@/lib/affaires/import-flow-results";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
@@ -118,10 +118,6 @@ const UnifiedImportFlow = dynamic(
     ),
   }
 );
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
 
 type AffaireHubProps = {
   summary: AffaireHubSummaryResult;
@@ -452,10 +448,6 @@ export function shouldHideAffaireHubTakeoffLaunchAction(input: {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Main AffaireHub component                                          */
-/* ------------------------------------------------------------------ */
-
 export function AffaireHub({
   summary,
   timeline,
@@ -556,14 +548,11 @@ export function AffaireHub({
     ].join(":"),
   });
 
-  // --- Onboarding banner (post-creation guidance) ---
   const [showOnboardingBanner, setShowOnboardingBanner] = useState(false);
 
-  // --- Project details edit mode (controlled from breadcrumb) ---
   const [editingProject, setEditingProject] = useState(false);
   const [actionsPortalTarget, setActionsPortalTarget] = useState<HTMLDivElement | null>(null);
 
-  // --- Hoisted state from former QuickActionsCard ---
   const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(null);
   const runWithFeedback = useActionFeedback();
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1086,7 +1075,6 @@ export function AffaireHub({
         </div>
       ) : null}
 
-      {/* Onboarding banner (post-creation, no dossier) */}
       {shouldShowAffaireCreatedOnboardingBanner({
         showOnboardingBanner,
         intakeWorkspace,
@@ -1111,7 +1099,6 @@ export function AffaireHub({
         />
       )}
 
-      {/* Project details fiche — same style as creation page */}
       {!isReadOnlyReview ? (
         <div>
           <AffairePersistedProjectDetails
@@ -1139,7 +1126,6 @@ export function AffaireHub({
               { label: summary.project.name },
             ]}
           />
-          {/* Read-only review banner for director */}
           <Alert variant="info" className="mb-4">
             <AlertTitle>Mode revue</AlertTitle>
             <AlertDescription>
@@ -1149,7 +1135,6 @@ export function AffaireHub({
         </>
       )}
 
-      {/* Import result summary banner */}
       {importResult && (
         <Alert variant="success" className="mb-4 animate-fade-in">
           <div className="flex items-start justify-between gap-3">
@@ -1328,7 +1313,6 @@ export function AffaireHub({
 
           <div className="space-y-5">
             <div className="contents">
-              {/* Intake workspace: document upload, classification triage */}
               {isFreshStartState && intakeWorkspace !== undefined && (
                 <div id="intake" className="scroll-mt-24" hidden={activeSection !== "dossier"}>
                   <IntakeWorkspace

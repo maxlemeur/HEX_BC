@@ -35,10 +35,6 @@ const TakeoffDpgfCompareView = dynamic(
   }
 );
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type ViewTab = "tables" | "items" | "compare" | "dpgf";
 
 export type TakeoffReviewExpertProps = {
@@ -48,11 +44,9 @@ export type TakeoffReviewExpertProps = {
   /** The tenant's low confidence threshold: the anomalies are what the apply guard blocks at it (D13). */
   confidenceThreshold: number;
 
-  // Tab state
   activeTab: ViewTab;
   onSetActiveTab: (tab: ViewTab) => void;
 
-  // Compare state
   compareCandidates: TakeoffJobSummary[];
   compareWithJobId: string | null;
   compareThreshold: number;
@@ -65,7 +59,6 @@ export type TakeoffReviewExpertProps = {
   applySelectionSubmitting: boolean;
   applySelectionError: string | null;
 
-  // DPGF compare state
   /** Every line of the view, kept while it is read again (`dpgfCompareLoading`). */
   dpgfCompareData: TakeoffDpgfComparisonResponse | null;
   dpgfCompareView: TakeoffDpgfComparisonView;
@@ -74,17 +67,12 @@ export type TakeoffReviewExpertProps = {
   onSetDpgfCompareView: (view: TakeoffDpgfComparisonView) => void;
   onRefreshDpgfCompare: () => void;
 
-  // Item handlers
   onUpdateItem: (itemId: string, field: string, value: unknown) => void;
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
   onSyncToItems: (itemIds: string[]) => void;
   onOpenEvidencePanel: (itemId: string) => void;
 };
-
-// ---------------------------------------------------------------------------
-// Summary stats bar (private)
-// ---------------------------------------------------------------------------
 
 function SummaryStatsBar({
   items,
@@ -104,7 +92,6 @@ function SummaryStatsBar({
   // The same count as the table's « Avec anomalies » filter.
   const withAnomalies = items.filter((i) => detectAnomalies(i, anomalyContext).length > 0).length;
 
-  // Level C extras
   const isLevelC = jobLevel === "C";
   const evidenceCount = isLevelC
     ? items.filter((i) => !!i.evidence).length
@@ -145,7 +132,6 @@ function SummaryStatsBar({
         <span className="text-muted-foreground">Anomalies</span>
       </span>
 
-      {/* Level C extras */}
       {isLevelC && (
         <>
           <span className="border-l border-border pl-4">
@@ -163,10 +149,6 @@ function SummaryStatsBar({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Expert view component
-// ---------------------------------------------------------------------------
 
 export function TakeoffReviewExpert({
   items,
@@ -212,10 +194,8 @@ export function TakeoffReviewExpert({
 
   return (
     <>
-      {/* ---- Summary stats ---- */}
       <SummaryStatsBar items={items} tablesCount={tablesCount} jobLevel={jobLevel} anomalyContext={anomalyContext} />
 
-      {/* ---- Tab bar ---- */}
       {(hasTables || hasCompareTab || hasDpgfTab) && (
         <div
           role="tablist"
@@ -283,7 +263,6 @@ export function TakeoffReviewExpert({
         </div>
       )}
 
-      {/* ---- Content area ---- */}
       {activeTab === "dpgf" ? (
         // TI-721: a comparison shown stays mounted while it is read again, with what is being typed in it.
         dpgfCompareData ? (

@@ -14,8 +14,8 @@ import { NamedRefusal } from "@/lib/http/api-error";
 
 export type EstimateEngineVersion = 1 | 2 | 3;
 
-/** Moteur historique : meme domaine que `CalcEngineVersion` (`calc-engine-version.ts`). */
-type HistoricalEngineVersion = Exclude<EstimateEngineVersion, 3>;
+/** Moteur historique (1 | 2), seul accepte par `estimate-calculations.ts`. */
+export type CalcEngineVersion = Exclude<EstimateEngineVersion, 3>;
 
 export const ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE =
   "Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette action.";
@@ -87,7 +87,7 @@ export function requireEstimateEngineVersion(
  * Chemin non encore adapte au moteur 3 : renvoie le moteur historique, ou
  * refuse une v3 par son nom.
  */
-export function requireHistoricalEngine(engine: EstimateEngineVersion): HistoricalEngineVersion {
+export function requireHistoricalEngine(engine: EstimateEngineVersion): CalcEngineVersion {
   switch (engine) {
     case 1:
     case 2:
@@ -113,12 +113,12 @@ export function engineFreezesSnapshot(engine: EstimateEngineVersion): boolean {
 }
 
 /** Moteur historique 1 (marge stockee, remise et sceau historiques). */
-export function isLegacyEngine(engine: HistoricalEngineVersion): engine is 1 {
+export function isLegacyEngine(engine: CalcEngineVersion): engine is 1 {
   return engine === 1;
 }
 
 /** Moteur historique 2 (moteur unifie, gel v2). */
-export function isUnifiedEngine(engine: HistoricalEngineVersion): engine is 2 {
+export function isUnifiedEngine(engine: CalcEngineVersion): engine is 2 {
   return engine === 2;
 }
 

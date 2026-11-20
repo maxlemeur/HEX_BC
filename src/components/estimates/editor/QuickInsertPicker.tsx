@@ -44,7 +44,6 @@ export function QuickInsertPicker({
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Debounced search
   useEffect(() => {
     if (!isOpen) return;
     const normalizedSearch = searchInput.trim();
@@ -58,7 +57,6 @@ export function QuickInsertPicker({
     return () => window.clearTimeout(timer);
   }, [isOpen, searchInput, onSearch]);
 
-  // Close on outside click
   useEffect(() => {
     if (!isOpen) return;
     function handleClickOutside(event: MouseEvent) {
@@ -123,7 +121,6 @@ export function QuickInsertPicker({
         maxHeight: "420px",
       }}
     >
-      {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {title}
@@ -137,7 +134,6 @@ export function QuickInsertPicker({
         />
       </div>
 
-      {/* Search */}
       <div className="px-3 py-2">
         <Input
           type="search"
@@ -154,7 +150,6 @@ export function QuickInsertPicker({
         />
       </div>
 
-      {/* Results */}
       <div className="flex-1 overflow-auto px-1 pb-2" style={{ maxHeight: "300px" }}>
         {isLoading ? (
           <div className="px-3 py-4 text-center text-sm text-muted-foreground" role="status">
@@ -199,7 +194,6 @@ export function QuickInsertPicker({
         )}
       </div>
 
-      {/* Inserting indicator */}
       {isInserting && (
         <div
           className="border-t border-border px-3 py-2 text-center text-xs text-muted-foreground"

@@ -1,7 +1,6 @@
 import { cleanup,fireEvent,render,screen } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-// Mock toast
 const mockToast = {
   push: vi.fn(),
   dismiss: vi.fn(),

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
-import { duplicateEstimateVersion } from "@/lib/estimates/server";
+import { duplicateEstimateVersion } from "@/lib/estimates/version-variant-server";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { createTakeoffJobFromPlanSet, findTakeoffJobForPlanSetLaunch } from "@/lib/takeoff/server";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";

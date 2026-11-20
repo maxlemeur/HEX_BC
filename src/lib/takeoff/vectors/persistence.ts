@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
+import { NETWORK_CODES, MATERIAL_CODES, type NetworkCode } from "@/lib/takeoff/trade-keys";
 import { takeoffTextPrintsLevel } from "@/lib/takeoff/page-triage";
 import { CANDIDATE_FILTER_REASONS } from "@/lib/takeoff/vectors/candidate-filter";
 import { MM_PER_POINT, pointsToMetres } from "@/lib/takeoff/vectors/geometry";

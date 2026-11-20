@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/server", () => ({
-  assertDraftStatus: vi.fn(),
-  bulkUpdateEstimateItems: vi.fn(),
-}));
-
 vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));

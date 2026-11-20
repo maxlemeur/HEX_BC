@@ -40,7 +40,6 @@ type DeliverySite = {
   is_active: boolean;
 };
 
-// Sort options
 const SITES_SORT_OPTIONS: SortOption[] = [
   { key: "name", label: "Nom", defaultDirection: "asc" },
   { key: "city", label: "Ville" },
@@ -73,7 +72,6 @@ export default function SitesPage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const confirm = useConfirm();
 
-  // Form state
   const [formState, setFormState] = useState<DeliverySiteFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -82,7 +80,6 @@ export default function SitesPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const nameFieldRef = useRef<HTMLInputElement | null>(null);
 
-  // Filtered sites state
   const [displayedSites, setDisplayedSites] = useState<DeliverySite[]>([]);
 
   const fetchSites = useCallback(async () => {
@@ -383,7 +380,6 @@ export default function SitesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Filter Bar */}
       <TableFilterBar
         data={sites}
         onDataChange={setDisplayedSites}

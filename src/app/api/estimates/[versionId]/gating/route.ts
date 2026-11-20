@@ -1,5 +1,5 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { getEstimateSendGating } from "@/lib/estimates/server";
+import { getEstimateSendGating } from "@/lib/estimates/version-lifecycle-server";
 import { uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(

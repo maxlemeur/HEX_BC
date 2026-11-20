@@ -179,7 +179,6 @@ const eslintConfig = defineConfig([
     "build/**",
     "coverage/**",
     "next-env.d.ts",
-    "docs/old_gemini_chiffrage/**",
     // Local e2e outputs and agent scratch directories (git-ignored, may hold huge traces).
     ".e2e/**",
     "outputs/**",

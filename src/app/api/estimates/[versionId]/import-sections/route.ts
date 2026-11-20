@@ -3,7 +3,7 @@ import { parseImportSectionsResponse } from "@/lib/estimates/section-copy-respon
 
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { importEstimateSectionsSchema } from "@/lib/estimates/schemas";
-import { importSectionsFromVersion } from "@/lib/estimates/server";
+import { importSectionsFromVersion } from "@/lib/estimates/section-copy-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(

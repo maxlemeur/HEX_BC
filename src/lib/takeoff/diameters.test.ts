@@ -4,7 +4,7 @@ import {
   dnKeysOf,
   findDiameterEntries,
   knownDnKeys,
-} from "@/lib/takeoff/bench/diameters";
+} from "@/lib/takeoff/diameters";
 
 // Ways the diameter correspondence could mislead the bench, written before the
 // table: a French decimal comma read as two numbers ("22x1,2" -> 22x1 and 2);

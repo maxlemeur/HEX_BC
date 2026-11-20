@@ -21,6 +21,7 @@ import { CircleHelpIcon, PanelsTopLeftIcon, TriangleAlertIcon } from "lucide-rea
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
+import { isIntakeSyncedPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 type PlansMetresCardProps = {
@@ -30,10 +31,6 @@ type PlansMetresCardProps = {
   onLaunchMetre?: () => void;
   hideLaunchAction?: boolean;
 };
-
-/* ------------------------------------------------------------------ */
-/*  Badge status mapping                                               */
-/* ------------------------------------------------------------------ */
 
 type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 
@@ -53,10 +50,6 @@ const CONTINUITY_WAITING_STATUSES = new Set([
   "provider_pending",
 ]);
 
-/* ------------------------------------------------------------------ */
-/*  Icons                                                              */
-/* ------------------------------------------------------------------ */
-
 function WarningIcon() {
   return (
     <TriangleAlertIcon aria-hidden="true" className="inline-block shrink-0" size={14} />
@@ -67,10 +60,6 @@ function QuestionIcon() {
   return (
     <CircleHelpIcon aria-hidden="true" className="inline-block shrink-0" size={14} />
   );
-}
-
-function isIntakeSyncedPlanSet(source: string | null | undefined) {
-  return source === "affaire-intake";
 }
 
 function getPlanSetContextCopy(input: {
@@ -120,10 +109,6 @@ async function fetchTakeoffContinuityJobs(
   return jobs;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
-
 export function PlansMetresCard({
   plans,
   projectId,
@@ -160,7 +145,6 @@ export function PlansMetresCard({
         ? "Suivre la reprise"
         : null;
 
-  /* Error state */
   if (errorMessage) {
     return (
       <section className="rounded-lg border border-border bg-surface shadow-card p-5">
@@ -174,7 +158,6 @@ export function PlansMetresCard({
     );
   }
 
-  /* Empty state */
   if (!plans || plans.planSetCount === 0) {
     return (
       <section className="rounded-lg border border-border bg-surface shadow-card p-5">
@@ -204,7 +187,6 @@ export function PlansMetresCard({
     );
   }
 
-  /* Data state */
   const { latestJob } = plans;
   const planSetContext = getPlanSetContextCopy({
     source: plans.defaultPlanSetSource,
@@ -247,7 +229,6 @@ export function PlansMetresCard({
 
   return (
     <section className="rounded-lg border border-border bg-surface shadow-card p-5">
-      {/* Header */}
       <div className="mb-4 flex items-start justify-between gap-2">
         <h2 className="text-sm font-semibold text-foreground">
           Plans, preuves & exceptions
@@ -257,7 +238,6 @@ export function PlansMetresCard({
         </span>
       </div>
 
-      {/* Stats */}
       <p className="text-sm text-muted-foreground">
         {plans.planFileCount} fichier{plans.planFileCount !== 1 ? "s" : ""}{" "}
         &middot; {formatFileSize(plans.totalSizeBytes)}
@@ -279,7 +259,6 @@ export function PlansMetresCard({
         </p>
       </div>
 
-      {/* Latest job */}
       {latestJob && badgeVariant && (
         <div className="mt-3 rounded-lg border border-border px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
@@ -355,7 +334,6 @@ export function PlansMetresCard({
         </div>
       )}
 
-      {/* Business summary */}
       {isCompletedState && !coverageAvailable && summarySegments.length === 0 && (
         <p
           className="mt-2 text-xs text-muted-foreground italic"
@@ -383,7 +361,6 @@ export function PlansMetresCard({
         </p>
       )}
 
-      {/* Actions */}
       <div className="mt-4 flex flex-wrap gap-2">
         <Link
           href={`/dashboard/affaires/${projectId}/plans`}

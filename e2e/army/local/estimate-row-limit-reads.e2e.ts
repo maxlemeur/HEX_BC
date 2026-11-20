@@ -287,7 +287,6 @@ armyTest("LR03 a move out of a section of 1 001 lines is checked against every s
       seedSections(owner.tenantId, versionId, `${army.runPrefix} lot`, [1, LARGE]));
     await storeSeededTotals(versionId);
     const ranks = { target: await physicalRank(versionId, target.sectionId) };
-    // The last line moves out, after the target's line.
     const movedId = source.lineIds[LARGE - 1];
     const remaining = source.lineIds.slice(0, LARGE - 1);
     const orderedTarget = [...target.lineIds, movedId];

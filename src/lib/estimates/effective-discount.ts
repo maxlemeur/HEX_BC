@@ -1,8 +1,7 @@
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import { MAX_CENTS } from "@/lib/money";
 import { asRecord } from "@/lib/value-guards";
-
-const MAX_CENTS = 2_147_483_647;
 
 export type FixedDiscountVersion = {
   discount_amount_cents?: number | null;

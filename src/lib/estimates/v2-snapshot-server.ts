@@ -45,8 +45,6 @@ type FreezeEstimateV2SnapshotInput = {
   | { purpose: "document"; draftLockSessionId: string }
 );
 
-const VERSION_CONFLICT_ERROR_MESSAGE = ESTIMATE_VERSION_CONFLICT_MESSAGE;
-
 /**
  * Module serveur profond du gel v2 : charge le contexte, calcule la projection,
  * verifie la reconciliation et franchit le seam RPC avec un CAS unique.
@@ -158,7 +156,7 @@ export async function freezeEstimateV2Snapshot(
       error.message.includes("ESTIMATE_VERSION_CONFLICT")
     ) {
       throw conflict(
-        VERSION_CONFLICT_ERROR_MESSAGE,
+        ESTIMATE_VERSION_CONFLICT_MESSAGE,
         { updated_at: input.expectedUpdatedAt },
         "VERSION_CONFLICT"
       );
@@ -171,7 +169,7 @@ export async function freezeEstimateV2Snapshot(
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     throw conflict(
-      VERSION_CONFLICT_ERROR_MESSAGE,
+      ESTIMATE_VERSION_CONFLICT_MESSAGE,
       { updated_at: input.expectedUpdatedAt },
       "VERSION_CONFLICT"
     );

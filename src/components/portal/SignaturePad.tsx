@@ -65,7 +65,6 @@ export function SignaturePad({
     }
   }, []);
 
-  // Setup canvas size + context
   const setupCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -171,7 +170,6 @@ export function SignaturePad({
     }
   }, [onSign]);
 
-  // Attach events
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -261,7 +259,6 @@ export function SignaturePad({
             </span>
           </div>
         ) : null}
-        {/* Sign-here line */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute right-6 bottom-4 left-6 border-b border-dashed border-border-strong"

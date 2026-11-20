@@ -83,7 +83,7 @@ export function WorkspaceGlobalNavigation() {
     setOpenGroupKey(null);
   }, [pathname]);
 
-  if (!navigation || navigation.mode !== "workspace") {
+  if (!navigation) {
     return null;
   }
 

@@ -3,7 +3,7 @@ import { parseImportLinkedDpgfResponse } from "@/lib/estimates/section-copy-resp
 
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { importLinkedDpgfSourceSchema } from "@/lib/estimates/schemas";
-import { importLinkedDpgfSourceIntoVersion } from "@/lib/estimates/server";
+import { importLinkedDpgfSourceIntoVersion } from "@/lib/estimates/linked-dpgf-import-server";
 import { parseJsonBodyOrEmptyObject, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(

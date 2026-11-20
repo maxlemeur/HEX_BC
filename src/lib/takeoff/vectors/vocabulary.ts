@@ -1,4 +1,4 @@
-import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
+import type { MaterialCode, NetworkCode } from "@/lib/takeoff/trade-keys";
 
 // Classes and generic keywords of the vector reading (TI-662 step 3). Only
 // trade codes found in any French plumbing or HVAC drawing are written here,

@@ -6,10 +6,7 @@ import {
   createEstimateVariantSchema,
   promoteEstimateVariantSchema,
 } from "@/lib/estimates/schemas";
-import {
-  createEstimateVariant,
-  promoteEstimateVariant,
-} from "@/lib/estimates/server";
+import { createEstimateVariant, promoteEstimateVariant } from "@/lib/estimates/version-variant-server";
 import { parseJsonBodyOrEmptyObject, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(

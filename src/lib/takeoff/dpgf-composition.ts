@@ -28,7 +28,6 @@ export type DpgfContribution = {
 /** A takeoff line as the reconciliation reads it (quantity already the one it compares: a vector surface's model). */
 export type DpgfContributingLine = { item_id: string; quantity: number; metadata: Record<string, unknown> | null };
 
-/** What one takeoff line brings to a DPGF target it feeds. */
 export function dpgfLineContribution(jobId: string, line: DpgfContributingLine): DpgfContribution {
   const inputs = readRuleInputs(line.metadata);
   const printed = inputs?.source === "vector" && inputs.kind === "surface" && surfaceBasis(inputs.room ?? "") === "net_floor"
@@ -140,7 +139,6 @@ export function earlierLinesTakenOutByDefault(pages: ReadonlyArray<ReadonlyArray
   return new Set(pages.flatMap((ids, index) => (keptGroups.has(find(index)) ? [] : ids)));
 }
 
-/** Where a composition's line was read, as the screens name it. */
 export type DpgfComposedLinePlace = { job_id: string; source_file_name: string | null; source_page: number | null };
 
 export type DpgfEarlierEntry = {

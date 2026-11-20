@@ -1,17 +1,12 @@
-import { z } from "zod";
-
 import {
   estimateDeltaExplanationQuerySchema,
   estimateExplanationResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
+import { uuidRouteParam } from "@/lib/http/request";
 import { getEstimateDeltaExplanation } from "@/lib/estimates/explanations";
 
 export const runtime = "nodejs";
-
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
 
 function parseQuery(request: Request) {
   const searchParams = new URL(request.url).searchParams;
@@ -26,10 +21,10 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.parse(await params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const query = parseQuery(request);
     const explanation = await getEstimateDeltaExplanation({
-      versionId: parsedParams.versionId,
+      versionId,
       compareVersionId: query.compare_version_id,
       includeDetail: query.detail,
     });

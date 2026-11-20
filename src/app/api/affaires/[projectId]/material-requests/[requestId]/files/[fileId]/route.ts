@@ -5,7 +5,8 @@ import {
   readMaterialRequestFile,
   updateMaterialRequestFile,
 } from "@/lib/material-requests/files-server";
-import { fileParamsSchema, readJsonBody } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { fileParamsSchema } from "@/lib/material-requests/http";
 
 export const runtime = "nodejs";
 

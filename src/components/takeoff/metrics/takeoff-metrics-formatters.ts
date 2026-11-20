@@ -1,5 +1,7 @@
 "use client";
 
+import { DEFAULT_LOW_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_CEILING } from "@/lib/takeoff/guards";
+
 export function formatDurationMs(ms: number | null): string {
   if (ms == null || ms <= 0) return "-";
   if (ms < 1000) return `${ms}ms`;
@@ -27,7 +29,7 @@ export function formatPercent(value: number): string {
 
 export function formatConfidence(value: number | null): string {
   if (value == null) return "-";
-  return value >= 0.8 ? "Élevée" : value >= 0.5 ? "Moyenne" : "Faible";
+  return value >= MEDIUM_CONFIDENCE_CEILING ? "Élevée" : value >= DEFAULT_LOW_CONFIDENCE_THRESHOLD ? "Moyenne" : "Faible";
 }
 
 export function formatGeneratedAt(value: string): string {

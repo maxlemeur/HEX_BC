@@ -2,6 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
 import { ApiError, badRequest, conflict, internalError, payloadTooLarge, unauthorized } from "@/lib/http/api-response";
 
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
 import { purchaseOrderDocumentsSchema, type OrdersListQueryInput } from "@/lib/purchase-orders/schemas";
 import { purchaseOrderWriteError } from "@/lib/purchase-orders/write";
 
@@ -14,7 +15,7 @@ export type PurchaseOrderListItem = {
   id: string;
   reference: string;
   created_at: string;
-  status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+  status: OrderStatus;
   expected_delivery_date: string | null;
   total_ht_cents: number;
   total_tax_cents: number;

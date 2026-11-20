@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildEstimateChangelog } from "@/lib/estimates/changelog";
+import { generateChangelog } from "@/lib/estimates/changelog";
 import type { EstimateVersionDetailsForDiff } from "@/lib/estimates/diff";
 import type { Database } from "@/types/database";
 
@@ -235,7 +235,7 @@ describe("estimate changelog", () => {
       line_total_ttc_cents: 60,
     });
 
-    const changelog = buildEstimateChangelog({
+    const changelog = generateChangelog({
       previous: createDetails({
         version: createVersion({
           id: "version-prev",
@@ -291,7 +291,7 @@ describe("estimate changelog", () => {
       line_total_ttc_cents: 432,
     });
 
-    const changelog = buildEstimateChangelog({
+    const changelog = generateChangelog({
       previous: createDetails({
         version: createVersion({
           id: "version-prev",
@@ -342,7 +342,7 @@ describe("estimate changelog", () => {
       line_total_ttc_cents: 360,
     });
 
-    const changelog = buildEstimateChangelog({
+    const changelog = generateChangelog({
       previous: createDetails({
         version: createVersion({
           id: "version-prev",

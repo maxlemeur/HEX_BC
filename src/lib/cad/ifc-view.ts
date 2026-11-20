@@ -71,7 +71,6 @@ export function ifcCameraLimits(shown: IfcBounds, whole: IfcBounds = shown): Ifc
   return { min: radius(shown) / 500, max: radius(whole) * 40 };
 }
 
-/** Where the eye is. */
 export function ifcEye({ target, distance, yaw, pitch }: IfcCamera): IfcPoint {
   return [target[0] + distance * Math.cos(pitch) * Math.sin(yaw), target[1] + distance * Math.sin(pitch), target[2] + distance * Math.cos(pitch) * Math.cos(yaw)];
 }

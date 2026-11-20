@@ -6,7 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
 
 import { ColumnMapper, type ColumnMapping } from "@/components/mappings/ColumnMapper";
-import { DataPreview } from "@/components/mappings/DataPreview";
+import {
+  DataPreview,
+  type DuplicatesSummary,
+  type MappingPreviewRow,
+  type MappingValidation,
+} from "@/components/mappings/DataPreview";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,7 +19,7 @@ import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useUiMode } from "@/hooks/useUiMode";
-import { MAPPING_TARGET_FIELD_OPTIONS } from "@/lib/mappings/schemas";
+import { MAPPING_TARGET_FIELD_OPTIONS, filterMappingToSourceColumns } from "@/lib/mappings/schemas";
 import type {
   MappingAutoValidation,
   MappingSuggestionConfidence,
@@ -37,26 +42,6 @@ type TemplateItem = {
   mapping: Record<string, string>;
   is_default: boolean;
   last_used_at: string | null;
-};
-
-type MappingValidation = {
-  is_valid: boolean;
-  missing_required_fields: string[];
-  duplicate_target_assignments: Array<{ target: string; sources: string[] }>;
-  mapped_sources_count: number;
-  mapped_targets_count: number;
-};
-
-type MappingPreviewRow = {
-  row_index: number;
-  raw_row: Record<string, unknown>;
-  mapped_row: Record<string, unknown>;
-  missing_required_fields: string[];
-};
-
-type DuplicatesSummary = {
-  total_groups: number;
-  total_rows_impacted: number;
 };
 
 export function resolveSelectedImportId(
@@ -104,30 +89,6 @@ function toTemplateMapping(value: unknown): Record<string, string> {
   }
 
   return result;
-}
-
-export function filterMappingToSourceColumns(
-  mapping: ColumnMapping,
-  sourceColumns: string[]
-): ColumnMapping {
-  if (sourceColumns.length === 0 || Object.keys(mapping).length === 0) {
-    return mapping;
-  }
-
-  const sourceSet = new Set(sourceColumns);
-  const filteredMapping: ColumnMapping = {};
-  let removedEntries = false;
-
-  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
-    if (!sourceSet.has(sourceColumn)) {
-      removedEntries = true;
-      continue;
-    }
-
-    filteredMapping[sourceColumn] = targetField;
-  }
-
-  return removedEntries ? filteredMapping : mapping;
 }
 
 async function extractErrorMessage(response: Response, fallback: string) {
@@ -250,7 +211,6 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     [mapping, sourceColumns]
   );
 
-  // Compute whether the mapping is valid (required fields mapped, no duplicate targets)
   const isMappingValid = useMemo(() => {
     const mappedValues = Object.values(visibleMapping);
     if (mappedValues.length === 0) return false;
@@ -259,7 +219,6 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     const mappedTargets = new Set(mappedValues);
     const hasAllRequired = requiredFields.every((r) => mappedTargets.has(r));
 
-    // Check for duplicate targets
     const targetCounts = new Map<string, number>();
     for (const target of mappedValues) {
       targetCounts.set(target, (targetCounts.get(target) ?? 0) + 1);

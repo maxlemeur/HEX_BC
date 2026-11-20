@@ -11,8 +11,9 @@ import {
 } from "@/lib/takeoff/lab/contracts";
 import { assertCropPage, type LabDocument } from "@/lib/takeoff/lab/dataset";
 import type { LabAccess } from "@/lib/takeoff/lab/runs";
-import { elementIdOf, sha256Hex } from "@/lib/takeoff/lab/storage";
+import { elementIdOf } from "@/lib/takeoff/lab/storage";
 import type { LabTask } from "@/lib/takeoff/lab/tasks";
+import { sha256Hex } from "@/lib/takeoff/sha256";
 import { classifyByKeywords, isVectorClass, type DecisionsAnswer, type GroupClass } from "@/lib/takeoff/vectors/classify";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { pointsToMetres } from "@/lib/takeoff/vectors/geometry";

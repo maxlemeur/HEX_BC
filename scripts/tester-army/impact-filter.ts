@@ -47,7 +47,6 @@ function sourceGraph(root: string, map: ImpactMap): SourceGraph {
   return graph;
 }
 
-/** The journeys the rules of a map tie directly to these files. */
 function tiedJourneys(map: ImpactMap, files: readonly string[]): string[] {
   return files.flatMap((file) => expandJourneys(map, map.rules.filter((rule) => matchesAny(file, rule.paths)).flatMap((rule) => rule.journeys)));
 }

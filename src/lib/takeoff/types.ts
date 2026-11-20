@@ -407,8 +407,6 @@ export type TakeoffJobAttemptOutcome = {
   correlation_id: string;
 };
 
-/* ─── Plan Center types ─── */
-
 export type PlanSetListItem = {
   id: string;
   created_at: string;

@@ -16,7 +16,7 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/server", () => ({
+vi.mock("@/lib/estimates/version-variant-server", () => ({
   duplicateEstimateVersion: duplicateEstimateVersionMock,
 }));
 

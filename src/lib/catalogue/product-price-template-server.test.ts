@@ -63,24 +63,20 @@ describe("product price template server", () => {
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const insert = vi.fn().mockResolvedValue({ error: null });
     const rpc = vi.fn().mockResolvedValue({ data: 1, error: null });
-    let productSelectCount = 0;
 
     const supabase = {
       ...authenticatedClient(),
       from: vi.fn((table: string) => {
         if (table === "products") {
           return {
-            select: vi.fn(() => {
-              productSelectCount += 1;
-              return Promise.resolve({
-                data: [
-                  {
-                    id: PRODUCT_ID,
-                    reference: "TUB-I4L-SOUDE-15",
-                  },
-                ],
-                error: null,
-              });
+            select: vi.fn().mockResolvedValue({
+              data: [
+                {
+                  id: PRODUCT_ID,
+                  reference: "TUB-I4L-SOUDE-15",
+                },
+              ],
+              error: null,
             }),
             upsert,
             insert,
@@ -110,7 +106,6 @@ describe("product price template server", () => {
       prices: [priceRow],
     });
 
-    expect(productSelectCount).toBe(2);
     expect(upsert).toHaveBeenCalledWith(
       [
         expect.objectContaining({

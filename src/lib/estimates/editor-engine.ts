@@ -11,9 +11,10 @@ import {
   normalizeDraftItems,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
-import { type CalcEngineVersion, resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   assertNever,
+  type CalcEngineVersion,
   type EstimateEngineVersion,
   requireHistoricalEngine,
   usesSaleCoefficients,

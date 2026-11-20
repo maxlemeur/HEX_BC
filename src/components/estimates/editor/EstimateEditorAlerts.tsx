@@ -51,7 +51,6 @@ type EstimateEditorAlertsProps = {
   batchRecovery?: EstimateMutationRecovery;
 };
 
-/** Message + action laid out on one line, wrapping on narrow screens. */
 const ALERT_WITH_ACTION_CLASS = "flex flex-wrap items-center justify-between gap-3";
 
 export function EstimateEditorAlerts({

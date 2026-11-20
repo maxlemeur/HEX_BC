@@ -307,7 +307,7 @@ export function getGridRangeBounds(
   };
 }
 
-function isEditorElement(value: unknown): value is SpreadsheetEditorElement {
+export function isEditorElement(value: unknown): value is SpreadsheetEditorElement {
   return (
     value instanceof HTMLInputElement ||
     value instanceof HTMLSelectElement ||
@@ -334,7 +334,7 @@ export function writeEditorValue(editor: SpreadsheetEditorElement, value: string
   editor.dispatchEvent(new Event(eventName, { bubbles: true }));
 }
 
-function selectEditorText(editor: SpreadsheetEditorElement) {
+export function selectEditorText(editor: SpreadsheetEditorElement) {
   if (!isTextEditor(editor)) return;
   try {
     editor.select();
@@ -436,8 +436,6 @@ export function createGridEngine(): GridEngine {
     return cell !== null && hasGridCell(model, cell);
   }
 
-  // --- reads -------------------------------------------------------------
-
   function getRowSignature(rowId: string): string {
     const cached = signatures.get(rowId);
     if (cached !== undefined) return cached;
@@ -514,8 +512,6 @@ export function createGridEngine(): GridEngine {
     return { active: activeCell, isRange: true, columnKeys, rows };
   }
 
-  // --- focus -------------------------------------------------------------
-
   function reveal(node: HTMLElement) {
     if (typeof node.scrollIntoView !== "function") return;
     node.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -563,8 +559,6 @@ export function createGridEngine(): GridEngine {
       node?.focus({ preventScroll: true });
     }, 0);
   }
-
-  // --- state changes -----------------------------------------------------
 
   function activate(cellId: string, { focus = false }: { focus?: boolean } = {}) {
     const changed = activeId !== cellId || extentId !== null;
@@ -691,8 +685,6 @@ export function createGridEngine(): GridEngine {
       editor.blur();
     }
   }
-
-  // --- pointer -----------------------------------------------------------
 
   /**
    * True when the press belongs to a control inside the cell (button, link,
@@ -832,8 +824,6 @@ export function createGridEngine(): GridEngine {
   function handleCellClick() {
     // Selection happens on mouse down, like a spreadsheet.
   }
-
-  // --- keyboard ----------------------------------------------------------
 
   function isComposing(event: KeyboardEvent<Element>) {
     return event.nativeEvent.isComposing || event.keyCode === 229;
@@ -1040,8 +1030,6 @@ export function createGridEngine(): GridEngine {
     }
   }
 
-  // --- props -------------------------------------------------------------
-
   function getCellRef(cellId: string): RefCallback<GridCellElement> {
     const cached = cellRefs.get(cellId);
     if (cached) return cached;
@@ -1113,8 +1101,6 @@ export function createGridEngine(): GridEngine {
     }
     return props as unknown as SpreadsheetEditorProps<T>;
   }
-
-  // --- engine ------------------------------------------------------------
 
   function setModel(nextModel: GridModel, nextDisabled: boolean) {
     const previousModel = model;

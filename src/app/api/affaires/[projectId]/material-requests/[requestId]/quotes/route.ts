@@ -1,5 +1,6 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { readJsonBody, requestParamsSchema } from "@/lib/material-requests/http";
+import { readJsonBody } from "@/lib/http/json-body";
+import { requestParamsSchema } from "@/lib/material-requests/http";
 import { createQuoteSchema } from "@/lib/material-requests/quote-contracts";
 import { createMaterialRequestQuote, listMaterialRequestQuotes } from "@/lib/material-requests/quotes-server";
 

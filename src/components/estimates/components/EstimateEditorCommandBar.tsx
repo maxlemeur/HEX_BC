@@ -9,6 +9,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
   ESTIMATE_QUALITY_FLAG_META,
+  type EstimateQualityFlagCounts,
 } from "@/lib/estimate-quality";
 import {
   useEstimateEditorActions,
@@ -16,10 +17,9 @@ import {
   useEstimateEditorMeta,
 } from "@/components/estimates/context/EstimateEditorContext";
 import { usePopover } from "@/hooks/usePopover";
-import type {
-  EstimateEditorToolbarProps,
-  EstimateQualityFilter,
-} from "@/components/estimates/components/EstimateEditorToolbar";
+import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
+import type { EstimateColumnId } from "@/hooks/useEstimateColumnWidths";
+import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";
 import type { EstimateOutlierMethod } from "@/lib/estimates/outlier-detection";
 import { parseNumberInput } from "@/lib/estimates/editor-values";
 import {
@@ -29,6 +29,83 @@ import {
 } from "@/lib/estimates/majoration";
 import { NUMERIC_INPUT_ERROR } from "@/lib/numeric-input/parsers";
 import { cn } from "@/lib/utils";
+import type { UiMode } from "@/lib/ui-mode";
+import type { Database } from "@/types/database";
+
+type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
+type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
+
+type BulkMoveDestination = {
+  id: string | null;
+  label: string;
+};
+
+type EstimateEditorCommandBarProps = {
+  uiMode: UiMode;
+  isViewerMode?: boolean;
+  qualityCounts: EstimateQualityFlagCounts;
+  qualityFilter: EstimateQualityFilter;
+  outlierDetectionMethod: EstimateOutlierMethod;
+  outlierThreshold: number;
+  isUndoRedoBusy: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  bulkMoveDestinations: BulkMoveDestination[];
+  categories: EstimateCategory[];
+  laborRoles: LaborRole[];
+  bulkSuggestionEligibleCount: number;
+  supplierPreselectionEligibleCount: number;
+  onQualityFilterChange: (value: EstimateQualityFilter) => void;
+  onOutlierDetectionMethodChange: (value: EstimateOutlierMethod) => void;
+  onOutlierThresholdChange: (value: number) => void;
+  onUndo: () => Promise<void>;
+  onRedo: () => Promise<void>;
+  onApplyBulkMajoration: () => Promise<void>;
+  onBulkDeleteSelection: () => Promise<void>;
+  onApplyBulkMove: () => Promise<void>;
+  onApplyBulkCategory: () => Promise<void>;
+  onApplyBulkLaborRole: () => Promise<void>;
+  onOpenBulkSuggestDialog: () => void;
+  onOpenSupplierPreselectionDialog: () => void;
+  onOpenAssemblyPicker: () => void;
+  onOpenImportFromEstimateDialog?: () => void;
+  onOpenPriceReuseDialog?: () => void;
+  onOpenEstimateStructureDraftDialog?: () => void;
+  onOpenGeneratedOuvrageDialog?: () => void;
+  onExpandAllSections?: () => void;
+  onCollapseAllSections?: () => void;
+  onOpenSettings?: () => void;
+  columnPreset: ColumnPreset;
+  columnPresetLabels: Record<ColumnPreset, string>;
+  onColumnPresetChange: (preset: ColumnPreset) => void;
+  searchTerm: string;
+  onSearchChange: (term: string) => void;
+  columnVisibleColumns: Set<ColumnKey>;
+  allAdvancedColumns: ColumnKey[];
+  columnLabels: Record<ColumnKey, string>;
+  onToggleColumn: (key: ColumnKey) => void;
+  hiddenAdvancedCount: number;
+  onToggleAdvancedColumns: () => void;
+  columnOrder?: readonly EstimateColumnId[];
+  onMoveColumn?: (id: EstimateColumnId, direction: -1 | 1) => void;
+  onResetColumns?: () => void;
+  isFinalizationPanelOpen?: boolean;
+  onToggleFinalizationPanel?: () => void;
+  isLaborSplitEnabled?: boolean;
+  /* UX2-022: Quick insert pickers */
+  isQuickTemplatePickerOpen?: boolean;
+  onToggleQuickTemplatePicker?: () => void;
+  isQuickAssemblyPickerOpen?: boolean;
+  onToggleQuickAssemblyPicker?: () => void;
+  quickTemplatePickerNode?: React.ReactNode;
+  quickAssemblyPickerNode?: React.ReactNode;
+  /** Moteur 3, brouillon modifiable : actualisation des K FO automatiques, toujours accessible dans « Contrôles ». */
+  kfoRefresh?: {
+    automaticCount: number;
+    staleCount: number;
+    onRefresh: () => void;
+  };
+};
 
 const ROOT_KEY = "root";
 const INSERT_PANEL_ID = "estimate-editor-insert-panel";
@@ -125,7 +202,7 @@ export function EstimateEditorCommandBar({
   onToggleQuickTemplatePicker,
   quickTemplatePickerNode,
   kfoRefresh,
-}: EstimateEditorToolbarProps) {
+}: EstimateEditorCommandBarProps) {
   const state = useEstimateEditorContext().state;
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();

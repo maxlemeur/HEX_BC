@@ -1,3 +1,5 @@
+import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
+
 /**
  * What the screens of an order need to send it to its supplier by e-mail, without any dependency: the order pages are
  * under a bundle budget, so the validation schema stays in send-contracts.ts, on the server.
@@ -29,7 +31,7 @@ export type PurchaseOrderSendRecord = {
 /** Answer of POST /api/purchase-orders/{id}/send. */
 export type PurchaseOrderSent = {
   send: PurchaseOrderSendRecord;
-  order: { id: string; status: "draft" | "sent" | "confirmed" | "received" | "canceled"; edit_revision: number };
+  order: { id: string; status: OrderStatus; edit_revision: number };
   /** The request had already been accepted: nothing was sent again. */
   replayed: boolean;
 };

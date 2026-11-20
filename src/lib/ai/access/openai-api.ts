@@ -111,9 +111,6 @@ export type ApiKeyStructuredResult<T> =
   | (Answered & { data: T; schemaError: null; refused: false })
   | (Answered & { data: null; schemaError: SyntaxError | z.ZodError; refused: boolean });
 
-// ---------------------------------------------------------------------------
-// Strict schemas
-
 const STRICT_KEYWORDS = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "anyOf", "description",
   "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "pattern", "format", "minItems", "maxItems", "multipleOf"]);
 
@@ -411,9 +408,6 @@ function readAnswer(text: string, secret: ApiKeySecret): { value: unknown; text:
     return { value: undefined, text: maskAnswerString(text, secret) };
   }
 }
-
-// ---------------------------------------------------------------------------
-// Use cases
 
 function lowestEffort(model: string): AiReasoningEffort | null {
   return openAiQualifiedModel(model)?.reasoningEfforts[0] ?? null;

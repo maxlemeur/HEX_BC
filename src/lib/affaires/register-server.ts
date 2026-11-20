@@ -48,7 +48,6 @@ import {
   type AffaireRegisterEntrySeverity,
   type AffaireRegisterEntryStatus,
   type AffaireRegisterFollowUp,
-  type AffaireRegisterOwnerOption,
   type AffaireRegisterPageResult,
   type AffaireRegisterReviewExport,
   type AffaireRegisterRevalidationRequest,
@@ -59,7 +58,7 @@ import {
   type AffaireRegisterSummary,
   type AffaireRegisterTimelineEvent,
 } from "./register";
-import { isRecord } from "@/lib/value-guards";
+import { isRecord, toStringOrNull } from "@/lib/value-guards";
 import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -313,29 +312,6 @@ const updateAffaireRegisterEntryStatusInputSchema = z.object({
   comment: z.string().trim().max(320).nullable().optional(),
 });
 
-const updateAffaireRegisterEntryFollowUpInputSchema = z
-  .object({
-    projectId: z.string().uuid("projectId invalide."),
-    entryId: z.string().uuid("entryId invalide."),
-    severity: affaireRegisterEntrySeveritySchema.nullable().optional(),
-    ownerUserId: z.string().uuid("ownerUserId invalide.").nullable().optional(),
-    dueDate: z.string().date("dueDate invalide.").nullable().optional(),
-    comment: z.string().trim().max(320).nullable().optional(),
-  })
-  .superRefine((value, ctx) => {
-    if (
-      value.severity === undefined &&
-      value.ownerUserId === undefined &&
-      value.dueDate === undefined
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "Au moins une mise à jour de sévérité, responsable ou échéance est requise.",
-      });
-    }
-  });
-
 const requestAffaireRegisterRevalidationInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   entryId: z.string().uuid("entryId invalide."),
@@ -354,10 +330,6 @@ const continueAffaireRegisterWithHypothesisInputSchema = z.object({
   entryId: z.string().uuid("entryId invalide."),
   comment: z.string().trim().max(320).nullable().optional(),
 });
-function toStringOrNull(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
 function normalizeAffaireProject(row: unknown): AffaireProjectAccessRow | null {
   if (!isRecord(row)) {
     return null;
@@ -789,69 +761,6 @@ async function requireAffaireRegisterProjectAccess(
   };
 }
 
-async function listAssignableRegisterOwners(input: {
-  supabase: Supabase;
-  tenantId: string;
-}) {
-  const { data: memberships, error: membershipsError } = await input.supabase
-    .from("tenant_memberships")
-    .select("user_id, role")
-    .eq("tenant_id", input.tenantId)
-    .in("role", ["admin", "director", "engineer"]);
-
-  if (membershipsError) {
-    throw mapSupabaseError(
-      membershipsError,
-      "Impossible de charger les responsables du registre."
-    );
-  }
-
-  const membershipRows = (memberships ?? []) as Array<{
-    user_id: string;
-    role: TenantRole;
-  }>;
-  const userIds = Array.from(new Set(membershipRows.map((row) => row.user_id)));
-
-  if (userIds.length === 0) {
-    return [] as AffaireRegisterOwnerOption[];
-  }
-
-  const { data: profiles, error: profilesError } = await input.supabase
-    .from("profiles")
-    .select("id, full_name")
-    .in("id", userIds);
-
-  if (profilesError) {
-    throw mapSupabaseError(
-      profilesError,
-      "Impossible de charger les profils responsables du registre."
-    );
-  }
-
-  const profileById = new Map(
-    ((profiles ?? []) as Array<{ id: string; full_name: string | null }>).map(
-      (profile) => [profile.id, profile.full_name?.trim() || null]
-    )
-  );
-
-  return membershipRows
-    .map((membership) => ({
-      userId: membership.user_id,
-      label: profileById.get(membership.user_id) ?? "Responsable inconnu",
-      role: membership.role as "admin" | "director" | "engineer",
-    }))
-    .sort((left, right) => left.label.localeCompare(right.label, "fr-FR"));
-}
-
-async function resolveAffaireRegisterOwnerOption(input: {
-  supabase: Supabase;
-  tenantId: string;
-  ownerUserId: string;
-}) {
-  const options = await listAssignableRegisterOwners(input);
-  return options.find((option) => option.userId === input.ownerUserId) ?? null;
-}
-
 function applyVersionScopeFilter<T extends {
   or: (filters: string) => unknown;
 }>(query: T, versionId: string | null | undefined): T {
@@ -894,7 +803,7 @@ async function insertAffaireRegisterEvent(input: {
   beforePayload?: Json | null;
   afterPayload?: Json | null;
 }) {
-  const { error } = await input.supabase.from("affaire_register_events" as never).insert({
+  const { error } = await input.supabase.from("affaire_register_events").insert({
     entry_id: input.entryId,
     actor_user_id: input.actorUserId ?? null,
     event_type: input.eventType,
@@ -977,7 +886,7 @@ async function listExistingRegisterEntriesBySyncKey(input: {
   }
 
   const { data, error } = await readAllRowsInChunks(input.syncKeys, (pageIds) => input.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(
       "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never,
       { count: "exact" }
@@ -1006,7 +915,7 @@ async function deactivateMissingSyncEntries(input: {
   reason: string;
 }) {
   const { data, error } = await readAllRows(() => input.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(
       "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never,
       { count: "exact" }
@@ -1155,7 +1064,7 @@ async function upsertSyncedEntries(input: {
     );
     if (newPayload.length > 0) {
       const { data, error } = await input.supabase
-        .from("affaire_register_entries" as never)
+        .from("affaire_register_entries")
         .insert(newPayload as never)
         .select(
           "id, tenant_id, project_id, version_id, source_document_id, kind, code, text, severity, status, origin_kind, scope_type, scope_id, scope_ref, scope_label, source_file_name, sync_key, is_active, metadata, created_by, updated_by, created_at, updated_at" as never
@@ -1395,7 +1304,7 @@ export async function fetchAffaireRegisterGateSummaries(input: {
   const { data, error } = await readAllRowsInChunks(
     input.scopes.map((scope) => scope.projectId),
     (projectIds) => input.supabase
-      .from("affaire_register_entries" as never)
+      .from("affaire_register_entries")
       .select(`${GATE_ENTRY_SELECT}, project_id, updated_at` as never, { count: "exact" })
       .in("project_id", projectIds as never)
       .eq("is_active", true as never) as never,
@@ -1629,7 +1538,7 @@ async function fetchAffaireRegisterTimelineWithContext(input: {
 }): Promise<AffaireRegisterTimelineEvent[]> {
   const { context, project } = input;
   let query = context.supabase
-    .from("affaire_register_events" as never)
+    .from("affaire_register_events")
     .select(EVENT_SELECT as never)
     .eq("project_id", project.id as never);
 
@@ -1661,13 +1570,13 @@ export async function fetchAffaireRegisterPage(
 
   const pageSize = Math.max(1, Math.min(input.size ?? PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX));
   let query = context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("is_active", true as never);
   let focusedQuery: typeof query | null = input.focusEntryId
     ? context.supabase
-        .from("affaire_register_entries" as never)
+        .from("affaire_register_entries")
         .select(ENTRY_SELECT as never)
         .eq("project_id", project.id as never)
         .eq("is_active", true as never)
@@ -1873,7 +1782,7 @@ export async function fetchAffaireRegisterReviewExport(input: {
   );
 
   let query = context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never, { count: "exact" })
     .eq("project_id", project.id as never)
     .eq("is_active", true as never);
@@ -2045,7 +1954,7 @@ export async function createAffaireRegisterEntry(input: z.infer<typeof createAff
   } as const;
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .insert(payload as never)
     .select(ENTRY_SELECT as never)
     .single();
@@ -2088,7 +1997,7 @@ export async function updateAffaireRegisterEntryStatus(
   );
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("id", parsed.entryId as never)
@@ -2193,194 +2102,6 @@ export async function updateAffaireRegisterEntryStatus(
   } as const;
 }
 
-export async function updateAffaireRegisterEntryFollowUp(
-  input: z.infer<typeof updateAffaireRegisterEntryFollowUpInputSchema>
-) {
-  const parsed = updateAffaireRegisterEntryFollowUpInputSchema.parse(input);
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    parsed.projectId,
-    "editor"
-  );
-
-  const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
-    .select(ENTRY_SELECT as never)
-    .eq("project_id", project.id as never)
-    .eq("id", parsed.entryId as never)
-    .eq("is_active", true as never)
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger l'entrée du registre.");
-  }
-
-  const entry = normalizeAffaireRegisterEntryRow(data);
-  if (!entry) {
-    throw notFound("Entrée du registre introuvable.");
-  }
-
-  const now = new Date().toISOString();
-  const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
-  const currentFollowUp = extractAffaireRegisterFollowUp(entry.metadata);
-  const existingSeverityDecision = extractAffaireRegisterSeverityDecision(
-    entry.metadata
-  );
-  const currentSeverityDecision = buildCanonicalSeverityDecision({
-    severity:
-      existingSeverityDecision?.mode === "manual"
-        ? existingSeverityDecision.canonicalSeverity
-        : entry.severity,
-    existing: existingSeverityDecision,
-    updatedAt: entry.updated_at,
-    updatedByUserId: entry.updated_by,
-  });
-
-  let ownerOption: AffaireRegisterOwnerOption | null = null;
-  if (parsed.ownerUserId) {
-    ownerOption = await resolveAffaireRegisterOwnerOption({
-      supabase: context.supabase,
-      tenantId: context.tenantId,
-      ownerUserId: parsed.ownerUserId,
-    });
-    if (!ownerOption) {
-      throw badRequest("Le responsable sélectionné n'est pas disponible pour cette affaire.");
-    }
-  }
-
-  const nextSeverityDecision =
-    parsed.severity === undefined
-      ? currentSeverityDecision
-      : parsed.severity === null
-        ? ({
-            mode: "canonical",
-            canonicalSeverity: currentSeverityDecision.canonicalSeverity,
-            overriddenSeverity: null,
-            updatedAt: now,
-            updatedByUserId: context.userId,
-            comment,
-          } satisfies AffaireRegisterSeverityDecision)
-        : ({
-            mode: parsed.severity === currentSeverityDecision.canonicalSeverity
-              ? "canonical"
-              : "manual",
-            canonicalSeverity: currentSeverityDecision.canonicalSeverity,
-            overriddenSeverity:
-              parsed.severity === currentSeverityDecision.canonicalSeverity
-                ? null
-                : parsed.severity,
-            updatedAt: now,
-            updatedByUserId: context.userId,
-            comment,
-          } satisfies AffaireRegisterSeverityDecision);
-  const nextSeverity =
-    nextSeverityDecision.mode === "manual" &&
-    nextSeverityDecision.overriddenSeverity
-      ? nextSeverityDecision.overriddenSeverity
-      : nextSeverityDecision.canonicalSeverity;
-
-  const nextOwnerUserId =
-    parsed.ownerUserId === undefined
-      ? currentFollowUp?.ownerUserId ?? null
-      : parsed.ownerUserId ?? null;
-  const nextOwnerName =
-    parsed.ownerUserId === undefined
-      ? currentFollowUp?.ownerName ?? null
-      : ownerOption?.label ?? null;
-  const nextDueDate =
-    parsed.dueDate === undefined
-      ? currentFollowUp?.dueDate ?? null
-      : parsed.dueDate ?? null;
-  const nextFollowUp =
-    nextOwnerUserId || nextDueDate
-      ? ({
-          ownerUserId: nextOwnerUserId,
-          ownerName: nextOwnerName,
-          dueDate: nextDueDate,
-          updatedAt: now,
-          updatedByUserId: context.userId,
-          comment,
-        } satisfies AffaireRegisterFollowUp)
-      : null;
-
-  const followUpUnchanged =
-    (currentFollowUp?.ownerUserId ?? null) === (nextFollowUp?.ownerUserId ?? null) &&
-    (currentFollowUp?.ownerName ?? null) === (nextFollowUp?.ownerName ?? null) &&
-    (currentFollowUp?.dueDate ?? null) === (nextFollowUp?.dueDate ?? null);
-  const severityUnchanged =
-    entry.severity === nextSeverity &&
-    currentSeverityDecision.mode === nextSeverityDecision.mode &&
-    currentSeverityDecision.canonicalSeverity ===
-      nextSeverityDecision.canonicalSeverity &&
-    (currentSeverityDecision.overriddenSeverity ?? null) ===
-      (nextSeverityDecision.overriddenSeverity ?? null);
-
-  if (followUpUnchanged && severityUnchanged) {
-    return {
-      ok: true,
-      entry: toAffaireRegisterEntry(entry),
-    } as const;
-  }
-
-  const nextMetadata: Record<string, unknown> = {
-    ...entry.metadata,
-    severityDecision: nextSeverityDecision,
-  };
-
-  if (nextFollowUp) {
-    nextMetadata.followUp = nextFollowUp;
-  } else {
-    delete nextMetadata.followUp;
-  }
-
-  const derivedMetadata = buildAffaireRegisterDerivedMetadata({
-    metadata: nextMetadata,
-    kind: entry.kind,
-    code: entry.code,
-    severity: nextSeverity,
-    status: entry.status,
-    scopeType: entry.scope_type,
-    scopeId: entry.scope_id,
-    scopeRef: entry.scope_ref,
-    scopeLabel: entry.scope_label,
-    versionId: entry.version_id,
-    sourceDocumentId: entry.source_document_id,
-    sourceFileName: entry.source_file_name,
-    clientClarificationRequest:
-      extractAffaireRegisterClientClarificationRequest(entry.metadata),
-    continuationDecision: extractAffaireRegisterContinuationDecision(entry.metadata),
-    revalidationRequest: extractAffaireRegisterRevalidationRequest(entry.metadata),
-  });
-
-  const updatedEntry = await updateAffaireRegisterEntryWithEvent({
-    supabase: context.supabase,
-    entryId: entry.id,
-    actorUserId: context.userId,
-    patch: {
-      severity: nextSeverity,
-      metadata: derivedMetadata as Json,
-    },
-    eventType: "follow_up_updated",
-    reason: comment,
-    beforePayload: {
-      severity: entry.severity,
-      severityDecision: currentSeverityDecision,
-      followUp: currentFollowUp,
-    } satisfies Json,
-    afterPayload: {
-      severity: nextSeverity,
-      severityDecision: nextSeverityDecision,
-      followUp: nextFollowUp,
-      comment,
-    } satisfies Json,
-    fallbackMessage: "Impossible de mettre à jour le pilotage du registre.",
-  });
-
-  return {
-    ok: true,
-    entry: toAffaireRegisterEntry(updatedEntry),
-  } as const;
-}
-
 export async function requestAffaireRegisterRevalidation(
   input: z.infer<typeof requestAffaireRegisterRevalidationInputSchema>
 ) {
@@ -2392,7 +2113,7 @@ export async function requestAffaireRegisterRevalidation(
   const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("id", parsed.entryId as never)
@@ -2493,7 +2214,7 @@ export async function continueAffaireRegisterWithHypothesis(
   const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
 
   const { data, error } = await context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("id", parsed.entryId as never)
@@ -2516,7 +2237,7 @@ export async function continueAffaireRegisterWithHypothesis(
   }
 
   let assumptionsQuery = context.supabase
-    .from("affaire_register_entries" as never)
+    .from("affaire_register_entries")
     .select(ENTRY_SELECT as never, { count: "exact" })
     .eq("project_id", project.id as never)
     .eq("kind", "assumption" as never)
@@ -2580,7 +2301,7 @@ export async function continueAffaireRegisterWithHypothesis(
 
   if (!hypothesisEntry) {
     const { data: hypothesisData, error: hypothesisInsertError } = await context.supabase
-      .from("affaire_register_entries" as never)
+      .from("affaire_register_entries")
       .insert({
         project_id: project.id,
         version_id: sourceEntry.version_id,

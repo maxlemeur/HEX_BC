@@ -1,25 +1,7 @@
-import { z } from "zod";
-
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { reviewVersionZeroLineSchema } from "@/lib/estimates/schemas";
 import { reviewVersionZeroLine } from "@/lib/estimates/version-zero-drafts";
-import { parseJsonBody } from "@/lib/http/request";
-
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-  draftId: z.string().uuid("draftId invalide."),
-  lineDraftId: z.string().uuid("lineDraftId invalide."),
-});
-
-async function getParams(
-  paramsPromise: Promise<{
-    versionId: string;
-    draftId: string;
-    lineDraftId: string;
-  }>
-) {
-  return paramsSchema.parse(await paramsPromise);
-}
+import { parseJsonBody, uuidRouteParams } from "@/lib/http/request";
 
 export async function PATCH(
   request: Request,
@@ -34,7 +16,7 @@ export async function PATCH(
   }
 ) {
   try {
-    const { versionId, draftId, lineDraftId } = await getParams(params);
+    const { versionId, draftId, lineDraftId } = await uuidRouteParams(params, "versionId", "draftId", "lineDraftId");
     const body = reviewVersionZeroLineSchema.parse(await parseJsonBody(request, badRequest));
     const data = await reviewVersionZeroLine({
       versionId,

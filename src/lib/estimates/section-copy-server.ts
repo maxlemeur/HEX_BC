@@ -31,11 +31,11 @@ import {
 } from "@/lib/estimates/v3-section-copy";
 import { recalculateEstimateVersionTotals } from "@/lib/estimates/version-recalculation-server";
 
-async function duplicateSectionInternal(input: {
-  sectionId: string;
-  targetVersionId?: string;
-  expectedSourceVersionId?: string;
-}) {
+export async function duplicateSectionFromVersion(
+  expectedSourceVersionId: string,
+  sectionId: string,
+  input?: DuplicateEstimateSectionInput
+) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
 
@@ -43,19 +43,15 @@ async function duplicateSectionInternal(input: {
     .from("estimate_items")
     .select("id, version_id, item_type, title")
     .eq("tenant_id", tenantId)
-    .eq("id", input.sectionId)
+    .eq("id", sectionId)
     .single();
 
   if (sourceSectionError || !sourceSectionData) {
     throw notFound("Section introuvable.");
   }
 
-  if (input.expectedSourceVersionId) {
-    const belongsToExpectedVersion =
-      sourceSectionData.version_id === input.expectedSourceVersionId;
-    if (!belongsToExpectedVersion) {
-      throw notFound("Section introuvable.");
-    }
+  if (sourceSectionData.version_id !== expectedSourceVersionId) {
+    throw notFound("Section introuvable.");
   }
 
   if (sourceSectionData.item_type !== "section") {
@@ -69,7 +65,7 @@ async function duplicateSectionInternal(input: {
     context
   );
 
-  const resolvedTargetVersionId = input.targetVersionId ?? sourceVersion.id;
+  const resolvedTargetVersionId = input?.target_version_id ?? sourceVersion.id;
   const { version: targetVersion } = await getVersionAccessOrThrow(
     supabase,
     resolvedTargetVersionId,
@@ -91,8 +87,8 @@ async function duplicateSectionInternal(input: {
 
   // The section and its descendants, by pages, pinned to the version read with its access: a partial or mixed read
   // would copy part of the section, or two states of it.
-  const sourceItems = await readSelectedSubtreesForCopy(supabase, tenantId, sourceVersion, [input.sectionId]);
-  const subtree = collectSectionSubtreeItems(input.sectionId, sourceItems);
+  const sourceItems = await readSelectedSubtreesForCopy(supabase, tenantId, sourceVersion, [sectionId]);
+  const subtree = collectSectionSubtreeItems(sectionId, sourceItems);
 
   if (!subtree) {
     throw notFound("Section introuvable.");
@@ -112,7 +108,7 @@ async function duplicateSectionInternal(input: {
     failureMessage: "Impossible de dupliquer la section.",
   });
 
-  const duplicatedSectionId = newIdBySourceId.get(input.sectionId);
+  const duplicatedSectionId = newIdBySourceId.get(sectionId);
   if (targetIsV3 && duplicatedSectionId) {
     const plan = planV3SectionCopy({
       payload: duplicatedItemsPayload,
@@ -159,28 +155,6 @@ async function duplicateSectionInternal(input: {
     totals: recalculateResult.totals,
     version: recalculateResult.version,
   };
-}
-
-export async function duplicateSection(
-  sectionId: string,
-  targetVersionId?: string
-) {
-  return duplicateSectionInternal({
-    sectionId,
-    targetVersionId,
-  });
-}
-
-export async function duplicateSectionFromVersion(
-  sourceVersionId: string,
-  sectionId: string,
-  input?: DuplicateEstimateSectionInput
-) {
-  return duplicateSectionInternal({
-    sectionId,
-    targetVersionId: input?.target_version_id ?? undefined,
-    expectedSourceVersionId: sourceVersionId,
-  });
 }
 
 export async function importSectionsFromVersion(

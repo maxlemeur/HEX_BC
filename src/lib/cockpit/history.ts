@@ -10,7 +10,7 @@ export async function recordCockpitCommand(input: {
   if (!tenantId || !profile) return;
 
   const supabase = await createSupabaseServerClient();
-  await supabase.from("cockpit_command_history" as never).insert({
+  await supabase.from("cockpit_command_history").insert({
     tenant_id: tenantId,
     user_id: profile.id,
     project_id: input.projectId,

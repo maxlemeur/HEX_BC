@@ -11,10 +11,6 @@ const outboxMocks = vi.hoisted(() => ({
 const serverMocks = vi.hoisted(() => ({
   freeze: vi.fn(),
   getGating: vi.fn(),
-  verifySeal: vi.fn(),
-  loadSealSource: vi.fn(),
-  buildSealPayload: vi.fn(),
-  computeSealHash: vi.fn(),
 }));
 const renderMocks = vi.hoisted(() => ({
   render: vi.fn(),
@@ -190,10 +186,6 @@ describe("sendEstimateEmail transactional workflow", () => {
       updated_at: FROZEN_UPDATED_AT,
       content_revision: 2,
     });
-    serverMocks.verifySeal.mockResolvedValue({ valid: true });
-    serverMocks.loadSealSource.mockResolvedValue({ version: {}, items: [] });
-    serverMocks.buildSealPayload.mockReturnValue({});
-    serverMocks.computeSealHash.mockReturnValue(SEAL_HASH);
     offerMocks.load.mockResolvedValue({
       buffer: Buffer.from("pdf"),
       sealHash: SEAL_HASH,
@@ -355,7 +347,6 @@ describe("sendEstimateEmail transactional workflow", () => {
       );
       expect(outboxMocks.reserve).not.toHaveBeenCalled();
       expect(serverMocks.getGating).not.toHaveBeenCalled();
-      expect(serverMocks.verifySeal).not.toHaveBeenCalled();
       expect(generateEstimatePdfNow).not.toHaveBeenCalled();
       expect(getEstimatePdfStatus).not.toHaveBeenCalled();
     }

@@ -16,8 +16,8 @@ import {
 import type {
   SuggestionCorrectionPayload,
   SuggestionLearningState,
-} from "@/components/estimates/EstimateEditorTable";
-import type { SuggestionRuleCreatePayload } from "@/components/estimates/EstimateSuggestionRulesManager";
+  SuggestionRuleCreatePayload,
+} from "@/lib/estimates/editor-table-types";
 import {
   buildBulkSuggestPreview,
   createBulkSuggestionRanker,

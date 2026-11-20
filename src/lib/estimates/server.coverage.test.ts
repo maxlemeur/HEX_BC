@@ -21,7 +21,13 @@ vi.mock("@/lib/feature-flags", () => ({
   getStalePriceDaysForTenant: vi.fn().mockResolvedValue(90),
 }));
 
-import { buildEstimateSupplierPreselectionReview, createEstimateItem, createMarginTier, deleteEstimateItem, getEstimateSupplierComparisons, listEstimateVersionVariants, listLatestEstimates, moveEstimateItem, reorderEstimateItems, updateEstimateItem } from "@/lib/estimates/server";
+import { buildEstimateSupplierPreselectionReview } from "@/lib/estimates/supplier-comparison";
+import { createEstimateItem } from "@/lib/estimates/item-create-server";
+import { createMarginTier } from "@/lib/estimates/reference-data-server";
+import { deleteEstimateItem, moveEstimateItem, reorderEstimateItems } from "@/lib/estimates/item-structure-server";
+import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
+import { listEstimateVersionVariants, listLatestEstimates } from "@/lib/estimates/version-list-server";
+import { updateEstimateItem } from "@/lib/estimates/item-update-server";
 import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,

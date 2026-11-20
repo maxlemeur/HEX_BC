@@ -43,8 +43,6 @@ export const normalized = (text: string | null | undefined) => (text ?? "").repl
 const num = (value: unknown) => (value === null || value === undefined ? null : Number(value));
 export const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/* ---------- Propriétaire, politique ---------- */
-
 /** A disposable owner on the owned loopback stack, its personal ARMY tenant at the explicit policy 2 (2.10b D-i). */
 export async function signUpCreatorOwner(ui: Ui, army: ArmyState): Promise<V3Owner> {
   const dedicated = await signUpDedicatedV3Owner(ui.browser, ui.app.baseUrl!, army.runPrefix);
@@ -62,8 +60,6 @@ export async function closePolicy(owner: V3Owner, army: ArmyState, label: string
 }
 
 export const policySnapshot = readTenantCalcPolicy;
-
-/* ---------- Lectures SQL (propriétaire natif) ---------- */
 
 export type StoredVersion = {
   id: string;
@@ -186,8 +182,6 @@ export function v3Settings(version: StoredVersion) {
     rounding: version.roundingMode === "none" ? ["none"] : [version.roundingMode, version.roundingStepCents],
   };
 }
-
-/* ---------- Préalables par l'API ---------- */
 
 export async function createVersion(ui: Ui, body: Record<string, unknown>) {
   return apiRequest<Envelope<{ project: { id: string }; version: ArmyEstimate["version"] }>>(ui.browser, "POST", "/api/estimates", body);
@@ -337,8 +331,6 @@ export async function instantiateTemplate(ui: Ui, army: ArmyState, templateId: s
   return response;
 }
 
-/* ---------- Actions serveur ---------- */
-
 /** Built id of a server action by its exported name, in the build the runner serves (`.build/tester-army/next`). */
 export async function serverActionId(name: string, manifest = ".build/tester-army/next/server/server-reference-manifest.json") {
   const reference = JSON.parse(await readFile(manifest, "utf8")) as
@@ -403,8 +395,6 @@ export async function confirmTakeoffPreparationViaAction(browser: Browser, input
   }, input);
 }
 
-/* ---------- Captures ---------- */
-
 /**
  * A capture of a visible state for the pull request. e2e 0.21.3 keeps the file after a secret fill
  * and masks secure fields; the stored path stays relative to the output root.
@@ -421,8 +411,6 @@ export async function captureScreen(ui: Ui, army: ArmyState, label: string) {
   await recordEvidence(army, `${label}-capture`, pixels);
   return pixels;
 }
-
-/* ---------- Projections de lignes ---------- */
 
 export type LineFacts = {
   title: string; unitCode: string | null; description: string | null; status: string | null; quantity: number | null;
@@ -450,8 +438,6 @@ export function estimateFacts(state: ArmyEstimate) {
     gross: num(state.version.gross_ht_cents),
   };
 }
-
-/* ---------- Assistant de création ---------- */
 
 /** Opens the wizard with no restored draft (the draft survives a refused creation in localStorage). */
 export async function openWizard(ui: Ui, projectId?: string) {
@@ -616,8 +602,6 @@ export async function waitPageText(ui: Ui, needles: readonly string[], timeoutMs
   return { text, missing: needles.filter((needle) => !text.includes(normalized(needle))) };
 }
 
-/* ---------- Accueil d'une nouvelle affaire ---------- */
-
 /** « Nouvelle affaire » → « Créer l'affaire » (initializeAffaireDraft), then the editor or an error. */
 export async function createAffaireFromOnboarding(ui: Ui, army: ArmyState, projectName: string, label: string) {
   await ui.app.open("/dashboard/affaires/new");
@@ -631,8 +615,6 @@ export async function createAffaireFromOnboarding(ui: Ui, army: ArmyState, proje
   await recordEvidence(army, `v3c-onboarding-${label}`, outcome);
   return outcome;
 }
-
-/* ---------- DPGF lié par le hub ---------- */
 
 export type LinkedDpgf = { importId: string; filename: string; lines: { tube: string; robinet: string } };
 

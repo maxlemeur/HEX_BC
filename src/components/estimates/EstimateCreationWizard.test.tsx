@@ -7,10 +7,6 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 vi.mock("next/link", () => ({
   default: function MockLink({
     children,
@@ -69,10 +65,6 @@ import {
   instantiateEstimateFromTemplate,
 } from "@/lib/estimates/client";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function setup(
   onCreated = vi.fn(),
   options: { projectId?: string } = {}
@@ -91,10 +83,6 @@ function setup(
   );
   return { user, onCreated, ...result };
 }
-
-// =========================================================================
-// EstimateCreationWizard component tests
-// =========================================================================
 
 describe("EstimateCreationWizard", () => {
   afterEach(() => {

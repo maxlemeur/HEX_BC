@@ -30,7 +30,6 @@ function formatCount(value: number) {
   return value.toLocaleString("fr-FR");
 }
 
-/** Secondary actions of the product base: catalogue health, imports and related pages. */
 export function ProductCatalogueMenu({
   stats,
   onTemplateImport,

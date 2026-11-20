@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   getCurrentMembershipOrThrow,
 } from "@/lib/affaires/import-flow-server";
+import { ensureEngineerOrAdmin } from "@/lib/auth/engineer-or-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { toNonEmptyString } from "@/lib/value-guards";
 
@@ -20,12 +21,6 @@ const updateAffaireProjectMetadataSchema = z.object({
 export type UpdateAffaireProjectMetadataInput = z.infer<
   typeof updateAffaireProjectMetadataSchema
 >;
-
-function ensureEngineerOrAdmin(role: string) {
-  if (role !== "engineer" && role !== "admin") {
-    throw new Error("Accès refuse: rôle non autorise pour cette action.");
-  }
-}
 
 export async function updateAffaireProjectMetadataAction(
   input: UpdateAffaireProjectMetadataInput

@@ -7,6 +7,7 @@ import {
   mapSupabaseError,
   notFound,
 } from "@/lib/http/api-response";
+import { SUPPORTED_ESTIMATE_CURRENCIES, type SupportedEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -16,12 +17,11 @@ type TenantMembershipRow = Pick<
   "tenant_id" | "user_id" | "role"
 >;
 
-const SUPPORTED_CURRENCIES = ["EUR", "USD", "GBP"] as const;
 const CURRENCY_RATE_SOURCES = ["manual", "api"] as const;
 const CURRENCY_RATE_SELECT =
   "id, tenant_id, from_currency, to_currency, rate, effective_date, source, is_active, created_at, updated_at";
 
-export type CurrencyCode = (typeof SUPPORTED_CURRENCIES)[number];
+export type CurrencyCode = SupportedEstimateCurrency;
 export type CurrencyRateSource = (typeof CURRENCY_RATE_SOURCES)[number];
 
 export type CurrencyRateRecord = {
@@ -74,7 +74,7 @@ type DeleteCurrencyRateInput = TenantScopedInput & {
 const tenantIdSchema = z.string().uuid("tenant_id invalide.");
 const userIdSchema = z.string().uuid("user_id invalide.");
 const rateIdSchema = z.string().uuid("rate_id invalide.");
-const currencyCodeSchema = z.enum(SUPPORTED_CURRENCIES);
+const currencyCodeSchema = z.enum(SUPPORTED_ESTIMATE_CURRENCIES);
 const sourceSchema = z.enum(CURRENCY_RATE_SOURCES);
 const rateSchema = z.number().finite("rate invalide.").gt(0, "rate invalide.");
 const dateOnlyRegex = /^\d{4}-\d{2}-\d{2}$/;

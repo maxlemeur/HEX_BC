@@ -97,7 +97,7 @@ export function assertNativeRuntimeHost(host: NativeRuntimeHost) {
   }
 }
 
-function currentNativeRuntimeHost(): NativeRuntimeHost {
+export function currentNativeRuntimeHost(): NativeRuntimeHost {
   const report = process.report?.getReport() as
     | { header?: { glibcVersionRuntime?: string } }
     | undefined;
@@ -573,7 +573,6 @@ function parseRlsMatrixReport(output: string) {
     try {
       return JSON.parse(trimmedLine) as RlsMatrixReport;
     } catch {
-      // Continue until the final valid JSON reporter line is found.
     }
   }
   throw new Error("Local RLS matrix returned invalid JSON");

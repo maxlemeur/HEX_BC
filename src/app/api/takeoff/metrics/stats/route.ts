@@ -93,10 +93,6 @@ async function readOverrideConsumptions(
   return { data: rows, error: null };
 }
 
-// ---------------------------------------------------------------------------
-// GET handler
-// ---------------------------------------------------------------------------
-
 export async function GET(request: Request) {
   try {
     const { supabase, tenantId } = await getActorContext();

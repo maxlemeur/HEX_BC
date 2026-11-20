@@ -13,7 +13,7 @@ import { loadVerifiedOfferDocument } from "@/lib/estimates/offer-document";
 import { describeEstimatePdfLayout, type EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import type { EstimateTermsSnapshot } from "@/lib/estimates/pdf-terms";
 import { formatEstimateReference } from "@/lib/estimates/reference";
-import { verifyEstimateSeal } from "@/lib/estimates/server";
+import { verifyEstimateSeal } from "@/lib/estimates/version-seal-server";
 import { loadEstimateV3DocumentSource, type EstimateV3DocumentSource } from "@/lib/estimates/v3-document-server";
 import { normalizeEstimateCurrency } from "@/lib/money";
 import type { Database } from "@/types/database";

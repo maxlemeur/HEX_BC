@@ -1,6 +1,6 @@
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { createSuggestionRuleSchema } from "@/lib/estimates/schemas";
-import { createSuggestionRule } from "@/lib/estimates/server";
+import { createSuggestionRule } from "@/lib/estimates/reference-data-server";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export async function POST(

@@ -54,7 +54,6 @@ export function TenantRoleSelect({ value, onValueChange, ...props }: TenantRoleS
   );
 }
 
-/** Name, work email and an optional "Vous" marker for the signed-in user. */
 export function MemberIdentity({
   fullName,
   email,

@@ -17,6 +17,16 @@ import { cn } from "@/lib/utils";
 import { AffaireFavoriteButton } from "./AffaireFavoriteButton";
 import type { AffaireListItem } from "./types";
 
+const AFFAIRE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
+export function formatAffaireListDate(iso: string): string {
+  return AFFAIRE_DATE_FORMATTER.format(new Date(iso));
+}
+
 export function getAffaireListItemState(item: AffaireListItem) {
   const hasCurrentVersion =
     item.hasCurrentVersion &&

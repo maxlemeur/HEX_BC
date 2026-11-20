@@ -71,7 +71,6 @@ export function ifcStoreyLabel(model: IfcModel, storey: number): string {
   return model.storeys[storey]?.name ?? "Hors niveau";
 }
 
-/** One line for what a model holds. */
 export function ifcModelSummary(model: IfcModel): string {
   if (model.elements === 0) return `${model.schema} · Aucun élément`;
   const elements = `${model.elements.toLocaleString("fr-FR")} élément${model.elements > 1 ? "s" : ""}`;

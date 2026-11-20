@@ -5,7 +5,8 @@ import { resolveEstimateEngineVersion, shouldPreserveStoredEstimateV2Snapshot } 
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { alternativePriceForLineUnit, type SupplierOfferPurchaseUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { ESTIMATE_EXPORT_PROGRESS_COMPLETE, ESTIMATE_EXPORT_XLSX_CONTENT_TYPE, createWorkbookWriterFactory, type EstimateExportStreamResult, type WorkbookWriterFactory } from "@/lib/estimates/export-stream";
-import { getEstimateSupplierComparisons, getEstimateVersionDetails } from "@/lib/estimates/server";
+import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
+import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { loadSupplierExportSearch, mayMatchSupplierExportSearch } from "@/lib/estimates/supplier-export-search";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
 import { amountsSourceLabel, currencyOf, depthsOf, documentOrder, ESTIMATE_V3_CURRENCY_FORMATS, euros, footerEntries, loadEstimateV3ExportDocument, usesEstimateV3LaborSplit, type EstimateV3ExportDocument } from "@/lib/estimates/v3-export";

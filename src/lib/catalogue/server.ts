@@ -36,6 +36,8 @@ import type {
   UpdateSupplierOfferInput,
 } from "./schemas";
 import { asRecord } from "@/lib/value-guards";
+import { compactRecord } from "@/lib/catalogue/product-writes";
+import { foldWords } from "@/lib/text/fold";
 
 type JsonRecord = Record<string, unknown>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -367,15 +369,6 @@ function normalizeToken(value: unknown) {
   return "";
 }
 
-function normalizeSuggestionToken(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
 function safeIlikeToken(value: string) {
   return value.replace(/[%_,]/g, "");
 }
@@ -385,14 +378,14 @@ function escapeIlikePattern(value: string) {
 }
 
 function tokenize(value: string): Set<string> {
-  const normalized = normalizeSuggestionToken(value);
+  const normalized = foldWords(value);
   if (!normalized) return new Set();
   return new Set(normalized.split(" ").filter(Boolean));
 }
 
 function scoreSuggestionMatch(source: string, candidate: string): number {
-  const sourceToken = normalizeSuggestionToken(source);
-  const candidateToken = normalizeSuggestionToken(candidate);
+  const sourceToken = foldWords(source);
+  const candidateToken = foldWords(candidate);
 
   if (!sourceToken || !candidateToken) return 0;
   if (sourceToken === candidateToken) return 1;
@@ -445,24 +438,13 @@ function isFunctionMissingError(error: PostgrestError) {
   );
 }
 
-function sanitizeWritePayload(payload: JsonRecord) {
-  const nextPayload: JsonRecord = {};
-
-  for (const [key, value] of Object.entries(payload)) {
-    if (value === undefined) continue;
-    nextPayload[key] = value;
-  }
-
-  return nextPayload;
-}
-
 async function insertSingleWithFallback(
   supabase: RuntimeSupabase,
   table: string,
   payload: JsonRecord,
   fallbackMessage: string,
 ): Promise<JsonRecord> {
-  const attemptPayload = sanitizeWritePayload(payload);
+  const attemptPayload = compactRecord(payload);
   // K-07: Track silently dropped columns
   const droppedColumns: string[] = [];
 
@@ -501,7 +483,7 @@ async function updateSingleWithFallback(
   payload: JsonRecord,
   fallbackMessage: string,
 ): Promise<JsonRecord> {
-  const attemptPayload = sanitizeWritePayload(payload);
+  const attemptPayload = compactRecord(payload);
 
   for (let index = 0; index < 8; index += 1) {
     if (Object.keys(attemptPayload).length === 0) {
@@ -539,7 +521,7 @@ async function insertManyWithFallback(
   payload: JsonRecord[],
   fallbackMessage: string,
 ): Promise<JsonRecord[]> {
-  let attemptPayload = payload.map((row) => sanitizeWritePayload(row));
+  let attemptPayload = payload.map((row) => compactRecord(row));
 
   for (let index = 0; index < 8; index += 1) {
     const { data, error } = await supabase
@@ -1717,7 +1699,7 @@ export async function updateSupplierOffer(input: UpdateSupplierOfferInput) {
   const { supabase } = await getAuthenticatedContext();
   const { data, error } = await supabase.rpc("update_supplier_offer", {
     p_price_id: input.id,
-    p_patch: sanitizeWritePayload(input.item),
+    p_patch: compactRecord(input.item),
   });
   if (error) throw mapSupabaseError(error, "Impossible de mettre à jour l’offre fournisseur.");
   if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -2142,8 +2124,8 @@ export async function createMissingPriceImportEntities(
       (existingSuppliers ?? []) as Array<{ id: string; name: string }>
     ).find(
       (supplier) =>
-        normalizeSuggestionToken(supplier.name) ===
-        normalizeSuggestionToken(supplierName),
+        foldWords(supplier.name) ===
+        foldWords(supplierName),
     );
 
     if (exactSupplier) continue;
@@ -2196,8 +2178,8 @@ export async function createMissingPriceImportEntities(
       }>
     ).find(
       (product) =>
-        normalizeSuggestionToken(product.reference ?? "") ===
-        normalizeSuggestionToken(productReference),
+        foldWords(product.reference ?? "") ===
+        foldWords(productReference),
     );
 
     if (exactProduct) continue;

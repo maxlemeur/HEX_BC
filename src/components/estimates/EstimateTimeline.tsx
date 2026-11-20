@@ -9,10 +9,7 @@ import {
   normalizeEstimateCurrency,
   type SupportedEstimateCurrency,
 } from "@/lib/money";
-import type {
-  EstimateProjectVersionTimelineItem,
-  ListEstimateProjectVersionsResult,
-} from "@/lib/estimates/server";
+import type { EstimateProjectVersionTimelineItem, ListEstimateProjectVersionsResult } from "@/lib/estimates/version-list-server";
 
 type EstimateTimelineStatus = EstimateProjectVersionTimelineItem["status"] | "canceled";
 

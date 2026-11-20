@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createPortalLegacyOfferFixture } from "@/test/fixtures/portal-legacy-offer";
 
-// ---------------------------------------------------------------------------
-// Mock service-role client
-// ---------------------------------------------------------------------------
-
 const mockTokenLookupSingle = vi.fn();
 const mockTokenLookupSelect = vi.fn();
 const mockTokenLookupEq = vi.fn();
@@ -133,10 +129,6 @@ vi.mock("resend", () => ({
 
 import { POST } from "./route";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const VALID_TOKEN = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const VALID_SIGNATURE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
@@ -165,10 +157,6 @@ const PENDING_TOKEN = {
   capability_contract_version: 1,
   estimate_email_dispatch_id: null,
 };
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("POST /api/portal/[token]/accept", () => {
   beforeEach(() => {
@@ -298,7 +286,6 @@ describe("POST /api/portal/[token]/accept", () => {
     );
     expect(res.status).toBe(200);
 
-    // Verify storage upload was called
     expect(mockStorageUpload).toHaveBeenCalledWith(
       "signatures/token-id-1.png",
       expect.any(Buffer),

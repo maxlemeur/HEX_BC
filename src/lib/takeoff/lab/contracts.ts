@@ -206,9 +206,6 @@ export type LabStoredVerdict = {
   document_sha256: string;
 };
 
-// ---------------------------------------------------------------------------
-// Responses
-
 export type LabDocumentSummary = {
   id: string;
   source: "dataset" | "fixture";
@@ -370,9 +367,6 @@ export type LabBenchReportSummary = {
   status: string | null;
   couples: Array<{ model: string; reasoning_effort: string | null; passes: number; keys_ok: number[]; keys_scored: number | null }>;
 };
-
-// ---------------------------------------------------------------------------
-// Labels shared by the screens
 
 export function effortLabel(effort: ChatGptReasoningEffort | null) {
   return effort === null ? "Automatique" : CHATGPT_REASONING_EFFORT_LABELS[effort];

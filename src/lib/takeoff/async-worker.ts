@@ -4,6 +4,8 @@ import {
   TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS,
   TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS,
   TAKEOFF_PROCESSING_LEASE_TTL_SECONDS,
+  TAKEOFF_RETRY_BACKOFF_SECONDS,
+  TAKEOFF_RETRY_MAX,
 } from "@/lib/takeoff/constants";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
@@ -28,8 +30,6 @@ import {
   type WorkflowTenantClient,
 } from "@/lib/workflows/active-tenant";
 
-const TAKEOFF_RETRY_MAX = 3;
-const TAKEOFF_RETRY_BACKOFF_SECONDS = [5, 15, 45] as const;
 const TAKEOFF_TERMINAL_JOB_STATUSES = new Set(["completed", "canceled", "applied"]);
 
 type SupabaseMutationResult = {

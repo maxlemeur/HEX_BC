@@ -8,7 +8,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import type { RpcImportItemPayload } from "@/lib/affaires/import-flow-server";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
-import type { CalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import {
   calcPolicyContextChanged,
   isCalcPolicyContextChangedError,
@@ -19,6 +18,7 @@ import {
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
   assertNever,
+  type CalcEngineVersion,
   EstimateEngineUnavailableError,
   usesPerUnitLabor,
   usesSaleCoefficients,

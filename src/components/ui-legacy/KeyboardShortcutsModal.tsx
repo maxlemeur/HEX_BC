@@ -16,10 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { CalculatorIcon, KeyboardIcon, SearchIcon, SquareDashedIcon } from "lucide-react";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type Shortcut = {
   keys: string[];
   label: string;
@@ -34,10 +30,6 @@ type ShortcutGroup = {
 
 type ShortcutContext = "navigation" | "editor" | "selection";
 
-// ---------------------------------------------------------------------------
-// Platform detection
-// ---------------------------------------------------------------------------
-
 function useIsMac() {
   const [isMac] = useState(() =>
     typeof navigator !== "undefined"
@@ -50,10 +42,6 @@ function useIsMac() {
 function modKey(isMac: boolean) {
   return isMac ? "⌘" : "Ctrl";
 }
-
-// ---------------------------------------------------------------------------
-// Shortcut definitions
-// ---------------------------------------------------------------------------
 
 function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
   const mod = modKey(isMac);
@@ -98,10 +86,6 @@ function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
   ];
 }
 
-// ---------------------------------------------------------------------------
-// Kbd component
-// ---------------------------------------------------------------------------
-
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
     <kbd
@@ -116,10 +100,6 @@ function Kbd({ children }: { children: React.ReactNode }) {
     </kbd>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
 
 type KeyboardShortcutsModalProps = {
   open: boolean;

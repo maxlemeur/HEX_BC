@@ -17,7 +17,8 @@ import {
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
-import { assertDraftLockOwnedByCurrentUser, assertDraftStatus } from "@/lib/estimates/server-context";
+import { assertDraftLockOwnedByCurrentUser, assertDraftStatus, canAccessOwnerResource } from "@/lib/estimates/server-context";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 import {
   assignVersionZeroLotKeys,
   matchVersionZeroLotsByLabel,
@@ -293,7 +294,6 @@ type VersionZeroGeminiLot = {
   lines: VersionZeroGeminiLine[];
 };
 
-const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const VERSION_ZERO_ACTIVE_STATUSES: VersionZeroDraftStatus[] = [
   "ia_a_revoir",
   "ready_for_version",
@@ -343,11 +343,6 @@ const VersionZeroGeminiSchema = z.object({
     .default([]),
 });
 
-function resolveEmbeddedOne<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
 function pickStringArray(value: unknown, limit = 12) {
   if (!Array.isArray(value)) return [] as string[];
   return value
@@ -381,16 +376,6 @@ function getConfidenceLabel(value: number): "elevee" | "moyenne" | "faible" {
   if (value >= 0.75) return "elevee";
   if (value >= 0.55) return "moyenne";
   return "faible";
-}
-
-function canAccessOwnerResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    input.context.tenantRole === TENANT_ADMIN_ROLE
-  );
 }
 
 function toJsonRecord(value: unknown): JsonRecord {

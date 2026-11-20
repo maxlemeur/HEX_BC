@@ -21,13 +21,14 @@ import {
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
 import { getUserContext } from "@/lib/auth/server";
+import { LABOR_SPLIT_FEATURE_FLAG_KEY } from "@/lib/feature-flag-keys";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import {
-  buildStoredEstimateBreakdown,
   computeEstimateTotals,
   computeReadOnlyTotals,
   computeStoredDiscountCents,
 } from "@/lib/estimate-calculations";
+import { buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
 import { EstimateV3DraftSummary } from "@/components/estimates/v3/EstimateV3DraftSummary";
 import {
@@ -52,12 +53,10 @@ import {
 } from "@/lib/estimates/rules-engine";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
-import {
-  listEstimateProjectVersions,
-  listEstimateVersionVariants,
-  verifyEstimateSeal,
-} from "@/lib/estimates/server";
+import { listEstimateProjectVersions, listEstimateVersionVariants } from "@/lib/estimates/version-list-server";
+import { verifyEstimateSeal } from "@/lib/estimates/version-seal-server";
 import { formatCurrency, formatEUR, normalizeEstimateCurrency } from "@/lib/money";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { describeEstimateSend, type EstimateLastSend } from "@/lib/email/describe-estimate-send";
 import type { Database } from "@/types/database";
@@ -101,14 +100,6 @@ function computeExpiryInfo(dateDevis: string | null, validiteJours: number | nul
     expiryDate: expiryDate.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }),
     expired,
   };
-}
-
-function resolveProject(
-  value: EstimateVersion["estimate_projects"]
-) {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
 }
 
 function parseHistoryPage(
@@ -218,7 +209,7 @@ async function renderEstimateV3Detail(input: {
   canEditVersion: boolean;
 }) {
   const { version, versionId, items } = input;
-  const project = resolveProject(version.estimate_projects);
+  const project = resolveEmbeddedOne(version.estimate_projects);
   const [versionTimeline, plansSummary, registerSummary, emailDispatch] = await Promise.all([
     listEstimateProjectVersions({
       projectId: version.project_id,
@@ -400,7 +391,7 @@ export default async function EstimateDetailPage({
       <EstimateEngineUnavailableNotice
         versionNumber={version.version_number}
         projectId={version.project_id}
-        projectName={resolveProject(version.estimate_projects)?.name}
+        projectName={resolveEmbeddedOne(version.estimate_projects)?.name}
       />
     );
   }
@@ -421,7 +412,7 @@ export default async function EstimateDetailPage({
     isLegacyEngine(calcEngineVersion)
       ? version.status !== "draft"
       : shouldPreserveStoredEstimateV2Snapshot(version);
-  const project = resolveProject(version.estimate_projects);
+  const project = resolveEmbeddedOne(version.estimate_projects);
   const tenantRole = userContext.profile?.tenant_role ?? null;
   const canEditVersion = tenantRole === "admin" || tenantRole === "engineer";
   const [versionTimeline, variantComparison, isLaborSplitEnabled] = await Promise.all([
@@ -434,7 +425,7 @@ export default async function EstimateDetailPage({
     listEstimateVersionVariants(versionId),
     preserveStoredSnapshot
       ? Promise.resolve(true)
-      : isFeatureEnabled(version.tenant_id, "EST_031_LABOR_SPLIT", {
+      : isFeatureEnabled(version.tenant_id, LABOR_SPLIT_FEATURE_FLAG_KEY, {
           supabase,
         }),
   ]);

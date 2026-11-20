@@ -2,7 +2,6 @@
 
 import { isLoopbackHostname } from "@/lib/ai/access/loopback";
 
-/** The address of the page as the browser shows it. */
 export function currentPageUrl(): URL {
   return new URL(window.location.href);
 }

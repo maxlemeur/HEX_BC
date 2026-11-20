@@ -15,7 +15,7 @@ import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { AffaireConfirmDialog } from "./AffaireConfirmDialog";
 import { AffaireApprovalBadge, AffaireStatusBadges } from "./AffaireStatusBadges";
-import { AffaireRowActions, getAffaireListItemState } from "./AffaireRowActions";
+import { AffaireRowActions, formatAffaireListDate, getAffaireListItemState } from "./AffaireRowActions";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import {
   fetchAffaireDenseExpandData,
@@ -28,11 +28,6 @@ import type {
 } from "./types";
 import { ChevronRightIcon, EyeIcon, FolderIcon, HouseIcon, PlusIcon, PrinterIcon, SearchIcon, SquarePenIcon } from "lucide-react";
 
-const AFFAIRE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-});
 const TABLE_COLUMN_COUNT = 11;
 const INTERACTIVE_ROW_TARGET = "a, button, input, label, select, textarea, [role='menuitem']";
 
@@ -59,10 +54,6 @@ type Props = {
 };
 
 const EMPTY_SELECTED_PROJECT_IDS: ReadonlySet<string> = new Set();
-
-function formatDate(iso: string): string {
-  return AFFAIRE_DATE_FORMATTER.format(new Date(iso));
-}
 
 function formatManagerQueueCount(count: number, label: string): string {
   return `${count} affaire${count > 1 ? "s" : ""} ${label}`;
@@ -474,7 +465,7 @@ export function AffairesDenseTable({
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right text-muted-foreground whitespace-nowrap">
-                      {formatDate(item.currentUpdatedAt)}
+                      {formatAffaireListDate(item.currentUpdatedAt)}
                     </td>
                     <td className="px-2 py-3 text-center">
                       <AffaireRowActions
@@ -531,10 +522,6 @@ export function AffairesDenseTable({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Expanded content — 3 column grid                                   */
-/* ------------------------------------------------------------------ */
-
 const QUICK_LINK_CLASS =
   "flex min-h-9 items-center gap-2 rounded-sm text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
@@ -555,7 +542,6 @@ function ExpandedContent({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {/* Column 1 — Résumé financier */}
       <div className="space-y-1.5 text-sm">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Résumé financier
@@ -602,7 +588,6 @@ function ExpandedContent({
         )}
       </div>
 
-      {/* Column 2 — Source DPGF */}
       <div className="space-y-1.5 text-sm">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Source DPGF
@@ -635,7 +620,7 @@ function ExpandedContent({
             </div>
             <p>
               <span className="text-muted-foreground">Importé le : </span>
-              <span>{formatDate(dpgfSource.importedAt)}</span>
+              <span>{formatAffaireListDate(dpgfSource.importedAt)}</span>
             </p>
           </>
         ) : (
@@ -645,7 +630,6 @@ function ExpandedContent({
         )}
       </div>
 
-      {/* Column 3 — Actions rapides */}
       <div className="space-y-1 text-sm">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
           Actions rapides
