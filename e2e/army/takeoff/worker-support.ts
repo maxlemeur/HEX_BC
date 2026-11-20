@@ -4,6 +4,7 @@ import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect } from "e2e";
+import { z } from "zod";
 
 import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { VectorPageDecisions } from "@/lib/takeoff/vectors/persistence";
@@ -47,50 +48,34 @@ export async function signUpWorkerOwner(ui: WorkerUi, tag: string): Promise<Work
 }
 
 /**
- * TI-662 L3d: Decisions for the owned worker's vector groups, answered by e2e/army/local/chatgpt-provider-fixture.mjs, which
- * the worker child installs over its network guard (never a paid call). `control` is the fixture's control file
- * ({ fail: true } answers 500), `transportLog` the JSONL of its calls.
+ * The local host the owned worker child runs as: the identity MergeOne local keeps in `.private/chatgpt-local/host.json`
+ * of its working directory, which the child shares (getChatGptHostId writes the same value when it is missing). A local
+ * job is claimed only by its own host. The file appears whole (linked from a written copy): parallel journeys never
+ * read it half written.
  */
-export type WorkerDecisions = { control: string; transportLog: string };
-
-/** The control file and the empty call log of a journey's Decisions fixture, in its run's artifacts. */
-export async function workerDecisionsFixture(ui: WorkerUi, journey: string, control: { fail?: boolean } = {}): Promise<WorkerDecisions> {
-  const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", ui.army.runPrefix);
-  await mkdir(directory, { recursive: true });
-  const fixture = { control: path.join(directory, `${journey}-decisions-control.json`), transportLog: path.join(directory, `${journey}-decisions.jsonl`) };
-  await writeFile(fixture.control, JSON.stringify(control));
-  await writeFile(fixture.transportLog, "");
-  return fixture;
-}
-
-/** The fixture's Decisions calls since `from` (a line count), never a forbidden provider. */
-export async function readWorkerDecisionsCalls(fixture: WorkerDecisions, from = 0) {
-  const lines = (await readFile(fixture.transportLog, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
-  expect(lines.filter((entry) => entry.provider === "forbidden")).toEqual([]);
-  return lines.slice(from).filter((entry) => entry.provider === "decisions-fixture");
-}
-
-/** The disposable test checkout and its child share a local takeoff host identity. */
-async function ownedWorkerHostId() {
+export async function ownedWorkerHostId() {
   const directory = path.resolve(".private/chatgpt-local");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const file = path.join(directory, "host.json");
-  const candidate = path.join(directory, `host.${randomUUID()}.tmp`);
+  const written = path.join(directory, `host.${randomUUID()}.tmp`);
   try {
-    await writeFile(candidate, JSON.stringify(`urn:uuid:${randomUUID()}`), { flag: "wx", mode: 0o600 });
-    await link(candidate, file);
+    await writeFile(written, JSON.stringify(`urn:uuid:${randomUUID()}`), { flag: "wx", mode: 0o600 });
+    await link(written, file);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   } finally {
-    await rm(candidate, { force: true });
+    await rm(written, { force: true });
   }
-  const value = JSON.parse(await readFile(file, "utf8")) as unknown;
-  if (typeof value !== "string" || !/^urn:uuid:[0-9a-f-]{36}$/.test(value)) throw new Error("Invalid fixture host identity.");
-  return value;
+  return z.string().regex(/^urn:uuid:[0-9a-f-]{36}$/).parse(JSON.parse(await readFile(file, "utf8")));
+}
+
+/** The execution owner of a pending job the owned worker runs: the local ChatGPT plan on its host. */
+export async function ownedWorkerJobOwner() {
+  return { execution_provider: "chatgpt_local" as const, execution_host_id: await ownedWorkerHostId(), processing_strategy: "sync" as const };
 }
 
 export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
-  options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner; decisions?: WorkerDecisions;
+  options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner;
     trigger?: "retry"; mailCollector?: string;
     providerItems?: Array<{ designation: string; quantity: number; unit: string; source_page: number; confidence: number; evidence: string }> } = {}) {
   if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
@@ -100,10 +85,7 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
     "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD", "E2E_ALLOWED_SUPABASE_HOST", "E2E_ARMY_LOCAL_DB_URL", "E2E_ARMY_BASE_URL",
     "E2E_COVERAGE_BACKEND_ORIGIN", "E2E_COVERAGE_NETWORK_LOG", "E2E_ARMY_BLOCK_WORKERS", "E2E_ARMY_TAKEOFF_WORKER"];
   const env = { NODE_ENV: "test" as const, ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]!])),
-    // TI-662: the vector reading is opt-in per worker; only the journey that asserts it turns it on.
-    ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}),
-    // TI-664: the fixed rules' inputs are written by the worker only when they are on (MERGEONE_TAKEOFF_RULES).
-    ...(options.rules ? { MERGEONE_TAKEOFF_RULES: "1" } : {}),
+    // MergeOne local on this host: the child claims the job as its own host (ownedWorkerHostId); its provider is controlled.
     MERGEONE_CHATGPT_LOCAL: "1",
     ...(options.trigger ? { ARMY_TAKEOFF_WORKER_TRIGGER: options.trigger } : {}),
     ...(options.mailCollector ? {
@@ -112,10 +94,11 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
       EMAIL_FROM: "ARMY Métré <metre@fixture.invalid>", EMAIL_DELIVERY_MODE: "redirect",
       EMAIL_REDIRECT_TO: "collecteur@fixture.invalid", MERGEONE_TAKEOFF_EMAIL_ORIGIN: ui.app.baseUrl!,
     } : {}),
+    // TI-662: the vector reading is opt-in per worker; only the journey that asserts it turns it on.
+    ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}),
+    // TI-664: the fixed rules' inputs are written by the worker only when they are on (MERGEONE_TAKEOFF_RULES).
+    ...(options.rules ? { MERGEONE_TAKEOFF_RULES: "1" } : {}),
     ...(options.providerItems ? { ARMY_TAKEOFF_PROVIDER_ITEMS: JSON.stringify(options.providerItems) } : {}),
-    // TI-662 L3d: Decisions for its vector groups, only with the vector reading, the takeoff opt-in and the fixture's key.
-    ...(options.vectors && options.decisions ? { MERGEONE_TAKEOFF_DECISIONS: "1", MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture",
-      ARMY_DECISIONS_CONTROL: options.decisions.control, ARMY_CHATGPT_TRANSPORT_LOG: options.decisions.transportLog } : {}),
     // The worker child signs in as the job's owner: a journey's dedicated owner, else the campaign account.
     ...(options.owner ? { E2E_LOGIN_EMAIL: options.owner.email, E2E_LOGIN_PASSWORD: options.owner.password } : {}) };
   const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/tester-army/takeoff-worker-attempt.mjs",
@@ -156,7 +139,7 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
   return { provider, done, release: () => child.stdin.end("release\n"), stop: () => { child.stdin.end(); if (child.exitCode === null) child.kill("SIGTERM"); } };
 }
 
-export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "local" | "historical" = "historical") {
+export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "local" | "historical" = "local") {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${title}`, title }, ui.army);
   const before = await readEstimate(ui.browser, ids.versionId);
@@ -176,15 +159,13 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "lo
   const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: userId, level: "A", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
     source_file_type: "text/csv", source_file_size_bytes: bytes.length,
-    ...(provider === "local" ? {
-      execution_provider: "chatgpt_local", execution_host_id: await ownedWorkerHostId(), processing_strategy: "sync",
-    } as const : { execution_provider: "gemini" } as const),
-  }).select("id").single();
+    ...provider === "historical" ? { execution_provider: "gemini" } : await ownedWorkerJobOwner() }).select("id").single();
   expect(inserted.error).toBeNull();
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await expect(ui.browser).toHaveURL(`/dashboard/affaires/${ids.projectId}/takeoff`);
-  await recordEvidence(ui.army, "worker-ui-created", { ids, jobId, fileName, engine: before.version.calc_engine_version,
-    boundary: "The stored CSV and pending job are seeded on the owned stack. The worker uses real DB/Storage/processors and a controlled provider." });
+  await recordEvidence(ui.army, "worker-ui-created", { ids, jobId, fileName, engine: before.version.calc_engine_version, provider,
+    boundary: provider === "historical" ? "A pending job of the former provider and its stored CSV are seeded on the owned stack."
+      : "A pending local job and its stored CSV are seeded on the owned stack. The worker claims it as its host, with the real DB/Storage/processors and a controlled local provider." });
   return { ids, jobId, fileName, before };
 }
 
@@ -203,7 +184,7 @@ export async function launchWorkerPdf(ui: WorkerUi) {
   const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     plan_set_id: plans.id, created_by: userId, level: "B", status: "pending", source_file_name: file.file_name,
     source_file_path: plan.data!.file_path, source_file_type: file.file_type, source_file_size_bytes: file.file_size_bytes,
-    execution_provider: "gemini" }).select("id").single();
+    ...await ownedWorkerJobOwner() }).select("id").single();
   expect(inserted.error).toBeNull();
   const jobs = ownedTakeoffJobs(ui.browser, ids);
   const [job] = await jobs.list();
@@ -212,13 +193,11 @@ export async function launchWorkerPdf(ui: WorkerUi) {
   return { ids, jobId: job.id, fileName: file.file_name };
 }
 
-// TI-662: a level C job on a fictional vector plan (vector-plan-fixture.ts) uploaded through the plans UI; TKW10 adds
-// the layer Decisions classifies, under its own owner.
-export async function launchWorkerVectorPlan(ui: WorkerUi, { journey = "TKW08", tag = "VPL", decisionsLayer = false }:
-  { journey?: string; tag?: string; decisionsLayer?: boolean } = {}) {
+// TI-662: a level C job on a fictional vector plan (vector-plan-fixture.ts) uploaded through the plans UI, under its own owner.
+export async function launchWorkerVectorPlan(ui: WorkerUi) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
-  const owner = await signUpWorkerOwner(ui, tag);
-  const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${journey}`, title: "Plan vectoriel" }, ui.army);
+  const owner = await signUpWorkerOwner(ui, "VPL");
+  const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-TKW08`, title: "Plan vectoriel" }, ui.army);
   expect((await readEstimate(ui.browser, ids.versionId)).version.calc_engine_version).toBe(2);
   const plans = await createPlanSet(ui, ui.army, ids, `${ui.army.runPrefix} plans vectoriels`);
   // « R+1 » is the name the user sees and the worker reads the level from; plan_files.file_name keeps the
@@ -228,7 +207,7 @@ export async function launchWorkerVectorPlan(ui: WorkerUi, { journey = "TKW08", 
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", ui.army.runPrefix);
   await mkdir(directory, { recursive: true });
   const filePath = path.join(directory, fileName);
-  const bytes = await buildVectorPlanPdf({ decisionsLayer });
+  const bytes = await buildVectorPlanPdf();
   await writeFile(filePath, bytes);
   await ui.screen.getByRole("heading", plans.name, { exact: true }).click();
   const [uploaded] = await Promise.all([
@@ -250,22 +229,22 @@ export async function launchWorkerVectorPlan(ui: WorkerUi, { journey = "TKW08", 
     const inserted = await client.from("takeoff_jobs").insert({ id, tenant_id: tenantId, estimate_version_id: ids.versionId,
       plan_set_id: plans.id, created_by: userId, level: "C", status: "pending", source_file_name: fileName,
       source_file_path: plan.data!.file_path, source_file_type: file.file_type, source_file_size_bytes: file.file_size_bytes,
-      execution_provider: "gemini" }).select("id").single();
+      ...await ownedWorkerJobOwner() }).select("id").single();
     expect(inserted.error).toBeNull();
     return id;
   };
   const jobId = await seedJob();
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
   expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
-  await recordEvidence(ui.army, `${journey}-vector-plan-created`, { ids, planSetId: plans.id, file, job, tenantId, owner: owner.userId,
+  await recordEvidence(ui.army, "TKW08-vector-plan-created", { ids, planSetId: plans.id, file, job, tenantId, owner: owner.userId,
     boundary: "Fictional vector PDF uploaded through the plans UI by the journey's dedicated owner; its pending level C jobs are seeded on the owned stack." });
   return { ids, jobId, fileName, tenantId, planSetId: plans.id, planFileId: file.id, seedJob, owner };
 }
 
 // TI-662 (review of PR #147): a level C job on the fictional vector plan uploaded directly (no plan set), its page
 // calibrated in the confirmed preparation. The plan prints no scale: only that calibration (100 mm on paper are
-// 5 m, 1/50) gives it one. The preparation names the upload `upload:<SHA-256 of its bytes>`, as the upload API
-// does; it is built by the product's own snapshot builder and seeded with the job on the owned stack.
+// 5 m, 1/50) gives it one. The preparation names the upload `upload:<SHA-256 of its bytes>`, a direct upload's
+// identity; it is built by the product's own snapshot builder and seeded with the job on the owned stack.
 export async function launchWorkerVectorUpload(ui: WorkerUi) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
   const owner = await signUpWorkerOwner(ui, "VUP");
@@ -300,7 +279,7 @@ export async function launchWorkerVectorUpload(ui: WorkerUi) {
   expect(uploaded.error).toBeNull();
   const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: userId, level: "C", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
-    source_file_type: "application/pdf", source_file_size_bytes: bytes.length, execution_provider: "gemini",
+    source_file_type: "application/pdf", source_file_size_bytes: bytes.length, ...await ownedWorkerJobOwner(),
     preparation_snapshot: snapshot } as never).select("id").single();
   expect(inserted.error).toBeNull();
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();

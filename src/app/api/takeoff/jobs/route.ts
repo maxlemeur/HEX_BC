@@ -1,132 +1,15 @@
-import { parseTakeoffJobCreateResponse, parseTakeoffJobListResponse } from "@/lib/takeoff/job-response-contracts";
-import { parseEstimateVersionId, parseTakeoffLevel } from "@/lib/takeoff/job-creation-input";
+import { parseTakeoffJobListResponse } from "@/lib/takeoff/job-response-contracts";
 
-import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { badRequest, ok } from "@/lib/http/api-response";
-import { MAX_FILE_SIZE_BYTES } from "@/lib/file-validation";
-import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
-import { TakeoffError, TakeoffErrorCode, toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
-import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import {
-  createTakeoffJobFromFormData,
-  hasAccessibleTakeoffJobForIdempotencyKey,
-  listTakeoffJobs,
-  parseListTakeoffJobsQuery,
-} from "@/lib/takeoff/server";
+import { ok } from "@/lib/http/api-response";
+import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
+import { listTakeoffJobs, parseListTakeoffJobsQuery } from "@/lib/takeoff/server";
 import { searchParamsObject } from "@/lib/http/request";
-
-async function parseMultipartFormData(request: Request) {
-  // The file limit is 10 MiB; leave room for multipart fields and headers.
-  // Bound the actual stream as Content-Length is optional and untrusted.
-  const maxRequestBytes = MAX_FILE_SIZE_BYTES + 1024 * 1024;
-  const tooLarge = () => new TakeoffError({
-    status: 413,
-    code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
-    message: "Le formulaire takeoff depasse la taille autorisée.",
-    retryable: false,
-  });
-  const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > maxRequestBytes) {
-    throw tooLarge();
-  }
-
-  const reader = request.body?.getReader();
-  if (!reader) throw badRequest("Payload multipart invalide.");
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      totalBytes += value.byteLength;
-      if (totalBytes > maxRequestBytes) {
-        await reader.cancel();
-        throw tooLarge();
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    if (error instanceof TakeoffError) throw error;
-    throw badRequest("Payload multipart invalide.");
-  }
-
-  try {
-    const boundedRequest = new Request(request.url, {
-      method: "POST",
-      headers: { "content-type": request.headers.get("content-type") ?? "" },
-      body: Buffer.concat(chunks),
-    });
-    return await boundedRequest.formData();
-  } catch {
-    throw badRequest("Payload multipart invalide.");
-  }
-}
 
 export async function GET(request: Request) {
   try {
     const query = parseListTakeoffJobsQuery(searchParamsObject(request));
     const data = await listTakeoffJobs(query);
     return ok(parseTakeoffJobListResponse(data, { versionId: query.estimate_version_id, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
-  } catch (error) {
-    return toTakeoffRouteErrorResponse(error);
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const context = await getAuthenticatedContext();
-    // Only an existing accessible job may bypass the feature flag for replay.
-    // A fresh key must still be rejected before reading the multipart body.
-    const replay = await hasAccessibleTakeoffJobForIdempotencyKey({
-      context,
-      idempotencyKey: request.headers.get("idempotency-key"),
-    });
-    if (!replay) {
-      await assertTakeoffEnabled(context.tenantId, { supabase: context.supabase });
-    }
-    const formData = await parseMultipartFormData(request);
-    const data = await createTakeoffJobFromFormData(formData, {
-      idempotencyKey: request.headers.get("idempotency-key"),
-    });
-
-    // Replaying a receipt must not restart an already running or terminal job.
-    if (data.status !== "pending") {
-      return ok(parseTakeoffJobCreateResponse(data, { versionId: parseEstimateVersionId(formData), level: parseTakeoffLevel(formData) }), 201);
-    }
-
-    const triggerResult = await triggerTakeoffJobProcessing({
-      jobId: data.id,
-      trigger: "create",
-    });
-    const dispatchPersisted = await persistTakeoffDispatchOutcome({
-      jobId: data.id,
-      trigger: "create",
-      result: triggerResult,
-    });
-
-    if (!triggerResult.triggered) {
-      console.error("Takeoff job created but async processing trigger failed.", {
-        jobId: data.id,
-        correlationId: triggerResult.correlationId,
-      });
-    }
-
-    return ok(
-      parseTakeoffJobCreateResponse({
-        ...data,
-        dispatch: {
-          status: triggerResult.triggered
-            ? "accepted"
-            : dispatchPersisted
-              ? "queued_for_recovery"
-              : "persistence_unconfirmed",
-          correlation_id: triggerResult.correlationId,
-          persisted: dispatchPersisted,
-        },
-      }, { versionId: parseEstimateVersionId(formData), level: parseTakeoffLevel(formData) }),
-      201
-    );
   } catch (error) {
     return toTakeoffRouteErrorResponse(error);
   }

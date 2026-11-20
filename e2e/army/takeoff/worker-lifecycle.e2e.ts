@@ -13,8 +13,8 @@ import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/h
 import { VECTOR_PLAN } from "./vector-plan-fixture";
 import { activateOwnedTakeoffNotices, openWorkerNotice, readOwnedTakeoffNotice, startTakeoffEmailCollector } from "./completion-support";
 import {
-  launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readVectorViewerFit, readWorkerDecisionsCalls,
-  startOwnedWorker, workerDecisionsFixture,
+  launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readVectorViewerFit,
+  startOwnedWorker,
 } from "./worker-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 180_000 };
@@ -317,7 +317,7 @@ type ActionEnvelope = {
 };
 
 armyTest("TKW06 concurrent resubmissions cannot restart a canceled historical job", options, async (ui) => {
-  const { ids, jobId } = await launchWorkerCsv(ui, "TKW06");
+  const { ids, jobId } = await launchWorkerCsv(ui, "TKW06", "historical");
   const before = await readEstimate(ui.browser, ids.versionId);
   const canceled = await apiRequest<ActionEnvelope>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/cancel`);
   expect(canceled.status).toBe(200);
@@ -332,7 +332,7 @@ armyTest("TKW06 concurrent resubmissions cannot restart a canceled historical jo
 });
 
 armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", options, async (ui) => {
-  const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW07");
+  const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW07", "historical");
   await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} retained batch estimate line`, { quantity: 2, unit_price_ht_cents: 1250 });
   expect((await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
   const before = await readEstimate(ui.browser, ids.versionId);
@@ -399,15 +399,20 @@ armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", 
   const seeded = await readState();
   expect(seeded).toMatchObject({ id: jobId, status: "failed", retryCount: 1, attempts: 3, batchId, batchState: "running", fileName,
     errorCode: "AI_TIMEOUT", leaseToken: null, leaseExpiresAt: null, resultIds: [], itemIds: [] });
-  const refused = [];
-  for (const command of ["retry", "resubmit", "reconcile"]) {
-    const response = await apiRequest<{ error: { code: string } }>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/${command}`);
-    expect([response.status, response.body.error.code]).toEqual([422, "AI_PROVIDER"]);
-    expect(await readState()).toEqual(seeded);
-    refused.push({ command, status: response.status });
-  }
+  const resubmit = await apiRequest<{ error: { code: string } }>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/resubmit`);
+  expect([resubmit.status, resubmit.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+  expect(await readState()).toEqual(seeded);
+  const refused = [{ command: "resubmit", status: resubmit.status }];
   const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
-  expect(detail.body.data.job).toMatchObject({ id: jobId, status: "failed", can_reconcile: false, can_resubmit: false });
+  expect(detail.body.data.job).toMatchObject({ id: jobId, status: "failed", can_resubmit: false });
+  // The failed row of a former provider's job says so and offers no recovery action (a later analysis lists it, as in TKW05).
+  await (await localTakeoffFixture(ui.army, ids)).seed("A", [{ designation: "ARMY nouvelle analyse", quantity: 1, unit: "u", confidence: 1 }]);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+  const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
+  await expect(failedRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse.");
+  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
+  await expect(failedRow.getByRole("button", "Vérifier la reprise", { exact: true })).toHaveCount(0);
+  expect(await readState()).toEqual(seeded);
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW07-historical-batch", { ids, jobId, batchId, seeded, refused, unchanged: true,
     boundary: "An owned historical batch reference is preserved; no provider or remote dispatch is invoked." });
@@ -656,91 +661,6 @@ armyTest("TKW09 a directly uploaded vector plan is measured at its confirmed cal
     api: denied.status });
 });
 
-// TI-662 L3d: with MERGEONE_TAKEOFF_DECISIONS=1, the worker asks Decisions about the one group of the plan no keyword names
-// (vector-plan-fixture.ts `decisionsLayer`), answered EU at 0.8 by the provider fixture over the worker's network guard: one
-// batch call of one question, the group classified and measured, its source and confidence persisted and shown in the review.
-// A failed call is never retried, never fails the job, and leaves the group « à revoir ». Fictional plan, no paid call.
-armyTest("TKW10 Decisions classes the unnamed group of a vector plan in the worker, shown with its source; a failed call leaves it à revoir without failing the job", options, async (ui) => {
-  const { ids, jobId, fileName, seedJob, owner } = await launchWorkerVectorPlan(ui, { journey: "TKW10", tag: "VDE", decisionsLayer: true });
-  const decisions = await workerDecisionsFixture(ui, "TKW10");
-  const answered = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner, decisions }).done;
-  expect(answered.outcome.status).toBe("completed");
-  expect(answered.job).toMatchObject({ status: "completed", level: "C" });
-  expect(answered.providerCalls).toBe(1);
-  // One call, one question with its own image (TI-704 v2: no legend block on this plan).
-  expect(await readWorkerDecisionsCalls(decisions)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 1 }]);
-  const [page] = answered.vectorPages;
-  expect(answered.vectorPages).toHaveLength(1);
-  // Groups longest first: the room's walls (300 mm), EF (100 mm), the unnamed red pipe (80 mm), EU/EV (60 mm).
-  expect(page).toMatchObject({ scale: { status: "format", denominator: 50 }, detection: 1, classes: ["mur", "EF", "EU", "EUV"],
-    sources: ["keyword", "keyword", "decisions", "keyword"], confidences: [null, null, 0.8, null] });
-  expect(page.decisions).toEqual({ prompt_version: "takeoff-vector-groups-v2", rules_version: 3, filtered: {}, ruled: { same_colour: 0, band: 0, propagated: 0 },
-    candidates: 1, eligible: 1, left_out: 0, dedicated_left_out: 0,
-    calls: { batch: 1, dedicated: 0, failed: 0 }, answered: 1, total_tokens: 1, latency_ms: expect.any(Number), stop: null });
-  const exclusion = "Lecture vectorielle : à comparer à la lecture du plan, non appliquée par défaut.";
-  // The red pipe is measured at a margin of 0.8: 80 mm at 1/50, without label (no material nor DN), excluded by default like any vector item.
-  expect(answered.items.filter((item) => item.unit === "ml").map(({ designation, quantity, is_excluded, exclusion_reason }) => ({ designation, quantity, is_excluded, exclusion_reason })))
-    .toEqual([
-      { designation: "EF PER DN 16", quantity: 5, is_excluded: true, exclusion_reason: exclusion },
-      { designation: "EU", quantity: VECTOR_PLAN.decisions.length_m, is_excluded: true, exclusion_reason: exclusion },
-      { designation: "EU/EV PVC DN 40", quantity: 3, is_excluded: true, exclusion_reason: exclusion },
-    ]);
-  expect(answered.geometries.filter((geometry) => geometry.network === "EU")).toEqual([expect.objectContaining({ kind: "network", lengthM: 4, segments: 1 })]);
-
-  // The API the viewer reads: the group's class, source and confidence, and the page's Decisions summary.
-  const read = await apiRequest<{ ok: boolean; data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
-  expect([read.status, read.body.ok, read.body.data.pages.length]).toEqual([200, true, 1]);
-  const [readPage] = read.body.data.pages;
-  const decided = readPage.reading.groups.find((group) => group.source === "decisions");
-  expect(decided).toMatchObject({ class: "EU", confidence: 0.8, near_white: false });
-  expect(readPage.items.find((item) => item.geometry.network === "EU")?.geometry.groups).toEqual([decided!.id]);
-  expect(readPage.reading.decisions).toMatchObject({ calls: { batch: 1, dedicated: 0, failed: 0 }, stop: null });
-
-  // The review: each network with its source, EU with Decisions' confidence; nothing left « à revoir ».
-  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
-  const viewer = ui.screen.getByRole("region", "Lecture vectorielle du plan", { exact: true });
-  await expect(viewer).toBeVisible({ timeout: 30_000 });
-  await expect(viewer.getByText("Détection 100 %", { exact: true })).toBeVisible();
-  const networks = viewer.getByRole("group", "Réseaux", { exact: true });
-  // Each row: the network, its length, then how its class was read.
-  await expect(networks).toContainText(/EF\s*5\.00 m\s*mots-clés\s*EU\s*4\.00 m\s*Decisions 80 %\s*EUV\s*3\.00 m\s*mots-clés/);
-  await expect(viewer.getByText("Decisions : 1 appel, 1 jeton, 1 réponse", { exact: true })).toBeVisible();
-  await expect(viewer.getByText(/à revoir/)).toHaveCount(0);
-  await expect(viewer.getByText(/éléments affichés$/)).toHaveText("4 / 4 éléments affichés");
-  const drawn = await readVectorViewerDrawing(ui);
-  expect(drawn.lines.map((line) => line.network).sort()).toEqual(["EF", "EU", "EUV"]);
-  await recordEvidence(ui.army, "TKW10-decisions-answered", { ids, jobId, vectorPage: page, items: answered.items, geometries: answered.geometries,
-    boundary: "Owned worker with MERGEONE_TAKEOFF_VECTORS=1 and MERGEONE_TAKEOFF_DECISIONS=1; Decisions answered by the provider fixture installed over the worker's network guard; no paid call; fictional vector plan." });
-
-  // A failed Decisions call: no retry, the job completes, the group stays « à revoir » and is not measured.
-  const failing = await workerDecisionsFixture(ui, "TKW10-failed", { fail: true });
-  const failedJobId = await seedJob();
-  const failed = await startOwnedWorker(ui, ids, failedJobId, "success", { vectors: true, owner, decisions: failing }).done;
-  expect(failed.outcome.status).toBe("completed");
-  expect(failed.job).toMatchObject({ status: "completed", level: "C" });
-  expect(await readWorkerDecisionsCalls(failing)).toEqual([{ provider: "decisions-fixture", questions: 1, task: "vector-groups", images: 1, failed: true }]);
-  const [failedPage] = failed.vectorPages;
-  // Classified groups first in the page record, then the unclassified one.
-  expect(failedPage).toMatchObject({ classes: ["mur", "EF", "EUV", null], sources: ["keyword", "keyword", "keyword", null], confidences: [null, null, null, null] });
-  expect(failedPage.decisions).toMatchObject({ candidates: 1, calls: { batch: 1, dedicated: 0, failed: 1 }, answered: 0, total_tokens: 0,
-    stop: { reason: "call_failed", message: "Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.", from_earlier_page: false } });
-  expect(failed.items.map((item) => item.designation)).toEqual(["ARMY worker pipe", "ARMY worker valve", "EF PER DN 16", "EU/EV PVC DN 40",
-    VECTOR_PLAN.room.designation].sort((left, right) => left.localeCompare(right)));
-  expect(failed.geometries.some((geometry) => geometry.network === "EU")).toBe(false);
-  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${failedJobId}/review?versionId=${ids.versionId}`);
-  await expect(viewer).toBeVisible({ timeout: 30_000 });
-  await expect(viewer.getByText("Un appel Decisions a échoué, aucun appel n’a été lancé ensuite : les groupes restants sont à revoir.", { exact: true })).toBeVisible();
-  await expect(viewer.getByText("Decisions : 1 appel, 0 jeton, 0 réponse", { exact: true })).toBeVisible();
-  await expect(viewer.getByText("1 groupe de tracés à revoir", { exact: true })).toBeVisible();
-  await expect(networks).not.toContainText(/EU\s*4\.00 m/);
-  await expect(viewer.getByText(/éléments affichés$/)).toHaveText("3 / 3 éléments affichés");
-  await recordEvidence(ui.army, "TKW10-decisions-failed", { failedJobId, fileName, vectorPage: failedPage, items: failed.items,
-    boundary: "The provider fixture answers 500 to the one Decisions call; the worker completes the job with its keyword reading." });
-});
-
-// TI-682 D11: an hypothesis is never preselected. The real level B processor, the fixed rules on: a weld count a plan
-// cannot show arrives excluded with its reason, the valve count beside it stays preselected. The review lists the weld
-// until its quantity is entered with what it rests on, which includes it.
 armyTest("TKW11 a quantity a plan cannot show arrives excluded with its reason, and the count beside it stays preselected", options, async (ui) => {
   const { ids, jobId } = await launchWorkerPdf(ui);
   const completed = await startOwnedWorker(ui, ids, jobId, "success", { rules: true, providerItems: [

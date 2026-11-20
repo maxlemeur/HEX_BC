@@ -8,14 +8,14 @@ import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-ser
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }));
+// The resume check of a pending receipt is stubbed: chatgpt-takeoff.test.ts covers it.
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
-  return { ...actual, getTakeoffExecutionOwner: vi.fn() };
+  return { ...actual, getTakeoffExecutionOwner: vi.fn(), assertLocalTakeoffResumeReady: vi.fn() };
 });
 vi.mock("@/lib/takeoff/preparation-server", () => ({ assertConfirmedTakeoffPreparation: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
-  getTakeoffGeminiDeliveryConfigForTenant: vi.fn().mockResolvedValue({ useBatchApi: false }),
   getTakeoffChunkingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200 }),
 }));
 
@@ -26,7 +26,7 @@ function fixture(preparationSnapshot?: unknown) {
   const job = {
     id: derivePlanSetTakeoffJobId({ ...base, tenantId: M3_TENANT_ID, sourceVersionId: SOURCE_ID }),
     estimate_version_id: M3_VERSION_ID, status: "pending", level: "B", source_file_name: "Plan fictif.pdf",
-    source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z",
+    source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z", execution_provider: "chatgpt_local",
     preparation_snapshot: preparationSnapshot,
   };
   const fake = createSupabaseFake({ tables: {
@@ -88,7 +88,7 @@ describe("prepared plan launch receipts", () => {
     const winningJob = {
       id: derivePlanSetTakeoffJobId({ ...base, tenantId: M3_TENANT_ID }),
       estimate_version_id: M3_VERSION_ID, status: "pending", level: "B", source_file_name: "Plan fictif.pdf",
-      source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z",
+      source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z", execution_provider: "chatgpt_local",
     };
     const snapshot = confirmedPreparationFixture();
     snapshot.preparation.sources[0] = { ...snapshot.preparation.sources[0], kind: "plan", document_id: "plan-file", plan_set_id: M3_PLAN_SET_ID };

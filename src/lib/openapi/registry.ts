@@ -4,7 +4,6 @@ import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/li
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
 import { takeoffPageReplacementRequestSchema, takeoffPageReplacementResponseSchema } from "@/lib/takeoff/page-replacement-contracts";
-import { takeoffJobCreateResponseSchema as sharedTakeoffJobCreateDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobActionResponseSchema as sharedTakeoffJobActionDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -58,7 +57,6 @@ import {
   headerParameter,
   jsonBody,
   jsonResponse,
-  multipartBody,
   pathParameter,
   queryParameter,
   responseHeader,
@@ -166,11 +164,6 @@ const takeoffPlanFilesIncludeDownloadUrlQuerySchema = z.enum([
 ]);
 const takeoffPlanFileContentTypeSchema = z.literal("application/pdf");
 const maxTakeoffPlanFileSizeBytes = 50 * 1024 * 1024;
-const idempotencyKeyHeaderSchema = z
-  .string()
-  .trim()
-  .min(1, "Idempotency-Key invalide.")
-  .max(255, "Idempotency-Key invalide.");
 const takeoffLevelSchema = z.enum(["A", "B", "C"]);
 const takeoffJobStatusSchema = z.enum([
   "pending",
@@ -1151,15 +1144,6 @@ const estimateAssemblyDataSchema = z.object({
 
 const estimateBatchDataSchema = estimateBatchResultSchema;
 
-const takeoffJobCreateDataSchema = sharedTakeoffJobCreateDataSchema;
-const takeoffJobCreateFormDataSchema = z.object({
-  file: z.any(),
-  estimate_version_id: uuidSchema,
-  level: z.enum(["A", "B", "C"]),
-  provider: z.enum(["auto", "chatgpt"]).optional(),
-  preparation_revision: z.string().regex(/^[1-9]\d*$/),
-});
-
 const takeoffJobListDataSchema = sharedTakeoffJobListDataSchema;
 
 
@@ -1902,10 +1886,6 @@ const apiEstimateAssemblySchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateAssemblyResponse",
   estimateAssemblyDataSchema
 );
-const apiTakeoffJobCreateSchemaDefinition = successResponseSchemaDefinition(
-  "ApiTakeoffJobCreateResponse",
-  takeoffJobCreateDataSchema
-);
 const apiTakeoffJobListSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobListResponse",
   takeoffJobListDataSchema
@@ -2175,14 +2155,6 @@ const ifMatchHeaderRequiredParameter = headerParameter({
   schemaName: "IfMatchRequiredHeaderParameter",
   schema: ifMatchHeaderSchema,
   required: true,
-});
-const idempotencyKeyHeaderParameter = headerParameter({
-  name: "Idempotency-Key",
-  description:
-    "Cle optionnelle d'idempotence pour dedupliquer les creations de jobs Takeoff.",
-  schemaName: "IdempotencyKeyHeaderParameter",
-  schema: idempotencyKeyHeaderSchema,
-  required: false,
 });
 const takeoffPlanSetEstimateVersionIdQueryParameter = queryParameter({
   name: "estimate_version_id",
@@ -2790,12 +2762,6 @@ const generateEstimatePdfBody = jsonBody({
   schema: z.object({ layout: estimatePdfLayoutSchema.optional() }),
   required: false,
 });
-const createTakeoffJobBody = multipartBody({
-  name: "CreateTakeoffJobFormDataRequest",
-  description:
-    "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id`, `level=A/B/C` et `provider` optionnel (auto ou chatgpt). Le forfait ChatGPT local doit être connecté.",
-  schema: takeoffJobCreateFormDataSchema,
-});
 const applyTakeoffJobBody = jsonBody({
   name: "ApplyTakeoffJobRequest",
   description:
@@ -3123,95 +3089,6 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     },
   },
   {
-    method: "post",
-    path: "/api/takeoff/jobs",
-    summary: "Creer un job Takeoff",
-    description:
-      "Cree un job Takeoff a partir d'un upload CSV/XLS/XLSX ou PDF et retourne le job pending.",
-    tags: ["Takeoff"],
-    parameters: [idempotencyKeyHeaderParameter],
-    requestBody: createTakeoffJobBody,
-    responses: {
-      "201": jsonResponse(
-        "Job Takeoff cree avec succes.",
-        apiTakeoffJobCreateSchemaDefinition
-      ),
-      "400": {
-        description: "Requete invalide ou payload non conforme.",
-        contents: [
-          {
-            contentType: "application/json",
-            schema: apiTakeoffFailureResponseSchemaDefinition,
-          },
-        ],
-      },
-      "401": {
-        description: "Authentification requise.",
-        contents: [
-          {
-            contentType: "application/json",
-            schema: apiTakeoffFailureResponseSchemaDefinition,
-          },
-        ],
-      },
-      "403": {
-        description: "Acces interdit.",
-        contents: [
-          {
-            contentType: "application/json",
-            schema: apiTakeoffFailureResponseSchemaDefinition,
-          },
-        ],
-      },
-      "404": {
-        description: "Ressource introuvable.",
-        contents: [
-          {
-            contentType: "application/json",
-            schema: apiTakeoffFailureResponseSchemaDefinition,
-          },
-        ],
-      },
-      "409": {
-        description: "Conflit metier ou de concurrence.",
-        contents: [
-          {
-            contentType: "application/json",
-            schema: apiTakeoffFailureResponseSchemaDefinition,
-          },
-        ],
-      },
-      "413": {
-        description: "Fichier trop volumineux (maximum 10 Mo).",
-        contents: [
-          {
-            contentType: "application/json",
-            schema: apiTakeoffFailureResponseSchemaDefinition,
-          },
-        ],
-      },
-      "422": {
-        description:
-          "Validation metier echouee (niveau non supporte, format fichier ou UUID invalides).",
-        contents: [
-          {
-            contentType: "application/json",
-            schema: apiTakeoffFailureResponseSchemaDefinition,
-          },
-        ],
-      },
-      "500": {
-        description: "Erreur interne serveur.",
-        contents: [
-          {
-            contentType: "application/json",
-            schema: apiTakeoffFailureResponseSchemaDefinition,
-          },
-        ],
-      },
-    },
-  },
-  {
     method: "get",
     path: "/api/takeoff/jobs",
     summary: "Lister les jobs Takeoff",
@@ -3529,22 +3406,6 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Statut de l'alerte de risque mis a jour.",
         apiTakeoffRiskAlertStatusSchemaDefinition
-      ),
-      ...takeoffJobsErrorResponses,
-    },
-  },
-  {
-    method: "post",
-    path: "/api/takeoff/jobs/{jobId}/retry",
-    summary: "Relancer un job Takeoff echoue",
-    description:
-      "Relance un job en echec si la limite de retry n'est pas atteinte et si le delai de backoff est ecoule.",
-    tags: ["Takeoff"],
-    parameters: [takeoffJobIdPathParameter],
-    responses: {
-      "200": jsonResponse(
-        "Job takeoff relance.",
-        apiTakeoffJobActionSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },

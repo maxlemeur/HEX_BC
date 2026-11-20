@@ -126,8 +126,9 @@ export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
   // --- Affaires (all roles) ---
   const affairesItems: NavItem[] = [AFFAIRES_ITEM];
   if (featureFlags.takeoffEnabled) {
-    affairesItems.push(TAKEOFF_NAV_ITEM, NOTIFICATIONS_ITEM);
+    affairesItems.push(TAKEOFF_NAV_ITEM);
   }
+  affairesItems.push(NOTIFICATIONS_ITEM);
   groups.push({ key: "affaires", label: "Affaires", items: affairesItems });
 
   // --- Commandes (all roles) ---

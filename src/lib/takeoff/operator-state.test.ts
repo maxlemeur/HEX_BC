@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
 
 describe("resolveTakeoffOperatorState", () => {
-  it("allows reconcile when the provider already succeeded but the job is still processing", () => {
+  it("labels a batch whose provider already succeeded while the job is still processing as a resumption to check", () => {
     const state = resolveTakeoffOperatorState({
       status: "processing",
       processingStrategy: "batch",
@@ -14,7 +14,6 @@ describe("resolveTakeoffOperatorState", () => {
 
     expect(state.state).toBe("orphan_to_reconcile");
     expect(state.label).toBe("Reprise à vérifier");
-    expect(state.canReconcile).toBe(true);
   });
 
   it("hides resubmit when the provider already succeeded upstream", () => {
@@ -29,6 +28,5 @@ describe("resolveTakeoffOperatorState", () => {
 
     expect(state.state).toBe("orphan_to_reconcile");
     expect(state.canResubmit).toBe(false);
-    expect(state.canReconcile).toBe(true);
   });
 });

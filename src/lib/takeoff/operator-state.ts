@@ -50,7 +50,6 @@ export type ResolveTakeoffOperatorStateInput = {
 export type TakeoffOperatorStateDescriptor = {
   state: TakeoffJobOperatorState;
   label: string;
-  canReconcile: boolean;
   canCancel: boolean;
   canResubmit: boolean;
 };
@@ -165,20 +164,10 @@ export function resolveTakeoffOperatorState(
 ): TakeoffOperatorStateDescriptor {
   const state = resolveTakeoffOperatorStateValue(input);
   const hasMutationAccess = isTakeoffOperatorMutationRole(input.tenantRole);
-  const liveLeaseExpiresAtMs = parseIsoTime(input.providerReconcileLeaseExpiresAt);
-  const hasLiveLease =
-    liveLeaseExpiresAtMs !== null &&
-    liveLeaseExpiresAtMs > (input.now ?? new Date()).getTime();
 
   return {
     state,
     label: getTakeoffOperatorStateLabel(state),
-    canReconcile:
-      hasMutationAccess &&
-      !hasLiveLease &&
-      (state === "submitted_to_provider" ||
-        state === "awaiting_provider_result" ||
-        state === "orphan_to_reconcile"),
     canCancel:
       hasMutationAccess &&
       (input.status === "pending" || input.status === "processing"),

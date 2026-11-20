@@ -402,7 +402,6 @@ function decorateTakeoffJobSummaryWithOperatorState(
     ...job,
     operator_state: operatorState.state,
     operator_state_label: operatorState.label,
-    can_reconcile: !legacyProvider && operatorState.canReconcile,
     can_cancel: operatorState.canCancel,
     can_resubmit: !legacyProvider && !resubmissionBlocked && operatorState.canResubmit,
   };

@@ -11,8 +11,7 @@ import {
   mapSupabaseError,
   notFound,
 } from "@/lib/http/api-response";
-import { assertDraftStatus, canAccessOwnerResource, isTenantAdmin } from "./server-context";
-import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
+import { assertDraftStatus, getVersionAccessOrThrow, isTenantAdmin } from "./server-context";
 
 type Supabase = SupabaseClient<Database>;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -22,16 +21,7 @@ type DraftLockRow = Database["public"]["Tables"]["draft_locks"]["Row"] & {
 type DraftLockInsert = Database["public"]["Tables"]["draft_locks"]["Insert"] & {
   session_id: string;
 };
-type EmbeddedProjectAccess = Pick<
-  Database["public"]["Tables"]["estimate_projects"]["Row"],
-  "tenant_id" | "user_id"
->;
-type VersionAccessRow = Pick<
-  Database["public"]["Tables"]["estimate_versions"]["Row"],
-  "id" | "tenant_id" | "status"
-> & {
-  estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
+type VersionAccessRow = Pick<Database["public"]["Tables"]["estimate_versions"]["Row"], "status">;
 type ProfileOwnerRow = Pick<
   Database["public"]["Tables"]["profiles"]["Row"],
   "id" | "full_name" | "work_email"
@@ -105,30 +95,12 @@ async function assertVersionAccessOrThrow(
     requireDraft: boolean;
   }
 ) {
-  const { data, error } = await context.supabase
-    .from("estimate_versions")
-    .select("id, tenant_id, status, estimate_projects!inner(tenant_id, user_id)")
-    .eq("id", versionId)
-    .eq("tenant_id", context.tenantId)
-    .single();
-
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = data as unknown as VersionAccessRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== context.tenantId ||
-    !canAccessOwnerResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
+  const { version } = await getVersionAccessOrThrow<VersionAccessRow>(
+    context.supabase,
+    versionId,
+    context,
+    { mode: "owner_or_admin", versionColumns: "status" }
+  );
 
   if (options.requireDraft) {
     assertDraftStatus(version.status);

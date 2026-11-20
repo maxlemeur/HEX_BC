@@ -194,7 +194,7 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
   // The server converts the DWG, and the browser reads its DXF like any other.
   await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${original.id}#intake`);
   await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).toBeVisible();
-  await expect(screen.getByText("3 calques · 103,63 m de tracé · 10 blocs", { exact: true })).toBeVisible({ timeout: 120_000 });
+  await expect(screen.getByText("3 calques · 103,94 m de tracé · 10 blocs", { exact: true })).toBeVisible({ timeout: 120_000 });
   const inked = () => browser.evaluate(() => {
     const canvas = document.querySelector<HTMLCanvasElement>(".document-cad-stage-large > canvas") ?? document.querySelector<HTMLCanvasElement>(".document-cad-stage > canvas");
     const pixels = canvas?.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -207,21 +207,21 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
 
   await screen.getByRole("button", "Calques et quantités", { exact: true }).click();
   await expect(screen.getByRole("heading", "Quantités lues", { exact: true })).toBeVisible();
-  await expect(screen.getByText("DWG AutoCAD 2018, converti par LibreDWG · 3 calques · 103,63 m de tracé · 10 blocs", { exact: true })).toBeVisible();
+  await expect(screen.getByText("DWG AutoCAD 2018, converti par LibreDWG · 3 calques · 103,94 m de tracé · 10 blocs", { exact: true })).toBeVisible();
   // The spaces of a French number are not those of the keyboard.
   const totals = () => browser.evaluate(() => Object.fromEntries([...document.querySelectorAll(".document-cad-panel dl > div")]
     .map(row => [row.querySelector("dt")?.textContent ?? "", (row.querySelector("dd")?.textContent ?? "").replace(/\s/g, " ")])));
-  // AutoCAD's own DXF of this drawing gives the same blocks, block tracé, contours and hatch; its tracé is 103,94 m,
-  // the two splines being kept by their fit points in a DWG, which the viewer says.
-  expect(await totals()).toEqual({ "Tracé": "103,63 m", "Tracé des blocs": "6 019,55 m", "Contours fermés": "133,6 m²", "Hachures": "0,12 m²", "Blocs posés": "10" });
-  await expect(screen.getByText("2 splines sont tracées par leurs points de passage : leur longueur est approchée.", { exact: true })).toBeVisible();
+  // The 2018 export supplies spline control points and matches the reference DXF at the displayed precision.
+  expect(await totals()).toEqual({ "Tracé": "103,94 m", "Tracé des blocs": "6 019,55 m", "Contours fermés": "133,6 m²", "Hachures": "0,12 m²", "Blocs posés": "10" });
+  const splineApproximation = screen.getByText("2 splines sont tracées par leurs points de passage : leur longueur est approchée.", { exact: true });
+  await expect(splineApproximation).toHaveCount(0);
   await expect.poll(inked, { timeout: 15_000 }).toBeGreaterThan(200);
   await expect.poll(() => browser.evaluate(() => getComputedStyle(document.querySelector(".document-cad-dialog") ?? document.body).opacity)).toBe("1");
   const large = await app.screenshot("cad03-layers-and-quantities");
   await screen.getByRole("checkbox", /Tavolo 2/).uncheck();
-  await expect.poll(async () => (await totals())["Tracé"]).toBe("88,55 m");
+  await expect.poll(async () => (await totals())["Tracé"]).toBe("88,64 m");
   await screen.getByRole("button", "Tout afficher", { exact: true }).click();
-  await expect.poll(async () => (await totals())["Tracé"]).toBe("103,63 m");
+  await expect.poll(async () => (await totals())["Tracé"]).toBe("103,94 m");
 
   // The plotted PDF of the converted drawing joins the dossier, to scale.
   await screen.getByRole("button", "Ajouter le tracé PDF au dossier", { exact: true }).click();
@@ -236,7 +236,7 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
   expect(Math.abs(width - 703 * 72 / 25.4)).toBeLessThan(0.5);
   expect(Math.abs(height - 586 * 72 / 25.4)).toBeLessThan(0.5);
 
-  // The same drawing saved in the 2000 format is read with the same quantities: LibreDWG reads it, and its DXF is written from that reading.
+  // The 2000 conversion still approximates the two splines and must report the native names of unread objects.
   await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${older.id}#intake`);
   await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).toBeVisible();
   await expect(screen.getByText("3 calques · 103,63 m de tracé · 10 blocs", { exact: true })).toBeVisible({ timeout: 120_000 });
@@ -244,6 +244,10 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
   await screen.getByRole("button", "Calques et quantités", { exact: true }).click();
   await expect(screen.getByText("DWG AutoCAD 2000, converti par LibreDWG · 3 calques · 103,63 m de tracé · 10 blocs", { exact: true })).toBeVisible();
   expect(await totals()).toEqual({ "Tracé": "103,63 m", "Tracé des blocs": "6 019,55 m", "Contours fermés": "133,6 m²", "Hachures": "0,12 m²", "Blocs posés": "10" });
+  await expect(splineApproximation).toBeVisible();
+  await screen.getByText("Objets non lus (14)", { exact: true }).click();
+  await expect(screen.getByText("WIPEOUT × 2", { exact: true })).toBeVisible();
+  await expect(screen.getByText("ACAD_TABLE × 1", { exact: true })).toBeVisible();
   await expect.poll(inked, { timeout: 15_000 }).toBeGreaterThan(200);
   await expect.poll(() => browser.evaluate(() => getComputedStyle(document.querySelector(".document-cad-dialog") ?? document.body).opacity)).toBe("1");
   const olderFormat = await app.screenshot("cad03-format-2000");
@@ -277,9 +281,10 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
   const refused = await app.screenshot("cad03-old-format");
   await recordEvidence(army, "cad-dwg", { original: fileName, sha256: createHash("sha256").update(await client.storage.from("affaire-intake").download(original.storage_path!).then(async file => Buffer.from(await file.data!.arrayBuffer()))).digest("hex"),
     plot: plotName, sheet_mm: [703, 586], scale: "1/5000",
-    totals: { length_m: 103.63, blockLength_m: 6019.55, closedArea_m2: 133.6, hatchArea_m2: 0.12, blocks: 10 },
+    totals: { length_m: 103.94, blockLength_m: 6019.55, closedArea_m2: 133.6, hatchArea_m2: 0.12, blocks: 10 },
+    autoCad2000: { length_m: 103.63, approximationWarning: true, unread: ["WIPEOUT × 2", "ACAD_TABLE × 1"] },
     screenshots: [compact, large, olderFormat, refused].map(file => path.basename(file)),
-    scope: "LibreDWG's sample DWG (AutoCAD 2018) converted on the server in a locked process and read in the browser: layers, quantities, plotted PDF. The same drawing saved in the 2000 format is read by LibreDWG in the same locked process, its DXF written from that reading, with the same quantities. A DWG in the R12 format is refused by name. No RVT geometry." });
+    scope: "LibreDWG's sample DWG (AutoCAD 2018) converted on the server in a locked process and read in the browser: layers, quantities, plotted PDF. The same drawing saved in the 2000 format is read by LibreDWG in the same locked process, its DXF written from that reading, with approximate splines and native names for unread entities. A DWG in the R12 format is refused by name. No RVT geometry." });
 });
 
 // The image a model carries: 64 × 48 pixels, a blue rectangle on grey, made for this journey.

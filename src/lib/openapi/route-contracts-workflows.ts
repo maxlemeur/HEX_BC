@@ -616,19 +616,6 @@ const takeoffOperationsContracts: RouteContract[] = [
     } }],
   },
   {
-    id: "reconcile-takeoff-job",
-    method: "post",
-    path: "/api/takeoff/jobs/{jobId}/reconcile",
-    summary: "Reconcilier un job Takeoff",
-    description: "Reconcilie l'etat du job et relance le traitement asynchrone si necessaire.",
-    tags: ["Takeoff"],
-    pathParameters: [jobIdParameter],
-    success: [{ status: "200", description: "État confirmé du job et résultat de la réconciliation.", schema: {
-      schemaName: "ApiTakeoffReconcileResponse", schema: z.object({ ok: z.literal(true), data: takeoffJobActionResponseSchema }), io: "output",
-    } }],
-    extraErrors: [{ status: "503", description: "Worker asynchrone indisponible." }],
-  },
-  {
     id: "resubmit-takeoff-job",
     method: "post",
     path: "/api/takeoff/jobs/{jobId}/resubmit",

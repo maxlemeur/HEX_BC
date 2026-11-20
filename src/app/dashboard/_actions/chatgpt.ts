@@ -57,7 +57,7 @@ export async function testChatGptConnection() {
   const { owner } = await context();
   const result = await callLocalChatGptStructured(owner, {
     prompt: 'Retourne exactement {"connection":"ok"}.',
-    schema: z.object({ connection: z.literal("ok") }), maxRetries: 0,
+    schema: z.object({ connection: z.literal("ok") }),
   });
   return { success: result.data.connection === "ok", model: result.model, reasoningEffort: result.reasoningEffort };
 }

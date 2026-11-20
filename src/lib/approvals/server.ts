@@ -1,4 +1,5 @@
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { hasEstimateApprovalRole } from "@/lib/estimates/server-context";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import type { TakeoffRiskCauseCode } from "@/lib/takeoff/types";
@@ -136,7 +137,7 @@ export async function fetchApprovalQueue(
 ): Promise<ApprovalQueueItem[]> {
   const { supabase, tenantRole } = await getAuthenticatedContext();
 
-  if (tenantRole !== "admin" && tenantRole !== "director") {
+  if (!hasEstimateApprovalRole(tenantRole, "approve")) {
     return [];
   }
 
@@ -219,7 +220,7 @@ export async function markApprovalQueueItemState(
 ): Promise<void> {
   const { supabase, userId, tenantId, tenantRole } = await getAuthenticatedContext();
 
-  if (tenantRole !== "admin" && tenantRole !== "director") {
+  if (!hasEstimateApprovalRole(tenantRole, "approve")) {
     throw new Error("Seuls les administrateurs et directeurs peuvent modifier l'état de revue.");
   }
 

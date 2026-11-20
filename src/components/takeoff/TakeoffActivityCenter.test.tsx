@@ -22,7 +22,6 @@ vi.mock("@/lib/takeoff/client", () => ({
   fetchTakeoffActivityCenter: vi.fn(),
   isTakeoffApiError: () => false,
   cancelTakeoffJob: vi.fn(),
-  reconcileTakeoffJob: vi.fn(),
   resubmitTakeoffJob: vi.fn(),
 }));
 

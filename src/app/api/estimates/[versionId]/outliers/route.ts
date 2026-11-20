@@ -1,10 +1,14 @@
-import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { z } from "zod";
 
 import { getAuthenticatedTenantContext as getAuthenticatedContext, type AuthenticatedTenantContext as AuthenticatedContext } from "@/lib/auth/tenant-context";
 import type { EstimateOutlierFlagKey } from "@/lib/estimates/outlier-detection";
-import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import type { Database } from "@/types/database";
+import {
+  assertDraftLockOwnedByCurrentUser,
+  getVersionAccessOrThrow,
+  type VersionAccessQuery,
+} from "@/lib/estimates/server-context";
 import {
   badRequest,
   forbidden,
@@ -13,6 +17,10 @@ import {
   toErrorResponse,
 } from "@/lib/http/api-response";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
+
+type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
+
+const OUTLIER_VERSION_ACCESS: VersionAccessQuery = { mode: "owner_or_admin", versionColumns: "status" };
 
 type OutlierDismissalRow = {
   id: string;
@@ -105,7 +113,7 @@ export async function GET(
     const versionId = await uuidRouteParam(params, "versionId");
     const context = await getAuthenticatedContext();
 
-    await getOwnedEstimateVersion(context, versionId);
+    await getVersionAccessOrThrow(context.supabase, versionId, context, OUTLIER_VERSION_ACCESS);
 
     return ok({
       dismissed_by_item_id: await loadDismissedByItemId({
@@ -127,7 +135,9 @@ export async function POST(
     const body = toggleDismissSchema.parse(await parseJsonBody(request, badRequest));
     const context = await getAuthenticatedContext();
 
-    const { version } = await getOwnedEstimateVersion(context, versionId);
+    const { version } = await getVersionAccessOrThrow<{ status: EstimateStatus }>(
+      context.supabase, versionId, context, OUTLIER_VERSION_ACCESS
+    );
 
     if (version.status !== "draft") {
       throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
