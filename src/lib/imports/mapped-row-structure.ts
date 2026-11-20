@@ -1,3 +1,4 @@
+import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
 import { isWorkbookParameterRow } from "@/lib/imports/optima-profile";
 import {
   EMPTY_CELL_SENTINELS,
@@ -19,7 +20,7 @@ export function isEmptyMappedCell(value: unknown) {
   return value == null || (typeof value === "string" && EMPTY_CELL_SENTINELS.has(value.trim().toLowerCase()));
 }
 
-/** Record the import's structural decisions at mapping time, before any price or labour validation. */
+/** Classify rows for the preview using the confirmed decisions, independently of price or labour validation. */
 export function classifyMappedRows(
   rows: ImportStructureRow[],
   decisions: ImportStructureDecision[],
@@ -29,6 +30,12 @@ export function classifyMappedRows(
   const candidates = new Set(structure.preview.candidates.map(({ row_index }) => row_index));
   const explicit = new Set(decisions.map(({ rowIndex }) => rowIndex));
   const sourceByTarget = new Map(Object.entries(columnMapping).map(([source, target]) => [target, source]));
+
+  const matchesHeader = (value: unknown, field: string) => {
+    const column = sourceByTarget.get(field);
+    return typeof value === "string" && value.trim() !== "" && column !== undefined &&
+      normalizeHeaderValue(value, 0) === normalizeHeaderValue(column, 0);
+  };
 
   return new Map(rows.map((row) => {
     const decision = structure.decisionsByRowIndex.get(row.rowIndex);
@@ -42,13 +49,9 @@ export function classifyMappedRows(
     if (structure.footerRowIndexes.has(row.rowIndex) || footerInReference) classification = { kind: "footer" };
     else if (decision?.kind === "ignore") classification = { kind: "ignore" };
     else if (isWorkbookParameterRow(row.mappedRow, title)) classification = { kind: "parameters" };
-    else if (decision?.kind === "section") classification = { kind: "section", level: decision.level };
-    else if (
-      typeof designation === "string" && designation.trim() === sourceByTarget.get("designation") &&
-      ((typeof unit === "string" && unit.trim() === sourceByTarget.get("unit")) ||
-        (typeof quantity === "string" && quantity.trim() === sourceByTarget.get("quantity"))) &&
-      !explicit.has(row.rowIndex)
-    ) classification = { kind: "header" };
+    else if (matchesHeader(designation, "designation") && (matchesHeader(unit, "unit") || matchesHeader(quantity, "quantity"))) {
+      classification = { kind: "header" };
+    } else if (decision?.kind === "section") classification = { kind: "section", level: decision.level };
     else if (!title) classification = { kind: "empty" };
     else if (
       candidates.has(row.rowIndex) && !explicit.has(row.rowIndex) &&

@@ -195,6 +195,7 @@ function createSupabaseStub(input: {
   projectBuilder?: ReturnType<typeof createProjectSelectBuilder>;
   latestMappingBuilder?: ReturnType<typeof createLatestMappingBuilder>;
   mappedRowsBuilder?: ReturnType<typeof createMappedRowsBuilder>;
+  mappedRowsUpdateBuilder?: unknown;
   versionContextBuilder?: ReturnType<typeof createVersionContextBuilder>;
   calcPolicyBuilder?: ReturnType<typeof createCalcPolicyBuilder>;
   rpcResult?: {
@@ -207,7 +208,7 @@ function createSupabaseStub(input: {
     dpgf_imports: input.importBuilder ? [input.importBuilder] : [],
     estimate_projects: input.projectBuilder ? [input.projectBuilder] : [],
     dpgf_mappings: input.latestMappingBuilder ? [input.latestMappingBuilder] : [],
-    dpgf_rows_mapped: input.mappedRowsBuilder ? [input.mappedRowsBuilder] : [],
+    dpgf_rows_mapped: [input.mappedRowsBuilder, input.mappedRowsUpdateBuilder].filter(Boolean),
     estimate_versions: input.versionContextBuilder ? [input.versionContextBuilder] : [],
     tenant_calc_policies: [input.calcPolicyBuilder ?? createCalcPolicyBuilder()],
   };
@@ -377,6 +378,48 @@ describe("confirmUnifiedImportFlow", () => {
       linkedJobs: 0,
       unlinkedJobs: 0,
     });
+  });
+
+  it("records a new ignore decision when confirmation reuses the existing mapping", async () => {
+    const payload = {
+      row_index: 0,
+      raw_row: { Designation: "Option lavabo", _timax_structure: {
+        sheet_name: "DPGF", source_row_number: 4, bold_columns: ["Designation"], merged_columns: [],
+        outline_level: 1, column_order: ["Designation"],
+      } },
+      mapped_row: { designation: "Option lavabo", unit: "u", quantity: 2 },
+      _timax_mapped_structure: { mapping_id: "mapping-latest", classification: { kind: "section", level: 1 } },
+    };
+    const writer = {
+      update: vi.fn(() => writer), eq: vi.fn(() => writer),
+      select: vi.fn(() => writer), maybeSingle: vi.fn().mockResolvedValue({ data: { id: "mapped-1" }, error: null }),
+    };
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(PROJECT_ID),
+      projectBuilder: createProjectSelectBuilder(),
+      latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
+      mappedRowsBuilder: createMappedRowsBuilder([
+        { id: "mapped-1", payload, raw: { id: "raw-1", import_id: IMPORT_ID, tenant_id: TENANT_ID } },
+      ]),
+      mappedRowsUpdateBuilder: writer,
+      versionContextBuilder: createVersionContextBuilder(),
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(confirmUnifiedImportFlow({
+      importId: IMPORT_ID, projectId: PROJECT_ID, createEstimate: false,
+      structurePlan: { decisions: [{ rowIndex: 0, kind: "ignore", level: null }] },
+    })).resolves.toMatchObject({ mappingId: "mapping-latest" });
+
+    expect(createMapping).not.toHaveBeenCalled();
+    expect(writer.update).toHaveBeenCalledWith({ payload: expect.objectContaining({
+      mapped_row: payload.mapped_row,
+      _timax_confirmed_structure: expect.objectContaining({
+        mapping_id: "mapping-latest", classifications: [{ kind: "ignore" }],
+      }),
+    }) });
+    expect(writer.eq.mock.calls).toEqual(expect.arrayContaining([["id", "mapped-1"], ["import_id", IMPORT_ID], ["tenant_id", TENANT_ID]]));
   });
 
   it("rejects import linked to another project", async () => {

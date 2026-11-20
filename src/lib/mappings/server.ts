@@ -17,8 +17,8 @@ import {
   readImportRowStructure,
 } from "@/lib/imports/payload";
 import { detectImportProfile } from "@/lib/imports/optima-profile";
-import { analyzeImportStructure, type ImportStructureDecision } from "@/lib/imports/structure";
-import { classifyMappedRows, MAPPED_ROW_STRUCTURE_KEY } from "@/lib/imports/mapped-row-structure";
+import { analyzeImportStructure } from "@/lib/imports/structure";
+import { MAPPED_ROW_STRUCTURE_KEY } from "@/lib/imports/mapped-row-structure";
 import {
   isMajorationHeaderWords,
   readMajorationUnitSuffix,
@@ -1766,7 +1766,6 @@ export async function createMapping(input: {
   save_template: boolean;
   template_name?: string | null;
   supplier_name?: string | null;
-  structureDecisions?: ImportStructureDecision[];
 }) {
   const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
   await ensureImportAccess(supabase, input.import_id, {
@@ -1835,14 +1834,6 @@ export async function createMapping(input: {
     return { id: row.id, rowIndex: row.row_index, rawRow, mappedRow: applyMappingToPayload(rawRow, scopedMapping) };
   });
 
-  let classifications: ReturnType<typeof classifyMappedRows> | null = null;
-  try {
-    classifications = classifyMappedRows(mappedRows, input.structureDecisions ?? [], scopedMapping);
-  } catch {
-    // The unified confirmation still owns validation and reports invalid structure decisions.
-    // A mapping written before that failure has no usable structural provenance.
-  }
-
   // T-10: Build mapped rows, then delete+insert with safety
   const mappedRowsPayload: MappedRowInsert[] = mappedRows.map((row) => {
     const { rawRow, mappedRow } = row;
@@ -1861,10 +1852,7 @@ export async function createMapping(input: {
       payload: {
         raw_row_id: row.id,
         row_index: row.rowIndex,
-        [MAPPED_ROW_STRUCTURE_KEY]: {
-          mapping_id: data.id,
-          classification: classifications?.get(row.id) ?? null,
-        },
+        [MAPPED_ROW_STRUCTURE_KEY]: { mapping_id: data.id },
         raw_row: rawRowJson,
         mapped_row: mappedRowJson,
         ...mappedRowJson,

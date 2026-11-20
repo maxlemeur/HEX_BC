@@ -2,7 +2,7 @@ import "server-only";
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { mapSupabaseError } from "@/lib/http/api-response";
-import { classifyMappedRows, type MappedRowClassification } from "@/lib/imports/mapped-row-structure";
+import { readConfirmedMappedStructure } from "@/lib/imports/confirmed-mapped-structure";
 import { IMPORT_ROW_STRUCTURE_KEY, readImportRowStructure } from "@/lib/imports/payload";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { asRecord, toNonEmptyString } from "@/lib/value-guards";
@@ -12,38 +12,25 @@ import { createPosteRevision, type PosteRevision } from "./poste-list";
 
 export type PosteListPreview =
   | { kind: "template"; revision: PosteRevision }
-  | { kind: "dpgf"; filename: string; revision: PosteRevision; projection: DpgfPosteProjection }
-  | { kind: "prepare"; projection?: DpgfPosteProjection }
-  | { kind: "choose" | "unavailable" };
+  | { kind: "dpgf"; filename: string; sourceFormat: string; revision: PosteRevision; projection: DpgfPosteProjection; limitedVisibility?: true }
+  | { kind: "prepare"; projection?: DpgfPosteProjection; sourceFormat?: string; limitedVisibility?: true }
+  | { kind: "choose" | "limited" | "unavailable" };
 
 function sourceInteger(value: unknown, minimum: number) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum ? value : null;
-}
-
-function classificationOf(value: unknown): MappedRowClassification | null {
-  const classification = asRecord(value);
-  switch (classification?.kind) {
-    case "section": return classification.level === 1 || classification.level === 2
-      ? { kind: "section", level: classification.level }
-      : null;
-    case "line": case "ignore": case "footer": case "parameters": case "ambiguous": case "empty": case "header":
-      return { kind: classification.kind };
-    default: return null;
-  }
 }
 
 export async function loadPosteListPreview(projectId: string): Promise<PosteListPreview> {
   const { project, context } = await requireAffaireAccess(projectId, "read");
   const { supabase, tenantId } = context;
   const scope = { tenantId, projectId: project.id };
-  // The ingestion policies grant DPGF reads to owners and administrators. A reader
-  // outside that audience cannot tell an unseen DPGF apart from an absent one.
-  if (context.userId !== project.user_id && context.tenantRole !== "admin") {
-    return { kind: "unavailable" };
-  }
+  // RLS lets administrators see every linked import. An affaire owner with
+  // another role can see only their own imports, even on their own affaire.
+  const visibility = context.tenantRole === "admin" ? {} : { limitedVisibility: true as const };
+  if (context.userId !== project.user_id && visibility.limitedVisibility) return { kind: "limited" };
 
   const [imports, documents] = await Promise.all([
-    supabase.from("dpgf_imports").select("id, filename, status, row_count")
+    supabase.from("dpgf_imports").select("id, filename, source_format, status, row_count")
       .eq("tenant_id", tenantId).eq("project_id", project.id).order("id").limit(2),
     supabase.from("affaire_intake_documents").select("id")
       .eq("tenant_id", tenantId).eq("project_id", project.id)
@@ -56,22 +43,27 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
 
   const source = imports.data[0];
   const document = documents.data[0];
+  const prepare = (projection?: DpgfPosteProjection): PosteListPreview => ({
+    kind: "prepare", ...visibility, ...(projection ? { projection, sourceFormat: source?.source_format } : {}),
+  });
   if (!source) {
-    return document ? { kind: "prepare" } : {
+    if (document) return prepare();
+    if (visibility.limitedVisibility) return { kind: "limited" };
+    return {
       kind: "template", revision: createPosteRevision(scope, templatePosteDrafts(PLUMBING_TEMPLATE)),
     };
   }
-  if (source.status !== "completed" || source.row_count === 0) return { kind: "prepare" };
+  if (source.status !== "completed" || source.row_count === 0) return prepare();
 
   const recentMappings = () => supabase.from("dpgf_mappings")
-    .select("id, status, created_at, updated_at, column_mapping")
+    .select("id, status, created_at, updated_at")
     .eq("tenant_id", tenantId).eq("import_id", source.id)
     .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(2)
     .abortSignal(new AbortController().signal);
   const mappings = await recentMappings();
   if (mappings.error) throw mapSupabaseError(mappings.error, "Impossible de charger les correspondances DPGF.");
   const [mapping] = mappings.data;
-  if (mapping?.status !== "validated") return { kind: "prepare" };
+  if (mapping?.status !== "validated") return prepare();
 
   // Read only row identity, source location and mapped measurement fields. This uses
   // the existing persisted mapping, including pre-existing payloads with flat fields.
@@ -80,7 +72,7 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
       .select("id, row_index, structure:payload->_timax_structure, provenance:payload->_timax_provenance", { count: "exact" })
       .eq("tenant_id", tenantId).eq("import_id", source.id).order("row_index")),
     readAllRows(() => supabase.from("dpgf_rows_mapped")
-      .select(`id, raw_row_id, stamp:payload->_timax_mapped_structure,
+      .select(`id, raw_row_id, receipt:payload->_timax_confirmed_structure,
         designation:payload->mapped_row->designation, reference:payload->mapped_row->reference,
         hex_code:payload->mapped_row->hex_code, unit:payload->mapped_row->unit,
         quantity:payload->mapped_row->quantity, notes:payload->mapped_row->notes,
@@ -97,7 +89,7 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
   if (currentMappings.error) throw mapSupabaseError(currentMappings.error, "Impossible de vérifier la génération DPGF.");
   const [currentMapping] = currentMappings.data;
   if (currentMapping?.id !== mapping.id || currentMapping.updated_at !== mapping.updated_at ||
-    raw.data?.length !== source.row_count || !mapped.data?.length) return { kind: "prepare" };
+    raw.data?.length !== source.row_count || !mapped.data?.length) return prepare();
 
   const rawRows = raw.data.map((row) => {
     const structure = readImportRowStructure({ [IMPORT_ROW_STRUCTURE_KEY]: row.structure });
@@ -113,7 +105,7 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
     };
   });
   if (rawRows.some(({ documentId }) => documentId !== (document?.id ?? null))) {
-    return { kind: "prepare" };
+    return prepare();
   }
 
   const mappedRows = mapped.data.map((row) => ({
@@ -125,41 +117,24 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
     unit: row.unit ?? row.flat_unit,
     quantity: row.quantity ?? row.flat_quantity,
     notes: row.notes ?? row.flat_notes,
-    stamp: asRecord(row.stamp),
+    receipt: row.receipt,
   }));
 
-  const isLegacy = mappedRows.every(({ stamp }) => !stamp);
-  // Legacy mappings were written in separate requests. Timestamps alone cannot
-  // match unstamped rows to a generation when two mappings could have overlapped.
-  if (isLegacy && (mappings.data.length !== 1 || currentMappings.data.length !== 1)) return { kind: "prepare" };
-  if (!isLegacy && mappedRows.some(({ stamp }) =>
-    stamp?.mapping_id !== mapping.id || !classificationOf(stamp.classification))) return { kind: "prepare" };
-
-  // Historic mappings have no record of structural overrides. Reconstruct a read-only
-  // preview with the quantitative and structural fields available in that generation.
-  const columns = asRecord(mapping.column_mapping) ?? {};
-  const legacyByRawId = new Map(raw.data.map((row) => [row.id, row]));
-  const legacy = isLegacy ? classifyMappedRows(mappedRows.flatMap((mappedRow) => {
-    const row = legacyByRawId.get(mappedRow.rawRowId ?? "");
-    if (!row) return [];
-    const rawRow = Object.fromEntries(Object.entries(columns).flatMap(([source, target]) =>
-      target === "designation" || target === "reference" || target === "hex_code"
-        ? [[source, mappedRow[target]]]
-        : []));
-    // A historic titled row with a quantity is a better line candidate than a bold heading.
-    if (mappedRow.quantity == null || mappedRow.quantity === "") rawRow[IMPORT_ROW_STRUCTURE_KEY] = row.structure;
-    return [{ id: mappedRow.id, rowIndex: row.row_index, rawRow, mappedRow }];
-  }), [], columns) : null;
+  const classifications = readConfirmedMappedStructure(mappedRows, mapping.id);
+  if (!classifications) return prepare();
 
   const projection = projectDpgfPostes({
     importId: source.id, mappingId: mapping.id, rawRows,
     mappedRows: mappedRows.map((row) => ({
-      ...row, classification: legacy?.get(row.id) ?? classificationOf(row.stamp?.classification),
+      ...row, classification: classifications.get(row.id) ?? null,
     })),
   });
   if (mappedRows.length !== rawRows.length || projection.counts.missing || projection.counts.orphaned ||
     !projection.items.length) {
-    return { kind: "prepare", projection };
+    return prepare(projection);
   }
-  return { kind: "dpgf", filename: source.filename, revision: createPosteRevision(scope, projection.items), projection };
+  return {
+    kind: "dpgf", filename: source.filename, sourceFormat: source.source_format,
+    revision: createPosteRevision(scope, projection.items), projection, ...visibility,
+  };
 }

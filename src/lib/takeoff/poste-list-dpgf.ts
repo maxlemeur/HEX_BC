@@ -24,6 +24,9 @@ type RowIssue = {
   rawRowId: string | null;
   mappedRowId: string | null;
   rowIndex: number | null;
+  sheetName?: string | null;
+  sourceRowNumber?: number | null;
+  sourcePage?: number | null;
   reason: "missing_mapping" | "multiple_mappings" | "unattested_mapping" | "invalid_quantity" |
     "ambiguous" | "section" | "ignore" | "footer" | "parameters" | "empty" | "header";
   title?: string;
@@ -67,7 +70,10 @@ export function projectDpgfPostes(input: {
   for (const { id: rawRowId, ...source } of sorted) {
     const matches = mappedByRawId.get(rawRowId) ?? [];
     const row = matches.length === 1 ? matches[0] : null;
-    const issue = { rawRowId, mappedRowId: row?.id ?? null, rowIndex: source.rowIndex };
+    const issue = {
+      rawRowId, mappedRowId: row?.id ?? null, rowIndex: source.rowIndex,
+      sheetName: source.sheetName, sourceRowNumber: source.sourceRowNumber, sourcePage: source.sourcePage,
+    };
     if (!row) {
       if (matches.length) {
         counts.ambiguous++;
@@ -92,7 +98,10 @@ export function projectDpgfPostes(input: {
     }
     if (classification.kind !== "line" || !title) {
       counts.omitted++;
-      issues.push({ ...issue, reason: classification.kind === "line" ? "empty" : classification.kind, title });
+      issues.push({
+        ...issue, reason: classification.kind === "line" ? "empty" : classification.kind,
+        ...(classification.kind === "footer" ? {} : { title }),
+      });
       continue;
     }
 

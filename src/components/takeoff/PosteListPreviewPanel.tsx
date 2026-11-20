@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { JourneyPanel } from "@/components/journey/JourneyPage";
 import { loadPosteListPreview } from "@/lib/takeoff/poste-list-preview-server";
-import type { DpgfPosteOrigin } from "@/lib/takeoff/poste-list";
 
 const PAGE_SIZE = 25;
 const ISSUE_LABELS = {
@@ -21,10 +20,17 @@ const ISSUE_LABELS = {
 const referenceFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 6 });
 type Query = Record<string, string | string[] | undefined>;
 
-function sourceLocation(origin: DpgfPosteOrigin) {
+function sourceLocation(origin: {
+  rowIndex: number | null;
+  sourceRowNumber?: number | null;
+  sourcePage?: number | null;
+  sheetName?: string | null;
+  reference?: string | null;
+}, csv: boolean) {
   const line = origin.sourceRowNumber
-    ? `Ligne ${origin.sourceRowNumber}`
-    : `Ligne importée ${origin.rowIndex + 1}`;
+    ? `${csv ? "Enregistrement" : "Ligne"} ${origin.sourceRowNumber}`
+    : origin.rowIndex === null ? "Ligne mappée"
+      : `${csv ? "Enregistrement importé" : "Ligne importée"} ${origin.rowIndex + 1}`;
   return [
     origin.sheetName,
     origin.sourcePage ? `Page ${origin.sourcePage}` : null,
@@ -35,6 +41,8 @@ function sourceLocation(origin: DpgfPosteOrigin) {
 
 export async function PosteListPreviewPanel({ projectId, query }: { projectId: string; query: Query }) {
   const preview = await loadPosteListPreview(projectId).catch(() => ({ kind: "unavailable" } as const));
+  const csv = "sourceFormat" in preview && preview.sourceFormat === "csv";
+  const limited = preview.kind === "limited" || ("limitedVisibility" in preview && preview.limitedVisibility);
   const ready = preview.kind === "template" || preview.kind === "dpgf";
   const projection = preview.kind === "dpgf" || preview.kind === "prepare" ? preview.projection : undefined;
   const items = ready ? preview.revision.items : [];
@@ -61,6 +69,9 @@ export async function PosteListPreviewPanel({ projectId, query }: { projectId: s
             {preview.kind === "choose" ? "Plusieurs sources DPGF dans cette affaire." : "DPGF à préparer."}{" "}
             <Link href={affaireHref} className="underline">Ouvrir le dossier de l’affaire</Link>
           </p>
+        )}
+        {limited && (
+          <p className="text-sm">Cet aperçu est indicatif. Un DPGF peut exister sans être visible par votre compte.</p>
         )}
         {preview.kind === "unavailable" && <p className="text-sm">L’aperçu des postes est indisponible.</p>}
         {projection && (
@@ -93,7 +104,7 @@ export async function PosteListPreviewPanel({ projectId, query }: { projectId: s
                     <td className="px-2 py-2">{item.expectedUnit ?? "À préciser"}</td>
                     {item.origin.kind === "dpgf" && <>
                       <td className="px-2 py-2">{item.referenceQuantity === null ? "—" : referenceFormat.format(item.referenceQuantity)}</td>
-                      <td className="px-2 py-2">{sourceLocation(item.origin)}</td>
+                      <td className="px-2 py-2">{sourceLocation(item.origin, csv)}</td>
                     </>}
                   </tr>
                 ))}
@@ -107,7 +118,7 @@ export async function PosteListPreviewPanel({ projectId, query }: { projectId: s
             <ul className="list-disc space-y-1 pl-6 pt-2 text-sm">
               {projection.issues.slice(Math.max(0, start - items.length), end - items.length).map((issue) => (
                 <li key={`${issue.rawRowId}:${issue.mappedRowId}:${issue.reason}`}>
-                  {issue.title || (issue.rowIndex === null ? "Ligne mappée" : `Ligne importée ${issue.rowIndex + 1}`)}
+                  {issue.reason === "footer" ? sourceLocation(issue, csv) : issue.title || sourceLocation(issue, csv)}
                   {" · "}{ISSUE_LABELS[issue.reason]}
                 </li>
               ))}

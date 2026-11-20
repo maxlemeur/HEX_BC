@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { normalizeRowsFromJson } from "@/lib/imports/parser";
 import { classifyMappedRows, type MappedRowClassification } from "@/lib/imports/mapped-row-structure";
 
 import { projectDpgfPostes, type MappedDpgfPosteRow } from "./poste-list-dpgf";
@@ -21,6 +22,45 @@ describe("DPGF item projection", () => {
     expect([...classifications.values()]).toEqual([
       { kind: "section", level: 1 }, { kind: "line" }, { kind: "ignore" }, { kind: "footer" },
     ]);
+  });
+
+  it("reports the location and reason of a shifted PDF subtotal without exposing its amount", () => {
+    const row = { designation: "55,75", hex_code: "Sous-total" };
+    const classes = classifyMappedRows([{ id: "m1", rowIndex: 6, rawRow: {}, mappedRow: row }], [], {});
+    const projected = projectDpgfPostes({
+      importId: "import", mappingId: "mapping",
+      rawRows: [{ id: "r1", rowIndex: 6, sourcePage: 2, tableIndex: 0, sheetName: null, sourceRowNumber: null, documentId: null }],
+      mappedRows: [{ ...row, id: "m1", rawRowId: "r1", classification: classes.get("m1")! }],
+    });
+
+    expect(projected.items).toEqual([]);
+    expect(JSON.stringify(projected)).not.toMatch(/55,75|Sous-total/);
+    expect(projected.issues[0]).toMatchObject({ reason: "footer", rowIndex: 6, sourcePage: 2 });
+  });
+
+  it("omits a repeated accented French header after import normalisation", () => {
+    const source = normalizeRowsFromJson([
+      { Désignation: "Lavabo", Unité: "u", Quantité: "2" },
+      { Désignation: "Désignation", Unité: "Unité", Quantité: "Quantité" },
+    ]);
+    const mapping = { Designation: "designation", Unite: "unit", Quantite: "quantity" };
+    const rows = source.map((rawRow, rowIndex) => ({
+      id: String(rowIndex), rowIndex, rawRow,
+      mappedRow: Object.fromEntries(Object.entries(mapping).map(([column, target]) => [target, rawRow[column]])),
+    }));
+    const decisions = classifyMappedRows(rows, [], mapping);
+    const projected = projectDpgfPostes({
+      importId: "import", mappingId: "mapping",
+      rawRows: rows.map(({ id, rowIndex }) => ({
+        id, rowIndex, sheetName: null, sourceRowNumber: null, sourcePage: null, tableIndex: null, documentId: null,
+      })),
+      mappedRows: rows.map(({ id, mappedRow }) => ({
+        id: `mapped-${id}`, rawRowId: id, classification: decisions.get(id)!, ...mappedRow,
+      })),
+    });
+
+    expect(projected.items.map(({ label }) => label)).toEqual(["Lavabo"]);
+    expect(projected.issues.map(({ reason }) => reason)).toEqual(["header"]);
   });
 
   it("accounts for each raw line in physical order and preserves both homonyms", () => {

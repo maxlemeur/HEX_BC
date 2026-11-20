@@ -141,7 +141,8 @@ describe("Aperçu des postes à mesurer", () => {
       const homonyms = table.getByRole("row").filter({ hasText: "Lavabo en céramique" });
       await expect(homonyms).toHaveCount(2);
       const sourceLocations = format === "pdf" ? ["Page 1", "Page 2"]
-        : format === "xlsx" ? ["Ligne 5", "Ligne 7"] : ["Ligne 3", "Ligne 5"];
+        : format === "csv" ? ["Enregistrement 3", "Enregistrement 5"]
+          : format === "xlsx" ? ["Ligne 5", "Ligne 7"] : ["Ligne 3", "Ligne 5"];
       await expect(homonyms.nth(0)).toContainText(sourceLocations[0]);
       await expect(homonyms.nth(1)).toContainText(sourceLocations[1]);
       await expect(homonyms.nth(0).getByRole("cell", "2", { exact: true })).toBeVisible();
@@ -153,6 +154,11 @@ describe("Aperçu des postes à mesurer", () => {
           .getByRole("cell", "—", { exact: true })).toBeVisible();
       }
       await expect(table.getByRole("row").filter({ hasText: /Sous-total|55,75/ })).toHaveCount(0);
+      if (format === "pdf") {
+        await screen.getByText("Détail de la lecture des lignes sources", { exact: true }).click();
+        await expect(screen.getByText(/55,75|Sous-total/)).toHaveCount(0);
+        await expect(screen.getByText(/Page 2.*Total ou pied de tableau/)).toBeVisible();
+      }
       if (format === "xlsx") await expect(homonyms.nth(0)).toContainText("DPGF");
 
       const ids = [await homonyms.nth(0).getAttribute("id"), await homonyms.nth(1).getAttribute("id")];

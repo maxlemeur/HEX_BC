@@ -21,7 +21,8 @@ import {
   DEFAULT_TAX_RATE_BP,
   assertProjectAccessOrThrow,
   ensureImportProjectLink,
-  fetchLatestMappingId,
+  fetchLatestMapping,
+  recordConfirmedMappedStructure,
   fetchMappedRowsForImport,
   fetchProjectOwnerLaborRoles,
   fetchVersionComputationContext,
@@ -324,26 +325,26 @@ export async function confirmUnifiedImportFlow(
   }
 
   const normalizedMapping = mappingRecordSchema.parse(parsed.data.mapping ?? {});
-  let mappingId: string | null = null;
+  let selectedMapping: Awaited<ReturnType<typeof fetchLatestMapping>> = null;
 
   if (Object.keys(normalizedMapping).length > 0) {
     const createMappingResult = await createMapping({
       import_id: parsed.data.importId,
       mapping: normalizedMapping,
       save_template: false,
-      ...(parsed.data.structurePlan ? { structureDecisions: parsed.data.structurePlan.decisions } : {}),
     });
-    mappingId = createMappingResult.mapping.id;
+    selectedMapping = createMappingResult.mapping;
   }
 
-  if (!mappingId) {
-    mappingId = await fetchLatestMappingId({
+  if (!selectedMapping) {
+    selectedMapping = await fetchLatestMapping({
       supabase,
       importId: parsed.data.importId,
       tenantId: membership.tenant_id,
     });
   }
 
+  const mappingId = selectedMapping?.id ?? null;
   const effectiveProjectId = requestedProjectId ?? importRow.project_id ?? null;
   const mappedRows = await fetchMappedRowsForImport({
     supabase,
@@ -426,7 +427,13 @@ export async function confirmUnifiedImportFlow(
     throw new Error("Aucune ligne valide à inserer pour créer le chiffrage.");
   }
 
+  const recordStructure = () => selectedMapping && recordConfirmedMappedStructure({
+    supabase, tenantId: membership.tenant_id, importId: parsed.data.importId,
+    mapping: selectedMapping, rows: mappedRows, decisions: normalizationOptions.structureDecisions,
+  });
+
   if (!parsed.data.createEstimate) {
+    await recordStructure();
     const stats = buildImportFlowStats(normalizedRows, 0);
     revalidateImportFlowPaths(effectiveProjectId, null);
 
@@ -488,6 +495,14 @@ export async function confirmUnifiedImportFlow(
     throw new Error("Impossible de créer la version depuis l'import.", {
       cause: error,
     });
+  }
+
+  // The estimate is already committed. A receipt failure must not make this
+  // action report that the estimate failed and invite a duplicate submission.
+  try {
+    await recordStructure();
+  } catch {
+    console.warn("DPGF structure receipt unavailable after estimate creation", { importId: parsed.data.importId, mappingId });
   }
 
   let takeoffCarryOver: TakeoffCarryOverStatus | null =

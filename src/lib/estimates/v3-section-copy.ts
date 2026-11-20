@@ -210,11 +210,23 @@ export async function commitV3Copy(input: {
 }): Promise<EstimateBatchCommittedResult> {
   const { operations, createdIds, titles } = input.plan;
   const operationBytes = jsonbTextBytes(operations);
-  // La provenance voyage dans la requête de l'écrivain (identités de création), bornée comme un corps de lot (1 Mio).
-  const metadataBytes = Buffer.byteLength(JSON.stringify(createdIds.map((entry) => entry.source_metadata ?? null)), "utf8");
-  if (operations.length > ESTIMATE_V3_COPY_MAX_OPERATIONS || operationBytes > ESTIMATE_BATCH_MAX_BODY_BYTES - 4096 ||
-    metadataBytes > ESTIMATE_BATCH_MAX_BODY_BYTES) {
+  if (operations.length > ESTIMATE_V3_COPY_MAX_OPERATIONS || operationBytes > ESTIMATE_BATCH_MAX_BODY_BYTES - 4096) {
     throw tooLarge(operations.length);
+  }
+  const metadataBytes = (identities: readonly EstimateBatchCreatedId[]) =>
+    Buffer.byteLength(JSON.stringify(identities.map((entry) => entry.source_metadata ?? null)), "utf8");
+  let writerIds = createdIds;
+  if (metadataBytes(createdIds) > ESTIMATE_BATCH_MAX_BODY_BYTES) {
+    // Keep the original bound and import behaviour. The mapped row still carries
+    // its raw identity when the optional copy would consume the remaining budget.
+    writerIds = createdIds.map((entry) => {
+      if (typeof entry.source_metadata?.mapped_row_id !== "string" ||
+        typeof entry.source_metadata.raw_row_id !== "string") return entry;
+      const metadata = { ...entry.source_metadata };
+      delete metadata.raw_row_id;
+      return { ...entry, source_metadata: metadata };
+    });
+    if (metadataBytes(writerIds) > ESTIMATE_BATCH_MAX_BODY_BYTES) throw tooLarge(operations.length);
   }
   operations.forEach((operation, index) => {
     const parsed = batchOperationSchema.safeParse(operation);
@@ -231,7 +243,7 @@ export async function commitV3Copy(input: {
   // Le reçu (2 Mio, sans la provenance) n'est connu qu'à l'écriture : 1 000 lignes y tiennent avec des libellés
   // d'environ 85 caractères au plus. Au-delà, la base refuse le lot par son nom, rien n'est écrit : même refus nommé.
   const result = await executeEstimateBatch(input.versionId, operations, {
-    concurrencyToken: input.updatedAt, operationKey: randomUUID(), maxOperations: ESTIMATE_V3_COPY_MAX_OPERATIONS, createdIds,
+    concurrencyToken: input.updatedAt, operationKey: randomUUID(), maxOperations: ESTIMATE_V3_COPY_MAX_OPERATIONS, createdIds: writerIds,
     targetItems: input.targetItems,
   }).catch((error: unknown) => {
     if (error instanceof ApiError && error.code === "ESTIMATE_BATCH_RECEIPT_TOO_LARGE") throw tooLarge(operations.length);

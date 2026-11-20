@@ -11,19 +11,23 @@ La page **Métrés** affiche les postes d’une affaire sans devis. Elle reprend
 liée et ses correspondances validées, dans l’ordre des lignes importées. Une
 prestation sans quantité de référence reste visible. La quantité de la DPGF est
 une référence documentaire. La feuille, la ligne ou la page d’origine apparaissent
-lorsqu’elles sont connues. Les sections, totaux et lignes écartées figurent dans
-le détail de lecture, avec les lignes ambiguës ou sans correspondance.
+lorsqu’elles sont connues. Un CSV indique la position de l’enregistrement. Le
+détail de lecture signale les lignes ambiguës ou sans correspondance. Pour les
+totaux et pieds de tableau, il indique leur emplacement et le motif d’exclusion.
 
 Une pièce DPGF à préparer ou plusieurs sources liées renvoient au dossier pour
-résolution. Sans DPGF, l’aperçu propose un gabarit indicatif de plomberie couvrant
-les réseaux, les appareils sanitaires, la robinetterie et le calorifuge. Les
-droits de lecture de l’import s’appliquent à cet aperçu.
+résolution. Quand les droits du compte permettent de vérifier l’absence de DPGF,
+l’aperçu propose un gabarit indicatif de plomberie couvrant les réseaux, les
+appareils sanitaires, la robinetterie et le calorifuge. Si un DPGF peut échapper
+aux droits de lecture du compte, l’aperçu l’indique et le gabarit n’est pas proposé.
 
 Une ligne brute appartient à un seul poste de l’affaire. Deux lignes homonymes
 restent distinctes. Refaire le mapping d’une ligne brute conserve son identité.
-Une correspondance entre deux imports demande une décision explicite. Un
-ancien mapping unique permet un aperçu à partir des données conservées. Les choix
-de structure sont rattachés aux lignes pour les nouvelles confirmations.
+Une correspondance entre deux imports demande une décision explicite. Elle reste
+valable si le poste disparaît d’une révision puis revient. Chaque confirmation,
+y compris lors de la réutilisation du mapping, rattache les choix de structure à
+l’ensemble précis des lignes mappées. Un mapping aux choix de structure non
+attestés nécessite une nouvelle préparation.
 
 La consultation est en lecture seule. Le gabarit et les aperçus ne lancent aucune
 analyse et ne créent aucun devis.

@@ -64,6 +64,8 @@ export type PosteRevision = Readonly<{
   revision: number;
   digest: string;
   items: readonly Poste[];
+  /** Accepted source aliases, including those whose items are absent in this revision. */
+  acceptedSources?: Readonly<Record<string, string>>;
 }>;
 
 type Continuity = Readonly<{ previousItemId: string; nextItemId: string }>;
@@ -112,10 +114,14 @@ export function createPosteRevision(
   if (previous) assertSameScope(scope, previous.scope);
   const previousIds = new Set(previous?.items.map(({ id }) => id));
   const previousBySource = new Map(previous?.items.map((item) => [sourceKey(item.origin), item.id]));
+  const acceptedSources = new Map(Object.entries(previous?.acceptedSources ?? {}));
   const itemsBySource = new Map<string, Poste>();
   for (const draft of drafts) {
     const key = sourceKey(draft.origin);
-    const item = { ...structuredClone(draft), id: previousBySource.get(key) ?? posteSourceId(scope, draft.origin) };
+    const item = {
+      ...structuredClone(draft),
+      id: acceptedSources.get(key) ?? previousBySource.get(key) ?? posteSourceId(scope, draft.origin),
+    };
     const existing = itemsBySource.get(key);
     if (existing && canonical(existing) !== canonical(item)) {
       throw new Error("Une origine de poste a plusieurs définitions.");
@@ -141,13 +147,20 @@ export function createPosteRevision(
     assignedPreviousIds.add(previousItemId);
   }
 
-  const resolvedItems = items.map((item) => ({ ...item, id: reassigned.get(item.id) ?? item.id }));
-  const digest = digestPosteFacts({ contract: 1, scope, items: resolvedItems });
+  const resolvedItems = items.map((item) => {
+    const id = reassigned.get(item.id);
+    if (!id) return item;
+    acceptedSources.set(sourceKey(item.origin), id);
+    return { ...item, id };
+  });
+  const aliases = acceptedSources.size ? { acceptedSources: Object.fromEntries(acceptedSources) } : {};
+  const digest = digestPosteFacts({ contract: 1, scope, items: resolvedItems, ...aliases });
   return {
     scope: { ...scope },
     revision: previous ? previous.revision + Number(previous.digest !== digest) : 1,
     digest,
     items: resolvedItems,
+    ...aliases,
   };
 }
 

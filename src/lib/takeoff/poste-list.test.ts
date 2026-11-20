@@ -41,7 +41,12 @@ describe("poste list revisions", () => {
 
     expect(comparePosteRevisions(initial, unlinked).continuities).toEqual([{ ...match, ambiguous: false }]);
     expect(comparePosteRevisions(initial, unlinked).removed).toEqual([initial.items[0]]);
-    expect(createPosteRevision(scope, unlinked.items, initial, [match]).items[0].id).toBe(initial.items[0].id);
+    const accepted = createPosteRevision(scope, unlinked.items, initial, [match]);
+    expect(accepted.items[0].id).toBe(initial.items[0].id);
+    const retired = createPosteRevision(scope, [], accepted);
+    expect(retired.items).toEqual([]);
+    const restored = createPosteRevision(scope, [line("raw-a", "remapped-again", "replacement")], retired);
+    expect(restored.items[0].id).toBe(initial.items[0].id);
     const ambiguous = createPosteRevision(scope, [line("raw-a", "a", "replacement"), line("raw-b", "b", "replacement")], initial);
     expect(comparePosteRevisions(initial, ambiguous).continuities.map((candidate) => candidate.ambiguous)).toEqual([true, true]);
   });
