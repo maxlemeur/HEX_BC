@@ -17,6 +17,7 @@ import {
 
 describe("one Google account with optional writing (Google simulated)", () => {
   let backend: ReturnType<typeof memoryBackend>;
+  let google: ReturnType<typeof fakeDrive>;
   const config = () =>
     driveConfiguration() as Extract<
       ReturnType<typeof driveConfiguration>,
@@ -66,7 +67,8 @@ describe("one Google account with optional writing (Google simulated)", () => {
     );
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:9");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "fixture-role");
-    vi.stubGlobal("fetch", fakeDrive().fetchMock);
+    google = fakeDrive();
+    vi.stubGlobal("fetch", google.fetchMock);
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -130,6 +132,8 @@ describe("one Google account with optional writing (Google simulated)", () => {
     await expect(
       disconnectDriveConnection(backend.access.context, id, old.grantVersion),
     ).rejects.toMatchObject({ status: 409 });
+    // A removal refused for a stale version must not revoke the grant that stays connected.
+    expect(google.revoked).toEqual([]);
     const current = (await listDriveConnections(backend.access.context))[0];
     const generation = await readDriveAuthorizationGeneration(
       backend.access.context,
@@ -139,10 +143,54 @@ describe("one Google account with optional writing (Google simulated)", () => {
       id,
       current.grantVersion,
     );
+    expect(google.revoked).toEqual(["read-refresh"]);
     await expect(save(account, "read", generation)).rejects.toMatchObject({
       code: "DRIVE_AUTHORIZATION_EXPIRED",
     });
     expect(await listDriveConnections(backend.access.context)).toEqual([]);
+    // Google issued this late grant, and no connection keeps the account any more.
+    expect(google.revoked).toEqual(["read-refresh", "read-refresh"]);
+  });
+  it("revokes the read and the write grants of a removed account", async () => {
+    const id = await save();
+    await save(account, "write");
+    const displayed = (await listDriveConnections(backend.access.context))[0];
+    expect(
+      await disconnectDriveConnection(backend.access.context, id, displayed.grantVersion),
+    ).toEqual({ revoked: true, stillUsed: false });
+    expect(google.revoked.toSorted()).toEqual(["read-refresh", "write-refresh"]);
+  });
+  it("revokes a grant the connection refuses, unless its Google account is connected", async () => {
+    const stale = await readDriveAuthorizationGeneration(backend.access.context);
+    await save();
+    // A late return for the connected account: refused, and its grant still serves the connection.
+    await expect(save(account, "read", stale)).rejects.toMatchObject({
+      code: "DRIVE_AUTHORIZATION_EXPIRED",
+    });
+    expect(google.revoked).toEqual([]);
+    const other = { ...account, permissionId: "other_account" };
+    const refuse = async () =>
+      saveDriveConnection(
+        backend.access.context,
+        config(),
+        other,
+        { ...grant, refreshToken: "other-refresh" },
+        {
+          purpose: "read",
+          generation: await readDriveAuthorizationGeneration(backend.access.context),
+        },
+      );
+    backend.rows("google_drive_connections").set("other_tenant_connection", {
+      id: "other_tenant_connection",
+      tenant_id: "another_tenant",
+      user_id: "user_demo",
+      google_account_id: "other_account",
+    });
+    await expect(refuse()).rejects.toMatchObject({ code: "DRIVE_SINGLE_ACCOUNT" });
+    expect(google.revoked).toEqual([]);
+    backend.rows("google_drive_connections").delete("other_tenant_connection");
+    await expect(refuse()).rejects.toMatchObject({ code: "DRIVE_SINGLE_ACCOUNT" });
+    expect(google.revoked).toEqual(["other-refresh"]);
   });
   it("returns to reading when Google revokes the write grant after a read reconnection", async () => {
     const id = await save();

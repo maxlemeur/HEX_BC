@@ -4,11 +4,12 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import type { DriveConnection } from "./contracts";
+import type { DriveConnection, DriveGrantRelease } from "./contracts";
 import { DriveError } from "./errors";
-import { refreshDriveAccess } from "./oauth";
+import { refreshDriveAccess, revokeDriveAccess } from "./oauth";
 import {
   connectionSecretContext,
+  driveConfiguration,
   openDriveSecret,
   sealDriveSecret,
   type DriveConfiguration,
@@ -143,6 +144,16 @@ export async function saveDriveConnection(
       p_generation: authorization.generation,
     },
   );
+  const id = z.string().uuid().safeParse(data);
+  if (error || !id.success)
+    // Google issued this grant, but no connection keeps it.
+    await releaseDriveGrant(
+      {
+        googleAccountId: account.permissionId,
+        refreshTokens: [grant.refreshToken],
+      },
+      { cause: "authorization_refused" },
+    );
   if (error?.message === "GOOGLE_DRIVE_SINGLE_ACCOUNT")
     throw new DriveError(
       409,
@@ -155,7 +166,6 @@ export async function saveDriveConnection(
       "DRIVE_AUTHORIZATION_EXPIRED",
       "Cette autorisation a expiré. Recommencez la connexion.",
     );
-  const id = z.string().uuid().safeParse(data);
   if (error || !id.success)
     throw new DriveError(
       500,
@@ -321,14 +331,20 @@ export function forgetDriveAccess(id: string) {
   for (const key of accessTokens.keys())
     if (key.startsWith(`${id}:`)) accessTokens.delete(key);
 }
-async function mutateConnection(
+async function requireDisplayedConnection(
+  member: DriveMember,
+  id: string,
+  version: string,
+) {
+  const own = await requireOwnDriveConnection(member, id);
+  if (own.grantVersion !== version) throw changed();
+}
+async function changeConnection(
   member: DriveMember,
   id: string,
   version: string,
   operation: "set_google_drive_read_only" | "remove_google_drive_single_connection",
 ) {
-  const own = await requireOwnDriveConnection(member, id);
-  if (own.grantVersion !== version) throw changed();
   const { data, error } = await service().rpc(operation, {
     p_tenant_id: member.tenantId,
     p_user_id: member.userId,
@@ -344,21 +360,135 @@ async function mutateConnection(
   if (data !== true) throw changed();
   forgetDriveAccess(id);
 }
-export const disableDriveWriting = (
+// The write token shares the Google grant of the read token, which stays in use: it is only erased.
+export async function disableDriveWriting(
   member: DriveMember,
   id: string,
   version: string,
-) => mutateConnection(member, id, version, "set_google_drive_read_only");
+) {
+  await requireDisplayedConnection(member, id, version);
+  await changeConnection(member, id, version, "set_google_drive_read_only");
+}
+
+type HeldGrant = { googleAccountId: string; refreshTokens: string[] };
+async function holdDriveGrant(id: string, version: string) {
+  const configuration = driveConfiguration();
+  if (!configuration.enabled) return null;
+  try {
+    const row = await secret(id);
+    if (row.grant_version !== version) return null;
+    const context = connectionSecretContext(
+      row.tenant_id,
+      row.user_id,
+      row.google_account_id,
+    );
+    return {
+      googleAccountId: row.google_account_id,
+      refreshTokens: [
+        row.refresh_token_ciphertext,
+        row.write_refresh_token_ciphertext,
+      ].flatMap((sealed) =>
+        sealed ? [openDriveSecret(configuration.tokenKey, sealed, context)] : [],
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+/**
+ * Google ends a grant for every token of a Google account at once: a released grant is revoked
+ * only when no connection, of any member or tenant, still uses that account. It runs after the
+ * local removal and never throws; a grant left at Google is logged and reported, never its token.
+ */
+async function releaseDriveGrant(
+  held: HeldGrant | null,
+  log: { cause: string; connectionId?: string },
+): Promise<DriveGrantRelease> {
+  const notRevoked = (reasons: string[]) => {
+    console.error("Google Drive grant not revoked", { ...log, reasons });
+    return { revoked: false, stillUsed: false };
+  };
+  if (!held) return notRevoked(["grant_unreadable"]);
+  try {
+    const { data, error } = await service()
+      .from("google_drive_connections")
+      .select("id")
+      .eq("google_account_id", held.googleAccountId)
+      .limit(1);
+    if (error) return notRevoked(["connections_unreadable"]);
+    if (data.length) return { revoked: false, stillUsed: true };
+    const failures = (
+      await Promise.all(held.refreshTokens.map(revokeDriveAccess))
+    ).flatMap((result) => (result.revoked ? [] : [result.reason]));
+    return failures.length
+      ? notRevoked(failures)
+      : { revoked: true, stillUsed: false };
+  } catch {
+    return notRevoked(["unexpected"]);
+  }
+}
+/** The grant is read before the removal deletes it, and released once the removal succeeded. */
+async function removeWithGrant(
+  id: string,
+  version: string,
+  cause: string,
+  remove: () => Promise<void>,
+) {
+  const held = await holdDriveGrant(id, version);
+  await remove();
+  return releaseDriveGrant(held, { cause, connectionId: id });
+}
 export async function disconnectDriveConnection(
   member: DriveMember,
   id: string,
   version: string,
 ) {
-  await mutateConnection(
-    member,
-    id,
-    version,
-    "remove_google_drive_single_connection",
+  await requireDisplayedConnection(member, id, version);
+  return removeWithGrant(id, version, "disconnect", () =>
+    changeConnection(
+      member,
+      id,
+      version,
+      "remove_google_drive_single_connection",
+    ),
   );
-  return { revoked: false, stillUsed: null };
+}
+async function memberConnection(member: { tenantId: string; userId: string }) {
+  try {
+    const { data, error } = await service()
+      .from("google_drive_connections")
+      .select("id,grant_version")
+      .eq("tenant_id", member.tenantId)
+      .eq("user_id", member.userId)
+      .maybeSingle();
+    if (error) return undefined;
+    return z
+      .object({ id: z.string(), grant_version: z.string() })
+      .nullable()
+      .parse(data);
+  } catch {
+    return undefined;
+  }
+}
+/**
+ * Removing a membership deletes the member's Drive connection in that tenant (a database
+ * trigger). Its grant is then released as on a disconnection; Drive never blocks the removal.
+ */
+export async function removeMemberDriveConnection(
+  member: { tenantId: string; userId: string },
+  removeMembership: () => Promise<void>,
+) {
+  const connection = await memberConnection(member);
+  if (connection === null) return removeMembership();
+  if (!connection) {
+    await removeMembership();
+    await releaseDriveGrant(null, { cause: "member_removed" });
+    return;
+  }
+  await removeWithGrant(
+    connection.id,
+    connection.grant_version,
+    "member_removed",
+    removeMembership,
+  );
 }

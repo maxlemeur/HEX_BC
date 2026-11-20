@@ -114,7 +114,11 @@ test(
             if (body.action === "disconnect") connection = null;
             await route.fulfill({
               contentType: "application/json",
-              body: reply({ done: true }),
+              body: reply(
+                body.action === "disconnect"
+                  ? { revoked: true, stillUsed: false }
+                  : { done: true },
+              ),
             });
           }
         }
@@ -198,6 +202,12 @@ test(
     await screen
       .getByRole("button", "Retirer le compte Google", { exact: true })
       .click();
+    await expect(
+      screen.getByText(
+        "Compte fixture@example.invalid retiré de MergeOne et son accès Google révoqué. Les liens et copies restent dans les affaires.",
+        { exact: true },
+      ),
+    ).toBeVisible();
     await expect(
       screen.getByRole("link", "Connecter Google Drive", { exact: true }),
     ).toHaveAttribute("href", /purpose=read/);

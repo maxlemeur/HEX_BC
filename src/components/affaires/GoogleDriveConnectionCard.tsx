@@ -7,6 +7,8 @@ import { Alert } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   driveConnectionStateSchema,
+  driveGrantReleaseSchema,
+  driveRemovalNotice,
   DRIVE_OAUTH_OUTCOMES,
   type DriveOAuthOutcome,
   type DriveConnectionRequest,
@@ -260,10 +262,12 @@ export function GoogleDriveConnectionCard() {
                   disabled={busy}
                   onClick={() =>
                     void run(async () => {
-                      await post({ action: "disconnect", ...own! });
+                      const release = driveGrantReleaseSchema.parse(
+                        await post({ action: "disconnect", ...own! }),
+                      );
                       await load(lifetime.current?.signal);
                       setNotice(
-                        "Compte retiré. Les liens et copies restent dans les affaires. La révocation dans Google peut aussi couper vos autres connexions à MergeOne.",
+                        `${driveRemovalNotice(`Compte ${account.email}`, release)} Les liens et copies restent dans les affaires.`,
                       );
                     })
                   }

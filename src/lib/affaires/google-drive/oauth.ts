@@ -238,10 +238,17 @@ export async function refreshDriveAccess(
   requireScope(token.scope ?? scope, input.purpose ?? "read");
   return { accessToken: token.access_token, expiresAt: token.expiresAt };
 }
-/** Revoking the refresh token also ends the access tokens Google issued from it. */
-export async function revokeDriveAccess(refreshToken: string) {
+/**
+ * Revoking a refresh token ends the whole grant of its Google account to this OAuth client,
+ * the access tokens and the other refresh tokens included. A failure carries only a code:
+ * Google's error code, the HTTP status or "unreachable", never the token.
+ */
+export async function revokeDriveAccess(
+  refreshToken: string,
+): Promise<{ revoked: true } | { revoked: false; reason: string }> {
+  let response: Response;
   try {
-    const response = await fetch(REVOKE_URL, {
+    response = await fetch(REVOKE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ token: refreshToken }),
@@ -249,10 +256,24 @@ export async function revokeDriveAccess(refreshToken: string) {
       redirect: "error",
       signal: AbortSignal.timeout(20_000),
     });
-    await response.body?.cancel();
-    // An already revoked token is reported as invalid: it is gone either way.
-    return response.ok || response.status === 400;
   } catch {
-    return false;
+    return { revoked: false, reason: "unreachable" };
   }
+  if (response.ok) {
+    await response.body?.cancel();
+    return { revoked: true };
+  }
+  const error = ((await response.json().catch(() => null)) as {
+    error?: unknown;
+  } | null)?.error;
+  // Google answers 400 invalid_token for a token already expired or revoked: it is gone either way.
+  if (error === "invalid_token" || error === "invalid_grant")
+    return { revoked: true };
+  return {
+    revoked: false,
+    reason:
+      typeof error === "string" && /^[a-z_]{1,64}$/.test(error)
+        ? error
+        : `http_${response.status}`,
+  };
 }

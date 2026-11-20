@@ -102,6 +102,18 @@ export const driveConnectionStateSchema = z.object({
   writingAvailable: z.boolean(),
   connection: driveConnectionSchema.nullable(),
 });
+/** What became of the Google grant of a removed account: stillUsed when another connection keeps it. */
+export const driveGrantReleaseSchema = z.object({
+  revoked: z.boolean(),
+  stillUsed: z.boolean(),
+});
+export type DriveGrantRelease = z.infer<typeof driveGrantReleaseSchema>;
+export function driveRemovalNotice(account: string, release: DriveGrantRelease) {
+  if (release.revoked) return `${account} retiré de MergeOne et son accès Google révoqué.`;
+  if (release.stillUsed)
+    return `${account} retiré. Il reste connecté ailleurs dans MergeOne : son accès Google n'est pas révoqué.`;
+  return `${account} retiré de MergeOne, mais Google n'a pas confirmé la révocation de son accès. Révoquer MergeOne dans Google peut aussi couper les autres connexions de ce compte à l’application.`;
+}
 const ownConnection = {
   connectionId: connectionIdSchema,
   grantVersion: z.string().uuid(),
