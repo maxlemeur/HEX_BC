@@ -1,3 +1,4 @@
+import { hasScheduledLocalTakeoffRetry } from "@/lib/takeoff/completion-outcome";
 import { verificationJustificationReadSchema } from "@/lib/takeoff/rules/verification";
 import { TAKEOFF_JOB_STATUSES, TAKEOFF_LEVELS as TAKEOFF_RESPONSE_LEVELS } from "@/lib/takeoff/enums";
 import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
@@ -57,6 +58,7 @@ const TAKEOFF_JOB_LIST_SELECT = [
   "status",
   "level",
   "execution_provider",
+  "analysis_outcome",
   "processing_strategy",
   "provider_batch_id",
   "provider_batch_state",
@@ -304,6 +306,7 @@ export type TakeoffJobDetailRow = {
   id: string;
   execution_provider?: "gemini" | "chatgpt_local";
   execution_host_id?: string | null;
+  analysis_outcome?: string | null;
   estimate_version_id: string;
   status: string;
   level: string;
@@ -380,6 +383,7 @@ function decorateTakeoffJobSummaryWithOperatorState(
   job: TakeoffJobSummary,
   tenantRole?: string | null,
   legacyProvider = false,
+  resubmissionBlocked = false,
 ): TakeoffJobSummary {
   const operatorState = resolveTakeoffOperatorState({
     status: job.status,
@@ -400,7 +404,7 @@ function decorateTakeoffJobSummaryWithOperatorState(
     operator_state_label: operatorState.label,
     can_reconcile: !legacyProvider && operatorState.canReconcile,
     can_cancel: operatorState.canCancel,
-    can_resubmit: !legacyProvider && operatorState.canResubmit,
+    can_resubmit: !legacyProvider && !resubmissionBlocked && operatorState.canResubmit,
   };
 }
 
@@ -408,10 +412,13 @@ export function normalizeTakeoffJobSummaryRow(
   row: unknown,
   tenantRole?: string | null
 ): TakeoffJobSummary {
+  const job = parseTakeoffResponse(takeoffJobSummarySchema, row);
+  const raw = row as Pick<TakeoffJobDetailRow, "execution_provider" | "analysis_outcome">;
   return decorateTakeoffJobSummaryWithOperatorState(
-    parseTakeoffResponse(takeoffJobSummarySchema, row),
+    job,
     tenantRole,
-    typeof row === "object" && row !== null && "execution_provider" in row && row.execution_provider === "gemini"
+    raw.execution_provider === "gemini",
+    Boolean(raw.analysis_outcome) || hasScheduledLocalTakeoffRetry({ ...job, execution_provider: raw.execution_provider }),
   );
 }
 

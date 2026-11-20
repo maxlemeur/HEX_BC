@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { expect } from "e2e";
@@ -70,8 +70,28 @@ export async function readWorkerDecisionsCalls(fixture: WorkerDecisions, from = 
   return lines.slice(from).filter((entry) => entry.provider === "decisions-fixture");
 }
 
+/** The disposable test checkout and its child share a local takeoff host identity. */
+async function ownedWorkerHostId() {
+  const directory = path.resolve(".private/chatgpt-local");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const file = path.join(directory, "host.json");
+  const candidate = path.join(directory, `host.${randomUUID()}.tmp`);
+  try {
+    await writeFile(candidate, JSON.stringify(`urn:uuid:${randomUUID()}`), { flag: "wx", mode: 0o600 });
+    await link(candidate, file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  } finally {
+    await rm(candidate, { force: true });
+  }
+  const value = JSON.parse(await readFile(file, "utf8")) as unknown;
+  if (typeof value !== "string" || !/^urn:uuid:[0-9a-f-]{36}$/.test(value)) throw new Error("Invalid fixture host identity.");
+  return value;
+}
+
 export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
   options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner; decisions?: WorkerDecisions;
+    trigger?: "retry"; mailCollector?: string;
     providerItems?: Array<{ designation: string; quantity: number; unit: string; source_page: number; confidence: number; evidence: string }> } = {}) {
   if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
     throw new Error("A dedicated worker profile and this invocation's owned estimate are required.");
@@ -84,6 +104,14 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
     ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}),
     // TI-664: the fixed rules' inputs are written by the worker only when they are on (MERGEONE_TAKEOFF_RULES).
     ...(options.rules ? { MERGEONE_TAKEOFF_RULES: "1" } : {}),
+    MERGEONE_CHATGPT_LOCAL: "1",
+    ...(options.trigger ? { ARMY_TAKEOFF_WORKER_TRIGGER: options.trigger } : {}),
+    ...(options.mailCollector ? {
+      E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN: options.mailCollector,
+      RESEND_BASE_URL: options.mailCollector, RESEND_API_KEY: "LOCAL_ONLY_INVALID_RESEND_SENTINEL",
+      EMAIL_FROM: "ARMY Métré <metre@fixture.invalid>", EMAIL_DELIVERY_MODE: "redirect",
+      EMAIL_REDIRECT_TO: "collecteur@fixture.invalid", MERGEONE_TAKEOFF_EMAIL_ORIGIN: ui.app.baseUrl!,
+    } : {}),
     ...(options.providerItems ? { ARMY_TAKEOFF_PROVIDER_ITEMS: JSON.stringify(options.providerItems) } : {}),
     // TI-662 L3d: Decisions for its vector groups, only with the vector reading, the takeoff opt-in and the fixture's key.
     ...(options.vectors && options.decisions ? { MERGEONE_TAKEOFF_DECISIONS: "1", MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture",
@@ -128,7 +156,7 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
   return { provider, done, release: () => child.stdin.end("release\n"), stop: () => { child.stdin.end(); if (child.exitCode === null) child.kill("SIGTERM"); } };
 }
 
-export async function launchWorkerCsv(ui: WorkerUi, title: string) {
+export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "local" | "historical" = "historical") {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${title}`, title }, ui.army);
   const before = await readEstimate(ui.browser, ids.versionId);
@@ -147,12 +175,16 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string) {
   expect(uploaded.error).toBeNull();
   const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: userId, level: "A", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
-    source_file_type: "text/csv", source_file_size_bytes: bytes.length, execution_provider: "gemini" }).select("id").single();
+    source_file_type: "text/csv", source_file_size_bytes: bytes.length,
+    ...(provider === "local" ? {
+      execution_provider: "chatgpt_local", execution_host_id: await ownedWorkerHostId(), processing_strategy: "sync",
+    } as const : { execution_provider: "gemini" } as const),
+  }).select("id").single();
   expect(inserted.error).toBeNull();
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await expect(ui.browser).toHaveURL(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await recordEvidence(ui.army, "worker-ui-created", { ids, jobId, fileName, engine: before.version.calc_engine_version,
-    boundary: "Historical pending job and stored CSV are seeded on the owned stack. The worker uses real DB/Storage/processors and a controlled provider; local ChatGPT upload is covered separately." });
+    boundary: "The stored CSV and pending job are seeded on the owned stack. The worker uses real DB/Storage/processors and a controlled provider." });
   return { ids, jobId, fileName, before };
 }
 

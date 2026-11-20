@@ -94,6 +94,8 @@ export type TakeoffLeaseRenewal = (input: {
 }) => Promise<void>;
 
 export type TakeoffWorkerJobRow = {
+  execution_provider?: string | null;
+  analysis_outcome?: string | null;
   id: string;
   tenant_id: string;
   level: string;
@@ -123,6 +125,8 @@ export function normalizeTakeoffWorkerJobRow(row: unknown): TakeoffWorkerJobRow 
     tenant_id: record.tenant_id,
     level: text(record.level) ?? "",
     status: text(record.status) ?? "",
+    execution_provider: text(record.execution_provider),
+    analysis_outcome: text(record.analysis_outcome),
     processing_strategy: text(record.processing_strategy),
     provider_batch_id: text(record.provider_batch_id),
     provider_batch_state: text(record.provider_batch_state),

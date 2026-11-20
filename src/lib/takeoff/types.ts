@@ -1,3 +1,4 @@
+import type { TakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import type { TakeoffRiskSeverity, TakeoffRiskStatus, TakeoffRiskScopeType } from "@/lib/takeoff/risk-response-contracts";
 import type { TakeoffDiffAddedEntry, TakeoffDiffRemovedEntry, TakeoffDiffChangedEntry, TakeoffDiffUnchangedEntry } from "@/lib/takeoff/compare-response-contracts";
 import { z } from "zod";
@@ -532,6 +533,11 @@ export type TakeoffActivityCenterCounters = {
 
 export type TakeoffActivityCenterJobRow = {
   jobId: string;
+  analysisCompletion?: {
+    eventId: string | null;
+    outcome: TakeoffAnalysisOutcome;
+    finishedAt: string;
+  } | null;
   estimateVersionId: string;
   versionLabel: string;
   lotLabel: string | null;

@@ -1,0 +1,230 @@
+begin;
+
+create extension if not exists pgtap with schema extensions;
+set local search_path = extensions, public, pg_catalog;
+select no_plan();
+
+insert into auth.users (id, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data)
+values
+  ('8f400000-0000-4000-8000-000000000001', 'takeoff-requester@example.test', now(), '{}', '{}'),
+  ('8f400000-0000-4000-8000-000000000002', 'takeoff-colleague@example.test', now(), '{}', '{}');
+
+create temporary table completion_fixture as
+select tenant_id from public.tenant_memberships where user_id = '8f400000-0000-4000-8000-000000000001';
+
+insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
+select tenant_id, '8f400000-0000-4000-8000-000000000002', 'director', false
+from completion_fixture;
+
+insert into public.estimate_projects (id, tenant_id, user_id, name)
+select '8f400000-0000-4000-8000-000000000010', tenant_id,
+  '8f400000-0000-4000-8000-000000000001', 'Affaire fictive'
+from completion_fixture;
+
+insert into public.estimate_versions (id, tenant_id, project_id, version_number, status)
+select '8f400000-0000-4000-8000-000000000011', tenant_id,
+  '8f400000-0000-4000-8000-000000000010', 1, 'draft'
+from completion_fixture;
+
+insert into public.takeoff_jobs (
+  id, tenant_id, estimate_version_id, level, created_by, execution_provider, execution_host_id
+)
+select x.id, f.tenant_id, '8f400000-0000-4000-8000-000000000011', 'A',
+  '8f400000-0000-4000-8000-000000000001', 'chatgpt_local', 'urn:uuid:8f400000-0000-4000-8000-000000000099'
+from completion_fixture f
+cross join (values
+  ('8f400000-0000-4000-8000-000000000021'::uuid),
+  ('8f400000-0000-4000-8000-000000000022'::uuid),
+  ('8f400000-0000-4000-8000-000000000023'::uuid),
+  ('8f400000-0000-4000-8000-000000000024'::uuid),
+  ('8f400000-0000-4000-8000-000000000025'::uuid)
+) as x(id);
+
+select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000021', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture');
+select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000022', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now() - interval '2 hours', gen_random_uuid(), now() - interval '1 hour', 'fixture', 'fixture');
+select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000024', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture');
+select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000025', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture');
+
+update public.takeoff_jobs set status = 'completed'
+where id = '8f400000-0000-4000-8000-000000000024';
+select is((select count(*) from public.takeoff_completion_notifications), 0::bigint, 'activation is opt-in');
+
+insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 minute');
+
+select throws_ok(
+  $$update public.takeoff_jobs set status = 'completed' where id = '8f400000-0000-4000-8000-000000000022'$$,
+  '23514', 'TAKEOFF_ANALYSIS_LEASE_EXPIRED', 'an expired lease cannot publish success'
+);
+
+update public.takeoff_jobs set status = 'completed'
+where id = '8f400000-0000-4000-8000-000000000021' and status = 'processing';
+update public.takeoff_jobs set status = 'completed'
+where id = '8f400000-0000-4000-8000-000000000021' and status = 'processing';
+select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000001', true);
+insert into public.draft_locks (version_id, tenant_id, user_id, expires_at, session_id)
+select '8f400000-0000-4000-8000-000000000011', tenant_id,
+  '8f400000-0000-4000-8000-000000000001', now() + interval '1 hour', gen_random_uuid()
+from completion_fixture;
+update public.takeoff_jobs set status = 'applied'
+where id = '8f400000-0000-4000-8000-000000000021';
+select is((select analysis_outcome from public.takeoff_jobs where id = '8f400000-0000-4000-8000-000000000021'),
+  'success', 'later application preserves the analysis outcome');
+
+update public.takeoff_jobs set status = 'canceled'
+where id = '8f400000-0000-4000-8000-000000000023';
+update public.takeoff_jobs set status = 'completed'
+where id = '8f400000-0000-4000-8000-000000000023' and status = 'processing';
+select is((select delivery_state from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000023'),
+  'suppressed', 'cancellation wins against stale success and produces an in-app notice only');
+
+update public.takeoff_jobs set status = 'failed', next_retry_at = now() + interval '15 seconds'
+where id = '8f400000-0000-4000-8000-000000000025';
+select is((select analysis_outcome from public.takeoff_jobs where id = '8f400000-0000-4000-8000-000000000025'),
+  null, 'a scheduled retry has no terminal event');
+select throws_ok(
+  $$update public.takeoff_jobs set status = 'pending', next_retry_at = null
+    where id = '8f400000-0000-4000-8000-000000000025'$$,
+  '23514', 'TAKEOFF_ANALYSIS_RETRY_SCHEDULED', 'a manual reset cannot erase the durable automatic retry'
+);
+
+select is((select count(*) from public.recover_stale_local_takeoff_jobs(now())), 1::bigint,
+  'recovery closes an abandoned lease');
+select is((select analysis_outcome from public.takeoff_jobs where id = '8f400000-0000-4000-8000-000000000022'),
+  'failure', 'unknown worker outcome is terminal');
+select is((select count(*) from public.takeoff_completion_notifications), 3::bigint,
+  'a replay and a historical result do not add notices');
+
+select ok(exists (
+  select 1 from public.takeoff_jobs j
+  join public.takeoff_completion_notifications n on n.id = j.analysis_completion_event_id
+  where j.id = '8f400000-0000-4000-8000-000000000021' and n.job_id = j.id and n.id <> j.id
+), 'the affaire and inbox share an event ID distinct from the job');
+
+update public.takeoff_jobs set next_retry_at = clock_timestamp() - interval '1 second'
+where id = '8f400000-0000-4000-8000-000000000025';
+select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000025', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture');
+update public.takeoff_jobs set status = 'completed'
+where id = '8f400000-0000-4000-8000-000000000025' and status = 'processing';
+update public.takeoff_jobs set status = 'completed'
+where id = '8f400000-0000-4000-8000-000000000025' and status = 'processing';
+select is((select count(*) from public.takeoff_completion_notifications
+  where subject_kind = 'job' and job_id = '8f400000-0000-4000-8000-000000000025' and outcome = 'success'),
+  1::bigint, 'retry followed by success and repeated finalization produce one logical notice');
+
+select throws_ok($$
+  insert into public.takeoff_completion_notifications (
+    tenant_id, project_id, subject_kind, request_id, outcome, finished_at,
+    plans_read_count, plans_failed_count, plans_not_started_count, delivery_state, provider_key
+  )
+  select tenant_id, '8f400000-0000-4000-8000-000000000010', 'request',
+    '8f400000-0000-4000-8000-000000000099', 'partial', now(), 2, 1, 0, 'unavailable',
+    'takeoff-completion/' || tenant_id::text || '/request/8f400000-0000-4000-8000-000000000099/unavailable'
+  from completion_fixture
+$$, '23514', 'new row for relation "takeoff_completion_notifications" violates check constraint "takeoff_completion_autonomous_only_check"',
+  'an unbacked launch-request subject cannot be inserted');
+
+select set_config('app.completion_test_other_event_id', (
+  select id::text from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000022'
+), true);
+
+select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+select is((select count(id) from public.takeoff_completion_notifications), 4::bigint, 'requester sees own notices');
+select ok(public.mark_takeoff_completion_notification_read(
+  (select id from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000021')
+),
+  'requester can mark one notice read');
+select is((select count(read_at) from public.takeoff_completion_notifications), 1::bigint, 'read mark is bounded');
+select throws_ok($$select recipient_email from public.takeoff_completion_notifications$$, '42501',
+  'permission denied for table takeoff_completion_notifications', 'private delivery data has no browser grant');
+reset role;
+
+update public.tenant_memberships set is_default = (tenant_id = (select tenant_id from completion_fixture))
+where user_id = '8f400000-0000-4000-8000-000000000002';
+select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000002', true);
+set local role authenticated;
+select is((select count(id) from public.takeoff_completion_notifications), 0::bigint,
+  'a colleague with affaire read access sees no private notices');
+select ok(not public.mark_takeoff_completion_notification_read(current_setting('app.completion_test_other_event_id')::uuid),
+  'a colleague cannot mark the requester notice read');
+reset role;
+
+set local role service_role;
+select throws_ok(
+  $$update public.takeoff_completion_notifications set recipient_email = 'different@example.test'
+    where job_id = '8f400000-0000-4000-8000-000000000021'$$,
+  '42501', 'TAKEOFF_COMPLETION_IDENTITY_IMMUTABLE', 'the mailer cannot rewrite the logical recipient'
+);
+reset role;
+
+-- Simulate a mailer exit after reserving the provider key. A second lease
+-- must keep the envelope, and the old token must never start a second send.
+create temporary table first_email_claim as
+select * from public.claim_takeoff_completion_email(
+  (select id from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000021')
+);
+select ok((select public.prepare_takeoff_completion_email(
+  id, lease_token, 'redirect', 'collector@example.test', 'fixture-payload'
+) from first_email_claim), 'the initial authorized route is fixed before the provider call');
+update public.takeoff_completion_notifications set lease_expires_at = now() - interval '1 second'
+where job_id = '8f400000-0000-4000-8000-000000000021';
+create temporary table second_email_claim as
+select * from public.claim_takeoff_completion_email(
+  (select id from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000021')
+);
+select ok(not (select public.prepare_takeoff_completion_email(
+  id, lease_token, 'redirect', 'collector@example.test', 'fixture-payload'
+) from first_email_claim), 'an expired mailer no longer owns the provider attempt');
+select ok(not (select public.prepare_takeoff_completion_email(
+  id, lease_token, 'redirect', 'other-collector@example.test', 'different-payload'
+) from second_email_claim), 'a different mailbox cannot receive an ambiguous replay');
+select is((select delivery_state from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000021'),
+  'unknown', 'route changes preserve an unknown delivery outcome');
+
+create temporary table revoked_email_claim as
+select * from public.claim_takeoff_completion_email(
+  (select id from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000022')
+);
+update public.estimate_projects set is_archived = true
+where id = '8f400000-0000-4000-8000-000000000010';
+select ok(not (select public.prepare_takeoff_completion_email(
+  id, lease_token, 'redirect', 'collector@example.test', 'fixture-payload'
+) from revoked_email_claim), 'loss of affaire access blocks the provider call');
+select is((select delivery_state from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000022'),
+  'unavailable', 'loss of access records delivery unavailable');
+
+-- Simulate the future link on an owned transaction that rolls back with this
+-- test. M4 will validate the foreign key and the request's own finalizer.
+alter table public.takeoff_jobs add column if not exists launch_request_id uuid;
+update public.estimate_projects set is_archived = false where id = '8f400000-0000-4000-8000-000000000010';
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, created_by,
+  execution_provider, execution_host_id, launch_request_id)
+select '8f400000-0000-4000-8000-000000000026', tenant_id, '8f400000-0000-4000-8000-000000000011',
+  'A', '8f400000-0000-4000-8000-000000000001', 'chatgpt_local', 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  '8f400000-0000-4000-8000-000000000099'
+from completion_fixture;
+select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000026', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture');
+update public.takeoff_jobs set status = 'completed'
+where id = '8f400000-0000-4000-8000-000000000026' and status = 'processing';
+select ok((select analysis_outcome = 'success' and analysis_finished_at is not null
+    and analysis_completion_event_id is null
+  from public.takeoff_jobs where id = '8f400000-0000-4000-8000-000000000026'),
+  'a request child records its result and leaves event allocation to the request');
+select is((select count(*) from public.takeoff_completion_notifications
+  where job_id = '8f400000-0000-4000-8000-000000000026'), 0::bigint,
+  'a request child cannot publish an autonomous notice');
+
+select * from finish();
+rollback;

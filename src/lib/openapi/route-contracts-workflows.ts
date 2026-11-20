@@ -568,7 +568,7 @@ const takeoffOperationsContracts: RouteContract[] = [
     method: "get",
     path: "/api/takeoff/activity-center",
     summary: "Consulter le centre d'activite Takeoff",
-    description: "Retourne les jobs et alertes Takeoff filtres pour une affaire.",
+    description: "Retourne les analyses et les alertes d’une affaire. analysisCompletion contient l’identifiant d’événement, l’issue et la date de fin lorsque l’analyse est close.",
     tags: ["Takeoff"],
     queryParameters: [
       { name: "project_id", schema: uuidSchema, description: "Affaire cible.", required: true },

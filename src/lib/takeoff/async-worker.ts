@@ -166,6 +166,8 @@ function createSupabaseTakeoffWorkerRepository(
             "tenant_id",
             "level",
             "status",
+            "analysis_outcome",
+            "execution_provider",
             "processing_strategy",
             "provider_batch_id",
             "provider_batch_state",
@@ -209,13 +211,15 @@ function createSupabaseTakeoffWorkerRepository(
         .update({
           status: "failed",
           completed_at: input.nowIso,
+          analysis_outcome: "failure",
           error_code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
           error_message: "Le niveau takeoff n'est pas encore supporte par le worker async.",
           next_retry_at: null,
           last_error_at: input.nowIso,
         })
         .eq("id", input.jobId)
-        .eq("tenant_id", input.tenantId);
+        .eq("tenant_id", input.tenantId)
+        .eq("status", "pending");
 
       if (error) {
         throw toTakeoffError(error, {
@@ -589,6 +593,21 @@ async function gateFailedJobRetry(
   const retryIsScheduled =
     attempt.trigger === "retry" && Number.isFinite(nextRetryAtMs);
 
+  if (job.execution_provider === "chatgpt_local") {
+    if (job.analysis_outcome === "failure" || !Number.isFinite(nextRetryAtMs) || retryCount >= TAKEOFF_RETRY_MAX) {
+      return attemptOutcome(attempt, job, {
+        status: job.analysis_outcome === "failure" ? "failed_terminal" : "noop_terminal",
+        retryCount,
+        retryable: false,
+        shouldRequeue: false,
+        durationMs: elapsedMs(attempt),
+        errorCode: job.error_code,
+        errorMessage: job.error_message,
+      });
+    }
+    return retryIsScheduled && nextRetryAtMs <= now().getTime() ? null : scheduledRetryOutcome(attempt, job);
+  }
+
   if (retryCount >= TAKEOFF_RETRY_MAX || !retryIsScheduled) {
     await attempt.repository.clearRetrySchedule({
       jobId: job.id,
@@ -615,25 +634,26 @@ async function gateFailedJobRetry(
   }
 
   if (nextRetryAtMs > now().getTime()) {
-    const nextRunInSeconds = Math.max(
-      1,
-      Math.ceil((nextRetryAtMs - now().getTime()) / 1000)
-    );
-    return attemptOutcome(attempt, job, {
-      status: "failed_retryable",
-      retryCount,
-      retryable: true,
-      shouldRequeue: true,
-      requeueReason: "retry",
-      nextRunInSeconds,
-      nextRunAt: job.next_retry_at,
-      durationMs: elapsedMs(attempt),
-      errorCode: job.error_code,
-      errorMessage: job.error_message,
-    });
+    return scheduledRetryOutcome(attempt, job);
   }
 
   return null;
+}
+
+function scheduledRetryOutcome(attempt: TakeoffJobAttempt, job: TakeoffWorkerJobRow) {
+  const remaining = Date.parse(job.next_retry_at ?? "") - attempt.now().getTime();
+  return attemptOutcome(attempt, job, {
+    status: "failed_retryable",
+    retryCount: sanitizeRetryCount(job.retry_count),
+    retryable: true,
+    shouldRequeue: true,
+    requeueReason: "retry",
+    nextRunInSeconds: Math.max(0, Math.ceil(remaining / 1000)),
+    nextRunAt: job.next_retry_at,
+    durationMs: elapsedMs(attempt),
+    errorCode: job.error_code,
+    errorMessage: job.error_message,
+  });
 }
 
 async function completedJobOutcome(attempt: TakeoffJobAttempt) {
@@ -981,11 +1001,13 @@ async function failJobTerminally(
   currentRetryCount: number,
   mappedError: TakeoffError
 ) {
-  await attempt.repository.clearRetrySchedule({
-    jobId: current.id,
-    tenantId: current.tenant_id,
-    lastErrorAtIso: attempt.now().toISOString(),
-  });
+  if (current.execution_provider !== "chatgpt_local") {
+    await attempt.repository.clearRetrySchedule({
+      jobId: current.id,
+      tenantId: current.tenant_id,
+      lastErrorAtIso: attempt.now().toISOString(),
+    });
+  }
 
   attempt.logger.error("Takeoff async worker reached terminal failure", {
     job_id: current.id,
@@ -1052,6 +1074,27 @@ async function settleLevelProcessingFailure(attempt: TakeoffJobAttempt, error: u
   if (TAKEOFF_TERMINAL_JOB_STATUSES.has(current.status)) {
     return attemptOutcome(attempt, current, {
       status: "noop_terminal",
+      retryCount: currentRetryCount,
+      retryable: false,
+      shouldRequeue: false,
+      durationMs: elapsedMs(attempt),
+      errorCode: current.error_code,
+      errorMessage: current.error_message,
+    });
+  }
+
+  if (current.execution_provider === "chatgpt_local" && current.status === "failed") {
+    if (current.analysis_outcome === "failure") {
+      return failJobTerminally(attempt, current, currentRetryCount, mappedError);
+    }
+    const scheduled = current.next_retry_at && currentRetryCount < TAKEOFF_RETRY_MAX;
+    if (scheduled && (current.next_retry_at !== job.next_retry_at || currentRetryCount !== attempt.retryCount)) {
+      return scheduledRetryOutcome(attempt, current);
+    }
+    // The processor did not advance a due retry. Leave its schedule for the
+    // local recovery poll instead of immediately repeating a failed claim.
+    return attemptOutcome(attempt, current, {
+      status: scheduled ? "in_progress" : "noop_terminal",
       retryCount: currentRetryCount,
       retryable: false,
       shouldRequeue: false,

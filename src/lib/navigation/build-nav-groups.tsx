@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { UiMode } from "@/lib/ui-mode";
-import { AsteriskIcon, BuildingIcon, ChartLineIcon, DatabaseIcon, FileTextIcon, FolderIcon, HouseIcon, LayersIcon, SettingsIcon, SquareCheckBigIcon } from "lucide-react";
+import { AsteriskIcon, BellIcon, BuildingIcon, ChartLineIcon, DatabaseIcon, FileTextIcon, FolderIcon, HouseIcon, LayersIcon, SettingsIcon, SquareCheckBigIcon } from "lucide-react";
 
 export type NavItem = {
   href: string;
@@ -48,6 +48,12 @@ const TAKEOFF_NAV_ITEM: NavItem = {
   icon: (
     <BuildingIcon aria-hidden="true" strokeWidth="1.75" size={20} />
   ),
+};
+
+const NOTIFICATIONS_ITEM: NavItem = {
+  href: "/dashboard/notifications",
+  label: "Notifications",
+  icon: <BellIcon aria-hidden="true" strokeWidth="1.75" size={20} />,
 };
 
 const ORDERS_ITEM: NavItem = {
@@ -120,7 +126,7 @@ export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
   // --- Affaires (all roles) ---
   const affairesItems: NavItem[] = [AFFAIRES_ITEM];
   if (featureFlags.takeoffEnabled) {
-    affairesItems.push(TAKEOFF_NAV_ITEM);
+    affairesItems.push(TAKEOFF_NAV_ITEM, NOTIFICATIONS_ITEM);
   }
   groups.push({ key: "affaires", label: "Affaires", items: affairesItems });
 

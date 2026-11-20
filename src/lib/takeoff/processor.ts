@@ -8,6 +8,7 @@ import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider } from "@/
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
 import { dedupeHeaders } from "@/lib/imports/tabular-normalization";
 import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
+import { takeoffAnalysisFailureFields } from "@/lib/takeoff/completion-outcome";
 import {
   buildPdfChunks,
   createChunkPromptSourceHint,
@@ -183,6 +184,8 @@ export type ProcessLevelAOptions = {
   tenantId?: string;
   userId?: string;
   now?: () => Date;
+  /** Resolves the job's local provider; the owned-worker journeys pass a controlled one. */
+  resolveProvider?: typeof resolveLocalTakeoffProvider;
   callGemini?: CallGeminiStructuredFn;
   submitGeminiBatch?: SubmitGeminiBatchStructuredFn;
   pollGeminiBatchOnce?: PollGeminiBatchStructuredOnceFn;
@@ -1080,6 +1083,11 @@ async function updateJobAsFailed(input: {
       duration_ms: input.durationMs,
       error_code: input.error.code,
       error_message: input.error.message,
+      ...(input.job.execution_provider === "chatgpt_local" ? takeoffAnalysisFailureFields({
+        retryable: input.error.retryable,
+        retryCount: input.job.retry_count,
+        completedAtIso: input.completedAtIso,
+      }) : {}),
       provider_reconcile_due_at: null,
       provider_reconcile_attempt_count: 0,
       provider_reconcile_lease_token: null,
@@ -3428,7 +3436,7 @@ async function processTakeoffLevel(
 
     await assertLocalTakeoffExecutionHost(job);
     let localRoutingFailure: { error: unknown } | null = null;
-    try { localProvider = await resolveLocalTakeoffProvider(context.supabase, job); }
+    try { localProvider = await (options.resolveProvider ?? resolveLocalTakeoffProvider)(context.supabase, job); }
     catch (error) { localRoutingFailure = { error }; }
     const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
       job.tenant_id,

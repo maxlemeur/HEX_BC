@@ -9,6 +9,16 @@ for (const origin of origins) {
     throw new Error("Coverage server requires explicit loopback origins.");
   }
 }
+const mailCollector = process.env.E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN;
+if (mailCollector) {
+  const target = new URL(mailCollector);
+  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || process.env.E2E_ARMY_BLOCK_WORKERS !== "1" ||
+      target.origin !== mailCollector || target.protocol !== "http:" || target.hostname !== "127.0.0.1" ||
+      !target.port || origins.includes(target.origin) || process.env.RESEND_BASE_URL !== target.origin ||
+      process.env.RESEND_API_KEY !== "LOCAL_ONLY_INVALID_RESEND_SENTINEL") {
+    throw new Error("Takeoff mail collection requires the owned worker and a separate loopback collector.");
+  }
+}
 const log = path.resolve(process.env.E2E_COVERAGE_NETWORK_LOG ?? "");
 if (!log.startsWith(path.resolve(".e2e/army/coverage") + path.sep)) throw new Error("Coverage network evidence must stay in its owned directory.");
 function inspect(kind, input) {
@@ -21,12 +31,18 @@ function inspect(kind, input) {
   // Business journeys qualify request persistence and cancellation, not workers.
   // A separate local Edge process could otherwise contact a real provider.
   const worker = process.env.E2E_ARMY_BLOCK_WORKERS === "1" && url.pathname.startsWith("/functions/v1/");
-  const allowed = origins.includes(url.origin) && !worker;
+  const allowed = (origins.includes(url.origin) && !worker) ||
+    (url.origin === mailCollector && url.pathname === "/emails" && !url.search);
   fs.appendFileSync(log, JSON.stringify({ time: new Date().toISOString(), kind, origin: url.origin, pathname: url.pathname, allowed }) + "\n");
   if (!allowed) throw new Error("Coverage campaign blocked outbound server request.");
+  return url;
 }
 const originalFetch = globalThis.fetch;
-globalThis.fetch = function(input, ...rest) { inspect("fetch", input); return originalFetch.call(this, input, ...rest); };
+globalThis.fetch = function(input, init) {
+  const target = inspect("fetch", input);
+  const options = target.origin === mailCollector ? { ...init, redirect: "error" } : init;
+  return originalFetch.call(this, input, options);
+};
 for (const [name, transport] of [["node:http", http], ["node:https", https]]) {
   for (const operation of ["request", "get"]) {
     const original = transport[operation];

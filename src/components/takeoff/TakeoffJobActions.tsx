@@ -16,6 +16,8 @@ function nextStep(detail: TakeoffJobSummary, row: ActivityJob, role?: string | n
   if (detail.can_reconcile) return "Vérifiez la reprise pour récupérer le résultat de cette analyse.";
   if (detail.can_resubmit) return "Vous pouvez soumettre cette analyse à nouveau.";
   if (detail.retry_count >= TAKEOFF_RETRY_MAX) return "Le nombre maximal de relances est atteint. Préparez un nouveau métré.";
+  if (row.analysisCompletion?.outcome === "failure") return "Cette analyse est close. Préparez un nouveau métré.";
+  if (detail.next_retry_at) return "Une reprise automatique est programmée.";
   if (!isTakeoffOperatorMutationRole(role)) return "Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.";
   // The detail additionally checks whether this job's execution provider still accepts recovery.
   if (row.canResubmit || row.canReconcile) return "Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez un nouveau métré.";

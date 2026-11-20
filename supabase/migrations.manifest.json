@@ -357,6 +357,7 @@
     "20261117193734_workbook_supplier_references.sql": "3d95a24e2400d5a44dc22dd2c42bc877d01079f81dab524760b454a2bf321f45",
     "20261117195542_product_reference_price_withdrawal.sql": "22d213fd5c8ef66ce88e8e089c87ee659d1fac1fdb4aa888a7d6593400f18d8c",
     "20261117200342_material_request_affaire_storage_cleanup.sql": "d05d03911ffe7f86b54fa46c7415f46e49fd8d40efad92e5f53cd00d22a75737",
-    "20261117201102_estimate_orders_in_affaire_supply_cost.sql": "f6b4bc854ac5e30f2898251748259e7ed2c20f66796473d14419b7ae899b1e57"
+    "20261117201102_estimate_orders_in_affaire_supply_cost.sql": "f6b4bc854ac5e30f2898251748259e7ed2c20f66796473d14419b7ae899b1e57",
+    "20261120204433_takeoff_analysis_completion.sql": "4a74a3ceeb74b738000ca466caac0ea073b2eb0f2403a6d180f565ca177afaa8"
   }
 }

@@ -9,6 +9,11 @@ export async function register() {
     "@/lib/observability/error-reporter"
   );
   installProcessErrorHooks();
+
+  if (process.env.NODE_ENV === "development") {
+    const { startLocalTakeoffRetryRecovery } = await import("@/lib/takeoff/local-retry-recovery");
+    startLocalTakeoffRetryRecovery();
+  }
 }
 
 export const onRequestError: Instrumentation.onRequestError = async (

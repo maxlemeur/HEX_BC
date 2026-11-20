@@ -7,6 +7,7 @@ import {
   drainProcurementStorageCleanupOutbox,
   type ProcurementStorageCleanupDrainResult,
 } from "@/lib/procurement/storage-cleanup-outbox";
+import { drainTakeoffCompletionEmails } from "@/lib/takeoff/completion-email";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { DurableWorkflowRpcClient } from "@/lib/workflows/affaire-intake-lifecycle";
 
@@ -31,6 +32,7 @@ export type DurableRecoveryResult = {
   failures: Array<{ workId: string; message: string }>;
   procurementStorageCleanup: ProcurementStorageCleanupDrainResult;
   emailOutbox: EmailOutboxDrainResult;
+  takeoffCompletionEmail: { claimed: number; failed: boolean };
 };
 
 type DurableRecoveryTableClient = {
@@ -65,6 +67,7 @@ type DurableRecoveryDependencies = {
   incrementRetryCount?: (workId: string) => Promise<number>;
   markDead?: (workId: string) => Promise<void>;
   drainEmailOutbox?: typeof drainEstimateEmailOutbox;
+  drainCompletionEmails?: typeof drainTakeoffCompletionEmails;
 };
 
 function normalizeDueWorkflow(value: unknown): DueWorkflow | null {
@@ -291,6 +294,16 @@ export async function recoverDurableWorkflows(
     });
   }
 
+  const takeoffCompletionEmail = { claimed: 0, failed: false };
+  try {
+    const drainCompletionEmails = dependencies.drainCompletionEmails
+      ?? (serviceRoleClient ? drainTakeoffCompletionEmails : null);
+    takeoffCompletionEmail.claimed = (await drainCompletionEmails?.()) ?? 0;
+  } catch {
+    takeoffCompletionEmail.failed = true;
+    console.error("takeoff.completion_email.recovery_failed");
+  }
+
   const { data: dueData, error: dueError } = await client.rpc(
     "list_due_affaire_intake_workflows",
     {
@@ -372,6 +385,7 @@ export async function recoverDurableWorkflows(
 
   return {
     recoveredUnknownTakeoffJobs: countRows(recoveredData),
+    takeoffCompletionEmail,
     dueCount: due.length,
     dispatchedCount,
     failedCount: failures.length,

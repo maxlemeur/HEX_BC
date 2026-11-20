@@ -58,6 +58,8 @@ const IN_FLIGHT_VISIBLE_STATUS_SET = new Set<TakeoffVisibleJobStatus>(
 );
 
 const FAILURE_REASON_LABELS: Record<string, string> = {
+  TAKEOFF_WORKER_OUTCOME_UNKNOWN:
+    "Le traitement a été interrompu. Son résultat est inconnu et doit être vérifié avant une nouvelle analyse.",
   TAKEOFF_FILE_TYPE_INVALID: "Document non exploitable. Importez un autre document PDF lisible.",
   TAKEOFF_PDF_CORRUPTED:
     "Le PDF est invalide ou protégé. Réexportez-le avant de relancer l'analyse.",

@@ -121,13 +121,30 @@ const callGemini = async (options) => {
   return { data, tokenCount: 0, tokenUsage: { inputTokens: 0, reasoningTokens: 0, outputTokens: 0, totalTokens: 0 },
     costCents: 0, durationMs: 1, model: options.context.model, promptVersion: options.context.promptVersion, providerBatchId: null, providerBatchStateRaw: null };
 };
+const selection = { profileId: "army-worker-profile", model: "army-worker-model", reasoningEffort: null };
+const resolveProvider = async (_supabase, job) => {
+  if (job.execution_provider !== "chatgpt_local") return null;
+  assert.equal(job.id, jobId);
+  return { model: selection.model, selection, assertOwnerActive: async () => {}, call: callGemini };
+};
+const trigger = process.env.ARMY_TAKEOFF_WORKER_TRIGGER ?? "create";
+assert(["create", "retry"].includes(trigger));
 try {
   const outcome = await processTakeoffJobAttempt(jobId, {
-    correlationId: randomUUID(), trigger: "create",
-    processLevelAFn: (id, options) => processLevelA(id, { ...options, callGemini }),
-    processLevelBFn: (id, options) => processLevelB(id, { ...options, callGemini }),
-    processLevelCFn: (id, options) => processLevelC(id, { ...options, callGemini }),
+    correlationId: randomUUID(), trigger,
+    processLevelAFn: (id, options) => processLevelA(id, { ...options, callGemini, resolveProvider }),
+    processLevelBFn: (id, options) => processLevelB(id, { ...options, callGemini, resolveProvider }),
+    processLevelCFn: (id, options) => processLevelC(id, { ...options, callGemini, resolveProvider }),
   });
+  if (process.env.E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN) {
+    const { data: event, error } = await worker.from("takeoff_completion_notifications").select("id")
+      .eq("subject_kind", "job").eq("job_id", jobId).maybeSingle();
+    assert.equal(error, null);
+    if (event) {
+      const { drainTakeoffCompletionEmails } = load("../../src/lib/takeoff/completion-email.ts");
+      await drainTakeoffCompletionEmails({ id: event.id });
+    }
+  }
   const job = await readJob();
   const results = await worker.from("takeoff_results").select("id, extracted_json, warnings, provider_meta").eq("job_id", jobId);
   const items = await worker.from("takeoff_items").select("id, designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason").eq("job_id", jobId).order("designation");
