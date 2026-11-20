@@ -758,3 +758,68 @@ la réserve v1, et le rapport le dit. Les chiffres jugés au devis ne changent p
 
 Les règles fixes qui lisent cette lecture (DN × réseau, doublons Z1/Z2 et recalage,
 aires, pièces, quantités à saisir) sont décrites dans [regles-metre.md](regles-metre.md).
+
+## Banc de comptage par repères
+
+Le banc compare des méthodes sur les mêmes plans fictifs. Chaque occurrence
+installée y a une position de référence. Les symboles de légende et de détail
+sont des zones négatives, même s'ils ressemblent à des occurrences installées.
+
+Depuis la racine du dépôt, avec les dépendances installées et la version de
+Node de `.nvmrc` :
+
+```sh
+mkdir -p outputs
+mise exec node@$(cat .nvmrc) -- node --conditions=react-server --import tsx \
+  scripts/run-takeoff-count-pins-bench.ts --methods label,all-deterministic \
+  > outputs/count-pins-receipt.json
+```
+
+Sans `--methods`, le reçu compare les libellés, les répétitions sans attribution,
+un ou deux exemples par famille et par page, le rattachement aux conduites avec
+ou sans exemples et les fusions. `tile-replay` joue des réponses de tuiles
+écrites pour les fictions. `fusion-with-replay` les combine avec la lecture
+déterministe. Le programme fonctionne hors ligne et le reçu indique zéro
+appel et zéro revue humaine. `--help` liste les méthodes et `--seed` permet
+de choisir la graine (676 par défaut). Le reçu identifie le commit, l'état
+du worktree, Node, PDF.js, la configuration et les empreintes des PDF et
+annotations. Voir le [code du banc](../../src/lib/takeoff/bench/count-pins/).
+
+Le score forme le plus grand nombre de paires à une distance maximale de
+4 points, puis minimise leur distance totale. Une paire doit appartenir au
+même plan, à la même génération d'octets et à la même page originale. Les
+positions sont mesurées à l'échelle 1, origine en haut à gauche de la
+CropBox visible après rotation et prise en compte de UserUnit. Le score
+juge ensuite chaque paire sur trois axes :
+
+- **Dessin** — un repère au bon endroit.
+- **Poste** — le bon identifiant dans la liste. La liste fictive a une seule
+  entrée par famille. Un lecteur qui ne fournit que la famille doit s'abstenir
+  si plusieurs postes restent compatibles.
+- **Poste et DN** — le bon poste et le diamètre nominal lorsqu'il est requis.
+
+Un mauvais poste ou DN émis peut créer à la fois un faux positif et un faux
+négatif. Une abstention sur l'attribut retire la prédiction du dénominateur de
+sa précision et réduit son rappel. Une précision sans prédiction est
+indéfinie. Deux DN intervertis peuvent donner deux quantités exactes et
+aucun repère correctement typé. Le reçu indique les quantités par poste sur
+la totalité d'un dossier et les scores spatiaux par page, dossier, poste,
+support et densité. Les exemples fournis sont comptés et leur emplacement
+est retiré d'une seconde mesure. Celle-ci porte toujours sur les mêmes
+pages, et le temps de préparation des exemples fictifs n'est pas mesuré.
+
+Les scans sans calque sont des abstentions pour les méthodes vectorielles.
+Leurs occurrences restent dans le dénominateur du rappel. Le rejeu des tuiles
+attribue un seul propriétaire à chaque centre dans les zones de recouvrement.
+Une réponse absente, invalide ou tronquée laisse la page non évaluée pour le
+rejeu et pour sa fusion. Le reçu donne la couverture, le score des pages
+évaluées et un score sur les seules pages communes aux méthodes choisies.
+Les plans vides, les légendes, les détails et les doublons restent visibles
+dans le reçu.
+
+Pour qualifier une famille sur des documents réels, il faut des dossiers
+indépendants réservés et des zones intégralement vérifiées par un métreur,
+y compris des zones vides. L'exactitude d'un poste entier exige la vérification
+de toute sa portée. Les totaux de référence seuls ne permettent pas de
+mesurer la précision ou le rappel des repères. L'accord de deux lecteurs
+ne remplace pas une vérification indépendante.
