@@ -27,10 +27,12 @@ const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 
 function createJob(overrides: Partial<TakeoffJobSummary>): TakeoffJobSummary {
+  const identity = overrides.estimate_version_id === null
+    ? { estimate_version_id: null, project_id: overrides.project_id ?? PROJECT_ID }
+    : { estimate_version_id: overrides.estimate_version_id ?? VERSION_ID, project_id: overrides.project_id };
   return {
     id: overrides.id ?? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    project_id: overrides.project_id,
-    estimate_version_id: overrides.estimate_version_id === undefined ? VERSION_ID : overrides.estimate_version_id,
+    ...identity,
     status: overrides.status ?? "completed",
     level: overrides.level ?? "A",
     processing_strategy: overrides.processing_strategy ?? "sync",

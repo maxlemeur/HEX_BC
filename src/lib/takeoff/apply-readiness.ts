@@ -52,6 +52,7 @@ export const TAKEOFF_NO_INCLUDED_LINE_MESSAGE =
   "Aucune ligne retenue. Réintégrez au moins une ligne avant l'envoi au tableau de chiffrage.";
 
 export const TAKEOFF_COMPARISON_DEFERRED = "Comparaison au devis disponible à l’envoi.";
+export const TAKEOFF_CROSS_JOB_COMPARISON_LABEL = "Doublons et couverture entre métrés";
 
 const BLOCKER_MESSAGES: Record<TakeoffApplyBlocker, string> = {
   no_destination: TAKEOFF_COMPARISON_DEFERRED,

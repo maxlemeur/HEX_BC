@@ -10,8 +10,9 @@ import type { TakeoffJobDetailResponse, TakeoffJobListResponse } from "@/lib/tak
 
 import { apiRequest, armyTest, recordEvidence } from "../critical/fixtures";
 import { querySql } from "../local/calculation-gate-support";
+import { assertOwnedAdmissionRecovery, startOwnedTakeoffAdmission } from "./affaire-admission-support";
 import { buildVectorPlanPdf } from "./vector-plan-fixture";
-import { ownedWorkerJobOwner, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
+import { readVectorViewerDrawing, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
 
 armyTest("TKAW01 an affaire without a version reviews the controlled worker's measurements and keeps no estimate", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 180_000,
@@ -36,7 +37,6 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
   const anotherProjectId = randomUUID();
   const planSetId = randomUUID();
   const planFileId = randomUUID();
-  const jobId = randomUUID();
   const versionId = randomUUID();
   const carryOverVersionId = randomUUID();
   const unrelatedVersionId = randomUUID();
@@ -85,29 +85,50 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
   expect((await setup.from("takeoff_preparations").insert({ tenant_id: tenantId, project_id: projectId, revision: 1, draft: preparation,
     confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId })).error).toBeNull();
 
-  const inserted = await user.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, project_id: projectId, plan_set_id: planSetId,
-    level: "C", status: "pending", created_by: userId, source_file_name: name, source_file_type: "application/pdf",
-    source_file_size_bytes: bytes.length, preparation_snapshot: snapshot, ...await ownedWorkerJobOwner(),
-  }).select("id,project_id,estimate_version_id").single();
-  expect(inserted.error).toBeNull();
-  expect(inserted.data).toEqual({ id: jobId, project_id: projectId, estimate_version_id: null });
-  const completed = await startOwnedWorker(ui, { projectId, versionId: null }, jobId, "success", { owner, vectors: true, rules: true }).done;
+  const admit = (operationId: string) => startOwnedTakeoffAdmission(owner, ui.army.runPrefix, projectId, planSetId, operationId);
+  const operationId = randomUUID();
+  const launched = await admit(operationId).done;
+  expect(launched).toMatchObject({ receipt: { project_id: projectId, estimate_version_id: null, status: "pending" } });
+  const jobId = launched.receipt!.id;
+  expect(await admit(operationId).done).toEqual(launched);
+  const completed = await startOwnedWorker(ui, { projectId, versionId: null }, jobId, "success", {
+    owner, vectors: true, rules: true, providerItems: [
+      { designation: "ARMY worker pipe", quantity: 12.5, unit: "m", source_page: 1, confidence: 0.72, evidence: "Pipe row, page 1" },
+      { designation: "ARMY worker valve", quantity: 3, unit: "u", source_page: 1, confidence: 0.99, evidence: "Valve row, page 1" },
+    ],
+  }).done;
 
   const full = takeoffReviewHref({ projectId, jobId });
   const targeted = takeoffReviewHref({ projectId, jobId, targeted: true });
+  await ui.app.open(`/dashboard/affaires/${projectId}/plans`);
+  await expect(ui.screen.getByRole("link", "Ouvrir les métrés", { exact: true })).toBeVisible();
   await ui.app.open(full);
   await expect(ui.screen.getByRole("heading", "Revue des exceptions & preuves", { exact: true })).toBeVisible();
   await expect(ui.screen.getByRole("region", "Lecture vectorielle du plan")).toBeVisible();
   await expect(ui.screen.getByText(/Comparaison au devis disponible à l’envoi/).first()).toBeVisible();
+  await expect(ui.screen.getByText("Doublons et couverture entre métrés", { exact: true })).toBeVisible();
   await ui.screen.getByRole("tab", "Assisté : Revue guidée carte par carte", { exact: true }).click();
   const quantity = ui.screen.getByRole("article", "ARMY worker pipe", { exact: true });
   await expect(quantity).toContainText("12.5 m");
   await expect(quantity.getByText("p. 1", { exact: true })).toBeVisible();
+  await ui.screen.getByRole("tab", "Validation : Exceptions et couverture", { exact: true }).click();
+  await ui.screen.getByRole("button", "Tous les signaux", { exact: true }).click();
+  const proof = ui.screen.getByRole("article", "ARMY worker pipe", { exact: true });
+  await expect(proof.getByText("Pipe row, page 1", { exact: true })).toBeVisible();
+  await expect(proof.getByText(`${name} · page 1`, { exact: true })).toBeVisible();
   const fullScreenshot = await ui.app.screenshot("takeoff-affaire-complete-review");
 
   await ui.app.open(targeted);
   await expect(ui.screen.getByRole("heading", "Revue ciblée", { exact: true })).toBeVisible();
   await expect(ui.screen.getByText(/Comparaison au devis disponible à l’envoi/).first()).toBeVisible();
+  await expect(ui.screen.getByText("Doublons et couverture entre métrés", { exact: true })).toBeVisible();
+  const targetLine = ui.screen.getByRole("option", /ARMY worker pipe/);
+  await expect(targetLine).toContainText(/12[.,]5 m/);
+  await targetLine.click();
+  const decision = ui.screen.getByRole("region", "Décision sur la ligne");
+  await expect(decision.getByRole("heading", "ARMY worker pipe", { exact: true })).toBeVisible();
+  await expect(decision.getByText("Pipe row, page 1", { exact: true })).toBeVisible();
+  await expect(decision.getByText("· p. 1", { exact: true })).toBeVisible();
   const targetedScreenshot = await ui.app.screenshot("takeoff-affaire-targeted-review");
   const reading = completed.items.find(item => item.designation === "ARMY worker valve");
   if (!reading) throw new Error("The controlled measure was not persisted.");
@@ -162,6 +183,8 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
   const reader = await signUpWorkerOwner(ui, "AWVR");
   const foreign = await apiRequest<{ ok: boolean }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
   expect(foreign.status).toEqual(404);
+  const foreignPlan = await apiRequest<{ ok: boolean }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-plans/${planFileId}`);
+  expect(foreignPlan.status).toEqual(404);
   await querySql(`update public.tenant_memberships set is_default = false where user_id = '${reader.userId}';
     insert into public.tenant_memberships (tenant_id,user_id,role,is_default)
     values ('${tenantId}','${reader.userId}','director',true);`);
@@ -169,10 +192,29 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
   await expect(ui.screen.getByRole("heading", "Revue des exceptions & preuves", { exact: true })).toBeVisible();
   await ui.screen.getByRole("tab", "Assisté : Revue guidée carte par carte", { exact: true }).click();
   await expect(ui.screen.getByRole("button", "Tout accepter", { exact: false })).toHaveCount(0);
+  await expect(ui.screen.getByRole("region", "Lecture vectorielle du plan")).toBeVisible();
+  const directorPlan = await readVectorViewerDrawing(ui);
+  expect(directorPlan.inked).toBeGreaterThan(0);
   await ui.app.open(targeted);
   await expect(ui.screen.getByRole("heading", "Revue ciblée", { exact: true })).toBeVisible();
+  const readPlan = () => ui.browser.evaluate(async ({ job, file }) => {
+    const response = await fetch(`/api/takeoff/jobs/${job}/vector-plans/${file}`);
+    const sha256 = response.ok
+      ? Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await response.arrayBuffer())),
+        byte => byte.toString(16).padStart(2, "0")).join("") : null;
+    return { status: response.status, sha256, cache: response.headers.get("cache-control") };
+  }, { job: jobId, file: planFileId });
+  expect(await readPlan()).toEqual({ status: 200, sha256: hash, cache: "private, no-store" });
   const rejected = await apiRequest<{ ok: boolean }>(ui.browser, "PATCH", `/api/takeoff/jobs/${jobId}/items`, { items: [] });
   expect(rejected.status).toEqual(403);
+  await assertOwnedAdmissionRecovery(owner, admit);
+  expect((await user.storage.from("plan-files").update(filePath, await buildVectorPlanPdf({ printedScale: false }),
+    { contentType: "application/pdf" })).error).toBeNull();
+  expect(await readPlan()).toMatchObject({ status: 404, sha256: null });
+  for (const review of [full, targeted]) {
+    await ui.app.open(review);
+    await expect(ui.screen.getByText(/Le plan d’origine n’est plus disponible/)).toBeVisible();
+  }
   await recordEvidence(ui.army, "TKAW01-affaire-without-version", { projectId, jobId, full, targeted, planFileId, completed,
     screenshots: [fullScreenshot, targetedScreenshot],
     versionCount: 0, estimateLineCount: 0, foreign: foreign.status, readOnlyWrite: rejected.status });

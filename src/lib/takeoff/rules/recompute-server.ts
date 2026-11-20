@@ -239,7 +239,12 @@ async function recomputeTakeoffRules(input: TakeoffRuleRecomputeInput): Promise<
     // keeps its stored state, and the rest of the version is written.
     let payload: ReturnType<typeof prepareRuleResultWrite>;
     try {
-      payload = prepareRuleResultWrite(evaluation.results.get(item.id) ?? []);
+      const results = evaluation.results.get(item.id) ?? [];
+      payload = prepareRuleResultWrite(estimateVersionId === undefined ? results.map((result) => {
+        if (result.rule !== "zone_overlap" && result.rule !== "zone_coverage") return result;
+        return { ...result, reason: `Dans ce métré : ${result.reason}`,
+          details: { ...result.details, evaluation_scope: "job", cross_job_comparison: "deferred" } };
+      }) : results);
     } catch {
       unbounded += 1;
       continue;

@@ -8,7 +8,7 @@ import {
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
-import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
+import { takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { classifyTakeoffPlanSetSource } from "@/lib/takeoff/document-classifier";
 import {
   assertTakeoffEnabled,
@@ -33,13 +33,13 @@ import {
 } from "@/lib/takeoff/job-creation-input";
 import {
   assertPlanSetAccessibleForCreation,
-  insertTakeoffJob,
+  admitPreparedTakeoffJob,
+  assertTakeoffJobCreationRecorded,
   resolvePlanSetSourceFile,
   getTakeoffJobById,
   getTakeoffPlanSetJobByPreparation,
   assertEstimateVersionAccessibleAsDraft,
   assertEstimateVersionAccessibleForTakeoff,
-  removeCreatedJobIfPresent,
 } from "@/lib/takeoff/job-creation-repository";
 
 function takeoffJobInsertError(error: { code: string; message: string }, jobId: string, level?: TakeoffLevel) {
@@ -52,6 +52,10 @@ function takeoffJobInsertError(error: { code: string; message: string }, jobId: 
       jobId,
       level,
     });
+  }
+  if (error.message === "TAKEOFF_JOB_CREATION_AUDIT_FAILED") {
+    return new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR,
+      message: "Impossible d'enregistrer l'audit takeoff.", retryable: false, jobId, level });
   }
   return toTakeoffError(
     mapSupabaseError(error, "Impossible de créer le job takeoff."),
@@ -85,6 +89,7 @@ export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSe
     ...context, estimateVersionId: existing.estimate_version_id,
   });
   assertReplayedTakeoffProcessing(existing, { level: input.level ?? TAKEOFF_PLAN_SET_LEVEL, provider: input.provider ?? "auto" });
+  await assertTakeoffJobCreationRecorded(context.tenantId, existing.id);
   if (existing.status === "pending") await assertLocalTakeoffResumeReady(context.supabase, context.tenantId, existing);
   return normalizeTakeoffJobRow(existing);
 }
@@ -147,6 +152,7 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
         message: "Cette opération est déjà associée à une autre préparation.", retryable: false, jobId });
     }
     assertReplayedTakeoffProcessing(row, { level: "C", provider: "chatgpt" });
+    await assertTakeoffJobCreationRecorded(tenantId, row.id);
     if (row.status === "pending") await assertLocalTakeoffResumeReady(supabase, tenantId, row);
     return affaireJobReceipt(row, projectId);
   }
@@ -197,8 +203,22 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
     })),
   });
 
-  const { data: insertedJob, error: insertError } = await insertTakeoffJob({
+  const guidance = takeoffAuditMetadataBuilders["takeoff.job.created"]({
+    level,
+    estimate_version_id: estimateVersionId,
+    ...(estimateVersionId === null ? { project_id: projectId } : {}),
+    source_file_name: sourceFile.sourceFileName,
+    plan_set_id: input.planSetId,
+    classification: planSetClassification,
+    selection: {
+      selected_level: level,
+      override_applied: planSetClassification.recommendedLevel !== level,
+      source_kind: "plan_set",
+    },
+  });
+  const { data: insertedJob, error: insertError } = await admitPreparedTakeoffJob({
     supabase,
+    guidance: { classification: guidance.classification, selection: guidance.selection },
     row: {
       id: jobId,
       tenant_id: tenantId,
@@ -206,14 +226,11 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
       project_id: projectId,
       plan_set_id: input.planSetId,
       level,
-      status: "pending",
-      processing_strategy: "sync",
       source_file_name: sourceFile.sourceFileName,
       source_file_path: estimateVersionId === null ? null : sourceFile.sourceFilePath,
       source_file_type: sourceFile.sourceFileType,
       source_file_size_bytes: sourceFile.sourceFileSizeBytes,
       prompt_version: getTakeoffPromptVersion(level),
-      created_by: userId,
       preparation_snapshot: preparationSnapshot as unknown as Json,
       ...executionOwner,
     },
@@ -233,39 +250,6 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
   }
 
   const createdJob = insertedJob as TakeoffJobRow;
-
-  try {
-    const createdAuditMetadata =
-      takeoffAuditMetadataBuilders["takeoff.job.created"]({
-        level,
-        estimate_version_id: estimateVersionId,
-        ...(estimateVersionId === null ? { project_id: projectId } : {}),
-        source_file_name: createdJob.source_file_name,
-        plan_set_id: input.planSetId,
-        classification: planSetClassification,
-        selection: {
-          selected_level: level,
-          override_applied:
-            planSetClassification.recommendedLevel === null ||
-            planSetClassification.recommendedLevel !== level,
-          source_kind: "plan_set",
-        },
-      });
-
-    await logTakeoffAuditEvent({
-      supabase,
-      tenantId,
-      userId,
-      jobId: createdJob.id,
-      estimateVersionId: createdJob.estimate_version_id,
-      action: "takeoff.job.created",
-      metadata: createdAuditMetadata,
-      mode: "fail-hard",
-    });
-  } catch (error) {
-    await removeCreatedJobIfPresent({ supabase, tenantId, jobId: createdJob.id });
-    throw error;
-  }
 
   return estimateVersionId === null ? affaireJobReceipt(createdJob, projectId) : normalizeTakeoffJobRow(createdJob);
 }

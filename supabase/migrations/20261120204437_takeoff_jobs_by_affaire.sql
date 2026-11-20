@@ -1,5 +1,6 @@
 begin;
 
+set local lock_timeout = '5s';
 lock table public.estimate_projects, public.estimate_versions, public.plan_sets in share mode;
 alter table public.takeoff_jobs add column project_id uuid;
 
@@ -35,9 +36,15 @@ from public.estimate_versions v
 where v.id = j.estimate_version_id and v.tenant_id = j.tenant_id;
 alter table public.takeoff_jobs enable trigger set_takeoff_jobs_updated_at;
 
+-- Keep the plan set's affaire and tenant tied to the job even when an
+-- admission and a move race under different transaction snapshots.
+alter table public.plan_sets add constraint plan_sets_id_project_tenant_key unique (id, project_id, tenant_id);
 alter table public.takeoff_jobs
   alter column project_id set not null,
   alter column estimate_version_id drop not null,
+  drop constraint takeoff_jobs_plan_set_id_fkey,
+  add constraint takeoff_jobs_plan_set_id_fkey foreign key (plan_set_id, project_id, tenant_id)
+    references public.plan_sets(id, project_id, tenant_id) on delete set null (plan_set_id),
   add constraint takeoff_jobs_project_tenant_fkey foreign key (project_id, tenant_id)
     references public.estimate_projects(id, tenant_id) on delete cascade;
 
@@ -577,6 +584,97 @@ begin
 end;
 $$;
 
+-- Give ordinary callers a domain error on attempted moves. The foreign key
+-- enforces the invariant even when two transactions race.
+create function private.guard_referenced_takeoff_plan_set_scope()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (
+    select 1 from public.takeoff_jobs j where j.plan_set_id = old.id
+  ) then
+    raise exception 'TAKEOFF_PLAN_SET_IN_USE' using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function private.guard_referenced_takeoff_plan_set_scope() from public, anon, authenticated;
+create trigger zz_guard_referenced_takeoff_plan_set_scope before update on public.plan_sets
+  for each row when (old.project_id is distinct from new.project_id or old.tenant_id is distinct from new.tenant_id)
+  execute function private.guard_referenced_takeoff_plan_set_scope();
+
+create index audit_logs_takeoff_job_creation_receipt_idx on public.audit_logs (tenant_id, record_id)
+  where table_name = 'takeoff_jobs' and action = 'takeoff.job.created';
+
+-- The new admission RPC stays an invoker so existing authenticated RLS and
+-- INSERT guards still run. This trigger grants only the fixed creation event
+-- for the job just inserted by that RPC. Older direct INSERTs keep their
+-- original audit protocol while the application is being deployed.
+create function private.record_prepared_takeoff_job_creation()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare
+  guidance jsonb;
+  metadata jsonb;
+begin
+  if nullif(current_setting('mergeone.takeoff_admission_job', true), '') is distinct from new.id::text
+    or current_setting('role', true) <> 'authenticated'
+    or auth.uid() is null or new.created_by is distinct from auth.uid()
+    or new.plan_set_id is null or new.status <> 'pending' then
+    return new;
+  end if;
+  guidance := current_setting('mergeone.takeoff_admission_guidance')::jsonb;
+  metadata := jsonb_build_object(
+    'level', new.level, 'estimate_version_id', new.estimate_version_id, 'source_file_name', new.source_file_name,
+    'idempotency_key', null, 'plan_set_id', new.plan_set_id,
+    'classification', guidance->'classification', 'selection', guidance->'selection'
+  );
+  if new.estimate_version_id is null then
+    metadata := metadata || jsonb_build_object('project_id', new.project_id);
+  end if;
+
+  begin
+    insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
+    values (new.tenant_id, new.created_by, 'takeoff_jobs', new.id, new.estimate_version_id, 'takeoff.job.created',
+      jsonb_build_object('schema_version', 1, 'action', 'takeoff.job.created', 'job_id', new.id,
+        'tenant_id', new.tenant_id, 'user_id', new.created_by, 'metadata', metadata));
+  exception when others then
+    raise exception 'TAKEOFF_JOB_CREATION_AUDIT_FAILED' using errcode = 'P0001';
+  end;
+  return new;
+end;
+$$;
+revoke all on function private.record_prepared_takeoff_job_creation() from public, anon, authenticated;
+create trigger record_prepared_takeoff_job_creation after insert on public.takeoff_jobs
+  for each row execute function private.record_prepared_takeoff_job_creation();
+
+create function public.admit_prepared_takeoff_job(p_job jsonb, p_guidance jsonb)
+returns setof public.takeoff_jobs
+language plpgsql security invoker set search_path = '' as $$
+declare
+  requested public.takeoff_jobs := jsonb_populate_record(null::public.takeoff_jobs, p_job);
+begin
+  if current_user <> 'authenticated' or auth.uid() is null or requested.id is null or requested.plan_set_id is null
+    or jsonb_typeof(p_guidance) is distinct from 'object'
+    or octet_length(p_guidance::text) > 16384 then
+    raise exception 'TAKEOFF_JOB_ADMISSION_INVALID' using errcode = '22023';
+  end if;
+  perform set_config('mergeone.takeoff_admission_job', requested.id::text, true);
+  perform set_config('mergeone.takeoff_admission_guidance', p_guidance::text, true);
+  return query
+    insert into public.takeoff_jobs (id, tenant_id, project_id, estimate_version_id, plan_set_id, level, status,
+      processing_strategy, source_file_name, source_file_path, source_file_type, source_file_size_bytes, prompt_version,
+      created_by, preparation_snapshot, execution_provider, execution_host_id)
+    values (requested.id, requested.tenant_id, requested.project_id, requested.estimate_version_id, requested.plan_set_id,
+      requested.level, 'pending', 'sync', requested.source_file_name, requested.source_file_path, requested.source_file_type,
+      requested.source_file_size_bytes, requested.prompt_version, auth.uid(), requested.preparation_snapshot,
+      requested.execution_provider, requested.execution_host_id)
+    returning *;
+  perform set_config('mergeone.takeoff_admission_job', '', true);
+  perform set_config('mergeone.takeoff_admission_guidance', '', true);
+end;
+$$;
+revoke all on function public.admit_prepared_takeoff_job(jsonb, jsonb) from public, anon, service_role;
+grant execute on function public.admit_prepared_takeoff_job(jsonb, jsonb) to authenticated;
+
 -- Row scope for RLS on the jobs themselves. Preserve the historical version
 -- access check; versionless jobs follow the affaire's reader/operator rules.
 create function private.can_access_takeoff_scope(
@@ -684,16 +782,14 @@ grant execute on function private.can_access_takeoff_storage(text, boolean) to a
 
 alter policy "Authorized users can view takeoff files storage" on storage.objects
   using (bucket_id = 'takeoff-files' and (select private.can_access_takeoff_storage(name, false)));
-alter policy "Tenant members can insert takeoff files storage" on storage.objects
-  with check (bucket_id = 'takeoff-files' and (select private.can_access_takeoff_storage(name, true)));
 alter policy "Authorized operators can update takeoff storage" on storage.objects
   using (bucket_id <> 'takeoff-files' or (select private.can_access_takeoff_storage(name, true)))
   with check (bucket_id <> 'takeoff-files' or (select private.can_access_takeoff_storage(name, true)));
 alter policy "Authorized operators can delete takeoff storage" on storage.objects
   using (bucket_id <> 'takeoff-files' or (select private.can_access_takeoff_storage(name, true)));
 
--- The plan centre keeps its existing rights. A reader of a versionless job
--- can additionally open just the attested plan files of that job.
+-- Permit reading the plan metadata of an attested job. Original PDF bytes
+-- are served only after the application checks the job and the content digest.
 create function private.can_read_takeoff_plan_evidence(
   p_tenant_id uuid, p_plan_set_id uuid, p_file_id uuid, p_path text
 ) returns boolean
@@ -702,7 +798,7 @@ language sql stable security definer set search_path = '' as $$
     select 1
     from public.plan_sets s
     join public.takeoff_jobs j on j.plan_set_id = s.id and j.tenant_id = s.tenant_id and j.project_id = s.project_id
-    where s.id = p_plan_set_id and s.tenant_id = p_tenant_id and s.estimate_version_id is null
+    where s.id = p_plan_set_id and s.tenant_id = p_tenant_id
       and j.estimate_version_id is null
       and private.can_access_takeoff_scope(j.tenant_id, j.project_id, null, false)
       and (p_file_id is null or j.preparation_snapshot #> '{preparation,sources}' @> jsonb_build_array(
@@ -719,19 +815,6 @@ create policy "Readers can select takeoff plan evidence sets" on public.plan_set
 create policy "Readers can select takeoff plan evidence files" on public.plan_files
   for select to authenticated
   using ((select private.can_read_takeoff_plan_evidence(tenant_id, plan_set_id, id, file_path)));
-create policy "Readers can view takeoff plan evidence storage" on storage.objects
-  for select to authenticated
-  using (
-    bucket_id = 'plan-files'
-    and (storage.foldername(name))[1] = (select public.current_tenant_id()::text)
-    and exists (
-      select 1 from public.plan_files f
-      where f.tenant_id = (select public.current_tenant_id())
-        and f.file_path = storage.objects.name
-        and (select private.can_read_takeoff_plan_evidence(f.tenant_id, f.plan_set_id, f.id, f.file_path))
-    )
-  );
-
 create or replace function public.enforce_takeoff_item_mutation_before_apply()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare

@@ -141,7 +141,7 @@ export function AssistedReviewPanel({
 
       <div className="border-b border-border bg-surface-subtle px-4 py-2">
         <p className="text-sm text-muted-foreground">
-          {readOnly ? "Consultez les éléments extraits des plans." : "Parcourez chaque élément et décidez de le conserver ou de l’écarter."}
+          {readOnly ? "Consultez les éléments extraits des plans." : "Parcourez chaque item et décidez de le conserver ou de l'écarter."}
           L&apos;IA a détecté {items.length} élément{items.length > 1 ? "s" : ""} dans les plans.
         </p>
         <div className="mt-1.5 flex flex-wrap gap-2">

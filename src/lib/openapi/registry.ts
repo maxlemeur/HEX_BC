@@ -3222,6 +3222,18 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   },
   {
     method: "get",
+    path: "/api/takeoff/jobs/{jobId}/vector-plans/{fileId}",
+    summary: "Lire le PDF attesté par un métré sans devis",
+    description: "Renvoie le PDF complet si le métré est lisible, si sa préparation atteste le plan et si les octets actuels correspondent au SHA-256 attesté.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter, takeoffPlanFileIdPathParameter],
+    responses: {
+      "200": { description: "Octets PDF vérifiés.", contents: [{ contentType: "application/pdf" }] },
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
     path: "/api/takeoff/jobs/{jobId}/compare",
     summary: "Comparer deux jobs Takeoff",
     description:

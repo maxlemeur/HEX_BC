@@ -38,16 +38,21 @@ function fixture(tenantRole: "admin" | "director" = "admin") {
           file_type: "application/pdf", file_size_bytes: 2048, page_count: 1 }],
         error: null, count: 1,
       }),
-      takeoff_jobs: (query) => {
-        if (query.operation === "select") return { data: jobs.get(String(filterValue(query, "id"))) ?? null, error: null };
-        const row = query.payload as Record<string, unknown>;
-        const job = { ...row, created_at: "2026-11-20T00:00:00Z" };
+      takeoff_jobs: (query) => ({ data: jobs.get(String(filterValue(query, "id"))) ?? null, error: null }),
+    },
+    rpc: {
+      admit_prepared_takeoff_job: (args) => {
+        const row = (args as { p_job: Record<string, unknown> }).p_job;
+        const job = { ...row, status: "pending", created_at: "2026-11-20T00:00:00Z" };
         jobs.set(String(row.id), job);
-        return { data: job, error: null };
+        return { data: [job], error: null };
       },
     },
   });
-  const audit = createSupabaseFake({ tables: { audit_logs: () => ({ data: null, error: null }) } });
+  const audit = createSupabaseFake({ tables: { audit_logs: (query) => ({
+    data: jobs.has(String(filterValue(query, "record_id"))) ? { id: "creation-record" } : null,
+    error: null,
+  }) } });
   vi.mocked(getAuthenticatedContext).mockResolvedValue({ ...authenticatedContext(database), tenantRole } as never);
   vi.mocked(createServiceRoleClient).mockReturnValue(audit.client as never);
   return { database, audit };
@@ -71,15 +76,12 @@ describe("admitting a prepared affaire takeoff", () => {
     const receipt = await createAffaireTakeoffJob(request);
 
     expect(receipt).toMatchObject({ project_id: M3_PROJECT_ID, estimate_version_id: null, level: "C", status: "pending" });
-    expect(database.writesTo("takeoff_jobs")).toEqual([expect.objectContaining({
-      payload: expect.objectContaining({ id: receipt.id, tenant_id: M3_TENANT_ID, plan_set_id: M3_PLAN_SET_ID,
-        project_id: M3_PROJECT_ID, estimate_version_id: null, source_file_path: null,
-        execution_provider: "chatgpt_local", processing_strategy: "sync" }),
-    })]);
-    expect(audit.writesTo("audit_logs")[0]?.payload).toMatchObject({
-      action: "takeoff.job.created", record_id: receipt.id, estimate_version_id: null,
-      after_data: { metadata: { project_id: M3_PROJECT_ID, estimate_version_id: null } },
-    });
+    expect(database.rpcCalls).toEqual([{ fn: "admit_prepared_takeoff_job", args: expect.objectContaining({
+      p_job: expect.objectContaining({ id: receipt.id, tenant_id: M3_TENANT_ID, plan_set_id: M3_PLAN_SET_ID,
+        project_id: M3_PROJECT_ID, estimate_version_id: null, source_file_path: null, execution_provider: "chatgpt_local" }),
+    }) }]);
+    expect(database.writesTo("takeoff_jobs")).toEqual([]);
+    expect(audit.writesTo("audit_logs")).toEqual([]);
     expect(database.tablesTouched).not.toContain("estimate_versions");
     expect(database.tablesTouched).not.toContain("estimate_items");
     expect(database.storageCalls).toEqual([]);
@@ -90,12 +92,13 @@ describe("admitting a prepared affaire takeoff", () => {
 
     await expect(createAffaireTakeoffJob(request)).rejects.toMatchObject({ status: 403 });
     expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
+    expect(database.rpcCalls).toEqual([]);
     expect(database.writesTo("takeoff_jobs")).toEqual([]);
     expect(audit.writesTo("audit_logs")).toEqual([]);
   });
 
   it("replays the same operation and admits a distinct operation for the same preparation", async () => {
-    const { database } = fixture();
+    const { database, audit } = fixture();
     const first = await createAffaireTakeoffJob(request);
     expect(await createAffaireTakeoffJob(request)).toEqual(first);
     const second = await createAffaireTakeoffJob({ ...request, operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" });
@@ -103,6 +106,11 @@ describe("admitting a prepared affaire takeoff", () => {
     await expect(createAffaireTakeoffJob({ ...request, preparationRevision: 2 })).rejects.toMatchObject({
       status: 409, code: "CONFLICT",
     });
-    expect(database.writesTo("takeoff_jobs")).toHaveLength(2);
+    expect(database.rpcCalls.map(call => call.fn)).toEqual(["admit_prepared_takeoff_job", "admit_prepared_takeoff_job"]);
+    expect(audit.queries).toEqual([expect.objectContaining({ table: "audit_logs", filters: expect.arrayContaining([
+      { kind: "eq", column: "tenant_id", value: M3_TENANT_ID },
+      { kind: "eq", column: "record_id", value: first.id },
+      { kind: "eq", column: "action", value: "takeoff.job.created" },
+    ]) })]);
   });
 });

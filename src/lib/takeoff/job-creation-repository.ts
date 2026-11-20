@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
@@ -22,16 +23,24 @@ import { TAKEOFF_PLAN_SET_LEVEL, type TakeoffJobRow } from "@/lib/takeoff/job-cr
 type CreationSupabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 type TakeoffJobInsert = Database["public"]["Tables"]["takeoff_jobs"]["Insert"];
 
-/** Persistence never decides replay or compensation: the creating operation owns them. */
-export async function insertTakeoffJob(input: {
+/** The invoker RPC admits the job and writes its creation record in the same transaction. */
+export async function admitPreparedTakeoffJob(input: {
   supabase: CreationSupabase;
   row: TakeoffJobInsert;
+  guidance: Json;
 }) {
-  return input.supabase
-    .from("takeoff_jobs")
-    .insert(input.row)
-    .select("id, status, level, source_file_name, source_file_path, estimate_version_id, created_at")
-    .single();
+  const { data, error } = await input.supabase.rpc("admit_prepared_takeoff_job", { p_job: input.row, p_guidance: input.guidance });
+  return { data: data?.[0] ?? null, error };
+}
+
+/** Call only after the user's session has read and authorized this job. */
+export async function assertTakeoffJobCreationRecorded(tenantId: string, jobId: string) {
+  const { data, error } = await createServiceRoleClient().from("audit_logs").select("id")
+    .eq("tenant_id", tenantId).eq("record_id", jobId).eq("table_name", "takeoff_jobs")
+    .eq("action", "takeoff.job.created").limit(1).maybeSingle();
+  if (error) throw mapSupabaseError(error, "Impossible de vérifier l'audit de création du métré.");
+  if (!data) throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+    message: "Le lancement de cette analyse n’a pas de confirmation enregistrée.", retryable: false, jobId });
 }
 
 export async function assertPlanSetAccessibleForCreation(input: {
@@ -281,24 +290,4 @@ export async function assertEstimateVersionAccessibleForTakeoff(input: TakeoffTa
   }
 
   return data;
-}
-
-export async function removeCreatedJobIfPresent(input: {
-  supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
-  tenantId: string;
-  jobId: string;
-}) {
-  const { error } = await input.supabase
-    .from("takeoff_jobs" as never)
-    .delete()
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("id" as never, input.jobId as never);
-
-  if (error) {
-    console.error("Failed to rollback takeoff job creation", {
-      jobId: input.jobId,
-      tenantId: input.tenantId,
-      error,
-    });
-  }
 }

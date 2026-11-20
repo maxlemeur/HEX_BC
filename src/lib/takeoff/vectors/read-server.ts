@@ -1,7 +1,9 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { mapSupabaseError } from "@/lib/http/api-response";
-import { TAKEOFF_FILES_BUCKET } from "@/lib/storage/buckets";
+import { PLAN_FILES_BUCKET, TAKEOFF_FILES_BUCKET } from "@/lib/storage/buckets";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   getAuthenticatedTakeoffContext,
@@ -9,6 +11,11 @@ import {
   type AuthenticatedTakeoffContext,
   type TakeoffJobDetailRow,
 } from "@/lib/takeoff/job-read-server";
+import { buildPlanFileStoragePath, sanitizePlanPdfFilename } from "@/lib/takeoff/plan-file-display-name";
+import { PLAN_FILE_MAX_SIZE_BYTES } from "@/lib/takeoff/plans";
+import { parsePreparationSnapshot } from "@/lib/takeoff/preparation-source-loader";
+import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
+import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { geometryWeight } from "@/lib/takeoff/vectors/persistence";
 import { TAKEOFF_VECTOR_READ_LIMITS, takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
@@ -27,6 +34,36 @@ type GeometryRow = { takeoff_item_id: string; vector_page_id: string; geometry: 
 const GEOMETRY_PAGE_ROWS = 500;
 /** Life of a direct upload's signed URL, as a plan file's (plans.ts): the viewer opens the PDF as soon as it reads the pages. */
 const SOURCE_URL_TTL_SECONDS = 60 * 10;
+
+export async function readAttestedTakeoffPlan(jobId: string, fileId: string): Promise<ArrayBuffer> {
+  jobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant du métré invalide.").toLowerCase();
+  fileId = parseWithSchema(takeoffJobIdSchema, fileId, "Identifiant du plan invalide.").toLowerCase();
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const missing = () => new TakeoffError({ status: 404, code: TakeoffErrorCode.NOT_FOUND,
+    message: "Le plan d’origine n’est plus disponible.", retryable: false, jobId });
+  const { data: job, error } = await supabase.from("takeoff_jobs").select("plan_set_id,preparation_snapshot")
+    .eq("id", jobId).eq("tenant_id", tenantId).is("estimate_version_id", null).maybeSingle();
+  if (error) readError(jobId, "Impossible de lire le métré du plan.", error);
+  if (!job?.plan_set_id || !job.preparation_snapshot) throw missing();
+
+  const snapshot = parsePreparationSnapshot(job.preparation_snapshot);
+  const source = snapshot?.preparation.sources.find(candidate => candidate.document_id === fileId
+    && candidate.plan_set_id === job.plan_set_id && candidate.kind === "plan" && candidate.active && candidate.confirmed);
+  if (!source?.content_hash || !source.file_path) throw missing();
+  const { data: file, error: fileError } = await supabase.from("plan_files").select("file_path,file_name")
+    .eq("id", fileId).eq("tenant_id", tenantId).eq("plan_set_id", job.plan_set_id).maybeSingle();
+  if (fileError) readError(jobId, "Impossible de lire le plan du métré.", fileError);
+  if (!file || file.file_path !== source.file_path || file.file_path !== buildPlanFileStoragePath({
+    tenantId, setId: job.plan_set_id, fileId, fileName: sanitizePlanPdfFilename(file.file_name),
+  })) throw missing();
+
+  // Return the very bytes we verified. A URL for this key could serve a replacement after the check.
+  const { data: blob, error: storageError } = await createServiceRoleClient().storage.from(PLAN_FILES_BUCKET).download(file.file_path);
+  if (storageError || !blob || blob.size === 0 || blob.size > PLAN_FILE_MAX_SIZE_BYTES) throw missing();
+  const bytes = await blob.arrayBuffer();
+  if (createHash("sha256").update(Buffer.from(bytes)).digest("hex") !== source.content_hash) throw missing();
+  return bytes;
+}
 
 function tooLarge(jobId: string): never {
   throw new TakeoffError({ status: 413, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, message: "La lecture vectorielle de ce métré dépasse la taille affichée.",

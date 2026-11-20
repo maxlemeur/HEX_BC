@@ -31,7 +31,7 @@ import {
   TakeoffReviewErrorState,
   TakeoffReviewLoadingState,
 } from "@/components/takeoff/review/TakeoffReviewChrome";
-import { TAKEOFF_COMPARISON_DEFERRED, takeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
+import { TAKEOFF_COMPARISON_DEFERRED, TAKEOFF_CROSS_JOB_COMPARISON_LABEL, takeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import {
   getStatusCss,
@@ -1132,9 +1132,11 @@ export default function TakeoffReviewPage({
       <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={hasAlreadyBeenApplied}
         jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
 
-      {!versionId && <p className="text-sm text-muted-foreground">{TAKEOFF_COMPARISON_DEFERRED} Les règles portent sur les mesures de ce métré.</p>}
+      {!versionId && <p className="text-sm text-muted-foreground">
+        <strong>{TAKEOFF_CROSS_JOB_COMPARISON_LABEL}</strong>{" · "}{TAKEOFF_COMPARISON_DEFERRED} Les règles portent sur les mesures de ce métré.
+      </p>}
 
-      {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}
+      {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} attestedPlan={!versionId} />}
       {jobLevel === "C" && (
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
       )}

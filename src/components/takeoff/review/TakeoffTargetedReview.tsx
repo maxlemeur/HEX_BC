@@ -17,7 +17,7 @@ import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRe
 import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
 import { acceptanceReasonRule, requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
-import { TAKEOFF_COMPARISON_DEFERRED } from "@/lib/takeoff/apply-readiness";
+import { TAKEOFF_COMPARISON_DEFERRED, TAKEOFF_CROSS_JOB_COMPARISON_LABEL } from "@/lib/takeoff/apply-readiness";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
@@ -589,7 +589,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
               <Button className="w-full" size="lg" disabled={applyBlocker !== null} onClick={() => { apply.setError(null); setWizardOpen(true); }}>
                 Envoyer au tableau de chiffrage
               </Button>
-              <p role="status" className="text-xs text-muted-foreground">{applyBlocker ?? "Choisissez la section et vérifiez l’aperçu d’impact ; contrôlez aussi le périmètre attendu."}</p>
+              <p role="status" className="text-xs text-muted-foreground">
+                {!versionId && <><strong>{TAKEOFF_CROSS_JOB_COMPARISON_LABEL}</strong>{" · "}</>}
+                {applyBlocker ?? "Choisissez la section et vérifiez l’aperçu d’impact ; contrôlez aussi le périmètre attendu."}
+              </p>
             </div>
           </aside>
         ) : (
@@ -610,7 +613,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
           </div>
           <div className="min-h-0 flex-1">
             {level === "C" ? (
-              <LazyTakeoffVectorViewer jobId={jobId} planSetId={job?.plan_set_id ?? null} focusItemIds={focusIds} fill />
+              <LazyTakeoffVectorViewer jobId={jobId} planSetId={job?.plan_set_id ?? null} focusItemIds={focusIds} attestedPlan={!versionId} fill />
             ) : (
               <p className="flex h-full items-center justify-center px-8 text-center text-sm text-muted-foreground max-xl:py-6">
                 {job ? "Pas de lecture vectorielle pour ce niveau : la preuve se trouve dans le panneau de décision." : null}
@@ -643,7 +646,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
               </div>
               {current ? (
                 <LineDecision key={current.item.id} line={current} level={level} guidance={guidance} acceptance={acceptance}
-                  busy={busy} readOnly={readOnly} error={lineErrors[current.item.id] ?? null} jobId={jobId}
+                  busy={busy} readOnly={readOnly} showSourceEvidence={versionId === null} error={lineErrors[current.item.id] ?? null} jobId={jobId}
                   draft={draft?.itemId === current.item.id ? draft.text : null} quantityRef={quantityRef}
                   onDraft={(text) => setDraft({ itemId: current.item.id, text })}
                   onCancelEntry={() => { entryFocus.current = null; setDraft(null); focusList(); }}
@@ -733,6 +736,7 @@ type LineDecisionProps = {
   acceptance: ReturnType<typeof acceptanceOf> | null;
   busy: boolean;
   readOnly: boolean;
+  showSourceEvidence: boolean;
   error: string | null;
   jobId: string;
   draft: string | null;
@@ -754,7 +758,7 @@ type LineDecisionProps = {
   partnerHref: (jobId: string, itemId: string) => string;
 };
 
-function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
+function LineDecision({ line, level, guidance, acceptance, busy, readOnly, showSourceEvidence, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
   onLeaveEntry, onSaveUnit, onCommit, onStartEntry, onExclude, onAccept, onInclude, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
   const { item } = line;
   const toEnter = line.rule_failures.some((failure) => failure.rule === "non_observable") || hasToEnter(item);
@@ -775,6 +779,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
             {item.source_page !== null ? <span>· p. {item.source_page}</span> : null}
             {item.is_verified ? <Badge size="sm" variant="info">Acceptée</Badge> : null}
           </p>
+          {showSourceEvidence && item.evidence ? <p className="text-xs text-foreground-secondary">{item.evidence}</p> : null}
         </div>
 
         <div className="space-y-1">

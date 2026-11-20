@@ -12,7 +12,7 @@ import type { VectorPageDecisions } from "@/lib/takeoff/vectors/persistence";
 import { createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import { signUpDedicatedOwner, type DedicatedOwner } from "../local/dedicated-owner";
-import { localTakeoffWorkerClient } from "./fixtures";
+import { localTakeoffFixture, localTakeoffWorkerClient } from "./fixtures";
 import { localClient } from "./native-ui";
 import { buildVectorPlanPdf } from "./vector-plan-fixture";
 
@@ -149,13 +149,13 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "lo
   const jobId = randomUUID();
   const sourcePath = `${tenantId}/${jobId}/${fileName}`;
   const bytes = await readFile(filePath);
+  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "text/csv" });
+  expect(uploaded.error).toBeNull();
   const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: userId, level: "A", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
     source_file_type: "text/csv", source_file_size_bytes: bytes.length,
     ...provider === "historical" ? { execution_provider: "gemini" } : await ownedWorkerJobOwner() }).select("id").single();
   expect(inserted.error).toBeNull();
-  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "text/csv" });
-  expect(uploaded.error).toBeNull();
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await expect(ui.browser).toHaveURL(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await recordEvidence(ui.army, "worker-ui-created", { ids, jobId, fileName, engine: before.version.calc_engine_version, provider,
@@ -267,21 +267,23 @@ export async function launchWorkerVectorUpload(ui: WorkerUi) {
     draft: preparation, confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId } as never);
   expect(prepared.error).toBeNull();
   const jobId = randomUUID();
-  const sourcePath = `${tenantId}/${jobId}/${fileName}`;
+  const sourcePath = `${tenantId}/${jobId}/${hash}-${randomUUID()}-plan-vectoriel-R-1-Z2.pdf`;
   // The review reads this owned upload through its signed URL: the campaign's network guard allows exactly that path.
   (ui.army.ownedTakeoffUploads ??= []).push({ projectId: ids.projectId, tenantId, jobId });
-  const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
+  const { client: authenticated } = await localTakeoffFixture(ui.army, ids, owner.email, owner.password);
+  const uploaded = await authenticated.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" });
+  expect(uploaded.error).toBeNull();
+  const inserted = await authenticated.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: userId, level: "C", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
     source_file_type: "application/pdf", source_file_size_bytes: bytes.length, ...await ownedWorkerJobOwner(),
-    preparation_snapshot: snapshot } as never).select("id").single();
+    preparation_snapshot: snapshot } as never).select("id,project_id").single();
   expect(inserted.error).toBeNull();
-  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" });
-  expect(uploaded.error).toBeNull();
+  expect(inserted.data).toEqual({ id: jobId, project_id: ids.projectId });
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
   expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
   await recordEvidence(ui.army, "TKW09-vector-upload-created", { ids, jobId, tenantId, owner: owner.userId, sha256: hash,
     calibration: preparation.conventions.calibration,
-    boundary: "Fictional vector PDF without printed scale stored as a direct upload by the journey's dedicated owner; its confirmed preparation and pending level C job are seeded on the owned stack." });
+    boundary: "The ordinary member uploads the fictional PDF before inserting the pending Level C job on the version. The insert omits the project ID." });
   return { ids, jobId, fileName, tenantId, sourcePath, sha256: hash, client, owner };
 }
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createTakeoffJobFromPlanSet, findTakeoffJobForPlanSetLaunch } from "@/lib/takeoff/job-creation-server";
 import { derivePlanSetTakeoffJobId } from "@/lib/takeoff/job-creation-input";
@@ -7,6 +8,7 @@ import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }));
 // The resume check of a pending receipt is stubbed: chatgpt-takeoff.test.ts covers it.
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
@@ -46,7 +48,11 @@ function fixture(preparationSnapshot?: unknown) {
   return { fake, job };
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  const audit = createSupabaseFake({ tables: { audit_logs: () => ({ data: { id: "creation-record" }, error: null }) } });
+  vi.mocked(createServiceRoleClient).mockReturnValue(audit.client as never);
+});
 
 describe("prepared plan launch receipts", () => {
   it("recovers the source-version receipt after reopening the hub on its created draft", async () => {
@@ -96,11 +102,6 @@ describe("prepared plan launch receipts", () => {
     vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "fixture-host" });
     const fake = createSupabaseFake({ tables: {
       takeoff_jobs: (query) => {
-        if (query.operation === "insert") {
-          expect((query.payload as { id: string }).id).not.toBe(winningJob.id);
-          winnerVisible = true;
-          return { data: null, error: { code: "23505", message: "takeoff_jobs_prepared_plan_receipt_uidx" } };
-        }
         if (filterValue(query, "id")) return { data: null, error: null };
         if (!winnerVisible) return { data: null, error: null };
         expect(filterValue(query, "execution_provider")).toBe(executionProvider);
@@ -109,11 +110,18 @@ describe("prepared plan launch receipts", () => {
       estimate_versions: () => ({ data: { id: M3_VERSION_ID, status: "draft", estimate_projects: { tenant_id: M3_TENANT_ID, user_id: M3_USER_ID } }, error: null }),
       plan_sets: () => ({ data: { id: M3_PLAN_SET_ID }, error: null }),
       plan_files: () => ({ data: [{ id: "plan-file", file_path: winningJob.source_file_path, file_name: "Plan fictif.pdf", file_type: "application/pdf", file_size_bytes: 1000, page_count: 1, metadata: {} }], error: null, count: 1 }),
+    }, rpc: {
+      admit_prepared_takeoff_job: (args) => {
+        expect((args as { p_job: { id: string } }).p_job.id).not.toBe(winningJob.id);
+        winnerVisible = true;
+        return { data: null, error: { code: "23505", message: "takeoff_jobs_prepared_plan_receipt_uidx" } };
+      },
     } });
     vi.mocked(getAuthenticatedContext).mockResolvedValue(authenticatedContext(fake) as never);
     const result = await createTakeoffJobFromPlanSet({ ...base, sourceVersionId: SOURCE_ID });
     expect(result.id).toBe(winningJob.id);
-    expect(fake.writesTo("takeoff_jobs")).toHaveLength(1);
+    expect(fake.rpcCalls.map(call => call.fn)).toEqual(["admit_prepared_takeoff_job"]);
+    expect(fake.writesTo("takeoff_jobs")).toEqual([]);
     expect(fake.writesTo("audit_logs")).toEqual([]);
   });
 });

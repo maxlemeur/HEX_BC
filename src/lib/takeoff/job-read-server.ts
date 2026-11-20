@@ -215,51 +215,59 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     cost_cents: z.number().int().nonnegative().nullable(),
     duration_ms: z.number().int().nonnegative().nullable(),
   })
-  .transform((row) => ({
-    id: row.id,
-    estimate_version_id: row.estimate_version_id,
-    project_id: row.project_id,
-    status: row.status,
-    level: row.level,
-    processing_strategy: row.processing_strategy ?? null,
-    provider_batch_id: row.provider_batch_id ?? null,
-    provider_batch_state: row.provider_batch_state ?? null,
-    provider_batch_updated_at: row.provider_batch_updated_at ?? null,
-    source_file_name: row.source_file_name,
-    source_file_type: row.source_file_type,
-    source_file_size_bytes: row.source_file_size_bytes,
-    plan_set_id: row.plan_set_id ?? null,
-    prompt_version: row.prompt_version,
-    schema_version: row.schema_version,
-    model: row.model,
-    thinking_level: row.thinking_level,
-    media_resolution: row.media_resolution,
-    retry_count: row.retry_count,
-    error_code: row.error_code,
-    error_message: row.error_message,
-    next_retry_at: row.next_retry_at ?? null,
-    last_error_at: row.last_error_at ?? null,
-    dispatch_status: row.dispatch_status ?? null,
-    dispatch_outcome: row.dispatch_outcome ?? null,
-    dispatch_trigger: row.dispatch_trigger ?? null,
-    dispatch_correlation_id: row.dispatch_correlation_id ?? null,
-    dispatch_status_code: row.dispatch_status_code ?? null,
-    dispatch_updated_at: row.dispatch_updated_at ?? null,
-    provider_reconcile_due_at: row.provider_reconcile_due_at ?? null,
-    provider_reconcile_attempt_count: row.provider_reconcile_attempt_count ?? 0,
-    provider_reconcile_lease_expires_at:
-      row.provider_reconcile_lease_expires_at ?? null,
-    started_at: row.started_at,
-    completed_at: row.completed_at,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    items_count: row.items_count ?? null,
-    metrics: {
-      token_count: row.token_count,
-      cost_cents: row.cost_cents,
-      duration_ms: row.duration_ms,
-    },
-  }));
+  .transform((row, context) => {
+    const summary = {
+      id: row.id,
+      status: row.status,
+      level: row.level,
+      processing_strategy: row.processing_strategy ?? null,
+      provider_batch_id: row.provider_batch_id ?? null,
+      provider_batch_state: row.provider_batch_state ?? null,
+      provider_batch_updated_at: row.provider_batch_updated_at ?? null,
+      source_file_name: row.source_file_name,
+      source_file_type: row.source_file_type,
+      source_file_size_bytes: row.source_file_size_bytes,
+      plan_set_id: row.plan_set_id ?? null,
+      prompt_version: row.prompt_version,
+      schema_version: row.schema_version,
+      model: row.model,
+      thinking_level: row.thinking_level,
+      media_resolution: row.media_resolution,
+      retry_count: row.retry_count,
+      error_code: row.error_code,
+      error_message: row.error_message,
+      next_retry_at: row.next_retry_at ?? null,
+      last_error_at: row.last_error_at ?? null,
+      dispatch_status: row.dispatch_status ?? null,
+      dispatch_outcome: row.dispatch_outcome ?? null,
+      dispatch_trigger: row.dispatch_trigger ?? null,
+      dispatch_correlation_id: row.dispatch_correlation_id ?? null,
+      dispatch_status_code: row.dispatch_status_code ?? null,
+      dispatch_updated_at: row.dispatch_updated_at ?? null,
+      provider_reconcile_due_at: row.provider_reconcile_due_at ?? null,
+      provider_reconcile_attempt_count: row.provider_reconcile_attempt_count ?? 0,
+      provider_reconcile_lease_expires_at:
+        row.provider_reconcile_lease_expires_at ?? null,
+      started_at: row.started_at,
+      completed_at: row.completed_at,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      items_count: row.items_count ?? null,
+      metrics: {
+        token_count: row.token_count,
+        cost_cents: row.cost_cents,
+        duration_ms: row.duration_ms,
+      },
+    };
+    if (row.estimate_version_id !== null) {
+      return { ...summary, estimate_version_id: row.estimate_version_id, project_id: row.project_id };
+    }
+    if (!row.project_id) {
+      context.addIssue({ code: "custom", path: ["project_id"], message: "L’affaire est requise pour un métré sans devis." });
+      return z.NEVER;
+    }
+    return { ...summary, estimate_version_id: null, project_id: row.project_id };
+  });
 
 const takeoffJobResultSchema: z.ZodType<TakeoffJobResult> = z.object({
   id: z.string().uuid(),

@@ -168,34 +168,47 @@ describe("reading the plan page of each vector page", () => {
     rules_evaluated_at: null, quantity_entry_category: null, is_verified: false,
   });
 
-  async function recompute(sources: (job: string) => unknown, names = ["R+1.pdf", "R+1 relance.pdf"], planFileId: string | null = null) {
+  async function recompute(sources: (job: string) => unknown, names = ["R+1.pdf", "R+1 relance.pdf"], planFileId: string | null = null, versionless = false) {
     const rows = [item(M1, names[0], forced), item(M2, names[1], [])];
+    const selected = versionless ? rows.slice(1) : rows;
     const written: Array<{ id: string; results: Array<{ rule: string; status: string; code: string }> }> = [];
+    const write = (args: unknown) => {
+      const items = (args as { p_items: typeof written }).p_items;
+      written.push(...items);
+      return { data: items.map((entry) => ({ item_id: entry.id, version_stamp: "stamp-written", reopened: false })), error: null };
+    };
     const fake = createSupabaseFake({
       tables: {
-        takeoff_jobs: () => ({ data: [{ id: M1, status: "applied", created_at: "2026-11-12T09:00:00.000Z", sources: sources(M1) },
+        takeoff_jobs: () => ({ data: [...(versionless ? [] : [{ id: M1, status: "applied", created_at: "2026-11-12T09:00:00.000Z", sources: sources(M1) }]),
           { id: M2, status: "completed", created_at: "2026-11-12T09:30:00.000Z", sources: sources(M2) }], error: null }),
-        takeoff_items: () => ({ data: rows, error: null, count: rows.length }),
-        takeoff_vector_pages: () => ({ data: rows.map((row) => ({ id: `page-${row.job_id}`, job_id: row.job_id, plan_file_id: planFileId,
-          source_file_name: row.source_file_name, source_page: 1, reading, rule_anchors: anchors })), error: null, count: rows.length }),
-        takeoff_item_geometries: () => ({ data: rows.map((row) => ({ takeoff_item_id: row.id, job_id: row.job_id, vector_page_id: `page-${row.job_id}`,
+        takeoff_items: () => ({ data: selected, error: null, count: selected.length }),
+        takeoff_vector_pages: () => ({ data: selected.map((row) => ({ id: `page-${row.job_id}`, job_id: row.job_id, plan_file_id: planFileId,
+          source_file_name: row.source_file_name, source_page: 1, reading, rule_anchors: anchors })), error: null, count: selected.length }),
+        takeoff_item_geometries: () => ({ data: selected.map((row) => ({ takeoff_item_id: row.id, job_id: row.job_id, vector_page_id: `page-${row.job_id}`,
           geometry: { schema_version: 1, kind: "network", network: "EF", material: "inox-316l", dn: 22, zone: "Z1", level: "R+1", groups: [],
             segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null, transform: null } })), error: null }),
       },
       rpc: {
         takeoff_rule_version_has_inputs: () => ({ data: true, error: null }),
         takeoff_rule_version_stamp: () => ({ data: "stamp-read", error: null }),
-        write_takeoff_rule_results: (args) => {
-          const items = (args as { p_items: typeof written }).p_items;
-          written.push(...items);
-          return { data: items.map((entry) => ({ item_id: entry.id, version_stamp: "stamp-written", reopened: false })), error: null };
-        },
+        takeoff_rule_job_stamp: () => ({ data: "stamp-read", error: null }),
+        write_takeoff_job_rule_results: write,
+        write_takeoff_rule_results: write,
       },
     });
-    await recomputeTakeoffRulesForVersion({ tenantId: "t", estimateVersionId: "v", supabase: fake.client as never });
+    if (versionless) await recomputeTakeoffRulesForJob({ tenantId: "t", projectId: "p", jobId: M2, supabase: fake.client as never });
+    else await recomputeTakeoffRulesForVersion({ tenantId: "t", estimateVersionId: "v", supabase: fake.client as never });
     const jobSelect = fake.queries.find((query) => query.table === "takeoff_jobs")?.columns ?? "";
     return { written, rows, jobSelect };
   }
+
+  it("records that a second job on the same floor has not been ruled out", async () => {
+    const { written } = await recompute(() => null, ["R+1.pdf", "R+1.pdf"], null, true);
+    expect(written[0].results.find((result) => result.rule === "zone_overlap")).toMatchObject({
+      status: "pass",
+      details: { evaluation_scope: "job", cross_job_comparison: "deferred" },
+    });
+  });
 
   it("passes the page read again through the content hash of each takeoff's upload, and never writes the applied takeoff", async () => {
     const { written, rows, jobSelect } = await recompute((job) => [{ document_id: `upload:${HASH}`, document_name: job === M1 ? "R+1.pdf" : "R+1 relance.pdf",

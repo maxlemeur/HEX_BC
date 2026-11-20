@@ -67,6 +67,15 @@ create function pg_temp.sign_in(n integer) returns void language sql as $$
   select set_config('request.jwt.claims', jsonb_build_object('role', 'authenticated', 'sub', pg_temp.fixture(n))::text, true);
 $$;
 
+create function pg_temp.admit_job(n integer) returns setof public.takeoff_jobs language sql as $$
+  select j.* from public.takeoff_preparations p, lateral public.admit_prepared_takeoff_job(jsonb_build_object(
+    'id', pg_temp.fixture(n), 'tenant_id', p.tenant_id, 'project_id', p.project_id,
+    'plan_set_id', pg_temp.fixture(40), 'level', 'C', 'execution_provider', 'chatgpt_local',
+    'execution_host_id', 'urn:uuid:ab220000-0000-4000-8000-000000000090',
+    'preparation_snapshot', p.confirmed_snapshot
+  ), '{}'::jsonb) j where p.project_id = pg_temp.fixture(20)
+$$;
+
 select pg_temp.sign_in(1);
 set local role authenticated;
 select throws_ok($$select pg_temp.insert_job(61, 41)$$, '42501', 'TAKEOFF_JOB_PLAN_SET_SCOPE_INVALID',
@@ -82,7 +91,17 @@ select throws_ok($$update public.takeoff_jobs set project_id = pg_temp.fixture(2
   '42501', 'TAKEOFF_JOB_IDENTITY_IMMUTABLE', 'a client cannot move an admitted job to another affaire');
 select throws_ok($$update public.takeoff_jobs set estimate_version_id = pg_temp.fixture(30) where id = pg_temp.fixture(61)$$,
   '42501', 'TAKEOFF_JOB_IDENTITY_IMMUTABLE', 'a client cannot attach even a draft of the same affaire');
+select is((select id from pg_temp.admit_job(68)), pg_temp.fixture(68), 'the authenticated admission RPC returns its new job');
+select throws_ok($$select * from pg_temp.admit_job(68)$$,
+  '23505', null, 'a duplicate admission can only recover the committed receipt');
 reset role;
+select results_eq(
+  $$select user_id, tenant_id, after_data #>> '{metadata,project_id}' from public.audit_logs
+  where action = 'takeoff.job.created' and table_name = 'takeoff_jobs' and record_id = pg_temp.fixture(68)$$,
+  $$select pg_temp.fixture(1), pg_temp.fixture(10), pg_temp.fixture(20)::text$$,
+  'the atomic admission has one creation record tied to the authenticated actor and affaire');
+select is((select count(*) from public.audit_logs where action = 'takeoff.job.created' and record_id = pg_temp.fixture(61)),
+  0::bigint, 'a legacy raw insert still leaves creation audit to its original client');
 
 insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 values (pg_temp.fixture(51), pg_temp.fixture(10), pg_temp.fixture(40), 'unattested.pdf',
@@ -113,6 +132,19 @@ select throws_ok($$update public.takeoff_jobs set estimate_version_id = pg_temp.
   '42501', 'TAKEOFF_JOB_IDENTITY_IMMUTABLE', 'an elevated writer still needs the guarded attachment permit');
 select throws_ok($$update public.takeoff_jobs set preparation_snapshot = '{}' where id = pg_temp.fixture(61)$$,
   '42501', 'TAKEOFF_JOB_PREPARATION_IMMUTABLE', 'the attested preparation stays immutable');
+-- Keep this move probe isolated on schema versions that still allow it.
+select throws_ok($test$do $move$
+  begin
+    update public.plan_sets set project_id = pg_temp.fixture(21) where id = pg_temp.fixture(40);
+    raise exception 'PLAN_SET_MOVE_WAS_ACCEPTED';
+  end;
+$move$$test$,
+  '23514', 'TAKEOFF_PLAN_SET_IN_USE', 'a referenced plan set cannot move to another affaire');
+set local role authenticated;
+select lives_ok($$update public.plan_sets set name = 'Renamed plans' where id = pg_temp.fixture(40)$$,
+  'the owner can still rename a referenced plan set');
+select is((select name from public.plan_sets where id = pg_temp.fixture(40)), 'Renamed plans', 'the plan rename persists');
+reset role;
 
 insert into public.takeoff_results(id, tenant_id, job_id)
 values (pg_temp.fixture(62), pg_temp.fixture(10), pg_temp.fixture(61));
@@ -139,12 +171,12 @@ insert into storage.objects(bucket_id, name) values
   ('plan-files', concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(40), pg_temp.fixture(50), 'fixture.pdf')),
   ('plan-files', concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(40), pg_temp.fixture(51), 'unattested.pdf'));
 
-create function pg_temp.visible_plan(expected bigint, actor text) returns setof text language sql as $$
+create function pg_temp.visible_plan(expected bigint, expected_storage bigint, actor text) returns setof text language sql as $$
   select is((select count(*) from public.plan_sets where id = pg_temp.fixture(40)), expected, actor || ': attested plan set')
   union all select is((select count(*) from public.plan_files where id = pg_temp.fixture(50)), expected, actor || ': attested plan')
   union all select is((select count(*) from storage.objects where bucket_id = 'plan-files'
     and name = concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(40), pg_temp.fixture(50), 'fixture.pdf')),
-    expected, actor || ': attested plan Storage object')
+    expected_storage, actor || ': plan visible through the ordinary Storage policy')
 $$;
 
 create function pg_temp.visible_children(expected bigint, actor text) returns setof text language sql as $$
@@ -158,17 +190,26 @@ $$;
 
 set local role authenticated;
 select * from pg_temp.visible_children(1, 'owner');
-select * from pg_temp.visible_plan(1, 'owner');
+select * from pg_temp.visible_plan(1, 1, 'owner');
 select is((select count(*) from storage.objects where bucket_id = 'takeoff-files'
   and split_part(name, '/', 2) = pg_temp.fixture(65)::text), 1::bigint, 'owner reads the canonical legacy upload only');
+select lives_ok($$insert into storage.objects(bucket_id, name)
+  values ('takeoff-files', concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(69), 'not-a-job-source.csv'))$$,
+  'a tenant member can stage an upload before a job exists');
+select is((select count(*) from storage.objects where bucket_id = 'takeoff-files'
+  and name = concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(69), 'not-a-job-source.csv')),
+  0::bigint, 'an authenticated client cannot read an unregistered path as a job source');
 select throws_ok($$insert into storage.objects(bucket_id, name)
-  values ('takeoff-files', concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(61), 'not-a-job-source.csv'))$$,
-  '42501', null, 'an authenticated client cannot attach an unregistered path to a job');
+  values ('takeoff-files', concat_ws('/', pg_temp.fixture(11), pg_temp.fixture(61), 'foreign.csv'))$$,
+  '42501', null, 'a tenant member cannot stage an upload in a foreign tenant');
 reset role;
 select pg_temp.sign_in(3);
 set local role authenticated;
 select * from pg_temp.visible_children(1, 'read-only director');
-select * from pg_temp.visible_plan(1, 'read-only director');
+select * from pg_temp.visible_plan(1, 0, 'read-only director');
+select is((select count(*) from storage.objects where bucket_id = 'plan-files'
+  and name = concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(40), pg_temp.fixture(50), 'fixture.pdf')),
+  0::bigint, 'a read-only director cannot fetch a mutable plan object directly');
 select is((select count(*) from storage.objects where bucket_id = 'plan-files'
   and name = concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(40), pg_temp.fixture(51), 'unattested.pdf')),
   0::bigint, 'two readable jobs do not expose other plans from their set through takeoff evidence');
@@ -187,7 +228,7 @@ reset role;
 select pg_temp.sign_in(2);
 set local role authenticated;
 select * from pg_temp.visible_children(0, 'engineer from another affaire');
-select * from pg_temp.visible_plan(0, 'engineer from another affaire');
+select * from pg_temp.visible_plan(0, 0, 'engineer from another affaire');
 reset role;
 select pg_temp.sign_in(4);
 set local role authenticated;
@@ -197,7 +238,7 @@ update public.tenants set is_active = false where id = pg_temp.fixture(10);
 select pg_temp.sign_in(1);
 set local role authenticated;
 select * from pg_temp.visible_children(0, 'owner in an inactive tenant');
-select * from pg_temp.visible_plan(0, 'owner in an inactive tenant');
+select * from pg_temp.visible_plan(0, 0, 'owner in an inactive tenant');
 reset role;
 
 update public.tenants set is_active = true where id = pg_temp.fixture(10);

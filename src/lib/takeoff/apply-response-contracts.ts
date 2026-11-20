@@ -29,10 +29,10 @@ const takeoffJobSummaryBase = z.object({
   metrics: z.object({ token_count: count.nullable(), cost_cents: count.nullable(), duration_ms: count.nullable() }),
 });
 
-export const takeoffJobSummaryResponseSchema = takeoffJobSummaryBase.refine(
-  (job) => job.estimate_version_id !== null || job.project_id !== undefined,
-  "L’affaire est requise pour un métré sans devis."
-);
+export const takeoffJobSummaryResponseSchema = z.union([
+  takeoffJobSummaryBase.extend({ estimate_version_id: uuid }),
+  takeoffJobSummaryBase.extend({ estimate_version_id: z.null(), project_id: uuid }),
+]);
 
 export const takeoffApplySummarySchema = z.object({
   scope: z.enum(["section", "version"]), created_count: count, updated_count: count, ignored_count: count,

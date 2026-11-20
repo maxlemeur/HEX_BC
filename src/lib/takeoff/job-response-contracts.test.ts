@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { takeoffJobSummaryResponseSchema } from "@/lib/takeoff/apply-response-contracts";
 import { parseTakeoffJobDetailResponse } from "@/lib/takeoff/job-response-contracts";
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
 import { appliedJobFixture, takeoffItemFixture, JOB_ID, LINE_ID, NOW, OTHER_ID, VERSION_ID } from "@/lib/takeoff/response-contracts.test-fixtures";
@@ -29,5 +31,15 @@ describe("takeoff job transport response contracts", () => {
     expect(takeoffReviewContextResponseSchema.parse({ ...context, version_id: VERSION_ID })).toEqual({ ...context, version_id: VERSION_ID });
     expect(takeoffReviewContextResponseSchema.parse({ ...context, version_id: null })).toEqual({ ...context, version_id: null });
     expect(takeoffReviewContextResponseSchema.safeParse({ ...context, version_id: null, unlinked_item_ids: [LINE_ID] }).success).toBe(false);
+  });
+
+  it("publishes the affaire requirement only for a job without a version", () => {
+    const schema = z.toJSONSchema(takeoffJobSummaryResponseSchema);
+    expect(schema.anyOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({ properties: expect.objectContaining({ estimate_version_id: expect.objectContaining({ type: "string" }) }),
+        required: expect.not.arrayContaining(["project_id"]) }),
+      expect.objectContaining({ properties: expect.objectContaining({ estimate_version_id: { type: "null" } }),
+        required: expect.arrayContaining(["estimate_version_id", "project_id"]) }),
+    ]));
   });
 });
