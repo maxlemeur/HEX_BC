@@ -9,7 +9,7 @@ import {
   type AffaireIntakeBriefStatus,
 } from "@/lib/affaires/intake";
 import type { AffaireAccessProject } from "@/lib/affaires/access-server";
-import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-server";
+import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-sync-server";
 import { isRecord, toStringOrNull } from "@/lib/value-guards";
 import {
   type AffaireIntakeSupabaseClient,

@@ -11,7 +11,7 @@ vi.mock("@/lib/auth/tenant-context", () => ({
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn(() => ({})) }));
 vi.mock("@/lib/affaires/plan-presence", () => ({ hasStoredIntakePlan: vi.fn().mockResolvedValue(true), hasStoredStandalonePlan: vi.fn().mockResolvedValue(false) }));
 vi.mock("@/lib/affaires/intake-plan-sync", () => ({ syncTakeoffPlanSetFromAffaireIntake: vi.fn() }));
-vi.mock("@/lib/affaires/register-server", () => ({
+vi.mock("@/lib/affaires/register-sync-server", () => ({
   syncAffairePlanGap: vi.fn(), syncAffaireRegisterFromBrief: vi.fn(), syncAffaireRegisterMissingPieces: vi.fn(),
 }));
 
@@ -20,7 +20,7 @@ import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-ser
 import { reconcileAffairePlanPresence, refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-derived-state-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
-import { syncAffairePlanGap } from "@/lib/affaires/register-server";
+import { syncAffairePlanGap } from "@/lib/affaires/register-sync-server";
 import { hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 

@@ -15,7 +15,8 @@ exploitation ; le registre conserve les décisions humaines et les points à
 résoudre avant émission. Voir [affaires](../../src/lib/affaires/), notamment
 les modules `intake-*` (dépôt `intake-upload-server.ts`, analyse
 `intake-analysis-server.ts`, brief `intake-brief-*.ts`, lecture du dossier
-`intake-workspace-server.ts`), `register-server.ts` et `finish-line-server.ts`.
+`intake-workspace-server.ts`), les modules `register-*-server.ts` du registre
+et `finish-line-server.ts`.
 
 Le parcours DPGF est `dpgf_rows_raw → mappings → confirmUnifiedImportFlow`.
 Il accepte CSV, classeurs Excel et PDF tabulaires via leurs parseurs dédiés.

@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
 vi.mock("@/lib/affaires/intake-brief-server", () => ({ readAffaireBriefDraft: vi.fn() }));
 vi.mock("@/lib/affaires/intake-document-preview", () => ({ readAffaireDocumentPreview: vi.fn() }));
-vi.mock("@/lib/affaires/register-server", () => ({ fetchAffaireRegisterPage: vi.fn() }));
+vi.mock("@/lib/affaires/register-read-server", () => ({ fetchAffaireRegisterPage: vi.fn() }));
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { readAffaireBriefDraft } from "@/lib/affaires/intake-brief-server";
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
-import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterPage } from "@/lib/affaires/register-read-server";
 import { listAffaireDocuments, loadAffaireDocument, readAffaireBriefAndRegister } from "@/lib/assistant/affaire-reading-server";
 import { AssistantToolError } from "@/lib/assistant/loop";
 import { notFound } from "@/lib/http/api-response";

@@ -6,7 +6,7 @@ import { isAffaireIntakeReanalysisPending } from "@/lib/affaires/intake";
 import { requireAffaireAccess, type AffaireAccessProject } from "@/lib/affaires/access-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
-import { syncAffaireRegisterMissingPieces, syncAffairePlanGap } from "@/lib/affaires/register-server";
+import { syncAffaireRegisterMissingPieces, syncAffairePlanGap } from "@/lib/affaires/register-sync-server";
 import {
   type AffaireIntakeDocumentRow,
   type AffaireIntakeSupabaseClient,

@@ -74,7 +74,7 @@ import {
 } from "./schemas";
 import { hasDefaultImportPlanSetMarker } from "@/lib/takeoff/default-import-plan-set";
 import { toSafeInteger } from "@/lib/value-guards";
-import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "./register-server";
+import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "./register-gate-server";
 
 type AffaireContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 

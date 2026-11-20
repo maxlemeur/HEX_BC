@@ -8,7 +8,7 @@ vi.mock("@/lib/affaires/plan-presence", () => ({
   hasStoredIntakePlan: vi.fn().mockResolvedValue(true), hasStoredStandalonePlan: vi.fn().mockResolvedValue(false),
 }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn(() => ({})) }));
-vi.mock("@/lib/affaires/register-server", () => ({
+vi.mock("@/lib/affaires/register-sync-server", () => ({
   syncAffairePlanGap: vi.fn(), syncAffaireRegisterFromBrief: vi.fn(), syncAffaireRegisterMissingPieces: vi.fn(),
 }));
 

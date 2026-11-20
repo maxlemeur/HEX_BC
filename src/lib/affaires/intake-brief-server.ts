@@ -7,7 +7,7 @@ import {
   type AffaireIntakeBriefDraft,
 } from "@/lib/affaires/intake";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-server";
+import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-sync-server";
 import { resolveSupabaseQuery, insertAffaireIntakeEvent } from "@/lib/affaires/intake-rows";
 import { replaceAffaireBriefSourceLinks, getComparableBriefPayload, fetchAffaireBriefForProject } from "@/lib/affaires/intake-brief-store";
 
