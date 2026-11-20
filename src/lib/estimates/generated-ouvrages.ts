@@ -289,7 +289,6 @@ type DraftLoaded = {
 
 const GENERATED_OUVRAGE_MODEL = "gemini-3-pro-preview";
 const GENERATED_OUVRAGE_PROMPT_VERSION = "est381-generated-ouvrages-v1";
-const GENERATED_OUVRAGE_PROMPT_THINKING_LEVEL = "medium" as const;
 const GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE = "À classer";
 const MAX_SOURCE_TEXT_LENGTH = 12_000;
 const MAX_REASON_LENGTH = 320;
@@ -1296,7 +1295,6 @@ async function generatePromptCandidates(input: {
     const result = await callStructuredAi<GeminiGeneratedOuvrageExchange>({
       prompt,
       schema: geminiGeneratedOuvrageExchangeSchema,
-      thinkingLevel: GENERATED_OUVRAGE_PROMPT_THINKING_LEVEL,
       context: {
         model: GENERATED_OUVRAGE_MODEL,
         promptVersion: GENERATED_OUVRAGE_PROMPT_VERSION,

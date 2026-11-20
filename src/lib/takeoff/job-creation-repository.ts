@@ -7,7 +7,6 @@ import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertDraftStatus } from "@/lib/estimates/server-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
-import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   TakeoffError,
   TakeoffErrorCode,
@@ -19,8 +18,6 @@ import {
   PLAN_SET_MAX_TOTAL_SIZE_BYTES,
 } from "@/lib/takeoff/plans";
 import { TAKEOFF_PLAN_SET_LEVEL, type TakeoffJobRow } from "@/lib/takeoff/job-creation-input";
-
-const TAKEOFF_FILES_BUCKET = "takeoff-files";
 
 type CreationSupabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 type TakeoffJobInsert = Database["public"]["Tables"]["takeoff_jobs"]["Insert"];
@@ -35,19 +32,6 @@ export async function insertTakeoffJob(input: {
     .insert(input.row)
     .select("id, status, level, source_file_name, source_file_path, estimate_version_id, created_at")
     .single();
-}
-
-export async function uploadTakeoffSourceFile(input: {
-  supabase: CreationSupabase;
-  storagePath: string;
-  file: File;
-  contentType: string;
-}) {
-  return input.supabase.storage.from(TAKEOFF_FILES_BUCKET).upload(
-    input.storagePath,
-    input.file,
-    { contentType: input.contentType, upsert: false }
-  );
 }
 
 export async function assertPlanSetAccessibleForCreation(input: {
@@ -295,25 +279,6 @@ export async function assertEstimateVersionAccessibleForTakeoff(input: TakeoffTa
   }
 
   return data;
-}
-
-export async function removeUploadedFileIfPresent(input: {
-  storagePath: string;
-}) {
-  // The upload can exist before its takeoff_jobs row. The authenticated
-  // Storage DELETE policy intentionally requires that row, so rollback uses
-  // the server-only client for this server-generated exact path.
-  const storageAdmin = createServiceRoleClient();
-  const { error } = await storageAdmin.storage
-    .from(TAKEOFF_FILES_BUCKET)
-    .remove([input.storagePath]);
-
-  if (error) {
-    console.error("Failed to rollback takeoff storage upload", {
-      storagePath: input.storagePath,
-      error,
-    });
-  }
 }
 
 export async function removeCreatedJobIfPresent(input: {

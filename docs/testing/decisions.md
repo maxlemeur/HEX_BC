@@ -85,8 +85,8 @@ Le premier périmètre comprend :
   reste du traitement, sans relance. Un échec ne fait jamais échouer le métré : les
   groupes restent « à revoir ». Un métré du forfait ChatGPT local lit ses groupes avec
   ce forfait plutôt que Decisions (TI-704 option B, aucune clé serveur, aucun jeton
-  Decisions). En E2E (TKW10), le worker possédé charge la fixture fournisseur
-  par-dessus son garde réseau. Voir [Lecture vectorielle](../metier/lecture-vectorielle.md).
+  Decisions) ; seul ce forfait exécute désormais les métrés, le worker n'interroge donc
+  plus Decisions pour ses groupes. Voir [Lecture vectorielle](../metier/lecture-vectorielle.md).
 - Reprise des prix : sur demande explicite dans l’éditeur, choix parmi les articles
   candidats d’un devis de référence pour les seules lignes « à vérifier »
   (question `choice`, valeur « aucun » admise). La proposition ne coche aucune ligne

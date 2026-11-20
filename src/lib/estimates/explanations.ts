@@ -138,7 +138,6 @@ const ESTIMATE_RISK_ALERTS_SELECT = [
 
 const ESTIMATE_EXPLANATION_PROMPT_VERSION = "estimate-explanation-v1";
 const ESTIMATE_EXPLANATION_MODEL = "gemini-3-pro-preview";
-const ESTIMATE_EXPLANATION_THINKING_LEVEL = "medium" as const;
 const ESTIMATE_DELTA_NARRATIVE_STRATEGY_VERSION = "delta-fallback-v1";
 const MAX_STATEMENTS_PER_BUCKET = 6;
 const MAX_PROVENANCE_ITEMS = 8;
@@ -1035,7 +1034,6 @@ async function generateNarrative(input: NormalizedExplanationPayload) {
     const result = await callStructuredAi<z.infer<typeof explanationNarrativeSchema>>({
       prompt: buildNarrativePrompt(input),
       schema: explanationNarrativeSchema,
-      thinkingLevel: ESTIMATE_EXPLANATION_THINKING_LEVEL,
       context: {
         model: ESTIMATE_EXPLANATION_MODEL,
         promptVersion: ESTIMATE_EXPLANATION_PROMPT_VERSION,

@@ -10,7 +10,7 @@ import { takeoffScopeFreeLevels } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
 import { sha256Hex } from "@/lib/takeoff/sha256";
-import { getTakeoffDecisionsCapability, isTakeoffDecisionsSelected } from "@/lib/takeoff/takeoff-decisions-server";
+import { isTakeoffDecisionsSelected } from "@/lib/takeoff/takeoff-decisions-server";
 import { isClassified } from "@/lib/takeoff/vectors/classify";
 import { extractVectorPage, VectorExtractionError, type VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { GROUP_DECISIONS_PROMPT_VERSION, GROUP_DECISIONS_VERSION } from "@/lib/takeoff/vectors/group-decisions";
@@ -48,9 +48,10 @@ import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 // The vector reading in the takeoff worker (TI-662), opt-in with
 // MERGEONE_TAKEOFF_VECTORS=1 and level C only: each retained page of each
 // original PDF (never the merged copy, which loses its layer names) is
-// extracted in its killable process and read with keywords. With
-// MERGEONE_TAKEOFF_DECISIONS=1 too (and Decisions configured,
-// getTakeoffDecisionsCapability), the groups left without class are then
+// extracted in its killable process and read with keywords. The worker runs
+// only local ChatGPT jobs and passes their hook (option B below): the Decisions
+// classification that follows has no production caller since the server
+// provider was removed. With a Decisions hook, the groups left without class are then
 // classified (group-decisions-server.ts: rules, then Decisions, then the
 // propagation of a colour, TI-704) and the page read again with its answers
 // (a Decisions class under its accepted margin is a proposal: kept with its
@@ -147,17 +148,6 @@ export function takeoffVectorLocalGroupsHook(input: {
       await provider.assertOwnerActive();
       await input.beforeCall?.();
     } };
-}
-
-/**
- * The hook of a level C job when MERGEONE_TAKEOFF_VECTORS=1, MERGEONE_TAKEOFF_DECISIONS=1 and Decisions is configured
- * (MERGEONE_OPENAI_DECISIONS=1 and its key), with the user the job acts for; otherwise none: no call, the groups
- * without keyword class stay « à revoir ».
- */
-export function takeoffVectorDecisionsHook(input: { jobId: string; tenantId: string; userId: string | null; beforeCall?: () => Promise<void> }):
-  TakeoffVectorDecisionsHook | undefined {
-  if (!isTakeoffVectorReadingEnabled() || !input.userId || getTakeoffDecisionsCapability().status !== "available") return undefined;
-  return { owner: { tenantId: input.tenantId, userId: input.userId }, projectId: `takeoff-job:${input.jobId}`, beforeCall: input.beforeCall };
 }
 
 export type VectorPageOutcome = {
@@ -363,7 +353,7 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
   onPage?: () => Promise<void>;
   /** Identity of the job, for the log of a failed page. */
   context?: { jobId: string; tenantId: string };
-  /** Decisions for the groups without keyword class (takeoffVectorDecisionsHook); none: keywords only. */
+  /** The classification of the groups without keyword class (takeoffVectorLocalGroupsHook); none: keywords only. */
   decisions?: TakeoffVectorDecisionsHook;
   /** The extraction of a page (tests); its killable child process by default. */
   extract?: (bytes: Uint8Array, page: number) => Promise<VectorPageExtraction>;

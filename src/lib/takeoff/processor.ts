@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider, type LocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import type { StructuredCall, StructuredCallOptions, TokenUsage } from "@/lib/ai/structured-call";
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
 import { dedupeHeaders } from "@/lib/imports/tabular-normalization";
 import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
@@ -21,15 +22,6 @@ import {
   logTakeoffAuditEvent,
   takeoffAuditMetadataBuilders,
 } from "@/lib/takeoff/audit";
-import {
-  type pollGeminiBatchStructuredOnce,
-  type submitGeminiBatchStructured,
-  type CallGeminiStructuredOptions,
-  type CallGeminiStructuredResult,
-  type GeminiBatchLifecycleEvent,
-  type GeminiTokenUsageBreakdown,
-  type GeminiThinkingLevel,
-} from "@/lib/takeoff/gemini-client";
 import {
   TakeoffError,
   TakeoffErrorCode,
@@ -48,30 +40,16 @@ import {
 } from "@/lib/takeoff/pdf-validation";
 import {
   getTakeoffChunkingConfigForTenant,
-  getTakeoffEscalationConfigForTenant,
-  getTakeoffGeminiDeliveryConfigForTenant,
   getTakeoffLevelCProcessingConfigForTenant,
-  type TakeoffEscalationConfig,
 } from "@/lib/takeoff/feature-flags";
-import {
-  getTakeoffEscalationModelConfig,
-  getTakeoffLevelConfig,
-  getTakeoffPrompt,
-  type TakeoffEscalationModelConfig,
-} from "@/lib/takeoff/prompts";
+import { getTakeoffPrompt, getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import {
   TakeoffChunkExchangeSchema,
   TakeoffExchangeSchema,
   TakeoffWarningSchema,
 } from "@/lib/takeoff/schemas";
-import {
-  persistGeminiBatchLifecycleEvent,
-  resolveExecutableTakeoffProcessingStrategy,
-  resolveTakeoffProcessingStrategy,
-} from "@/lib/takeoff/provider-batch";
 import type {
   TakeoffExchange,
-  TakeoffProcessingStrategy,
   TakeoffWarning,
 } from "@/lib/takeoff/types";
 import { toUnitToken } from "@/lib/takeoff/units";
@@ -86,31 +64,17 @@ import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import { hypothesisPreselection } from "@/lib/takeoff/hypothesis";
 import { isTakeoffRulesEnabled, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import {
-  isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorDecisionsHook, takeoffVectorLocalGroupsHook, type VectorPageOutcome,
+  isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorLocalGroupsHook, type VectorPageOutcome,
 } from "@/lib/takeoff/vectors/worker-server";
 import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 
-type CallGeminiStructuredFn = <T>(
-  options: CallGeminiStructuredOptions<T>
-) => Promise<CallGeminiStructuredResult<T>>;
-
-type TakeoffExecutionModelConfig = { model: string; thinkingLevel: GeminiThinkingLevel | null };
-
-type SubmitGeminiBatchStructuredFn = typeof submitGeminiBatchStructured;
-type PollGeminiBatchStructuredOnceFn = typeof pollGeminiBatchStructuredOnce;
-
-async function unavailableLegacyTakeoffProvider(): Promise<never> {
-  throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
-    message: "Ce fournisseur n’est plus disponible. Préparez une nouvelle analyse avec le forfait ChatGPT local." });
-}
-
 const TAKEOFF_LEVEL_A = "A";
 const TAKEOFF_LEVEL_B = "B";
 const TAKEOFF_LEVEL_C = "C";
-const DEFAULT_GEMINI_TIMEOUT_MS = 60_000;
-const MAX_GEMINI_TIMEOUT_MS = 180_000;
+// The claim needs a model; when the creator's plan cannot be read, only the provider is known.
+const UNRESOLVED_LOCAL_MODEL = "chatgpt";
 const TAKEOFF_PROCESSING_LEASE_TTL_MS = TAKEOFF_PROCESSING_LEASE_TTL_SECONDS * 1000;
 const ATOMIC_PERSISTENCE_ROLLBACK_MARKER = "atomic_persistence_rollback_applied";
 
@@ -148,8 +112,6 @@ type ProcessLevelContext = {
   userId: string | null;
 };
 
-type GeminiDeliveryMode = "sync" | "batch";
-
 type ProcessableTakeoffLevel =
   | typeof TAKEOFF_LEVEL_A
   | typeof TAKEOFF_LEVEL_B
@@ -183,9 +145,8 @@ export type ProcessLevelAOptions = {
   tenantId?: string;
   userId?: string;
   now?: () => Date;
-  callGemini?: CallGeminiStructuredFn;
-  submitGeminiBatch?: SubmitGeminiBatchStructuredFn;
-  pollGeminiBatchOnce?: PollGeminiBatchStructuredOnceFn;
+  /** Resolves the job's local provider; the owned-worker journeys pass a controlled one. */
+  resolveProvider?: typeof resolveLocalTakeoffProvider;
   assertTenantActive?: (tenantId: string) => Promise<void>;
   renewLease?: TakeoffLeaseRenewal;
 };
@@ -201,25 +162,7 @@ type ProcessLevelCompletedResult = {
   durationMs: number;
 };
 
-type ProcessLevelSubmittedToProviderResult = {
-  jobId: string;
-  status: "submitted_to_provider";
-  providerBatchId: string;
-  providerBatchStateRaw: string;
-  durationMs: number;
-};
-
-type ProcessLevelAwaitingProviderResult = {
-  jobId: string;
-  status: "awaiting_provider_result";
-  providerBatchId: string;
-  providerBatchStateRaw: string;
-  durationMs: number;
-};
-
-export type ProcessLevelAResult =
-  | ProcessLevelCompletedResult
-  | ProcessLevelSubmittedToProviderResult;
+export type ProcessLevelAResult = ProcessLevelCompletedResult;
 
 export type ProcessLevelBOptions = ProcessLevelAOptions;
 export type ProcessLevelCOptions = ProcessLevelAOptions;
@@ -248,9 +191,6 @@ type ProcessLevelInternalCompletedResult = ProcessLevelCompletedResult & {
   metricsSummary?: ProcessLevelCMetricsSummary;
 };
 
-type ProcessLevelInternalResult =
-  | ProcessLevelInternalCompletedResult
-  | ProcessLevelSubmittedToProviderResult;
 function toCsvCell(value: string) {
   if (!/[",\n\r]/.test(value)) {
     return value;
@@ -701,21 +641,6 @@ function isPdfMimeType(mimeType: string) {
   return mediaType === "application/pdf";
 }
 
-function resolveGeminiTimeoutMs() {
-  const envValue = Number(process.env.TAKEOFF_GEMINI_TIMEOUT_MS ?? "");
-  if (!Number.isFinite(envValue) || envValue <= 0) {
-    return DEFAULT_GEMINI_TIMEOUT_MS;
-  }
-  return Math.min(Math.trunc(envValue), MAX_GEMINI_TIMEOUT_MS);
-}
-
-function normalizeGeminiThinkingLevel(
-  value: string | null | undefined,
-  fallback: GeminiThinkingLevel
-): GeminiThinkingLevel {
-  return value === "low" || value === "medium" || value === "high" ? value : fallback;
-}
-
 async function fetchCurrentTakeoffJobStatus(input: {
   supabase: Supabase;
   job: Pick<TakeoffJobProcessingRow, "id" | "tenant_id">;
@@ -873,62 +798,23 @@ async function getTakeoffJobForProcessing(input: {
 async function markJobAsProcessing(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
-  tenantId: string | null;
+  hostId: string;
   startedAtIso: string;
-  processingStrategy: TakeoffProcessingStrategy;
   model: string;
-  thinkingLevel: string | null;
   promptVersion: string;
   level: ProcessableTakeoffLevel;
 }): Promise<TakeoffJobProcessingRow> {
-  const retryCount =
-    input.job.status === "failed" ? input.job.retry_count + 1 : input.job.retry_count;
   const processingLeaseToken = crypto.randomUUID();
   const processingLeaseExpiresAt = new Date(
     Date.parse(input.startedAtIso) + TAKEOFF_PROCESSING_LEASE_TTL_MS
   ).toISOString();
 
-  const localHostId = await assertLocalTakeoffExecutionHost(input.job);
-  const claimLocal = () => input.supabase.rpc("claim_local_takeoff_job" as never, {
-    p_job_id: input.job.id, p_tenant_id: input.job.tenant_id, p_host_id: localHostId,
+  const { data, error } = await input.supabase.rpc("claim_local_takeoff_job" as never, {
+    p_job_id: input.job.id, p_tenant_id: input.job.tenant_id, p_host_id: input.hostId,
     p_started_at: input.startedAtIso, p_lease_token: processingLeaseToken,
     p_lease_expires_at: processingLeaseExpiresAt, p_model: input.model,
     p_prompt_version: input.promptVersion,
   } as never).maybeSingle();
-  let query = input.supabase
-    .from("takeoff_jobs" as never)
-    .update({
-      status: "processing",
-      started_at: input.startedAtIso,
-      completed_at: null,
-      error_code: null,
-      error_message: null,
-      next_retry_at: null,
-      last_error_at: null,
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_batch_updated_at: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
-      processing_lease_token: processingLeaseToken,
-      processing_lease_expires_at: processingLeaseExpiresAt,
-      model: input.model,
-      thinking_level: input.thinkingLevel,
-      prompt_version: input.promptVersion,
-      processing_strategy: input.processingStrategy,
-      retry_count: retryCount,
-    } as never)
-    .eq("id" as never, input.job.id as never)
-    .in("status" as never, ["pending", "failed"] as never)
-    .select(TAKEOFF_JOB_PROCESSING_SELECT as never);
-
-  if (input.tenantId) {
-    query = query.eq("tenant_id" as never, input.tenantId as never);
-  }
-
-  const { data, error } = localHostId ? await claimLocal() : await query.maybeSingle();
 
   if (error) {
     throw toTakeoffError(
@@ -970,7 +856,6 @@ async function updateJobAsCompleted(input: {
   costCents: number;
   durationMs: number;
   model: string;
-  thinkingLevel: string | null;
   promptVersion: string;
   level: ProcessableTakeoffLevel;
 }) {
@@ -983,15 +868,10 @@ async function updateJobAsCompleted(input: {
       cost_cents: input.costCents,
       duration_ms: input.durationMs,
       model: input.model,
-      thinking_level: input.thinkingLevel,
       prompt_version: input.promptVersion,
       error_code: null,
       error_message: null,
       next_retry_at: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
       processing_lease_token: null,
       processing_lease_expires_at: null,
     } as never)
@@ -1007,13 +887,6 @@ async function updateJobAsCompleted(input: {
     query = query.eq(
       "processing_lease_token" as never,
       input.job.processing_lease_token as never
-    );
-  }
-
-  if (input.job.provider_reconcile_lease_token) {
-    query = query.eq(
-      "provider_reconcile_lease_token" as never,
-      input.job.provider_reconcile_lease_token as never
     );
   }
 
@@ -1080,10 +953,6 @@ async function updateJobAsFailed(input: {
       duration_ms: input.durationMs,
       error_code: input.error.code,
       error_message: input.error.message,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
       processing_lease_token: null,
       processing_lease_expires_at: null,
     } as never)
@@ -1101,13 +970,6 @@ async function updateJobAsFailed(input: {
     );
   }
 
-  if (input.job.provider_reconcile_lease_token) {
-    query = query.eq(
-      "provider_reconcile_lease_token" as never,
-      input.job.provider_reconcile_lease_token as never
-    );
-  }
-
   const { data, error } = await query.select("id" as never).maybeSingle();
 
   if (error) {
@@ -1118,82 +980,6 @@ async function updateJobAsFailed(input: {
     });
   }
   if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible pour clore le job.", retryable: false, jobId: input.job.id });
-}
-
-async function scheduleBatchReconcile(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  tenantId: string | null;
-  dueAtIso: string;
-  attemptCount?: number;
-}): Promise<TakeoffJobProcessingRow> {
-  let query = input.supabase
-    .from("takeoff_jobs" as never)
-    .update({
-      provider_reconcile_due_at: input.dueAtIso,
-      provider_reconcile_attempt_count: input.attemptCount ?? 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
-      processing_lease_token: null,
-      processing_lease_expires_at: null,
-    } as never)
-    .eq("id" as never, input.job.id as never)
-    .eq("status" as never, "processing" as never)
-    .select(TAKEOFF_JOB_PROCESSING_SELECT as never);
-
-  if (input.tenantId) {
-    query = query.eq("tenant_id" as never, input.tenantId as never);
-  }
-
-  if (input.job.processing_lease_token) {
-    query = query.eq(
-      "processing_lease_token" as never,
-      input.job.processing_lease_token as never
-    );
-  }
-
-  const { data, error } = await query.maybeSingle();
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        error,
-        "Impossible de planifier la reconciliation provider du job takeoff."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-      }
-    );
-  }
-
-  if (!data) {
-    throw new TakeoffError({
-      code: TakeoffErrorCode.CONFLICT,
-      message: "Le job n'est plus dans un état compatible avec la reconciliation batch.",
-      retryable: false,
-      jobId: input.job.id,
-    });
-  }
-
-  return parseTakeoffJobRow(data);
-}
-
-function canRecoverAcceptedBatchSubmission(input: {
-  error: TakeoffError;
-  job: TakeoffJobProcessingRow;
-  submission: {
-    providerBatchId: string;
-    providerBatchStateRaw: string;
-  };
-}) {
-  return (
-    input.error.code !== TakeoffErrorCode.CONFLICT &&
-    input.job.status === "processing" &&
-    input.job.processing_strategy === "batch" &&
-    input.job.provider_batch_id === input.submission.providerBatchId
-  );
 }
 
 async function clearPreviousResultsForJob(input: {
@@ -1749,10 +1535,6 @@ function extractRawResponseFromTakeoffError(error: TakeoffError): unknown {
 
   const record = details as Record<string, unknown>;
 
-  if ("provider_details" in record) {
-    return record.provider_details;
-  }
-
   if ("cause" in record) {
     return record.cause;
   }
@@ -1767,7 +1549,6 @@ async function persistFailureSnapshotIfNeeded(input: {
   durationMs: number;
   model: string;
   promptVersion: string;
-  thinkingLevel: string | null;
   level: ProcessableTakeoffLevel;
 }): Promise<boolean> {
   const rawResponse = extractRawResponseFromTakeoffError(input.error);
@@ -1801,7 +1582,6 @@ async function persistFailureSnapshotIfNeeded(input: {
         status: "failed",
         model: input.model,
         prompt_version: input.promptVersion,
-        thinking_level: input.thinkingLevel,
         error_code: input.error.code,
       },
       raw_response: rawResponse,
@@ -1908,7 +1688,7 @@ async function logFailedAuditEvent(input: {
 }
 
 type LevelCChunkMetric = {
-  provider?: "chatgpt";
+  provider: "chatgpt";
   index: number;
   start: number;
   end: number;
@@ -1943,7 +1723,7 @@ type LevelCProcessingError = TakeoffError & {
   levelCChunkMetrics?: LevelCChunkMetric[];
 };
 
-type ProcessLevelCGeminiAggregate = {
+type ProcessLevelCAggregate = {
   normalizedExchange: TakeoffExchange;
   itemsForInsert: NormalizedTakeoffItemForInsert[];
   tokenCount: number;
@@ -2192,7 +1972,7 @@ async function persistLevelCRunMetrics(input: LevelCChunkMetricWriteInput) {
     job_id: input.job.id,
     result_id: input.resultId ?? null,
     level: TAKEOFF_LEVEL_C,
-    provider: metric.provider ?? "gemini",
+    provider: metric.provider,
     model: metric.model,
     chunk_index: metric.index,
     chunk_start_page: metric.start,
@@ -2228,21 +2008,15 @@ async function persistLevelCRunMetrics(input: LevelCChunkMetricWriteInput) {
   }
 }
 
-async function processLevelCGeminiChunks(input: {
-  provider?: "chatgpt";
+async function processLevelCChunks(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
   sourceFile: DownloadedTakeoffFile;
-  callGemini: CallGeminiStructuredFn;
+  call: StructuredCall;
   schemaVersion: string;
   model: string;
   promptVersion: string;
-  thinkingLevel: GeminiThinkingLevel | null;
-  deliveryMode: GeminiDeliveryMode;
-  onBatchLifecycleEvent?: (
-    event: GeminiBatchLifecycleEvent
-  ) => Promise<void>;
-}): Promise<ProcessLevelCGeminiAggregate> {
+}): Promise<ProcessLevelCAggregate> {
   if (!isPdfMimeType(input.sourceFile.mimeType)) {
     throw new TakeoffError({
       code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
@@ -2348,7 +2122,7 @@ async function processLevelCGeminiChunks(input: {
         chunk,
       });
 
-      const geminiResult = await input.callGemini<TakeoffExchange>({
+      const result = await input.call<TakeoffExchange>({
         prompt: chunkPrompt,
         schema: TakeoffExchangeSchema,
         files: [...(input.sourceFile.contextFiles ?? []),
@@ -2357,10 +2131,7 @@ async function processLevelCGeminiChunks(input: {
             mimeType: "application/pdf",
           },
         ],
-        thinkingLevel: input.thinkingLevel ?? undefined,
         timeoutMs: levelCProcessingConfig.timeoutMs,
-        deliveryMode: input.deliveryMode,
-        onBatchLifecycleEvent: input.onBatchLifecycleEvent,
         context: {
           jobId: input.job.id,
           tenantId: input.job.tenant_id,
@@ -2370,7 +2141,7 @@ async function processLevelCGeminiChunks(input: {
         },
       });
 
-      const parsedExchange = TakeoffExchangeSchema.parse(geminiResult.data);
+      const parsedExchange = TakeoffExchangeSchema.parse(result.data);
       chunkExchanges.push({
         chunk,
         exchange: remapChunkLocalPagesToAbsolute({
@@ -2379,21 +2150,21 @@ async function processLevelCGeminiChunks(input: {
         }),
       });
 
-      const chunkTokenUsage: GeminiTokenUsageBreakdown = geminiResult.tokenUsage;
+      const chunkTokenUsage: TokenUsage = result.tokenUsage;
       tokenUsage.inputTokens += chunkTokenUsage.inputTokens;
       tokenUsage.reasoningTokens += chunkTokenUsage.reasoningTokens;
       tokenUsage.outputTokens += chunkTokenUsage.outputTokens;
       tokenUsage.totalTokens += chunkTokenUsage.totalTokens;
 
-      costCents += geminiResult.costCents;
-      durationMs += geminiResult.durationMs;
+      costCents += result.costCents;
+      durationMs += result.durationMs;
 
       const tokenBudgetExceeded = tokenUsage.totalTokens > levelCProcessingConfig.maxTotalTokens;
       const costBudgetExceeded = costCents > levelCProcessingConfig.maxCostCents;
       const isBudgetExceeded = tokenBudgetExceeded || costBudgetExceeded;
 
       const metric: LevelCChunkMetric = {
-        ...(input.provider ? { provider: input.provider } : {}),
+        provider: "chatgpt",
         index: chunk.index,
         start: chunk.startPage,
         end: chunk.endPage,
@@ -2401,9 +2172,9 @@ async function processLevelCGeminiChunks(input: {
         reasoning_tokens: chunkTokenUsage.reasoningTokens,
         output_tokens: chunkTokenUsage.outputTokens,
         token_count: chunkTokenUsage.totalTokens,
-        cost_cents: geminiResult.costCents,
-        duration_ms: geminiResult.durationMs,
-        model: geminiResult.model,
+        cost_cents: result.costCents,
+        duration_ms: result.durationMs,
+        model: result.model,
         timed_out: false,
         budget_exceeded: isBudgetExceeded,
         status: isBudgetExceeded ? "failed" : "success",
@@ -2460,7 +2231,7 @@ async function processLevelCGeminiChunks(input: {
       const alreadyTracked = chunkMetrics.some((metric) => metric.index === chunk.index);
       if (!alreadyTracked) {
         const fallbackMetric: LevelCChunkMetric = {
-          ...(input.provider ? { provider: input.provider } : {}),
+          provider: "chatgpt",
           index: chunk.index,
           start: chunk.startPage,
           end: chunk.endPage,
@@ -2514,7 +2285,6 @@ async function processLevelCGeminiChunks(input: {
     providerMeta: {
       file_type: input.sourceFile.mimeType,
       source_file_name: input.sourceFile.fileName,
-      delivery_mode: input.deliveryMode,
       processing_mode: chunks.length > 1 ? "pdf_vision_chunked" : "pdf_vision",
       page_count: pageCount,
       chunks_count: chunks.length,
@@ -2542,18 +2312,17 @@ async function processLevelCGeminiChunks(input: {
   };
 }
 
-type ProcessLevelBGeminiAggregate = {
+type ProcessLevelBAggregate = {
   normalizedExchange: TakeoffExchange;
   itemsForInsert: NormalizedTakeoffItemForInsert[];
   tokenCount: number;
-  tokenUsage: GeminiTokenUsageBreakdown;
+  tokenUsage: TokenUsage;
   costCents: number;
   durationMs: number;
   tablesCount: number;
   pageCount: number | null;
   chunksCount: number;
   model: string;
-  thinkingLevel: GeminiThinkingLevel | null;
   promptVersion: string;
   providerMeta: Record<string, unknown>;
 };
@@ -2569,164 +2338,15 @@ function getProcessorLevelLabel(level: ProcessableTakeoffLevel) {
   return `Level ${level}`;
 }
 
-function isEscalationCandidateError(error: unknown) {
-  const mapped = error instanceof TakeoffError ? error : toTakeoffError(error);
-  return (
-    mapped.code === TakeoffErrorCode.AI_SCHEMA ||
-    mapped.code === TakeoffErrorCode.AI_TIMEOUT
-  );
-}
-
-function canUseEscalationBudget(
-  config: TakeoffEscalationConfig,
-  spentCostCents: number
-) {
-  if (!config.enabled) return false;
-  return spentCostCents < config.maxCostCents;
-}
-
-type TakeoffEscalationBudgetDecisionReason =
-  | "within_budget"
-  | "budget_blocked"
-  | "escalation_disabled";
-
-type TakeoffEscalationBudgetDecision = {
-  decision: "allow" | "block";
-  reason: TakeoffEscalationBudgetDecisionReason;
-  observedCostCents: number;
-  estimatedEscalationCostCents: number;
-  projectedTotalCostCents: number;
-  maxAllowedCostCents: number;
-};
-
-function estimateGeminiCostCentsForUsage(input: {
-  model: string;
-  tokenUsage: GeminiTokenUsageBreakdown;
-}) {
-  const normalizedModel = input.model.trim().toLowerCase();
-  let pricing: { input: number; output: number } | null = null;
-
-  if (normalizedModel === "gemini-3.1-pro-preview") {
-    pricing =
-      input.tokenUsage.inputTokens > 200_000
-        ? { input: 4, output: 18 }
-        : { input: 2, output: 12 };
-  } else if (normalizedModel === "gemini-3-flash-preview") {
-    pricing = { input: 0.5, output: 3 };
-  } else if (normalizedModel === "gemini-3.1-flash-lite-preview") {
-    pricing = { input: 0.25, output: 1.5 };
-  } else if (normalizedModel === "gemini-3-pro-preview") {
-    pricing = { input: 2, output: 12 };
-  }
-
-  if (!pricing) {
-    return 0;
-  }
-
-  const usd =
-    (input.tokenUsage.inputTokens / 1_000_000) * pricing.input +
-    (input.tokenUsage.outputTokens / 1_000_000) * pricing.output;
-
-  return Math.max(0, Math.round(usd * 100));
-}
-
-function evaluateEscalationBudget(input: {
-  config: TakeoffEscalationConfig;
-  observedCostCents: number;
-  estimatedEscalationCostCents: number;
-}): TakeoffEscalationBudgetDecision {
-  const observedCostCents = Math.max(0, Math.trunc(input.observedCostCents));
-  const estimatedEscalationCostCents = Math.max(
-    0,
-    Math.trunc(input.estimatedEscalationCostCents)
-  );
-  const projectedTotalCostCents = observedCostCents + estimatedEscalationCostCents;
-
-  if (!input.config.enabled) {
-    return {
-      decision: "block",
-      reason: "escalation_disabled",
-      observedCostCents,
-      estimatedEscalationCostCents,
-      projectedTotalCostCents,
-      maxAllowedCostCents: input.config.maxCostCents,
-    };
-  }
-
-  if (projectedTotalCostCents > input.config.maxCostCents) {
-    return {
-      decision: "block",
-      reason: "budget_blocked",
-      observedCostCents,
-      estimatedEscalationCostCents,
-      projectedTotalCostCents,
-      maxAllowedCostCents: input.config.maxCostCents,
-    };
-  }
-
-  return {
-    decision: "allow",
-    reason: "within_budget",
-    observedCostCents,
-    estimatedEscalationCostCents,
-    projectedTotalCostCents,
-    maxAllowedCostCents: input.config.maxCostCents,
-  };
-}
-
-function sumGeminiTokenUsage(
-  ...usages: readonly GeminiTokenUsageBreakdown[]
-): GeminiTokenUsageBreakdown {
-  return usages.reduce<GeminiTokenUsageBreakdown>(
-    (accumulator, usage) => ({
-      inputTokens: accumulator.inputTokens + usage.inputTokens,
-      reasoningTokens: accumulator.reasoningTokens + usage.reasoningTokens,
-      outputTokens: accumulator.outputTokens + usage.outputTokens,
-      totalTokens: accumulator.totalTokens + usage.totalTokens,
-    }),
-    {
-      inputTokens: 0,
-      reasoningTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    }
-  );
-}
-
-function shouldEscalateLevelBResult(
-  result: ProcessLevelBGeminiAggregate,
-  config: TakeoffEscalationConfig
-) {
-  if (!config.enabled) {
-    return false;
-  }
-
-  const confidence =
-    typeof result.normalizedExchange.confidence === "number"
-      ? result.normalizedExchange.confidence
-      : null;
-
-  if (confidence !== null && confidence < config.minConfidence) {
-    return true;
-  }
-
-  if (result.tablesCount === 0) return true;
-  if (result.itemsForInsert.length === 0) return true;
-  return result.normalizedExchange.warnings.some(
-    (warning) => warning.severity === "error"
-  );
-}
-
 type StructuredTakeoffRunResult = {
   normalizedExchange: TakeoffExchange;
   itemsForInsert: NormalizedTakeoffItemForInsert[];
   tokenCount: number;
-  tokenUsage: GeminiTokenUsageBreakdown;
+  tokenUsage: TokenUsage;
   costCents: number;
   durationMs: number;
   tablesCount: number;
   model: string;
-  thinkingLevel: GeminiThinkingLevel | null;
   promptVersion: string;
   providerMeta: Record<string, unknown>;
 };
@@ -2763,20 +2383,15 @@ function assertPdfResultIsInterpretable(input: {
   });
 }
 
-async function processLevelBGeminiChunks(input: {
+async function processLevelBChunks(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
   sourceFile: DownloadedTakeoffFile;
-  callGemini: CallGeminiStructuredFn;
+  call: StructuredCall;
   schemaVersion: string;
   model: string;
   promptVersion: string;
-  thinkingLevel: GeminiThinkingLevel | null;
-  deliveryMode: GeminiDeliveryMode;
-  onBatchLifecycleEvent?: (
-    event: GeminiBatchLifecycleEvent
-  ) => Promise<void>;
-}): Promise<ProcessLevelBGeminiAggregate> {
+}): Promise<ProcessLevelBAggregate> {
   if (!isPdfMimeType(input.sourceFile.mimeType)) {
     throw new TakeoffError({
       code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
@@ -2855,7 +2470,7 @@ async function processLevelBGeminiChunks(input: {
     chunk: TakeoffPdfChunk;
     exchange: TakeoffExchange;
   }> = [];
-  const tokenUsage: GeminiTokenUsageBreakdown = {
+  const tokenUsage: TokenUsage = {
     inputTokens: 0,
     reasoningTokens: 0,
     outputTokens: 0,
@@ -2888,7 +2503,7 @@ async function processLevelBGeminiChunks(input: {
           })
         : new Uint8Array(input.sourceFile.bytes);
 
-    const geminiResult = await input.callGemini<TakeoffExchange>({
+    const result = await input.call<TakeoffExchange>({
       prompt,
       schema: TakeoffChunkExchangeSchema,
       files: [...(input.sourceFile.contextFiles ?? []),
@@ -2897,10 +2512,6 @@ async function processLevelBGeminiChunks(input: {
           mimeType: "application/pdf",
         },
       ],
-      thinkingLevel: input.thinkingLevel ?? undefined,
-      timeoutMs: resolveGeminiTimeoutMs(),
-      deliveryMode: input.deliveryMode,
-      onBatchLifecycleEvent: input.onBatchLifecycleEvent,
       context: {
         jobId: input.job.id,
         tenantId: input.job.tenant_id,
@@ -2910,7 +2521,7 @@ async function processLevelBGeminiChunks(input: {
       },
     });
 
-    const parsedExchange = TakeoffChunkExchangeSchema.parse(geminiResult.data);
+    const parsedExchange = TakeoffChunkExchangeSchema.parse(result.data);
     chunkExchanges.push({
       chunk,
       exchange:
@@ -2922,12 +2533,12 @@ async function processLevelBGeminiChunks(input: {
           : parsedExchange,
     });
 
-    tokenUsage.inputTokens += geminiResult.tokenUsage.inputTokens;
-    tokenUsage.reasoningTokens += geminiResult.tokenUsage.reasoningTokens;
-    tokenUsage.outputTokens += geminiResult.tokenUsage.outputTokens;
-    tokenUsage.totalTokens += geminiResult.tokenUsage.totalTokens;
-    costCents += geminiResult.costCents;
-    durationMs += geminiResult.durationMs;
+    tokenUsage.inputTokens += result.tokenUsage.inputTokens;
+    tokenUsage.reasoningTokens += result.tokenUsage.reasoningTokens;
+    tokenUsage.outputTokens += result.tokenUsage.outputTokens;
+    tokenUsage.totalTokens += result.tokenUsage.totalTokens;
+    costCents += result.costCents;
+    durationMs += result.durationMs;
   }
 
   const merged =
@@ -2952,7 +2563,6 @@ async function processLevelBGeminiChunks(input: {
   const providerMeta: Record<string, unknown> = {
     file_type: input.sourceFile.mimeType,
     source_file_name: input.sourceFile.fileName,
-    delivery_mode: input.deliveryMode,
     processing_mode: chunkExchanges.length > 1 ? "pdf_vision_chunked" : "pdf_vision",
     chunks_count: chunkExchanges.length,
     deduplicated_items: merged.deduplicatedItems,
@@ -2980,7 +2590,6 @@ async function processLevelBGeminiChunks(input: {
     pageCount,
     chunksCount: chunkExchanges.length,
     model: input.model,
-    thinkingLevel: input.thinkingLevel,
     promptVersion: input.promptVersion,
     providerMeta,
   };
@@ -3008,7 +2617,6 @@ async function finalizeCompletedLevelAJob(input: {
       ...input.levelAResult.providerMeta,
       model: input.levelAResult.model,
       prompt_version: input.levelAResult.promptVersion,
-      thinking_level: input.levelAResult.thinkingLevel,
       tables_count: input.levelAResult.tablesCount,
     },
     level: TAKEOFF_LEVEL_A,
@@ -3029,7 +2637,6 @@ async function finalizeCompletedLevelAJob(input: {
     costCents: input.levelAResult.costCents,
     durationMs: totalDurationMs,
     model: input.levelAResult.model,
-    thinkingLevel: input.levelAResult.thinkingLevel,
     promptVersion: input.levelAResult.promptVersion,
     level: TAKEOFF_LEVEL_A,
   });
@@ -3057,18 +2664,13 @@ async function finalizeCompletedLevelAJob(input: {
 }
 
 async function executeStructuredTakeoffRun(input: {
-  provider?: "chatgpt";
   level: typeof TAKEOFF_LEVEL_A;
   job: TakeoffJobProcessingRow;
   sourceFile: DownloadedTakeoffFile;
-  callGemini: CallGeminiStructuredFn;
+  call: StructuredCall;
   schemaVersion: string;
-  modelConfig: TakeoffExecutionModelConfig;
+  model: string;
   promptVersion: string;
-  deliveryMode: GeminiDeliveryMode;
-  onBatchLifecycleEvent?: (
-    event: GeminiBatchLifecycleEvent
-  ) => Promise<void>;
 }): Promise<StructuredTakeoffRunResult> {
   const preparedLevelInput = prepareTakeoffLevelInput({
     sourceFile: input.sourceFile,
@@ -3082,24 +2684,20 @@ async function executeStructuredTakeoffRun(input: {
     sourceHint: preparedLevelInput.sourceHint,
   });
 
-  const geminiResult = await input.callGemini<TakeoffExchange>({
+  const result = await input.call<TakeoffExchange>({
     prompt,
     schema: TakeoffExchangeSchema,
     files: [...(input.sourceFile.contextFiles ?? []), ...preparedLevelInput.files],
-    thinkingLevel: input.modelConfig.thinkingLevel ?? undefined,
-    timeoutMs: resolveGeminiTimeoutMs(),
-    deliveryMode: input.deliveryMode,
-    onBatchLifecycleEvent: input.onBatchLifecycleEvent,
     context: {
       jobId: input.job.id,
       tenantId: input.job.tenant_id,
       level: input.level,
       promptVersion: input.promptVersion,
-      model: input.modelConfig.model,
+      model: input.model,
     },
   });
 
-  const strictExchange = TakeoffExchangeSchema.parse(geminiResult.data);
+  const strictExchange = TakeoffExchangeSchema.parse(result.data);
   const normalized = normalizeTakeoffExchange({
     exchange: strictExchange,
     ...takeoffSourceProvenance(input.job, input.sourceFile),
@@ -3110,201 +2708,18 @@ async function executeStructuredTakeoffRun(input: {
   return {
     normalizedExchange: normalized.exchange,
     itemsForInsert: normalized.itemsForInsert,
-    tokenCount: geminiResult.tokenCount,
-    tokenUsage: geminiResult.tokenUsage,
-    costCents: geminiResult.costCents,
-    durationMs: geminiResult.durationMs,
+    tokenCount: result.tokenCount,
+    tokenUsage: result.tokenUsage,
+    costCents: result.costCents,
+    durationMs: result.durationMs,
     tablesCount,
-    model: geminiResult.model,
-    thinkingLevel: input.modelConfig.thinkingLevel,
-    promptVersion: geminiResult.promptVersion,
+    model: result.model,
+    promptVersion: result.promptVersion,
     providerMeta: {
       ...preparedLevelInput.providerMeta,
-      provider: input.provider ?? "gemini",
-      delivery_mode: input.deliveryMode,
-      routing: {
-        strategy: "single_model_with_fallback",
-        selected_model: geminiResult.model,
-        selected_thinking_level: input.modelConfig.thinkingLevel,
-      },
+      provider: "chatgpt",
     },
   };
-}
-
-async function executeLevelBWithRouting(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  sourceFile: DownloadedTakeoffFile;
-  callGemini: CallGeminiStructuredFn;
-  schemaVersion: string;
-  primaryConfig: TakeoffExecutionModelConfig;
-  primaryPromptVersion: string;
-  escalationConfig: TakeoffEscalationModelConfig | null;
-  escalationPolicy: TakeoffEscalationConfig;
-  deliveryMode: GeminiDeliveryMode;
-  onBatchLifecycleEvent?: (
-    event: GeminiBatchLifecycleEvent
-  ) => Promise<void>;
-}): Promise<ProcessLevelBGeminiAggregate> {
-  try {
-    const primaryResult = await processLevelBGeminiChunks({
-      supabase: input.supabase,
-      job: input.job,
-      sourceFile: input.sourceFile,
-      callGemini: input.callGemini,
-      schemaVersion: input.schemaVersion,
-      model: input.primaryConfig.model,
-      promptVersion: input.primaryPromptVersion,
-      thinkingLevel: input.primaryConfig.thinkingLevel,
-      deliveryMode: input.deliveryMode,
-      onBatchLifecycleEvent: input.onBatchLifecycleEvent,
-    });
-
-    if (
-      input.escalationConfig &&
-      shouldEscalateLevelBResult(primaryResult, input.escalationPolicy)
-    ) {
-      const budgetDecision = evaluateEscalationBudget({
-        config: input.escalationPolicy,
-        observedCostCents: primaryResult.costCents,
-        estimatedEscalationCostCents: estimateGeminiCostCentsForUsage({
-          model: input.escalationConfig.model,
-          tokenUsage: primaryResult.tokenUsage,
-        }),
-      });
-
-      if (budgetDecision.decision === "block") {
-        return {
-          ...primaryResult,
-          providerMeta: {
-            ...primaryResult.providerMeta,
-            routing: {
-              strategy: "primary_then_escalation",
-              primary_model: input.primaryConfig.model,
-              primary_thinking_level: input.primaryConfig.thinkingLevel,
-              escalation_candidate: true,
-              escalated: false,
-              escalation_trigger: "weak_level_b_result",
-              escalation_block_reason: budgetDecision.reason,
-              delivery_mode: input.deliveryMode,
-              final_model: primaryResult.model,
-              final_thinking_level: primaryResult.thinkingLevel,
-              budget: {
-                decision: budgetDecision.decision,
-                reason: budgetDecision.reason,
-                observed_cost_cents: budgetDecision.observedCostCents,
-                estimated_escalation_cost_cents:
-                  budgetDecision.estimatedEscalationCostCents,
-                projected_total_cost_cents:
-                  budgetDecision.projectedTotalCostCents,
-                max_allowed_cost_cents: budgetDecision.maxAllowedCostCents,
-              },
-            },
-          },
-        };
-      }
-
-      const escalatedResult = await processLevelBGeminiChunks({
-        supabase: input.supabase,
-        job: input.job,
-        sourceFile: input.sourceFile,
-        callGemini: input.callGemini,
-        schemaVersion: input.schemaVersion,
-        model: input.escalationConfig.model,
-        promptVersion: input.primaryPromptVersion,
-        thinkingLevel: input.escalationConfig.thinkingLevel,
-        deliveryMode: input.deliveryMode,
-        onBatchLifecycleEvent: input.onBatchLifecycleEvent,
-      });
-
-      return {
-        ...escalatedResult,
-        tokenCount: primaryResult.tokenCount + escalatedResult.tokenCount,
-        tokenUsage: sumGeminiTokenUsage(primaryResult.tokenUsage, escalatedResult.tokenUsage),
-        costCents: primaryResult.costCents + escalatedResult.costCents,
-        durationMs: primaryResult.durationMs + escalatedResult.durationMs,
-        providerMeta: {
-          ...escalatedResult.providerMeta,
-          routing: {
-            strategy: "primary_then_escalation",
-            primary_model: input.primaryConfig.model,
-            primary_thinking_level: input.primaryConfig.thinkingLevel,
-            escalated: true,
-            escalation_reason: input.escalationConfig.reason,
-            escalation_trigger: "weak_level_b_result",
-            delivery_mode: input.deliveryMode,
-            final_model: escalatedResult.model,
-            final_thinking_level: escalatedResult.thinkingLevel,
-            budget: {
-              decision: budgetDecision.decision,
-              reason: budgetDecision.reason,
-              observed_cost_cents: budgetDecision.observedCostCents,
-              estimated_escalation_cost_cents:
-                budgetDecision.estimatedEscalationCostCents,
-              projected_total_cost_cents:
-                budgetDecision.projectedTotalCostCents,
-              max_allowed_cost_cents: budgetDecision.maxAllowedCostCents,
-            },
-          },
-        },
-      };
-    }
-
-    return {
-      ...primaryResult,
-      providerMeta: {
-        ...primaryResult.providerMeta,
-        routing: {
-          strategy: "primary_then_escalation",
-          primary_model: input.primaryConfig.model,
-          primary_thinking_level: input.primaryConfig.thinkingLevel,
-          escalated: false,
-          delivery_mode: input.deliveryMode,
-          final_model: primaryResult.model,
-          final_thinking_level: primaryResult.thinkingLevel,
-        },
-      },
-    };
-  } catch (error) {
-    if (
-      !input.escalationConfig ||
-      !canUseEscalationBudget(input.escalationPolicy, 0) ||
-      !isEscalationCandidateError(error)
-    ) {
-      throw error;
-    }
-
-    const escalatedResult = await processLevelBGeminiChunks({
-      supabase: input.supabase,
-      job: input.job,
-      sourceFile: input.sourceFile,
-      callGemini: input.callGemini,
-      schemaVersion: input.schemaVersion,
-      model: input.escalationConfig.model,
-      promptVersion: input.primaryPromptVersion,
-      thinkingLevel: input.escalationConfig.thinkingLevel,
-      deliveryMode: input.deliveryMode,
-      onBatchLifecycleEvent: input.onBatchLifecycleEvent,
-    });
-
-    return {
-      ...escalatedResult,
-      providerMeta: {
-        ...escalatedResult.providerMeta,
-        routing: {
-          strategy: "primary_then_escalation",
-          primary_model: input.primaryConfig.model,
-          primary_thinking_level: input.primaryConfig.thinkingLevel,
-          escalated: true,
-          escalation_reason: input.escalationConfig.reason,
-          escalation_trigger: "primary_model_error",
-          delivery_mode: input.deliveryMode,
-          final_model: escalatedResult.model,
-          final_thinking_level: escalatedResult.thinkingLevel,
-        },
-      },
-    };
-  }
 }
 
 function prepareTakeoffLevelInput(input: {
@@ -3340,7 +2755,7 @@ async function processTakeoffLevel(
   level: ProcessableTakeoffLevel,
   jobId: string,
   options: ProcessLevelAOptions = {}
-): Promise<ProcessLevelInternalResult> {
+): Promise<ProcessLevelInternalCompletedResult> {
   const normalizedJobId = jobId.trim();
   if (normalizedJobId.length === 0) {
     throw new TakeoffError({
@@ -3352,18 +2767,11 @@ async function processTakeoffLevel(
   }
 
   const context = await resolveContext(options);
-  const baseCallGemini: CallGeminiStructuredFn = options.callGemini ?? unavailableLegacyTakeoffProvider;
-  const baseSubmitGeminiBatch =
-    options.submitGeminiBatch ?? unavailableLegacyTakeoffProvider;
+  const resolveProvider = options.resolveProvider ?? resolveLocalTakeoffProvider;
   const now = options.now ?? (() => new Date());
-  let levelConfig: TakeoffExecutionModelConfig & { promptVersion: string } = getTakeoffLevelConfig(level);
-  let escalationConfig = getTakeoffEscalationModelConfig(level);
+  const promptVersion = getTakeoffPromptVersion(level);
   const processingStartedAt = now();
-  let attemptedModel = levelConfig.model;
-  let attemptedThinkingLevel: GeminiThinkingLevel | null = levelConfig.thinkingLevel;
-  let attemptedPromptVersion: string = levelConfig.promptVersion;
-  let processingStrategy: TakeoffProcessingStrategy | null = null;
-  let localProvider: Awaited<ReturnType<typeof resolveLocalTakeoffProvider>> = null;
+  let model = UNRESOLVED_LOCAL_MODEL;
 
   let job: TakeoffJobProcessingRow | null = null;
   let enteredProcessing = false;
@@ -3391,21 +2799,6 @@ async function processTakeoffLevel(
     await options.renewLease({ jobId: job.id, tenantId: job.tenant_id, leaseToken: job.processing_lease_token });
   };
 
-  const callGemini: CallGeminiStructuredFn = async <T>(
-    providerOptions: CallGeminiStructuredOptions<T>
-  ) => {
-    await assertProviderTenantActive();
-    return runWithTakeoffLeaseRenewal(renewProcessingLease, () =>
-      localProvider ? localProvider.call<T>(providerOptions) : baseCallGemini<T>(providerOptions));
-  };
-
-  const submitGeminiBatch = async <T>(
-    providerOptions: Omit<CallGeminiStructuredOptions<T>, "deliveryMode">
-  ) => {
-    await assertProviderTenantActive();
-    return runWithTakeoffLeaseRenewal(renewProcessingLease, () => baseSubmitGeminiBatch<T>(providerOptions));
-  };
-
   try {
     job = await getTakeoffJobForProcessing({
       supabase: context.supabase,
@@ -3426,52 +2819,29 @@ async function processTakeoffLevel(
       });
     }
 
-    await assertLocalTakeoffExecutionHost(job);
-    let localRoutingFailure: { error: unknown } | null = null;
-    try { localProvider = await resolveLocalTakeoffProvider(context.supabase, job); }
-    catch (error) { localRoutingFailure = { error }; }
-    const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
-      job.tenant_id,
-      level,
-      {
-        supabase: context.supabase,
-      }
-    );
-    let escalationPolicy = await getTakeoffEscalationConfigForTenant(job.tenant_id, {
-      supabase: context.supabase,
-    });
-    levelConfig = getTakeoffLevelConfig(level, {
-      preferEscalationPrimary: escalationPolicy.enabled && escalationConfig !== null,
-    });
-    if (localProvider) {
-      levelConfig = { ...levelConfig, model: localProvider.model, thinkingLevel: null };
-      escalationConfig = null;
-      escalationPolicy = { ...escalationPolicy, enabled: false };
-    }
-    attemptedModel = levelConfig.model;
-    attemptedThinkingLevel = levelConfig.thinkingLevel;
-    const requestedProcessingStrategy =
-      job.processing_strategy ??
-      resolveTakeoffProcessingStrategy(geminiDeliveryConfig.useBatchApi);
-    processingStrategy = job.execution_provider === "chatgpt_local" || localProvider ? "sync" : resolveExecutableTakeoffProcessingStrategy(
-      level,
-      requestedProcessingStrategy
-    );
+    const hostId = await assertLocalTakeoffExecutionHost(job);
+    let resolved: { provider: LocalTakeoffProvider } | { error: unknown };
+    try { resolved = { provider: await resolveProvider(context.supabase, job) }; }
+    catch (error) { resolved = { error }; }
+    if ("provider" in resolved) model = resolved.provider.model;
 
     job = await markJobAsProcessing({
       supabase: context.supabase,
       job,
-      tenantId: context.tenantId,
+      hostId,
       startedAtIso: processingStartedAt.toISOString(),
-      processingStrategy,
-      model: levelConfig.model,
-      thinkingLevel: levelConfig.thinkingLevel,
-      promptVersion: levelConfig.promptVersion,
+      model,
+      promptVersion,
       level,
     });
     enteredProcessing = true;
     // Even preflight failures must become visible, terminal job failures.
-    if (localRoutingFailure) throw localRoutingFailure.error;
+    if ("error" in resolved) throw resolved.error;
+    const localProvider = resolved.provider;
+    const call: StructuredCall = async <T>(providerOptions: StructuredCallOptions<T>) => {
+      await assertProviderTenantActive();
+      return runWithTakeoffLeaseRenewal(renewProcessingLease, () => localProvider.call<T>(providerOptions));
+    };
 
     const actorUserId = context.userId ?? job.created_by;
     await logProcessingAuditEvent({
@@ -3489,36 +2859,16 @@ async function processTakeoffLevel(
       levelCSourceFileName = sourceFile.fileName;
     }
     const schemaVersion = toNonEmptyString(job.schema_version) ?? "v1";
-    const deliveryMode: GeminiDeliveryMode = processingStrategy;
-    const onBatchLifecycleEvent =
-      deliveryMode === "batch"
-        ? async (event: GeminiBatchLifecycleEvent) => {
-            if (!job) {
-              return;
-            }
-            await renewProcessingLease();
-            job = await persistGeminiBatchLifecycleEvent({
-              supabase: context.supabase,
-              job,
-              event,
-              nowIso: now().toISOString(),
-            });
-          }
-        : undefined;
 
     if (level === TAKEOFF_LEVEL_C) {
-      const levelCResult = await processLevelCGeminiChunks({
-        provider: localProvider ? "chatgpt" : undefined,
+      const levelCResult = await processLevelCChunks({
         supabase: context.supabase,
         job,
         sourceFile,
-        callGemini,
+        call,
         schemaVersion,
-        model: levelConfig.model,
-        promptVersion: levelConfig.promptVersion,
-        thinkingLevel: levelConfig.thinkingLevel,
-        deliveryMode,
-        onBatchLifecycleEvent,
+        model,
+        promptVersion,
       });
       levelCChunkMetrics = cloneLevelCChunkMetrics(levelCResult.chunkMetrics);
 
@@ -3532,22 +2882,16 @@ async function processTakeoffLevel(
       });
 
       // TI-662: the vector reading of the original pages, beside the level C reading (opt-in), its groups classified
-      // by Decisions with MERGEONE_TAKEOFF_DECISIONS=1; each call checked like a provider call (active tenant, lease).
+      // with MERGEONE_TAKEOFF_DECISIONS=1 by the creator's plan (TI-704 option B); each call checked like a provider
+      // call (active tenant, lease).
       const vectorOutcomes = isTakeoffVectorReadingEnabled()
         ? await readTakeoffVectorPages(sourceFile, {
           onPage: renewProcessingLease, context: { jobId: job.id, tenantId: job.tenant_id },
-          // TI-704: a local ChatGPT job reads its groups with its creator's plan (option B), any other with Decisions (option A).
-          decisions: localProvider
-            ? takeoffVectorLocalGroupsHook({ jobId: job.id, tenantId: job.tenant_id, userId: job.created_by ?? null, provider: localProvider,
-              beforeCall: async () => {
-                await assertProviderTenantActive();
-                await renewProcessingLease();
-              } })
-            : takeoffVectorDecisionsHook({ jobId: job.id, tenantId: job.tenant_id, userId: context.userId ?? job.created_by ?? null,
-              beforeCall: async () => {
-                await assertProviderTenantActive();
-                await renewProcessingLease();
-              } }),
+          decisions: takeoffVectorLocalGroupsHook({ jobId: job.id, tenantId: job.tenant_id, userId: job.created_by ?? null, provider: localProvider,
+            beforeCall: async () => {
+              await assertProviderTenantActive();
+              await renewProcessingLease();
+            } }),
         })
         : [];
       await renewProcessingLease();
@@ -3563,10 +2907,9 @@ async function processTakeoffLevel(
         rawResponse: null,
         providerMeta: {
           ...levelCResult.providerMeta,
-          provider: localProvider ? "chatgpt" : "gemini",
-          model: levelConfig.model,
-          prompt_version: levelConfig.promptVersion,
-          thinking_level: levelConfig.thinkingLevel,
+          provider: "chatgpt",
+          model,
+          prompt_version: promptVersion,
           tables_count: levelCResult.tablesCount,
         },
         level,
@@ -3598,9 +2941,8 @@ async function processTakeoffLevel(
         tokenCount: levelCResult.tokenCount,
         costCents: levelCResult.costCents,
         durationMs: totalDurationMs,
-        model: levelConfig.model,
-        thinkingLevel: levelConfig.thinkingLevel,
-        promptVersion: levelConfig.promptVersion,
+        model,
+        promptVersion,
         level,
       });
 
@@ -3631,22 +2973,15 @@ async function processTakeoffLevel(
     }
 
     if (level === TAKEOFF_LEVEL_B) {
-      const levelBResult = await executeLevelBWithRouting({
+      const levelBResult = await processLevelBChunks({
         supabase: context.supabase,
         job,
         sourceFile,
-        callGemini,
+        call,
         schemaVersion,
-        primaryConfig: levelConfig,
-        primaryPromptVersion: levelConfig.promptVersion,
-        escalationConfig,
-        escalationPolicy,
-        deliveryMode,
-        onBatchLifecycleEvent,
+        model,
+        promptVersion,
       });
-      attemptedModel = levelBResult.model;
-      attemptedThinkingLevel = levelBResult.thinkingLevel;
-      attemptedPromptVersion = levelBResult.promptVersion;
 
       assertPdfResultIsInterpretable({
         job,
@@ -3669,10 +3004,9 @@ async function processTakeoffLevel(
         rawResponse: null,
         providerMeta: {
           ...levelBResult.providerMeta,
-          provider: localProvider ? "chatgpt" : "gemini",
+          provider: "chatgpt",
           model: levelBResult.model,
           prompt_version: levelBResult.promptVersion,
-          thinking_level: levelBResult.thinkingLevel,
           tables_count: levelBResult.tablesCount,
         },
         level,
@@ -3693,7 +3027,6 @@ async function processTakeoffLevel(
         costCents: levelBResult.costCents,
         durationMs: totalDurationMs,
         model: levelBResult.model,
-        thinkingLevel: levelBResult.thinkingLevel,
         promptVersion: levelBResult.promptVersion,
         level,
       });
@@ -3721,135 +3054,15 @@ async function processTakeoffLevel(
       };
     }
 
-    if (deliveryMode === "batch") {
-      const preparedLevelInput = prepareTakeoffLevelInput({
-        sourceFile,
-      });
-      const prompt = getTakeoffPrompt(TAKEOFF_LEVEL_A, {
-        preparation: sourceFile.preparationSnapshot,
-        contextSourceHints: sourceFile.contextSourceHints,
-        fileType: sourceFile.mimeType,
-        schemaVersion,
-        sourceHint: preparedLevelInput.sourceHint,
-      });
-      const submission = await submitGeminiBatch<TakeoffExchange>({
-        prompt,
-        schema: TakeoffExchangeSchema,
-        files: [...(sourceFile.contextFiles ?? []), ...preparedLevelInput.files],
-        thinkingLevel: levelConfig.thinkingLevel ?? undefined,
-        timeoutMs: resolveGeminiTimeoutMs(),
-        onBatchLifecycleEvent,
-        context: {
-          jobId: job.id,
-          tenantId: job.tenant_id,
-          level: TAKEOFF_LEVEL_A,
-          promptVersion: levelConfig.promptVersion,
-          model: levelConfig.model,
-        },
-      });
-      try {
-        job = await scheduleBatchReconcile({
-          supabase: context.supabase,
-          job,
-          tenantId: context.tenantId,
-          dueAtIso: now().toISOString(),
-        });
-      } catch (error) {
-        const scheduleError = toTakeoffError(error, {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          fallbackMessage:
-            "Impossible de planifier la reconciliation provider du job takeoff.",
-          jobId: job.id,
-          level,
-        });
-
-        if (!canRecoverAcceptedBatchSubmission({ error: scheduleError, job, submission })) {
-          throw scheduleError;
-        }
-
-        console.warn(
-          "Takeoff batch accepted by provider but reconcile scheduling failed; keeping job in processing for recovery.",
-          {
-            job_id: job.id,
-            tenant_id: job.tenant_id,
-            provider_batch_id: submission.providerBatchId,
-            provider_batch_state: job.provider_batch_state,
-            error_code: scheduleError.code,
-          }
-        );
-      }
-
-      return {
-        jobId: job.id,
-        status: "submitted_to_provider",
-        providerBatchId: submission.providerBatchId,
-        providerBatchStateRaw: submission.providerBatchStateRaw,
-        durationMs: Math.max(
-          submission.durationMs,
-          now().getTime() - processingStartedAt.getTime()
-        ),
-      };
-    }
-
-    let levelAResult: StructuredTakeoffRunResult;
-    try {
-      attemptedModel = levelConfig.model;
-      attemptedThinkingLevel = levelConfig.thinkingLevel;
-      attemptedPromptVersion = levelConfig.promptVersion;
-      levelAResult = await executeStructuredTakeoffRun({
-        provider: localProvider ? "chatgpt" : undefined,
-        level: TAKEOFF_LEVEL_A,
-        job,
-        sourceFile,
-        callGemini,
-        schemaVersion,
-        modelConfig: levelConfig,
-        promptVersion: levelConfig.promptVersion,
-        deliveryMode,
-        onBatchLifecycleEvent,
-      });
-    } catch (error) {
-      if (
-        level !== TAKEOFF_LEVEL_A ||
-        !escalationConfig ||
-        !canUseEscalationBudget(escalationPolicy, 0) ||
-        !isEscalationCandidateError(error)
-      ) {
-        throw error;
-      }
-
-      attemptedModel = escalationConfig.model;
-      attemptedThinkingLevel = escalationConfig.thinkingLevel;
-      levelAResult = await executeStructuredTakeoffRun({
-        level: TAKEOFF_LEVEL_A,
-        job,
-        sourceFile,
-        callGemini,
-        schemaVersion,
-        modelConfig: escalationConfig,
-        promptVersion: levelConfig.promptVersion,
-        deliveryMode,
-        onBatchLifecycleEvent,
-      });
-
-      levelAResult = {
-        ...levelAResult,
-        providerMeta: {
-          ...levelAResult.providerMeta,
-          routing: {
-            strategy: "single_model_with_fallback",
-            primary_model: levelConfig.model,
-            primary_thinking_level: levelConfig.thinkingLevel,
-            escalated: true,
-            escalation_reason: escalationConfig.reason,
-            escalation_trigger: "primary_model_error",
-            delivery_mode: deliveryMode,
-            final_model: levelAResult.model,
-            final_thinking_level: levelAResult.thinkingLevel,
-          },
-        },
-      };
-    }
+    const levelAResult = await executeStructuredTakeoffRun({
+      level: TAKEOFF_LEVEL_A,
+      job,
+      sourceFile,
+      call,
+      schemaVersion,
+      model,
+      promptVersion,
+    });
 
     await renewProcessingLease();
     return await finalizeCompletedLevelAJob({
@@ -3890,9 +3103,8 @@ async function processTakeoffLevel(
             job,
             error: mappedError,
             durationMs,
-            model: attemptedModel,
-            promptVersion: attemptedPromptVersion,
-            thinkingLevel: attemptedThinkingLevel,
+            model,
+            promptVersion,
             level,
           });
 
@@ -3941,9 +3153,6 @@ export async function processLevelA(
   options: ProcessLevelAOptions = {}
 ): Promise<ProcessLevelAResult> {
   const result = await processTakeoffLevel(TAKEOFF_LEVEL_A, jobId, options);
-  if (result.status === "submitted_to_provider") {
-    return result;
-  }
 
   return {
     jobId: result.jobId,
@@ -3957,236 +3166,11 @@ export async function processLevelA(
   };
 }
 
-export async function reconcileTakeoffBatchJob(
-  jobId: string,
-  options: ProcessLevelAOptions = {}
-): Promise<ProcessLevelCompletedResult | ProcessLevelAwaitingProviderResult> {
-  const normalizedJobId = jobId.trim();
-  if (normalizedJobId.length === 0) {
-    throw new TakeoffError({
-      code: TakeoffErrorCode.BAD_REQUEST,
-      message: "jobId est requis.",
-      retryable: false,
-      level: TAKEOFF_LEVEL_A,
-    });
-  }
-
-  const context = await resolveContext(options);
-  const pollGeminiBatchOnce = options.pollGeminiBatchOnce ?? unavailableLegacyTakeoffProvider;
-  const now = options.now ?? (() => new Date());
-  const processingStartedAt = now();
-  let job = await getTakeoffJobForProcessing({
-    supabase: context.supabase,
-    jobId: normalizedJobId,
-    tenantId: context.tenantId,
-    level: TAKEOFF_LEVEL_A,
-  });
-
-  const defaultLevelConfig = getTakeoffLevelConfig(TAKEOFF_LEVEL_A);
-  const model = toNonEmptyString(job.model) ?? defaultLevelConfig.model;
-  const thinkingLevel = normalizeGeminiThinkingLevel(
-    toNonEmptyString(job.thinking_level),
-    defaultLevelConfig.thinkingLevel
-  );
-  const promptVersion =
-    toNonEmptyString(job.prompt_version) ?? defaultLevelConfig.promptVersion;
-
-  if (job.level !== TAKEOFF_LEVEL_A) {
-    throw new TakeoffError({
-      code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
-      message: "La reconciliation batch durable est uniquement supportee pour le niveau A.",
-      retryable: false,
-      jobId: normalizedJobId,
-      level: TAKEOFF_LEVEL_A,
-    });
-  }
-
-  if (job.status !== "processing") {
-    throw new TakeoffError({
-      code: TakeoffErrorCode.CONFLICT,
-      message: "Le job n'est plus en cours de traitement batch.",
-      retryable: false,
-      jobId: normalizedJobId,
-      level: TAKEOFF_LEVEL_A,
-    });
-  }
-
-  if (job.processing_strategy !== "batch" || !job.provider_batch_id) {
-    throw new TakeoffError({
-      code: TakeoffErrorCode.BAD_REQUEST,
-      message: "Le job ne possede pas de batch provider reconcilable.",
-      retryable: false,
-      jobId: normalizedJobId,
-      level: TAKEOFF_LEVEL_A,
-    });
-  }
-
-  const actorUserId = context.userId ?? job.created_by;
-  const providerBatchId = job.provider_batch_id;
-  if (!providerBatchId) throw new TakeoffError({ code: TakeoffErrorCode.BAD_REQUEST, message: "Le batch provider est manquant.", retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_A });
-  const renewBatchLease = async () => {
-    if (!options.renewLease) return;
-    if (!job.provider_reconcile_lease_token) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease de reconciliation n'est plus disponible.", retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_A });
-    await options.renewLease({ jobId: job.id, tenantId: job.tenant_id, leaseToken: job.provider_reconcile_lease_token });
-  };
-
-  try {
-    await options.assertTenantActive?.(job.tenant_id);
-    const pollResult = await runWithTakeoffLeaseRenewal(renewBatchLease, () => pollGeminiBatchOnce<TakeoffExchange>({
-      prompt: "takeoff batch reconcile",
-      schema: TakeoffExchangeSchema,
-      providerBatchId,
-      timeoutMs: resolveGeminiTimeoutMs(),
-      onBatchLifecycleEvent: async (event: GeminiBatchLifecycleEvent) => {
-        await renewBatchLease();
-        job = await persistGeminiBatchLifecycleEvent({
-          supabase: context.supabase,
-          job,
-          event,
-          nowIso: now().toISOString(),
-        });
-      },
-      context: {
-        jobId: job.id,
-        tenantId: job.tenant_id,
-        level: TAKEOFF_LEVEL_A,
-        promptVersion,
-        model,
-      },
-    }));
-
-    if (pollResult.status === "pending") {
-      return {
-        jobId: job.id,
-        status: "awaiting_provider_result",
-        providerBatchId: pollResult.providerBatchId,
-        providerBatchStateRaw: pollResult.providerBatchStateRaw,
-        durationMs: Math.max(
-          pollResult.durationMs,
-          now().getTime() - processingStartedAt.getTime()
-        ),
-      };
-    }
-
-    if (
-      pollResult.status === "failed" ||
-      pollResult.status === "cancelled" ||
-      pollResult.status === "expired"
-    ) {
-      throw new TakeoffError({
-        code: TakeoffErrorCode.AI_PROVIDER,
-        message: `Le batch Gemini a termine avec l'état ${pollResult.providerBatchStateRaw}.`,
-        retryable: false,
-        details: pollResult.details,
-        jobId: job.id,
-        level: TAKEOFF_LEVEL_A,
-      });
-    }
-
-    if (pollResult.status !== "succeeded") {
-      throw new TakeoffError({
-        code: TakeoffErrorCode.AI_PROVIDER,
-        message: "État batch Gemini inattendu lors de la reconciliation.",
-        retryable: false,
-        jobId: job.id,
-        level: TAKEOFF_LEVEL_A,
-      });
-    }
-
-    const sourceFile = await loadTakeoffSource({
-      supabase: context.supabase,
-      job,
-      level: TAKEOFF_LEVEL_A,
-    });
-    const preparedLevelInput = prepareTakeoffLevelInput({
-      sourceFile,
-    });
-    const strictExchange = TakeoffExchangeSchema.parse(pollResult.data);
-    const normalized = normalizeTakeoffExchange({
-      exchange: strictExchange,
-      ...takeoffSourceProvenance(job, sourceFile),
-      parseWarnings: preparedLevelInput.parseWarnings,
-    });
-    const levelAResult: StructuredTakeoffRunResult = {
-      normalizedExchange: normalized.exchange,
-      itemsForInsert: normalized.itemsForInsert,
-      tokenCount: pollResult.tokenCount,
-      tokenUsage: pollResult.tokenUsage,
-      costCents: pollResult.costCents,
-      durationMs: pollResult.durationMs,
-      tablesCount: normalized.exchange.tables?.length ?? 0,
-      model: pollResult.model,
-      thinkingLevel,
-      promptVersion: pollResult.promptVersion,
-      providerMeta: {
-        ...preparedLevelInput.providerMeta,
-        delivery_mode: "batch",
-        routing: {
-          strategy: "single_model_with_fallback",
-          selected_model: pollResult.model,
-          selected_thinking_level: thinkingLevel,
-        },
-      },
-    };
-
-    await renewBatchLease();
-    return await finalizeCompletedLevelAJob({
-      supabase: context.supabase,
-      tenantId: context.tenantId,
-      userId: actorUserId,
-      job,
-      processingStartedAt,
-      now,
-      levelAResult,
-    });
-  } catch (error) {
-    const mappedError = toTakeoffError(error, {
-      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-      jobId: normalizedJobId,
-      level: TAKEOFF_LEVEL_A,
-    });
-
-    if (mappedError.retryable) {
-      throw mappedError;
-    }
-
-    if (mappedError.code === TakeoffErrorCode.CONFLICT) throw mappedError;
-
-    const completedAt = now();
-    await updateJobAsFailed({
-      supabase: context.supabase,
-      job,
-      tenantId: context.tenantId,
-      completedAtIso: completedAt.toISOString(),
-      durationMs: Math.max(0, completedAt.getTime() - processingStartedAt.getTime()),
-      error: mappedError,
-    });
-
-    await logFailedAuditEvent({
-      supabase: context.supabase,
-      userId: actorUserId,
-      job,
-      error: mappedError,
-    });
-
-    throw mappedError;
-  }
-}
-
 export async function processLevelB(
   jobId: string,
   options: ProcessLevelBOptions = {}
 ): Promise<ProcessLevelBResult> {
   const result = await processTakeoffLevel(TAKEOFF_LEVEL_B, jobId, options);
-  if (result.status !== "completed") {
-    throw new TakeoffError({
-      code: TakeoffErrorCode.INTERNAL_ERROR,
-      message: "Le niveau B ne doit pas retourner un statut batch intermediaire.",
-      retryable: false,
-      jobId,
-      level: TAKEOFF_LEVEL_B,
-    });
-  }
 
   return {
     ...result,
@@ -4199,15 +3183,6 @@ export async function processLevelC(
   options: ProcessLevelCOptions = {}
 ): Promise<ProcessLevelCResult> {
   const result = await processTakeoffLevel(TAKEOFF_LEVEL_C, jobId, options);
-  if (result.status !== "completed") {
-    throw new TakeoffError({
-      code: TakeoffErrorCode.INTERNAL_ERROR,
-      message: "Le niveau C ne doit pas retourner un statut batch intermediaire.",
-      retryable: false,
-      jobId,
-      level: TAKEOFF_LEVEL_C,
-    });
-  }
 
   return {
     jobId: result.jobId,

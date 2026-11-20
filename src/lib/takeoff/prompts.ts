@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import type { GeminiThinkingLevel } from "@/lib/takeoff/gemini-client";
 import { takeoffLevelSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 
@@ -14,62 +13,6 @@ export const TAKEOFF_PROMPT_VERSION_BY_LEVEL = {
 
 export type TakeoffPromptVersion =
   (typeof TAKEOFF_PROMPT_VERSION_BY_LEVEL)[TakeoffPromptLevel];
-
-export type TakeoffModelConfig = {
-  model: string;
-  thinkingLevel: GeminiThinkingLevel;
-};
-
-export type TakeoffEscalationModelConfig = TakeoffModelConfig & {
-  reason: string;
-};
-
-export const TAKEOFF_LEVEL_MODEL_MATRIX = {
-  A: {
-    model: "gemini-3-flash-preview",
-    thinkingLevel: "low",
-  },
-  B: {
-    model: "gemini-3.1-pro-preview",
-    thinkingLevel: "medium",
-  },
-  C: {
-    model: "gemini-3.1-pro-preview",
-    thinkingLevel: "high",
-  },
-} as const satisfies Record<TakeoffPromptLevel, TakeoffModelConfig>;
-
-export const TAKEOFF_LEVEL_ESCALATION_PRIMARY_MODEL_MATRIX = {
-  A: {
-    model: "gemini-3.1-flash-lite-preview",
-    thinkingLevel: "low",
-  },
-  B: {
-    model: "gemini-3-flash-preview",
-    thinkingLevel: "medium",
-  },
-  C: {
-    model: "gemini-3.1-pro-preview",
-    thinkingLevel: "high",
-  },
-} as const satisfies Record<TakeoffPromptLevel, TakeoffModelConfig>;
-
-export const TAKEOFF_LEVEL_ESCALATION_MODEL_MATRIX = {
-  A: {
-    model: "gemini-3-flash-preview",
-    thinkingLevel: "low",
-    reason: "Fallback when Flash-Lite produces invalid structured output.",
-  },
-  B: {
-    model: "gemini-3.1-pro-preview",
-    thinkingLevel: "medium",
-    reason: "Fallback when Flash extraction is ambiguous or structurally weak.",
-  },
-  C: null,
-} as const satisfies Record<
-  TakeoffPromptLevel,
-  TakeoffEscalationModelConfig | null
->;
 
 const COMMON_SCHEMA_CONSTRAINTS = [
   "La sortie DOIT être un objet JSON strictement compatible avec TakeoffExchangeSchema.",
@@ -166,13 +109,6 @@ export type TakeoffPromptBuildInput = {
   contextSourceHints?: string[];
 };
 
-export type TakeoffLevelConfig = {
-  level: TakeoffPromptLevel;
-  promptVersion: TakeoffPromptVersion;
-  model: string;
-  thinkingLevel: GeminiThinkingLevel;
-};
-
 const PROMPT_CONTEXT_VALUE_MAX_LENGTH = 1000;
 
 // Une valeur de contexte tient sur sa ligne : un nom de fichier reçu (M1b) ne peut ni ajouter de
@@ -199,41 +135,6 @@ export function getTakeoffPromptVersion(
   level: TakeoffPromptLevel
 ): TakeoffPromptVersion {
   return TAKEOFF_PROMPT_VERSION_BY_LEVEL[level];
-}
-
-export function getTakeoffModelConfig(
-  level: TakeoffPromptLevel,
-  input?: {
-    preferEscalationPrimary?: boolean;
-  }
-): TakeoffModelConfig {
-  const matrix = input?.preferEscalationPrimary
-    ? TAKEOFF_LEVEL_ESCALATION_PRIMARY_MODEL_MATRIX
-    : TAKEOFF_LEVEL_MODEL_MATRIX;
-
-  return matrix[level] as TakeoffModelConfig;
-}
-
-export function getTakeoffLevelConfig(
-  level: TakeoffPromptLevel,
-  input?: {
-    preferEscalationPrimary?: boolean;
-  }
-): TakeoffLevelConfig {
-  const modelConfig = getTakeoffModelConfig(level, input);
-
-  return {
-    level,
-    promptVersion: getTakeoffPromptVersion(level),
-    model: modelConfig.model,
-    thinkingLevel: modelConfig.thinkingLevel,
-  };
-}
-
-export function getTakeoffEscalationModelConfig(
-  level: TakeoffPromptLevel
-): TakeoffEscalationModelConfig | null {
-  return TAKEOFF_LEVEL_ESCALATION_MODEL_MATRIX[level];
 }
 
 export function getTakeoffPromptDefinition(

@@ -9,17 +9,15 @@ import type { TakeoffJobSummary } from "@/lib/takeoff/types";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { getTakeoffFailureReasonLabel } from "@/lib/takeoff/visible-status";
 
-export type ActionKind = "reconcile" | "resubmit" | "cancel";
+export type ActionKind = "resubmit" | "cancel";
 type ActivityJob = TakeoffActivityCenterResponse["jobs"][number];
 
-function nextStep(detail: TakeoffJobSummary, row: ActivityJob, role?: string | null) {
-  if (detail.can_reconcile) return "Vérifiez la reprise pour récupérer le résultat de cette analyse.";
+function nextStep(detail: TakeoffJobSummary, role?: string | null) {
   if (detail.can_resubmit) return "Vous pouvez soumettre cette analyse à nouveau.";
   if (detail.retry_count >= TAKEOFF_RETRY_MAX) return "Le nombre maximal de relances est atteint. Préparez un nouveau métré.";
   if (!isTakeoffOperatorMutationRole(role)) return "Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.";
-  // The detail additionally checks whether this job's execution provider still accepts recovery.
-  if (row.canResubmit || row.canReconcile) return "Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez un nouveau métré.";
-  return "Le traitement est en attente auprès du fournisseur IA. Actualisez le suivi pour vérifier la reprise.";
+  // Within its budget, only a job of a former provider cannot be submitted again by an operator.
+  return "Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez un nouveau métré.";
 }
 
 export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
@@ -37,7 +35,6 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
     // The key changes with the job's own changes: a window focus reads nothing new.
     { revalidateOnFocus: false },
   );
-  const canReconcile = failed ? detail?.can_reconcile : job.canReconcile;
   const canResubmit = failed ? detail?.can_resubmit : job.canResubmit;
   const reviewEnabled = job.statusRaw === "completed" || job.statusRaw === "review_required";
 
@@ -52,7 +49,7 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
             <p>Motif de l’échec indisponible. <button type="button" className="underline" onClick={() => void mutate()}>Relire le diagnostic</button></p>
           ) : <p>Chargement du motif de l’échec…</p>}
           <p>Relances utilisées : {detail?.retry_count ?? job.retryCount} sur {TAKEOFF_RETRY_MAX}</p>
-          {detail && <p>{nextStep(detail, job, profile?.tenant_role)}</p>}
+          {detail && <p>{nextStep(detail, profile?.tenant_role)}</p>}
         </div>
       )}
       <div className="flex flex-wrap gap-2">
@@ -63,20 +60,6 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
           >
             Revue
           </Link>
-        ) : null}
-        {canReconcile ? (
-          <button
-            type="button"
-            className={buttonVariants({ variant: "outline" })}
-            onClick={() => {
-              void onAction(job.jobId, "reconcile");
-            }}
-            disabled={Boolean(pendingAction)}
-          >
-            {pendingAction === "reconcile"
-              ? "Vérification de la reprise…"
-              : "Vérifier la reprise"}
-          </button>
         ) : null}
         {canResubmit ? (
           <button

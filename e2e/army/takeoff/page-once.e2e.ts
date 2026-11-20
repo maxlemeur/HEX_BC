@@ -7,7 +7,7 @@ import type { TakeoffPageContributionsResponse } from "@/lib/takeoff/page-contri
 import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence } from "../critical/fixtures";
 import { TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, expectLandedOnTakeoffLine, openTakeoffSend } from "./fixtures";
 import { VECTOR_PLAN, buildVectorPlanPdf } from "./vector-plan-fixture";
-import { launchWorkerVectorUpload, startOwnedWorker, type WorkerUi } from "./worker-support";
+import { launchWorkerVectorUpload, ownedWorkerJobOwner, startOwnedWorker, type WorkerUi } from "./worker-support";
 
 // TI-682 lot D: a plan page enters an estimate once. Before lot D nothing compared two takeoffs of one page: relaunch a
 // plan and apply it with « Ajouter », its quantities were counted twice without a word. A fictional vector plan,
@@ -52,7 +52,7 @@ async function relaunch(ui: WorkerUi, upload: Upload, providerItems: ProviderIte
   expect(snapshot.error).toBeNull();
   const inserted = await client.from("takeoff_jobs").insert({ id: second, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: owner.userId, level: "C", status: "pending", source_file_name: relaunchName, source_file_path: sourcePath,
-    source_file_type: "application/pdf", source_file_size_bytes: bytes.length, execution_provider: "gemini",
+    source_file_type: "application/pdf", source_file_size_bytes: bytes.length, ...await ownedWorkerJobOwner(),
     preparation_snapshot: (snapshot.data as { preparation_snapshot: unknown }).preparation_snapshot } as never).select("id").single();
   expect(inserted.error).toBeNull();
   const run = await startOwnedWorker(ui, ids, second, "success", { vectors: true, owner, providerItems }).done;

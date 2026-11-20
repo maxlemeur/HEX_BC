@@ -19,7 +19,6 @@ export enum TakeoffErrorCode {
   TAKEOFF_FILE_TOO_LARGE = "TAKEOFF_FILE_TOO_LARGE",
   TAKEOFF_FILE_TYPE_INVALID = "TAKEOFF_FILE_TYPE_INVALID",
   TAKEOFF_PDF_CORRUPTED = "TAKEOFF_PDF_CORRUPTED",
-  TAKEOFF_PDF_INSPECTION_TIMEOUT = "TAKEOFF_PDF_INSPECTION_TIMEOUT",
   TAKEOFF_PDF_NOT_INTERPRETABLE = "TAKEOFF_PDF_NOT_INTERPRETABLE",
   TAKEOFF_LEVEL_UNSUPPORTED = "TAKEOFF_LEVEL_UNSUPPORTED",
   TAKEOFF_ESTIMATE_VERSION_ID_INVALID = "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
@@ -27,8 +26,6 @@ export enum TakeoffErrorCode {
   TAKEOFF_TENANT_UNAUTHORIZED = "TAKEOFF_TENANT_UNAUTHORIZED",
   TAKEOFF_TENANT_INACTIVE = "TAKEOFF_TENANT_INACTIVE",
   TAKEOFF_WORKER_OUTCOME_UNKNOWN = "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
-  IDEMPOTENCY_KEY_INVALID = "IDEMPOTENCY_KEY_INVALID",
-  IDEMPOTENCY_KEY_REUSED = "IDEMPOTENCY_KEY_REUSED",
   AI_RATE_LIMIT = "AI_RATE_LIMIT",
   AI_TIMEOUT = "AI_TIMEOUT",
   AI_SCHEMA = "AI_SCHEMA",
@@ -160,120 +157,6 @@ function compactRecord(record: JsonRecord) {
   return output;
 }
 
-function toMessage(error: unknown): string | null {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return redactString(error.message);
-  }
-
-  if (typeof error === "string" && error.trim().length > 0) {
-    return redactString(error);
-  }
-
-  return null;
-}
-
-function toRecord(value: unknown): JsonRecord | null {
-  if (!isRecord(value)) return null;
-  return value;
-}
-
-function extractStatus(error: unknown): number | null {
-  const record = toRecord(error);
-  if (!record) return null;
-
-  if (typeof record.status === "number") {
-    return record.status;
-  }
-
-  const response = toRecord(record.response);
-  if (response && typeof response.status === "number") {
-    return response.status;
-  }
-
-  return null;
-}
-
-function extractCode(error: unknown): string | null {
-  const record = toRecord(error);
-  if (!record) return null;
-
-  if (typeof record.code === "string" && record.code.trim().length > 0) {
-    return record.code.trim().toUpperCase();
-  }
-
-  return null;
-}
-
-function extractProviderDetails(error: unknown): unknown {
-  const record = toRecord(error);
-  const response = record ? toRecord(record.response) : null;
-  const nestedDetails =
-    record && Object.prototype.hasOwnProperty.call(record, "details")
-      ? record.details
-      : response && Object.prototype.hasOwnProperty.call(response, "data")
-      ? response.data
-      : undefined;
-
-  return compactRecord({
-    provider_status: extractStatus(error) ?? undefined,
-    provider_code: extractCode(error) ?? undefined,
-    provider_message: toMessage(error) ?? undefined,
-    provider_details: sanitizeUnknown(nestedDetails),
-  });
-}
-
-function isTimeoutError(error: unknown) {
-  const message = (toMessage(error) ?? "").toLowerCase();
-  const code = extractCode(error);
-  const name =
-    error instanceof Error && error.name ? error.name.toLowerCase() : "";
-
-  return (
-    name === "aborterror" ||
-    code === "ETIMEDOUT" ||
-    code === "ECONNABORTED" ||
-    message.includes("timeout") ||
-    message.includes("timed out") ||
-    message.includes("deadline exceeded")
-  );
-}
-
-function isRateLimitError(error: unknown) {
-  const status = extractStatus(error);
-  if (status === 429) return true;
-
-  const message = (toMessage(error) ?? "").toLowerCase();
-  return message.includes("rate limit") || message.includes("too many requests");
-}
-
-function isSafetyError(error: unknown) {
-  const message = (toMessage(error) ?? "").toLowerCase();
-  const code = extractCode(error);
-
-  return (
-    code === "SAFETY" ||
-    message.includes("safety") ||
-    message.includes("blocked") ||
-    message.includes("content policy")
-  );
-}
-
-function isSchemaError(error: unknown) {
-  if (error instanceof ZodError || error instanceof SyntaxError) {
-    return true;
-  }
-
-  const message = (toMessage(error) ?? "").toLowerCase();
-  const code = extractCode(error);
-
-  return (
-    code === "AI_SCHEMA" ||
-    message.includes("invalid json") ||
-    message.includes("schema") ||
-    message.includes("zod")
-  );
-}
-
 function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
   if (code === TakeoffErrorCode.UNAUTHORIZED) return 401;
   if (
@@ -295,7 +178,6 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
   if (
     code === TakeoffErrorCode.CONFLICT ||
-    code === TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED ||
     code === TakeoffErrorCode.TAKEOFF_JOB_NOT_RETRIABLE ||
     code === TakeoffErrorCode.TAKEOFF_JOB_NOT_CANCELABLE ||
     code === TakeoffErrorCode.TAKEOFF_JOB_ADMISSION_LIMIT
@@ -305,10 +187,6 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
   if (code === TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE) {
     return 413;
-  }
-
-  if (code === TakeoffErrorCode.TAKEOFF_PDF_INSPECTION_TIMEOUT) {
-    return 503;
   }
 
   if (
@@ -328,10 +206,6 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
   if (code === TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT) {
     return 500;
-  }
-
-  if (code === TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID) {
-    return 422;
   }
 
   if (
@@ -562,8 +436,10 @@ export class TakeoffError extends ApiError {
 }
 
 /** Execution ownership is immutable in the database; historical results remain readable. */
-export function assertTakeoffJobUsesLocalProvider(job: { execution_provider?: string | null }) {
-  if (job.execution_provider === "gemini") {
+export function assertTakeoffJobUsesLocalProvider<T extends { execution_provider?: string | null }>(
+  job: T,
+): asserts job is T & { execution_provider: "chatgpt_local" } {
+  if (job.execution_provider !== "chatgpt_local") {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Cet ancien métré ne peut plus être relancé. Préparez une nouvelle analyse avec le forfait ChatGPT local." });
   }
@@ -667,64 +543,4 @@ export function toTakeoffRouteErrorResponse(error: unknown) {
     return NextResponse.json(toTakeoffErrorResponse(error), { status: error.status });
   }
   return toErrorResponse(error);
-}
-
-export function mapGeminiErrorToTakeoffError(error: unknown): TakeoffError {
-  if (error instanceof TakeoffError) {
-    return error;
-  }
-
-  const details = extractProviderDetails(error);
-
-  if (isRateLimitError(error)) {
-    return new TakeoffError({
-      code: TakeoffErrorCode.AI_RATE_LIMIT,
-      retryable: true,
-      details,
-      message: toMessage(error) ?? undefined,
-    });
-  }
-
-  if (isTimeoutError(error)) {
-    return new TakeoffError({
-      code: TakeoffErrorCode.AI_TIMEOUT,
-      retryable: true,
-      details,
-      message: toMessage(error) ?? undefined,
-    });
-  }
-
-  if (isSchemaError(error)) {
-    return new TakeoffError({
-      code: TakeoffErrorCode.AI_SCHEMA,
-      retryable: false,
-      details,
-      message: toMessage(error) ?? undefined,
-    });
-  }
-
-  if (isSafetyError(error)) {
-    return new TakeoffError({
-      code: TakeoffErrorCode.AI_SAFETY,
-      retryable: false,
-      details,
-      message: toMessage(error) ?? undefined,
-    });
-  }
-
-  const status = extractStatus(error);
-  const retryable =
-    status === 408 ||
-    status === 429 ||
-    status === 500 ||
-    status === 502 ||
-    status === 503 ||
-    status === 504;
-
-  return new TakeoffError({
-    code: TakeoffErrorCode.AI_PROVIDER,
-    retryable,
-    details,
-    message: toMessage(error) ?? undefined,
-  });
 }
