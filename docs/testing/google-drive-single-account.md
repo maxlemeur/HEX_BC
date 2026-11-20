@@ -12,8 +12,13 @@ jetons d'un compte pour l'application : l'accès est donc conservé tant qu'une
 autre connexion MergeOne (autre entreprise ou autre membre) utilise le même
 compte Google. Google injoignable ou en échec n'empêche pas le retrait : l'échec
 est journalisé et la réponse l'indique (`revoked`, `stillUsed`). Les mêmes règles
-s'appliquent à une autorisation que Google accorde mais que MergeOne refuse
-(autre compte, retour OAuth périmé) et au retrait d'un membre de l'entreprise.
+s'appliquent au retrait d'un membre de l'entreprise et à une autorisation que
+Google accorde pour un compte identifié mais que MergeOne refuse (autre compte,
+retour OAuth périmé). Quand le compte Google reste inconnu (portée refusée, accès
+durable absent, Drive injoignable), l'autorisation n'est pas révoquée : l'échec
+de connexion est journalisé. Une suppression faite hors de l'application (SQL,
+tableau de bord Supabase) ne peut pas appeler Google : révoquer alors l'accès à la
+main, si ce compte Google n'est connecté nulle part ailleurs dans MergeOne.
 Le consentement à l'écriture Google et l'autorisation effective dans MergeOne sont
 distincts : désactiver l'écriture supprime son jeton côté serveur, sans révoquer
 l'accès Google que la lecture utilise encore.

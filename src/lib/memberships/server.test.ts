@@ -36,7 +36,7 @@ type QuerySource = "authenticated" | "directory";
 type SelectOptions = { count?: "exact"; head?: boolean };
 type QueryResult = {
   data: unknown;
-  error: null;
+  error: { code: string; message: string } | null;
   count?: number;
 };
 
@@ -88,6 +88,7 @@ type MembershipScenario = {
   tenantActive: boolean;
   // The target member's Google Drive connection, and whether its Google account is connected elsewhere.
   drive: { connectedElsewhere: boolean } | null;
+  removalFails: boolean;
 };
 
 class MembershipQuery {
@@ -226,7 +227,10 @@ class MembershipQuery {
     }
 
     if (this.mode === "delete") {
-      return { data: null, error: null };
+      return {
+        data: null,
+        error: this.scenario.removalFails ? { code: "XX000", message: "fixture failure" } : null,
+      };
     }
 
     if (this.selectOptions?.head) {
@@ -264,6 +268,7 @@ function createMembershipHarness(
     updatedMembership: TARGET_MEMBERSHIP,
     tenantActive: true,
     drive: null,
+    removalFails: false,
     ...overrides,
   };
   const queries: MembershipQuery[] = [];
@@ -418,11 +423,7 @@ describe("removing a member who connected Google Drive (Google simulated)", () =
     vi.unstubAllGlobals();
   });
 
-  it.each([
-    { connectedElsewhere: false, revoked: ["fixture-refresh"] },
-    { connectedElsewhere: true, revoked: [] },
-  ])("revokes their Google grant after the removal unless the account stays connected elsewhere ($connectedElsewhere)", async ({ connectedElsewhere, revoked }) => {
-    const { queries } = createMembershipHarness({ drive: { connectedElsewhere } });
+  const answerRevocations = (queries: MembershipQuery[], status: number) => {
     const revocations: Array<{ token: string | null; afterRemoval: boolean }> = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
       expect(url).toBe("https://oauth2.googleapis.com/revoke");
@@ -430,10 +431,41 @@ describe("removing a member who connected Google Drive (Google simulated)", () =
         token: new URLSearchParams(String(init.body)).get("token"),
         afterRemoval: queries.some((query) => query.table === "tenant_memberships" && query.mode === "delete"),
       });
-      return new Response(null, { status: 200 });
+      return new Response(null, { status });
     }));
+    return revocations;
+  };
+
+  it.each([
+    { connectedElsewhere: false, revoked: ["fixture-refresh"] },
+    { connectedElsewhere: true, revoked: [] },
+  ])("revokes their Google grant after the removal unless the account stays connected elsewhere ($connectedElsewhere)", async ({ connectedElsewhere, revoked }) => {
+    const { queries } = createMembershipHarness({ drive: { connectedElsewhere } });
+    const revocations = answerRevocations(queries, 200);
 
     await expect(deleteMembership(TARGET_MEMBERSHIP_ID)).resolves.toEqual({ deleted_id: TARGET_MEMBERSHIP_ID });
     expect(revocations).toEqual(revoked.map((token) => ({ token, afterRemoval: true })));
+  });
+
+  it("removes the member when Google fails to revoke their grant", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { queries } = createMembershipHarness({ drive: { connectedElsewhere: false } });
+      const revocations = answerRevocations(queries, 503);
+
+      await expect(deleteMembership(TARGET_MEMBERSHIP_ID)).resolves.toEqual({ deleted_id: TARGET_MEMBERSHIP_ID });
+      expect(revocations).toEqual([{ token: "fixture-refresh", afterRemoval: true }]);
+      expect(logged).toHaveBeenCalledWith("Google Drive grant not revoked", expect.objectContaining({ cause: "member_removed" }));
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it("revokes nothing when the membership could not be removed", async () => {
+    const { queries } = createMembershipHarness({ drive: { connectedElsewhere: false }, removalFails: true });
+    const revocations = answerRevocations(queries, 200);
+
+    await expect(deleteMembership(TARGET_MEMBERSHIP_ID)).rejects.toThrow("Impossible de retirer le membre.");
+    expect(revocations).toEqual([]);
   });
 });

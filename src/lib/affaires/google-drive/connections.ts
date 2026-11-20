@@ -370,18 +370,29 @@ export async function disableDriveWriting(
   await changeConnection(member, id, version, "set_google_drive_read_only");
 }
 
-type HeldGrant = { googleAccountId: string; refreshTokens: string[] };
-async function holdDriveGrant(id: string, version: string) {
-  const configuration = driveConfiguration();
-  if (!configuration.enabled) return null;
+// refreshTokens is null when they cannot be opened (Drive disabled, key changed): the account
+// is still checked, so a grant another connection uses is reported as such.
+type HeldGrant = { googleAccountId: string; refreshTokens: string[] | null };
+async function holdDriveGrant(
+  id: string,
+  version: string,
+): Promise<HeldGrant | null> {
+  let row: Awaited<ReturnType<typeof secret>>;
   try {
-    const row = await secret(id);
-    if (row.grant_version !== version) return null;
-    const context = connectionSecretContext(
-      row.tenant_id,
-      row.user_id,
-      row.google_account_id,
-    );
+    row = await secret(id);
+  } catch {
+    return null;
+  }
+  if (row.grant_version !== version) return null;
+  const configuration = driveConfiguration();
+  const unreadable = { googleAccountId: row.google_account_id, refreshTokens: null };
+  if (!configuration.enabled) return unreadable;
+  const context = connectionSecretContext(
+    row.tenant_id,
+    row.user_id,
+    row.google_account_id,
+  );
+  try {
     return {
       googleAccountId: row.google_account_id,
       refreshTokens: [
@@ -392,7 +403,7 @@ async function holdDriveGrant(id: string, version: string) {
       ),
     };
   } catch {
-    return null;
+    return unreadable;
   }
 }
 /**
@@ -402,7 +413,7 @@ async function holdDriveGrant(id: string, version: string) {
  */
 async function releaseDriveGrant(
   held: HeldGrant | null,
-  log: { cause: string; connectionId?: string },
+  log: { cause: string; connectionId?: string; tenantId?: string; userId?: string },
 ): Promise<DriveGrantRelease> {
   const notRevoked = (reasons: string[]) => {
     console.error("Google Drive grant not revoked", { ...log, reasons });
@@ -417,6 +428,7 @@ async function releaseDriveGrant(
       .limit(1);
     if (error) return notRevoked(["connections_unreadable"]);
     if (data.length) return { revoked: false, stillUsed: true };
+    if (!held.refreshTokens) return notRevoked(["grant_unreadable"]);
     const failures = (
       await Promise.all(held.refreshTokens.map(revokeDriveAccess))
     ).flatMap((result) => (result.revoked ? [] : [result.reason]));
@@ -427,7 +439,8 @@ async function releaseDriveGrant(
     return notRevoked(["unexpected"]);
   }
 }
-/** The grant is read before the removal deletes it, and released once the removal succeeded. */
+// The tokens are deleted with the connection, so they are read first; a removal that fails
+// revokes nothing, and the "still used" check must not count the removed connection.
 async function removeWithGrant(
   id: string,
   version: string,
@@ -482,7 +495,7 @@ export async function removeMemberDriveConnection(
   if (connection === null) return removeMembership();
   if (!connection) {
     await removeMembership();
-    await releaseDriveGrant(null, { cause: "member_removed" });
+    await releaseDriveGrant(null, { cause: "member_removed", ...member });
     return;
   }
   await removeWithGrant(

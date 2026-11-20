@@ -89,9 +89,12 @@ Variables (toutes requises, avec le service role ; sinon Drive reste désactivé
   (`openssl rand -base64 32`). En changer oblige les membres à ajouter de nouveau
   leurs comptes.
 
-Dans Google Cloud, déclarer comme URI de redirection autorisée
-`<origine>/api/google-drive/oauth/callback` pour chaque origine (local et production),
-et la portée `https://www.googleapis.com/auth/drive.readonly` sur l’écran de
+Dans Google Cloud, utiliser un client OAuth par environnement (local, recette,
+production) et y déclarer comme URI de redirection autorisée
+`<origine>/api/google-drive/oauth/callback`. Retirer un compte révoque son accès chez
+Google pour tout le client OAuth : avec un client partagé, un retrait en local
+couperait aussi la connexion de production du même compte Google. Déclarer aussi
+la portée `https://www.googleapis.com/auth/drive.readonly` sur l’écran de
 consentement. Cette portée donne la lecture de tout le Drive du compte : son
 activation sur un environnement réel reste soumise à validation.
 

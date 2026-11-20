@@ -351,6 +351,17 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
       "reconnect_required",
     );
   });
+  // The same Google account connected by another member of this tenant.
+  const connectElsewhere = (userId: string) =>
+    backend.rows("google_drive_connections").set(`${userId}_connection`, {
+      id: `${userId}_connection`,
+      tenant_id: "tenant_demo",
+      user_id: userId,
+      google_account_id: "google_account_demo",
+      email: "poc@example.invalid",
+      display_name: "Compte fictif",
+      status: "active",
+    });
   const disconnect = async () =>
     execute({
       action: "disconnect",
@@ -401,23 +412,30 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     }
   });
   it("keeps the Google grant when the same account stays connected elsewhere", async () => {
-    // Google revokes a grant for every token of that account: another tenant's connection would break.
-    backend
-      .rows("google_drive_connections")
-      .set("other_tenant_connection", {
-        id: "other_tenant_connection",
-        tenant_id: "another_tenant",
-        user_id: "user_demo",
-        google_account_id: "google_account_demo",
-        email: "poc@example.invalid",
-        display_name: "Compte fictif",
-        status: "active",
-      });
+    // Google revokes a grant for every token of that account: another member's connection would break.
+    connectElsewhere("another_member");
     expect(await disconnect()).toEqual({ revoked: false, stillUsed: true });
     expect(google.revoked).toEqual([]);
     expect(backend.rows("google_drive_connections").has(connectionId)).toBe(
       false,
     );
+  });
+  it.each([
+    ["no other connection uses the account", false, { revoked: false, stillUsed: false }],
+    ["another member uses the account", true, { revoked: false, stillUsed: true }],
+  ])("removes an account whose tokens can no longer be opened, and reports its grant when %s", async (_case, shared, release) => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      if (shared) connectElsewhere("another_member");
+      const grantVersion = (await driveState("project_demo")).connections[0].grantVersion;
+      vi.stubEnv("MERGEONE_GOOGLE_DRIVE_TOKEN_KEY", Buffer.alloc(32, 8).toString("base64"));
+      expect(await execute({ action: "disconnect", connectionId, grantVersion })).toEqual(release);
+      expect(google.revoked).toEqual([]);
+      expect(backend.rows("google_drive_connections").has(connectionId)).toBe(false);
+      expect(logged.mock.calls.length > 0).toBe(!shared);
+    } finally {
+      logged.mockRestore();
+    }
   });
   it("attaches a link whose account was removed to the account chosen again, without a second piece", async () => {
     await link();
