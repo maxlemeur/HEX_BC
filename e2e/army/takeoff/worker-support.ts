@@ -150,7 +150,7 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "lo
   await mkdir(directory, { recursive: true });
   const filePath = path.join(directory, fileName);
   await writeFile(filePath, "designation;quantity;unit\nARMY worker pipe;12.5;m\nARMY worker valve;3;u\n");
-  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
+  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner?.email, owner?.password);
   const userId = owner?.userId ?? (await localClient()).userId;
   const jobId = randomUUID();
   const sourcePath = `${tenantId}/${jobId}/${fileName}`;

@@ -39,6 +39,8 @@ export default async function NotificationsPage({
             const activityHref = takeoffEnabled && notice.outcome === "failure" && notice.job
               ? `${projectHref}/takeoff`
               : null;
+            // A cached activity page may still show the job as pending.
+            const NoticeLink = activityHref ? "a" : Link;
             const deliveryLabel = deliveryLabels[notice.delivery_state];
             return (
               <li key={notice.id} id={notice.id} className="flex flex-wrap items-start justify-between gap-3 p-4">
@@ -54,9 +56,9 @@ export default async function NotificationsPage({
                     <p className="mt-1 text-sm text-slate-700">{takeoffCompletionFailureReason(notice.job?.error_code)}</p>
                   )}
                   {deliveryLabel && <p className="mt-1 text-sm text-slate-700">{deliveryLabel}</p>}
-                  <Link href={reviewHref ?? activityHref ?? projectHref} className="mt-2 inline-block text-sm font-medium text-blue-700 underline">
+                  <NoticeLink href={reviewHref ?? activityHref ?? projectHref} className="mt-2 inline-block text-sm font-medium text-blue-700 underline">
                     {reviewHref ? "Ouvrir la revue" : activityHref ? "Ouvrir le suivi du métré" : "Ouvrir l’affaire"}
-                  </Link>
+                  </NoticeLink>
                 </div>
                 {!notice.read_at && (
                   <form action={markTakeoffCompletionRead}>
