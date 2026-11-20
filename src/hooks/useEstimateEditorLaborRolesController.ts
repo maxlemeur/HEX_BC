@@ -6,7 +6,6 @@ import type { useEstimateEditorDocument } from "@/hooks/useEstimateEditorDocumen
 import type { useEstimateEditorLineNormalization } from "@/hooks/useEstimateEditorLineNormalization";
 import type { EstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
 import type { useUserContext } from "@/lib/auth/user-context";
-import { createEstimateLaborRole, updateEstimateLaborRole } from "@/lib/estimates/client";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import type {
   EstimateEditorDocument,
@@ -18,6 +17,7 @@ import {
   type LaborRole,
 } from "@/lib/estimates/editor-items";
 import type { EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
+import { createEstimateLaborRole, updateEstimateLaborRole } from "@/lib/estimates/reference-data-client";
 import { recomputeEstimateV3AfterLaborRate } from "@/lib/estimates/v3-editor-writer";
 
 type EditorDocumentPort = ReturnType<typeof useEstimateEditorDocument>;

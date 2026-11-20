@@ -4,7 +4,7 @@ import type {
   NodeMergeState,
   NodeOverrideState,
 } from "@/lib/estimates/estimate-structure-draft";
-import type { EstimateStructureDraftApplyMode } from "@/lib/estimates/client";
+import type { EstimateStructureDraftApplyMode } from "@/lib/estimates/structure-drafts-client";
 import { cn } from "@/lib/utils";
 
 import { OverrideCard } from "./OverrideCard";

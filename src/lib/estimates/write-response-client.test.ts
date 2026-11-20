@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  bulkUpdateEstimateItems, createEstimateItem, saveEstimateVersion, updateEstimateItem, updateEstimateStatus,
-} from "@/lib/estimates/client";
+  bulkUpdateEstimateItems,
+  createEstimateItem,
+  updateEstimateItem,
+} from "@/lib/estimates/items-client";
+import { saveEstimateVersion } from "@/lib/estimates/version-settings-client";
+import { updateEstimateStatus } from "@/lib/estimates/version-lifecycle-client";
 import { recoverEstimateEditorRead, registerEstimateEditorMutations } from "@/lib/estimates/editor-mutations";
 import { buildEstimateV3ItemInsertPayload } from "@/lib/estimates/v3-editor";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";

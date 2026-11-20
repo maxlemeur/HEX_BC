@@ -4,12 +4,12 @@ vi.mock("@/lib/takeoff/job-read-server", () => ({ getAuthenticatedTakeoffContext
 vi.mock("@/lib/takeoff/version-access-server", () => ({ assertTakeoffJobAccessibleForVersion: vi.fn() }));
 vi.mock("@/lib/takeoff/dpgf-comparison-context-server", () => ({ loadTakeoffDpgfComparisonContext: vi.fn() }));
 vi.mock("@/lib/takeoff/dpgf-comparison-server", () => ({ fetchAllTakeoffDpgfComparisonRows: vi.fn() }));
-vi.mock("@/lib/affaires/intake-server", () => ({ fetchAffaireIntakeWorkspace: vi.fn() }));
+vi.mock("@/lib/affaires/intake-workspace-server", () => ({ fetchAffaireIntakeWorkspace: vi.fn() }));
 vi.mock("@/lib/feature-flags", () => ({ getStalePriceDaysForTenant: vi.fn() }));
 vi.mock("@/lib/estimates/fixed-discount-evidence-server", () => ({ loadCanonicalFixedDiscountEvidence: vi.fn() }));
 vi.mock("@/lib/estimates/rules-engine", () => ({ evaluateRules: vi.fn() }));
 
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";

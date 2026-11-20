@@ -1,4 +1,4 @@
-import type { EstimatePurchaseOrderDraftPreparation } from "@/lib/estimates/client";
+import type { EstimatePurchaseOrderDraftPreparation } from "@/lib/estimates/purchase-order-draft-contracts";
 import { formatEUR } from "@/lib/money";
 
 type PurchaseOrderDraftLinesTableProps = Pick<

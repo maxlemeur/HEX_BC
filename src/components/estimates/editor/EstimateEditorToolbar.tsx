@@ -9,7 +9,8 @@ import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDow
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { Button } from "@/components/ui/button";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
-import type { EstimateEditorData, EstimateExportMode } from "@/lib/estimates/client";
+import type { EstimateEditorData } from "@/lib/estimates/editor-read-contracts";
+import type { EstimateExportMode } from "@/lib/estimates/export-client";
 import type { Database } from "@/types/database";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { AssistantToggle } from "@/components/assistant/AssistantDock";

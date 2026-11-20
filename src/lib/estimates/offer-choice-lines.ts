@@ -1,8 +1,8 @@
-import type { EstimateSendGatingResponse } from "@/lib/estimates/client";
 import type { EditorEstimateItem } from "@/lib/estimates/editor-items";
 import { describeOfferChoice, readOfferProvisionalQuantity, readOfferReserve } from "@/lib/estimates/offer-choice";
 import { composeProvisionalQuantityMention } from "@/lib/estimates/provisional-quantity";
 import { ESTIMATE_V3_PRICING_STATUS_OPTIONS } from "@/lib/estimates/v3-editor";
+import type { EstimateSendGatingResponse } from "@/lib/estimates/version-lifecycle-client";
 
 /**
  * TI-682, lot C: the lines the offer's choices name, written from the editor's current lines: in the precisions

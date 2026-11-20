@@ -9,11 +9,8 @@ import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHist
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import { computeLineHoursFromHoursPerUnit } from "@/lib/affaires/import-flow";
 import type { ClipboardPreviewValues } from "@/lib/estimates/clipboard";
-import {
-  batchEstimateOperations,
-  deleteEstimateItem,
-  reorderEstimateItems,
-} from "@/lib/estimates/client";
+import { batchEstimateOperations } from "@/lib/estimates/batch-operations-client";
+import { deleteEstimateItem, reorderEstimateItems } from "@/lib/estimates/items-client";
 import {
   type EditorEstimateItem,
   type EstimateItem,

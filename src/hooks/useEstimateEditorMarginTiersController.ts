@@ -2,16 +2,16 @@
 
 import { useCallback, useState } from "react";
 
-import {
-  createMarginTier as createMarginTierClient,
-  deleteMarginTier as deleteMarginTierClient,
-  updateMarginTier as updateMarginTierClient,
-} from "@/lib/estimates/client";
 import type {
   EstimateEditorDocument,
   EstimateEditorDocumentScopeToken,
 } from "@/lib/estimates/editor-document-state";
 import type { EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
+import {
+  createMarginTier as createMarginTierClient,
+  deleteMarginTier as deleteMarginTierClient,
+  updateMarginTier as updateMarginTierClient,
+} from "@/lib/estimates/reference-data-client";
 
 /** The tenant's margin tiers, edited from the settings drawer: the document's settings take the confirmed tiers. */
 export function useEstimateEditorMarginTiersController({

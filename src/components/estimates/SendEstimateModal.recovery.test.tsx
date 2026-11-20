@@ -11,8 +11,10 @@ vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => mocks.t
 vi.mock("@/hooks/useDraftLock", () => ({
   useDraftLock: () => ({ isOwnedByCurrentUser: true, isLockedByOther: false, error: null }),
 }));
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/editor-read-client", () => ({
   fetchEstimateEditorData: mocks.fetchEstimateEditorData,
+}));
+vi.mock("@/lib/estimates/version-lifecycle-client", () => ({
   fetchEstimateSendGating: mocks.fetchEstimateSendGating,
 }));
 vi.mock("@/components/estimates/EstimatePdfDownloadButton", () => ({

@@ -261,19 +261,6 @@ function classifyTakeoffSignals(files: Array<TakeoffFileSignal>) {
   });
 }
 
-export function classifyTakeoffUploadSource(input: {
-  fileName: string;
-  mimeType?: string | null;
-  sizeBytes: number;
-}): TakeoffDocumentRecommendation {
-  return classifyTakeoffSignals([
-    {
-      fileName: input.fileName,
-      mimeType: input.mimeType,
-    },
-  ]);
-}
-
 export function classifyTakeoffPlanSetSource(input: {
   files: Array<
     Pick<PlanFileListItem, "file_name" | "file_type" | "page_count"> | TakeoffFileSignal

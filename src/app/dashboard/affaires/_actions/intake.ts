@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { refreshAffaireIntakeFromActiveDocuments, syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-server";
+import { refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-derived-state-server";
+import { syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-document-priorities";
 
 import {
   affaireIntakeDocumentKindSchema,
@@ -12,12 +13,16 @@ import {
 } from "@/lib/affaires/intake";
 import {
   confirmAffaireBrief as confirmAffaireBriefServer,
-  reclassifyAffaireDocument as reclassifyAffaireDocumentServer,
-  setAffaireDocumentAsPrimary as setAffaireDocumentAsPrimaryServer,
   updateAffaireBrief as updateAffaireBriefServer,
   resolveAffaireBriefPlanGap as resolveAffaireBriefPlanGapServer,
+} from "@/lib/affaires/intake-brief-server";
+import {
+  reclassifyAffaireDocument as reclassifyAffaireDocumentServer,
+  setAffaireDocumentAsPrimary as setAffaireDocumentAsPrimaryServer,
+} from "@/lib/affaires/intake-document-edits-server";
+import {
   retryAffaireDocumentAnalysis as retryAffaireDocumentAnalysisServer,
-} from "@/lib/affaires/intake-server";
+} from "@/lib/affaires/intake-analysis-server";
 
 const reclassifyAffaireDocumentInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),

@@ -3,18 +3,12 @@ import type { EstimateQualityFlagCounts, EstimateQualityFlagsByItemId } from "@/
 import type { BulkSuggestPreviewItem } from "@/lib/estimates/bulk-suggest";
 import type { EstimateChecklistCriterion, EstimateChecklistResult } from "@/lib/estimates/checklist";
 import type { ClipboardPreviewValues } from "@/lib/estimates/clipboard";
-import type {
-  ApplyEstimateStructureDraftPayload,
-  ApplyEstimateStructureDraftResult,
-  EstimateEditorData,
-  EstimateExportMode,
-  EstimateSendGatingFlag,
-  EstimateVersionEvent,
-  ImportEstimateSectionsPayload,
-  VersionZeroDraftSummary,
-} from "@/lib/estimates/client";
 import type { ExistingSection } from "@/lib/estimates/editor-item-tree";
 import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";
+import type {
+  EstimateEditorData,
+  VersionZeroDraftSummary,
+} from "@/lib/estimates/editor-read-contracts";
 import type { EstimateSettingsState, SettingsSection } from "@/lib/estimates/editor-settings-state";
 import type {
   EstimateEditorItemPatch,
@@ -25,6 +19,7 @@ import type {
   SuggestionRuleCreatePayload,
 } from "@/lib/estimates/editor-table-types";
 import type { ExistingSectionOption } from "@/lib/estimates/estimate-structure-draft";
+import type { EstimateExportMode } from "@/lib/estimates/export-client";
 import type {
   EstimateOutlierFlagKey,
   EstimateOutlierFlagsByItemId,
@@ -32,9 +27,16 @@ import type {
 } from "@/lib/estimates/outlier-detection";
 import type { PriceReuseApplyInput } from "@/lib/estimates/price-reuse-contracts";
 import type { EstimateSendGatingLine, EstimateSendGatingReserveLine } from "@/lib/estimates/offer-choice-lines";
+import type { EstimateVersionEvent } from "@/lib/estimates/schemas";
+import type { ImportEstimateSectionsPayload } from "@/lib/estimates/section-copy-client";
 import type { EstimateStatusReason } from "@/lib/estimates/status-reason";
+import type {
+  ApplyEstimateStructureDraftPayload,
+  ApplyEstimateStructureDraftResult,
+} from "@/lib/estimates/structure-drafts-client";
 import type { EstimateSupplierPreselectionReview } from "@/lib/estimates/supplier-preselection";
 import type { EstimateV3SummaryView } from "@/lib/estimates/v3-editor";
+import type { EstimateSendGatingFlag } from "@/lib/estimates/version-lifecycle-client";
 import type { SupportedEstimateCurrency } from "@/lib/money";
 import type { AutoSaveStatus } from "@/hooks/useAutoSave";
 import type { EstimateV3SettingsController } from "@/hooks/useEstimateV3Settings";

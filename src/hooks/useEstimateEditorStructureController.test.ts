@@ -11,11 +11,19 @@ const clientMocks = vi.hoisted(() => ({
   insertTemplateIntoVersion: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/items-client", () => ({
   deleteEstimateItem: clientMocks.deleteEstimateItem,
+}));
+vi.mock("@/lib/estimates/section-copy-client", () => ({
   duplicateEstimateSection: clientMocks.duplicateEstimateSection,
+}));
+vi.mock("@/lib/estimates/editor-read-client", () => ({
   fetchEstimateEditorData: clientMocks.fetchEstimateEditorData,
+}));
+vi.mock("@/lib/estimates/assemblies-client", () => ({
   insertAssemblyIntoVersion: clientMocks.insertAssemblyIntoVersion,
+}));
+vi.mock("@/lib/estimates/templates-client", () => ({
   insertTemplateIntoVersion: clientMocks.insertTemplateIntoVersion,
 }));
 

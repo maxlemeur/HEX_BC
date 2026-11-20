@@ -15,10 +15,10 @@ import {
 import {
   continueAffaireRegisterWithHypothesis,
   createAffaireRegisterEntry,
-  fetchAffaireRegisterReviewExport,
   requestAffaireRegisterRevalidation,
   updateAffaireRegisterEntryStatus,
-} from "@/lib/affaires/register-server";
+} from "@/lib/affaires/register-edits-server";
+import { fetchAffaireRegisterReviewExport } from "@/lib/affaires/register-read-server";
 
 const createAffaireRegisterEntryActionInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),

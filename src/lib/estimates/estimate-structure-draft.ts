@@ -3,7 +3,7 @@ import type {
   EstimateStructureDraft,
   EstimateStructureDraftNode,
   EstimateStructureDraftNodeAction,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/structure-drafts-client";
 
 export type TreeFilterKey =
   | "create"

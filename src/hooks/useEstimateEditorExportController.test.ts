@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   exportToCSV: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/export-client", () => ({
   exportEstimate: mocks.exportEstimate,
 }));
 

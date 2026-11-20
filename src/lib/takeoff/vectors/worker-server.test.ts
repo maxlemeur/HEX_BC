@@ -23,7 +23,6 @@ import {
   readTakeoffVectorPages,
   TAKEOFF_VECTOR_DECISIONS_LIMITS,
   TAKEOFF_VECTOR_LOCAL_LIMITS,
-  takeoffVectorDecisionsHook,
   takeoffVectorLocalGroupsHook,
   type TakeoffVectorDecisionsHook,
 } from "@/lib/takeoff/vectors/worker-server";
@@ -626,22 +625,5 @@ describe("the worker's local plan opt-in (takeoffVectorLocalGroupsHook)", () => 
     expect(takeoffVectorLocalGroupsHook(job)).toMatchObject({ local: { selection } });
     vi.stubEnv("NODE_ENV", "production");
     expect(takeoffVectorLocalGroupsHook(job)).toBeUndefined();
-  });
-});
-
-describe("the worker's Decisions opt-in (takeoffVectorDecisionsHook)", () => {
-  afterEach(() => vi.unstubAllEnvs());
-  const on = { MERGEONE_TAKEOFF_VECTORS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", MERGEONE_OPENAI_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "fictional-key" };
-  const job = { jobId: "job-fixture", tenantId: "tenant-fixture", userId: "user-fixture" };
-
-  it("is off unless the vector reading, the takeoff opt-in, Decisions and its key are all set, and a user is known", () => {
-    for (const [name, value] of Object.entries(on)) vi.stubEnv(name, value);
-    expect(takeoffVectorDecisionsHook(job)).toMatchObject({ owner: { tenantId: "tenant-fixture", userId: "user-fixture" }, projectId: "takeoff-job:job-fixture" });
-    expect(takeoffVectorDecisionsHook({ ...job, userId: null })).toBeUndefined();
-    for (const name of Object.keys(on)) {
-      vi.stubEnv(name, "");
-      expect(takeoffVectorDecisionsHook(job), name).toBeUndefined();
-      vi.stubEnv(name, on[name as keyof typeof on]);
-    }
   });
 });

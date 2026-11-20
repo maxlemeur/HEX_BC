@@ -27,7 +27,7 @@ import type {
   EstimateAssemblyDetail,
   EstimateAssemblyLaborRole,
   EstimateAssemblySummary,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/assemblies-client";
 import { formatAssemblyTargetPrice } from "@/lib/estimates/assembly-target-price";
 import { formatEUR } from "@/lib/money";
 

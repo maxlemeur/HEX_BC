@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { describe, expect, it } from "vitest";
 
 import { computeCockpitSuggestions, type CockpitCommandPreference, type CockpitSuggestion } from "@/lib/cockpit/suggestions";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { useHubCockpitSuggestions, type HubCockpitInput } from "./useHubCockpitSuggestions";
 
 // Over a read of the dossier the hub computes its suggestions again (TI-722). A pin or a hide is

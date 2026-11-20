@@ -11,25 +11,31 @@ const clientMocks = vi.hoisted(() => ({
   importLinkedDpgfSource: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/structure-drafts-client", () => ({
   applyEstimateStructureDraft: clientMocks.applyEstimateStructureDraft,
+}));
+vi.mock("@/lib/estimates/editor-read-client", () => ({
   fetchEstimateEditorData: clientMocks.fetchEstimateEditorData,
+}));
+vi.mock("@/lib/estimates/linked-dpgf-client", () => ({
   fetchAffaireLinkedDpgfSource: clientMocks.fetchAffaireLinkedDpgfSource,
-  importEstimateSections: clientMocks.importEstimateSections,
   importLinkedDpgfSource: clientMocks.importLinkedDpgfSource,
+}));
+vi.mock("@/lib/estimates/section-copy-client", () => ({
+  importEstimateSections: clientMocks.importEstimateSections,
 }));
 
 import {
 useEstimateEditorImportController,
 type EstimateEditorImportControllerInput,
 } from "@/hooks/useEstimateEditorImportController";
+import type { AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
+import type { ApplyEstimateStructureDraftResult } from "@/lib/estimates/structure-drafts-client";
+import type { ImportEstimateSectionsPayload } from "@/lib/estimates/section-copy-client";
 import type {
-AffaireLinkedDpgfSource,
-ApplyEstimateStructureDraftResult,
-ImportEstimateSectionsPayload,
-ImportEstimateSectionsResult,
-ImportLinkedDpgfSourceResult,
-} from "@/lib/estimates/client";
+  ImportEstimateSectionsResult,
+  ImportLinkedDpgfSourceResult,
+} from "@/lib/estimates/schemas";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";

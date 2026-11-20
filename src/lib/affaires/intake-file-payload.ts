@@ -1,8 +1,7 @@
 import { validateXlsxArchiveBudget } from "@/lib/affaires/intake-office-archive";
-export { SPREADSHEET_MAX_ARCHIVE_ENTRIES } from "@/lib/affaires/intake-office-archive";
 import * as XLSX from "xlsx";
 import { getAffaireIntakeFileExtension, isMimeTypeSupportedForAiClassification } from "@/lib/affaires/intake";
-import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
+import type { StructuredCallFile } from "@/lib/ai/structured-call";
 import { readWordText, WordReadError, isWordFile } from "@/lib/affaires/intake-word-reader";
 
 const TEXT_SNIPPET_MAX_LENGTH = 12_000;
@@ -69,7 +68,7 @@ export async function buildSpreadsheetSnippet(fileName: string, bytes: ArrayBuff
   return lines.join("\n").slice(0, TEXT_SNIPPET_MAX_LENGTH);
 }
 
-function buildTextFilePayload(text: string, mimeType = "text/plain"): GeminiStructuredFile | null {
+function buildTextFilePayload(text: string, mimeType = "text/plain"): StructuredCallFile | null {
   const snippet = text.trim().slice(0, TEXT_SNIPPET_MAX_LENGTH);
   if (snippet.length === 0) {
     return null;
@@ -85,7 +84,7 @@ export async function buildClassificationFilePayload(input: {
   fileName: string;
   mimeType: string;
   bytes: ArrayBuffer;
-}): Promise<(GeminiStructuredFile & { issues?: string[] }) | null> {
+}): Promise<(StructuredCallFile & { issues?: string[] }) | null> {
   const normalizedMimeType = input.mimeType.trim().toLowerCase();
   const extension = getAffaireIntakeFileExtension(input.fileName);
 

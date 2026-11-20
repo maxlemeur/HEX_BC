@@ -31,7 +31,7 @@ import {
   type VersionZeroReview,
   type VersionZeroReviewLine,
   type VersionZeroReviewLot,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/version-zero-drafts-client";
 import { parseVersionZeroQuantityInput } from "@/lib/estimates/version-zero-utils";
 import { cn } from "@/lib/utils";
 import type { VersionZeroDraftDialogProps } from "@/hooks/estimate-editor-view-props";

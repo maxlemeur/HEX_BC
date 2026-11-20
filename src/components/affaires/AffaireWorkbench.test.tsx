@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AffaireDossierOverview } from "@/components/affaires/AffaireWorkbench";
 import type { DossierDocument } from "@/lib/affaires/document-triage";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 
 const { reclassify, refresh } = vi.hoisted(() => ({ reclassify: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));

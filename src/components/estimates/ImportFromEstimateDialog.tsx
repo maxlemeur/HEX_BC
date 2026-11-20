@@ -20,10 +20,12 @@ import { formatEUR } from "@/lib/money";
 import {
   fetchEstimateImportableSections,
   fetchEstimateImportSources,
-  type EstimateImportSectionPreview,
-  type EstimateImportSourceVersion,
   type ImportEstimateSectionsMode,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/section-copy-client";
+import type {
+  EstimateImportSectionPreview,
+  EstimateImportSourceVersion,
+} from "@/lib/estimates/section-copy-contracts";
 import type { ImportFromEstimateDialogProps } from "@/hooks/estimate-editor-view-props";
 
 function formatSourceLabel(source: EstimateImportSourceVersion) {

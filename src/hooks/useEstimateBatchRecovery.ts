@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { inspectEstimateBatchReceipt, resumeEstimateBatchOperation, type EstimateBatchResult } from "@/lib/estimates/client";
+import { inspectEstimateBatchReceipt, resumeEstimateBatchOperation, type EstimateBatchResult } from "@/lib/estimates/batch-operations-client";
 import {
   clearEstimateBatchIntention, isEstimateBatchSending, readEstimateBatchIntention,
   subscribeEstimateBatchIntention, type EstimateBatchIdentity, type EstimateBatchIntention,

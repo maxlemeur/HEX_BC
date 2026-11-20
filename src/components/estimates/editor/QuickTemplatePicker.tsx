@@ -6,7 +6,7 @@ import useSWR from "swr";
 import {
   fetchEstimateTemplates,
   type EstimateTemplateSummary,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/templates-client";
 
 import {
   QuickInsertPicker,

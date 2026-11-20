@@ -4,7 +4,7 @@ import { LayoutTemplateIcon } from "lucide-react";
 
 import { TemplateActionMenu } from "@/components/estimates/TemplateActionMenu";
 import { EmptyTableRow } from "@/components/layout/empty-state";
-import type { EstimateTemplateSummary } from "@/lib/estimates/client";
+import type { EstimateTemplateSummary } from "@/lib/estimates/templates-client";
 
 type TemplateLibraryTableProps = {
   templates: EstimateTemplateSummary[];

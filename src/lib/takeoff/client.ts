@@ -525,18 +525,6 @@ export async function listTakeoffJobs(
   return validateTakeoffResponse(undefined, () => parseTakeoffJobListResponse(response, { versionId: estimateVersionId, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
 }
 
-export async function reconcileTakeoffJob(
-  jobId: string
-): Promise<TakeoffJobActionResponse> {
-  const response = await requestTakeoffJson<unknown>(
-    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/reconcile`,
-    { method: "POST" },
-    "Impossible de relancer le reconcile du job takeoff.",
-    true
-  );
-  return validateTakeoffResponse(jobId, () => parseTakeoffJobActionResponse(response, { jobId, command: "reconcile" }));
-}
-
 export async function resubmitTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {

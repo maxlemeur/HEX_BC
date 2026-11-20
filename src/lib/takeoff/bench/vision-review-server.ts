@@ -75,7 +75,7 @@ export function visionReviewHook(input: {
         try {
           const result = await call(input.owner, {
             prompt: visionPrompt(drawn.map(({ line }) => line)), schema: visionAnswerSchema, files: drawn.map(({ image }) => image),
-            timeoutMs: VISION_REVIEW_LIMITS.callTimeoutMs, maxRetries: 0,
+            timeoutMs: VISION_REVIEW_LIMITS.callTimeoutMs,
           }, input.selection);
           calls.push({ lines: drawn.length, status: "ok", latency_ms: result.durationMs, usage: usageOf(result.tokenUsage) });
           // Only the lines sent in this call: an answer for another (not drawn, another call's) is dropped.

@@ -119,13 +119,15 @@ import {
   ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
   ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
 } from "@/lib/estimate-editor-virtualization";
-import {
-  fetchEstimateEditorData,
-  type EstimateBatchOperationResult,
-  type EstimateEditorData,
-  type VersionZeroDraftSummary,
-  type SuggestionLearningState as SuggestionLearningClientState,
-} from "@/lib/estimates/client";
+import { fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
+import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
+import type {
+  EstimateEditorData,
+  VersionZeroDraftSummary,
+} from "@/lib/estimates/editor-read-contracts";
+import type {
+  SuggestionLearningState as SuggestionLearningClientState,
+} from "@/lib/estimates/suggestion-learning-client";
 import type { Database } from "@/types/database";
 import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
 import { useFocusItemHighlight } from "@/hooks/useFocusItemHighlight";

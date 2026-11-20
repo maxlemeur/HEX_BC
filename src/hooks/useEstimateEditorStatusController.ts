@@ -15,9 +15,9 @@ import {
   updateEstimateStatus,
   type EstimateSendGatingFlag,
   type EstimateSendGatingResponse,
-  type EstimateStatus,
-  type ReleaseEstimateDraftLockOptions,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/version-lifecycle-client";
+import type { EstimateStatus } from "@/lib/estimates/status";
+import type { ReleaseEstimateDraftLockOptions } from "@/lib/estimates/client-locks";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import type { EstimateEditorDocument, EstimateEditorDocumentScopeToken } from "@/lib/estimates/editor-document-state";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";

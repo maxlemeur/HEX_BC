@@ -4,7 +4,7 @@ import { SWRConfig } from "swr";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import { MappingRulesManager } from "@/components/takeoff/MappingRulesManager";
-import { fetchEstimateAssemblies } from "@/lib/estimates/client";
+import { fetchEstimateAssemblies } from "@/lib/estimates/assemblies-client";
 import {
 createTakeoffMappingRule,
 deleteTakeoffMappingRule,
@@ -27,7 +27,7 @@ vi.mock("@/lib/takeoff/client", () => {
   };
 });
 
-vi.mock("@/lib/estimates/client", () => {
+vi.mock("@/lib/estimates/assemblies-client", () => {
   return {
     fetchEstimateAssemblies: vi.fn(),
   };

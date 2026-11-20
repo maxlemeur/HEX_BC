@@ -10,7 +10,8 @@ import {
   type MutableRefObject,
 } from "react";
 
-import { fetchEstimateVersionEvents, type EstimateVersionEvent } from "@/lib/estimates/client";
+import { fetchEstimateVersionEvents } from "@/lib/estimates/version-events-client";
+import type { EstimateVersionEvent } from "@/lib/estimates/schemas";
 import { normalizeEstimateEditorIdentity } from "@/lib/estimates/editor-document-state";
 import type { Database } from "@/types/database";
 import { isRecord, toNonEmptyString } from "@/lib/value-guards";

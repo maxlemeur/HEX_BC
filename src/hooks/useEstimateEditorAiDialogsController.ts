@@ -14,7 +14,7 @@ import type {
   VersionZeroDraftDialogProps,
 } from "@/hooks/estimate-editor-view-props";
 import type { ExistingSection } from "@/lib/estimates/editor-item-tree";
-import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
+import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import type {
   EditorEstimateItem,

@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { useToast } from "@/components/feedback/toast-provider";
 import { AffaireDocumentDesk } from "./AffaireDocumentDesk";
 import { useIntakeUploadFeedback, IntakeUploadFeedback } from "./IntakeUploadFeedback";

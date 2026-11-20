@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/affaires/google-drive/server", () => ({ driveState: vi.fn(), executeDriveRequest: vi.fn() }));
-vi.mock("@/lib/affaires/intake-server", () => ({ processAffaireIntakeUpload: vi.fn() }));
+vi.mock("@/lib/affaires/intake-analysis-server", () => ({ processAffaireIntakeUpload: vi.fn() }));
 import { executeDriveRequest } from "@/lib/affaires/google-drive/server";
-import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 import { POST } from "./route";
 const url = "http://localhost:3000/api/affaires/11111111-1111-4111-8111-111111111111/intake/google-drive";
 const context = { params: Promise.resolve({ projectId: "11111111-1111-4111-8111-111111111111" }) };

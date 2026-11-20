@@ -11,11 +11,11 @@ import { SWRConfig } from "swr";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { QuickTemplatePicker } from "@/components/estimates/editor/QuickTemplatePicker";
-import type { EstimateTemplateSummary } from "@/lib/estimates/client";
+import type { EstimateTemplateSummary } from "@/lib/estimates/templates-client";
 import { beforePassiveEffectsOf } from "@/test/before-passive-effects";
 
 const fetchEstimateTemplatesMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/estimates/client", () => ({ fetchEstimateTemplates: fetchEstimateTemplatesMock }));
+vi.mock("@/lib/estimates/templates-client", () => ({ fetchEstimateTemplates: fetchEstimateTemplatesMock }));
 
 function template(id: string, name: string): EstimateTemplateSummary {
   return { id, name, description: null, sourceVersionId: null, createdBy: null, createdAt: "2026-11-01T10:00:00.000Z", updatedAt: "2026-11-01T10:00:00.000Z", itemCount: 3 };

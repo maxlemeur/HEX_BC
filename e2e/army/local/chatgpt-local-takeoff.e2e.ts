@@ -1,4 +1,4 @@
-import { submitPreparedCsv } from "../takeoff/prepared-csv";
+import { launchPreparedPlanSet } from "../takeoff/prepared-takeoff";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -12,21 +12,21 @@ import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/prep
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
-import { buildTakeoffUploadPath, deriveDeterministicJobId, prepareTakeoffUploadSource } from "@/lib/takeoff/job-creation-input";
 import {
-  chatGptLocalServer, isAbsorbedClientAbort, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
+  chatGptLocalServer, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
   type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
 import { TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
+import { callServerAction, serverActionId } from "./engine-v3-creators-support";
 import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
 import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 
 // The takeoff jobs of the ChatGPT local journeys, on this file's own development server: the local-only provider
-// rules (LOCAL01 to LOCAL06), the profile's OAuth start, the uploaded and PDF takeoffs on the plan, and V3C08.
+// rules (LOCAL01 to LOCAL06), the profile's OAuth start, the PDF takeoff on the plan, and V3C08.
 // The Decisions, lab, price reuse and intake journeys run in chatgpt-local-decisions.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). The order matters: LOCAL01 and the OAuth start
-// need an owner without a ChatGPT profile, and the uploaded takeoff leaves the profile that the PDF takeoff, the
-// private business witness and V3C08 reuse, which V3C08 removes.
+// need an owner without a ChatGPT profile, and the PDF takeoff leaves the profile that the private business witness
+// and V3C08 reuse, which V3C08 removes.
 const server = chatGptLocalServer();
 let localOrigin: string;
 let diagnostics: readonly string[] = [];
@@ -39,6 +39,7 @@ let decisionsControl: string;
 let fixtureEmail: string;
 let serverWorkspace: { id: string } | undefined;
 const localClient = () => localChatGptClient(fixtureEmail);
+const actionManifest = () => `.build/tester-army/next-${serverWorkspace!.id}/dev/server/server-reference-manifest.json`;
 const setDecisionsControl = (input: { hold?: boolean; timeoutWriting?: boolean }) => writeDecisionsControl(decisionsControl, input);
 /** Writes the owner's temporary ChatGPT profile unless a test of this file already left one. */
 async function preparePlanFixture(unsetPreferences = false) {
@@ -78,22 +79,14 @@ test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
   await expect(dialog.getByText(/Connectez votre forfait ChatGPT/).first()).toBeVisible();
   expect(await jobs.list()).toEqual([]);
-  const forged = await browser.evaluate(async (versionId) => {
-    const form = new FormData();
-    form.set("file", new File(["designation;quantity;unit\nTube;12;m"], "fixture.csv", { type: "text/csv" }));
-    form.set("estimate_version_id", versionId);
-    form.set("level", "A");
-    form.set("provider", "gemini");
-    const response = await fetch("/api/takeoff/jobs", { method: "POST", body: form });
-    return { status: response.status, body: await response.json() };
-  }, estimate.versionId);
-  expect(forged.status).toBe(422);
-  expect(forged.body.error.code).toBe("AI_PROVIDER");
+  const forged = await callServerAction(browser, await serverActionId("launchPreparedTakeoffFromPlanSetAction", actionManifest()),
+    { projectId: estimate.projectId, planSetId: planSet.id, versionId: estimate.versionId, level: "B", provider: "gemini" });
+  expect(forged).toMatchObject({ ok: false, errorStatus: 422, errorCode: "AI_PROVIDER" });
   expect(await jobs.list()).toEqual([]);
   const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
   expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
   await recordEvidence(army, "local-only-no-provider", { estimate, geminiKeyFixturePresent: true,
-    noGeminiOption: true, assistanceUnavailable: true, noJobsCreated: true, forgedProviderRejected: forged.status, forbiddenRequests: 0 });
+    noGeminiOption: true, assistanceUnavailable: true, noJobsCreated: true, forgedProviderRejected: forged.errorStatus, forbiddenRequests: 0 });
 });
 
 test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
@@ -225,120 +218,39 @@ test("LOCAL03 historical Gemini jobs remain readable but cannot be restarted", {
   const before = await read();
   const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
   expect(detail.status).toBe(200);
-  expect(detail.body.data.job).toMatchObject({ id: jobId, can_resubmit: false, can_reconcile: false });
-  for (const command of ["retry", "resubmit", "reconcile"]) {
-    const response = await apiRequest<{ error: { code: string } }>(browser, "POST", `/api/takeoff/jobs/${jobId}/${command}`);
-    expect([response.status, response.body.error.code]).toEqual([422, "AI_PROVIDER"]);
-    expect(await read()).toEqual(before);
-  }
+  expect(detail.body.data.job).toMatchObject({ id: jobId, can_resubmit: false });
+  const resubmit = await apiRequest<{ error: { code: string } }>(browser, "POST", `/api/takeoff/jobs/${jobId}/resubmit`);
+  expect([resubmit.status, resubmit.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+  expect(await read()).toEqual(before);
   const internal = await fetch(`${localOrigin}/api/internal/takeoff/process-job`, { method: "POST",
     headers: { "content-type": "application/json", "x-takeoff-worker-secret": "army-worker-fixture" },
     body: JSON.stringify({ job_id: jobId, trigger: "reconcile" }) });
   expect(internal.status).toBe(422);
   expect(await read()).toEqual(before);
-  const key = `legacy-${randomUUID()}`;
-  const csv = "designation;quantity;unit\nTube;12;m";
-  const file = new File([csv], "legacy.csv", { type: "text/csv" });
-  const fingerprint = prepareTakeoffUploadSource({ file, content: Buffer.from(csv), estimateVersionId: estimate.versionId,
-    level: "A", provider: "auto" }).payloadFingerprint;
-  const replayId = deriveDeterministicJobId(tenantId, key);
-  const replayPath = buildTakeoffUploadPath({ tenantId, jobId: replayId, payloadFingerprint: fingerprint,
-    attemptId: randomUUID(), sourceFileName: file.name });
-  const legacyReplay = await client.from("takeoff_jobs").insert({ id: replayId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
-    created_by: userId, level: "A", status: "pending", source_file_name: file.name, source_file_type: file.type,
-    source_file_size_bytes: file.size, source_file_path: replayPath, execution_provider: "gemini" }).select("id").single();
-  expect(legacyReplay.error).toBeNull();
-  const replay = await browser.evaluate(async ({ versionId, keyValue, csvValue }) => {
-    const form = new FormData();
-    form.set("file", new File([csvValue], "legacy.csv", { type: "text/csv" }));
-    form.set("estimate_version_id", versionId);
-    form.set("level", "A");
-    const response = await fetch("/api/takeoff/jobs", { method: "POST", headers: { "idempotency-key": keyValue }, body: form });
-    return { status: response.status, body: await response.json() };
-  }, { versionId: estimate.versionId, keyValue: key, csvValue: csv });
-  expect([replay.status, replay.body.error.code]).toEqual([422, "AI_PROVIDER"]);
   if (!await preparePlanFixture()) throw new Error("The foreign-host test requires its own temporary profile.");
   try {
-    const foreignKey = `foreign-${randomUUID()}`;
-    const foreignId = deriveDeterministicJobId(tenantId, foreignKey);
-    const foreignPath = buildTakeoffUploadPath({ tenantId, jobId: foreignId, payloadFingerprint: fingerprint,
-      attemptId: randomUUID(), sourceFileName: file.name });
+    // A local job of another Mac: the creator's plan is connected here, the job stays bound to its own host.
+    const foreignId = randomUUID();
     const foreign = await client.from("takeoff_jobs").insert({ id: foreignId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
-      created_by: userId, level: "A", status: "pending", source_file_name: file.name, source_file_type: file.type,
-      source_file_size_bytes: file.size, source_file_path: foreignPath, execution_provider: "chatgpt_local",
+      created_by: userId, level: "A", status: "pending", source_file_name: "autre-mac.csv", source_file_type: "text/csv",
+      source_file_size_bytes: 20, source_file_path: `${tenantId}/${foreignId}/autre-mac.csv`, execution_provider: "chatgpt_local",
       execution_host_id: "urn:uuid:ffffffff-ffff-4fff-8fff-ffffffffffff", processing_strategy: "sync" }).select("id").single();
     expect(foreign.error).toBeNull();
-    const foreignReplay = await browser.evaluate(async ({ versionId, keyValue, csvValue }) => {
-      const form = new FormData();
-      form.set("file", new File([csvValue], "legacy.csv", { type: "text/csv" }));
-      form.set("estimate_version_id", versionId);
-      form.set("level", "A");
-      const response = await fetch("/api/takeoff/jobs", { method: "POST", headers: { "idempotency-key": keyValue }, body: form });
-      return { status: response.status, body: await response.json() };
-    }, { versionId: estimate.versionId, keyValue: foreignKey, csvValue: csv });
-    expect([foreignReplay.status, foreignReplay.body.error.code]).toEqual([422, "AI_PROVIDER"]);
     const failedForeign = await client.from("takeoff_jobs").update({ status: "failed", error_code: "AI_TIMEOUT" }).eq("id", foreignId).select("status,dispatch_status,retry_count").single();
     expect(failedForeign.error).toBeNull();
-    const refusedRetry = await apiRequest<{ error: { code: string } }>(browser, "POST", `/api/takeoff/jobs/${foreignId}/retry`);
-    expect([refusedRetry.status, refusedRetry.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+    const refusedResubmit = await apiRequest<{ error: { code: string } }>(browser, "POST", `/api/takeoff/jobs/${foreignId}/resubmit`);
+    expect([refusedResubmit.status, refusedResubmit.body.error.code]).toEqual([422, "AI_PROVIDER"]);
     const afterForeign = await client.from("takeoff_jobs").select("status,dispatch_status,retry_count").eq("id", foreignId).single();
     expect(afterForeign.data).toEqual(failedForeign.data);
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
   }
-  const finishedKey = `finished-${randomUUID()}`;
-  const finishedId = deriveDeterministicJobId(tenantId, finishedKey);
-  const finishedPath = buildTakeoffUploadPath({ tenantId, jobId: finishedId, payloadFingerprint: fingerprint,
-    attemptId: randomUUID(), sourceFileName: file.name });
-  const finished = await client.from("takeoff_jobs").insert({ id: finishedId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
-    created_by: userId, level: "A", status: "pending", source_file_name: file.name, source_file_type: file.type,
-    source_file_size_bytes: file.size, source_file_path: finishedPath, execution_provider: "chatgpt_local",
-    execution_host_id: "urn:uuid:ffffffff-ffff-4fff-8fff-ffffffffffff", processing_strategy: "sync" }).select("id").single();
-  expect(finished.error).toBeNull();
-  const markFinished = await client.from("takeoff_jobs").update({ status: "completed" }).eq("id", finishedId).select("status,dispatch_status").single();
-  expect(markFinished.error).toBeNull();
-  const finishedReplay = await browser.evaluate(async ({ versionId, keyValue, csvValue }) => {
-    const form = new FormData();
-    form.set("file", new File([csvValue], "legacy.csv", { type: "text/csv" }));
-    form.set("estimate_version_id", versionId);
-    form.set("level", "A");
-    const response = await fetch("/api/takeoff/jobs", { method: "POST", headers: { "idempotency-key": keyValue }, body: form });
-    return { status: response.status, body: await response.json() };
-  }, { versionId: estimate.versionId, keyValue: finishedKey, csvValue: csv });
-  expect(finishedReplay.status).toBe(201);
-  expect(finishedReplay.body.data).toMatchObject({ id: finishedId, status: "completed" });
-  expect(finishedReplay.body.data.dispatch).toBeUndefined();
-  const afterFinished = await client.from("takeoff_jobs").select("status,dispatch_status").eq("id", finishedId).single();
-  expect(afterFinished.data).toEqual(markFinished.data);
-  const explicitKey = `explicit-${randomUUID()}`;
-  const explicitId = deriveDeterministicJobId(tenantId, explicitKey);
-  const explicitFingerprint = prepareTakeoffUploadSource({ file, content: Buffer.from(csv), estimateVersionId: estimate.versionId,
-    level: "A", provider: "gemini" }).payloadFingerprint;
-  const explicitPath = buildTakeoffUploadPath({ tenantId, jobId: explicitId, payloadFingerprint: explicitFingerprint,
-    attemptId: randomUUID(), sourceFileName: file.name });
-  const explicitJob = await client.from("takeoff_jobs").insert({ id: explicitId, tenant_id: tenantId, estimate_version_id: estimate.versionId,
-    created_by: userId, level: "A", status: "completed", source_file_name: file.name, source_file_type: file.type,
-    source_file_size_bytes: file.size, source_file_path: explicitPath, execution_provider: "gemini" }).select("id").single();
-  expect(explicitJob.error).toBeNull();
-  const explicitReplay = await browser.evaluate(async ({ versionId, keyValue, csvValue }) => {
-    const form = new FormData();
-    form.set("file", new File([csvValue], "legacy.csv", { type: "text/csv" }));
-    form.set("estimate_version_id", versionId);
-    form.set("level", "A");
-    form.set("provider", "gemini");
-    const response = await fetch("/api/takeoff/jobs", { method: "POST", headers: { "idempotency-key": keyValue }, body: form });
-    return { status: response.status, body: await response.json() };
-  }, { versionId: estimate.versionId, keyValue: explicitKey, csvValue: csv });
-  expect(explicitReplay.status).toBe(201);
-  expect(explicitReplay.body.data).toMatchObject({ id: explicitId, status: "completed" });
-  expect(explicitReplay.body.data.dispatch).toBeUndefined();
   expect((await readEstimate(browser, estimate.versionId)).items).toEqual(beforeEstimate.items);
   const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
   expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
   await recordEvidence(army, "local-historical-provider", { estimate, jobId, before, after: await read(),
-    rejected: ["retry", "resubmit", "reconcile", "internal-worker", "legacy-upload-replay", "foreign-host-replay", "foreign-host-retry"],
-    finishedReceiptReplay: true, finishedExplicitGeminiReplay: true, resultRemainsReadable: true, forbiddenRequests: 0 });
+    rejected: ["resubmit", "internal-worker", "foreign-host-resubmit"], resultRemainsReadable: true, forbiddenRequests: 0 });
 });
 
 if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubmitted once concurrently", {
@@ -352,13 +264,8 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubm
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Reprise ChatGPT locale" }, army);
     const before = await readEstimate(browser, estimate.versionId);
-    const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
-    await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
     await setDecisionsControl({ timeoutWriting: true });
-    const created = await submitPreparedCsv(ui, estimate, csv, "auto",
-      `.build/tester-army/next-${serverWorkspace!.id}/dev/server/server-reference-manifest.json`);
-    expect(created.status).toBe(201);
-    const jobId = created.id!;
+    const { jobId } = await launchPreparedPlanSet(ui, army, estimate, { level: "B", provider: "auto" });
     const read = () => apiRequest<{ data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
     await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("failed");
     const failed = (await read()).body.data;
@@ -372,7 +279,7 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a failed ChatGPT job can be resubm
     const completed = (await read()).body.data;
     expect(completed.job.retry_count).toBe(1);
     expect(completed.result?.provider_meta).toMatchObject({ provider: "chatgpt" });
-    expect(completed.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "ARMY copper pipe", quantity: 12.5, unit: "m" })]));
+    expect(completed.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "Tuyauterie cuivre DN20", quantity: 12.5, unit: "m" })]));
     expect((await readEstimate(browser, estimate.versionId)).items).toEqual(before.items);
     const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
     expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
@@ -418,45 +325,6 @@ test("ChatGPT local: profile starts PKCE authorization and recovers from decline
     authorization, callbackContainsSecretsInLog: diagnostics.some((entry) => /GET \/auth\/chatgpt\/callback.*state=/.test(entry)),
   });
 });
-
-test("ChatGPT local: uploaded takeoff uses the creator plan and persists quantities", {
-  tags: ["critical", "local", "chatgpt"], session: "army", timeout: 180_000,
-}, async ({ app, screen, browser }) => {
-  await preparePlanFixture();
-  const transportBefore = (await readFile(transportLog, "utf8")).trim();
-  const transportStart = transportBefore ? transportBefore.split("\n").length : 0;
-  const model = liveProbe?.model ?? "army-plan-model";
-  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
-  const prefix = `ARMY-chatgpt-${Date.now()}`;
-  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
-  const ui = hydratedUi({ app, screen, browser }, localOrigin);
-  const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré forfait local" }, army);
-  expect((await readEstimate(browser, ids.versionId)).version.calc_engine_version).toBe(2);
-  const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
-  await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
-  const created = await submitPreparedCsv(ui, ids, csv, "auto",
-    `.build/tester-army/next-${serverWorkspace!.id}/dev/server/server-reference-manifest.json`);
-  expect(created.status).toBe(201);
-  const jobId = created.id!;
-  const read = () => apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
-  await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
-  const detail = (await read()).body.data;
-  expect(detail.job).toMatchObject({ model, metrics: { cost_cents: 0 }, processing_strategy: "sync" });
-  expect(detail.result?.provider_meta).toMatchObject({ provider: "chatgpt", model });
-  expect(detail.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "ARMY copper pipe", quantity: 12.5, unit: "m" })]));
-  expect(detail.job.metrics.token_count).toBeGreaterThan(0);
-  const transport = (await readFile(transportLog, "utf8")).trim().split("\n").map(line => JSON.parse(line));
-  expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
-  expect(transport.slice(transportStart).filter(entry => !isAbsorbedClientAbort(entry))).toEqual([
-    { provider: liveProbe ? "chatgpt-live" : "chatgpt-fixture", model, sourceMatched: true,
-      ...(liveProbe ? { reasoningEffort: liveProbe.reasoningEffort ?? null } : {}) },
-  ]);
-  await recordEvidence(army, "chatgpt-takeoff", { ids, jobId, provider: "chatgpt", model: detail.job.model,
-    quantity: 12.5, tokenCount: detail.job.metrics.token_count, livePlanInference: Boolean(liveProbe),
-    transport: liveProbe ? "Live OpenAI Responses using authorized short-lived plan token; Gemini and Edge dispatch forbidden."
-      : "Explicit fixture; real UI, Storage, worker, schema and persistence." });
-});
-
 
 test("ChatGPT local: PDF plan uses the chosen subscription provider and persists measured quantities", {
   tags: ["critical", "local", "chatgpt"], session: "army", timeout: 240_000,

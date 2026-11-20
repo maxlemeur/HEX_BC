@@ -6,7 +6,6 @@ import type { EstimateEditorHistoryController } from "@/hooks/useEstimateEditorH
 import type { EstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
 import type { EstimateV3SettingsController } from "@/hooks/useEstimateV3Settings";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import { saveEstimateVersion } from "@/lib/estimates/client";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import type {
@@ -23,6 +22,7 @@ import {
   type SettingsSection,
 } from "@/lib/estimates/editor-settings-state";
 import { buildEditorItemSyncBaseline } from "@/lib/estimates/v3-editor";
+import { saveEstimateVersion } from "@/lib/estimates/version-settings-client";
 import type { Database } from "@/types/database";
 
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];

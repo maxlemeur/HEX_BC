@@ -19,10 +19,10 @@ import { FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import {
   arbitrateEstimatePriceReuse,
-  fetchEstimateImportSources,
   previewEstimatePriceReuse,
-  type EstimateImportSourceVersion,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/price-reuse-client";
+import { fetchEstimateImportSources } from "@/lib/estimates/section-copy-client";
+import type { EstimateImportSourceVersion } from "@/lib/estimates/section-copy-contracts";
 import {
   PRICE_REUSE_ARBITRATION_MAX_LINES,
   type PriceReusePreview,

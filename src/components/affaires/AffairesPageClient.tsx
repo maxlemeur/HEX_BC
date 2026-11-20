@@ -39,7 +39,7 @@ import type {
 } from "./types";
 import type { SortOption, SortState } from "@/components/TableFilterBar/types";
 import { AFFAIRE_PAGE_SIZE_OPTIONS } from "@/lib/affaires/schemas";
-import type { EstimateStatus } from "@/lib/estimates/client";
+import type { EstimateStatus } from "@/lib/estimates/status";
 import { ArchiveIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, StarIcon, TrashIcon } from "lucide-react";
 
 const AffairesDenseTable = dynamic(

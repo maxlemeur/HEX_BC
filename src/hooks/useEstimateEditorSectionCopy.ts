@@ -11,18 +11,15 @@ import type {
 import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
 import type { EstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
 import type { useEstimateEditorDocument } from "@/hooks/useEstimateEditorDocument";
-import {
-  acquireEstimateDraftLock,
-  duplicateEstimateSection,
-  fetchEstimateDraftVersions,
-  releaseEstimateDraftLock,
-} from "@/lib/estimates/client";
+import { acquireEstimateDraftLock, releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import {
   formatSectionDuplicateTargetLabel,
   resolveEstimateActionError,
 } from "@/lib/estimates/editor-presentation";
+import { duplicateEstimateSection } from "@/lib/estimates/section-copy-client";
 import { describeV3ConvertedLines } from "@/lib/estimates/v3-converted-lines";
+import { fetchEstimateDraftVersions } from "@/lib/estimates/version-list-client";
 
 /** The draft versions of the affaire a section can be copied to, read again with the version. */
 export function useEstimateEditorSectionDuplicateTargets(

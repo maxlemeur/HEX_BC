@@ -1,4 +1,4 @@
-import { submitPreparedCsv } from "../takeoff/prepared-csv";
+import { confirmPreparedCsv } from "../takeoff/prepared-takeoff";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect } from "e2e";
@@ -74,12 +74,12 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       await captureScreen(ui, army, "v3c08-takeoff-dialog");
       await saveTakeoffPreparation({ ...ui, army });
       await browser.keyboard.press("Escape");
-      // Le fichier de métré niveau A confirme sa propre préparation avant la création réelle sur la v3.
+      // Une préparation niveau A d'un fichier de métré confirmée sur la v3 : le jeu de plans la refuse ensuite.
       const csvName = `${army.runPrefix}-metre.csv`;
       const csvPath = path.resolve(".e2e/army/critical/artifacts/fixtures", csvName);
       await mkdir(path.dirname(csvPath), { recursive: true });
       await writeFile(csvPath, "designation;quantity;unit\nBloc beton;12;u");
-      const api = await submitPreparedCsv(ui, estimate, csvPath, "chatgpt", actionManifest);
+      await confirmPreparedCsv(ui, estimate, csvPath, "chatgpt", actionManifest);
       // R1 : action serveur « Créer un brouillon depuis V… » du hub, sur la v3. La copie garde le moteur 3 (P-15) et
       // l'analyse du jeu de plans est lancée sur elle (niveau B).
       const pdfPreparation = await openPlanPreparation();
@@ -142,17 +142,16 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
         sameJobIds: JSON.stringify(replayedForkJobs.map((job) => job.id)) === JSON.stringify(forkJobs.map((job) => job.id)) };
       const written = await jobs.list();
       const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
-        api: [api.status, api.code], fromSource, reopen, jobLevels: written.map((job) => job.level),
+        fromSource, reopen, jobLevels: written.map((job) => job.level),
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
-      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, action, copyId: copy?.id ?? null, written, observed, savedProcessing,
+      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, action, copyId: copy?.id ?? null, written, observed, savedProcessing,
         replayBoundary: "Reopen restores Standard B and explicit ChatGPT without changing either control; same preparation, fork and job IDs." });
       expect(observed).toEqual({
         proposal: { targetsV3: true, reasonShown: false, launchEnabled: true },
         dialog: { targetIsV3: true, reasonShown: false, launchEnabled: true },
-        api: [201, null],
         fromSource: { status: 200, masked: false, versionsAdded: 1, versionsInserted: 1, copyEngine: 3, copyJobLevels: ["B"] },
         reopen: { targetIsCopy: true, preparationRevisionPreserved: true, versionsAdded: 0, sameJobIds: true },
-        jobLevels: ["A"], policyUnchanged: true,
+        jobLevels: [], policyUnchanged: true,
       });
     } finally {
       try {

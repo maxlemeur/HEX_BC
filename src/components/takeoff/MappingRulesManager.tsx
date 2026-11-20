@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import {
   fetchEstimateAssemblies,
   type EstimateAssemblySummary,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/assemblies-client";
 import {
   createTakeoffMappingRule,
   deleteTakeoffMappingRule,

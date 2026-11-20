@@ -7,10 +7,6 @@ import type { useEstimateEditorItemsController } from "@/hooks/useEstimateEditor
 import type { EstimateEditorStatusController } from "@/hooks/useEstimateEditorStatusController";
 import type { EstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
 import type { useUserContext } from "@/lib/auth/user-context";
-import {
-  readEstimateLineOfferChoiceSuggestion,
-  setEstimateLineOfferChoice,
-} from "@/lib/estimates/client";
 import type {
   EstimateEditorDocument,
   EstimateEditorDocumentScopeToken,
@@ -18,6 +14,10 @@ import type {
 import type { EditorEstimateItem } from "@/lib/estimates/editor-items";
 import type { SettingsSection } from "@/lib/estimates/editor-settings-state";
 import type { EstimateOfferChoiceInput } from "@/lib/estimates/offer-choice";
+import {
+  readEstimateLineOfferChoiceSuggestion,
+  setEstimateLineOfferChoice,
+} from "@/lib/estimates/offer-choice-client";
 import {
   collectReserveItemIds,
   describeReserveLines,

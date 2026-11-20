@@ -66,7 +66,7 @@ function answer(couple: BenchCouple, items: TakeoffItem[] = [], durationMs = 1):
   return {
     data: exchange(items), tokenCount: 30, costCents: 0, durationMs, model: couple.model, reasoningEffort: couple.reasoningEffort,
     tokenUsage: { inputTokens: 20, outputTokens: 6, reasoningTokens: 4, totalTokens: 30 },
-    promptVersion: "takeoff-c-v1", providerBatchId: null, providerBatchStateRaw: null,
+    promptVersion: "takeoff-c-v1",
   };
 }
 

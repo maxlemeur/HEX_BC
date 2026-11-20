@@ -3,11 +3,11 @@ import {
   isAffaireIntakePrimaryEligibleKind,
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS, type AffaireRegisterSummary } from "@/lib/affaires/register";
 import type { AffaireHubDpgfSourceResult, AffaireHubFinishLineSummaryResult, AffaireHubSummaryResult } from "@/lib/affaires/server";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
-import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
+import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 
 import { resolveSubmissionReadiness } from "./AffairePilotagePanel.logic";

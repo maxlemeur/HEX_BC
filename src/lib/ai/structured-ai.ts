@@ -12,9 +12,9 @@ import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import type {
-  CallGeminiStructuredOptions,
-  CallGeminiStructuredResult,
-} from "@/lib/takeoff/gemini-client";
+  StructuredCallOptions,
+  StructuredCallResult,
+} from "@/lib/ai/structured-call";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 
 export type StructuredAiAvailability = { available: boolean; message: string };
@@ -68,9 +68,9 @@ export async function getStructuredAiAvailability(
 
 /** Durable intake passes its verified creator; takeoff resolves its own persisted job owner. */
 export async function callStructuredAi<T>(
-  options: CallGeminiStructuredOptions<T>,
+  options: StructuredCallOptions<T>,
   workflowOwner?: ChatGptOwner | null,
-): Promise<CallGeminiStructuredResult<T> & { provider: "gemini" | "chatgpt" }> {
+): Promise<StructuredCallResult<T> & { provider: "chatgpt" }> {
   if (isLocalChatGptEnabled()) {
     if (workflowOwner === null)
       throw new StructuredAiError(
@@ -94,10 +94,6 @@ export async function callStructuredAi<T>(
           "Reconnectez votre forfait ChatGPT dans Mon profil.",
         );
       // Once selected, a failure never silently switches to a paid API provider.
-      if (options.deliveryMode === "batch")
-        throw new Error(
-          "Le forfait ChatGPT utilise des requêtes en streaming, sans API batch.",
-        );
       return {
         ...(await callLocalChatGptStructured(owner, options)),
         provider: "chatgpt",

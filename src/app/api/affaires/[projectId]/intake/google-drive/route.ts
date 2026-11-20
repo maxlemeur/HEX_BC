@@ -4,7 +4,7 @@ import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { withPrivateNoStore } from "@/lib/http/response";
 import { driveRequestSchema } from "@/lib/affaires/google-drive/contracts";
 import { driveState, executeDriveRequest } from "@/lib/affaires/google-drive/server";
-import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;

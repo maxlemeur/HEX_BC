@@ -48,7 +48,7 @@ import {
   classifyTakeoffPlanSetSource,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
-import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import {
   resolveAffairePreliminaryStructureCapability,
   type AffairePreliminaryStructureCapability,
@@ -74,7 +74,7 @@ import {
 } from "./schemas";
 import { hasDefaultImportPlanSetMarker } from "@/lib/takeoff/default-import-plan-set";
 import { toSafeInteger } from "@/lib/value-guards";
-import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "./register-server";
+import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "./register-gate-server";
 
 type AffaireContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 

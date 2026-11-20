@@ -7,7 +7,7 @@ import {
 useEstimateEditorActivityController,
 type EstimateEditorAuditLogEntry
 } from "@/hooks/useEstimateEditorActivityController";
-import type { EstimateVersionEvent } from "@/lib/estimates/client";
+import type { EstimateVersionEvent } from "@/lib/estimates/schemas";
 
 type ControllerInput = Parameters<
   typeof useEstimateEditorActivityController

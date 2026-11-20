@@ -11,7 +11,7 @@ type AccessCase = {
   id: string;
   route: string;
   method: "GET" | "POST";
-  payloadKind: "none" | "json" | "csv-import" | "csv-takeoff";
+  payloadKind: "none" | "json" | "csv-import";
   jsonBody: string | null;
 };
 
@@ -46,7 +46,7 @@ async function probeIncompleteImport(origin: string, progress: string[]) {
 }
 
 test(
-  "anonymous requests cannot read or create estimates, imports or takeoff jobs",
+  "anonymous requests cannot read or create estimates or imports, nor read or restart takeoff jobs",
   { tags: ["critical", "anonymous", "access-boundary"], requires: ["browser"], trace: "on" },
   async ({ app, browser, screen }) => {
     const runId = randomUUID();
@@ -81,7 +81,7 @@ test(
       },
       { id: "import-csv-upload", route: "/api/imports", method: "POST", payloadKind: "csv-import", jsonBody: null },
       { id: "takeoff-list", route: "/api/takeoff/jobs?limit=1&offset=0", method: "GET", payloadKind: "none", jsonBody: null },
-      { id: "takeoff-csv-upload", route: "/api/takeoff/jobs", method: "POST", payloadKind: "csv-takeoff", jsonBody: null },
+      { id: "takeoff-resubmit", route: `/api/takeoff/jobs/${runId}/resubmit`, method: "POST", payloadKind: "none", jsonBody: null },
     ];
     const evidence = {
       schemaVersion: 1,
@@ -132,7 +132,7 @@ test(
           return;
         }
         const allowedProductPost = route.request.method === "POST" &&
-          ["/api/estimates", "/api/imports", "/api/takeoff/jobs"].includes(url.pathname);
+          ["/api/estimates", "/api/imports", `/api/takeoff/jobs/${runId}/resubmit`].includes(url.pathname);
         if (url.origin !== origin || (!allowedProductPost && !["GET", "HEAD", "OPTIONS"].includes(route.request.method))) {
           await route.abort();
           throw new Error("Access-boundary scenario blocked traffic outside its local API scope.");
@@ -152,16 +152,10 @@ test(
           if (input.payloadKind === "json") {
             headers["content-type"] = "application/json";
             body = input.jsonBody!;
-          } else if (input.payloadKind === "csv-import" || input.payloadKind === "csv-takeoff") {
+          } else if (input.payloadKind === "csv-import") {
             const formData = new FormData();
             formData.set("file", new File([input.csv], `ARMY-access-${input.runId}.csv`, { type: "text/csv" }));
-            if (input.payloadKind === "csv-import") {
-              formData.set("headerRowNumber", "1");
-            } else {
-              formData.set("estimate_version_id", input.runId);
-              formData.set("level", "A");
-              headers["idempotency-key"] = `ARMY-access-${input.runId}`;
-            }
+            formData.set("headerRowNumber", "1");
             body = formData;
           }
           const response = await fetch(input.route, { method: input.method, credentials: "omit", headers, body });
@@ -187,8 +181,8 @@ test(
             bodyKeys: Object.keys(record).sort(),
             errorKeys: Object.keys(error).sort(),
             detailKeys: Object.keys(details).sort(),
-            // Authentication now runs before reading the takeoff body, so an
-            // anonymous response cannot contain a level from that body.
+            // Authentication runs before the takeoff job is read, so an anonymous
+            // response carries no job metadata (no details, no level).
             publicMetadataMatches: rawDetails === undefined && error.level === undefined,
             ok: typeof record.ok === "boolean" ? record.ok : null,
             code: typeof error.code === "string" ? error.code : null,
