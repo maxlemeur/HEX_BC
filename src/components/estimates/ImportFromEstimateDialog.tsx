@@ -23,15 +23,8 @@ import {
   type EstimateImportSectionPreview,
   type EstimateImportSourceVersion,
   type ImportEstimateSectionsMode,
-  type ImportEstimateSectionsPayload,
 } from "@/lib/estimates/client";
-
-type ImportFromEstimateDialogProps = {
-  isOpen: boolean;
-  targetVersionId: string;
-  onClose: () => void;
-  onConfirm: (input: ImportEstimateSectionsPayload) => Promise<void>;
-};
+import type { ImportFromEstimateDialogProps } from "@/hooks/estimate-editor-view-props";
 
 function formatSourceLabel(source: EstimateImportSourceVersion) {
   const title = source.title?.trim();

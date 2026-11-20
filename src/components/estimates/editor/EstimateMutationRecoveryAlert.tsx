@@ -2,12 +2,7 @@
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-
-export type EstimateMutationRecovery = {
-  message: string | null; canResume: boolean; isBusy: boolean;
-  verify: () => Promise<void>; resume?: () => Promise<void>;
-  canAbandon?: boolean; abandon?: () => Promise<void>;
-};
+import type { EstimateMutationRecovery } from "@/hooks/estimate-editor-view-props";
 
 export function EstimateMutationRecoveryAlert({ recovery }: { recovery: EstimateMutationRecovery }) {
   if (!recovery.message) return null;

@@ -8,12 +8,12 @@ import { ProductionRibbonHeader } from "@/components/dashboard/ProductionRibbon"
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { Button } from "@/components/ui/button";
-import type { AutoSaveStatus } from "@/hooks/useAutoSave";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import type { EstimateEditorData, EstimateExportMode } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { AssistantToggle } from "@/components/assistant/AssistantDock";
+import type { EstimateEditorToolbarProps } from "@/hooks/estimate-editor-view-props";
 
 // Rendered inside the "Plus d’actions" menu only: load it when the menu opens.
 const SaveAsTemplateButton = dynamic(
@@ -527,58 +527,6 @@ function MoreActionsDropdown({
     </div>
   );
 }
-
-type EstimateEditorToolbarProps = {
-  onBeforeGeneratePdf?: () => Promise<boolean>;
-  onPdfPrepared?: (data: EstimateEditorData) => void;
-  /** A PDF is ready: the send gating is read again (TI-691, « PDF absent »). */
-  onPdfReady?: () => void;
-  projectId?: string | null;
-  projectName: string;
-  versionNumber: number;
-  status: EstimateStatus;
-  autoSaveStatus: AutoSaveStatus;
-  autoSaveStatusLabel: string;
-  autoSaveStatusClassName: string;
-  showAutoSaveStatus: boolean;
-  isAutoSaveEnabled: boolean;
-  hasPendingChanges: boolean;
-  lastSavedAt: string | null;
-  isSaveNowDisabled: boolean;
-  onAutoSaveEnabledChange: (enabled: boolean) => void;
-  onSaveNow: () => void;
-  canSend: boolean;
-  canAccept: boolean;
-  canArchive: boolean;
-  isStatusActionsDisabled: boolean;
-  isUpdatingStatus: boolean;
-  isDraftLockedByOther: boolean;
-  isDraftLockAcquiring: boolean;
-  isForcingDraftUnlock: boolean;
-  onSend: () => void;
-  onAccept: () => void;
-  onOpenExclusions: () => void;
-  onArchive: () => void;
-  onExportExcel: () => void;
-  onExportCSV: () => void;
-  onExportDpgf: () => void;
-  onExportBdc: () => void;
-  onImportDpgfSource: () => void;
-  showImportDpgfSource: boolean;
-  onOpenVersionZeroDialog?: () => void;
-  versionZeroActionLabel?: string;
-  isVersionZeroActionDisabled?: boolean;
-  isExcelExportDisabled: boolean;
-  isCsvExportDisabled: boolean;
-  isDpgfExportDisabled: boolean;
-  isBdcExportDisabled: boolean;
-  isExporting: boolean;
-  exportLoadingLabel: string;
-  activeExportMode: EstimateExportMode | "csv" | null;
-  isImportingDpgfSource: boolean;
-  isImportDpgfSourceDisabled: boolean;
-  versionId: string;
-};
 
 export function EstimateEditorToolbar({
   onBeforeGeneratePdf,

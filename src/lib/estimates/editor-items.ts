@@ -9,6 +9,9 @@ import { toNonEmptyString } from "@/lib/value-guards";
 
 export type EstimateVersionRow =
   Database["public"]["Tables"]["estimate_versions"]["Row"];
+export type EstimateVersionView = EstimateVersionRow & {
+  estimate_projects: { name: string } | { name: string }[] | null;
+};
 export type EstimateItem =
   Database["public"]["Tables"]["estimate_items"]["Row"];
 export type EditorEstimateItem = EstimateItem & {

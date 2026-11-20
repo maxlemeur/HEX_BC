@@ -34,37 +34,8 @@ import {
   ESTIMATE_READINESS_CATEGORY_LABELS,
   resolveEstimateReadinessCategoryFromGatingFlagKey,
 } from "@/lib/estimates/readiness";
-
-/** A line the send window names by its title and status (TI-682 lot C: lines excluded without a reason). */
-export type EstimateSendGatingLine = { id: string; title: string; statusLabel: string };
-
-/** A reserved line, by its title and its reserve's basis and reason (TI-682 lot C, PR 4: internal, for the issuer). */
-export type EstimateSendGatingReserveLine = { id: string; title: string; description: string };
-
-type EstimateSendGatingDialogProps = {
-  isOpen: boolean;
-  isSubmitting: boolean;
-  phaseLabel: string | null;
-  blockingFlags: EstimateSendGatingFlag[];
-  warningFlags: EstimateSendGatingFlag[];
-  canForce: boolean;
-  projectId?: string | null;
-  /** The lines of `excluded_without_reason`, by title and status. */
-  statusReasonLines?: readonly EstimateSendGatingLine[];
-  /** Saves the internal reason of a line, then checks the send again; absent for a reader who cannot write the line. */
-  onSaveStatusReason?: (itemId: string, reason: EstimateStatusReason) => Promise<unknown> | void;
-  /**
-   * The reserved lines of `offer_reserve_declared` and `offer_limits_required`, by title and reserve; PR 5: the lines of
-   * `provisional_quantity_mention_missing`, by title and the sentence the limits must carry, and those of
-   * `takeoff_hypothesis_without_mention`, by title.
-   */
-  reserveLines?: readonly EstimateSendGatingReserveLine[];
-  /** Opens the limits text, where the reserves are inserted and reviewed; absent for who cannot write it. */
-  onOpenLimits?: () => void;
-  onClose: () => void;
-  onConfirm: () => void;
-  onForceConfirm: () => void;
-};
+import type { EstimateSendGatingLine, EstimateSendGatingReserveLine } from "@/lib/estimates/offer-choice-lines";
+import type { EstimateSendGatingDialogProps } from "@/hooks/estimate-editor-view-props";
 
 function formatFlagCount(count: number) {
   return `${count} point${count > 1 ? "s" : ""} à traiter`;

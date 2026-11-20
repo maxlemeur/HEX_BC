@@ -27,7 +27,6 @@ import {
 } from "@dnd-kit/sortable";
 
 import type { SectionTotals } from "@/lib/estimate-calculations";
-import type { SupportedEstimateCurrency } from "@/lib/money";
 import {
   EstimateEditorRow,
   getSpreadsheetColumnKeys,
@@ -81,7 +80,6 @@ import {
 } from "@/components/estimates/hooks/useEstimateSupplierComparison";
 import {
   useEstimateVisibility,
-  type EstimateSectionCalculation,
 } from "@/components/estimates/hooks/useEstimateVisibility";
 import {
   useGridNavigation,
@@ -117,15 +115,8 @@ import { useEstimateSectionVisibility } from "@/components/estimates/hooks/useEs
 import { useIsMobileViewport } from "@/hooks/useIsTablet";
 import { useUiMode } from "@/hooks/useUiMode";
 import {
-  type EstimateQualityFlagCounts,
   type EstimateQualityFlagKey,
-  type EstimateQualityFlagsByItemId,
 } from "@/lib/estimate-quality";
-import {
-  type EstimateOutlierFlagKey,
-  type EstimateOutlierFlagsByItemId,
-  type EstimateOutlierMethod,
-} from "@/lib/estimates/outlier-detection";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import {
   DEFAULT_MAX_SECTION_DEPTH,
@@ -134,17 +125,10 @@ import {
   formatAddSectionLabelForLevel,
 } from "@/lib/estimates/hierarchy";
 import {
-  type ClipboardPreviewValues,
-} from "@/lib/estimates/clipboard";
-import {
   type TreeConnectorMeta,
 } from "@/lib/estimates/tree-connectors";
 import { getParentKey } from "@/lib/estimates/editor-item-tree";
 import { getEstimateEditorItemClientKey } from "@/lib/estimates/editor-items";
-import {
-  type SuggestionCorrectionPayload,
-  type SuggestionLearningState,
-} from "@/lib/estimates/editor-table-types";
 import type { Database } from "@/types/database";
 import { resolveApiErrorMessage } from "@/components/estimates/components/estimate-editor-row/shared";
 
@@ -188,13 +172,15 @@ const EstimateArticleSheet = dynamic(
 
 import {
   type AppliedSuggestionContext,
-  type EstimateVirtualizationConfig,
   type EstimateEditorItemMeta,
   type EstimateEditorItemPatch,
 } from "@/lib/estimates/editor-table-types";
-import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";
 import { asRecord, toNonEmptyString } from "@/lib/value-guards";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
+import type {
+  EstimateEditorTableProps,
+  EstimateSectionDuplicateTarget,
+} from "@/hooks/estimate-editor-view-props";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -215,129 +201,6 @@ type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 
 type ItemPatch = EstimateEditorItemPatch;
-
-export type EstimateSectionDuplicateTarget = {
-  versionId: string;
-  label: string;
-};
-
-type EstimateEditorTableProps = {
-  projectId?: string;
-  versionId: string;
-  currency?: SupportedEstimateCurrency;
-  items: EstimateItem[];
-  categories: EstimateCategory[];
-  supplyTypes: SupplyType[];
-  laborRoles: LaborRole[];
-  suggestionRules: SuggestionRule[];
-  learningState?: SuggestionLearningState;
-  detectedOutlierFlagsByItemId: EstimateOutlierFlagsByItemId;
-  dismissedOutlierFlagsByItemId: EstimateOutlierFlagsByItemId;
-  outlierActionPendingByItemId: Record<string, boolean>;
-  outlierDetectionMethod: EstimateOutlierMethod;
-  outlierThreshold: number;
-  qualityFlagsByItemId: EstimateQualityFlagsByItemId;
-  qualityCounts: EstimateQualityFlagCounts;
-  qualityFilter: EstimateQualityFilter;
-  /** @deprecated Les erreurs globales sont rendues par EstimateEditorAlerts. */
-  actionError?: string | null;
-  marginMultiplier: number;
-  discountCents: number;
-  taxRateBp: number;
-  sectionCalculation: EstimateSectionCalculation;
-  laborRateById: Map<string, number>;
-  isLaborSplitEnabled?: boolean;
-  isReadOnly: boolean;
-  isViewerMode?: boolean;
-  maxSectionDepth?: number;
-  onQualityFilterChange: (value: EstimateQualityFilter) => void;
-  onOutlierDetectionMethodChange: (value: EstimateOutlierMethod) => void;
-  onOutlierThresholdChange: (value: number) => void;
-  onToggleOutlierDismiss: (
-    itemId: string,
-    flagKey: EstimateOutlierFlagKey,
-    dismissed: boolean
-  ) => void;
-  onAddSection: (parentId: string | null) => void;
-  onAddLine: (parentId: string | null) => void;
-  onDeleteItem: (itemId: string) => void;
-  sectionDuplicateTargets?: EstimateSectionDuplicateTarget[];
-  onDuplicateSection?: (sectionId: string) => Promise<void>;
-  onDuplicateSectionToVersion?: (input: {
-    sectionId: string;
-    targetVersionId: string;
-  }) => Promise<void>;
-  /** Lot 3.2, entrée 1 (D-b) : v3, conversion ligne ↔ section par un lot de l'écrivain v3 ; `true` une fois validée. */
-  onConvertItems?: (itemIds: readonly string[], target: "section" | "line") => Promise<boolean>;
-  onPatchItem: (
-    itemId: string,
-    patch: ItemPatch,
-    options?: { persist?: boolean }
-  ) => void;
-  onTrackSuggestionCorrections?: (
-    corrections: SuggestionCorrectionPayload[]
-  ) => Promise<void>;
-  /** Cellules de plusieurs lignes écrites ensemble (coller, recopier, effacer) : une seule annulation. */
-  onApplyCellPatches?: (
-    entries: ReadonlyArray<{ itemId: string; patch: ItemPatch }>
-  ) => Promise<boolean | void>;
-  onApplyBulkMajoration: (itemIds: string[], coefficient: number) => Promise<void>;
-  onBulkDeleteLines: (itemIds: string[]) => Promise<void>;
-  onBulkMoveLines: (
-    itemIds: string[],
-    targetParentId: string | null
-  ) => Promise<void>;
-  onBulkSetCategory: (itemIds: string[], categoryId: string | null) => Promise<void>;
-  onBulkSetLaborRole: (itemIds: string[], laborRoleId: string | null) => Promise<void>;
-  onResizeOuvrage?: (itemId: string, quantity: number) => Promise<void>;
-  onInsertAssembly: (
-    assemblyId: string,
-    afterItemId: string | null
-  ) => Promise<void>;
-  onInsertTemplate: (
-    templateId: string,
-    afterItemId: string | null
-  ) => Promise<void>;
-  onPasteRows: (input: {
-    anchorRowId: string | null;
-    rows: ClipboardPreviewValues[];
-    laborRoleId?: string | null;
-  }) => Promise<void>;
-  onUndo: () => Promise<void>;
-  onRedo: () => Promise<void>;
-  canUndo: boolean;
-  canRedo: boolean;
-  isUndoRedoBusy: boolean;
-  bulkSuggestionEligibleCount: number;
-  supplierPreselectionEligibleCount: number;
-  onOpenBulkSuggestDialog: () => void;
-  onOpenSupplierPreselectionDialog: () => void;
-  onOpenImportFromEstimateDialog?: () => void;
-  onOpenPriceReuseDialog?: () => void;
-  onOpenEstimateStructureDraftDialog?: () => void;
-  onOpenGeneratedOuvrageDialog?: () => void;
-  onReorder: (parentId: string | null, orderedIds: string[]) => void;
-  onMoveItem: (
-    itemId: string,
-    fromParentId: string | null,
-    toParentId: string | null,
-    orderedSourceIds: string[],
-    orderedTargetIds: string[]
-  ) => void;
-  scrollToItemId?: string | null;
-  revealScrollTarget?: boolean;
-  onScrollToItemHandled?: () => void;
-  virtualization?: EstimateVirtualizationConfig;
-  highlightedItemIds?: Set<string>;
-  headerRight?: React.ReactNode;
-  ribbonHeaderNode?: React.ReactNode;
-  ribbonAlertsNode?: React.ReactNode;
-  /** Totals of the version, pinned under the table. */
-  totalsFooterNode?: React.ReactNode;
-  isFinalizationPanelOpen?: boolean;
-  onToggleFinalizationPanel?: () => void;
-  onOpenSettings?: () => void;
-};
 
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];

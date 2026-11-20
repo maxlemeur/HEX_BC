@@ -4,12 +4,10 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
 import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
-import {
-  EstimateSettingsSummaryBar,
-  type SettingsSection,
-} from "@/components/estimates/EstimateSettingsSummaryBar";
+import { EstimateSettingsSummaryBar } from "@/components/estimates/EstimateSettingsSummaryBar";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorHistoryFeedback } from "@/components/estimates/editor/EstimateEditorHistoryFeedback";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
@@ -17,6 +15,7 @@ import { EstimateV3GridProvider } from "@/components/estimates/v3/V3LineCells";
 import { EmptyState } from "@/components/layout/empty-state";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useUserContext } from "@/lib/auth/user-context";
+import type { SettingsSection } from "@/lib/estimates/editor-settings-state";
 import { useEstimateEditorActivityController } from "@/hooks/useEstimateEditorActivityController";
 import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorState } from "@/hooks/useEstimateEditorState";
@@ -158,6 +157,7 @@ export function EstimateEditorPage({
   const projectId = readyMeta?.projectId ?? null;
   useAssistantScreen(projectId ? { projectId, screen: { screen: "estimate_editor", versionId } } : null);
   const editorTableProps = readyMeta?.editorTableProps ?? null;
+  const checklistProps = readyMeta?.checklistProps ?? null;
   const { feedback: historyFeedback, recovery: historyRecovery } = historyController.state;
   const historyActionFocusRef = useRef<{ versionId: string; element: HTMLElement } | null>(null);
   const runHistoryAction = useCallback((direction: "undo" | "redo") => {
@@ -244,6 +244,10 @@ export function EstimateEditorPage({
       ) : null,
     [summaryBarProps]
   );
+  const checklist = useMemo(
+    () => (checklistProps ? <EstimateChecklist {...checklistProps} /> : null),
+    [checklistProps]
+  );
   // Lot 2, sous-lot 2.6 : une v3 fournit à la grille les lignes de son moteur (cellules v3).
   const tableRegion = useMemo(
     () =>
@@ -252,6 +256,7 @@ export function EstimateEditorPage({
           <div data-testid="estimate-editor-table-region">
             <MemoizedEstimateEditorTable
               {...editorTableProps}
+              headerRight={checklist}
               onUndo={undoHistory}
               onRedo={redoHistory}
               scrollToItemId={historyFocusItemId ?? editorTableProps.scrollToItemId}
@@ -264,7 +269,7 @@ export function EstimateEditorPage({
           </div>
         </EstimateV3GridProvider>
       ) : null,
-    [alertsRegion, editorTableProps, handleHistoryItemLocated, historyFocusItemId, redoHistory, ribbonHeader, totalsFooter, undoHistory, v3Grid]
+    [alertsRegion, checklist, editorTableProps, handleHistoryItemLocated, historyFocusItemId, redoHistory, ribbonHeader, totalsFooter, undoHistory, v3Grid]
   );
   const drawerRegion = useMemo(
     () =>

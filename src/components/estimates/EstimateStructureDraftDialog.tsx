@@ -22,7 +22,6 @@ import {
   getDefaultSelectedRootIds,
   getSelectedNodes,
   isAssemblyOnlyWeakSignalMode,
-  type ExistingSectionOption,
   type NodeOverrideState,
   type TreeFilterKey,
 } from "@/lib/estimates/estimate-structure-draft";
@@ -34,20 +33,9 @@ import { SourcesStep } from "./estimate-structure-draft/SourcesStep";
 import { StickySummaryBar } from "./estimate-structure-draft/StickySummaryBar";
 import { WizardHeader } from "./estimate-structure-draft/WizardHeader";
 import type { WizardStep } from "./estimate-structure-draft/shared";
+import type { EstimateStructureDraftDialogProps } from "@/hooks/estimate-editor-view-props";
 
 export type { ApplyEstimateStructureDraftResult };
-
-type EstimateStructureDraftDialogProps = {
-  isOpen: boolean;
-  targetVersionId: string;
-  hasExistingItems: boolean;
-  existingSections: ExistingSectionOption[];
-  onClose: (result?: ApplyEstimateStructureDraftResult) => void;
-  onConfirm: (
-    draftId: string,
-    input: ApplyEstimateStructureDraftPayload,
-  ) => Promise<ApplyEstimateStructureDraftResult>;
-};
 
 export function EstimateStructureDraftDialog({
   isOpen,

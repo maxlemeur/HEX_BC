@@ -28,13 +28,13 @@ import {
   generateVersionZeroDraft,
   materializeVersionZeroDraft,
   reviewVersionZeroLine,
-  type VersionZeroDraftSummary,
   type VersionZeroReview,
   type VersionZeroReviewLine,
   type VersionZeroReviewLot,
 } from "@/lib/estimates/client";
 import { parseVersionZeroQuantityInput } from "@/lib/estimates/version-zero-utils";
 import { cn } from "@/lib/utils";
+import type { VersionZeroDraftDialogProps } from "@/hooks/estimate-editor-view-props";
 
 type ReviewFilter =
   | "all"
@@ -44,16 +44,6 @@ type ReviewFilter =
   | "rejected"
   | "low_confidence"
   | "missing";
-
-export type VersionZeroDraftDialogProps = {
-  isOpen: boolean;
-  versionId: string;
-  summary: VersionZeroDraftSummary | null;
-  isMutationBlocked: boolean;
-  mutationBlockedMessage: string;
-  ensureMutationCanProceed: (actionLabel: string) => Promise<boolean>;
-  onClose: (result?: { materialized?: boolean }) => void;
-};
 
 const FILTER_LABELS: Record<ReviewFilter, string> = {
   all: "Tout",
