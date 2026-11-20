@@ -258,7 +258,8 @@ async function postWorkerImport(
   rows: ParsedImportRow[],
   parser: "csv" | "xlsx",
   headerRowNumber?: number | null,
-  projectId?: string | null
+  projectId?: string | null,
+  sourceRowNumbers?: readonly number[],
 ): Promise<string | null> {
   const response = await fetch("/api/imports", {
     method: "POST",
@@ -276,6 +277,7 @@ async function postWorkerImport(
       headerRowNumber: headerRowNumber ?? null,
       projectId: projectId ?? null,
       rows,
+      ...(parser === "csv" && sourceRowNumbers ? { sourceRowNumbers } : {}),
     }),
   });
 
@@ -535,7 +537,8 @@ export function useImportFlow(options?: UseImportFlowOptions) {
               parsed.rows,
               parsed.parser,
               headerRowNumber,
-              projectId
+              projectId,
+              parsed.rowLineNumbers
             );
             setModeMessage(
               "Fichier traité dans votre navigateur, envoi terminé."

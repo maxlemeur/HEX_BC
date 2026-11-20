@@ -76755,6 +76755,15 @@
               "xlsx"
             ]
           },
+          "sourceRowNumbers": {
+            "description": "Positions des lignes CSV dans le fichier source, dans le même ordre que rows.",
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
           "sourceKind": {
             "type": "string",
             "enum": [

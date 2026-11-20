@@ -125,7 +125,7 @@ export function resolveImportRowTitle(mappedRow: JsonRecord) {
   return asText(mappedRow.designation) || asText(mappedRow.reference ?? mappedRow.hex_code);
 }
 
-function isFooterTitle(title: string) {
+export function isImportFooterTitle(title: string) {
   return [FOOTER_TITLE_PATTERN, LEGAL_FOOTER_TITLE_PATTERN].some((pattern) =>
     pattern.test(stripAccents(title))
   );
@@ -193,7 +193,7 @@ export function analyzeImportStructure(rows: ImportStructureRow[]): ImportStruct
   // options, or the last « Sous-total » block still starts the footer.
   const titledRows = sortedRows.filter((row) => resolveImportRowTitle(row.mappedRow));
   const lastQuantityRowIndex = titledRows.reduce((last, row) =>
-    !isFooterTitle(resolveImportRowTitle(row.mappedRow)) && hasLineQuantity(row.mappedRow) ? row.rowIndex : last,
+    !isImportFooterTitle(resolveImportRowTitle(row.mappedRow)) && hasLineQuantity(row.mappedRow) ? row.rowIndex : last,
   Number.NEGATIVE_INFINITY);
   const isSubtotalRow = (row: ImportStructureRow) => SUBTOTAL_TITLE_PATTERN.test(stripAccents(resolveImportRowTitle(row.mappedRow)));
   const intermediateSubtotalRowIndexes = new Set<number>();
@@ -201,13 +201,13 @@ export function analyzeImportStructure(rows: ImportStructureRow[]): ImportStruct
     const row = titledRows[index]!;
     const next = titledRows[index + 1];
     if (!next || !isSubtotalRow(row) || row.rowIndex >= lastQuantityRowIndex) continue;
-    const nextIsHeading = !isFooterTitle(resolveImportRowTitle(next.mappedRow)) && !hasLineQuantity(next.mappedRow);
+    const nextIsHeading = !isImportFooterTitle(resolveImportRowTitle(next.mappedRow)) && !hasLineQuantity(next.mappedRow);
     if (nextIsHeading || intermediateSubtotalRowIndexes.has(next.rowIndex)) intermediateSubtotalRowIndexes.add(row.rowIndex);
   }
 
   for (const row of sortedRows) {
     const title = resolveImportRowTitle(row.mappedRow);
-    const isFooterRow = Boolean(title) && isFooterTitle(title);
+    const isFooterRow = Boolean(title) && isImportFooterTitle(title);
     const isIntermediateSubtotal = intermediateSubtotalRowIndexes.has(row.rowIndex);
     if (!footerStarted && isFooterRow && !isIntermediateSubtotal) {
       footerStarted = true;

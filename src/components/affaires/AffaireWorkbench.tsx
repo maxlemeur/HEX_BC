@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition, type ReactNode } from "react";
-import { ArrowRight, Calculator, Check, FileText, Folder, House, Info, Plus, Send, ShoppingCart, TriangleAlert } from "lucide-react";
+import { ArrowRight, Calculator, Check, FileText, Folder, House, Info, Plus, Ruler, Send, ShoppingCart, TriangleAlert } from "lucide-react";
 
 import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
 import { NavigationLink } from "@/components/navigation/NavigationFeedback";
@@ -35,10 +35,11 @@ export function affaireSectionFromLocation(params: URLSearchParams, hash: string
   return "dossier";
 }
 
-export function AffaireWorkbench({ active, onSelect, criticalCount, purchasingHref, children }: {
+export function AffaireWorkbench({ active, onSelect, criticalCount, takeoffHref, purchasingHref, children }: {
   active: AffaireWorkbenchSection;
   onSelect: (section: AffaireWorkbenchSection) => void;
   criticalCount: number;
+  takeoffHref?: string;
   /**
    * The affaire's purchasing page (TI-691: its material requests and its supply cost): a link, since it leaves the
    * workbench. The owner could not find it behind « Chiffrage › Plus » (2026-11-14).
@@ -56,6 +57,12 @@ export function AffaireWorkbench({ active, onSelect, criticalCount, purchasingHr
             {id === "register" && criticalCount > 0 ? <span className="affaire-workbench-count" aria-label={`${criticalCount} points critiques`}>{criticalCount}</span> : null}
           </button>
         ))}
+        {takeoffHref && (
+          <NavigationLink href={takeoffHref} className="affaire-workbench-nav-link">
+            <Ruler size={20} aria-hidden="true" />
+            <span>Ouvrir les métrés</span>
+          </NavigationLink>
+        )}
         {purchasingHref ? (
           <>
             <span className="affaire-workbench-nav-divider" aria-hidden="true" />

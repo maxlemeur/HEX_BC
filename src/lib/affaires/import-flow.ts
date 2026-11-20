@@ -75,6 +75,7 @@ export const IMPORT_PREVIEW_REQUIRED_MESSAGE =
 export type ImportFlowMappedRowInput = {
   id: string;
   payload: unknown;
+  rawRowId?: string | null;
 };
 
 export type ValidImportFlowLine = {
@@ -205,6 +206,7 @@ function resolveMappedPayload(payload: JsonRecord): JsonRecord | null {
 
 type PreparedImportFlowRow = ImportStructureRow & {
   payload: JsonRecord;
+  rawRowId: string | null;
 };
 
 function isMissingNumericValue(value: unknown) {
@@ -230,6 +232,10 @@ function readNumericField(value: unknown, parse: (input: unknown) => number | nu
   const parsed = parse(value);
   if (parsed === null || parsed < 0) return INVALID_FIELD;
   return { status: "value", value: parsed };
+}
+
+export function readImportQuantity(value: unknown) {
+  return readNumericField(value, parseQuantity);
 }
 
 type MajorationField =
@@ -378,6 +384,7 @@ function readSourcePage(rawRow: JsonRecord) {
 
 function buildSourceMetadata(input: {
   mappedRowId: string;
+  rawRowId: string | null;
   rowIndex: number;
   rawRow: JsonRecord;
   notes: string | null;
@@ -387,6 +394,7 @@ function buildSourceMetadata(input: {
 
   return {
     mapped_row_id: input.mappedRowId,
+    ...(input.rawRowId ? { raw_row_id: input.rawRowId } : {}),
     row_index: input.rowIndex,
     notes: input.notes,
     ...(structure
@@ -462,6 +470,7 @@ export function normalizeMappedRowsForEstimateCreation(
 
     preparedRows.push({
       id: row.id,
+      rawRowId: row.rawRowId ?? null,
       rowIndex,
       payload,
       rawRow: asRecord(payload.raw_row) ?? {},
@@ -520,6 +529,7 @@ export function normalizeMappedRowsForEstimateCreation(
     const sourcePage = readSourcePage(row.rawRow);
     const sourceMetadata = buildSourceMetadata({
       mappedRowId: row.id,
+      rawRowId: row.rawRowId,
       rowIndex: row.rowIndex,
       rawRow: row.rawRow,
       notes,
@@ -557,7 +567,7 @@ export function normalizeMappedRowsForEstimateCreation(
       continue;
     }
 
-    const quantityField = readNumericField(row.mappedRow.quantity, parseQuantity);
+    const quantityField = readImportQuantity(row.mappedRow.quantity);
     if (quantityField.status === "invalid") {
       reject("invalid_quantity");
       continue;

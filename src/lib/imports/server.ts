@@ -23,6 +23,7 @@ import {
 } from "./parser";
 import {
   attachImportRowProvenance,
+  attachImportRowStructure,
   IMPORT_ROW_PROVENANCE_KEY,
   type ImportRowProvenance,
 } from "./payload";
@@ -538,7 +539,21 @@ function normalizeJsonRowsFromInput(
   sourceKind: ImportSourceKind
 ) {
   if (sourceKind !== "tabular_pdf") {
-    return normalizeRowsFromJson(rows);
+    const numbers = input.sourceRowNumbers;
+    if ((input.sourceFormat ?? input.parser) !== "csv" || !Array.isArray(numbers) || numbers.length !== rows.length) {
+      return normalizeRowsFromJson(rows);
+    }
+    return normalizeRowsFromJson(rows.map((row, index) => {
+      const sourceRowNumber: unknown = numbers[index];
+      const record = asRecord(row);
+      if (!record || typeof sourceRowNumber !== "number" || !Number.isSafeInteger(sourceRowNumber) || sourceRowNumber <= 0) {
+        return row;
+      }
+      return attachImportRowStructure(record, {
+        sheet_name: null, source_row_number: sourceRowNumber, column_order: [],
+        bold_columns: [], merged_columns: [], outline_level: null,
+      });
+    }));
   }
 
   const validation = asRecord(input.validation);
@@ -1128,6 +1143,7 @@ export async function createImportFromMultipartFormData(
         })()
       : await parseImportFile(fileEntry, {
           headerRowNumber,
+          includeCsvRowStructure: true,
         });
 
     const rows = trustedIntakeDocumentId && !isPdf

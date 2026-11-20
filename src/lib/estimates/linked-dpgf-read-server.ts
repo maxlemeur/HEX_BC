@@ -27,7 +27,7 @@ type AffaireDpgfMappingRow = Pick<
 type DpgfMappedRowForEstimateImport = Pick<
   Database["public"]["Tables"]["dpgf_rows_mapped"]["Row"],
   "id" | "payload" | "created_at"
->;
+> & { rawRowId?: string };
 
 export async function loadLatestLinkedDpgfImportForProject(input: {
   supabase: Supabase;
@@ -101,7 +101,7 @@ async function loadMappedRowsForImport(input: {
 }) {
   const { data, error } = await readAllRows(() => input.supabase
     .from("dpgf_rows_mapped")
-    .select("id, payload, created_at", { count: "exact" })
+    .select("id, payload, created_at, raw:dpgf_rows_raw!dpgf_rows_mapped_raw_row_id_fkey(id, import_id, tenant_id)", { count: "exact" })
     .eq("tenant_id", input.tenantId)
     .eq("import_id", input.importId)
     .order("created_at", { ascending: true })
@@ -111,7 +111,10 @@ async function loadMappedRowsForImport(input: {
     throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappées.");
   }
 
-  return (data ?? []) as DpgfMappedRowForEstimateImport[];
+  return (data ?? []).map(({ id, payload, created_at, raw }): DpgfMappedRowForEstimateImport => ({
+    id, payload, created_at,
+    ...(raw?.import_id === input.importId && raw.tenant_id === input.tenantId ? { rawRowId: raw.id } : {}),
+  }));
 }
 
 function sleep(delayMs: number) {

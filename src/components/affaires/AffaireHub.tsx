@@ -1170,6 +1170,9 @@ export function AffaireHub({
         active={activeSection}
         onSelect={selectSection}
         criticalCount={registerSummary?.criticalOpenCount ?? 0}
+        takeoffHref={takeoffEnabled && summary.versionsCount === 0 && !isReadOnlyReview
+          ? `/dashboard/affaires/${summary.project.id}/takeoff`
+          : undefined}
         purchasingHref={materialRequestsHref(summary.project.id)}
       >
         {!showImportFlow && ((isFreshStartState && activeSection === "register") || ((isFreshStartState || !summary.currentVersion) && activeSection === "submission")) ? <section className="affaire-workbench-intro" aria-label={activeSection === "register" ? "Suivi du dossier" : "Préparation de la remise"}>

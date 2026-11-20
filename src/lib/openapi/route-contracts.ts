@@ -345,6 +345,8 @@ const importJsonSchema = z
     tables: z.array(tabularPdfTableSchema).optional(),
     filename: z.string().optional(),
     sourceFormat: z.enum(["json", "csv", "xlsx"]).optional(),
+    sourceRowNumbers: z.array(z.number().int().positive()).optional()
+      .describe("Positions des lignes CSV dans le fichier source, dans le même ordre que rows."),
     sourceKind: z.enum(["tabular", "tabular_pdf"]).optional(),
     projectId: uuidSchema.nullable().optional(),
     storagePath: z.string().nullable().optional(),

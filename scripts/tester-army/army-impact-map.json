@@ -855,6 +855,27 @@
       ]
     },
     {
+      "id": "takeoff-poste-list",
+      "paths": [
+        "src/app/dashboard/affaires/[projectId]/takeoff/page.tsx",
+        "src/app/dashboard/affaires/_actions/import-flow.ts",
+        "src/components/takeoff/PosteListPreviewPanel.tsx",
+        "src/components/affaires/AffaireHub.tsx",
+        "src/components/affaires/AffaireWorkbench.tsx",
+        "src/hooks/useImportFlow.ts",
+        "src/workers/xlsx-parser.worker.ts",
+        "src/lib/affaires/import-flow*.ts",
+        "src/lib/estimates/linked-dpgf-read-server.ts",
+        "src/lib/imports/**",
+        "src/lib/mappings/**",
+        "src/lib/takeoff/poste-list*.ts",
+        "src/lib/takeoff/plumbing-template.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/poste-list.e2e.ts"
+      ]
+    },
+    {
       "id": "import-format-completion",
       "paths": [
         "src/lib/imports/**",

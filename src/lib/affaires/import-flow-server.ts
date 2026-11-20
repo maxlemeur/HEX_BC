@@ -264,14 +264,14 @@ export async function fetchMappedRowsForImport(input: {
   tenantId: string;
 }) {
   const pageSize = 500;
-  const rows: Array<{ id: string; payload: Json }> = [];
+  const rows: Array<{ id: string; payload: Json; rawRowId?: string }> = [];
   const ids = new Set<string>();
   let expectedCount: number | null = null;
 
   for (let offset = 0; ; offset += pageSize) {
     const { data, error, count } = await input.supabase
       .from("dpgf_rows_mapped")
-      .select("id, payload", { count: "exact" })
+      .select("id, payload, raw:dpgf_rows_raw!dpgf_rows_mapped_raw_row_id_fkey(id, import_id, tenant_id)", { count: "exact" })
       .eq("tenant_id", input.tenantId)
       .eq("import_id", input.importId)
       .order("created_at", { ascending: true })
@@ -292,7 +292,12 @@ export async function fetchMappedRowsForImport(input: {
         throw new Error("Les lignes mappées ont changé. Rechargez l'import avant de continuer.");
       }
       ids.add(row.id);
-      rows.push({ id: row.id, payload: row.payload });
+      const raw = row.raw;
+      rows.push({
+        id: row.id,
+        payload: row.payload,
+        ...(raw?.import_id === input.importId && raw.tenant_id === input.tenantId ? { rawRowId: raw.id } : {}),
+      });
     }
     if (batch.length < pageSize) {
       if (rows.length !== expectedCount) {

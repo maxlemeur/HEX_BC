@@ -5,6 +5,29 @@ les valeurs clés (TI-664 et cadrage TI-681 confirmé les 8 et 9 novembre 2026).
 
 Le métré se suit depuis son affaire, y compris pour une analyse créée sur une ancienne version du devis. Depuis sa revue, l’envoi au tableau de chiffrage exige toujours l’aperçu d’impact et une confirmation humaine.
 
+## Aperçu des postes à mesurer avant le devis
+
+La page **Métrés** affiche les postes d’une affaire sans devis. Elle reprend la DPGF
+liée et ses correspondances validées, dans l’ordre des lignes importées. Une
+prestation sans quantité de référence reste visible. La quantité de la DPGF est
+une référence documentaire. La feuille, la ligne ou la page d’origine apparaissent
+lorsqu’elles sont connues. Les sections, totaux et lignes écartées figurent dans
+le détail de lecture, avec les lignes ambiguës ou sans correspondance.
+
+Une pièce DPGF à préparer ou plusieurs sources liées renvoient au dossier pour
+résolution. Sans DPGF, l’aperçu propose un gabarit indicatif de plomberie couvrant
+les réseaux, les appareils sanitaires, la robinetterie et le calorifuge. Les
+droits de lecture de l’import s’appliquent à cet aperçu.
+
+Une ligne brute appartient à un seul poste de l’affaire. Deux lignes homonymes
+restent distinctes. Refaire le mapping d’une ligne brute conserve son identité.
+Une correspondance entre deux imports demande une décision explicite. Un
+ancien mapping unique permet un aperçu à partir des données conservées. Les choix
+de structure sont rattachés aux lignes pour les nouvelles confirmations.
+
+La consultation est en lecture seule. Le gabarit et les aperçus ne lancent aucune
+analyse et ne créent aucun devis.
+
 ## Contrat actuel de contrôle ciblé — TI-681
 
 Les avertissements de quantité, y compris une confiance faible, recommandent un

@@ -331,6 +331,7 @@ export async function confirmUnifiedImportFlow(
       import_id: parsed.data.importId,
       mapping: normalizedMapping,
       save_template: false,
+      ...(parsed.data.structurePlan ? { structureDecisions: parsed.data.structurePlan.decisions } : {}),
     });
     mappingId = createMappingResult.mapping.id;
   }

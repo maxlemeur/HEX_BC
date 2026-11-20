@@ -40,6 +40,22 @@ async function createStructuredWorkbookBuffer() {
 }
 
 describe("structured XLSX parsing", () => {
+  it("keeps the physical row number when the used range starts below row 1", async () => {
+    const workbook = new Workbook();
+    const sheet = workbook.addWorksheet("DPGF");
+    sheet.getRow(3).values = ["Désignation", "Unité", "Qte"];
+    sheet.getRow(5).values = ["Lavabo", "u", 2];
+    const buffer = Uint8Array.from(await workbook.xlsx.writeBuffer() as unknown as Uint8Array).buffer;
+
+    const [server, worker] = await Promise.all([
+      parseImportFile(new File([buffer], "postes.xlsx")),
+      parseWorkbook(buffer),
+    ]);
+
+    expect(readImportRowStructure(server.rows[0])?.source_row_number).toBe(5);
+    expect(readImportRowStructure(worker[0])?.source_row_number).toBe(5);
+  });
+
   it("selects the DPGF sheet and keeps identical structure metadata in both parsers", async () => {
     const buffer = await createStructuredWorkbookBuffer();
     const file = new File([buffer], "fixture-dpgf.xlsx", {
