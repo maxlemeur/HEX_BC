@@ -3,7 +3,7 @@ import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { type V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import { exceedsDiscountThreshold, fixedDiscountBasisPoints, resolveFixedDiscountSignal, type CanonicalFixedDiscountEvidence } from "@/lib/estimates/effective-discount";
-import type { EstimateRuleAction, EstimateRuleRow, EstimateApprovalRow, RulesEngineVersion, RulesEngineProject, RulesEngineItemAccess, RuleViolationSeverity, EstimateRuleViolation, EstimateRuleUnavailableSignal, EvaluateRulesResult, RuleCheckInput, RuleCheckResult, RuleSignalContext } from "@/lib/estimates/approval-types";
+import type { EstimateRuleAction, ExtendedEstimateRuleType, EstimateRuleRow, EstimateApprovalRow, RulesEngineVersion, RulesEngineProject, RulesEngineItemAccess, RuleViolationSeverity, EstimateRuleViolation, EstimateRuleUnavailableSignal, EvaluateRulesResult, RuleCheckInput, RuleCheckResult, RuleSignalContext } from "@/lib/estimates/approval-types";
 
 export function toFiniteNumber(value: unknown, fallback = 0) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -72,6 +72,23 @@ export function isRuleInScope(input: {
 
 export function isApprovalRule(rule: EstimateRuleRow) {
   return rule.action === "require_approval" || rule.rule_type === "require_approval";
+}
+
+export function resolveApprovalSummaryLabel(ruleType: ExtendedEstimateRuleType) {
+  if (ruleType === "min_margin") return "Marge minimum";
+  if (ruleType === "max_discount") return "Remise maximum";
+  if (ruleType === "require_approval") return "Seuil montant HT";
+  if (ruleType === "dpgf_coverage_min") return "Couverture DPGF minimum";
+  if (ruleType === "takeoff_evidence_coverage_min") return "Couverture minimale des preuves de métré";
+  if (ruleType === "critical_exceptions_max") return "Exceptions critiques maximum";
+  return "Lignes sans preuve maximum";
+}
+
+export function isApprovalWorkflowSignal(input: {
+  action: EstimateRuleAction;
+  ruleType: ExtendedEstimateRuleType;
+}) {
+  return input.action === "require_approval" || input.ruleType === "require_approval";
 }
 
 export function checkMarginRule(input: RuleCheckInput): RuleCheckResult {

@@ -7,11 +7,11 @@ vi.mock("@/lib/takeoff/dpgf-comparison-server", () => ({ fetchAllTakeoffDpgfComp
 vi.mock("@/lib/affaires/intake-workspace-server", () => ({ fetchAffaireIntakeWorkspace: vi.fn() }));
 vi.mock("@/lib/feature-flags", () => ({ getStalePriceDaysForTenant: vi.fn() }));
 vi.mock("@/lib/estimates/fixed-discount-evidence-server", () => ({ loadCanonicalFixedDiscountEvidence: vi.fn() }));
-vi.mock("@/lib/estimates/rules-engine", () => ({ evaluateRules: vi.fn() }));
+vi.mock("@/lib/estimates/rule-evaluation-server", () => ({ evaluateRules: vi.fn() }));
 
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
-import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { evaluateRules } from "@/lib/estimates/rule-evaluation-server";
 import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { fetchAllTakeoffDpgfComparisonRows } from "@/lib/takeoff/dpgf-comparison-server";

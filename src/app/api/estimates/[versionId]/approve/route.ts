@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { estimateApprovalActionSchema } from "@/lib/approvals/schemas";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
-import { submitEstimateApproval } from "@/lib/estimates/rules-engine";
+import { submitEstimateApproval } from "@/lib/estimates/approval-workflow-server";
 import type { SubmitEstimateApprovalInput } from "@/lib/estimates/approval-types";
 import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 

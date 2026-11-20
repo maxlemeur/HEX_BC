@@ -14,8 +14,10 @@ vi.mock("@/lib/estimates/read-all-items-server", () => ({
   readAllEstimateItems: vi.fn(),
   assertEstimateVersionUnchanged: vi.fn(),
 }));
-vi.mock("@/lib/estimates/rules-engine", () => ({
+vi.mock("@/lib/estimates/approval-summary-server", () => ({
   getEstimateApprovalSummary: vi.fn(async () => null),
+}));
+vi.mock("@/lib/estimates/approval-decision-journal-server", () => ({
   listEstimateApprovalDecisionJournal: vi.fn(async () => null),
 }));
 vi.mock("@/lib/estimates/version-list-server", () => ({

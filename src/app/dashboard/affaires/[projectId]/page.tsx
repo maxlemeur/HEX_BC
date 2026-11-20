@@ -37,10 +37,8 @@ import {
   parseApprovalDecisionJournalAuthorSearchParam,
   parseApprovalDecisionJournalStatusSearchParam,
 } from "@/lib/estimates/approval-decision-journal";
-import {
-  getEstimateApprovalSummary,
-  listEstimateApprovalDecisionJournal,
-} from "@/lib/estimates/rules-engine";
+import { listEstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal-server";
+import { getEstimateApprovalSummary } from "@/lib/estimates/approval-summary-server";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";

@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
-import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { evaluateRules } from "@/lib/estimates/rule-evaluation-server";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";
 import { fetchAllTakeoffDpgfComparisonRows } from "@/lib/takeoff/dpgf-comparison-server";
 import { getAuthenticatedTakeoffContext, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
