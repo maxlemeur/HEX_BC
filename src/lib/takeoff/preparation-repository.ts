@@ -40,9 +40,7 @@ export async function assertPreparationProjectAccess(context: Context, projectId
   if (write && context.tenantRole !== "admin" && context.tenantRole !== "engineer") {
     throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, message: "Votre rôle ne permet pas de préparer un métré.", retryable: false });
   }
-  await assertProjectAccessOrThrow({
-    ...context, projectId, isTenantAdmin: context.tenantRole === "admin" || (!write && context.tenantRole === "director"),
-  });
+  await assertProjectAccessOrThrow({ ...context, projectId, mode: write ? "write" : "read" });
 }
 
 export async function readPreparationRecord(context: Context, projectId: string): Promise<PreparationRecordRow | null> {

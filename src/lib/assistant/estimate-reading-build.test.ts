@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { compareEstimates, estimateLines, estimateOutline } from "@/lib/assistant/estimate-reading";
 import { buildEstimateReading, type EstimateReadingSource } from "@/lib/assistant/estimate-reading-build";
 
 type Version = EstimateReadingSource["version"];
@@ -42,7 +43,7 @@ const v3 = (lines: V3Calculation["breakdown"]["lines"], warnings: V3Calculation[
 
 describe("estimate reading built from the engines", () => {
   it("shows an engine 3 draft line at its total before the discount, and keeps the net apart", () => {
-    const reading = buildEstimateReading({ version: version(), items: [item({})], calculation: v3([v3Line({})]) });
+    const reading = buildEstimateReading({ version: version(), items: [item({})], calculation: v3([v3Line({})]) }, "editor");
     expect(reading.nodes[0]?.line?.amounts).toEqual({
       puHtCents: 10_000, totalHtCents: 100_000, netHtCents: 95_000, costHtCents: 70_000, foHtCents: 60_000,
       moHtCents: 40_000, hours: "5.000",
@@ -52,7 +53,7 @@ describe("estimate reading built from the engines", () => {
       totalTtcCents: 114_000, costHtCents: 70_000,
     });
     expect(reading.version).toMatchObject({ label: "V2", engine: 3, currency: "EUR", amountsBasis: "draft_calculation" });
-    expect(buildEstimateReading({ version: version({ currency: "GBP" }), items: [], calculation: v3([]) }).version.currency).toBe("GBP");
+    expect(buildEstimateReading({ version: version({ currency: "GBP" }), items: [], calculation: v3([]) }, "editor").version.currency).toBe("GBP");
   });
 
   it("gives no amount to a line that is not priced, and warns only about the ones left « Non chiffrée »", () => {
@@ -68,7 +69,7 @@ describe("estimate reading built from the engines", () => {
           { code: "ESTIMATE_V3_LINE_NOT_PRICED", line_id: "l-non-chiffree", pricing_status: "not_priced" },
           { code: "ESTIMATE_V3_LABOR_RATE_MISSING", line_id: "l-1" }],
       ),
-    });
+    }, "editor");
     expect(reading.nodes.map((node) => node.line?.amounts === null)).toEqual([false, true, true]);
     expect(reading.warnings).toEqual([
       "1 ligne(s) « Non chiffrée » : elles ne comptent pas dans le total.",
@@ -90,7 +91,7 @@ describe("estimate reading built from the engines", () => {
         item({ id: "l-pm", pricing_status: "for_memory", line_total_ht_cents: 0, snapshot_gross_ht_cents: 0 }),
       ],
       calculation: { kind: "frozen" },
-    });
+    }, "editor");
     expect(reading.nodes[0]?.line?.amounts).toEqual({
       puHtCents: 10_000, totalHtCents: 100_000, netHtCents: 95_000, costHtCents: null, foHtCents: 60_000, moHtCents: 40_000,
       hours: "5",
@@ -106,20 +107,20 @@ describe("estimate reading built from the engines", () => {
       version: version({ calc_engine_version: 2, status: "sent", total_ht_cents: 9_000 }),
       items: [item({ quantity: 1, pu_ht_cents: 10_000, snapshot_pu_ht_cents: 9_000, line_total_ht_cents: 9_000 })],
       calculation: { kind: "frozen" },
-    });
+    }, "editor");
     expect(reading.nodes[0]?.line?.amounts).toMatchObject({ puHtCents: 9_000, totalHtCents: 9_000, netHtCents: 9_000 });
     // An older frozen line without the published column keeps the stored one.
     expect(buildEstimateReading({
       version: version({ calc_engine_version: 2, status: "sent" }),
       items: [item({ pu_ht_cents: 10_000, snapshot_pu_ht_cents: null, line_total_ht_cents: 100_000 })], calculation: { kind: "frozen" },
-    }).nodes[0]?.line?.amounts?.puHtCents).toBe(10_000);
+    }, "editor").nodes[0]?.line?.amounts?.puHtCents).toBe(10_000);
   });
 
   it("shows no amount at all, and says why, when the engine refuses the draft", () => {
     const reading = buildEstimateReading({
       version: version({ total_ht_cents: 123_456 }), items: [item({ pu_ht_cents: 9_999, line_total_ht_cents: 99_990 })],
       calculation: { kind: "refused", message: "Une unité est requise sur chaque ligne chiffrée." },
-    });
+    }, "editor");
     // Never the stored amounts of an earlier state of the draft.
     expect(reading.totals.totalHtCents).toBeNull();
     expect(reading.nodes[0]?.line?.amounts).toBeNull();
@@ -142,10 +143,35 @@ describe("estimate reading built from the engines", () => {
     const reading = buildEstimateReading({
       version: version({ calc_engine_version: 2 }),
       items: [item({ quantity: 3, unit_code: null, description: "ml", h_mo: 1.5 })], calculation,
-    });
+    }, "editor");
     const read = reading.nodes[0]?.line;
     expect(read).toMatchObject({ unit: "ml", description: null, foCostText: null, inputs: { hMo: 1.5 } });
     expect(read?.amounts).toMatchObject({ puHtCents: 1_250, totalHtCents: 3_750, netHtCents: 3_750, costHtCents: 3_000 });
     expect(reading.totals).toMatchObject({ totalHtCents: 3_750, totalTtcCents: 4_500, grossHtCents: null });
+  });
+});
+
+describe("the document view, for a member who reads the affaire without opening its estimates in the editor", () => {
+  const source = {
+    version: version(),
+    items: [item({ description: "Acier, 600 × 800", source_provider: "takeoff", source_file_name: "plan-fictif.pdf" })],
+    calculation: v3([v3Line({})], [{ code: "ESTIMATE_V3_LABOR_RATE_MISSING", line_id: "l-1" }]),
+  } as EstimateReadingSource;
+
+  it("leaves out a computed draft's cost, entries and settings, and keeps its document amounts and warnings", () => {
+    const editor = buildEstimateReading(source, "editor");
+    const document = buildEstimateReading(source, "document");
+    expect(estimateOutline(editor).totaux).toHaveProperty("debourse_ht", "700,00 €");
+    expect(document.params).toEqual({});
+    expect(document.warnings).toEqual(["1 ligne(s) portent des heures sans taux horaire de main-d’œuvre."]);
+    expect(document.totals).toEqual({ ...editor.totals, costHtCents: null });
+    expect(document.nodes[0]?.line).toEqual({
+      quantity: 10, unit: "u", pricingStatus: "priced", description: null, source: null, foCostText: null,
+      inputs: { unitPriceHtCents: null, kFo: null, hMoPerUnit: null, hMo: null, kMo: null, taxRateBp: 2000 },
+      amounts: { puHtCents: 10_000, totalHtCents: 100_000, netHtCents: 95_000, costHtCents: null, foHtCents: null, moHtCents: null, hours: null },
+    });
+    expect(estimateOutline(document).totaux).not.toHaveProperty("debourse_ht");
+    expect(estimateLines(document, {})).toEqual(estimateLines(editor, {}));
+    expect(compareEstimates(document, document)).toEqual(compareEstimates(editor, editor));
   });
 });

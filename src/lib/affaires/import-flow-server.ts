@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { readActiveTenantMembership } from "@/lib/auth/tenant-context";
+import { affaireOwnerFilter, type AffaireAccessMode } from "@/lib/affaires/access-server";
+import { readActiveTenantMembership, type TenantRole } from "@/lib/auth/tenant-context";
 import type { Database, Json } from "@/types/database";
 
 import type {
@@ -133,12 +134,14 @@ export async function getImportOrThrow(input: {
   return data as ImportRow;
 }
 
+/** The affaire rule in `mode`, as a filter on the affaires of the tenant; refused like a missing affaire. */
 export async function assertProjectAccessOrThrow(input: {
   supabase: Supabase;
   projectId: string;
   tenantId: string;
   userId: string;
-  isTenantAdmin: boolean;
+  tenantRole: TenantRole;
+  mode: AffaireAccessMode;
 }): Promise<void> {
   let query = input.supabase
     .from("estimate_projects")
@@ -147,8 +150,9 @@ export async function assertProjectAccessOrThrow(input: {
     .eq("tenant_id", input.tenantId)
     .eq("is_archived", false);
 
-  if (!input.isTenantAdmin) {
-    query = query.eq("user_id", input.userId);
+  const owner = affaireOwnerFilter(input, input.mode);
+  if (owner) {
+    query = query.eq("user_id", owner);
   }
 
   const { data, error } = await query.maybeSingle();

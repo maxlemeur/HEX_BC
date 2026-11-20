@@ -1,11 +1,12 @@
 import "server-only";
 import { createHash } from "node:crypto";
 
-import { AFFAIRE_INTAKE_BUCKET, type AffaireProjectAccess } from "@/lib/affaires/intake";
+import type { AffaireAccess } from "@/lib/affaires/access-server";
+import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
 import { internalError } from "@/lib/http/api-error";
 import { readAllRows } from "@/lib/supabase/read-all";
 
-type Access = AffaireProjectAccess;
+type Access = AffaireAccess;
 
 export const INTAKE_DUPLICATE_MESSAGE = "Ce document est déjà présent dans le dossier (contenu identique). Aucun nouvel exemplaire n’a été ajouté.";
 

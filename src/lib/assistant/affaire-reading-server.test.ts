@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/affaires/intake-server", () => ({ requireAffaireProjectReadAccess: vi.fn(), readAffaireBriefDraft: vi.fn() }));
+vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
+vi.mock("@/lib/affaires/intake-server", () => ({ readAffaireBriefDraft: vi.fn() }));
 vi.mock("@/lib/affaires/intake-document-preview", () => ({ readAffaireDocumentPreview: vi.fn() }));
 vi.mock("@/lib/affaires/register-server", () => ({ fetchAffaireRegisterPage: vi.fn() }));
 
-import { readAffaireBriefDraft, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
+import { readAffaireBriefDraft } from "@/lib/affaires/intake-server";
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
 import { listAffaireDocuments, loadAffaireDocument, readAffaireBriefAndRegister } from "@/lib/assistant/affaire-reading-server";
@@ -27,7 +29,7 @@ function recordingClient(result: { data: unknown; error: unknown }) {
 }
 
 function grantAccess(client: unknown) {
-  vi.mocked(requireAffaireProjectReadAccess).mockResolvedValue({
+  vi.mocked(requireAffaireAccess).mockResolvedValue({
     context: { supabase: client, userId: "director-1", tenantId: "tenant-1", tenantRole: "director" },
     project: { id: AFFAIRE, user_id: "owner-1" },
   } as never);
@@ -42,14 +44,14 @@ describe("the affaire's documents read by the assistant", () => {
     const read = loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT });
     await expect(read).rejects.toBeInstanceOf(AssistantToolError);
     await expect(read).rejects.toThrow("n’appartient pas à l’affaire de cette conversation");
-    expect(requireAffaireProjectReadAccess).toHaveBeenCalledWith(AFFAIRE);
+    expect(requireAffaireAccess).toHaveBeenCalledWith(AFFAIRE, "read");
     // The lookup is bound to the conversation's affaire and tenant, not to the identifier alone.
     expect(filters).toEqual(expect.arrayContaining([["eq", "project_id", AFFAIRE], ["eq", "tenant_id", "tenant-1"], ["eq", "id", DOCUMENT]]));
     expect(readAffaireDocumentPreview).not.toHaveBeenCalled();
   });
 
   it("refuses every read once the member cannot read the affaire any more, without saying more", async () => {
-    vi.mocked(requireAffaireProjectReadAccess).mockRejectedValue(notFound("Affaire introuvable."));
+    vi.mocked(requireAffaireAccess).mockRejectedValue(notFound("Affaire introuvable."));
     await expect(loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT })).rejects.toThrow("Vous n’avez pas accès aux pièces de cette affaire.");
     await expect(listAffaireDocuments(AFFAIRE)).rejects.toBeInstanceOf(AssistantToolError);
     expect(readAffaireDocumentPreview).not.toHaveBeenCalled();
@@ -123,7 +125,7 @@ describe("the affaire's documents read by the assistant", () => {
       expect((await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, cache })).bytes).toEqual(new Uint8Array([1, 2, 3]));
     }
     expect(readAffaireDocumentPreview).toHaveBeenCalledTimes(1);
-    expect(requireAffaireProjectReadAccess).toHaveBeenCalledTimes(3);
+    expect(requireAffaireAccess).toHaveBeenCalledTimes(3);
     expect(from.mock.calls.filter(([table]) => table === "affaire_intake_documents")).toHaveLength(3);
   });
 
@@ -149,13 +151,13 @@ describe("the affaire's documents read by the assistant", () => {
     vi.mocked(readAffaireDocumentPreview).mockResolvedValue({ bytes: new Uint8Array([1]), fileName: "Plans.pdf", mimeType: "application/octet-stream" });
     const cache = new Map();
     await loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, cache });
-    vi.mocked(requireAffaireProjectReadAccess).mockRejectedValue(notFound("Affaire introuvable."));
+    vi.mocked(requireAffaireAccess).mockRejectedValue(notFound("Affaire introuvable."));
     await expect(loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT, cache })).rejects.toThrow("Vous n’avez pas accès aux pièces de cette affaire.");
     expect(readAffaireDocumentPreview).toHaveBeenCalledTimes(1);
   });
 
   it("refuses the list, a read, the brief and the register before any of their sources once access is lost", async () => {
-    vi.mocked(requireAffaireProjectReadAccess).mockRejectedValue(notFound("Affaire introuvable."));
+    vi.mocked(requireAffaireAccess).mockRejectedValue(notFound("Affaire introuvable."));
     await expect(listAffaireDocuments(AFFAIRE)).rejects.toBeInstanceOf(AssistantToolError);
     await expect(loadAffaireDocument({ projectId: AFFAIRE, documentId: DOCUMENT })).rejects.toBeInstanceOf(AssistantToolError);
     await expect(readAffaireBriefAndRegister(AFFAIRE)).rejects.toBeInstanceOf(AssistantToolError);
@@ -193,7 +195,7 @@ describe("the affaire's documents read by the assistant", () => {
   });
 
   it("gives the brief and the open points of the register, in short", async () => {
-    vi.mocked(requireAffaireProjectReadAccess).mockResolvedValue({ context: {}, project: { id: AFFAIRE } } as never);
+    vi.mocked(requireAffaireAccess).mockResolvedValue({ context: {}, project: { id: AFFAIRE } } as never);
     vi.mocked(readAffaireBriefDraft).mockResolvedValue({
       status: "confirme", summary: "Rénovation chaufferie", projectObject: "Chaufferie gaz", scope: ["Production"], lots: ["CVC"],
       receivedPieces: ["CCTP"], assumptions: [], vigilancePoints: ["Accès toiture"], missingElements: ["Plans"],

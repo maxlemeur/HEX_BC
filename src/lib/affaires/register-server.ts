@@ -2,11 +2,10 @@ import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
+import { requireAffaireAccess, type AffaireAccessProject } from "@/lib/affaires/access-server";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import {
   badRequest,
-  forbidden,
   mapSupabaseError,
   notFound,
 } from "@/lib/http/api-response";
@@ -69,16 +68,6 @@ type AuthenticatedRegisterContext = {
   userId: string;
   tenantId: string;
   tenantRole: TenantRole;
-};
-
-type AffaireProjectAccessRow = {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  name: string;
-  reference: string | null;
-  client_name: string | null;
-  is_archived: boolean;
 };
 
 type AffaireRegisterEntryRow = {
@@ -195,8 +184,7 @@ type ListAffaireRegisterPageInput = {
   size?: number;
 };
 
-const PROJECT_SELECT =
-  "id, tenant_id, user_id, name, reference, client_name, is_archived";
+const REGISTER_ACCESS = { forbiddenMessage: "Accès refusé à ce registre affaire." };
 const ENTRY_SELECT = [
   "id",
   "tenant_id",
@@ -330,32 +318,6 @@ const continueAffaireRegisterWithHypothesisInputSchema = z.object({
   entryId: z.string().uuid("entryId invalide."),
   comment: z.string().trim().max(320).nullable().optional(),
 });
-function normalizeAffaireProject(row: unknown): AffaireProjectAccessRow | null {
-  if (!isRecord(row)) {
-    return null;
-  }
-
-  if (
-    typeof row.id !== "string" ||
-    typeof row.tenant_id !== "string" ||
-    typeof row.user_id !== "string" ||
-    typeof row.name !== "string" ||
-    typeof row.is_archived !== "boolean"
-  ) {
-    return null;
-  }
-
-  return {
-    id: row.id,
-    tenant_id: row.tenant_id,
-    user_id: row.user_id,
-    name: row.name,
-    reference: toStringOrNull(row.reference),
-    client_name: toStringOrNull(row.client_name),
-    is_archived: row.is_archived,
-  };
-}
-
 function normalizeAffaireRegisterEntryRow(
   row: unknown
 ): AffaireRegisterEntryWithProfilesRow | null {
@@ -712,55 +674,6 @@ function normalizeEstimateItemScopeRow(row: unknown): EstimateItemScopeRow | nul
   };
 }
 
-async function getAuthenticatedRegisterContext(): Promise<AuthenticatedRegisterContext> {
-  const { supabase, userId, tenantId, tenantRole } =
-    await getAuthenticatedTenantContext();
-
-  return {
-    supabase,
-    userId,
-    tenantId,
-    tenantRole,
-  };
-}
-
-async function requireAffaireRegisterProjectAccess(
-  projectId: string,
-  mode: "reader" | "editor"
-) {
-  const context = await getAuthenticatedRegisterContext();
-  const { data, error } = await context.supabase
-    .from("estimate_projects")
-    .select(PROJECT_SELECT)
-    .eq("id", projectId)
-    .eq("tenant_id", context.tenantId)
-    .maybeSingle();
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger l'affaire.");
-  }
-
-  const project = normalizeAffaireProject(data);
-  if (!project || project.is_archived) {
-    throw notFound("Affaire introuvable.");
-  }
-
-  const isOwner = project.user_id === context.userId;
-  const isAdmin = context.tenantRole === "admin";
-  const isDirector = context.tenantRole === "director";
-  const hasAccess =
-    mode === "reader" ? isOwner || isAdmin || isDirector : isOwner || isAdmin;
-
-  if (!hasAccess) {
-    throw forbidden("Accès refusé à ce registre affaire.");
-  }
-
-  return {
-    context,
-    project,
-  };
-}
-
 function applyVersionScopeFilter<T extends {
   or: (filters: string) => unknown;
 }>(query: T, versionId: string | null | undefined): T {
@@ -964,7 +877,7 @@ async function deactivateMissingSyncEntries(input: {
 
 async function upsertSyncedEntries(input: {
   supabase: Supabase;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   rows: Array<{
     versionId?: string | null;
     sourceDocumentId?: string | null;
@@ -1188,7 +1101,7 @@ async function upsertSyncedEntries(input: {
 
 export async function syncAffaireRegisterFromBrief(input: {
   supabase: Supabase;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   assumptions: string[];
   sources: Array<{
     blockKey: string;
@@ -1229,7 +1142,7 @@ export async function syncAffaireRegisterFromBrief(input: {
 
 export async function syncAffaireRegisterMissingPieces(input: {
   supabase: Supabase;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   missingPieces: Array<{
     code: string;
     label: string;
@@ -1473,13 +1386,13 @@ export async function fetchAffaireRegisterSummary(input: {
   projectId: string;
   versionId?: string | null;
 }): Promise<AffaireRegisterSummary> {
-  const { context, project } = await requireAffaireRegisterProjectAccess(input.projectId, "reader");
+  const { context, project } = await requireAffaireAccess(input.projectId, "read", REGISTER_ACCESS);
   return fetchAffaireRegisterSummaryWithContext({ context, project, versionId: input.versionId });
 }
 
 async function fetchAffaireRegisterSummaryWithContext(input: {
   context: AuthenticatedRegisterContext;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   versionId?: string | null;
 }): Promise<AffaireRegisterSummary> {
   const { context, project } = input;
@@ -1532,7 +1445,7 @@ async function fetchAffaireRegisterSummaryWithContext(input: {
 
 async function fetchAffaireRegisterTimelineWithContext(input: {
   context: AuthenticatedRegisterContext;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   versionId?: string | null;
   size?: number;
 }): Promise<AffaireRegisterTimelineEvent[]> {
@@ -1563,10 +1476,7 @@ async function fetchAffaireRegisterTimelineWithContext(input: {
 export async function fetchAffaireRegisterPage(
   input: ListAffaireRegisterPageInput
 ): Promise<AffaireRegisterPageResult> {
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    input.projectId,
-    "reader"
-  );
+  const { context, project } = await requireAffaireAccess(input.projectId, "read", REGISTER_ACCESS);
 
   const pageSize = Math.max(1, Math.min(input.size ?? PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX));
   let query = context.supabase
@@ -1716,10 +1626,7 @@ export async function fetchAffaireRegisterScopeOptions(input: {
   projectId: string;
   versionId?: string | null;
 }): Promise<AffaireRegisterScopeOptions> {
-  const { context } = await requireAffaireRegisterProjectAccess(
-    input.projectId,
-    "reader"
-  );
+  const { context } = await requireAffaireAccess(input.projectId, "read", REGISTER_ACCESS);
 
   if (!input.versionId) {
     return {
@@ -1776,10 +1683,7 @@ export async function fetchAffaireRegisterReviewExport(input: {
   projectId: string;
   versionId?: string | null;
 }): Promise<AffaireRegisterReviewExport> {
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    input.projectId,
-    "reader"
-  );
+  const { context, project } = await requireAffaireAccess(input.projectId, "read", REGISTER_ACCESS);
 
   let query = context.supabase
     .from("affaire_register_entries")
@@ -1818,7 +1722,7 @@ export async function fetchAffaireRegisterReviewExport(input: {
 
 async function resolveScopeForEntry(input: {
   context: AuthenticatedRegisterContext;
-  project: AffaireProjectAccessRow;
+  project: AffaireAccessProject;
   versionId: string | null;
   scopeType: AffaireRegisterScopeType;
   scopeId: string | null;
@@ -1892,10 +1796,7 @@ async function resolveScopeForEntry(input: {
 
 export async function createAffaireRegisterEntry(input: z.infer<typeof createAffaireRegisterEntryInputSchema>) {
   const parsed = createAffaireRegisterEntryInputSchema.parse(input);
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    parsed.projectId,
-    "editor"
-  );
+  const { context, project } = await requireAffaireAccess(parsed.projectId, "write", REGISTER_ACCESS);
   const createdAt = new Date().toISOString();
   const scope = await resolveScopeForEntry({
     context,
@@ -1991,10 +1892,7 @@ export async function updateAffaireRegisterEntryStatus(
   input: z.infer<typeof updateAffaireRegisterEntryStatusInputSchema>
 ) {
   const parsed = updateAffaireRegisterEntryStatusInputSchema.parse(input);
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    parsed.projectId,
-    "editor"
-  );
+  const { context, project } = await requireAffaireAccess(parsed.projectId, "write", REGISTER_ACCESS);
 
   const { data, error } = await context.supabase
     .from("affaire_register_entries")
@@ -2106,10 +2004,7 @@ export async function requestAffaireRegisterRevalidation(
   input: z.infer<typeof requestAffaireRegisterRevalidationInputSchema>
 ) {
   const parsed = requestAffaireRegisterRevalidationInputSchema.parse(input);
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    parsed.projectId,
-    "editor"
-  );
+  const { context, project } = await requireAffaireAccess(parsed.projectId, "write", REGISTER_ACCESS);
   const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
 
   const { data, error } = await context.supabase
@@ -2207,10 +2102,7 @@ export async function continueAffaireRegisterWithHypothesis(
   input: z.infer<typeof continueAffaireRegisterWithHypothesisInputSchema>
 ) {
   const parsed = continueAffaireRegisterWithHypothesisInputSchema.parse(input);
-  const { context, project } = await requireAffaireRegisterProjectAccess(
-    parsed.projectId,
-    "editor"
-  );
+  const { context, project } = await requireAffaireAccess(parsed.projectId, "write", REGISTER_ACCESS);
   const comment = normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null;
 
   const { data, error } = await context.supabase

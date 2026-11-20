@@ -43,7 +43,7 @@ export function buildAssistantTools(scope: {
   const reading = (versionId: string) => {
     const cached = readings.get(versionId);
     if (cached) return cached;
-    const loaded = loadEstimateReading(scope.context, { versionId, projectId: scope.projectId });
+    const loaded = loadEstimateReading({ versionId, projectId: scope.projectId });
     readings.set(versionId, loaded);
     // A refused reading (edited meanwhile, no access) is not kept: the next call reads again.
     loaded.catch(() => { if (readings.get(versionId) === loaded) readings.delete(versionId); });
@@ -55,7 +55,7 @@ export function buildAssistantTools(scope: {
       name: "lister_devis", activity: "Liste des devis de l’affaire",
       description: "Liste les versions de devis de l’affaire (identifiant, version, statut). À utiliser quand aucun devis n’est ouvert ou pour comparer deux versions.",
       input: z.object({}).strict(),
-      run: () => listAffaireEstimateVersions(scope.context, scope.projectId),
+      run: () => listAffaireEstimateVersions(scope.projectId),
     },
     {
       name: "lire_devis", activity: "Lecture du devis",
