@@ -1,7 +1,7 @@
 import { request as httpRequest } from "node:http";
 import { createServerClient } from "@supabase/ssr";
 import type { Browser } from "@e2e-dev/web";
-import { expect } from "e2e";
+import { expect, type JsonValue } from "e2e";
 
 // Helpers of the takeoff lab journeys (TI-661 LAB0x, TI-662 VEC01): a local
 // account's session cookies as the browser holds them, requests with an
@@ -11,19 +11,20 @@ import { expect } from "e2e";
 
 const LAB_RUNS = "**/api/admin/takeoff/lab/runs";
 
-type LaunchCapture = { original: typeof fetch; posts: number; status: number | null; failed: boolean };
+type LabLaunchResponse = { status: number; body: JsonValue };
+type LaunchCapture = { original: typeof fetch; posts: number; response: LabLaunchResponse | null; failed: boolean };
 type LaunchWindow = Window & { __armyLabLaunch?: LaunchCapture };
 
 /**
- * Clicks a launch and returns that launch's HTTP status. browser.waitForResponse matches a URL only, and the page
- * loads its history with a GET of the launch's URL (on mount, twice in development): on a loaded runner a history load
+ * Triggers a launch and returns its HTTP status and parsed JSON body. browser.waitForResponse matches a URL only.
+ * The page loads its history with a GET of the launch's URL (on mount, twice in development): on a loaded runner a history load
  * still in flight at the click answered first, its 200 was read as the launch's, and the journey's cleanup then removed
  * the key under the launch still running (#398). The page's own fetch is observed instead, for its POST only, without
- * changing the request or the reply.
+ * changing the request or the reply. The body is read from a clone.
  */
-export async function launchLabRun(browser: Browser, click: () => Promise<void>): Promise<number> {
+export async function launchLabRun(browser: Browser, trigger: () => Promise<void>): Promise<LabLaunchResponse> {
   await browser.evaluate((pathname) => {
-    const capture: LaunchCapture = { original: window.fetch, posts: 0, status: null, failed: false };
+    const capture: LaunchCapture = { original: window.fetch, posts: 0, response: null, failed: false };
     (window as LaunchWindow).__armyLabLaunch = capture;
     window.fetch = async (input, init) => {
       const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
@@ -32,7 +33,9 @@ export async function launchLabRun(browser: Browser, click: () => Promise<void>)
       capture.posts += 1;
       try {
         const response = await capture.original.call(window, input, init);
-        capture.status = response.status;
+        void response.clone().json().catch(() => null).then((body: JsonValue) => {
+          capture.response = { status: response.status, body };
+        });
         return response;
       } catch (error) {
         capture.failed = true;
@@ -41,20 +44,21 @@ export async function launchLabRun(browser: Browser, click: () => Promise<void>)
     };
     return true;
   }, "/api/admin/takeoff/lab/runs");
-  const read = () => browser.evaluate(() => {
-    const capture = (window as LaunchWindow).__armyLabLaunch;
-    return capture ? { posts: capture.posts, status: capture.status, failed: capture.failed } : null;
-  });
   try {
-    await click();
-    await expect.poll(async () => {
-      const capture = await read();
-      return capture === null || capture.status !== null || capture.failed;
-    }, { timeout: 120_000, message: "The launch (POST /api/admin/takeoff/lab/runs) never answered." }).toBe(true);
-    const capture = await read();
+    await trigger();
+    await expect.poll(() => browser.evaluate(() => {
+      const capture = (window as LaunchWindow).__armyLabLaunch;
+      return !capture || capture.response !== null || capture.failed;
+    }), { timeout: 120_000, message: "The launch (POST /api/admin/takeoff/lab/runs) never answered." }).toBe(true);
+    const capture = await browser.evaluate(() => {
+      const capture = (window as LaunchWindow).__armyLabLaunch;
+      return capture ? { posts: capture.posts, response: capture.response, failed: capture.failed } : null;
+    });
     // One launch for the click, and it answered.
-    expect(capture).toMatchObject({ posts: 1, failed: false });
-    return capture!.status!;
+    expect(capture?.posts).toBe(1);
+    expect(capture?.failed).toBe(false);
+    if (!capture?.response) throw new Error("The launch response could not be captured.");
+    return capture.response;
   } finally {
     await browser.evaluate(() => {
       const scope = window as LaunchWindow;

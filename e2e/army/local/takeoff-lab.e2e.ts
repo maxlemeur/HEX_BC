@@ -202,8 +202,7 @@ test("LAB01 lab compares two efforts, records keyboard verdicts and reads its st
   await screen.getByRole("group", "Configuration A").getByLabel("Effort").selectOption({ value: "low" });
   await screen.getByRole("button", "Ajouter une configuration").click();
   await screen.getByRole("group", "Configuration B").getByLabel("Effort").selectOption({ value: "high" });
-  const [launched] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }),
-    screen.getByRole("button", "Lancer · 2 configurations").click()]);
+  const launched = await launchLabRun(browser, () => screen.getByRole("button", "Lancer · 2 configurations").click());
   expect(launched.status).toBe(201);
 
   // The screens name efforts in French (API values stay internal).
@@ -323,8 +322,7 @@ test("LAB02 a Decisions choice shows its probabilities and a ChatGPT schema erro
   await configB.getByLabel("Modèle").selectOption({ value: "army-plan-model" });
   // Decisions reads a rendered page: « Lancer » stays disabled until the canvas has loaded the plan (TI-673).
   await expect(screen.getByRole("button", "Lancer · 2 configurations")).toBeEnabled({ timeout: 30_000 });
-  const [launched] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }),
-    screen.getByRole("button", "Lancer · 2 configurations").click()]);
+  const launched = await launchLabRun(browser, () => screen.getByRole("button", "Lancer · 2 configurations").click());
   expect(launched.status).toBe(201);
 
   const decisions = screen.getByRole("region", "Configuration A · Decisions · gpt-6-luna");
@@ -546,7 +544,8 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     await config.getByLabel("Effort").selectOption({ value: "medium" });
     await expect(screen.getByRole("status", "Plafond de la clé API")).toHaveText("Clé API OpenAI · facturé sur votre compte · plafond 1,00 $ US. "
       + "OpenAI compte l’entrée avant l’analyse ; la sortie est limitée à ce qui reste sous le plafond.");
-    expect(await launchLabRun(browser, () => screen.getByRole("button", "Lancer · 1 configuration").click())).toBe(201);
+    const launched = await launchLabRun(browser, () => screen.getByRole("button", "Lancer · 1 configuration").click());
+    expect(launched.status).toBe(201);
     expect(heldHistory.reproduced()).toBe(true);
     const column = screen.getByRole("region", "Configuration A · Clé API OpenAI · gpt-6.1-terra · Moyen");
     await expect(column).toContainText("Terminé");
@@ -584,7 +583,8 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     // A provider that echoes the key (answer, model id, request id): nothing of it is stored or shown.
     await control("echo");
     await screen.getByLabel("Campagne", { exact: true }).fill("cle-api-echo");
-    expect(await launchLabRun(browser, () => screen.getByRole("button", "Lancer · 1 configuration").click())).toBe(201);
+    const echoed = await launchLabRun(browser, () => screen.getByRole("button", "Lancer · 1 configuration").click());
+    expect(echoed.status).toBe(201);
     await expect(screen.getByRole("region", "Configuration A · Clé API OpenAI · gpt-6.1-terra · Moyen")).toContainText("Tuyauterie cuivre DN20 [clé masquée]");
     await control("normal");
     const echoRun = (await storedRuns()).map((entry) => entry.run).find((entry) => entry.campaign === "cle-api-echo");
