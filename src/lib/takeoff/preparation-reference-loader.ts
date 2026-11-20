@@ -143,7 +143,7 @@ async function readReferenceDocuments(input: Input, projectId: string, sources: 
       if (!document || document.tenant_id !== input.job.tenant_id || document.project_id !== projectId ||
           document.document_kind === "plans" || document.document_kind === "plan" || source.kind !== kind ||
           source.source_version !== getPreparationIntakeSourceVersion(document) || source.file_path !== document.storage_path ||
-          !document.storage_path || !source.confirmed || !source.content_hash) {
+          !document.storage_path || (!source.confirmed && !input.snapshot.preparation.provenance) || !source.content_hash) {
         rejectSource(input.job, `La pièce « ${source.document_name} » a changé ou n'est plus disponible. Confirmez à nouveau la préparation.`);
       }
     }

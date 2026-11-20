@@ -1,7 +1,9 @@
 "use client";
 
 import { TakeoffActionError } from "@/lib/takeoff/action-result";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+
+import Link from "next/link";
 
 import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -12,20 +14,8 @@ import { TakeoffPreparationProfiles } from "@/components/takeoff/TakeoffPreparat
 import { TakeoffPreparationAssistance } from "@/components/takeoff/TakeoffPreparationAssistance";
 import { TakeoffPageTriage } from "@/components/takeoff/TakeoffPageTriage";
 import { TakeoffLaunchPagesNotice } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
-import type { ChatGptConnection } from "@/components/takeoff/TakeoffProviderSelect";
-import { evaluateTakeoffPreparation, type TakeoffPreparation } from "@/lib/takeoff/preparation";
-import { TAKEOFF_LEVEL_BUSINESS_LABELS } from "@/lib/takeoff/document-classifier";
-import type { TakeoffLevel } from "@/lib/takeoff/types";
-
-export type PreparationAdvancedControlsContext = {
-  processing: TakeoffPreparation["processing"];
-  onProcessingChange: (patch: Partial<TakeoffPreparation["processing"]>) => void;
-  isConfirmed: boolean;
-  /** Read with the preparation when the panel opens, for the provider select (TI-720). */
-  chatGptConnection: ChatGptConnection;
-};
-const PROCESSING_LEVELS: TakeoffLevel[] = ["A", "B", "C"];
-const PROCESSING_PROVIDER_LABELS = { auto: "Automatique — forfait ChatGPT local", chatgpt: "ChatGPT — forfait local", gemini: "Ancien fournisseur indisponible" };
+import { evaluateTakeoffPreparation } from "@/lib/takeoff/preparation";
+import { resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
 
 const STEPS = ["Mes documents", "Ce que je veux mesurer", "Points à préciser", "Vérifier et lancer"];
 
@@ -33,13 +23,9 @@ export type TakeoffPreparationPanelProps = {
   projectId: string;
   planSetId?: string | null;
   estimateVersionId: string | null;
-  targetSelectionKey?: number;
-  recommendedLevel?: TakeoffLevel | null;
-  compatibleLevels?: TakeoffLevel[];
   documentControls?: ReactNode;
   destinationControls?: ReactNode;
-  advancedControls?: ReactNode | ((context: PreparationAdvancedControlsContext) => ReactNode);
-  onLaunch: (revision: number, processing: TakeoffPreparation["processing"]) => Promise<void>;
+  onLaunch: (revision: number) => Promise<void>;
   onBusyChange?: (busy: boolean) => void;
   onRegisterSave?: (save: () => Promise<number | null>) => void;
   disabled?: boolean;
@@ -51,75 +37,47 @@ export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
   return <TakeoffPreparationPanelContent key={`${user?.tenantId ?? "unknown"}:${user?.profile?.id ?? "unknown"}:${props.projectId}`} {...props} />;
 }
 
-function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, targetSelectionKey = 0, recommendedLevel = "B", compatibleLevels = PROCESSING_LEVELS, documentControls, destinationControls, advancedControls, onLaunch, onBusyChange, onRegisterSave, launchDisabled = false, disabled = false }: TakeoffPreparationPanelProps) {
-  const { record, support, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId);
+function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, launchDisabled = false, disabled = false }: TakeoffPreparationPanelProps) {
+  const { record, support, draft, updateDraft, saveState, error, save, saveOptions, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId, planSetId);
   const [triaging, setTriaging] = useState(false);
-  const [step, setStep] = useState(0);
-  const [initialStepResolved, setInitialStepResolved] = useState(false);
+  const [step, setStep] = useState(3);
+  const [showOptions, setShowOptions] = useState(false);
   const [orderedQuestionIds, setOrderedQuestionIds] = useState<string[]>([]);
-  const previousSelection = useRef<string | null | undefined>(undefined);
   const [confirming, setConfirming] = useState(false);
   const [renewing, setRenewing] = useState(false);
-  const [renewed, setRenewed] = useState(false);
-  const [renewTargetIntent, setRenewTargetIntent] = useState(0);
-  const previousTargetIntent = useRef(`${targetSelectionKey}:0`);
+  const [renewedRevision, setRenewedRevision] = useState<number | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const availableSources = useMemo(() => record?.availableSources ?? [], [record?.availableSources]);
-  const readiness = useMemo(() => draft ? evaluateTakeoffPreparation(draft) : null, [draft]);
-  const locked = disabled || confirming || renewing || triaging;
-  const processingCompatible = draft?.processing.level !== null && draft?.processing.level !== undefined && compatibleLevels.includes(draft.processing.level);
-  // The loaded preparation opens on its first step with a blocker, from the render that first shows it.
-  // Chosen in an effect, the documents step was committed first and a step picked before that effect ran
-  // was replaced by the opening step.
-  if (readiness && !initialStepResolved) {
-    setInitialStepResolved(true);
-    const paths = readiness.blockers.map((issue) => issue.path);
-    setStep(paths.some((path) => path.startsWith("sources")) ? 0 : paths.some((path) => path === "objective" || path === "scope") ? 1 : paths.some((path) => path.startsWith("conventions") || path.startsWith("unknowns")) ? 2 : 3);
-  }
+  const effective = useMemo(() => draft?.provenance ? resolveDeducedPlanVersions(draft) : draft, [draft]);
+  const readiness = useMemo(() => effective ? evaluateTakeoffPreparation(effective) : null, [effective]);
+  const persistedRevision = saveState === "saved" && !record?.needsSave ? record?.revision : null;
+  const preparationConfirmed = Boolean(persistedRevision && record?.confirmedAt);
+  const saveLabel = {
+    loading: "Chargement de la préparation…",
+    saving: "Enregistrement…",
+    pending: "Modifications à enregistrer…",
+    error: "Préparation non enregistrée",
+    saved: persistedRevision ? `Préparation enregistrée · révision ${persistedRevision}` : "Préparation à enregistrer",
+  }[saveState];
+  const readinessLabel = preparationConfirmed
+    ? "Préparation confirmée. Les résultats resteront à vérifier."
+    : "Les sources seront vérifiées au lancement. Les résultats resteront à vérifier.";
+  const locked = disabled || confirming || renewing || triaging || Boolean(draft?.provenance && draft.provenance.plan_set_id !== planSetId);
   useEffect(() => { onRegisterSave?.(save); }, [onRegisterSave, save]);
 
-  useEffect(() => {
-    if (!draft) return;
-    // Completes the hook's latest draft, not `draft`: an edit made after the commit that showed `draft`, before
-    // this effect ran, is already in it, and a draft rebuilt from `draft` would replace that edit.
-    updateDraft((latest) => {
-      if (latest.processing.level === null) {
-        const initialLevel = recommendedLevel && compatibleLevels.includes(recommendedLevel) ? recommendedLevel : compatibleLevels[0];
-        return initialLevel ? { ...latest, processing: { ...latest.processing, level: initialLevel } } : latest;
-      }
-      const target = estimateVersionId;
-      const targetIntent = `${targetSelectionKey}:${renewTargetIntent}`;
-      const explicitlyChangedTarget = previousTargetIntent.current !== targetIntent;
-      previousTargetIntent.current = targetIntent;
-      const shouldBindTarget = explicitlyChangedTarget || latest.destination.estimate_version_id === null || record?.revision === null;
-      if (latest.destination.estimate_version_id !== target && shouldBindTarget) {
-        return { ...latest, destination: { ...latest.destination, estimate_version_id: target, confirmed: false } };
-      }
-      const didSwitch = (previousSelection.current !== undefined && previousSelection.current !== planSetId) || (previousSelection.current === undefined && record?.revision === null && !latest.sources.some((source) => source.active));
-      previousSelection.current = planSetId;
-      // An upload, or a document of another plan set than this one: no longer part of the selection.
-      const outsideSelection = (source: (typeof latest.sources)[number]) =>
-        source.document_id.startsWith("upload:") || Boolean(source.plan_set_id && source.plan_set_id !== planSetId);
-      const currentIds = new Set(latest.sources.map((source) => source.document_id));
-      const newSources = availableSources.filter((source) => !currentIds.has(source.document_id));
-      const changedSelection = latest.sources.some((source) => source.active && outsideSelection(source));
-      if (newSources.length === 0 && !changedSelection && !didSwitch) return latest;
-      return { ...latest, sources: [
-        ...latest.sources.map((source) => ({ ...source, ...(didSwitch ? { active: source.plan_set_id === planSetId, confirmed: false } : {}), ...(source.active && outsideSelection(source) ? { active: false, confirmed: false } : {}) })),
-        ...newSources.map((source) => ({ ...source, revision: source.revision ?? null, pages: [], active: Boolean(planSetId && source.plan_set_id === planSetId), confirmed: false })),
-      ] };
-    });
-  }, [availableSources, compatibleLevels, draft, estimateVersionId, planSetId, recommendedLevel, record?.revision, renewTargetIntent, targetSelectionKey, updateDraft]);
-
   async function launch() {
-    if (!readiness?.can_launch || locked || launchDisabled || !processingCompatible) return;
+    if (!readiness?.can_launch || locked || launchDisabled) return;
     setConfirming(true);
     onBusyChange?.(true);
     setLaunchError(null);
     try {
       const revision = await confirm();
-      if (revision === null) throw new Error("La confirmation n'a pas été enregistrée.");
-      await onLaunch(revision, draft!.processing);
+      if (revision === null) {
+        setShowOptions(true);
+        setStep(0);
+        return;
+      }
+      await onLaunch(revision);
     } catch (cause) {
       setLaunchError(cause instanceof TakeoffActionError ? cause.message : "Impossible de confirmer le lancement. Vos réponses sont conservées.");
     } finally { setConfirming(false); onBusyChange?.(false); }
@@ -131,64 +89,55 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     onBusyChange?.(true);
     setLaunchError(null);
     try {
-      await renew();
-      setRenewed(true);
-      setRenewTargetIntent((value) => value + 1);
+      setRenewedRevision(await renew());
     } catch (cause) {
       setLaunchError(cause instanceof TakeoffActionError ? cause.message : "Impossible d'ouvrir une nouvelle préparation. Vos réponses sont conservées.");
     } finally { setRenewing(false); onBusyChange?.(false); }
   }
 
   // The steps read nothing on their own: what they show besides the draft is loaded with it (TI-720).
-  if (!draft || !support) return <div className="space-y-3 py-4" role="status">
+  if (!draft || !effective || !support) return <div className="space-y-3 py-4" role="status">
     <p className="text-sm text-muted-foreground">{error ?? "Chargement de la préparation…"}</p>
     {error && <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => void reload()}>Réessayer le chargement</button>}
   </div>;
 
-  const processingControls = typeof advancedControls === "function" ? advancedControls({
-    processing: draft.processing,
-    isConfirmed: Boolean(record?.confirmedAt),
-    chatGptConnection: support.chatGpt,
-    onProcessingChange: (patch) => {
-      const processing = { ...draft.processing, ...patch };
-      if (processing.level !== draft.processing.level || processing.provider !== draft.processing.provider) updateDraft({ ...draft, processing });
-    },
-  }) : advancedControls;
-
   return <div className="space-y-5">
-    <nav aria-label="Étapes de préparation du métré" className="grid grid-cols-2 gap-1 sm:grid-cols-4">
-      {STEPS.map((label, index) => <button key={label} type="button" disabled={locked} aria-current={step === index ? "step" : undefined} className={`rounded-lg px-2 py-2 text-left text-xs ${step === index ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-surface-subtle"}`} onClick={() => setStep(index)}><span className="mr-1">{index + 1}.</span>{label}</button>)}
-    </nav>
-    <div className="flex flex-wrap items-center justify-between gap-2 text-xs" aria-live="polite">
-      <span className={saveState === "error" ? "text-danger" : "text-muted-foreground"}>{saveState === "saving" ? "Enregistrement…" : saveState === "pending" ? "Modifications à enregistrer…" : saveState === "error" ? "Préparation non enregistrée" : "Préparation enregistrée"}{record?.revision ? ` · révision ${record.revision}` : ""}</span>
-      <button type="button" disabled={locked || saveState === "saving"} className="text-primary underline disabled:opacity-50" onClick={() => void save().catch(() => undefined)}>Enregistrer maintenant</button>
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <p className="text-sm font-medium">Analyse détaillée avec votre forfait ChatGPT</p>
+      <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={locked} aria-expanded={showOptions} onClick={() => { setShowOptions(!showOptions); if (showOptions) setStep(3); }}>Options du métré</button>
     </div>
+    <p className="text-sm text-muted-foreground">{support.chatGpt?.sharing && support.chatGpt.model ? `Modèle sélectionné dans Mon profil : ${support.chatGpt.model}.` : "Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré."}{" "}<Link href="/dashboard/profile" className="underline">Gérer mon forfait ChatGPT</Link></p>
+    {draft.provenance?.converted_from_legacy && <p className="text-sm text-muted-foreground">Préparation précédente adaptée à l’analyse détaillée avec le forfait ChatGPT. Vos choix de mesure sont conservés.</p>}
+    {showOptions && <nav aria-label="Étapes de préparation du métré" className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+      {STEPS.map((label, index) => <button key={label} type="button" disabled={locked} aria-current={step === index ? "step" : undefined} className={`rounded-lg px-2 py-2 text-left text-xs ${step === index ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-surface-subtle"}`} onClick={() => setStep(index)}><span className="mr-1">{index + 1}.</span>{label}</button>)}
+    </nav>}
+    {showOptions && <div className="flex flex-wrap items-center justify-between gap-2 text-xs" aria-live="polite">
+      <span className={saveState === "error" ? "text-danger" : "text-muted-foreground"}>{saveLabel}</span>
+      <button type="button" disabled={locked || saveState === "saving"} className="text-primary underline disabled:opacity-50" onClick={() => void saveOptions().catch(() => undefined)}>Enregistrer maintenant</button>
+    </div>}
     {(error || launchError) && <Alert variant="danger"><AlertDescription>{error ?? launchError}<button type="button" className="mt-2 block text-sm underline" onClick={() => void reload()}>Reprendre la dernière préparation</button><span className="mt-1 block text-xs">La reprise remplace les réponses affichées par la dernière révision enregistrée.</span></AlertDescription></Alert>}
     {record && record.changedSourceIds.length > 0 && <Alert variant="warning"><AlertDescription>Des documents ont changé depuis la dernière préparation. Vérifiez les sources concernées et les confirmations rouvertes ; les analyses précédentes sont conservées.</AlertDescription></Alert>}
-    <TakeoffPreparationAssistance projectId={projectId} draft={draft} onChange={updateDraft} save={save} disabled={locked} onStepChange={setStep} onOrderQuestions={setOrderedQuestionIds} />
+    {showOptions && <TakeoffPreparationAssistance projectId={projectId} draft={draft} onChange={updateDraft} save={saveOptions} disabled={locked} onStepChange={setStep} onOrderQuestions={setOrderedQuestionIds} />}
     <fieldset disabled={locked} className="space-y-4 disabled:opacity-70">
       <legend className="sr-only">{STEPS[step]}</legend>
-      {step === 0 && documentControls}
+      {(step === 0 || !showOptions) && documentControls}
       {step === 1 && <TakeoffPreparationProfiles draft={draft} onChange={updateDraft} profiles={support.profiles} loadError={support.profilesError} onSaved={addProfile} />}
       {step === 3 && destinationControls}
-      {step === 3 && estimateVersionId && draft.destination.estimate_version_id !== estimateVersionId && <div className="space-y-2 rounded-lg border border-border bg-surface-subtle p-3"><p className="text-sm text-muted-foreground">La destination enregistrée est conservée pour retrouver la demande précédente. Pour changer sa destination, choisissez explicitement la version affichée.</p><button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => updateDraft({ ...draft, destination: { ...draft.destination, estimate_version_id: estimateVersionId, confirmed: false } })}>Utiliser la version cible sélectionnée</button></div>}
-      <TakeoffPreparationFields draft={draft} onChange={updateDraft} step={step} projectId={projectId} availableSources={availableSources} orderedQuestionIds={orderedQuestionIds} />
+      {showOptions && step === 3 && draft.destination.kind === "estimate_review" && estimateVersionId && draft.destination.estimate_version_id !== estimateVersionId && <div className="space-y-2 rounded-lg border border-border bg-surface-subtle p-3"><p className="text-sm text-muted-foreground">La destination de la préparation diffère de la version cible sélectionnée.</p><button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => updateDraft({ ...draft, destination: { ...draft.destination, estimate_version_id: estimateVersionId, confirmed: false } })}>Utiliser la version cible sélectionnée</button></div>}
+      <TakeoffPreparationFields showOptions={showOptions} estimateVersionId={estimateVersionId} draft={draft} effectiveSources={effective.sources} onChange={updateDraft} step={step} projectId={projectId} availableSources={availableSources} orderedQuestionIds={orderedQuestionIds} />
       {step === 0 && <TakeoffPageTriage projectId={projectId} draft={draft} availability={support.pageTriage} onChange={updateDraft} save={save} adopt={adopt} disabled={locked || saveState === "error"} onBusyChange={(busy) => { setTriaging(busy); onBusyChange?.(busy); }} />}
-      {step === 3 && <p className="text-sm text-muted-foreground">Réglages du traitement : {draft.processing.level ? TAKEOFF_LEVEL_BUSINESS_LABELS[draft.processing.level] : "Niveau à préciser"} · {record?.confirmedAt && draft.processing.provider === "auto" ? "Automatique — fournisseur de la demande confirmée" : PROCESSING_PROVIDER_LABELS[draft.processing.provider]}.</p>}
-      {step === 3 && !processingCompatible && <Alert variant="warning"><AlertDescription>Le niveau enregistré n’est pas compatible avec les documents sélectionnés. Choisissez explicitement un niveau compatible dans les options avancées.</AlertDescription></Alert>}
-      {step === 3 && processingControls && <details className="rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-medium">Options avancées</summary><div className="mt-3 space-y-4">{processingControls}</div></details>}
     </fieldset>
     {/* TI-682 lot D: the chosen plan pages the target version already holds from an earlier takeoff (a notice, the launch stays open). */}
-    {step === 3 && <TakeoffLaunchPagesNotice versionId={draft.destination.estimate_version_id ?? estimateVersionId} sources={draft.sources} />}
+    {step === 3 && <TakeoffLaunchPagesNotice versionId={draft.destination.estimate_version_id ?? estimateVersionId} sources={effective.sources} />}
     {step === 3 && readiness && <div className="space-y-3" aria-live="polite">
-      {readiness.blockers.length > 0 ? <Alert variant="warning"><AlertDescription><p className="font-medium">{readiness.blockers.length} point{readiness.blockers.length > 1 ? "s" : ""} à préciser avant le lancement</p><ul className="mt-2 list-disc space-y-1 pl-4 text-sm">{readiness.blockers.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.message}</li>)}</ul></AlertDescription></Alert> : <Alert variant={readiness.reservations.length ? "warning" : "success"}><AlertDescription>{readiness.reservations.length ? "Préparation complète avec réserves conservées." : "Préparation complète. Les résultats resteront à vérifier."}</AlertDescription></Alert>}
+      {readiness.blockers.length > 0 ? <Alert variant="warning"><AlertDescription><p className="font-medium">{readiness.blockers.length} point{readiness.blockers.length > 1 ? "s" : ""} à préciser avant le lancement</p><ul className="mt-2 list-disc space-y-1 pl-4 text-sm">{readiness.blockers.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.message}</li>)}</ul></AlertDescription></Alert> : <Alert variant={readiness.reservations.length ? "warning" : preparationConfirmed ? "success" : "info"}><AlertDescription>{readinessLabel}</AlertDescription></Alert>}
       {record?.confirmedAt && <div className="space-y-1 rounded-lg border border-border p-3"><button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={locked || saveState === "saving"} onClick={() => void prepareNewAnalysis()}>Préparer une nouvelle analyse</button><p className="text-xs text-muted-foreground">Conserve vos réponses et ouvre une nouvelle préparation.</p></div>}
-      {renewed && !record?.confirmedAt && <p role="status" className="text-sm text-muted-foreground">Nouvelle préparation enregistrée. Vérifiez le récapitulatif puis confirmez le lancement.</p>}
+      {renewedRevision !== null && persistedRevision === renewedRevision && !preparationConfirmed && <p role="status" className="text-sm text-muted-foreground">Nouvelle préparation enregistrée. Vérifiez le récapitulatif puis confirmez le lancement.</p>}
       {readiness.reservations.length > 0 && <div className="text-sm"><p className="font-medium">Réserves conservées</p><ul className="mt-1 list-disc pl-4">{readiness.reservations.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.message}</li>)}</ul></div>}
     </div>}
     <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-      <button type="button" className={buttonVariants({ variant: "outline", size: "md" })} disabled={locked || step === 0} onClick={() => setStep((value) => value - 1)}>Retour</button>
-      {step < 3 ? <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked} onClick={() => setStep((value) => value + 1)}>Continuer</button> : <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked || launchDisabled || !processingCompatible || !readiness?.can_launch || saveState === "error"} onClick={() => void launch()}>{renewing ? "Nouvelle préparation…" : locked ? "Confirmation et lancement…" : "Confirmer et lancer le métré"}</button>}
+      {showOptions && <button type="button" className={buttonVariants({ variant: "outline", size: "md" })} disabled={locked || step === 0} onClick={() => setStep((value) => value - 1)}>Retour</button>}
+      {step < 3 ? <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked} onClick={() => setStep((value) => value + 1)}>Continuer</button> : <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked || launchDisabled || !readiness?.can_launch || saveState === "error"} onClick={() => void launch()}>{renewing ? "Nouvelle préparation…" : confirming ? "Confirmation et lancement…" : "Confirmer et lancer le métré"}</button>}
     </div>
   </div>;
 }

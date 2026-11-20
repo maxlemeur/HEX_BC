@@ -33,10 +33,10 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 // Fournisseur simulé : aucun magasin ChatGPT local, aucun hôte, aucune inférence.
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
-  return { ...actual, getTakeoffExecutionOwner: vi.fn() };
+  return { ...actual, getConfirmedTakeoffExecutionOwner: vi.fn() };
 });
 
-import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -74,7 +74,7 @@ function mockDefaults() {
   vi.mocked(getTakeoffChunkingConfigForTenant).mockResolvedValue({ maxPdfPages: 50 } as never);
   vi.mocked(getTakeoffLevelCProcessingConfigForTenant).mockResolvedValue({ maxPdfPages: 50 } as never);
   vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.6 as never);
-  vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:55555555-5555-4555-8555-555555555555" });
+  vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:55555555-5555-4555-8555-555555555555" });
 }
 
 beforeEach(() => {
@@ -98,11 +98,12 @@ describe("lancement depuis un jeu de plans", () => {
         projectId: M3_PROJECT_ID,
         planSetId: M3_PLAN_SET_ID,
         estimateVersionId: M3_VERSION_ID,
-        level: "B",
+        level: "C",
+        provider: "chatgpt",
       })
     ).rejects.toMatchObject({ status: 403, code: "READ_ONLY" });
     expect(fake.tablesTouched).toEqual(["takeoff_jobs", "estimate_versions"]);
-    expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
+    expect(getConfirmedTakeoffExecutionOwner).not.toHaveBeenCalled();
   });
 });
 

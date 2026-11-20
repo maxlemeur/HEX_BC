@@ -6,6 +6,7 @@ import {
   createPdfChunkBytes,
   getPdfPageCount,
   mergeTakeoffChunkExchanges,
+  remapChunkLocalPagesToAbsolute,
 } from "@/lib/takeoff/chunking";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 
@@ -40,6 +41,27 @@ function createExchange(input: {
 }
 
 describe("takeoff chunking", () => {
+
+  it.each([false, true])("attributes equal unmeasured warnings to different plans (same name: %s)", (sameName) => {
+    const warning = { code: "QUANTITE_A_VERIFIER", message: "Page 1 : Échelle illisible.", severity: "warning" as const };
+    const groups = [
+      { index: 0, startPage: 1, endPage: 1 },
+      { index: 1, startPage: 2, endPage: 2 },
+    ].map((chunk) => ({ chunk, exchange: remapChunkLocalPagesToAbsolute({
+      chunk, exchange: createExchange({ items: [], warnings: [warning] }),
+      source: {
+        fileName: "Jeu de plans", sourceFileNamesByPage: ["RDC.pdf", sameName ? "RDC.pdf" : "R+1.pdf"],
+        sourcePageNumbersByPage: [2, sameName ? 2 : 7], sourceDocumentsByPage: [
+          { kind: "plan_file" as const, plan_file_id: "a" }, { kind: "plan_file" as const, plan_file_id: "b" },
+        ],
+      },
+    }) }));
+    expect(mergeTakeoffChunkExchanges(groups).exchange.warnings.map(({ message }) => message)).toEqual(sameName ? [
+      "RDC.pdf (fichier 1) · page 2 — Échelle illisible.", "RDC.pdf (fichier 2) · page 2 — Échelle illisible.",
+    ] : [
+      "RDC.pdf · page 2 — Échelle illisible.", "R+1.pdf · page 7 — Échelle illisible.",
+    ]);
+  });
 
   it("splits pages with overlap for large PDFs", () => {
     const chunks = buildPdfChunks(28, {

@@ -9,6 +9,7 @@ import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot, type TakeoffPreparationSource } from "@/lib/takeoff/preparation";
+import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
 import { loadPreparationReferenceFiles } from "@/lib/takeoff/preparation-reference-loader";
 import { toPreparationIntakeSource, type PreparationIntakeDocument } from "@/lib/takeoff/preparation-sources";
 
@@ -94,6 +95,18 @@ async function pdfBytes() {
 }
 
 describe("confirmed preparation reference contents", () => {
+  it("loads a deduced reference by its attested identity and bytes without human reservation acceptance", async () => {
+    const bytes = Buffer.from("Notice fictive : accessoires de plomberie");
+    const { document, source } = fixture(bytes, { file_name: "CCTP fictif.txt", mime_type: "text/plain" });
+    const plan = { ...source, document_id: "plan", kind: "plan" as const, plan_set_id: "jeu-fictif", revision: null };
+    const preparation = buildDeducedTakeoffPreparation({ sources: [plan, { ...source, confirmed: false }], planSetId: "jeu-fictif" });
+    const selected = createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedBy: TENANT_ID, confirmedAt: "2026-11-20T10:00:00Z" });
+    const { supabase, download } = database([document], bytes);
+    const loaded = await loadPreparationReferenceFiles({ supabase, job, snapshot: selected });
+    expect(loaded.files).toHaveLength(1);
+    expect(download).toHaveBeenCalledWith(document.storage_path);
+    expect(selected.readiness.reservations).toEqual([]);
+  });
   it("passes a complete verified PDF unchanged and identifies its original pages", async () => {
     const bytes = await pdfBytes();
     const { document, source } = fixture(bytes);

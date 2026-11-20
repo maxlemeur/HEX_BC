@@ -39,7 +39,7 @@ async function setup(ui: Ui, caseId: string) {
 armyTest("HUB01 retained PDF counting preparation persists exclusions and blocks without a local plan", options, async (ui) => {
   const { estimate, planSet, file, read, jobs } = await setup(ui, "HUB01");
   try {
-    let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B" } });
+    let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
     await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
     await dialog.getByRole("button", /Mes documents$/).click();
     const documentsScreenshot = await ui.app.screenshot("HUB01-preparation-documents");
@@ -52,7 +52,7 @@ armyTest("HUB01 retained PDF counting preparation persists exclusions and blocks
     expect(saved.draft).toMatchObject({ objective: "count", objective_confirmed: true,
       scope: { levels: ["R+1"], zones: ["Zone 1"], exclusions: ["RDC", "Zone 2"], confirmed: true },
       conventions: { unit: "u", measurement_basis: "documented", calibration: null },
-      destination: { estimate_version_id: estimate.versionId } });
+      destination: { estimate_version_id: null } });
     expect(saved.draft.sources.filter((source) => source.active).map((source) => source.kind)).toEqual(["plan"]);
     expect(saved.confirmed_at).toBeNull();
     expect(saved.confirmed_snapshot).toBeNull();
@@ -66,9 +66,7 @@ armyTest("HUB01 retained PDF counting preparation persists exclusions and blocks
     await expect(dialog.getByLabel("Je confirme ce périmètre", { exact: true })).toBeChecked();
     await dialog.getByRole("button", /Vérifier et lancer$/).click();
     await expect(dialog.getByLabel("Version cible", { exact: true })).toHaveValue(estimate.versionId);
-    await dialog.getByText("Options avancées", { exact: true }).click();
-    await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
-    await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("auto");
+    await expect(dialog.getByText("Analyse détaillée avec votre forfait ChatGPT", { exact: true })).toBeVisible();
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
     await expect(dialog.getByText(/forfait ChatGPT.*local/i).first()).toBeVisible();
     expect(await jobs.list()).toEqual([]);
@@ -106,37 +104,31 @@ armyTest("PRE06 long inclusions and exclusions remain readable and survive a rel
     boundary: "Fictional long scope, persisted without launching or applying an estimate." });
 });
 
-armyTest("PRE05 processing choices survive closing and reloading without silently replacing the provider", options, async (ui) => {
-  const { estimate, file, read, jobs } = await setup(ui, "PRE05");
-  let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B", provider: "auto" } });
+armyTest("PRE05 dossier defaults stay visible on reopening without creating an analysis", options, async (ui) => {
+  const { estimate, file, read, jobs, dialog } = await setup(ui, "PRE05");
+  await expect(dialog.getByText("Tout mesurer", { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/Unité par ouvrage/)).toBeVisible();
+  await expect(dialog.getByText("Préparation à enregistrer", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Les sources seront vérifiées au lancement. Les résultats resteront à vérifier.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("radio", "Standard", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveCount(0);
   await saveTakeoffPreparation(ui);
   const saved = await read();
-  expect(saved.draft.processing).toEqual({ level: "B", provider: "auto" });
-  await ui.browser.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
-  dialog = await openTakeoffPreparation(ui);
-  await dialog.getByRole("button", /Vérifier et lancer$/).click();
-  await dialog.getByText("Options avancées", { exact: true }).click();
-  await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
-  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("auto");
-  expect((await read()).revision).toBe(saved.revision);
+  expect(saved.draft).toMatchObject({
+    objective: "measure_all", objective_confirmed: false, processing: { level: "C", provider: "chatgpt" },
+    conventions: { unit_mode: "per_item", unit: null }, destination: { kind: "analysis_only", estimate_version_id: null },
+  });
+  expect(saved.draft.sources.filter((source) => source.active)).toMatchObject([{ document_id: file.id, revision: null, pages: [] }]);
   await ui.browser.reload();
-  dialog = await openTakeoffPreparation(ui);
-  await dialog.getByRole("button", /Vérifier et lancer$/).click();
-  await dialog.getByText("Options avancées", { exact: true }).click();
-  await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeChecked();
-  await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("auto");
-  const restored = await read();
-  expect(restored).toEqual(saved);
+  const reopened = await openTakeoffPreparation(ui);
+  await reopened.getByRole("button", /Vérifier et lancer$/).click();
+  await expect(reopened.getByText("Tout mesurer", { exact: true })).toBeVisible();
+  expect(await read()).toEqual(saved);
   expect(await jobs.list()).toEqual([]);
-  await recordEvidence(ui.army, "PRE05-processing-restored", { estimate, saved, restored, noImplicitProcessingChange: true });
+  await recordEvidence(ui.army, "PRE05-dossier-defaults", { estimate, saved, screenshot: await ui.app.screenshot("PRE05-dossier-defaults") });
 });
 
-// TI-720: Next.js sends a page's Server Actions one at a time. The steps of the dialog each sent one when they appeared
-// (business profiles, ChatGPT connection, page triage availability), and the save, the assistance and the page triage
-// the person asked for waited behind them: on CI those reads took 3 to 9 s each and three journeys stayed on
-// « Enregistrement… » or « Préparation des propositions… » past 15 s (runs 43312499369 and 43325614673). Here every
-// Server Action the steps send is held until the end: the person's actions must not need any of them.
 armyTest("PRE07 visiting the steps sends nothing the save or the assistance would wait for", options, async (ui) => {
   const { estimate, file, read, jobs } = await setup(ui, "PRE07");
   const serverActions = /\/dashboard\/affaires\//;
@@ -158,13 +150,13 @@ armyTest("PRE07 visiting the steps sends nothing the save or the assistance woul
   });
   try {
     holding = true;
-    const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], processing: { level: "B", provider: "auto" } });
+    const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
     holding = false;
     expect(held).toEqual([]);
     await saveTakeoffPreparation(ui);
     const saved = await read();
     expect(saved.draft.scope.exclusions).toEqual(["RDC", "Zone 2"]);
-    expect(saved.draft.processing).toEqual({ level: "B", provider: "auto" });
+    expect(saved.draft.processing).toEqual({ level: "C", provider: "chatgpt" });
     holding = true;
     for (const step of [/Mes documents$/, /Ce que je veux mesurer$/, /Points à préciser$/, /Vérifier et lancer$/]) await dialog.getByRole("button", step).click();
     holding = false;

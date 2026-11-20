@@ -3,7 +3,7 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createTakeoffJobFromPlanSet, findTakeoffJobForPlanSetLaunch } from "@/lib/takeoff/job-creation-server";
 import { derivePlanSetTakeoffJobId } from "@/lib/takeoff/job-creation-input";
 import { authenticatedContext, createSupabaseFake, filterValue, M3_PLAN_SET_ID, M3_PROJECT_ID, M3_TENANT_ID, M3_USER_ID, M3_VERSION_ID } from "@/lib/takeoff/metre-m3.test-utils";
-import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 
@@ -11,16 +11,17 @@ vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }
 // The resume check of a pending receipt is stubbed: chatgpt-takeoff.test.ts covers it.
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
-  return { ...actual, getTakeoffExecutionOwner: vi.fn(), assertLocalTakeoffResumeReady: vi.fn() };
+  return { ...actual, getConfirmedTakeoffExecutionOwner: vi.fn(), assertLocalTakeoffResumeReady: vi.fn() };
 });
 vi.mock("@/lib/takeoff/preparation-server", () => ({ assertConfirmedTakeoffPreparation: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
+  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200 }),
   getTakeoffChunkingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200 }),
 }));
 
 const SOURCE_ID = "99999999-9999-4999-8999-999999999999";
-const base = { projectId: M3_PROJECT_ID, planSetId: M3_PLAN_SET_ID, estimateVersionId: M3_VERSION_ID, preparationRevision: 2, level: "B" as const };
+const base = { projectId: M3_PROJECT_ID, planSetId: M3_PLAN_SET_ID, estimateVersionId: M3_VERSION_ID, preparationRevision: 2, level: "B" as const, provider: "auto" as const };
 
 function fixture(preparationSnapshot?: unknown) {
   const job = {
@@ -71,6 +72,16 @@ describe("prepared plan launch receipts", () => {
     expect(fake.queries.filter((query) => query.table === "takeoff_jobs")).toHaveLength(1);
   });
 
+  it("replays an old receipt when the caller omits both processing choices", async () => {
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.processing = { level: "B", provider: "auto" };
+    const { fake, job } = fixture(snapshot);
+    const recovered = await createTakeoffJobFromPlanSet({ ...base, level: undefined, provider: undefined, sourceVersionId: SOURCE_ID });
+    expect(recovered.id).toBe(job.id);
+    expect(fake.queries.filter((query) => query.table === "takeoff_jobs")).toHaveLength(1);
+    expect(fake.writesTo("takeoff_jobs")).toEqual([]);
+  });
+
   it("rejects contradictory confirmed choices before returning even a matching receipt", async () => {
     const snapshot = confirmedPreparationFixture();
     snapshot.preparation.processing = { level: "B", provider: "auto" };
@@ -80,20 +91,21 @@ describe("prepared plan launch receipts", () => {
     await expect(findTakeoffJobForPlanSetLaunch({ ...base, provider: "gemini" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("réglages de traitement") });
     snapshot.preparation.processing = { level: "C", provider: "auto" };
     await expect(findTakeoffJobForPlanSetLaunch({ ...base, sourceVersionId: SOURCE_ID })).rejects.toMatchObject({ status: 409 });
-    expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
+    expect(getConfirmedTakeoffExecutionOwner).not.toHaveBeenCalled();
   });
 
   it.each(["chatgpt_local"] as const)("recovers the unique target receipt across different IDs after an atomic %s conflict", async (executionProvider) => {
+    const launch = { ...base, level: "C", provider: "chatgpt" } as const;
     let winnerVisible = false;
     const winningJob = {
-      id: derivePlanSetTakeoffJobId({ ...base, tenantId: M3_TENANT_ID }),
-      estimate_version_id: M3_VERSION_ID, status: "pending", level: "B", source_file_name: "Plan fictif.pdf",
+      id: derivePlanSetTakeoffJobId({ ...launch, tenantId: M3_TENANT_ID }),
+      estimate_version_id: M3_VERSION_ID, status: "processing", level: "C", source_file_name: "Plan fictif.pdf",
       source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z", execution_provider: "chatgpt_local",
     };
     const snapshot = confirmedPreparationFixture();
     snapshot.preparation.sources[0] = { ...snapshot.preparation.sources[0], kind: "plan", document_id: "plan-file", plan_set_id: M3_PLAN_SET_ID };
     vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(snapshot);
-    vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "fixture-host" });
+    vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "fixture-host" });
     const fake = createSupabaseFake({ tables: {
       takeoff_jobs: (query) => {
         if (query.operation === "insert") {
@@ -111,7 +123,7 @@ describe("prepared plan launch receipts", () => {
       plan_files: () => ({ data: [{ id: "plan-file", file_path: winningJob.source_file_path, file_name: "Plan fictif.pdf", file_type: "application/pdf", file_size_bytes: 1000, page_count: 1, metadata: {} }], error: null, count: 1 }),
     } });
     vi.mocked(getAuthenticatedContext).mockResolvedValue(authenticatedContext(fake) as never);
-    const result = await createTakeoffJobFromPlanSet({ ...base, sourceVersionId: SOURCE_ID });
+    const result = await createTakeoffJobFromPlanSet({ ...launch, sourceVersionId: SOURCE_ID });
     expect(result.id).toBe(winningJob.id);
     expect(fake.writesTo("takeoff_jobs")).toHaveLength(1);
     expect(fake.writesTo("audit_logs")).toEqual([]);

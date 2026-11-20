@@ -1,6 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 
 import type { TakeoffExchange } from "@/lib/takeoff/types";
+import type { DownloadedTakeoffFile } from "@/lib/takeoff/source-loader";
 import { toUnitToken } from "@/lib/takeoff/units";
 
 export type TakeoffPdfChunk = {
@@ -178,11 +179,41 @@ export function createChunkPromptSourceHint(input: {
 export function remapChunkLocalPagesToAbsolute(input: {
   chunk: TakeoffPdfChunk;
   exchange: TakeoffExchange;
+  source?: Pick<DownloadedTakeoffFile, "fileName" | "sourceFileNamesByPage" | "sourcePageNumbersByPage" | "sourceDocumentsByPage">;
 }): TakeoffExchange {
   const pageOffset = input.chunk.startPage - 1;
+  const { source, chunk } = input;
+  const idsByName = new Map<string, Map<string, number>>();
+  const planIdAt = (index: number) => {
+    const document = source?.sourceDocumentsByPage?.[index];
+    return document?.kind === "plan_file" ? document.plan_file_id : null;
+  };
+  source?.sourceFileNamesByPage?.forEach((name, index) => {
+    const id = planIdAt(index);
+    if (!id) return;
+    const ids = idsByName.get(name) ?? new Map<string, number>();
+    if (!ids.has(id)) ids.set(id, ids.size + 1);
+    idsByName.set(name, ids);
+  });
 
   return {
     ...input.exchange,
+    warnings: source ? input.exchange.warnings.map((warning) => {
+      if (warning.code !== "QUANTITE_A_VERIFIER") return warning;
+      const heading = /^Page\s+([0-9]+)\s*:\s*/iu.exec(warning.message);
+      const localPage = heading ? Number(heading[1]) : 0;
+      const index = pageOffset + localPage - 1;
+      const file = source.sourceFileNamesByPage?.[index] ?? source.fileName;
+      const ids = idsByName.get(file);
+      const id = planIdAt(index);
+      const ordinal = id && ids && ids.size > 1 ? ids.get(id) : null;
+      const label = ordinal ? `${file} (fichier ${ordinal})` : file;
+      const location = localPage > 0 && index < chunk.endPage
+        ? `${label} · page ${source.sourcePageNumbersByPage?.[index] ?? index + 1}`
+        : `${source.fileName} · page indéterminée (fragment ${chunk.index + 1})`;
+      const message = warning.message.slice(heading?.[0].length ?? 0);
+      return { ...warning, message: `${location} — ${message}`.slice(0, 500) };
+    }) : input.exchange.warnings,
     items: input.exchange.items.map((item) => ({
       ...item,
       source_page: item.source_page === undefined ? undefined : item.source_page + pageOffset,

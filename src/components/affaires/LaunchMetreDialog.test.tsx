@@ -14,16 +14,10 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchPreparedTakeoffFromSourceVersionPlanSetAction: launchTakeoffFromSourceVersionPlanSetMock,
 }));
 
-vi.mock("@/components/takeoff/TakeoffPreparationPanel", async () => {
-  const { useState } = await import("react");
-  return {
-    TakeoffPreparationPanel: (props: import("@/components/takeoff/TakeoffPreparationPanel").TakeoffPreparationPanelProps) => {
-      const [processing, setProcessing] = useState<import("@/lib/takeoff/preparation").TakeoffPreparation["processing"]>({ level: props.recommendedLevel ?? "B", provider: "auto" });
-      const controls = typeof props.advancedControls === "function" ? props.advancedControls({ processing, onProcessingChange: (patch) => setProcessing((current) => ({ ...current, ...patch })), isConfirmed: false, chatGptConnection: null }) : props.advancedControls;
-      return <div>{props.documentControls}{props.destinationControls}{controls}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7, processing)}>Confirmer et lancer le métré</button></div>;
-    },
-  };
-});
+vi.mock("@/components/takeoff/TakeoffPreparationPanel", () => ({
+  TakeoffPreparationPanel: (props: import("@/components/takeoff/TakeoffPreparationPanel").TakeoffPreparationPanelProps) =>
+    <div>{props.documentControls}{props.destinationControls}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7)}>Confirmer et lancer le métré</button></div>,
+}));
 
 vi.mock("@/components/feedback/toast-provider", () => ({
   useToast: () => ({
@@ -107,6 +101,7 @@ describe("LaunchMetreDialog", () => {
     render(<LaunchMetreDialog {...defaultProps} />);
     await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
 
+    expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith(expect.objectContaining({ level: "C", provider: "chatgpt" }));
     expect(
       await screen.findByText("Analyse créée, reprise à vérifier")
     ).toBeInTheDocument();

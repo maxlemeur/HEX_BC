@@ -614,7 +614,7 @@ describe("the worker's local plan opt-in (takeoffVectorLocalGroupsHook)", () => 
     expect(takeoffVectorLocalGroupsHook(job)).toMatchObject({ owner: { tenantId: "tenant-fixture", userId: "user-fixture" }, local: { selection } });
     expect(takeoffVectorLocalGroupsHook({ ...job, userId: null })).toBeUndefined();
     for (const name of Object.keys(on)) {
-      vi.stubEnv(name, "");
+      vi.stubEnv(name, name === "MERGEONE_TAKEOFF_VECTORS" ? "0" : "");
       expect(takeoffVectorLocalGroupsHook(job), name).toBeUndefined();
       vi.stubEnv(name, on[name as keyof typeof on]);
     }

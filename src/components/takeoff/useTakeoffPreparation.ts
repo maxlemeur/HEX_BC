@@ -34,7 +34,7 @@ function toSupport(loaded: PanelLoad): TakeoffPreparationSupport {
   };
 }
 
-export function useTakeoffPreparation(projectId: string) {
+export function useTakeoffPreparation(projectId: string, planSetId?: string | null) {
   const [record, setRecord] = useState<PreparationRecord | null>(null);
   const [support, setSupport] = useState<TakeoffPreparationSupport | null>(null);
   const [draft, setDraft] = useState<TakeoffPreparation | null>(null);
@@ -43,6 +43,7 @@ export function useTakeoffPreparation(projectId: string) {
   const currentDraft = useRef<TakeoffPreparation | null>(null);
   const savedJson = useRef("");
   const revision = useRef<number | null>(null);
+  const needsSave = useRef(false);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const mounted = useRef(true);
   const loadSequence = useRef(0);
@@ -53,7 +54,7 @@ export function useTakeoffPreparation(projectId: string) {
     setSaveState("loading");
     setError(null);
     try {
-      const loaded = await loadTakeoffPreparationPanelAction(projectId);
+      const loaded = await loadTakeoffPreparationPanelAction(projectId, planSetId ?? undefined);
       if (!mounted.current || sequence !== loadSequence.current) return;
       setSupport(toSupport(loaded));
       const result = unwrapTakeoffActionResult(loaded.preparation);
@@ -63,6 +64,7 @@ export function useTakeoffPreparation(projectId: string) {
         return;
       }
       revision.current = result.revision;
+      needsSave.current = result.needsSave;
       savedJson.current = JSON.stringify(result.draft);
       currentDraft.current = result.draft;
       setRecord(result);
@@ -73,7 +75,7 @@ export function useTakeoffPreparation(projectId: string) {
       setError(cause instanceof TakeoffActionError ? cause.message : "Impossible de retrouver la préparation.");
       setSaveState("error");
     }
-  }, [projectId]);
+  }, [projectId, planSetId]);
 
   useEffect(() => {
     const sequence = loadSequence;
@@ -103,11 +105,12 @@ export function useTakeoffPreparation(projectId: string) {
     setError(null);
   }, []);
 
-  const persist = useCallback(async (force: boolean) => {
+  const persist = useCallback(async (mode: "changes" | "ensure" | "renew") => {
     const operation = queue.current.catch(() => undefined).then(async () => {
       const snapshot = currentDraft.current;
       if (!snapshot) throw new Error("La préparation n'est pas encore chargée.");
-      if (!force && JSON.stringify(snapshot) === savedJson.current && revision.current !== null) return revision.current;
+      const force = mode === "renew" || (mode === "ensure" && (needsSave.current || revision.current === null));
+      if (!force && JSON.stringify(snapshot) === savedJson.current) return revision.current;
       if (mounted.current) setSaveState("saving");
       try {
         const result = unwrapTakeoffActionResult(await saveTakeoffPreparationAction({
@@ -116,6 +119,7 @@ export function useTakeoffPreparation(projectId: string) {
           expectedRevision: revision.current,
         }));
         revision.current = result.revision;
+        needsSave.current = result.needsSave;
         const unchangedSinceRequest = JSON.stringify(currentDraft.current) === JSON.stringify(snapshot);
         savedJson.current = JSON.stringify(result.draft);
         if (unchangedSinceRequest) currentDraft.current = result.draft;
@@ -137,8 +141,9 @@ export function useTakeoffPreparation(projectId: string) {
     return operation;
   }, [projectId]);
 
-  const save = useCallback(() => persist(false), [persist]);
-  const renew = useCallback(() => persist(true), [persist]);
+  const save = useCallback(() => persist("changes"), [persist]);
+  const saveOptions = useCallback(() => persist("ensure"), [persist]);
+  const renew = useCallback(() => persist("renew"), [persist]);
 
   useEffect(() => {
     if (!draft || saveState !== "pending") return;
@@ -153,20 +158,22 @@ export function useTakeoffPreparation(projectId: string) {
   }, [save]);
 
   const confirm = useCallback(async () => {
-    const savedRevision = await save();
+    const savedRevision = await saveOptions();
     if (savedRevision === null) throw new Error("Enregistrez la préparation avant de confirmer.");
     const confirmed = unwrapTakeoffActionResult(await confirmTakeoffPreparationAction({ projectId, expectedRevision: savedRevision }));
     revision.current = confirmed.revision;
+    needsSave.current = confirmed.needsSave;
     savedJson.current = JSON.stringify(confirmed.draft);
     currentDraft.current = confirmed.draft;
     setDraft(confirmed.draft);
     setRecord((previous) => previous ? { ...previous, ...confirmed } : confirmed);
-    return confirmed.revision;
-  }, [projectId, save]);
+    return confirmed.confirmedAt ? confirmed.revision : null;
+  }, [projectId, saveOptions]);
 
   /** Adopts a state returned by a server mutation (page triage) as the saved draft. */
   const adopt = useCallback((state: PreparationRecord) => {
     revision.current = state.revision;
+    needsSave.current = state.needsSave;
     savedJson.current = JSON.stringify(state.draft);
     currentDraft.current = state.draft;
     setDraft(state.draft);
@@ -180,5 +187,5 @@ export function useTakeoffPreparation(projectId: string) {
     setSupport((previous) => previous ? { ...previous, profiles: [...previous.profiles, profile] } : previous);
   }, []);
 
-  return { record, support, draft, updateDraft, saveState, error, save, renew, reload, confirm, adopt, addProfile };
+  return { record, support, draft, updateDraft, saveState, error, save, saveOptions, renew, reload, confirm, adopt, addProfile };
 }

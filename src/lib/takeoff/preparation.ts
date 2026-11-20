@@ -2,8 +2,11 @@ import { z } from "zod";
 
 import { takeoffPageTriageSchema } from "@/lib/takeoff/page-triage";
 import { toUnitToken } from "@/lib/takeoff/units";
+import { findPlanRevisionConflicts, planIdentitySchema, planRevisionDecisionSchema } from "@/lib/takeoff/plan-revision-identity";
+import { chatGptPreferencesSchema } from "@/lib/ai/chatgpt-model-preferences";
 
 export const TAKEOFF_PREPARATION_OBJECTIVES = {
+  measure_all: "Tout mesurer",
   count: "Compter sur les plans",
   measure_length: "Mesurer des longueurs",
   measure_area: "Mesurer des surfaces",
@@ -14,7 +17,7 @@ export const TAKEOFF_PREPARATION_OBJECTIVES = {
 } as const;
 
 const objectiveSchema = z.enum([
-  "count", "measure_length", "measure_area", "extract_quantities",
+  "measure_all", "count", "measure_length", "measure_area", "extract_quantities",
   "compare_dpgf", "prepare_purchase", "estimate",
 ]);
 const textSchema = z.string().trim().min(1).max(4000);
@@ -40,6 +43,12 @@ export const takeoffPreparationSourceSchema = z.object({
   mime_type: optionalTextSchema.default(null),
   // Decisions page triage proposal (TI-663). Only an acceptance writes pages/active.
   page_triage: takeoffPageTriageSchema.nullable().default(null),
+  plan_identity: planIdentitySchema.nullable().optional(),
+  declared_logical_document_id: optionalTextSchema.optional(),
+  inferred_logical_reference: z.boolean().optional(),
+  alternate_of: optionalTextSchema.optional(),
+  pages_before_deduplication: z.array(z.number().int().positive()).max(2000).optional(),
+  selected_in_plan_set: z.boolean().optional(),
 }).strict();
 
 const scopeSchema = z.object({
@@ -55,7 +64,8 @@ const scopeSchema = z.object({
 
 const conventionsSchema = z.object({
   unit: optionalTextSchema,
-  measurement_basis: z.enum(["unknown", "dimensioned", "calibrated", "documented"]),
+  unit_mode: z.literal("per_item").optional(),
+  measurement_basis: z.enum(["unknown", "dimensioned", "calibrated", "documented", "documentary_evidence"]),
   calibration: z.object({
     document_id: optionalTextSchema,
     page: z.number().int().positive().nullable(),
@@ -109,6 +119,11 @@ export const takeoffPreparationProcessingSchema = z.object({
 
 export const takeoffPreparationSchema = z.object({
   schema_version: z.literal(1),
+  provenance: z.object({
+    kind: z.literal("dossier"), rule_version: z.literal(1), converted_from_legacy: z.boolean(), plan_set_id: textSchema,
+    brief_context: z.object({ buildings: listSchema, lots: listSchema, zones: listSchema }).strict(),
+  }).strict().optional(),
+  plan_revision_decisions: z.array(planRevisionDecisionSchema).max(500).optional(),
   objective: objectiveSchema.nullable(),
   objective_confirmed: z.boolean(),
   scope: scopeSchema,
@@ -197,17 +212,19 @@ export function evaluateTakeoffPreparation(
   const block = (code: string, path: string, message: string, sourceId?: string) => {
     blockers.push({ code, path, message, ...(sourceId ? { source_document_id: sourceId } : {}) });
   };
+  const deduced = preparation.provenance?.kind === "dossier";
+  const measureAll = preparation.objective === "measure_all";
 
   if (!preparation.objective) {
     block("objective_required", "objective", "Choisissez le résultat attendu du métré.");
-  } else if (!preparation.objective_confirmed) {
+  } else if (!(deduced && measureAll) && !preparation.objective_confirmed) {
     block("objective_confirmation_required", "objective", "Confirmez le résultat attendu.");
   }
   const { scope } = preparation;
   if (![scope.lots, scope.networks, scope.levels, scope.zones, scope.inclusions].some((values) => values.length > 0)) {
     block("scope_required", "scope", "Précisez les lots, réseaux ou zones à analyser, ou indiquez explicitement tout le dossier.");
   }
-  if (!scope.confirmed) {
+  if (!deduced && !scope.confirmed) {
     block("scope_confirmation_required", "scope", "Confirmez le périmètre et ses exclusions.");
   }
 
@@ -223,7 +240,7 @@ export function evaluateTakeoffPreparation(
       block("source_duplicate", path, "Une même pièce est sélectionnée plusieurs fois.", source.document_id);
     }
     seenIds.add(source.document_id);
-    if (!source.confirmed) {
+    if (!deduced && !source.confirmed) {
       block("source_confirmation_required", path, `Confirmez la source « ${source.document_name} » et sa version.`, source.document_id);
     }
     if (!source.source_version.trim()) {
@@ -232,7 +249,7 @@ export function evaluateTakeoffPreparation(
     if (new Set(source.pages).size !== source.pages.length || source.pages.some((page) => page < 1 || (source.page_count !== null && page > source.page_count))) {
       block("source_pages_invalid", `${path}.pages`, `Vérifiez les pages retenues de « ${source.document_name} ».`, source.document_id);
     }
-    if (!source.revision) {
+    if (!deduced && !source.revision) {
       const revisionDecision = preparation.unknowns.find((unknown) => unknown.id === `source_revision:${source.document_id}`);
       if (revisionDecision?.impact !== "reservation" || revisionDecision.status !== "accepted" || !hasRecordedDecision(revisionDecision)) {
         block("source_revision_unknown", `${path}.revision`, `L'indice de « ${source.document_name} » est inconnu : renseignez-le ou acceptez une réserve attribuée.`, source.document_id);
@@ -240,15 +257,20 @@ export function evaluateTakeoffPreparation(
     }
     const logicalKey = source.logical_document_id ?? source.document_name.trim().toLocaleLowerCase("fr");
     const prior = logicalSources.get(logicalKey);
-    if (prior && (prior.revision !== source.revision || prior.source_version !== source.source_version)) {
+    if (!deduced && prior && (prior.revision !== source.revision || prior.source_version !== source.source_version)) {
       block("source_revision_conflict", path, `Choisissez la version applicable de « ${source.document_name} » ; les révisions ne peuvent pas se cumuler.`, source.document_id);
     } else {
       logicalSources.set(logicalKey, source);
     }
   }
+  if (deduced) {
+    for (const [left, right] of findPlanRevisionConflicts(activeSources.filter((source) => source.kind === "plan"), preparation.plan_revision_decisions ?? [])) {
+      block("source_revision_conflict", `sources.${right.document_id}`, `Choisissez entre « ${left.document_name} » et « ${right.document_name} », ou indiquez qu’il s’agit de deux plans distincts.`, right.document_id);
+    }
+  }
 
   const objective = preparation.objective;
-  if (objective && ["count", "measure_length", "measure_area", "compare_dpgf"].includes(objective) && !activeSources.some((source) => source.kind === "plan")) {
+  if (objective && ["measure_all", "count", "measure_length", "measure_area", "compare_dpgf"].includes(objective) && !activeSources.some((source) => source.kind === "plan")) {
     block("plan_required", "sources", "Ajoutez un plan actif pour ce résultat.");
   }
   if (objective === "compare_dpgf" && !activeSources.some((source) => source.kind === "dpgf")) {
@@ -256,7 +278,11 @@ export function evaluateTakeoffPreparation(
   }
 
   const conventions = preparation.conventions;
-  if (!conventions.unit?.trim()) {
+  if (measureAll) {
+    if (conventions.unit_mode !== "per_item" || conventions.unit || conventions.measurement_basis !== "documentary_evidence" || conventions.purchase || conventions.calibration) {
+      block("measure_all_conventions_invalid", "conventions", "Tout mesurer utilise l’unité de chaque ouvrage et les preuves du dossier.");
+    }
+  } else if (!conventions.unit?.trim()) {
     block("unit_required", "conventions.unit", "Précisez l'unité des quantités attendues.");
   } else {
     const unit = toUnitToken(conventions.unit);
@@ -266,7 +292,7 @@ export function evaluateTakeoffPreparation(
       block("unit_incompatible", "conventions.unit", "Choisissez une unité compatible avec le comptage, la longueur ou la surface demandée.");
     }
   }
-  if (!conventions.confirmed) {
+  if (!(deduced && measureAll) && !conventions.confirmed) {
     block("conventions_confirmation_required", "conventions", "Confirmez la méthode et les conventions applicables.");
   }
   if (objective === "measure_length" || objective === "measure_area") {
@@ -306,6 +332,7 @@ export function evaluateTakeoffPreparation(
     if (unknown.id.startsWith("source_revision:")) {
       const source = preparation.sources.find((entry) => entry.document_id === unknown.id.slice("source_revision:".length));
       if (source && (!source.active || source.revision)) continue;
+      if (deduced && unknown.status === "open") continue;
     }
     const path = `unknowns.${unknown.id}`;
     if (unknown.status === "open") {
@@ -320,7 +347,7 @@ export function evaluateTakeoffPreparation(
       }
     }
   }
-  if (!preparation.destination.confirmed) {
+  if (!(deduced && preparation.destination.kind === "analysis_only" && !preparation.destination.estimate_version_id && !preparation.destination.reviewer) && !preparation.destination.confirmed) {
     block("destination_confirmation_required", "destination", "Confirmez la destination du métré et la revue avant toute application.");
   }
   if (preparation.destination.kind === "estimate_review" && !preparation.destination.estimate_version_id) {
@@ -351,7 +378,22 @@ export type TakeoffPreparationSnapshot = {
   confirmed_at: string;
   preparation: TakeoffPreparation;
   readiness: TakeoffPreparationReadiness;
+  execution_selection?: TakeoffExecutionSelection;
 };
+
+export const takeoffExecutionSelectionSchema = chatGptPreferencesSchema.extend({
+  profileId: textSchema,
+  hostId: textSchema,
+}).strict();
+
+export type TakeoffExecutionSelection = z.infer<typeof takeoffExecutionSelectionSchema>;
+
+export function publicTakeoffPreparationSnapshot(snapshot: unknown) {
+  if (!snapshot || typeof snapshot !== "object" || !("execution_selection" in snapshot)) return snapshot;
+  const publicSnapshot: Record<string, unknown> = { ...snapshot };
+  delete publicSnapshot.execution_selection;
+  return publicSnapshot;
+}
 
 /** Sources must already be reconciled with authorized server-side file identities. */
 export function createTakeoffPreparationSnapshot(input: {
@@ -359,6 +401,7 @@ export function createTakeoffPreparationSnapshot(input: {
   confirmedBy: string;
   confirmedAt: string;
   revision: number;
+  executionSelection?: TakeoffExecutionSelection;
 }): TakeoffPreparationSnapshot {
   const preparation = takeoffPreparationSchema.parse(input.preparation);
   const readiness = evaluateTakeoffPreparation(preparation);
@@ -373,6 +416,7 @@ export function createTakeoffPreparationSnapshot(input: {
     confirmed_at: input.confirmedAt,
     preparation,
     readiness,
+    ...(input.executionSelection ? { execution_selection: takeoffExecutionSelectionSchema.parse(input.executionSelection) } : {}),
   };
 }
 

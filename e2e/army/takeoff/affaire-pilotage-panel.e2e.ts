@@ -893,7 +893,6 @@ describe("US-1.3 - pilotage affaire centre sur les exceptions", { session: "army
     await expect(page.browser).toHaveURL(`/dashboard/affaires/${projectId}/takeoff?launch=1&version=${versionId}&launchPlanSet=${planSetId}`);
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByLabel("Jeu de plans à analyser")).toHaveValue(planSetId);
-    await dialog.getByRole("button", { name: /Vérifier et lancer$/ }).click();
     await expect(dialog.getByLabel("Version cible")).toHaveValue(versionId);
     await page.goto(`/dashboard/affaires/${projectId}/plans`);
     await expect(page.getByRole("heading", { name: "Plans de la première version", exact: true })).toBeVisible();

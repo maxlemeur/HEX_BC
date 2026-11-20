@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparation, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
+import { readPlanFilenameRevision } from "@/lib/takeoff/plan-revision-identity";
 
 export type PreparationPlanFile = {
   id: string;
@@ -53,7 +54,7 @@ export function toPreparationPlanSource(file: PreparationPlanFile): TakeoffPrepa
     document_id: file.id,
     document_name: getPlanFileDisplayName({ file_name: file.file_name, metadata: file.metadata ?? null }),
     kind: "plan",
-    revision: typeof file.metadata?.revision === "string" ? file.metadata.revision : null,
+    revision: typeof file.metadata?.revision === "string" && file.metadata.revision.trim() ? file.metadata.revision : readPlanFilenameRevision(getPlanFileDisplayName({ file_name: file.file_name, metadata: file.metadata ?? null })),
     source_version: getPreparationPlanSourceVersion(file),
     pages: [],
     active: false,
@@ -91,11 +92,11 @@ export function reconcilePreparationSources(
     // A triage describes one file version; pages and active stay as the user chose.
     if (!current) {
       changedSourceIds.push(source.document_id);
-      return { ...source, confirmed: false, source_version: "", page_triage: null };
+      return { ...source, confirmed: false, source_version: "", content_hash: null, plan_identity: null, page_triage: null };
     }
     if (current.source_version !== source.source_version) {
       changedSourceIds.push(source.document_id);
-      return { ...source, ...current, active: source.active, pages: source.pages, revision: source.revision, confirmed: false, page_triage: null };
+      return { ...source, ...current, active: source.active, pages: source.pages, revision: preparation.provenance ? current.revision : source.revision, plan_identity: null, confirmed: false, page_triage: null };
     }
     const triage = source.page_triage;
     const staleTriage = triage && (triage.source_version !== source.source_version || (current.page_count !== null && triage.page_count !== current.page_count));

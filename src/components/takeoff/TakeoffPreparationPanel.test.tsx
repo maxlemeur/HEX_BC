@@ -1,19 +1,3 @@
-// Failure cases written before the TI-674 fix (two tests failed together under CI load):
-// 1. The opening step was chosen by a passive effect after the first render of the
-//    loaded preparation, which shows « Mes documents » first. A step the user picks
-//    right after that render is replaced by the opening step once the effect runs.
-// 2. That first render mounts the documents step (and its page triage) only to
-//    leave it at once.
-// 3. A `*Once` mock left unused by a test that failed early answered the next
-//    test's first call: `clearAllMocks` keeps the once-queue, so one failure
-//    became two (the leaked save refusal kept the next test's level change unsaved).
-// Failure cases written before the TI-675 fix:
-// 4. A passive effect completes the loaded preparation (legacy unset level, unbound
-//    destination, new document of the affaire) from the draft of the render that showed it.
-//    An edit made after that render, before the effect ran, was replaced by the completed
-//    draft and never saved.
-// TI-720: the steps read nothing when they appear; the panel reads what they show with the
-// preparation, in one Server Action (the journey PRE07 holds the requests a step would send).
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
@@ -21,11 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UserProvider, useUserContext } from "@/lib/auth/user-context";
 import type { UserProfile } from "@/lib/auth/user-context";
-import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
-import type { PreparationAdvancedControlsContext } from "@/components/takeoff/TakeoffPreparationPanel";
 import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparationPanel";
 import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPreparationSourceSchema, type TakeoffPreparation } from "@/lib/takeoff/preparation";
-import { beforePassiveEffectsOf } from "@/test/before-passive-effects";
+import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
 
 // Each part of the panel's one read has its own mock, as each part fails on its own on the server.
 const actions = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), confirm: vi.fn(), assist: vi.fn(), profiles: vi.fn(), saveProfile: vi.fn(), preview: vi.fn(), triageAvailability: vi.fn(), chatGpt: vi.fn(), triage: vi.fn() }));
@@ -52,11 +34,10 @@ const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const PLAN_SET_ID = "33333333-3333-4333-8333-333333333333";
 const SOURCE = takeoffPreparationSourceSchema.parse({ document_id: "plan-1", document_name: "Plan plomberie R+1.pdf", kind: "plan", revision: "A", source_version: "version-a", pages: [1], active: true, confirmed: true, plan_set_id: PLAN_SET_ID, page_count: 1 });
-const NEW_SOURCE = takeoffPreparationSourceSchema.parse({ document_id: "plan-2", document_name: "Plan chauffage R+1.pdf", kind: "plan", revision: "B", source_version: "version-b", pages: [], active: false, confirmed: false, plan_set_id: "55555555-5555-4555-8555-555555555555", page_count: 2 });
 
 function completePreparation(): TakeoffPreparation {
   const draft = createEmptyTakeoffPreparation({ estimateVersionId: VERSION_ID });
-  return { ...draft, processing: { level: "B", provider: "auto" }, objective: "count", objective_confirmed: true, scope: { ...draft.scope, lots: ["Plomberie"], levels: ["R+1"], zones: ["Zone 1"], exclusions: ["RDC"], confirmed: true }, sources: [SOURCE], conventions: { ...draft.conventions, unit: "u", measurement_basis: "documented", confirmed: true }, destination: { ...draft.destination, reviewer: "Chargé d'affaires", confirmed: true } };
+  return { ...draft, processing: { level: "C", provider: "chatgpt" }, objective: "count", objective_confirmed: true, scope: { ...draft.scope, lots: ["Plomberie"], levels: ["R+1"], zones: ["Zone 1"], exclusions: ["RDC"], confirmed: true }, sources: [SOURCE], conventions: { ...draft.conventions, unit: "u", measurement_basis: "documented", confirmed: true }, destination: { ...draft.destination, kind: "estimate_review", reviewer: "Chargé d'affaires", confirmed: true } };
 }
 
 function success<T>(data: T) { return { ok: true as const, data }; }
@@ -66,7 +47,7 @@ let storedRevision: number;
 let storedConfirmedAt: string | null;
 let availableSources: TakeoffPreparation["sources"];
 function state() {
-  return { draft: structuredClone(stored), revision: storedRevision, availableSources, changedSourceIds: [], confirmedAt: storedConfirmedAt, confirmedBy: storedConfirmedAt ? "user" : null, sourceFingerprint: "files-a", readiness: evaluateTakeoffPreparation(stored) };
+  return { draft: structuredClone(stored), revision: storedRevision, availableSources, changedSourceIds: [], needsSave: false, confirmedAt: storedConfirmedAt, confirmedBy: storedConfirmedAt ? "user" : null, sourceFingerprint: "files-a", readiness: evaluateTakeoffPreparation(stored) };
 }
 
 beforeEach(() => {
@@ -99,11 +80,9 @@ afterEach(cleanup);
 
 const props = { projectId: PROJECT_ID, planSetId: PLAN_SET_ID, estimateVersionId: VERSION_ID };
 
-function processingControls({ processing, onProcessingChange, isConfirmed, chatGptConnection }: PreparationAdvancedControlsContext) {
-  return <div>
-    {(["A", "B", "C"] as const).map((level) => <label key={level}><input type="radio" name="persisted-processing-level" checked={processing.level === level} onChange={() => onProcessingChange({ level })} />{{ A: "Rapide", B: "Standard", C: "Détaillé" }[level]}</label>)}
-    <TakeoffProviderSelect value={processing.provider} onChange={(provider) => onProcessingChange({ provider })} connection={chatGptConnection} preserveAutomaticChoice={isConfirmed} />
-  </div>;
+async function openOptions() {
+  const options = await screen.findByRole("button", { name: "Options du métré" });
+  if (options.getAttribute("aria-expanded") !== "true") fireEvent.click(options);
 }
 
 describe("TakeoffPreparationPanel", () => {
@@ -127,6 +106,7 @@ describe("TakeoffPreparationPanel", () => {
     actions.saveProfile.mockImplementation(async ({ profile }) => success(profile));
     const user = userEvent.setup();
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await openOptions();
     await user.click(await screen.findByRole("button", { name: /Ce que je veux mesurer/ }));
     await user.click(screen.getByText("Réutiliser un profil métier"));
     await user.type(screen.getByLabelText("Nom du nouveau profil"), "Plomberie R+1");
@@ -146,6 +126,7 @@ describe("TakeoffPreparationPanel", () => {
     stored.scope = { ...stored.scope, confirmed: false };
     const user = userEvent.setup();
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await openOptions();
     await user.click(await screen.findByRole("button", { name: /Mes documents/ }));
     expect(screen.getByRole("region", { name: "Tri des pages" })).toHaveTextContent("La disponibilité du tri des pages n’a pas pu être vérifiée.");
     expect(screen.getByRole("button", { name: "Proposer le tri des pages" })).toBeDisabled();
@@ -157,7 +138,7 @@ describe("TakeoffPreparationPanel", () => {
     expect(stored.scope.confirmed).toBe(true);
   });
 
-  it("keeps the source revision and objective when an initial load arrives late", async () => {
+  it("keeps the selected pages and objective when an initial load arrives late", async () => {
     const original = state();
     const pending: Array<(value: ReturnType<typeof success<typeof original>>) => void> = [];
     actions.load.mockImplementation(() => new Promise((resolve) => { pending.push(resolve); }));
@@ -169,29 +150,25 @@ describe("TakeoffPreparationPanel", () => {
     // late response must not erase what the user enters before it completes.
     const editableBeforeLatest = screen.queryByRole("button", { name: /Mes documents/ }) !== null;
     if (!editableBeforeLatest) await act(async () => { pending[1](success(original)); });
+    await openOptions();
     fireEvent.click(await screen.findByRole("button", { name: /Mes documents/ }));
-    fireEvent.change(screen.getByLabelText(`Révision de ${SOURCE.document_name}`), { target: { value: "B" } });
+    fireEvent.change(screen.getByLabelText(`Pages de ${SOURCE.document_name}`), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
     fireEvent.change(screen.getByLabelText("Objectif du métré"), { target: { value: "extract_quantities" } });
     if (editableBeforeLatest) await act(async () => { pending[1](success(original)); });
 
     expect(screen.getByLabelText("Objectif du métré")).toHaveValue("extract_quantities");
     fireEvent.click(screen.getByRole("button", { name: /Mes documents/ }));
-    expect(screen.getByLabelText(`Révision de ${SOURCE.document_name}`)).toHaveValue("B");
+    expect(screen.getByLabelText(`Pages de ${SOURCE.document_name}`)).toHaveValue("");
   });
 
   it("keeps edits made while recovering a preparation and does not silently replace them", async () => {
     actions.save.mockRejectedValueOnce(new Error("Save failed"));
-    const scopeStep = () => screen.queryByRole("button", { name: /Ce que je veux mesurer/ });
-    let triageAtOpening = true;
-    const stepChosen = beforePassiveEffectsOf(() => scopeStep() !== null, () => {
-      triageAtOpening = screen.queryByRole("region", { name: "Tri des pages" }) !== null;
-      fireEvent.click(scopeStep()!);
-    });
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
-    await stepChosen.done();
-    // The panel opened on its last step: the documents step and its page triage never mounted.
-    expect(triageAtOpening).toBe(false);
+    expect(await screen.findByRole("button", { name: "Confirmer et lancer le métré" })).toBeEnabled();
+    expect(screen.queryByRole("region", { name: "Tri des pages" })).not.toBeInTheDocument();
+    await openOptions();
+    fireEvent.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
     fireEvent.change(screen.getByLabelText("Exclusions"), { target: { value: "RDC, Zone 2" } });
     fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
     await screen.findByText(/L.enregistrement a échoué/);
@@ -206,55 +183,31 @@ describe("TakeoffPreparationPanel", () => {
     expect(actions.save).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    { completion: "a legacy unset level", setUp: () => { stored.processing = { level: null, provider: "auto" }; }, completed: (draft: TakeoffPreparation) => expect(draft.processing.level).toBe("C") },
-    { completion: "an unbound destination", setUp: () => { stored.destination = { ...stored.destination, estimate_version_id: null }; }, completed: (draft: TakeoffPreparation) => expect(draft.destination.estimate_version_id).toBe(VERSION_ID) },
-    { completion: "a new document of the affaire", setUp: () => { availableSources = [SOURCE, NEW_SOURCE]; }, completed: (draft: TakeoffPreparation) => expect(draft.sources.map((source) => source.document_id)).toEqual([SOURCE.document_id, NEW_SOURCE.document_id]) },
-  ])("keeps an edit made right after load while the panel completes $completion", async ({ setUp, completed }) => {
-    stored.scope = { ...stored.scope, confirmed: false };
-    setUp();
-    const exclusions = () => screen.queryByRole("textbox", { name: "Exclusions" });
-    const edited = beforePassiveEffectsOf(() => exclusions() !== null, () => fireEvent.change(exclusions()!, { target: { value: "RDC, Zone 2" } }));
-    render(<TakeoffPreparationPanel {...props} recommendedLevel="C" onLaunch={vi.fn()} />);
-    await edited.done();
-    fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
-    await waitFor(() => expect(actions.save).toHaveBeenCalledTimes(1));
-    await screen.findByText(/Préparation enregistrée · révision 6/);
-    expect(stored.scope.exclusions).toEqual(["RDC", "Zone 2"]);
-    completed(stored);
-    expect(exclusions()).toHaveValue("RDC, Zone 2");
+  it("shows deduced detail and launches a newly attested preparation without opening the options", async () => {
+    stored = buildDeducedTakeoffPreparation({ sources: [SOURCE], planSetId: PLAN_SET_ID });
+    actions.load.mockImplementation(async () => success({ ...state(), needsSave: true }));
+    const onLaunch = vi.fn();
+    render(<TakeoffPreparationPanel {...props} onLaunch={onLaunch} />);
+    const launch = await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
+    expect(screen.getByText("Tout mesurer")).toBeInTheDocument();
+    expect(screen.getByText(/Unité par ouvrage/)).toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(actions.save).not.toHaveBeenCalled();
+    await userEvent.setup().click(launch);
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(7));
+    expect(actions.save).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves incompatible saved settings until an explicit repair rather than using the new source recommendation", async () => {
-    stored.processing = { level: "C", provider: "chatgpt" };
-    storedConfirmedAt = "2026-10-29T12:00:00Z";
-    const user = userEvent.setup();
-    render(<TakeoffPreparationPanel {...props} recommendedLevel="A" compatibleLevels={["A"]} advancedControls={processingControls} onLaunch={vi.fn()} />);
-    expect(await screen.findByText(/Le niveau enregistré n’est pas compatible/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeDisabled();
-    await user.click(screen.getByText("Options avancées"));
-    expect(screen.getByRole("radio", { name: "Détaillé" })).toBeChecked();
-    expect(screen.getByLabelText("Fournisseur IA")).toHaveValue("chatgpt");
-    expect(await screen.findByText(/Connectez votre forfait ChatGPT et choisissez un modèle/)).toBeInTheDocument();
+  it("shows a deduced draft as unsaved and leaves source verification pending", async () => {
+    stored = buildDeducedTakeoffPreparation({ sources: [{ ...SOURCE, confirmed: false }], planSetId: PLAN_SET_ID });
+    actions.load.mockResolvedValue(success({ ...state(), revision: null, needsSave: true }));
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await openOptions();
+    expect(screen.getByText("Préparation à enregistrer")).toBeInTheDocument();
+    expect(screen.getByText("Les sources seront vérifiées au lancement. Les résultats resteront à vérifier.")).toBeInTheDocument();
+    expect(screen.queryByText(/Préparation complète|Préparation enregistrée/)).not.toBeInTheDocument();
     expect(actions.save).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("radio", { name: "Rapide" }));
-    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
-    await waitFor(() => expect(stored.processing).toEqual({ level: "A", provider: "chatgpt" }));
-  });
-
-  it("initializes legacy unset processing once and never replaces it with a later recommendation", async () => {
-    stored.processing = { level: null, provider: "auto" };
-    const user = userEvent.setup();
-    const view = render(<TakeoffPreparationPanel {...props} recommendedLevel="C" advancedControls={processingControls} onLaunch={vi.fn()} />);
-    await user.click(await screen.findByText("Options avancées"));
-    expect(screen.getByRole("radio", { name: "Détaillé" })).toBeChecked();
-    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
-    await waitFor(() => expect(stored.processing.level).toBe("C"));
-    actions.save.mockClear();
-    view.rerender(<TakeoffPreparationPanel {...props} recommendedLevel="B" advancedControls={processingControls} onLaunch={vi.fn()} />);
-    expect(screen.getByRole("radio", { name: "Détaillé" })).toBeChecked();
-    await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
-    expect(actions.save).not.toHaveBeenCalled();
+    expect(actions.confirm).not.toHaveBeenCalled();
   });
 
   it("clears the displayed preparation immediately when the active tenant changes", async () => {
@@ -265,10 +218,10 @@ describe("TakeoffPreparationPanel", () => {
       const { setProfile } = useUserContext();
       return <button type="button" onClick={() => setProfile({ ...profile, tenant_id: "tenant-b" })}>Changer d’organisation</button>;
     }
-    render(<UserProvider initialUserEmail="user@example.test" initialProfile={profile}><SwitchTenant /><TakeoffPreparationPanel {...props} advancedControls={processingControls} onLaunch={vi.fn()} /></UserProvider>);
-    expect(await screen.findByText(/Réglages du traitement : Standard/)).toBeInTheDocument();
+    render(<UserProvider initialUserEmail="user@example.test" initialProfile={profile}><SwitchTenant /><TakeoffPreparationPanel {...props} onLaunch={vi.fn()} /></UserProvider>);
+    expect(await screen.findByText(/Analyse détaillée avec votre forfait ChatGPT/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "Changer d’organisation" }));
-    expect(screen.queryByText(/Réglages du traitement : Standard/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Analyse détaillée avec votre forfait ChatGPT/)).not.toBeInTheDocument();
     expect(screen.getByText("Chargement de la préparation…")).toBeInTheDocument();
     resolveLoad({ ok: false, error: { status: 403, code: "FORBIDDEN", message: "Affaire inaccessible dans cette organisation.", retryable: false } });
     expect(await screen.findByText("Affaire inaccessible dans cette organisation.")).toBeInTheDocument();
@@ -280,12 +233,13 @@ describe("TakeoffPreparationPanel", () => {
     const original = structuredClone(stored);
     const user = userEvent.setup();
     const onLaunch = vi.fn().mockRejectedValue(new Error("Traitement indisponible"));
-    render(<TakeoffPreparationPanel {...props} onLaunch={onLaunch} />);
+    const { rerender } = render(<TakeoffPreparationPanel {...props} onLaunch={onLaunch} />);
     const launch = await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
+    await openOptions();
     await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
     expect(actions.save).not.toHaveBeenCalled();
     await user.click(launch);
-    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(5, { level: "B", provider: "auto" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(5));
     expect(actions.save).not.toHaveBeenCalled();
     expect(actions.confirm).toHaveBeenLastCalledWith({ projectId: PROJECT_ID, expectedRevision: 5 });
     expect(screen.getByText("Conserve vos réponses et ouvre une nouvelle préparation.")).toBeInTheDocument();
@@ -301,9 +255,16 @@ describe("TakeoffPreparationPanel", () => {
     expect(actions.save).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
-    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(7, { level: "B", provider: "auto" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(7));
     expect(actions.confirm).toHaveBeenLastCalledWith({ projectId: PROJECT_ID, expectedRevision: 6 });
     expect(stored).toEqual(original);
+
+    const nextSetId = "44444444-4444-4444-8444-444444444444";
+    const nextDraft = buildDeducedTakeoffPreparation({ sources: [{ ...SOURCE, plan_set_id: nextSetId }], planSetId: nextSetId });
+    actions.load.mockResolvedValueOnce(success({ ...state(), draft: nextDraft, confirmedAt: null, needsSave: true }));
+    rerender(<TakeoffPreparationPanel {...props} planSetId={nextSetId} onLaunch={onLaunch} />);
+    expect(await screen.findByText("Préparation à enregistrer")).toBeInTheDocument();
+    expect(screen.queryByText(/Nouvelle préparation enregistrée/)).not.toBeInTheDocument();
   });
 
   it("reopens a confirmed source-version request on its current fork without changing its destination or revision", async () => {
@@ -313,12 +274,13 @@ describe("TakeoffPreparationPanel", () => {
     const user = userEvent.setup();
     const onLaunch = vi.fn().mockRejectedValue(new Error("Réponse interrompue"));
     render(<TakeoffPreparationPanel {...props} estimateVersionId={forkVersionId} onLaunch={onLaunch} />);
+    await openOptions();
     await user.click(await screen.findByRole("button", { name: "Enregistrer maintenant" }));
     expect(actions.save).not.toHaveBeenCalled();
     expect(stored.destination.estimate_version_id).toBe(VERSION_ID);
-    expect(screen.getByText(/La destination enregistrée est conservée/)).toBeInTheDocument();
+    expect(screen.getByText("La destination de la préparation diffère de la version cible sélectionnée.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
-    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(5, { level: "B", provider: "auto" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(5));
     expect(actions.confirm).toHaveBeenCalledWith({ projectId: PROJECT_ID, expectedRevision: 5 });
     expect(stored).toEqual(original);
     expect(actions.save).not.toHaveBeenCalled();
@@ -330,13 +292,15 @@ describe("TakeoffPreparationPanel", () => {
     expect(stored.destination.estimate_version_id).toBe(VERSION_ID);
   });
 
-  it("invalidates the destination after an explicit version-picker choice", async () => {
+  it("invalidates a specialized destination when the operator explicitly binds a different version", async () => {
     storedConfirmedAt = "2026-10-29T12:00:00Z";
     const chosenVersionId = "44444444-4444-4444-8444-444444444444";
     const user = userEvent.setup();
-    const view = render(<TakeoffPreparationPanel {...props} targetSelectionKey={0} onLaunch={vi.fn()} />);
+    const view = render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
     await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
-    view.rerender(<TakeoffPreparationPanel {...props} estimateVersionId={chosenVersionId} targetSelectionKey={1} onLaunch={vi.fn()} />);
+    view.rerender(<TakeoffPreparationPanel {...props} estimateVersionId={chosenVersionId} onLaunch={vi.fn()} />);
+    await openOptions();
+    await user.click(screen.getByRole("button", { name: "Utiliser la version cible sélectionnée" }));
     expect(await screen.findByLabelText("Je confirme la destination et la revue des résultats")).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
     await waitFor(() => expect(actions.save).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 5, draft: expect.objectContaining({ destination: expect.objectContaining({ estimate_version_id: chosenVersionId, confirmed: false }) }) })));
@@ -349,6 +313,7 @@ describe("TakeoffPreparationPanel", () => {
     render(<TakeoffPreparationPanel {...props} onLaunch={onLaunch} />);
     await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
     expect(await screen.findByText("Impossible de confirmer le lancement. Vos réponses sont conservées.")).toBeInTheDocument();
+    await openOptions();
     await user.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
     const exclusions = screen.getByRole("textbox", { name: "Exclusions" });
     await user.clear(exclusions);
@@ -365,6 +330,7 @@ describe("TakeoffPreparationPanel", () => {
     stored.conventions.measurement_basis = "unknown";
     const user = userEvent.setup();
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await openOptions();
     await user.click(await screen.findByRole("button", { name: /Vérifier et lancer/ }));
     expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeDisabled();
     expect(screen.getByText(/Une mesure géométrique nécessite/)).toBeInTheDocument();
@@ -378,12 +344,12 @@ describe("TakeoffPreparationPanel", () => {
   it("keeps malformed page input visible and blocks its confirmation instead of broadening to all pages", async () => {
     const user = userEvent.setup();
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await openOptions();
     await user.click(await screen.findByRole("button", { name: /Mes documents/ }));
     const pages = screen.getByRole("textbox", { name: `Pages de ${SOURCE.document_name}` });
     fireEvent.change(pages, { target: { value: "1, invalid" } });
     expect(pages).toHaveValue("1, invalid");
     expect(pages).toHaveAttribute("aria-invalid", "true");
-    await user.click(screen.getByLabelText("Je confirme les pièces actives et leurs révisions"));
     await user.click(screen.getByRole("button", { name: /Vérifier et lancer/ }));
     expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeDisabled();
   });

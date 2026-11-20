@@ -9,6 +9,7 @@ import type { StructuredCall, StructuredCallOptions, TokenUsage } from "@/lib/ai
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
 import { dedupeHeaders } from "@/lib/imports/tabular-normalization";
 import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
+import { publicTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import {
   buildPdfChunks,
   createChunkPromptSourceHint,
@@ -1358,7 +1359,7 @@ async function persistTakeoffResultAndItems(input: {
         tables: input.exchange.tables ?? [],
         provider_meta: {
           ...input.providerMeta,
-          ...(input.job.preparation_snapshot ? { preparation_snapshot: input.job.preparation_snapshot } : {}),
+          ...(input.job.preparation_snapshot ? { preparation_snapshot: publicTakeoffPreparationSnapshot(input.job.preparation_snapshot) } : {}),
         },
         raw_response: input.rawResponse,
         confidence: input.exchange.confidence ?? null,
@@ -2147,6 +2148,7 @@ async function processLevelCChunks(input: {
         exchange: remapChunkLocalPagesToAbsolute({
           chunk,
           exchange: parsedExchange,
+          source: input.sourceFile.preparationSnapshot?.preparation.objective === "measure_all" ? input.sourceFile : undefined,
         }),
       });
 
@@ -2357,11 +2359,12 @@ function assertPdfResultIsInterpretable(input: {
   sourceFile: DownloadedTakeoffFile;
   tablesCount: number;
   itemsCount: number;
+  hasUnmeasuredQuantities?: boolean;
   providerMeta?: Record<string, unknown>;
 }) {
   const isInterpretable =
     input.level === "C"
-      ? input.itemsCount > 0
+      ? input.itemsCount > 0 || (input.sourceFile.preparationSnapshot?.preparation.objective === "measure_all" && input.hasUnmeasuredQuantities === true)
       : input.tablesCount > 0 && input.itemsCount > 0;
 
   if (isInterpretable) {
@@ -2878,10 +2881,11 @@ async function processTakeoffLevel(
         sourceFile,
         tablesCount: levelCResult.tablesCount,
         itemsCount: levelCResult.itemsForInsert.length,
+        hasUnmeasuredQuantities: levelCResult.normalizedExchange.warnings.some((warning) => warning.code === "QUANTITE_A_VERIFIER"),
         providerMeta: levelCResult.providerMeta,
       });
 
-      // TI-662: the vector reading of the original pages, beside the level C reading (opt-in), its groups classified
+      // TI-662: vector reading of the original pages accompanies level C by default. Groups are classified
       // with MERGEONE_TAKEOFF_DECISIONS=1 by the creator's plan (TI-704 option B); each call checked like a provider
       // call (active tenant, lease).
       const vectorOutcomes = isTakeoffVectorReadingEnabled()

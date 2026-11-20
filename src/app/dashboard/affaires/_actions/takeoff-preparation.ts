@@ -16,9 +16,9 @@ import { loadChatGptConnection } from "@/app/dashboard/_actions/chatgpt";
  * page triage the person asked for, and kept « Enregistrement… » on screen for as long as it took (TI-720).
  * Each part fails on its own; an unknown ChatGPT connection reads as none.
  */
-export async function loadTakeoffPreparationPanelAction(projectId: string) {
+export async function loadTakeoffPreparationPanelAction(projectId: string, planSetId?: string) {
   const [preparation, profiles, pageTriage, chatGpt] = await Promise.all([
-    runSafeTakeoffAction(() => loadTakeoffPreparation(projectId)),
+    runSafeTakeoffAction(() => loadTakeoffPreparation(projectId, planSetId)),
     runSafeTakeoffAction(() => loadTakeoffPreparationProfiles()),
     runSafeTakeoffAction(() => getTakeoffPageTriageAvailability(projectId)),
     loadChatGptConnection().catch(() => null),

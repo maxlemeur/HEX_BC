@@ -1,5 +1,7 @@
 "use client";
 
+import { TakeoffUnmeasuredQuantities, takeoffUnmeasuredQuantityMessages } from "@/components/takeoff/review/TakeoffUnmeasuredQuantities";
+
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -283,6 +285,7 @@ export default function TakeoffReviewPage({
   // TI-682 lot D: one more each time a save changes a line's source page: the pages already in the estimate are read again.
   const [savedSourcePages, setSavedSourcePages] = useState(0);
   const [tables, setTables] = useState<TakeoffTable[]>([]);
+  const [unmeasuredQuantities, setUnmeasuredQuantities] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [jobFileName, setJobFileName] = useState<string | null>(null);
@@ -367,6 +370,7 @@ export default function TakeoffReviewPage({
         setJobStatus(firstPage.job.status);
         setJobVersionNumber(firstPage.job.version_number ?? null);
         setGlobalConfidence(firstPage.result?.confidence ?? null);
+        setUnmeasuredQuantities(takeoffUnmeasuredQuantityMessages(firstPage.result?.warnings));
 
         const resultTables = firstPage.result?.tables;
         if (Array.isArray(resultTables)) {
@@ -1122,6 +1126,7 @@ export default function TakeoffReviewPage({
         jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
 
       {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}
+      <TakeoffUnmeasuredQuantities messages={unmeasuredQuantities} />
       {jobLevel === "C" && (
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
       )}

@@ -8,7 +8,8 @@ import {
 } from "@/lib/takeoff/types";
 import { createHash } from "node:crypto";
 
-export const TAKEOFF_PLAN_SET_LEVEL: TakeoffLevel = "B";
+export const TAKEOFF_PLAN_SET_LEVEL: TakeoffLevel = "C";
+export const LEGACY_PLAN_SET_PROCESSING = { level: "B", provider: "auto" } as const;
 
 const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
   id: z.string().uuid(),
@@ -53,8 +54,8 @@ export function derivePlanSetTakeoffJobId(input: {
   return deriveDeterministicJobId(input.tenantId, JSON.stringify({
     kind: "prepared-plan-set", project: input.projectId, set: input.planSetId,
     version: input.sourceVersionId ?? input.estimateVersionId,
-    preparation: input.preparationRevision ?? null, level: input.level ?? TAKEOFF_PLAN_SET_LEVEL,
-    provider: input.provider ?? "auto",
+    preparation: input.preparationRevision ?? null, level: input.level ?? LEGACY_PLAN_SET_PROCESSING.level,
+    provider: input.provider ?? LEGACY_PLAN_SET_PROCESSING.provider,
   }));
 }
 

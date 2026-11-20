@@ -7,7 +7,7 @@ vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ callLocalChatGptStructured:
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 import { readChatGptStore, getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
-import { assertLocalTakeoffResumeReady, getTakeoffExecutionOwner, parseTakeoffProvider, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { assertLocalTakeoffResumeReady, getTakeoffExecutionSelection, parseTakeoffProvider, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 
@@ -46,6 +46,19 @@ it("pins selected reasoning effort with the model on every takeoff chunk", async
   for (const call of vi.mocked(callLocalChatGptStructured).mock.calls) {
     expect(call[2]).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" });
   }
+});
+it("reads the attested selection after admission and refuses changed settings on a later attempt", async () => {
+  const pinned = { ...job, preparation_snapshot: { confirmed_by: "creator", execution_selection: {
+    hostId: "urn:uuid:host", profileId: "profile", model: "chosen-model", reasoningEffort: null,
+  } } };
+  const provider = await resolveLocalTakeoffProvider(client as never, pinned);
+  expect(provider?.useProfileForVectorGroups).toBe(true);
+  await provider!.call(options);
+  expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options,
+    { profileId: "profile", model: "chosen-model", reasoningEffort: null });
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "chosen-model", reasoningEffort: "high" }] } as never);
+  await expect(resolveLocalTakeoffProvider(client as never, pinned)).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
+  expect(callLocalChatGptStructured).toHaveBeenCalledTimes(1);
 });
 it.each([null, "creator"])("refuses missing or revoked creator %s without reading another account", async (created_by) => {
   maybeSingle.mockResolvedValue({ data: null, error: null });
@@ -104,14 +117,14 @@ it("refuses a different host and production before loading credentials", async (
 
 it("rejects an explicit obsolete Gemini choice even with a connected local plan", async () => {
   vi.stubEnv("NODE_ENV", "development");
-  await expect(getTakeoffExecutionOwner(client as never, { userId: "creator", tenantId: "tenant" }, "gemini")).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
+  await expect(getTakeoffExecutionSelection(client as never, { userId: "creator", tenantId: "tenant" }, "gemini")).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
   expect(readChatGptStore).not.toHaveBeenCalled();
 });
 it("refuses an explicit ChatGPT choice when disconnected or outside the local runtime", async () => {
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] });
-  await expect(getTakeoffExecutionOwner(client as never, { userId: "creator", tenantId: "tenant" }, "chatgpt")).rejects.toMatchObject({ code: "AI_PROVIDER" });
+  await expect(getTakeoffExecutionSelection(client as never, { userId: "creator", tenantId: "tenant" }, "chatgpt")).rejects.toMatchObject({ code: "AI_PROVIDER" });
   vi.stubEnv("NODE_ENV", "production");
-  await expect(getTakeoffExecutionOwner(client as never, { userId: "creator", tenantId: "tenant" }, "chatgpt")).rejects.toMatchObject({ code: "AI_PROVIDER" });
+  await expect(getTakeoffExecutionSelection(client as never, { userId: "creator", tenantId: "tenant" }, "chatgpt")).rejects.toMatchObject({ code: "AI_PROVIDER" });
 });
 it("defaults omitted provider input and rejects malformed billing choices", () => {
   expect(parseTakeoffProvider(null)).toBe("auto");

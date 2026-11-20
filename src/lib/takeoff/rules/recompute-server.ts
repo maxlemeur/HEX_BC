@@ -1,4 +1,5 @@
 import "server-only";
+import { readDefaultOnTakeoffFlag } from "@/lib/takeoff/default-on-flags";
 
 import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 
@@ -36,9 +37,9 @@ type ServiceClient = SupabaseClient<Database>;
 export const TAKEOFF_RULES_WRITE_CHUNK = 400;
 const GEOMETRY_PAGE = 500;
 
-/** Rule inputs are written on new jobs' lines only when the worker runs with MERGEONE_TAKEOFF_RULES=1. */
+/** An explicit MERGEONE_TAKEOFF_RULES=0 disables rule inputs on new jobs. */
 export function isTakeoffRulesEnabled() {
-  return process.env.MERGEONE_TAKEOFF_RULES === "1";
+  return readDefaultOnTakeoffFlag("MERGEONE_TAKEOFF_RULES", process.env.MERGEONE_TAKEOFF_RULES);
 }
 
 const AnchorsSchema: z.ZodType<PageAnchors> = z.object({

@@ -421,7 +421,8 @@ est une constante nommée et versionnée dans le code.
 
 ## Decisions dans le métré
 
-Le worker lit les plans d'un métré de niveau C avec `MERGEONE_TAKEOFF_VECTORS=1`. Avec
+Le worker lit par défaut les plans d’un métré de niveau C.
+`MERGEONE_TAKEOFF_VECTORS=0` désactive cette lecture. Avec
 `MERGEONE_TAKEOFF_DECISIONS=1`, il classe en plus les groupes restés sans classe. Seul le
 forfait ChatGPT local exécute désormais les métrés : le worker les fait classer par le
 forfait du créateur (TI-704 option B, plus bas), jamais par Decisions. Le classement par
@@ -494,12 +495,15 @@ production depuis le retrait du fournisseur serveur.
 Un métré lancé avec le forfait ChatGPT local (fournisseur `chatgpt_local`, sur le Mac de
 son créateur, là où le forfait est actif : en développement, ou avec
 `MERGEONE_CHATGPT_LOCAL=1` hors production, Vercel et CI) lit ses groupes avec le forfait
-de son créateur au lieu de Decisions, avec les mêmes options (`MERGEONE_TAKEOFF_VECTORS=1`,
+de son créateur au lieu de Decisions, avec la lecture vectorielle activée (par défaut, ou `MERGEONE_TAKEOFF_VECTORS=1`,
 `MERGEONE_TAKEOFF_DECISIONS=1`). Aucune clé serveur, aucune dépense API : le chemin local
 que le produit utilise déjà ([`group-local-model.ts`](../../src/lib/takeoff/vectors/group-local-model.ts),
 [`group-local-model-server.ts`](../../src/lib/takeoff/vectors/group-local-model-server.ts)).
 
-- Le modèle et l'effort mesurés : `gpt-6.1-sol`, effort `low`, vérifiés une fois par
+- Pour les nouveaux jobs, les groupes utilisent le modèle et l’effort du
+  profil figés à l’admission, comme la lecture détaillée. Un effort automatique
+  est omis de l’appel. Les plafonds de requêtes sont communs.
+- Pour les historiques dont le profil n’a pas été figé, le modèle et l’effort mesurés restent `gpt-6.1-sol` et `low`, vérifiés une fois par
   métré dans les modèles du compte. Un compte qui ne les propose pas n'envoie aucune
   demande (arrêt « local_model_unavailable »). Une lecture de la liste qui échoue sans
   réponse du compte (coupure réseau, liste illisible) est refaite une fois, comme le

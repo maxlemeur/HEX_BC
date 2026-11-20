@@ -11,8 +11,8 @@ import {
   apiRequest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, restrictCriticalBrowser,
 } from "../critical/fixtures";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
-import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
-import { createPlanSet, readPlanFiles, readPlanSets, uploadSamplePlan } from "../critical/plans-support";
+import { fillTakeoffPreparation, openTakeoffOptions, saveTakeoffPreparation } from "../critical/preparation-support";
+import { createPlanSet, ownedTakeoffJobs, readPlanFiles, readPlanSets, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import {
   chatGptLocalServer, isAbsorbedClientAbort, LAB_VECTOR_DOCUMENT, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
@@ -60,6 +60,79 @@ beforeAll(async () => {
 for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffRoutes(wave));
 
 afterAll(() => server.stop(fixtureStore));
+
+if (!existsSync(liveProbePath)) test("LOCALREV01 a chosen plan revision supplies both detailed and vector reads with the pinned profile", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("The revision journey requires its own temporary profile.");
+  const store = JSON.parse(await readFile(fixtureStore!, "utf8"));
+  store.profiles.find((profile: { id: string }) => profile.id === store.selectedId).reasoningEffort = "high";
+  await writeFile(fixtureStore!, JSON.stringify(store), { mode: 0o600 });
+  const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const start = (await readTransport()).length;
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-revision-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Deux indices de plan" }, army);
+    const set = await createPlanSet(ui, army, estimate, `${prefix} plans`);
+    const directory = path.join(path.dirname(transportLog), "revision-plans");
+    await mkdir(directory, { recursive: true });
+    const a = "Réseau RDC - Indice A.pdf";
+    const b = "RESEAU RDC - rev B.pdf";
+    const { buildLabVectorPlanPdf } = await import("./lab-vector-plan-fixture");
+    const kept = await buildLabVectorPlanPdf();
+    const replaced = await PDFDocument.load(kept);
+    replaced.addPage();
+    await writeFile(path.join(directory, a), await replaced.save());
+    await writeFile(path.join(directory, b), kept);
+    await screen.getByRole("heading", set.name, { exact: true }).click();
+    await browser.locator("input[type='file'][accept*='pdf']").first().setInputFiles([path.join(directory, a), path.join(directory, b)]);
+    for (const name of [a, b]) await expect(screen.getByRole("button", `Supprimer ${name}`, { exact: true })).toBeVisible({ timeout: 60_000 });
+    const files = await readPlanFiles(browser, set.id);
+    const jobs = ownedTakeoffJobs(browser, estimate);
+    await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
+    await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+    const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect(dialog.getByText("Quelle version retenir ?", { exact: true })).toBeVisible();
+    expect(await jobs.list()).toEqual([]);
+    expect((await readTransport()).slice(start)).toEqual([]);
+    const screenshot = await app.screenshot("localrev01-plan-choice");
+    await dialog.getByRole("button", `Retenir ${b}`, { exact: true }).click();
+    await dialog.getByRole("button", /Vérifier et lancer$/).click();
+    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect.poll(async () => (await jobs.list()).find((job) => job.level === "C")?.status, { timeout: 150_000 }).toBe("completed");
+    const [job] = await jobs.list();
+    const { client } = await localClient();
+    const { data: row, error: rowError } = await client.from("takeoff_jobs").select("preparation_snapshot").eq("id", job.id).single();
+    const { data: pages, error: pageError } = await client.from("takeoff_vector_pages").select("plan_file_id,source_page").eq("job_id", job.id);
+    expect(rowError).toBeNull();
+    expect(pageError).toBeNull();
+    expect(row?.preparation_snapshot).toMatchObject({ execution_selection: { model: "army-plan-model", reasoningEffort: "high" } });
+    const { preparation } = row!.preparation_snapshot as unknown as { preparation: TakeoffPreparation };
+    const selected = preparation.sources.filter((source) => source.active);
+    const selectedFile = files.find((file) => file.file_size_bytes === kept.length)!;
+    expect(selected).toMatchObject([{ document_id: selectedFile.id, revision: "B", pages: [] }]);
+    expect(pages).toEqual([{ plan_file_id: selectedFile.id, source_page: 1 }]);
+    const { data: quantities, error: quantityError } = await client.from("takeoff_items")
+      .select("designation,quantity,unit,source_page").eq("job_id", job.id);
+    expect(quantityError).toBeNull();
+    expect(quantities).toEqual(expect.arrayContaining([
+      { designation: "Tuyauterie cuivre DN20", quantity: 12.5, unit: "m", source_page: 1 },
+      { designation: "Vanne isolement DN20", quantity: 4, unit: "u", source_page: 1 },
+    ]));
+    const calls = (await readTransport()).slice(start);
+    expect(calls.filter((entry) => entry.provider === "forbidden" || entry.provider === "decisions-fixture")).toEqual([]);
+    expect(calls.filter((entry) => entry.inputKind === "pdf")).toMatchObject([{ model: "army-plan-model", reasoningEffort: "high" }]);
+    expect(calls.filter((entry) => entry.task === "vector-groups")).toMatchObject([{ model: "army-plan-model", reasoningEffort: "high" }]);
+    await recordEvidence(army, "pinned-plan-revision", { estimate, jobId: job.id, pages, quantities, calls, screenshot });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
 
 // This test uses a fictional Decisions response on an owned backend. It never calls the paid API.
 if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visible for review without changing the preparation", {
@@ -174,7 +247,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   const [planFile] = await readPlanFiles(browser, planSet.id);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
-  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [name], processing: { level: "C" } });
+  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [name] });
   await dialog.getByRole("button", /Mes documents$/).click();
   await saveTakeoffPreparation({ ...ui, army });
   const { client } = await localClient();
@@ -217,7 +290,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   await browser.reload();
   await waitForHydration(browser);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
-  const reopened = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  const reopened = await openTakeoffOptions({ ...ui, army });
   await reopened.getByRole("button", /Mes documents$/).click();
   const reloadedTable = reopened.getByRole("region", "Tri des pages", { exact: true }).getByRole("table", `Tri proposé pour ${name}`, { exact: true });
   await expect(reloadedTable.getByRole("row", /^Page 1\b.*Corrigée/)).toBeVisible();
@@ -545,7 +618,7 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré assistant" }, army);
-    const { jobId } = await launchPreparedPlanSet(ui, army, ids, { level: "B", provider: "auto" });
+    const { jobId } = await launchPreparedPlanSet(ui, army, ids);
     const read = () => apiRequest<{ data: { job: { status: string }; items: { data: Array<{ designation: string; quantity: number; unit: string }> } } }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
     await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
     const detail = (await read()).body.data;
