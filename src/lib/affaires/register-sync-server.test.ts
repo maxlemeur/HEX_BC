@@ -9,7 +9,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
 
-import { syncAffaireRegisterMissingPieces } from "@/lib/affaires/register-server";
+import { syncAffaireRegisterMissingPieces } from "@/lib/affaires/register-sync-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";

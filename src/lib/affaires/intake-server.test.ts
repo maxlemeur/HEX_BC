@@ -5,7 +5,7 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
-vi.mock("@/lib/affaires/register-server", () => ({
+vi.mock("@/lib/affaires/register-sync-server", () => ({
   syncAffaireRegisterFromBrief: vi.fn(),
   syncAffaireRegisterMissingPieces: vi.fn(),
 }));
@@ -15,7 +15,7 @@ vi.mock("@/lib/takeoff/gemini-client", () => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-server";
+import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-sync-server";
 import {
   __securityTesting__,
   mergeGeneratedAffaireBriefWithFallback,
