@@ -812,12 +812,13 @@ sa précision et réduit son rappel. Une précision sans prédiction est
 indéfinie. Deux DN intervertis peuvent donner deux quantités exactes et
 aucun repère correctement typé. Le reçu indique les quantités par poste sur
 la totalité d'un dossier et les scores spatiaux par page, dossier, poste,
-support et densité. Par famille, le score de dessin crédite les occurrences
-appariées dans tous les optima et compte les repères qui peuvent rester sans
-paire comme faux positifs. En cas d'égalité entre appariements optimaux, les
-vrais positifs de dessin par famille sont une borne inférieure et les faux
-positifs une borne supérieure, tandis que les décomptes par page sont
-exacts. Les repères de famille inconnue qui peuvent
+support et densité. Par famille, y compris sur la ligne sans attribution,
+chaque chiffre de dessin est le moins favorable à la méthode parmi tous les
+appariements optimaux : les vrais positifs sont le plus petit nombre
+d'occurrences de la famille appariées, les faux positifs le plus grand nombre
+de ses repères laissés sans paire. Ces chiffres sont exacts même à égalité
+entre appariements optimaux, comme les décomptes par page. Les repères de
+famille inconnue qui peuvent
 rester sans paire figurent sur la ligne sans attribution. Ils rendent la
 précision indéterminée pour les familles à portée ou pour toutes les
 familles en l'absence de référence proche.

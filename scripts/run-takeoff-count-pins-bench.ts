@@ -61,6 +61,7 @@ async function main() {
       algorithm: "maximum-cardinality-minimum-total-distance",
       radius: MATCH_RADIUS,
       typedCredit: "pairs-forced-in-all-optimal-matchings",
+      familyDrawingFigures: "least-favourable-over-all-optimal-matchings",
       negativeZoneTolerancePoints: NEGATIVE_ZONE_TOLERANCE,
     },
     fusion: { algorithm: "same-poste-one-to-one", radius: MATCH_RADIUS },

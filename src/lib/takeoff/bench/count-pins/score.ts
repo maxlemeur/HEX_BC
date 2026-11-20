@@ -144,13 +144,43 @@ function matchScoredPins(proposed: JudgedPin[], truth: JudgedPin[], candidateInd
     if (forcedLeft.has(i) || !preservesOptimum({ left: i })) leftCanBeUnmatched.delete(left[i].index);
     if (forcedRight.has(j) || !preservesOptimum({ right: j })) alwaysMatchedTruth.push(right[j].index);
   }
+  // The fewest matched members of one side's set over every optimal matching,
+  // without enumeration: scaled costs keep a matching's unit penalties below
+  // one distance unit, so the optimum stays first and then uses fewest members.
+  const fewestMatched = (side: "left" | "right", members: Set<number>) => {
+    const scale = BigInt(Math.min(left.length, right.length) + 1);
+    const member = (i: number, j: number) => members.has(side === "left" ? left[i].index : right[j].index);
+    const penalized = edges.map((row, i) => row.map(({ j, cost }) => ({ j, cost: cost * scale + BigInt(Number(member(i, j))) })));
+    return solveMatching(penalized, right.length).pairs.filter(([i, j]) => member(i, j)).length;
+  };
   const originalIndices = ([i, j]: Pair): Pair => [left[i].index, right[j].index];
   return {
     pairs: optimum.pairs.map(originalIndices),
     forcedPairs: forced.map(originalIndices),
     leftCanBeUnmatched,
     alwaysMatchedTruth,
+    fewestMatched,
   };
+}
+
+export type FamilyOf = (pin: JudgedPin) => string | null;
+
+// Each figure is the least favourable to the method among the optimal matchings.
+function drawingByFamily(
+  proposed: JudgedPin[], truth: JudgedPin[], eligible: Set<number>, familyOf: FamilyOf,
+  fewestMatched: ReturnType<typeof matchScoredPins>["fewestMatched"],
+) {
+  const families = [...new Set([...truth, ...proposed].map(familyOf))]
+    .sort((a, b) => a === b ? 0 : a === null ? 1 : b === null ? -1 : a < b ? -1 : 1);
+  return families.map((family) => {
+    const own = (pins: JudgedPin[]) => new Set(pins.flatMap((pin, i) => familyOf(pin) === family ? [i] : []));
+    const ownTruth = own(truth);
+    const ownPredictions = own(proposed);
+    const eligibleOwn = new Set([...ownPredictions].filter((i) => eligible.has(i)));
+    const tp = ownTruth.size ? fewestMatched("right", ownTruth) : 0;
+    const fp = ownPredictions.size - (eligibleOwn.size ? fewestMatched("left", eligibleOwn) : 0);
+    return { family, tp, fp, fn: ownTruth.size - tp };
+  });
 }
 
 function scoreWithoutExamples(
@@ -209,6 +239,7 @@ export function scorePage(
   truth: JudgedPin[],
   suppliedTruth: number[],
   zones: NegativeZone[],
+  familyOf: FamilyOf = (pin) => pin.organ,
 ) {
   const negativeZones: Record<string, number> = Object.fromEntries(zones.map(({ name }) => [name, 0]));
   const eligible = proposed.flatMap((pin, i) => {
@@ -216,7 +247,7 @@ export function scorePage(
     for (const { name } of excluded) negativeZones[name]++;
     return excluded.length === 0 ? [i] : [];
   });
-  const { pairs, forcedPairs, leftCanBeUnmatched, alwaysMatchedTruth } = matchScoredPins(proposed, truth, eligible);
+  const { pairs, forcedPairs, leftCanBeUnmatched, alwaysMatchedTruth, fewestMatched } = matchScoredPins(proposed, truth, eligible);
   const matched = new Set(pairs.map(([i]) => i));
   const eligibleSet = new Set(eligible);
   const matchedTruth = new Set(pairs.map(([, j]) => j));
@@ -244,6 +275,7 @@ export function scorePage(
     pairs,
     forcedPairs,
     alwaysMatchedTruth,
+    drawingByFamily: drawingByFamily(proposed, truth, eligibleSet, familyOf, fewestMatched),
     missed: truth.filter((_, j) => !matchedTruth.has(j)),
     unmatched,
     possiblyUnmatched: proposed.filter((_, i) => !eligibleSet.has(i) || leftCanBeUnmatched.has(i)),

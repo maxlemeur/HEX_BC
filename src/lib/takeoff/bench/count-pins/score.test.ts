@@ -67,6 +67,7 @@ it("counts a mark on the legend boundary as a false positive before matching", (
     expect(metrics).toMatchObject({ tp: 0, fp: 1, fn: 1 });
   }
   expect(score.negativeZones).toEqual({ legend: 1 });
+  expect(score.drawingByFamily).toEqual([{ family: "vanne", tp: 0, fp: 1, fn: 1 }]);
 });
 
 it.each([
