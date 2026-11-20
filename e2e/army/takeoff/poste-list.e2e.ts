@@ -5,7 +5,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as XLSX from "xlsx";
 
 import { recordEvidence } from "../critical/fixtures";
-import { describe, expect, fixtureFile, localClient, nativeTest as test } from "./native-ui";
+import { describe, expect, fixtureFile, localClient, nativeTest as test, type NativeUi } from "./native-ui";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local", "import-formats"], timeout: 180_000 };
 const headers = ["N", "Designation", "Unite", "Qte", "PU HT", "Total HT"];
@@ -15,6 +15,9 @@ const unquantifiedLine = ["B02", "Attente de raccordement", "u", "", "11,15", ""
 const firstSection = ["", "Bâtiment A", "", "", "", ""];
 const secondSection = ["", "Bâtiment B", "", "", "", ""];
 const subtotal = ["", "Sous-total", "", "", "", "55,75"];
+const tabularRows = [firstSection, firstLine, secondSection, secondLine, unquantifiedLine];
+const csvRows = [...tabularRows, ["", "1 249,50 EUR", "u", "", "", ""], ["Sous-total", "55,75", "€", "", "", ""]];
+type Format = "csv" | "xls" | "xlsx" | "pdf";
 
 async function bareAffaire(name: string) {
   const { client, userId } = await localClient();
@@ -28,7 +31,7 @@ async function bareAffaire(name: string) {
   return { client, projectId: project.data.id as string };
 }
 
-async function fixtureBytes(format: "csv" | "xls" | "xlsx" | "pdf") {
+async function fixtureBytes(format: Format) {
   if (format === "pdf") {
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -46,7 +49,7 @@ async function fixtureBytes(format: "csv" | "xls" | "xlsx" | "pdf") {
     return pdf.save();
   }
 
-  const rows = [headers, firstSection, firstLine, secondSection, secondLine, unquantifiedLine, subtotal];
+  const rows = [headers, ...(format === "csv" ? csvRows : [...tabularRows, subtotal])];
   if (format === "csv") return Buffer.from("\ufeff" + rows.map((row) => row.join(";")).join("\n"), "utf8");
 
   if (format === "xlsx") {
@@ -68,14 +71,65 @@ async function readStoredDpgf(client: Awaited<ReturnType<typeof bareAffaire>>["c
   const importId = source.data!.id;
   const [raw, mappings, mapped] = await Promise.all([
     client.from("dpgf_rows_raw").select("*").eq("import_id", importId).order("row_index"),
-    client.from("dpgf_mappings").select("*").eq("import_id", importId),
-    client.from("dpgf_rows_mapped").select("*").eq("import_id", importId),
+    client.from("dpgf_mappings").select("*").eq("import_id", importId).order("id"),
+    client.from("dpgf_rows_mapped").select("*").eq("import_id", importId).order("id"),
   ]);
   expect([raw.error, mappings.error, mapped.error]).toEqual([null, null, null]);
   expect(raw.data!.length).toBeGreaterThan(0);
   expect(mappings.data).toHaveLength(1);
   expect(mapped.data).toHaveLength(raw.data!.length);
   return { raw: raw.data!, mappings: mappings.data!, mapped: mapped.data! };
+}
+
+async function openImportConfirmation(ui: NativeUi, projectId: string, format: Format, file: string) {
+  const { app, browser, screen } = ui;
+  await app.open(`/dashboard/affaires/${projectId}?created=1`);
+  await screen.getByRole("button", "Importer la DPGF", { exact: true }).first().click();
+  await browser.locator('input[type="file"]').setInputFiles(file);
+  const submitUpload = format === "pdf" ? "Valider les tableaux et lancer l'import" : "Lancer l'import";
+  await screen.getByRole("button", submitUpload, { exact: true }).click();
+  const next = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
+  const edit = screen.getByRole("button", "Modifier le mapping", { exact: true });
+  await expect.poll(async () => (await next.isVisible()) || (await edit.isVisible())).toBe(true);
+  if (await edit.isVisible()) await edit.click();
+
+  for (const [source, target] of [
+    [/^Champ cible pour N$/, "hex_code"],
+    [/^Champ cible pour Designation$/, "designation"],
+    [/^Champ cible pour Unite$/, "unit"],
+    [/^Champ cible pour Qte$/, "quantity"],
+    [/^Champ cible pour PU[ _]HT$/, "unit_price_ht"],
+    [/^Champ cible pour Total[ _]HT$/, "total_ht"],
+  ] as const) {
+    await screen.getByRole("combobox", source).selectOption({ value: target });
+  }
+  await next.click();
+  if (format !== "pdf") {
+    for (const label of ["Bâtiment A", "Bâtiment B"]) {
+      await screen.getByRole("combobox", `Type de ${label}`, { exact: true }).selectOption({ value: "section" });
+    }
+  }
+  await screen.getByRole("button", "Suivant : Confirmation", { exact: true }).click();
+}
+
+async function recordConfirmedEstimate(ui: NativeUi, format: Format, file: string) {
+  const { screen, army } = ui;
+  const { client, projectId } = await bareAffaire(`${army.runPrefix}-POSTE-devis-${format}`);
+  await openImportConfirmation(ui, projectId, format, file);
+  await screen.getByRole("button", "Créer le chiffrage", { exact: true }).click();
+  await expect(screen.getByRole("heading", "Devis créé", { exact: true })).toBeVisible();
+  const version = await client.from("estimate_versions").select("id").eq("project_id", projectId).single();
+  expect(version.error).toBeNull();
+  const stored = await readStoredDpgf(client, projectId);
+  const items = await client.from("estimate_items").select("id, parent_id, position, item_type, title, source_metadata")
+    .eq("version_id", version.data!.id);
+  expect(items.error).toBeNull();
+  const lines = items.data!.filter(({ item_type }) => item_type === "line");
+  expect(lines.length).toBeGreaterThan(0);
+  expect(lines.map(({ source_metadata }) => source_metadata)).toEqual(lines.map(() =>
+    expect.objectContaining({ import_id: stored.mappings[0].import_id, mapped_row_id: expect.any(String) })
+  ));
+  await recordEvidence(army, `POSTE-devis-${format}`, { ...stored, estimate: items.data });
 }
 
 describe("Aperçu des postes à mesurer", () => {
@@ -119,44 +173,14 @@ describe("Aperçu des postes à mesurer", () => {
       const bytes = await fixtureBytes(format);
       const file = fixtureFile(ui, filename, bytes);
       const href = `/dashboard/affaires/${projectId}/takeoff`;
-      await app.open(`/dashboard/affaires/${projectId}?created=1`);
-      await screen.getByRole("button", "Importer la DPGF", { exact: true }).first().click();
-      await browser.locator('input[type="file"]').setInputFiles(file);
-      if (format === "pdf") {
-        await screen.getByRole("button", "Valider les tableaux et lancer l'import", { exact: true }).click();
-      } else {
-        await screen.getByRole("button", "Lancer l'import", { exact: true }).click();
-      }
-      const next = screen.getByRole("button", "Suivant : Aperçu", { exact: true });
-      const edit = screen.getByRole("button", "Modifier le mapping", { exact: true });
-      await expect.poll(async () => await next.isVisible() || await edit.isVisible()).toBe(true);
-      if (await edit.isVisible()) await edit.click();
-
-      for (const [source, target] of [
-        [/^Champ cible pour N$/, "hex_code"],
-        [/^Champ cible pour Designation$/, "designation"],
-        [/^Champ cible pour Unite$/, "unit"],
-        [/^Champ cible pour Qte$/, "quantity"],
-        [/^Champ cible pour PU[ _]HT$/, "unit_price_ht"],
-        [/^Champ cible pour Total[ _]HT$/, "total_ht"],
-      ] as const) {
-        await screen.getByRole("combobox", source).selectOption({ value: target });
-      }
-      await next.click();
-      if (format !== "pdf") {
-        for (const label of ["Bâtiment A", "Bâtiment B"]) {
-          await screen.getByRole("combobox", `Type de ${label}`, { exact: true }).selectOption({ value: "section" });
-        }
-      }
-      await screen.getByRole("button", "Suivant : Confirmation", { exact: true }).click();
+      await openImportConfirmation(ui, projectId, format, file);
       await screen.getByRole("button", "Retour au hub", { exact: true }).click();
       await expect(screen.getByRole("heading", "Mapping enregistré", { exact: true })).toBeVisible();
 
       const stored = await readStoredDpgf(client, projectId);
       if (format === "csv") {
-        const expectedRows = [firstSection, firstLine, secondSection, secondLine, unquantifiedLine, subtotal];
         expect(stored.raw.map(({ row_index, payload }) => ({ row_index, payload }))).toEqual(
-          expectedRows.map((cells, row_index) => ({
+          csvRows.map((cells, row_index) => ({
             row_index,
             payload: Object.fromEntries(headers.map((header, index) => [header.replace(" ", "_"), cells[index] || null])),
           }))
@@ -166,6 +190,8 @@ describe("Aperçu des postes à mesurer", () => {
 
       await app.open(href);
       const table = screen.getByRole("table", "Postes à mesurer", { exact: true });
+      await expect(screen.getByText("Liste indicative. Les choix faits à la confirmation de l’import ne sont pas encore reflétés.", { exact: true })).toBeVisible();
+      await expect(screen.getByText("DPGF à préparer.", { exact: false })).toHaveCount(0);
       const homonyms = table.getByRole("row").filter({ hasText: "Lavabo en céramique" });
       await expect(homonyms).toHaveCount(2);
       const sourceLocations = format === "pdf" ? ["Page 1", "Page 2"]
@@ -182,10 +208,15 @@ describe("Aperçu des postes à mesurer", () => {
           .getByRole("cell", "—", { exact: true })).toBeVisible();
       }
       await expect(table.getByRole("row").filter({ hasText: /Sous-total|55,75/ })).toHaveCount(0);
-      if (format === "pdf") {
+      if (format === "csv" || format === "pdf") {
         await screen.getByText("Détail de la lecture des lignes sources", { exact: true }).click();
-        await expect(screen.getByText(/55,75|Sous-total/)).toHaveCount(0);
-        await expect(screen.getByText(/Page 2.*Total ou pied de tableau/)).toBeVisible();
+        await expect(screen.getByText(/55,75|Sous-total|249,50/)).toHaveCount(0);
+        if (format === "csv") {
+          await expect(screen.getByText("Enregistrement importé 6 · Désignation illisible", { exact: true })).toBeVisible();
+          await expect(screen.getByText("Enregistrement importé 7 · Total ou pied de tableau", { exact: true })).toBeVisible();
+        } else {
+          await expect(screen.getByText(/Page 2.*Total ou pied de tableau/)).toBeVisible();
+        }
       }
       if (format === "xlsx") await expect(homonyms.nth(0)).toContainText("DPGF");
 
@@ -196,10 +227,12 @@ describe("Aperçu des postes à mesurer", () => {
       expect([await homonyms.nth(0).getAttribute("id"), await homonyms.nth(1).getAttribute("id")]).toEqual(ids);
       const versions = await client.from("estimate_versions").select("id").eq("project_id", projectId);
       expect(versions.data).toEqual([]);
+      expect(await readStoredDpgf(client, projectId)).toEqual(stored);
       await recordEvidence(army, `POSTE-${format}`, {
         projectId, filename, sha256: createHash("sha256").update(bytes).digest("hex"),
         sourceLocations, ids, versions: versions.data,
       });
+      await recordConfirmedEstimate(ui, format, file);
     });
   }
 });

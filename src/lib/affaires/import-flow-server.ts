@@ -9,9 +9,6 @@ import type {
   ValidImportFlowItem,
   ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
-import { confirmMappedStructure, CONFIRMED_MAPPED_STRUCTURE_KEY } from "@/lib/imports/confirmed-mapped-structure";
-import type { ImportStructureDecision } from "@/lib/imports/structure";
-import { asRecord } from "@/lib/value-guards";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import type { EstimateV3PricingStatus } from "@/lib/estimates/engine-v3";
 
@@ -267,14 +264,14 @@ export async function fetchMappedRowsForImport(input: {
   tenantId: string;
 }) {
   const pageSize = 500;
-  const rows: Array<{ id: string; payload: Json; rawRowId?: string }> = [];
+  const rows: Array<{ id: string; payload: Json }> = [];
   const ids = new Set<string>();
   let expectedCount: number | null = null;
 
   for (let offset = 0; ; offset += pageSize) {
     const { data, error, count } = await input.supabase
       .from("dpgf_rows_mapped")
-      .select("id, payload, raw:dpgf_rows_raw!dpgf_rows_mapped_raw_row_id_fkey(id, import_id, tenant_id)", { count: "exact" })
+      .select("id, payload", { count: "exact" })
       .eq("tenant_id", input.tenantId)
       .eq("import_id", input.importId)
       .order("created_at", { ascending: true })
@@ -295,12 +292,7 @@ export async function fetchMappedRowsForImport(input: {
         throw new Error("Les lignes mappées ont changé. Rechargez l'import avant de continuer.");
       }
       ids.add(row.id);
-      const raw = row.raw;
-      rows.push({
-        id: row.id,
-        payload: row.payload,
-        ...(raw?.import_id === input.importId && raw.tenant_id === input.tenantId ? { rawRowId: raw.id } : {}),
-      });
+      rows.push({ id: row.id, payload: row.payload });
     }
     if (batch.length < pageSize) {
       if (rows.length !== expectedCount) {
@@ -311,18 +303,17 @@ export async function fetchMappedRowsForImport(input: {
   }
 }
 
-export async function fetchLatestMapping(input: {
+export async function fetchLatestMappingId(input: {
   supabase: Supabase;
   importId: string;
   tenantId: string;
-}) {
+}): Promise<string | null> {
   const { data, error } = await input.supabase
     .from("dpgf_mappings")
-    .select("id, column_mapping")
+    .select("id")
     .eq("tenant_id", input.tenantId)
     .eq("import_id", input.importId)
     .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
 
@@ -330,28 +321,7 @@ export async function fetchLatestMapping(input: {
     throw new Error("Impossible de charger le mapping.");
   }
 
-  return data;
-}
-
-/** Store one receipt for the complete row set, without rewriting the mapped rows or their identities. */
-export async function recordConfirmedMappedStructure(input: {
-  supabase: Supabase;
-  tenantId: string;
-  importId: string;
-  mapping: { id: string; column_mapping: Json };
-  rows: Awaited<ReturnType<typeof fetchMappedRowsForImport>>;
-  decisions: ImportStructureDecision[];
-}) {
-  const { supabase, tenantId, importId, mapping, rows, decisions } = input;
-  const confirmation = confirmMappedStructure(rows, mapping.id, asRecord(mapping.column_mapping) ?? {}, decisions);
-  if (!confirmation) return;
-  const { anchor, receipt } = confirmation;
-  const payload = { ...asRecord(anchor.payload), [CONFIRMED_MAPPED_STRUCTURE_KEY]: receipt } as NonNullable<Json>;
-
-  const { data, error } = await supabase.from("dpgf_rows_mapped").update({ payload })
-    .eq("id", anchor.id).eq("import_id", importId).eq("tenant_id", tenantId)
-    .eq("raw_row_id", anchor.rawRowId).select("id").maybeSingle();
-  if (error || !data) throw new Error("Impossible d’enregistrer les décisions de structure du DPGF.");
+  return data?.id ?? null;
 }
 
 export function toRpcImportLines(lines: ValidImportFlowLine[]): RpcImportLinesPayload[] {

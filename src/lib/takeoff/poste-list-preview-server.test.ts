@@ -4,27 +4,23 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { confirmMappedStructure } from "@/lib/imports/confirmed-mapped-structure";
 import { loadPosteListPreview } from "./poste-list-preview-server";
 
-function fixture(role: "admin" | "engineer", importOwner: string, confirmed = false) {
+function fixture(role: "admin" | "engineer", importOwner: string) {
   const importRow = { id: "import-a", filename: "plomberie.csv", source_format: "csv", status: "completed", row_count: 1 };
   const stampedAt = "2026-11-20T09:00:00Z";
   const columns = { Designation: "designation", Unite: "unit", Qte: "quantity" };
   const line = { designation: "Option lavabo", unit: "u", quantity: 2 };
-  const receipt = confirmed ? confirmMappedStructure([
-    { id: "mapped-a", rawRowId: "raw-a", payload: { row_index: 0, mapped_row: line } },
-  ], "legacy", columns, [])?.receipt : null;
   const tables: Record<string, unknown[]> = {
     // RLS exposes an administrator-authored direct import to administrators and its creator.
     dpgf_imports: role === "admin" || importOwner === "engineer" ? [importRow] : [],
     affaire_intake_documents: [],
-    dpgf_mappings: [{ id: "legacy", status: "validated", created_at: stampedAt, updated_at: stampedAt }],
+    dpgf_mappings: [{ id: "legacy", status: "validated", column_mapping: columns, created_at: stampedAt, updated_at: stampedAt }],
     dpgf_rows_raw: [{ id: "raw-a", row_index: 0, structure: {
       sheet_name: "DPGF", source_row_number: 4, bold_columns: ["Designation"], merged_columns: [],
       outline_level: 1, column_order: ["Designation", "Unite", "Qte"],
     } }],
-    dpgf_rows_mapped: [{ id: "mapped-a", raw_row_id: "raw-a", ...line, receipt }],
+    dpgf_rows_mapped: [{ id: "mapped-a", raw_row_id: "raw-a", ...line }],
   };
   const from = vi.fn((table: string) => {
     const data = tables[table];
@@ -49,17 +45,19 @@ describe("DPGF preview source confidence", () => {
     expect(await loadPosteListPreview("project")).toEqual({ kind: "limited" });
   });
 
-  it("marks a visible confirmed DPGF as indicative when another import can be hidden", async () => {
-    fixture("engineer", "engineer", true);
+  it("keeps a visibility caveat for a visible DPGF when another import can be hidden", async () => {
+    fixture("engineer", "engineer");
 
     expect(await loadPosteListPreview("project")).toMatchObject({
       kind: "dpgf", limitedVisibility: true, projection: { counts: { useful: 1 } },
     });
   });
 
-  it("requires preparation for a single legacy mapping that cannot attest an ignored bold option with a quantity", async () => {
+  it("projects a historical mapping even though confirmation choices are unavailable", async () => {
     fixture("admin", "administrator");
 
-    expect(await loadPosteListPreview("project")).toEqual({ kind: "prepare" });
+    expect(await loadPosteListPreview("project")).toMatchObject({
+      kind: "dpgf", revision: { items: [{ label: "Option lavabo" }] },
+    });
   });
 });

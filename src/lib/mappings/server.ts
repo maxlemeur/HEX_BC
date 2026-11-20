@@ -18,7 +18,6 @@ import {
 } from "@/lib/imports/payload";
 import { detectImportProfile } from "@/lib/imports/optima-profile";
 import { analyzeImportStructure } from "@/lib/imports/structure";
-import { MAPPED_ROW_STRUCTURE_KEY } from "@/lib/imports/mapped-row-structure";
 import {
   isMajorationHeaderWords,
   readMajorationUnitSuffix,
@@ -1829,14 +1828,10 @@ export async function createMapping(input: {
     throw internalError("Impossible de créer le mapping.");
   }
 
-  const mappedRows = rawRows.map((row) => {
-    const rawRow = asRecord(row.payload) ?? {};
-    return { id: row.id, rowIndex: row.row_index, rawRow, mappedRow: applyMappingToPayload(rawRow, scopedMapping) };
-  });
-
   // T-10: Build mapped rows, then delete+insert with safety
-  const mappedRowsPayload: MappedRowInsert[] = mappedRows.map((row) => {
-    const { rawRow, mappedRow } = row;
+  const mappedRowsPayload: MappedRowInsert[] = rawRows.map((row) => {
+    const rawRow = asRecord(row.payload) ?? {};
+    const mappedRow = applyMappingToPayload(rawRow, scopedMapping);
     const rawRowJson = toJsonValue(rawRow) as Record<string, Json>;
     const mappedRowJson = toJsonValue(mappedRow) as Record<string, Json>;
     const reference = normalizeText(mappedRow.reference ?? mappedRow.hex_code);
@@ -1851,8 +1846,7 @@ export async function createMapping(input: {
       status: "mapped",
       payload: {
         raw_row_id: row.id,
-        row_index: row.rowIndex,
-        [MAPPED_ROW_STRUCTURE_KEY]: { mapping_id: data.id },
+        row_index: row.row_index,
         raw_row: rawRowJson,
         mapped_row: mappedRowJson,
         ...mappedRowJson,

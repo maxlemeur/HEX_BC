@@ -1,41 +1,78 @@
 import { describe, expect, it } from "vitest";
 
 import { normalizeRowsFromJson } from "@/lib/imports/parser";
-import { classifyMappedRows, type MappedRowClassification } from "@/lib/imports/mapped-row-structure";
-
 import { projectDpgfPostes, type MappedDpgfPosteRow } from "./poste-list-dpgf";
 
+const scope = { importId: "import", mappingId: "mapping", columnMapping: {} };
+
+function standaloneRow(id: string, rowIndex: number, sourcePage: number | null = null) {
+  return { id, rowIndex, sheetName: null, sourceRowNumber: null, sourcePage, tableIndex: null, documentId: null };
+}
+
 describe("DPGF item projection", () => {
-  it("keeps confirmed structure and excludes a sparse PDF subtotal without pricing a line", () => {
-    const titles = [
-      { designation: "Sanitaires" },
-      { designation: "Lavabo", unit: "u", unit_price_ht: "illisible" },
-      { designation: "Ancienne option" },
-      { designation: "55,75", hex_code: "Sous-total" },
-    ];
-    const rows = titles.map((mappedRow, rowIndex) => ({ id: String(rowIndex), rowIndex, mappedRow, rawRow: {} }));
-    const classifications = classifyMappedRows(rows, [
-      { rowIndex: 0, kind: "section", level: 1 },
-      { rowIndex: 2, kind: "ignore", level: null },
-      { rowIndex: 3, kind: "line", level: null },
-    ], {});
-    expect([...classifications.values()]).toEqual([
-      { kind: "section", level: 1 }, { kind: "line" }, { kind: "ignore" }, { kind: "footer" },
-    ]);
+  it("uses stored designation styling for an indicative section and keeps measured rows", () => {
+    const structure = {
+      sheet_name: "DPGF", source_row_number: 2, bold_columns: ["Désignation"],
+      merged_columns: [], outline_level: null, column_order: ["Désignation"],
+    };
+    const result = projectDpgfPostes({
+      ...scope, columnMapping: { Designation: "designation" },
+      rawRows: [{ ...standaloneRow("r1", 0), structure }, { ...standaloneRow("r2", 1), structure }],
+      mappedRows: [
+        { id: "m1", rawRowId: "r1", designation: "Sanitaires" },
+        { id: "m2", rawRowId: "r2", designation: "Lavabo", unit: "u", quantity: 2 },
+      ],
+    });
+    expect(result.items).toMatchObject([{ label: "Lavabo", sections: [{ title: "Sanitaires" }] }]);
+    expect(result.issues).toMatchObject([{ reason: "section" }]);
   });
 
   it("reports the location and reason of a shifted PDF subtotal without exposing its amount", () => {
     const row = { designation: "55,75", hex_code: "Sous-total" };
-    const classes = classifyMappedRows([{ id: "m1", rowIndex: 6, rawRow: {}, mappedRow: row }], [], {});
     const projected = projectDpgfPostes({
-      importId: "import", mappingId: "mapping",
-      rawRows: [{ id: "r1", rowIndex: 6, sourcePage: 2, tableIndex: 0, sheetName: null, sourceRowNumber: null, documentId: null }],
-      mappedRows: [{ ...row, id: "m1", rawRowId: "r1", classification: classes.get("m1")! }],
+      ...scope, rawRows: [standaloneRow("r1", 6, 2)],
+      mappedRows: [{ ...row, id: "m1", rawRowId: "r1" }],
     });
 
     expect(projected.items).toEqual([]);
     expect(JSON.stringify(projected)).not.toMatch(/55,75|Sous-total/);
     expect(projected.issues[0]).toMatchObject({ reason: "footer", rowIndex: 6, sourcePage: 2 });
+  });
+
+  it("withholds a subtotal with a currency unit and an amount-only designation", () => {
+    const rows = [
+      { id: "r1", rowIndex: 6, mappedRow: { designation: "55,75", reference: "Sous-total", unit: "€" } },
+      { id: "r2", rowIndex: 7, mappedRow: { designation: "1 249,50 EUR", unit: "u" } },
+      { id: "r3", rowIndex: 8, mappedRow: { designation: "129.40", unit: "m" } },
+      { id: "r4", rowIndex: 9, mappedRow: { designation: "320 € TTC", unit: "m" } },
+    ];
+    const result = projectDpgfPostes({
+      ...scope, rawRows: rows.map(({ id, rowIndex }) => standaloneRow(id, rowIndex, 2)),
+      mappedRows: rows.map(({ id, mappedRow }) => ({
+        ...mappedRow, id: `mapped-${id}`, rawRowId: id,
+      })),
+    });
+
+    expect(result.items).toEqual([]);
+    expect(result.issues).toMatchObject([
+      { reason: "footer", rowIndex: 6, sourcePage: 2 },
+      { reason: "unreadable_designation", rowIndex: 7, sourcePage: 2 },
+      { reason: "unreadable_designation", rowIndex: 8, sourcePage: 2 },
+      { reason: "unreadable_designation", rowIndex: 9, sourcePage: 2 },
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(/55,75|Sous-total|249,50|129\.40|EUR|320/);
+  });
+
+  it("keeps an unquantified unlabelled-unit prestation ambiguous regardless of price", () => {
+    const mapped = { id: "m1", rawRowId: "r1", designation: "Pose lavabo" };
+    const variants = [mapped, { ...mapped, unit_price_ht: "14,50" }, { ...mapped, total_ht: "19,20" }];
+    const results = variants.map((row) => projectDpgfPostes({
+      ...scope, rawRows: [standaloneRow("r1", 0)], mappedRows: [row],
+    }));
+
+    expect(results[0].items).toEqual([]);
+    expect(results[0].issues).toMatchObject([{ reason: "ambiguous", title: "Pose lavabo" }]);
+    expect(results).toEqual([results[0], results[0], results[0]]);
   });
 
   it("omits a repeated accented French header after import normalisation", () => {
@@ -48,14 +85,11 @@ describe("DPGF item projection", () => {
       id: String(rowIndex), rowIndex, rawRow,
       mappedRow: Object.fromEntries(Object.entries(mapping).map(([column, target]) => [target, rawRow[column]])),
     }));
-    const decisions = classifyMappedRows(rows, [], mapping);
     const projected = projectDpgfPostes({
-      importId: "import", mappingId: "mapping",
-      rawRows: rows.map(({ id, rowIndex }) => ({
-        id, rowIndex, sheetName: null, sourceRowNumber: null, sourcePage: null, tableIndex: null, documentId: null,
-      })),
+      ...scope, columnMapping: mapping,
+      rawRows: rows.map(({ id, rowIndex }) => standaloneRow(id, rowIndex)),
       mappedRows: rows.map(({ id, mappedRow }) => ({
-        id: `mapped-${id}`, rawRowId: id, classification: decisions.get(id)!, ...mappedRow,
+        id: `mapped-${id}`, rawRowId: id, ...mappedRow,
       })),
     });
 
@@ -64,28 +98,26 @@ describe("DPGF item projection", () => {
   });
 
   it("accounts for each raw line in physical order and preserves both homonyms", () => {
-    const physicalRows: { id: string; designation?: string; unit?: string; quantity?: string; structure?: MappedRowClassification }[] = [
-      { id: "lot", designation: "Bâtiment A", structure: { kind: "section", level: 1 } },
-      { id: "a", designation: "Lavabo", unit: "unité", quantity: "2", structure: { kind: "line" } },
-      { id: "other-lot", designation: "Bâtiment B", structure: { kind: "section", level: 1 } },
-      { id: "b", designation: "Lavabo", unit: "u", structure: { kind: "line" } },
-      { id: "subtotal", designation: "Sous-total", structure: { kind: "footer" } },
-      { id: "ambiguous", designation: "Autres prestations", structure: { kind: "ambiguous" } },
+    const physicalRows = [
+      { id: "lot", designation: "Bâtiment A" },
+      { id: "a", designation: "Lavabo", unit: "unité", quantity: "2" },
+      { id: "other-lot", designation: "Bâtiment B" },
+      { id: "b", designation: "Lavabo", unit: "u" },
+      { id: "subtotal", designation: "Sous-total" },
+      { id: "ambiguous", designation: "Autres prestations" },
       { id: "missing" },
-      { id: "duplicate", designation: "WC", structure: { kind: "line" } },
+      { id: "duplicate", designation: "WC", unit: "u" },
     ];
     const rawRows = physicalRows.map(({ id }, rowIndex) => ({
       id, rowIndex, sheetName: "Plomberie", sourceRowNumber: rowIndex + 3,
       sourcePage: null, tableIndex: null, documentId: null,
     }));
-    const mappedRows = physicalRows.flatMap(({ id, designation, unit, quantity, structure }) =>
-      structure ? [{
-        id: `mapped-${id}`, rawRowId: id, designation, unit, quantity, classification: structure,
-      }] : []
+    const mappedRows = physicalRows.flatMap(({ id, designation, unit, quantity }) =>
+      designation ? [{ id: `mapped-${id}`, rawRowId: id, designation, unit, quantity }] : []
     );
 
     const projection = projectDpgfPostes({
-      importId: "import", mappingId: "mapping", rawRows: rawRows.toReversed(),
+      ...scope, rawRows: rawRows.toReversed(),
       mappedRows: [...mappedRows.toReversed(), { ...mappedRows.at(-1)!, id: "duplicate-mapping" }],
     });
 
@@ -104,12 +136,11 @@ describe("DPGF item projection", () => {
       id, rowIndex, sheetName: null, sourceRowNumber: null, sourcePage: null, tableIndex: null, documentId: null,
     }));
     const mappedRows: MappedDpgfPosteRow[] = [
-      { id: "orphan-z", rawRowId: "unread-raw-row", classification: { kind: "line" } },
-      { id: "mapped-section", rawRowId: "section", classification: { kind: "section", level: 1 } },
-      { id: "orphan-a", rawRowId: null, classification: { kind: "line" } },
-      { id: "mapped-line", rawRowId: "line", designation: "Lavabo", unit: "illisible", quantity: "illisible", classification: { kind: "line" } },
+      { id: "orphan-z", rawRowId: "unread-raw-row" },
+      { id: "mapped-section", rawRowId: "section", designation: "Titre sans style" },
+      { id: "orphan-a", rawRowId: null },
+      { id: "mapped-line", rawRowId: "line", designation: "Lavabo", unit: "illisible", quantity: "illisible" },
     ];
-    const scope = { importId: "import", mappingId: "mapping" };
     const result = projectDpgfPostes({ ...scope, rawRows, mappedRows });
     const reordered = projectDpgfPostes({ ...scope, rawRows: rawRows.toReversed(), mappedRows: mappedRows.toReversed() });
 

@@ -1,12 +1,13 @@
-import { readImportQuantity } from "@/lib/affaires/import-flow";
-import type { MappedRowClassification } from "@/lib/imports/mapped-row-structure";
+import type { ImportRowStructure } from "@/lib/imports/payload";
 import { resolveImportRowTitle } from "@/lib/imports/structure";
+import { parseQuantity } from "@/lib/numeric-input/parsers";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { digestPosteFacts, type DpgfPosteOrigin, type PosteDraft, type PosteSection } from "./poste-list";
+import { createDpgfPosteClassifier, isEmptyDpgfCell } from "./poste-list-dpgf-structure";
 
 export type RawDpgfPosteRow = Pick<DpgfPosteOrigin,
   "rowIndex" | "sheetName" | "sourceRowNumber" | "sourcePage" | "tableIndex" | "documentId"
-> & { id: string };
+> & { id: string; structure?: ImportRowStructure | null };
 
 export type MappedDpgfPosteRow = {
   id: string;
@@ -17,7 +18,6 @@ export type MappedDpgfPosteRow = {
   unit?: unknown;
   quantity?: unknown;
   notes?: unknown;
-  classification: MappedRowClassification | null;
 };
 
 type RowIssue = {
@@ -28,7 +28,7 @@ type RowIssue = {
   sourceRowNumber?: number | null;
   sourcePage?: number | null;
   reason: "missing_mapping" | "multiple_mappings" | "unattested_mapping" | "invalid_quantity" |
-    "ambiguous" | "section" | "ignore" | "footer" | "parameters" | "empty" | "header";
+    "ambiguous" | "section" | "footer" | "empty" | "header" | "unreadable_designation";
   title?: string;
 };
 
@@ -42,8 +42,10 @@ export function projectDpgfPostes(input: {
   mappingId: string;
   rawRows: readonly RawDpgfPosteRow[];
   mappedRows: readonly MappedDpgfPosteRow[];
+  columnMapping: Readonly<Record<string, unknown>>;
 }) {
   const { importId, mappingId } = input;
+  const classifyRow = createDpgfPosteClassifier(input.columnMapping);
   const items: (PosteDraft & { origin: DpgfPosteOrigin })[] = [];
   const unattestedMappingIds: string[] = [];
   const rawIds = new Set(input.rawRows.map(({ id }) => id));
@@ -67,7 +69,7 @@ export function projectDpgfPostes(input: {
   }));
   let sections: PosteSection[] = [];
   const sorted = [...input.rawRows].sort((a, b) => a.rowIndex - b.rowIndex || a.id.localeCompare(b.id));
-  for (const { id: rawRowId, ...source } of sorted) {
+  for (const { id: rawRowId, structure, ...source } of sorted) {
     const matches = mappedByRawId.get(rawRowId) ?? [];
     const row = matches.length === 1 ? matches[0] : null;
     const issue = {
@@ -85,9 +87,9 @@ export function projectDpgfPostes(input: {
       continue;
     }
 
-    const { classification } = row;
+    const classification = classifyRow(row, structure);
     const title = resolveImportRowTitle(row);
-    if (!classification || classification.kind === "ambiguous" || (classification.kind === "section" && !title)) {
+    if (classification.kind === "ambiguous") {
       counts.ambiguous++;
       issues.push({ ...issue, reason: "ambiguous", title });
       continue;
@@ -96,17 +98,19 @@ export function projectDpgfPostes(input: {
       const section = { id: rawRowId, title, order: source.rowIndex };
       sections = [...sections.slice(0, classification.level - 1), section];
     }
-    if (classification.kind !== "line" || !title) {
+    if (classification.kind !== "line") {
       counts.omitted++;
       issues.push({
-        ...issue, reason: classification.kind === "line" ? "empty" : classification.kind,
-        ...(classification.kind === "footer" ? {} : { title }),
+        ...issue, reason: classification.kind,
+        ...(classification.kind === "section" ? { title } : {}),
       });
       continue;
     }
 
-    const quantity = readImportQuantity(row.quantity);
-    if (quantity.status === "invalid") {
+    const hasQuantity = !isEmptyDpgfCell(row.quantity);
+    const parsedQuantity = hasQuantity ? parseQuantity(row.quantity) : null;
+    const quantity = parsedQuantity !== null && parsedQuantity >= 0 ? parsedQuantity : null;
+    if (hasQuantity && quantity === null) {
       issues.push({ ...issue, reason: "invalid_quantity", title });
     }
     const unit = mappedText(row.unit);
@@ -117,7 +121,7 @@ export function projectDpgfPostes(input: {
     items.push({
       label: title,
       expectedUnit,
-      referenceQuantity: quantity.value,
+      referenceQuantity: quantity,
       measurementBasis: null,
       qualifiers: {},
       sections,

@@ -2,7 +2,6 @@ import "server-only";
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { mapSupabaseError } from "@/lib/http/api-response";
-import { readConfirmedMappedStructure } from "@/lib/imports/confirmed-mapped-structure";
 import { IMPORT_ROW_STRUCTURE_KEY, readImportRowStructure } from "@/lib/imports/payload";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { asRecord, toNonEmptyString } from "@/lib/value-guards";
@@ -56,7 +55,7 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
   if (source.status !== "completed" || source.row_count === 0) return prepare();
 
   const recentMappings = () => supabase.from("dpgf_mappings")
-    .select("id, status, created_at, updated_at")
+    .select("id, status, column_mapping, created_at, updated_at")
     .eq("tenant_id", tenantId).eq("import_id", source.id)
     .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(2)
     .abortSignal(new AbortController().signal);
@@ -72,7 +71,7 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
       .select("id, row_index, structure:payload->_timax_structure, provenance:payload->_timax_provenance", { count: "exact" })
       .eq("tenant_id", tenantId).eq("import_id", source.id).order("row_index")),
     readAllRows(() => supabase.from("dpgf_rows_mapped")
-      .select(`id, raw_row_id, receipt:payload->_timax_confirmed_structure,
+      .select(`id, raw_row_id,
         designation:payload->mapped_row->designation, reference:payload->mapped_row->reference,
         hex_code:payload->mapped_row->hex_code, unit:payload->mapped_row->unit,
         quantity:payload->mapped_row->quantity, notes:payload->mapped_row->notes,
@@ -102,6 +101,7 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
       sourcePage: sourceInteger(provenance?.source_page, 1),
       tableIndex: sourceInteger(provenance?.table_index, 0),
       documentId: toNonEmptyString(provenance?.source_document_id),
+      structure,
     };
   });
   if (rawRows.some(({ documentId }) => documentId !== (document?.id ?? null))) {
@@ -117,20 +117,13 @@ export async function loadPosteListPreview(projectId: string): Promise<PosteList
     unit: row.unit ?? row.flat_unit,
     quantity: row.quantity ?? row.flat_quantity,
     notes: row.notes ?? row.flat_notes,
-    receipt: row.receipt,
   }));
 
-  const classifications = readConfirmedMappedStructure(mappedRows, mapping.id);
-  if (!classifications) return prepare();
-
   const projection = projectDpgfPostes({
-    importId: source.id, mappingId: mapping.id, rawRows,
-    mappedRows: mappedRows.map((row) => ({
-      ...row, classification: classifications.get(row.id) ?? null,
-    })),
+    importId: source.id, mappingId: mapping.id, rawRows, mappedRows,
+    columnMapping: asRecord(mapping.column_mapping) ?? {},
   });
-  if (mappedRows.length !== rawRows.length || projection.counts.missing || projection.counts.orphaned ||
-    !projection.items.length) {
+  if (mappedRows.length !== rawRows.length || projection.counts.missing || projection.counts.orphaned) {
     return prepare(projection);
   }
   return {

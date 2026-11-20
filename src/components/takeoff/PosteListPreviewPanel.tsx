@@ -11,11 +11,10 @@ const ISSUE_LABELS = {
   invalid_quantity: "Quantité de référence à vérifier",
   ambiguous: "Nature de la ligne à préciser",
   section: "Section",
-  ignore: "Écartée à la confirmation",
   footer: "Total ou pied de tableau",
-  parameters: "Paramètres du classeur",
   empty: "Sans désignation",
   header: "En-tête répété",
+  unreadable_designation: "Désignation illisible",
 };
 const referenceFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 6 });
 type Query = Record<string, string | string[] | undefined>;
@@ -65,6 +64,9 @@ export async function PosteListPreviewPanel({ projectId, query }: { projectId: s
           <p className="text-sm">Gabarit indicatif de plomberie · {items.length} postes</p>
         )}
         {preview.kind === "dpgf" && <p className="text-sm">DPGF · {preview.filename}</p>}
+        {projection && (
+          <p className="text-sm">Liste indicative. Les choix faits à la confirmation de l’import ne sont pas encore reflétés.</p>
+        )}
         {(preview.kind === "prepare" || preview.kind === "choose") && (
           <p className="text-sm">
             {preview.kind === "choose" ? "Plusieurs sources DPGF dans cette affaire." : "DPGF à préparer."}{" "}
@@ -119,7 +121,7 @@ export async function PosteListPreviewPanel({ projectId, query }: { projectId: s
             <ul className="list-disc space-y-1 pl-6 pt-2 text-sm">
               {projection.issues.slice(Math.max(0, start - items.length), end - items.length).map((issue) => (
                 <li key={`${issue.rawRowId}:${issue.mappedRowId}:${issue.reason}`}>
-                  {issue.reason === "footer" ? sourceLocation(issue, sourceFormat) : issue.title || sourceLocation(issue, sourceFormat)}
+                  {issue.title || sourceLocation(issue, sourceFormat)}
                   {" · "}{ISSUE_LABELS[issue.reason]}
                 </li>
               ))}

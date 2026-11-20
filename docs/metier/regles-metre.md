@@ -7,14 +7,18 @@ Le métré se suit depuis son affaire, y compris pour une analyse créée sur un
 
 ## Aperçu des postes à mesurer avant le devis
 
-La page **Métrés** affiche les postes d’une affaire sans devis. Elle reprend la DPGF
-liée et ses correspondances validées, dans l’ordre des lignes importées. Une
-prestation sans quantité de référence reste visible. La quantité de la DPGF est
+La page **Métrés** affiche une liste indicative pour une affaire sans devis. Elle
+lit la DPGF liée et ses correspondances validées, dans l’ordre des lignes importées.
+Les choix de structure faits à la confirmation de l’import ne sont pas encore
+reflétés. Une prestation portant une unité reste visible si sa quantité est
+inconnue. Une ligne sans quantité ni unité ni indice de section reste ambiguë.
+Le prix n’intervient pas dans la lecture. La quantité de la DPGF est
 une référence documentaire. La feuille, la ligne ou la page d’origine apparaissent
 lorsqu’elles sont connues. L’aperçu CSV indique l’ordre des enregistrements
 importés. Pour un classeur, il affiche la ligne du tableau importé. Le
 détail de lecture signale les lignes ambiguës ou sans correspondance. Pour les
-totaux et pieds de tableau, il indique leur emplacement et le motif d’exclusion.
+totaux, les pieds de tableau et les désignations uniquement numériques, il indique
+leur emplacement et le motif d’exclusion sans en afficher le contenu.
 
 Une pièce DPGF à préparer ou plusieurs sources liées renvoient au dossier pour
 résolution. Quand les droits du compte permettent de vérifier l’absence de DPGF,
@@ -25,10 +29,7 @@ aux droits de lecture du compte, l’aperçu l’indique et le gabarit n’est p
 Une ligne brute appartient à un seul poste de l’affaire. Deux lignes homonymes
 restent distinctes. Refaire le mapping d’une ligne brute conserve son identité.
 Une correspondance entre deux imports demande une décision explicite. Elle reste
-valable si le poste disparaît d’une révision puis revient. Chaque confirmation,
-y compris lors de la réutilisation du mapping, rattache les choix de structure à
-l’ensemble précis des lignes mappées. Un mapping aux choix de structure non
-attestés nécessite une nouvelle préparation.
+valable si le poste disparaît d’une révision puis revient.
 
 La consultation est en lecture seule. Le gabarit et les aperçus ne lancent aucune
 analyse et ne créent aucun devis.
