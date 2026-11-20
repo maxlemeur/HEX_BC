@@ -62,9 +62,10 @@ describe("convertDwgToDxf", () => {
     expect(totals.blockLength).toBeCloseTo(6019.552, 3);
     expect(totals.closedArea).toBeCloseTo(133.602, 3);
     expect(totals.hatchArea).toBeCloseTo(0.122, 3);
-    // It reads 103.939 m there: a DWG keeps the two splines by their fit points only, which the reader says.
-    expect(totals.length).toBeCloseTo(103.631, 3);
-    expect(drawing.warnings).toEqual([{ code: "spline_fit_points", detail: "2" }]);
+    // The 2018 export now supplies the spline control points. Allow 1 mm against
+    // the 103.939081 m measured from GNU LibreDWG's matching example_2018.dxf.
+    expect(Math.abs(totals.length - 103.939081)).toBeLessThan(0.001);
+    expect(drawing.warnings).toEqual([]);
     expect(extents?.width).toBeCloseTo(3411.857, 3);
     expect(extents?.height).toBeCloseTo(2645.183, 3);
   }, 60_000);
@@ -75,7 +76,7 @@ describe("convertDwgToDxf", () => {
     expect(await reasonOf(convertDwgToDxf(withMagic("  0\nSECTION")))).toBe("not_dwg");
   });
 
-  it("gives a DWG of the 2000 format the quantities of the same drawing saved in the 2018 format", async () => {
+  it("reads an AutoCAD 2000 DWG with approximate splines and reports the original types of unread entities", async () => {
     expect(dwgFormatCode(SAMPLE_2000)).toBe("AC1015");
     const drawing = readDxf(await convertDwgToDxf(SAMPLE_2000));
     expect(drawing.truncated).toBe(false);
@@ -98,7 +99,15 @@ describe("convertDwgToDxf", () => {
     // What is not drawn is named as it is for the 2018 format, the entities LibreDWG's reading leaves out included.
     const named = async (bytes: Uint8Array) => readDxf(await convertDwgToDxf(bytes)).unsupported;
     expect(drawing.unsupported).toEqual(await named(SAMPLE));
-    expect(drawing.unsupported).toEqual(expect.arrayContaining([{ type: "REGION", count: 2 }, { type: "POLYLINE (maillage)", count: 1 }, { type: "ARC_DIMENSION", count: 1 }]));
+    expect(drawing.unsupported).toEqual(expect.arrayContaining([
+      { type: "REGION", count: 2 },
+      { type: "POLYLINE (maillage)", count: 1 },
+      { type: "ARC_DIMENSION", count: 1 },
+      { type: "ACAD_TABLE", count: 1 },
+      { type: "LIGHT", count: 1 },
+      { type: "MULTILEADER", count: 1 },
+      { type: "WIPEOUT", count: 2 },
+    ]));
   }, 60_000);
 
   it("keeps the text of the attribute definitions of an older format, which LibreDWG's reading hands over without it", async () => {
