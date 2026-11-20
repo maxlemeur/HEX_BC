@@ -1,12 +1,12 @@
 import "server-only";
 
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import type { EstimateReading } from "@/lib/assistant/estimate-reading";
 import { buildEstimateReading, type EstimateReadingSource } from "@/lib/assistant/estimate-reading-build";
 import { AssistantToolError, isUserFacingRefusal } from "@/lib/assistant/loop";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
-import type { AuthenticatedContext } from "@/lib/estimates/server-context";
-import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
+import { canAccessOwnerResource } from "@/lib/estimates/server-context";
 import { calculateEstimateBreakdownForItems, calculateEstimateV3SnapshotForItems } from "@/lib/estimates/version-totals";
 
 const NO_ACCESS = "Ce devis est introuvable ou vous n’y avez pas accès.";
@@ -16,17 +16,22 @@ function userFacingMessage(error: unknown) {
   return isUserFacingRefusal(error) ? error.message : null;
 }
 
-/** The versions of an affaire that this member may open, most recent first. */
-export async function listAffaireEstimateVersions(context: AuthenticatedContext, projectId: string) {
-  const project = await context.supabase.from("estimate_projects").select("id, user_id")
-    .eq("id", projectId).eq("tenant_id", context.tenantId).maybeSingle();
-  // Same rule as every estimate read: the affaire's owner or an admin.
-  if (project.error || !project.data || (project.data.user_id !== context.userId && context.tenantRole !== "admin")) {
-    throw new AssistantToolError("Vous n’avez pas accès aux devis de cette affaire.");
+/** Every estimate read checks again, with the member's own rights, that they may still read the affaire. */
+async function affaireReadAccess(projectId: string, refusal: string) {
+  try {
+    return await requireAffaireAccess(projectId, "read");
+  } catch (error) {
+    if (isUserFacingRefusal(error)) throw new AssistantToolError(refusal);
+    throw error;
   }
+}
+
+/** The estimate versions of the affaire, most recent first, for every member who may read the affaire. */
+export async function listAffaireEstimateVersions(projectId: string) {
+  const { context, project } = await affaireReadAccess(projectId, "Vous n’avez pas accès aux devis de cette affaire.");
   const versions = await context.supabase.from("estimate_versions")
     .select("id, version_number, variant_label, title, status, updated_at")
-    .eq("project_id", projectId).eq("tenant_id", context.tenantId).order("version_number", { ascending: false }).limit(50);
+    .eq("project_id", project.id).eq("tenant_id", context.tenantId).order("version_number", { ascending: false }).limit(50);
   if (versions.error) throw new AssistantToolError("Les devis de cette affaire n’ont pas pu être lus.");
   return versions.data.map((version) => ({
     id: version.id, version: [`V${version.version_number ?? "?"}`, version.variant_label?.trim()].filter(Boolean).join(" "),
@@ -38,27 +43,32 @@ export async function listAffaireEstimateVersions(context: AuthenticatedContext,
  * Reads one estimate of the conversation's affaire with the caller's own rights.
  * A draft is computed by its pinned engine, as the editor shows it; an issued
  * version is read on its frozen amounts and never recalculated at today's rates.
+ * A member who reads the affaire without opening its estimates in the editor
+ * (a director) gets the document view.
  */
-export async function loadEstimateReading(
-  context: AuthenticatedContext, input: { versionId: string; projectId: string },
-): Promise<EstimateReading> {
-  const access = await getOwnedEstimateVersion(context, input.versionId).catch(() => { throw new AssistantToolError(NO_ACCESS); });
-  if (access.project.id !== input.projectId) {
-    throw new AssistantToolError("Ce devis n’appartient pas à l’affaire de cette conversation.");
-  }
+export async function loadEstimateReading(input: { versionId: string; projectId: string }): Promise<EstimateReading> {
+  const { context, project } = await affaireReadAccess(input.projectId, NO_ACCESS);
   const versionRead = await context.supabase.from("estimate_versions").select("*")
-    .eq("id", input.versionId).eq("tenant_id", context.tenantId).single();
+    .eq("id", input.versionId).eq("tenant_id", context.tenantId).maybeSingle();
   if (versionRead.error || !versionRead.data) throw new AssistantToolError(NO_ACCESS);
   const version = versionRead.data;
+  if (version.project_id !== project.id) {
+    throw new AssistantToolError("Ce devis n’appartient pas à l’affaire de cette conversation.");
+  }
+  const view = canAccessOwnerResource({ context, resourceUserId: project.user_id }) ? "editor" : "document";
   const items = await readAllEstimateItems({ supabase: context.supabase, tenantId: context.tenantId, versionId: version.id });
 
   let calculation: EstimateReadingSource["calculation"] = { kind: "frozen" };
-  if (version.status === "draft") {
+  const isV3 = usesSaleCoefficients(requireEstimateEngineVersion(version));
+  // The read-only page shows an engine 3 draft on its stored amounts, and an older engine's draft computed.
+  if (version.status === "draft" && view === "document" && isV3) {
+    calculation = { kind: "stored" };
+  } else if (version.status === "draft") {
     const scope = {
-      supabase: context.supabase, tenantId: context.tenantId, projectUserId: access.project.user_id, version, lineItems: items,
+      supabase: context.supabase, tenantId: context.tenantId, projectUserId: project.user_id, version, lineItems: items,
     };
     try {
-      calculation = usesSaleCoefficients(requireEstimateEngineVersion(version))
+      calculation = isV3
         ? { kind: "v3", breakdown: (await calculateEstimateV3SnapshotForItems(scope)).breakdown }
         : { kind: "v2", breakdown: await calculateEstimateBreakdownForItems(scope) };
     } catch (error) {
@@ -74,5 +84,5 @@ export async function loadEstimateReading(
     }
     throw error;
   });
-  return buildEstimateReading({ version, items, calculation });
+  return buildEstimateReading({ version, items, calculation }, view);
 }

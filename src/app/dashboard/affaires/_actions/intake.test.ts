@@ -12,12 +12,15 @@ vi.mock("@/lib/affaires/intake-document-store", () => ({
   deleteIntakeDocumentCopy: deleteIntakeDocumentCopyMock,
 }));
 
-vi.mock("@/lib/affaires/intake-server", () => ({
-  refreshAffaireIntakeFromActiveDocuments: refreshAffaireIntakeFromActiveDocumentsMock,
-  requireAffaireProjectOwnerOrAdmin: vi.fn(async () => ({
+vi.mock("@/lib/affaires/access-server", () => ({
+  requireAffaireAccess: vi.fn(async () => ({
     context: { supabase: "owner-client", userId: "user-1" },
     project: { id: PROJECT_ID },
   })),
+}));
+
+vi.mock("@/lib/affaires/intake-server", () => ({
+  refreshAffaireIntakeFromActiveDocuments: refreshAffaireIntakeFromActiveDocumentsMock,
   syncAffaireIntakeDocumentPriorities: syncAffaireIntakeDocumentPrioritiesMock,
 }));
 

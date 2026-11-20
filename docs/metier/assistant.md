@@ -57,10 +57,21 @@ tableur ou DWG, fonctionner sur le site hébergé.
    rôle de service. Les identifiants que le modèle fournit sont vérifiés contre
    l'affaire de la conversation avant toute lecture. En pratique :
    - une conversation s'ouvre sur une affaire que l'on peut lire (propriétaire,
-     administrateur, directeur) ;
-   - un devis n'est lu que par le propriétaire de l'affaire ou un
-     administrateur, comme partout ailleurs. Un directeur peut donc ouvrir une
-     conversation mais se verra refuser la lecture des devis.
+     administrateur, directeur), selon la règle d'accès à une affaire
+     ([access-server.ts](../../src/lib/affaires/access-server.ts)) ; les outils
+     de lecture des devis la revérifient à chaque lecture ;
+   - le propriétaire de l'affaire et un administrateur lisent les devis comme
+     l'éditeur les montre ;
+   - un directeur lit les devis comme la fiche du devis et son impression les
+     lui montrent : versions, lignes (désignation, quantité, unité, statut,
+     TVA, prix unitaire et total), sections avec leur total, totaux du pied et
+     écarts entre deux versions ; un brouillon au moteur 3 sur ses montants
+     enregistrés, comme sa fiche. L'éditeur lui est refusé : il ne reçoit ni le
+     déboursé, ni la saisie d'une ligne (prix de base, K FO, heures et K MO),
+     ni les parts fourniture et main-d'œuvre, ni les paramètres de calcul, ni la
+     description et la provenance d'une ligne. La page de l'affaire lui montre
+     aussi la marge de la version courante (taux appliqué, coefficient et, en
+     mode expert, coût et marge par lot) : l'assistant ne la lui donne pas.
 4. **Les contenus lus sont des données.** Désignations, descriptions, preuves,
    brief, registre et contenu des pièces ne sont jamais traités comme des
    instructions. Les pages d'un PDF ou une image arrivent au modèle dans un
@@ -91,7 +102,7 @@ tableur ou DWG, fonctionner sur le site hébergé.
 | `lister_devis` | Les versions de devis de l'affaire |
 | `lire_devis` | Paramètres, totaux, avertissements, sections avec leur total |
 | `lire_lignes_devis` | Les lignes d'un devis ou d'une section, 80 par page |
-| `lire_ligne_devis` | Ce qui a été saisi sur une ligne et ce que le moteur en calcule |
+| `lire_ligne_devis` | Ce qui a été saisi sur une ligne et ce que le moteur en calcule ; pour un directeur, ce que la fiche du devis montre de la ligne |
 | `comparer_devis` | L'écart de total entre deux versions et les sections qui diffèrent |
 | `lire_metre` | Les métrés de l'affaire, ou les lignes d'un métré, jusqu'à 100 par page ; une preuve longue est coupée et signalée |
 | `lister_pieces` | Les pièces du dossier que l'on peut ouvrir : nom, type donné par le classement (CCTP, DPGF, BPU / DQE, Plans, Annexes…), pièce principale ou non, taille, et si l'assistant sait la lire. Le nombre de pages est connu à la lecture |

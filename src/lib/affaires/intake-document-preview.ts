@@ -4,7 +4,7 @@ import {
   AFFAIRE_INTAKE_BUCKET,
   inferAffaireIntakeMimeType,
 } from "@/lib/affaires/intake";
-import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
 import {
@@ -32,7 +32,7 @@ export async function readAffaireDocumentPreview(
   /** Stops the download (storage or Drive) when the caller no longer waits for it. */
   signal?: AbortSignal,
 ) {
-  const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  const { context, project } = await requireAffaireAccess(projectId, "read");
   const { data, error } = await context.supabase
     .from("affaire_intake_documents")
     .select(

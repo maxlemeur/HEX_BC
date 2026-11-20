@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/affaires/intake-server", () => ({ requireAffaireProjectReadAccess: vi.fn() }));
+vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
 vi.mock("@/lib/affaires/google-drive/content", () => ({ readLinkedDriveDocument: vi.fn() }));
 
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
-import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
 
 const AFFAIRE = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DOCUMENT = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -20,7 +20,7 @@ function storedPiece(fileName: string, mimeType: string | null) {
     error: null,
   });
   const download = vi.fn(async () => ({ data: new Blob([PDF]), error: null }));
-  vi.mocked(requireAffaireProjectReadAccess).mockResolvedValue({
+  vi.mocked(requireAffaireAccess).mockResolvedValue({
     context: { supabase: { from: () => query, storage: { from: () => ({ download }) } }, tenantId: "tenant-1" },
     project: { id: AFFAIRE },
   } as never);

@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const backendRef = vi.hoisted(() => ({
   current: undefined as undefined | { supabase: unknown },
 }));
-vi.mock("@/lib/affaires/intake-server", () => ({
-  requireAffaireProjectOwnerOrAdmin: vi.fn(),
+vi.mock("@/lib/affaires/access-server", () => ({
+  requireAffaireAccess: vi.fn(),
 }));
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: () => backendRef.current!.supabase,
 }));
-import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import {
   saveDriveConnection as saveConnection,
   readDriveAuthorizationGeneration,
@@ -34,7 +34,7 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
   let backend: ReturnType<typeof memoryBackend>;
   let google: ReturnType<typeof fakeDrive>;
   let connectionId: string;
-  const auth = vi.mocked(requireAffaireProjectOwnerOrAdmin);
+  const auth = vi.mocked(requireAffaireAccess);
   const execute = (request: DriveRequest) =>
     executeDriveRequest("project_demo", request, new AbortController().signal);
   const link = (

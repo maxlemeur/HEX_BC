@@ -3,6 +3,7 @@ import { normalizeEstimateCurrency, type SupportedEstimateCurrency } from "@/lib
 import { readAllRows } from "@/lib/supabase/read-all";
 import { cache } from "react";
 
+import { affaireOwnerFilter } from "@/lib/affaires/access-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { normalizeAffaireCounters } from "@/lib/affaires/status-counts";
 import type { DashboardQuery } from "@/lib/affaires/dashboard";
@@ -435,12 +436,6 @@ function decodeAffaireCursor(cursor: string): AffaireCursorPayload {
   }
 
   return parsed.data;
-}
-
-function getOwnerScopeUserId(context: AffaireContext): string | null {
-  return context.tenantRole === "admin" || context.tenantRole === "director"
-    ? null
-    : context.userId;
 }
 
 function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
@@ -894,7 +889,7 @@ export const findReadableAffaireProject = cache(async (
     .eq("tenant_id", context.tenantId)
     .eq("is_archived", false);
 
-  const ownerScopeUserId = getOwnerScopeUserId(context);
+  const ownerScopeUserId = affaireOwnerFilter(context, "read");
   if (ownerScopeUserId) {
     query = query.eq("user_id", ownerScopeUserId);
   }
@@ -1687,7 +1682,7 @@ async function fetchAffaireListRowsWithContext<TPageSize extends number>(
     const fetchLimit = targetRowCount - rows.length;
     const { data, error } = await context.supabase.rpc("list_affaires_page", {
       p_tenant_id: context.tenantId,
-      p_owner_user_id: getOwnerScopeUserId(context),
+      p_owner_user_id: affaireOwnerFilter(context, "read"),
       p_limit: fetchLimit,
       p_search: query.q,
       p_statuses: query.status,
@@ -1965,7 +1960,7 @@ async function fetchAffaireCountersWithContext(
 ): Promise<AffaireCountersResult> {
   const { data, error } = await context.supabase.rpc("get_affaires_counters", {
     p_tenant_id: context.tenantId,
-    p_owner_user_id: getOwnerScopeUserId(context),
+    p_owner_user_id: affaireOwnerFilter(context, "read"),
     p_search: query.q,
     p_statuses: query.status,
     p_favorites_only: query.favoritesOnly,

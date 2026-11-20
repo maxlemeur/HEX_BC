@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess, type AffaireAccess } from "@/lib/affaires/access-server";
 import { isAssistantEnabled } from "@/lib/assistant/model";
 import type { AssistantTokenUsage } from "@/lib/assistant/model-turn";
 import type { AssistantScreen } from "@/lib/assistant/prompt";
@@ -23,7 +23,6 @@ const MESSAGE_COLUMNS = "id, role, reply_to, status, content, activity, error_co
 const MESSAGES_SHOWN = 200;
 const activitySchema = z.array(z.object({ name: z.string(), activity: z.string(), ok: z.boolean() })).catch([]);
 
-type Access = Awaited<ReturnType<typeof requireAffaireProjectReadAccess>>;
 type ThreadRow = { id: string; project_id: string; title: string; updated_at: string };
 type MessageRow = {
   id: string; role: "user" | "assistant"; reply_to: string | null; status: "complete" | "interrupted" | "failed";
@@ -46,9 +45,9 @@ function assertAssistantEnabled() {
 }
 
 /** The affaire a conversation is about, read with the member's own rights (owner, admin or director). */
-export async function requireAssistantProject(projectId: string): Promise<Access> {
+export async function requireAssistantProject(projectId: string): Promise<AffaireAccess> {
   assertAssistantEnabled();
-  return requireAffaireProjectReadAccess(projectId);
+  return requireAffaireAccess(projectId, "read");
 }
 
 export async function listAssistantThreads(projectId: string): Promise<AssistantThread[]> {
@@ -75,14 +74,14 @@ export async function createAssistantThread(projectId: string, title: string): P
  * affaire is read again so that an archived or withdrawn affaire closes its
  * conversations.
  */
-export async function readAssistantThread(threadId: string): Promise<Access & { thread: AssistantThread; messages: AssistantMessage[] }> {
+export async function readAssistantThread(threadId: string): Promise<AffaireAccess & { thread: AssistantThread; messages: AssistantMessage[] }> {
   assertAssistantEnabled();
   const caller = await getAuthenticatedContext();
   const thread = await caller.supabase.from("assistant_threads").select(THREAD_COLUMNS)
     .eq("id", threadId).eq("tenant_id", caller.tenantId).eq("user_id", caller.userId).maybeSingle();
   if (thread.error) throw mapSupabaseError(thread.error, "Impossible de lire la conversation.");
   if (!thread.data) throw notFound("Conversation introuvable.");
-  const access = await requireAffaireProjectReadAccess(thread.data.project_id);
+  const access = await requireAffaireAccess(thread.data.project_id, "read");
   const messages = await access.context.supabase.from("assistant_messages").select(MESSAGE_COLUMNS)
     .eq("thread_id", threadId).eq("tenant_id", caller.tenantId).eq("user_id", caller.userId)
     .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(MESSAGES_SHOWN);
@@ -107,7 +106,7 @@ type MessageInput = {
 };
 
 /** Saves a question, or an answer with the question it replies to. */
-export async function appendAssistantMessage(context: Access["context"], input: MessageInput & (
+export async function appendAssistantMessage(context: AffaireAccess["context"], input: MessageInput & (
   { role: "user"; replyTo?: never } | { role: "assistant"; replyTo: string }
 )): Promise<AssistantMessage> {
   const { data, error } = await context.supabase.from("assistant_messages").insert({
