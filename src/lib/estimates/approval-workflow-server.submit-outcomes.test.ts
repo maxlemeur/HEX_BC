@@ -28,7 +28,7 @@ vi.mock("@/lib/estimates/review-cycle-submission", () => ({
   openEstimateReviewCycle: vi.fn(),
 }));
 
-import { submitEstimateApproval } from "@/lib/estimates/rules-engine";
+import { submitEstimateApproval } from "@/lib/estimates/approval-workflow-server";
 import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
 import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";

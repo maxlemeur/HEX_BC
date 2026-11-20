@@ -31,7 +31,6 @@
     "src/lib/estimates/explanations.ts": 1900,
     "src/lib/estimates/generated-ouvrages.ts": 3500,
     "src/lib/estimates/pdf-generator.tsx": 1600,
-    "src/lib/estimates/rules-engine.ts": 3900,
     "src/lib/estimates/schemas.ts": 1700,
     "src/lib/estimates/structure-drafts.ts": 3300,
     "src/lib/estimates/version-zero-drafts.ts": 2000,

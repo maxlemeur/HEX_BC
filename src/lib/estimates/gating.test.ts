@@ -10,7 +10,7 @@ vi.mock("@/lib/feature-flags", () => ({
   getStalePriceDaysForTenant: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/rules-engine", () => ({
+vi.mock("@/lib/estimates/rule-evaluation-server", () => ({
   evaluateRules: vi.fn(),
 }));
 
@@ -36,7 +36,7 @@ import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
-import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { evaluateRules } from "@/lib/estimates/rule-evaluation-server";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { resolveEstimateSendOverride } from "@/lib/estimates/version-lifecycle-plan";
