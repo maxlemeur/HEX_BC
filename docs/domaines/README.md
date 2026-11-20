@@ -13,7 +13,9 @@ L'affaire regroupe versions de devis, pièces déposées et registre de question
 hypothèses ou documents manquants. L'intake classe les pièces et prépare leur
 exploitation ; le registre conserve les décisions humaines et les points à
 résoudre avant émission. Voir [affaires](../../src/lib/affaires/), notamment
-`intake-server.ts`, `register-server.ts` et `finish-line-server.ts`.
+les modules `intake-*` (dépôt `intake-upload-server.ts`, analyse
+`intake-analysis-server.ts`, brief `intake-brief-*.ts`, lecture du dossier
+`intake-workspace-server.ts`), `register-server.ts` et `finish-line-server.ts`.
 
 Le parcours DPGF est `dpgf_rows_raw → mappings → confirmUnifiedImportFlow`.
 Il accepte CSV, classeurs Excel et PDF tabulaires via leurs parseurs dédiés.

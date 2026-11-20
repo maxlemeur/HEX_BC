@@ -3,7 +3,7 @@ import {
   isAffaireIntakePrimaryEligibleKind,
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS, type AffaireRegisterSummary } from "@/lib/affaires/register";
 import type { AffaireHubDpgfSourceResult, AffaireHubFinishLineSummaryResult, AffaireHubSummaryResult } from "@/lib/affaires/server";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";

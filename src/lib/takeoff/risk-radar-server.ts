@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { evaluateRules } from "@/lib/estimates/rules-engine";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";

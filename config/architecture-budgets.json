@@ -20,7 +20,6 @@
     "src/hooks/useEstimateEditorState.tsx": 3100,
     "src/hooks/useEstimateEditorSuggestionsController.ts": 1400,
     "src/lib/affaires/hub-dev-scenarios.ts": 1500,
-    "src/lib/affaires/intake-server.ts": 3400,
     "src/lib/affaires/register-server.ts": 2700,
     "src/lib/affaires/register.ts": 1300,
     "src/lib/affaires/server.ts": 2400,

@@ -3,7 +3,7 @@ import "server-only";
 import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { readAffaireBriefDraft } from "@/lib/affaires/intake-server";
+import { readAffaireBriefDraft } from "@/lib/affaires/intake-brief-server";
 import { normalizeIntakeTranscription } from "@/lib/affaires/intake-transcription";
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
 import { charsetOf, documentReadType, UNREADABLE_FORMAT } from "@/lib/assistant/document-reading";

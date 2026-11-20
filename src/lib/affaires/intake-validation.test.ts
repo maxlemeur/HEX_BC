@@ -14,7 +14,7 @@ vi.mock("@/lib/affaires/register-server", () => ({
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
-import { reclassifyAffaireDocument } from "@/lib/affaires/intake-server";
+import { reclassifyAffaireDocument } from "@/lib/affaires/intake-document-edits-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE } from "@/lib/affaires/intake";
 

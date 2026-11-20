@@ -2,7 +2,7 @@ import {
   isAffaireIntakeDocumentNeedingReview,
   type AffaireIntakeDocumentKind,
 } from "@/lib/affaires/intake";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 
 type ReviewDocument = AffaireIntakeWorkspace["documents"][number];
 type MissingPiece = AffaireIntakeWorkspace["missingPieces"][number];

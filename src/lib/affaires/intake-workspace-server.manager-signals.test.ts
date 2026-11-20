@@ -17,7 +17,7 @@ vi.mock("@/lib/affaires/intake-decisions", async (importOriginal) => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { hasStoredIntakePlan, hasStoredStandalonePlan, readStandalonePlanRowsByProject } from "@/lib/affaires/plan-presence";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createInMemoryRestApi } from "@/test/in-memory-rest-api";

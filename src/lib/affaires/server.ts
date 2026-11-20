@@ -48,7 +48,7 @@ import {
   classifyTakeoffPlanSetSource,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
-import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import {
   resolveAffairePreliminaryStructureCapability,
   type AffairePreliminaryStructureCapability,

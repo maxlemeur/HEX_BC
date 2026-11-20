@@ -15,7 +15,8 @@ vi.mock("@/lib/affaires/google-drive/content", () => ({
 
 import type { AffaireAccessMode } from "@/lib/affaires/access-server";
 import { assertProjectAccessOrThrow } from "@/lib/affaires/import-flow-server";
-import { getAffaireIntakeDpgfDownload, readAffaireBriefDraft } from "@/lib/affaires/intake-server";
+import { getAffaireIntakeDpgfDownload } from "@/lib/affaires/intake-dpgf-server";
+import { readAffaireBriefDraft } from "@/lib/affaires/intake-brief-server";
 import { fetchAffaireRegisterSummary, updateAffaireRegisterEntryStatus } from "@/lib/affaires/register-server";
 import { findReadableAffaireProject } from "@/lib/affaires/server";
 import { listAffaireEstimateVersions } from "@/lib/assistant/estimate-reading-server";

@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { fetchAffaireRegisterSummary } from "@/lib/affaires/register-server";
 import { fetchAffaireHubPlansSummary, fetchAffaireHubSummary } from "@/lib/affaires/server";
 import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";

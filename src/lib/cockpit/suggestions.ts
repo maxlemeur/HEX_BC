@@ -7,7 +7,7 @@ import {
   buildAffaireRegisterHubHref,
   type AffaireRegisterSummary,
 } from "@/lib/affaires/register";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 import type { EstimateStructureModeSummary } from "@/lib/estimates/structure-mode";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";

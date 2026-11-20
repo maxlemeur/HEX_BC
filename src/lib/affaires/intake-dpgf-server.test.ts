@@ -6,7 +6,7 @@ vi.mock("@/lib/affaires/google-drive/content", () => ({ readLinkedDriveDocument:
 
 import { readLinkedDriveDocument, readLinkedDriveFile } from "@/lib/affaires/google-drive/content";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
-import { getAffaireIntakeDpgfDownload, readAffaireIntakeDpgfFile } from "@/lib/affaires/intake-server";
+import { getAffaireIntakeDpgfDownload, readAffaireIntakeDpgfFile } from "@/lib/affaires/intake-dpgf-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { ApiError } from "@/lib/http/api-response";
 

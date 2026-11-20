@@ -30,7 +30,7 @@ vi.mock("@/lib/affaires/register-server", () => ({
   fetchAffaireRegisterGateSummaries: vi.fn(),
 }));
 
-vi.mock("@/lib/affaires/intake-server", () => ({
+vi.mock("@/lib/affaires/intake-workspace-server", () => ({
   fetchAffaireIntakeWorkspace: vi.fn(),
   fetchAffaireIntakeManagerSignals: vi.fn(),
 }));
@@ -40,7 +40,7 @@ vi.mock("@/lib/estimates/v3-margin-evidence-server", () => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeManagerSignals, fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { fetchAffaireRegisterGateSummaries, fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import { loadV3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";

@@ -13,7 +13,7 @@ vi.mock("@/lib/affaires/intake-decisions", () => ({
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { getIntakeAnalysisAvailability } from "@/lib/affaires/intake-decisions";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { hasStoredStandalonePlan } from "@/lib/affaires/plan-presence";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";

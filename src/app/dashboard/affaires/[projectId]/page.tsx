@@ -4,8 +4,8 @@ import { AffaireHub } from "@/components/affaires/AffaireHub";
 import { AffaireDocumentPage } from "@/components/affaires/AffaireDocumentPage";
 import { getUserContext } from "@/lib/auth/server";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import {
   parseAffaireRegisterCursorSearchParam,

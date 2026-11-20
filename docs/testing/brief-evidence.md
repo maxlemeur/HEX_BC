@@ -19,10 +19,10 @@
 Les réponses adverses ou incomplètes du fournisseur IA (liste vide, ID inventé,
 liste mixte, texte absent) ne sont pas reproductibles de façon garantie en
 appelant un modèle vivant. Les régressions de normalisation sont donc écrites
-avant le correctif dans `src/lib/affaires/intake-server.test.ts`. Elles vérifient
-une défaillance d'intégrité de l'attribution, pas la formulation du prompt.
-L'édition et le retrait de sources disposent déjà d'une régression serveur
-dans ce fichier. Les tests de composant existants sont conservés et leur
+avant le correctif dans `src/lib/affaires/intake-brief-generation.test.ts`. Elles
+vérifient une défaillance d'intégrité de l'attribution, pas la formulation du
+prompt. L'édition et le retrait de sources disposent déjà d'une régression
+serveur dans `src/lib/affaires/intake-brief-server.test.ts`. Les tests de composant existants sont conservés et leur
 attente de libellé est mise à jour ; aucune nouvelle isolation de copie UI.
 
 La recette principale reste le parcours navigateur avec données persistées
