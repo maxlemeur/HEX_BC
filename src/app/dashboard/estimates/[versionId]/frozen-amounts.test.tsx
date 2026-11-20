@@ -24,7 +24,7 @@ vi.mock("@/lib/estimates/version-list-server", () => ({
 }));
 vi.mock("@/lib/estimates/version-seal-server", () => ({ verifyEstimateSeal: vi.fn() }));
 vi.mock("@/lib/affaires/server", () => ({ fetchAffaireHubPlansSummary: vi.fn(async () => null) }));
-vi.mock("@/lib/affaires/register-server", () => ({ fetchAffaireRegisterSummary: vi.fn(async () => null) }));
+vi.mock("@/lib/affaires/register-read-server", () => ({ fetchAffaireRegisterSummary: vi.fn(async () => null) }));
 vi.mock("@/lib/estimates/pdf-generator", async () => {
   const { DEFAULT_ESTIMATE_PDF_LAYOUT } = await import("@/lib/estimates/pdf-layout");
   return { resolveEstimatePdfPreviewLayout: vi.fn(async () => ({ layout: DEFAULT_ESTIMATE_PDF_LAYOUT })) };

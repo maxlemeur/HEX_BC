@@ -11,7 +11,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
 
-vi.mock("@/lib/affaires/register-server", () => ({
+vi.mock("@/lib/affaires/register-gate-server", () => ({
   buildAffaireRegisterSubmissionSignalMessage: vi.fn((input: { intro: string }) => input.intro),
   fetchAffaireRegisterGateSummary: vi.fn(),
 }));
@@ -29,7 +29,7 @@ vi.mock("@/lib/estimates/review-cycle-submission", () => ({
 }));
 
 import { submitEstimateApproval } from "@/lib/estimates/rules-engine";
-import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-gate-server";
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
 import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";
 import { openEstimateReviewCycle } from "@/lib/estimates/review-cycle-submission";

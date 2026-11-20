@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
-import { buildAffaireRegisterSubmissionSignalMessage, fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
+import { buildAffaireRegisterSubmissionSignalMessage, fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-gate-server";
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
 import { freezeApprovalV2DraftIfRequired } from "@/lib/estimates/approval-v2-snapshot";
 import { openEstimateReviewCycle } from "@/lib/estimates/review-cycle-submission";

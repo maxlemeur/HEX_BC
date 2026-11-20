@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
 vi.mock("@/lib/affaires/intake-server", () => ({ fetchAffaireIntakeWorkspace: vi.fn() }));
 vi.mock("@/lib/affaires/server", () => ({ fetchAffaireHubSummary: vi.fn(), fetchAffaireHubPlansSummary: vi.fn() }));
-vi.mock("@/lib/affaires/register-server", () => ({ fetchAffaireRegisterSummary: vi.fn() }));
+vi.mock("@/lib/affaires/register-read-server", () => ({ fetchAffaireRegisterSummary: vi.fn() }));
 vi.mock("@/lib/cockpit/preferences", () => ({ fetchCockpitCommandPreferences: vi.fn().mockResolvedValue([]) }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({ isTakeoffEnabled: vi.fn().mockResolvedValue(false) }));
 vi.mock("@/lib/ai/decisions", () => ({ getOpenAiDecisionsCapability: vi.fn() }));

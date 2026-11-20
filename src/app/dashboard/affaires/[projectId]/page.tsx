@@ -15,10 +15,8 @@ import {
   parseAffaireRegisterSeveritySearchParam,
   parseAffaireRegisterStatusSearchParam,
 } from "@/lib/affaires/register";
-import {
-  fetchAffaireRegisterPage,
-  fetchAffaireRegisterScopeOptions,
-} from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterPage } from "@/lib/affaires/register-read-server";
+import { fetchAffaireRegisterScopeOptions } from "@/lib/affaires/register-scope-server";
 import {
   applyAffaireHubDevScenario,
   buildAffaireHubDevScenarioRegisterPage,

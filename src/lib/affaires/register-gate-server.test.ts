@@ -6,7 +6,7 @@ vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn()
 import {
   fetchAffaireRegisterGateSummaries,
   fetchAffaireRegisterGateSummary,
-} from "@/lib/affaires/register-server";
+} from "@/lib/affaires/register-gate-server";
 import { createInMemoryRestApi } from "@/test/in-memory-rest-api";
 
 const project = (index: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`;

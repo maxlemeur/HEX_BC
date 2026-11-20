@@ -95,7 +95,7 @@ import {
   syncAffaireRegisterFromBrief,
   syncAffaireRegisterMissingPieces,
   syncAffairePlanGap,
-} from "@/lib/affaires/register-server";
+} from "@/lib/affaires/register-sync-server";
 import { isRecord, toStringOrNull } from "@/lib/value-guards";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
