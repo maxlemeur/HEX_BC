@@ -332,7 +332,6 @@ const ESTIMATE_STRUCTURE_PROVIDER = "ai_structure";
 const ESTIMATE_STRUCTURE_SOURCE_FILE_NAME = "Structure IA";
 const ESTIMATE_STRUCTURE_PROMPT_VERSION = "est382_structure_draft_v1";
 const ESTIMATE_STRUCTURE_PROMPT_MODEL = "gemini-3-pro-preview";
-const ESTIMATE_STRUCTURE_PROMPT_THINKING_LEVEL = "medium" as const;
 const ESTIMATE_STRUCTURE_MAX_SOURCE_ENTRIES = 80;
 const ESTIMATE_STRUCTURE_MAX_CHILDREN = 14;
 const ESTIMATE_STRUCTURE_MAX_HIERARCHY_LEVEL = 4;
@@ -2107,8 +2106,6 @@ async function tryGenerateGeminiNodes(input: {
   return callStructuredAi<EstimateStructureGeminiExchange>({
     prompt,
     schema: EstimateStructureGeminiExchangeSchema,
-    thinkingLevel: ESTIMATE_STRUCTURE_PROMPT_THINKING_LEVEL,
-    maxRetries: 0,
     context: {
       model: ESTIMATE_STRUCTURE_PROMPT_MODEL,
       promptVersion: ESTIMATE_STRUCTURE_PROMPT_VERSION,

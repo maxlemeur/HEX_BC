@@ -1,4 +1,4 @@
-import { submitPreparedCsv } from "../takeoff/prepared-csv";
+import { confirmPreparedCsv } from "../takeoff/prepared-takeoff";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -444,11 +444,12 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       // Current local-only provider contract: engine 3 remains available, but
       // this production-mode campaign has no connected local plan. Refuse
       // admission before any job or source-version copy, just as for engine 2.
+      // A level-A preparation of a takeoff file confirmed on the v3: the plan set refuses it next.
       const csvName = `${army.runPrefix}-metre.csv`;
       const csvPath = path.resolve(".e2e/army/critical/artifacts/fixtures", csvName);
       await mkdir(path.dirname(csvPath), { recursive: true });
       await writeFile(csvPath, "designation;quantity;unit\nBloc beton;12;u");
-      const api = await submitPreparedCsv(ui, estimate, csvPath, "auto");
+      await confirmPreparedCsv(ui, estimate, csvPath, "auto");
       // A rejected source launch must not insert even a temporary business
       // version. The audit count catches a copy created then deleted as well.
       const pdfPreparation = await openPlanPreparation();
@@ -506,14 +507,13 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
         sameJobIds: JSON.stringify(replayedJobs.map((job) => job.id)) === JSON.stringify(priorJobs.map((job) => job.id)) };
       const written = await jobs.list();
       const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
-        api: [api.status, api.code], fromSource, reopen, jobLevels: written.map((job) => job.level),
+        fromSource, reopen, jobLevels: written.map((job) => job.level),
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
-      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, api, action, written, observed, savedProcessing,
+      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, action, written, observed, savedProcessing,
         replayBoundary: "Reopen preserves Standard B and automatic local ChatGPT choice. No provider is connected in this production-mode campaign: neither job nor source-version copy may be created." });
       expect(observed).toEqual({
         proposal: { targetsV3: true, reasonShown: false, launchEnabled: true },
         dialog: { targetIsV3: true, reasonShown: false, launchEnabled: true },
-        api: [422, "AI_PROVIDER"],
         fromSource: { status: 200, masked: false, versionsAdded: 0, versionsInserted: 0, jobLevels: [] },
         reopen: { targetIsSource: true, preparationRevisionPreserved: true, versionsAdded: 0, sameJobIds: true },
         jobLevels: [], policyUnchanged: true,

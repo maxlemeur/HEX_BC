@@ -16,7 +16,7 @@ import {
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { renderPdfPages, type PdfRenderedPage } from "@/lib/pdf/page-render-server";
-import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
+import type { StructuredCallFile } from "@/lib/ai/structured-call";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -47,13 +47,13 @@ export type IntakeTranscriptionPlan = {
   pagesUninspected: number;
   pageCount: number | null;
   /** The pages to read, in order; each is built when it is sent (`file`), so that one page at a time is held. */
-  pages: { page: number; file: () => Promise<GeminiStructuredFile | null> }[];
+  pages: { page: number; file: () => Promise<StructuredCallFile | null> }[];
 };
 
 const base64 = (bytes: ArrayBuffer | Uint8Array) => Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString("base64");
 
 /** One page of the PDF as a PDF of its own, as the page is: nothing is drawn on it. Null when it weighs too much. */
-async function onePagePdf(source: PDFDocument, page: number): Promise<GeminiStructuredFile | null> {
+async function onePagePdf(source: PDFDocument, page: number): Promise<StructuredCallFile | null> {
   const target = await PDFDocument.create();
   const [copied] = await target.copyPages(source, [page - 1]);
   target.addPage(copied);

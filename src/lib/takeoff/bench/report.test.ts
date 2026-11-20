@@ -302,7 +302,7 @@ describe("takeoff bench report", () => {
     const answer = (items: TakeoffItem[]): BenchCallResult => ({
       data: { items, warnings: [], confidence: 0.8, metadata: { level: "C", prompt_version: "takeoff-c-v1", file_type: "application/pdf", schema_version: "v1" } },
       tokenCount: 1, tokenUsage: { inputTokens: 1, outputTokens: 0, reasoningTokens: 0, totalTokens: 1 }, costCents: 0, durationMs: 1,
-      model: couple.model, reasoningEffort: couple.reasoningEffort, promptVersion: "takeoff-c-v1", providerBatchId: null, providerBatchStateRaw: null,
+      model: couple.model, reasoningEffort: couple.reasoningEffort, promptVersion: "takeoff-c-v1",
     });
     const keyOf = async (pages: number, answers: TakeoffItem[][]) => {
       const pdf = await PDFDocument.create();

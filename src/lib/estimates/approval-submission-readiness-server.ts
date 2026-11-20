@@ -1,7 +1,7 @@
 import type { Supabase, RulesEngineVersion, RulesEngineProject, RulesEngineItemAccess, EvaluateRulesResult, EstimateApprovalSubmissionSignal } from "@/lib/estimates/approval-types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
-import { buildAffaireRegisterSubmissionSignalMessage, fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
+import { buildAffaireRegisterSubmissionSignalMessage, fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-gate-server";
 import type { V3MarginEvidence } from "@/lib/estimates/v3-margin-evidence-server";
 import type { CanonicalFixedDiscountEvidence } from "@/lib/estimates/effective-discount";
 import type { EstimateReadinessCategory } from "@/lib/estimates/readiness";

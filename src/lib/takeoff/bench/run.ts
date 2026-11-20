@@ -20,7 +20,7 @@ import {
   TAKEOFF_C_CHUNK_THRESHOLD_PAGES_DEFAULT,
   TAKEOFF_C_TIMEOUT_MS_DEFAULT,
 } from "@/lib/takeoff/constants";
-import type { CallGeminiStructuredOptions, CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
+import type { StructuredCallOptions, StructuredCallResult } from "@/lib/ai/structured-call";
 import { getTakeoffPrompt, getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffExchange, TakeoffItem } from "@/lib/takeoff/types";
@@ -56,8 +56,8 @@ export const BENCH_CHUNKING = {
 export type BenchCouple = { model: string; reasoningEffort: ChatGptReasoningEffort | null; override: boolean };
 /** A requested couple; `override` is null until the profile is read (a run stopped before it claims no send mode). */
 export type RequestedCouple = Omit<BenchCouple, "override"> & { override: boolean | null };
-export type BenchCallResult = CallGeminiStructuredResult<TakeoffExchange> & { reasoningEffort: ChatGptReasoningEffort | null };
-export type BenchCall = (options: CallGeminiStructuredOptions<TakeoffExchange>, couple: BenchCouple) => Promise<BenchCallResult>;
+export type BenchCallResult = StructuredCallResult<TakeoffExchange> & { reasoningEffort: ChatGptReasoningEffort | null };
+export type BenchCall = (options: StructuredCallOptions<TakeoffExchange>, couple: BenchCouple) => Promise<BenchCallResult>;
 
 export type BenchRunDocument = { id: string; lot: string; role: "truth" | "reserve"; bytes: Uint8Array; sha256: string };
 export type PlannedDocument = BenchRunDocument & { pages: number; chunks: TakeoffPdfChunk[] };

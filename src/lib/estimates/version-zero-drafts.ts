@@ -634,9 +634,7 @@ async function tryGenerateGeminiLots(input: {
   const result = await callStructuredAi({
     prompt,
     schema: VersionZeroGeminiSchema,
-    thinkingLevel: "low",
     timeoutMs: 25_000,
-    maxRetries: 0,
     context: {
       promptVersion: VERSION_ZERO_PROMPT_VERSION,
     },

@@ -11,7 +11,7 @@ import {
   computeEstimateQualityFlagsByItemId,
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
-import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-gate-server";
 import type { Database } from "@/types/database";
 import {
   resolveEstimateReadinessCategoryFromGatingFlagKey,

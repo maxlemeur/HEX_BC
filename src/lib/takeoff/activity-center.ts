@@ -785,7 +785,6 @@ export async function listActivityCenterJobs(
       technicalStatusRaw: row.status,
       operatorState: operatorState.state,
       operatorStateLabel: operatorState.label,
-      canReconcile: operatorState.canReconcile,
       canCancel: operatorState.canCancel,
       canResubmit: operatorState.canResubmit,
       itemCount: itemCountMap.get(row.id) ?? 0,

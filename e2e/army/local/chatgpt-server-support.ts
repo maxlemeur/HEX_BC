@@ -213,8 +213,7 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
       ...["compare", "dpgf-compare", "review-context"].map(name => route(`/api/takeoff/jobs/${absent}/${name}`))];
   }
   return [`/api/affaires/${absent}/dpgf-source`, "/api/takeoff/plan-sets", "/api/takeoff/activity-center",
-    "/api/takeoff/jobs", `/api/takeoff/jobs/${absent}`,
-    ...["retry", "resubmit", "reconcile"].map(command => `/api/takeoff/jobs/${absent}/${command}`),
+    "/api/takeoff/jobs", `/api/takeoff/jobs/${absent}`, `/api/takeoff/jobs/${absent}/resubmit`,
     // TI-682 lot D: the launch notice (« Vérifier et lancer ») and the review banner read the pages already in the
     // estimate. V3C08 opens the first just before its first item write: both compiles in one action timed out.
     "/api/takeoff/page-contributions", `/api/takeoff/jobs/${absent}/page-contributions`,

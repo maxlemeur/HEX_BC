@@ -54,7 +54,7 @@ export const takeoffJobListResponseSchema = z.object({
   }
 });
 export const takeoffJobActionResponseSchema = z.object({
-  job: takeoffJobSummaryResponseSchema, command: z.enum(["retry", "cancel", "reconcile", "resubmit"]).optional(),
+  job: takeoffJobSummaryResponseSchema, command: z.enum(["cancel", "resubmit"]).optional(),
   outcome: z.enum(["applied", "noop"]).optional(), dispatch: takeoffJobDispatchResponseSchema.optional(),
 }).refine((response) => response.outcome !== "noop" || response.dispatch === undefined,
   "Une action sans effet ne doit pas annoncer un déclenchement.");
@@ -66,13 +66,6 @@ export type TakeoffJobStatusCounters = z.infer<typeof takeoffJobStatusCountersSc
 export type TakeoffJobDetailResponse = z.infer<typeof takeoffJobDetailResponseSchema>;
 export type TakeoffJobListResponse = z.infer<typeof takeoffJobListResponseSchema>;
 export type TakeoffJobActionResponse = z.infer<typeof takeoffJobActionResponseSchema>;
-
-export function parseTakeoffJobCreateResponse(payload: unknown, identity: { versionId: string; level: z.infer<typeof level> }) {
-  const response = parseTakeoffResponse(takeoffJobCreateResponseSchema, payload);
-  // An idempotent replay can return any already persisted job status.
-  assertTakeoffResponseIdentity(sameTakeoffResponseId(response.estimate_version_id, identity.versionId) && response.level === identity.level);
-  return response;
-}
 
 export function parseTakeoffJobDetailResponse(payload: unknown, identity: { jobId: string; itemsLimit?: number; itemsOffset?: number }) {
   const response = parseTakeoffResponse(takeoffJobDetailResponseSchema, payload);
@@ -95,14 +88,12 @@ export function parseTakeoffJobListResponse(payload: unknown, query: {
 }
 
 export function parseTakeoffJobActionResponse(payload: unknown, identity: {
-  jobId: string; command: "retry" | "cancel" | "reconcile" | "resubmit";
+  jobId: string; command: "cancel" | "resubmit";
 }) {
   const response = parseTakeoffResponse(takeoffJobActionResponseSchema, payload);
   assertTakeoffResponseIdentity(sameTakeoffResponseId(response.job.id, identity.jobId)
     && (response.command === undefined || response.command === identity.command)
-    && (identity.command === "reconcile" || response.outcome !== "noop")
-    && (identity.command === "cancel" ? response.job.status === "canceled"
-      : identity.command === "retry" || identity.command === "resubmit" ? response.job.status === "pending"
-      : response.outcome !== "applied" || response.job.status === "processing"));
+    && response.outcome !== "noop"
+    && response.job.status === (identity.command === "cancel" ? "canceled" : "pending"));
   return response;
 }

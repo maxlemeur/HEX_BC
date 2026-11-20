@@ -9,14 +9,42 @@ vi.mock("@/lib/supabase/service-role", () => ({
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { requestAffaireRegisterRevalidation } from "@/lib/affaires/register-server";
+import { updateAffaireRegisterEntryStatus } from "@/lib/affaires/register-edits-server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
+const OWNER_ID = "66666666-6666-4666-8666-666666666666";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const ENTRY_ID = "44444444-4444-4444-8444-444444444444";
-const TRIGGER_DOCUMENT_ID = "55555555-5555-4555-8555-555555555555";
 const NOW = "2026-03-13T10:00:00.000Z";
+
+type EntryRow = {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  version_id: string | null;
+  source_document_id: string | null;
+  kind: "missing_piece";
+  code: string;
+  text: string;
+  severity: "critical";
+  status: "open" | "clarify_with_client" | "validated" | "rejected";
+  origin_kind: "system";
+  scope_type: "project";
+  scope_id: string | null;
+  scope_ref: string | null;
+  scope_label: string;
+  source_file_name: string;
+  sync_key: string;
+  is_active: boolean;
+  metadata: Record<string, unknown>;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+  created_by_profile: null;
+  updated_by_profile: null;
+};
 
 function createProjectRow() {
   return {
@@ -30,7 +58,9 @@ function createProjectRow() {
   };
 }
 
-function createValidatedEntryRow() {
+function createEntryRow(
+  overrides: Partial<EntryRow> = {},
+): EntryRow {
   return {
     id: ENTRY_ID,
     tenant_id: TENANT_ID,
@@ -38,17 +68,17 @@ function createValidatedEntryRow() {
     version_id: null,
     source_document_id: null,
     kind: "missing_piece" as const,
-    code: "missing_dpgf",
-    text: "DPGF manquant",
+    code: "missing_plans",
+    text: "Plans manquants",
     severity: "critical" as const,
-    status: "validated" as const,
+    status: "open" as const,
     origin_kind: "system" as const,
     scope_type: "project" as const,
     scope_id: null,
     scope_ref: null,
     scope_label: "Affaire test",
-    source_file_name: "dpgf.pdf",
-    sync_key: "missing_piece:missing_dpgf",
+    source_file_name: "plans.pdf",
+    sync_key: "missing_piece:missing_plans",
     is_active: true,
     metadata: {},
     created_by: USER_ID,
@@ -57,44 +87,35 @@ function createValidatedEntryRow() {
     updated_at: NOW,
     created_by_profile: null,
     updated_by_profile: null,
+    ...overrides,
   };
 }
 
-function createRevalidatedEntryRow() {
+function createClarifiedEntryRow() {
   return {
-    ...createValidatedEntryRow(),
-    status: "open" as const,
+    ...createEntryRow(),
+    status: "clarify_with_client" as const,
     metadata: {
-      revalidationRequest: {
-        status: "required",
+      clientClarificationRequest: {
+        status: "clarify_with_client",
         requestedAt: NOW,
         requestedByUserId: USER_ID,
-        previousStatus: "validated",
-        cause: "addendum_received",
-        triggerDocumentId: TRIGGER_DOCUMENT_ID,
-        triggerFileName: "additif-lot-c.pdf",
-        impactedStages: ["document_review", "submission_readiness"],
-        comment: "Verifier le lot C apres additif.",
+        previousStatus: "open",
+        comment: "Verifier le perimetre client.",
       },
     },
   };
 }
 
-function createOpenEntryRow() {
-  return {
-    ...createValidatedEntryRow(),
-    status: "open" as const,
-  };
-}
-
-function createSupabaseMock(
-  entryFactory:
-    | typeof createValidatedEntryRow
-    | typeof createOpenEntryRow = createValidatedEntryRow
-) {
+function createSupabaseMock(options?: {
+  entryRow?: ReturnType<typeof createEntryRow>;
+  updatedEntryRow?: ReturnType<typeof createEntryRow>;
+}) {
   const eventPayloads: unknown[] = [];
   const updatePayloads: unknown[] = [];
   let registerEntriesCall = 0;
+  const entryRow = options?.entryRow ?? createEntryRow();
+  const updatedEntryRow = options?.updatedEntryRow ?? createClarifiedEntryRow();
 
   const supabase = {
     auth: {
@@ -115,7 +136,7 @@ function createSupabaseMock(
         before_payload: params.p_before_payload,
         after_payload: params.p_after_payload,
       });
-      return { data: createRevalidatedEntryRow(), error: null };
+      return { data: updatedEntryRow, error: null };
     }),
     from: vi.fn((table: string) => {
       if (table === "tenant_memberships") {
@@ -184,7 +205,7 @@ function createSupabaseMock(
             throw new Error(`Unexpected maybeSingle call #${currentCall}`);
           }
           return {
-            data: entryFactory(),
+            data: entryRow,
             error: null,
           };
         });
@@ -197,7 +218,7 @@ function createSupabaseMock(
             throw new Error(`Unexpected single call #${currentCall}`);
           }
           return {
-            data: createRevalidatedEntryRow(),
+            data: updatedEntryRow,
             error: null,
           };
         });
@@ -212,29 +233,59 @@ function createSupabaseMock(
   return { supabase, eventPayloads, updatePayloads };
 }
 
-describe("requestAffaireRegisterRevalidation", () => {
+describe("updateAffaireRegisterEntryStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("rejects revalidation requests for unresolved entries", async () => {
-    const { supabase, eventPayloads, updatePayloads } = createSupabaseMock(
-      createOpenEntryRow
-    );
+  it("rejects client clarification transitions from resolved entries", async () => {
+    const { supabase, eventPayloads, updatePayloads } = createSupabaseMock({
+      entryRow: createEntryRow({ status: "validated" as const }),
+      updatedEntryRow: createEntryRow({ status: "validated" as const }),
+    });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
-      requestAffaireRegisterRevalidation({
+      updateAffaireRegisterEntryStatus({
         projectId: PROJECT_ID,
         entryId: ENTRY_ID,
-        cause: "manual_reopen",
-        impactedStages: ["document_review"],
+        status: "clarify_with_client",
+        comment: "Verifier le perimetre client.",
       })
     ).rejects.toThrow(
-      "Seules les entrées déjà résolues peuvent être relancées en revalidation."
+      "Seules les entrées ouvertes peuvent être basculees en clarification client."
     );
 
     expect(updatePayloads).toHaveLength(0);
     expect(eventPayloads).toHaveLength(0);
+  });
+
+  it("keeps the owner and due date of an entry through a status change", async () => {
+    const followUp = {
+      ownerUserId: OWNER_ID,
+      ownerName: "Marie Curie",
+      dueDate: "2026-03-20",
+      updatedAt: NOW,
+      updatedByUserId: USER_ID,
+      comment: null,
+    };
+    const clarified = createClarifiedEntryRow();
+    const { supabase, updatePayloads } = createSupabaseMock({
+      entryRow: createEntryRow({ metadata: { followUp } }),
+      updatedEntryRow: { ...clarified, metadata: { ...clarified.metadata, followUp } },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await updateAffaireRegisterEntryStatus({
+      projectId: PROJECT_ID,
+      entryId: ENTRY_ID,
+      status: "clarify_with_client",
+      comment: "Verifier le perimetre client.",
+    });
+
+    expect(updatePayloads).toEqual([
+      expect.objectContaining({ metadata: expect.objectContaining({ followUp }) }),
+    ]);
+    expect(result.entry.followUp).toEqual(followUp);
   });
 });

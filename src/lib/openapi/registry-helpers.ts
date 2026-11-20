@@ -159,20 +159,6 @@ export function jsonBody(input: {
   };
 }
 
-export function multipartBody(input: {
-  name: string;
-  description: string;
-  schema: ZodTypeAny;
-  required?: boolean;
-}): OpenApiRequestBodyDefinition {
-  return {
-    contentType: "multipart/form-data",
-    required: input.required ?? true,
-    description: input.description,
-    ...schemaDefinition(input.name, input.schema, "input"),
-  };
-}
-
 export function successEnvelopeSchema(dataSchema: ZodTypeAny) {
   return z.object({
     ok: z.literal(true),

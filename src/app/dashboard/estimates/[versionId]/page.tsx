@@ -15,7 +15,7 @@ import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
 import { EstimateStatusActions } from "@/components/estimates/EstimateStatusActions";
 import { VariantComparisonTable } from "@/components/estimates/VariantComparisonTable";
 import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
-import { fetchAffaireRegisterSummary } from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterSummary } from "@/lib/affaires/register-read-server";
 import {
   SealIntegrityBadge,
   type SealIntegrityState,

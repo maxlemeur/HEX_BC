@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { register } from "tsx/cjs/api";
 import { createClient } from "@supabase/supabase-js";
@@ -14,6 +13,7 @@ assert(/^ARMY-[A-Za-z0-9-]+$/.test(prefix ?? ""));
 assert(["success", "transient", "terminal", "hold"].includes(mode));
 assert.equal(process.env.E2E_ARMY_TAKEOFF_WORKER, "1", "Dedicated owned-worker profile required.");
 assert.equal(process.env.E2E_ARMY_BLOCK_WORKERS, "1", "The ordinary app must keep blocking Edge workers.");
+assert.equal(process.env.MERGEONE_CHATGPT_LOCAL, "1", "The owned worker claims local jobs as this host.");
 const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
 const database = new URL(process.env.E2E_ARMY_LOCAL_DB_URL ?? "");
 for (const url of [backend, database]) assert(["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
@@ -22,18 +22,7 @@ assert(["postgres:", "postgresql:"].includes(database.protocol));
 assert.equal(backend.hostname, process.env.E2E_ALLOWED_SUPABASE_HOST);
 assert(!["45585", "33485"].includes(backend.port) && !["45585", "33485"].includes(database.port), "Long-lived recipe stack is not a worker target.");
 await import("./coverage-network-guard.mjs");
-// TI-662 L3d: the Decisions classification of vector groups (TKW10) is answered by the provider fixture, installed
-// over the network guard: a call to api.openai.com never leaves this process, any other external origin stays blocked.
-if (process.env.ARMY_DECISIONS_CONTROL) {
-  assert.equal(process.env.OPENAI_DECISIONS_API_KEY, "army-decisions-fixture");
-  assert(process.env.ARMY_CHATGPT_TRANSPORT_LOG, "The Decisions fixture needs its transport log.");
-  assert(!existsSync(".private/chatgpt-local-live-probe.json"), "The owned worker never runs a live Decisions probe.");
-  await import("../../e2e/army/local/chatgpt-provider-fixture.mjs");
-} else {
-  assert(!process.env.OPENAI_DECISIONS_API_KEY, "Without its fixture, the owned worker holds no Decisions key.");
-}
-process.env.GEMINI_API_KEY = "";
-process.env.GOOGLE_GENERATIVE_AI_API_KEY = "";
+assert(!process.env.OPENAI_DECISIONS_API_KEY, "The owned worker holds no Decisions key.");
 process.env.SENTRY_DSN = "";
 
 const clientOptions = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
@@ -81,7 +70,10 @@ const input = createInterface({ input: process.stdin });
 input.on("line", (line) => { if (line === "release") release(); });
 let timer;
 const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Owned worker provider barrier timed out.")), 45_000); });
-const callGemini = async (options) => {
+// The job's local provider, controlled: the processor resolves it in place of the creator's ChatGPT plan, then claims
+// the job as this host and calls it like the plan.
+const providerSelection = { profileId: "army-worker-profile", model: "army-worker-model", reasoningEffort: null };
+const call = async (options) => {
   assert.equal(options.context.jobId, jobId);
   assert.equal(options.context.tenantId, version.data.tenant_id);
   const current = await readJob();
@@ -119,14 +111,19 @@ const callGemini = async (options) => {
     ...(current.level === "C" ? { confidence: 0.95 } : {}),
   });
   return { data, tokenCount: 0, tokenUsage: { inputTokens: 0, reasoningTokens: 0, outputTokens: 0, totalTokens: 0 },
-    costCents: 0, durationMs: 1, model: options.context.model, promptVersion: options.context.promptVersion, providerBatchId: null, providerBatchStateRaw: null };
+    costCents: 0, durationMs: 1, model: options.context.model, promptVersion: options.context.promptVersion };
+};
+const resolveProvider = async (_supabase, job) => {
+  assert.equal(job.id, jobId);
+  assert.equal(job.execution_provider, "chatgpt_local");
+  return { model: providerSelection.model, reasoningEffort: null, selection: providerSelection, assertOwnerActive: async () => {}, call };
 };
 try {
   const outcome = await processTakeoffJobAttempt(jobId, {
     correlationId: randomUUID(), trigger: "create",
-    processLevelAFn: (id, options) => processLevelA(id, { ...options, callGemini }),
-    processLevelBFn: (id, options) => processLevelB(id, { ...options, callGemini }),
-    processLevelCFn: (id, options) => processLevelC(id, { ...options, callGemini }),
+    processLevelAFn: (id, options) => processLevelA(id, { ...options, resolveProvider }),
+    processLevelBFn: (id, options) => processLevelB(id, { ...options, resolveProvider }),
+    processLevelCFn: (id, options) => processLevelC(id, { ...options, resolveProvider }),
   });
   const job = await readJob();
   const results = await worker.from("takeoff_results").select("id, extracted_json, warnings, provider_meta").eq("job_id", jobId);

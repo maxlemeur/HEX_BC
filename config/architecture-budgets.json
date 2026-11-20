@@ -21,7 +21,6 @@
     "src/hooks/useEstimateEditorSuggestionsController.ts": 1400,
     "src/lib/affaires/hub-dev-scenarios.ts": 1500,
     "src/lib/affaires/intake-server.ts": 3400,
-    "src/lib/affaires/register-server.ts": 2700,
     "src/lib/affaires/register.ts": 1300,
     "src/lib/affaires/server.ts": 2400,
     "src/lib/catalogue/server.ts": 2100,
@@ -37,9 +36,8 @@
     "src/lib/imports/server.ts": 1100,
     "src/lib/mappings/server.ts": 1700,
     "src/lib/openapi/registry.ts": 5300,
-    "src/lib/takeoff/gemini-client.ts": 1300,
     "src/lib/takeoff/plans.ts": 1400,
-    "src/lib/takeoff/processor.ts": 4100,
+    "src/lib/takeoff/processor.ts": 3200,
     "src/lib/takeoff/server.ts": 100,
     "src/lib/takeoff/types.ts": 600
   },

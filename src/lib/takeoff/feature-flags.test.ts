@@ -21,7 +21,6 @@ import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
 import {
   assertTakeoffEnabled,
   getTakeoffChunkingConfigForTenant,
-  getTakeoffGeminiDeliveryConfigForTenant,
   getTakeoffLowConfidenceThresholdForTenant,
   getTakeoffLevelCProcessingConfigForTenant,
 } from "@/lib/takeoff/feature-flags";
@@ -30,18 +29,10 @@ const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const LEVEL_C_TIMEOUT_ENV_KEY = "TAKEOFF_LEVEL_C_TIMEOUT_MS";
 const LEVEL_C_MAX_TOTAL_TOKENS_ENV_KEY = "TAKEOFF_LEVEL_C_MAX_TOTAL_TOKENS";
 const LEVEL_C_MAX_COST_CENTS_ENV_KEY = "TAKEOFF_LEVEL_C_MAX_COST_CENTS";
-const ESCALATION_ENABLED_ENV_KEY = "TAKEOFF_AI_ESCALATION_ENABLED";
-const ESCALATION_MIN_CONFIDENCE_ENV_KEY = "TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE";
-const ESCALATION_MAX_COST_ENV_KEY = "TAKEOFF_AI_ESCALATION_MAX_COST_CENTS";
-const BATCH_MODE_ENV_KEY = "TAKEOFF_GEMINI_BATCH_MODE";
 
 const originalLevelCTimeoutEnv = process.env[LEVEL_C_TIMEOUT_ENV_KEY];
 const originalLevelCMaxTotalTokensEnv = process.env[LEVEL_C_MAX_TOTAL_TOKENS_ENV_KEY];
 const originalLevelCMaxCostCentsEnv = process.env[LEVEL_C_MAX_COST_CENTS_ENV_KEY];
-const originalEscalationEnabledEnv = process.env[ESCALATION_ENABLED_ENV_KEY];
-const originalEscalationMinConfidenceEnv = process.env[ESCALATION_MIN_CONFIDENCE_ENV_KEY];
-const originalEscalationMaxCostEnv = process.env[ESCALATION_MAX_COST_ENV_KEY];
-const originalBatchModeEnv = process.env[BATCH_MODE_ENV_KEY];
 
 function restoreLevelCRuntimeEnv() {
   if (typeof originalLevelCTimeoutEnv === "string") {
@@ -60,30 +51,6 @@ function restoreLevelCRuntimeEnv() {
     process.env[LEVEL_C_MAX_COST_CENTS_ENV_KEY] = originalLevelCMaxCostCentsEnv;
   } else {
     delete process.env[LEVEL_C_MAX_COST_CENTS_ENV_KEY];
-  }
-
-  if (typeof originalEscalationEnabledEnv === "string") {
-    process.env[ESCALATION_ENABLED_ENV_KEY] = originalEscalationEnabledEnv;
-  } else {
-    delete process.env[ESCALATION_ENABLED_ENV_KEY];
-  }
-
-  if (typeof originalEscalationMinConfidenceEnv === "string") {
-    process.env[ESCALATION_MIN_CONFIDENCE_ENV_KEY] = originalEscalationMinConfidenceEnv;
-  } else {
-    delete process.env[ESCALATION_MIN_CONFIDENCE_ENV_KEY];
-  }
-
-  if (typeof originalEscalationMaxCostEnv === "string") {
-    process.env[ESCALATION_MAX_COST_ENV_KEY] = originalEscalationMaxCostEnv;
-  } else {
-    delete process.env[ESCALATION_MAX_COST_ENV_KEY];
-  }
-
-  if (typeof originalBatchModeEnv === "string") {
-    process.env[BATCH_MODE_ENV_KEY] = originalBatchModeEnv;
-  } else {
-    delete process.env[BATCH_MODE_ENV_KEY];
   }
 }
 
@@ -209,32 +176,5 @@ describe("takeoff feature flags", () => {
 
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("0.70000000000000001");
     await expect(getTakeoffLowConfidenceThresholdForTenant(TENANT_ID)).resolves.toBe(0.7001);
-  });
-
-  it("reads Gemini batch delivery mode from env or tenant flags", async () => {
-    process.env[BATCH_MODE_ENV_KEY] = "true";
-    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
-
-    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID, "A")).resolves.toEqual({
-      useBatchApi: true,
-    });
-
-    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("false");
-    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID, "A")).resolves.toEqual({
-      useBatchApi: false,
-    });
-  });
-
-  it("forces non-A levels to sync delivery regardless of env or tenant flags", async () => {
-    process.env[BATCH_MODE_ENV_KEY] = "true";
-    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("true");
-
-    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID, "B")).resolves.toEqual({
-      useBatchApi: false,
-    });
-    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID, "C")).resolves.toEqual({
-      useBatchApi: false,
-    });
-    expect(vi.mocked(getFeatureFlagValueForTenant)).not.toHaveBeenCalled();
   });
 });

@@ -376,8 +376,6 @@ export type TakeoffMappingRuleDeleteResponse = {
 
 export type TakeoffJobAttemptOutcomeStatus =
   | "completed"
-  | "submitted_to_provider"
-  | "awaiting_provider_result"
   | "failed_retryable"
   | "failed_terminal"
   | "in_progress"
@@ -386,7 +384,7 @@ export type TakeoffJobAttemptOutcomeStatus =
 
 export type TakeoffJobAttemptTrigger = "create" | "retry" | "manual" | "reconcile";
 
-export type TakeoffJobAttemptRequeueReason = "retry" | "reconcile";
+export type TakeoffJobAttemptRequeueReason = "retry";
 
 export type TakeoffJobAttemptOutcome = {
   job_id: string;
@@ -554,7 +552,6 @@ export type TakeoffActivityCenterJobRow = {
   technicalStatusRaw: TakeoffJobStatus | string;
   operatorState?: TakeoffJobOperatorState | null;
   operatorStateLabel?: string | null;
-  canReconcile?: boolean;
   canCancel?: boolean;
   canResubmit?: boolean;
   itemCount: number;

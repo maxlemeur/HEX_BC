@@ -34,7 +34,7 @@ import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { resolveChatGptIntakeOwner } from "@/lib/ai/chatgpt-workflow-owner";
 import { canTranscribeIntakeDocument, scheduleIntakeTranscriptionAfterRetry, transcribeIntakeDocument } from "@/lib/affaires/intake-transcription-server";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import type { GeminiStructuredFile } from "@/lib/takeoff/gemini-client";
+import type { StructuredCallFile } from "@/lib/ai/structured-call";
 import * as durableIntake from "@/lib/workflows/affaire-intake-lifecycle";
 
 import {
@@ -95,7 +95,7 @@ import {
   syncAffaireRegisterFromBrief,
   syncAffaireRegisterMissingPieces,
   syncAffairePlanGap,
-} from "@/lib/affaires/register-server";
+} from "@/lib/affaires/register-sync-server";
 import { isRecord, toStringOrNull } from "@/lib/value-guards";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
@@ -344,10 +344,8 @@ const BRIEF_SOURCE_SELECT = [
 ].join(", ");
 
 const AFFAIRE_INTAKE_CLASSIFICATION_MODEL = "gemini-3-flash-preview";
-const AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL = "low" as const;
 const AFFAIRE_BRIEF_PROMPT_VERSION = "dos01_affaire_brief_v2";
 const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
-const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
 
 const affaireBriefEntrySchema = z
   .object({
@@ -770,7 +768,7 @@ async function classifyAffaireIntakeDocument(input: {
   if (isAffaireIntakeCadDocument(input.fileName)) return { result: heuristicResult, source: "heuristic",
     analysisFailure: { code: "UNSUPPORTED_FORMAT", message: "Ce format CAO/BIM n’est pas lisible par l’IA. Ajoutez un export PDF pour les plans.", scope: "document" } };
 
-  let filePayload: (GeminiStructuredFile & { issues?: string[] }) | null = null;
+  let filePayload: (StructuredCallFile & { issues?: string[] }) | null = null;
   let payloadFailure: IntakeAnalysisFailure | undefined;
 
   try {
@@ -819,7 +817,6 @@ async function classifyAffaireIntakeDocument(input: {
       }),
       schema: affaireIntakeClassificationAiResultSchema,
       files: [filePayload],
-      thinkingLevel: AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL,
       context: {
         model: AFFAIRE_INTAKE_CLASSIFICATION_MODEL,
         promptVersion: AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
@@ -1744,7 +1741,6 @@ async function generateAffaireBriefDraft(input: {
             missingPieces: input.missingPieces,
           }),
           schema: affaireBriefGenerationSchema,
-          thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
           context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
         }, input.aiOwner),
       });

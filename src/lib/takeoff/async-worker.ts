@@ -1,13 +1,11 @@
 import { reportError } from "@/lib/observability/error-reporter";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
-  TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS,
-  TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS,
   TAKEOFF_PROCESSING_LEASE_TTL_SECONDS,
   TAKEOFF_RETRY_BACKOFF_SECONDS,
   TAKEOFF_RETRY_MAX,
 } from "@/lib/takeoff/constants";
-import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { assertTakeoffJobUsesLocalProvider, TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   normalizeTakeoffWorkerJobRow,
   type TakeoffLeaseRenewal,
@@ -18,9 +16,7 @@ import {
   processLevelA,
   processLevelB,
   processLevelC,
-  reconcileTakeoffBatchJob,
 } from "@/lib/takeoff/processor";
-import { getTakeoffBatchReconcileBackoffSeconds } from "@/lib/takeoff/provider-batch";
 import type {
   TakeoffJobAttemptOutcome,
   TakeoffJobAttemptTrigger,
@@ -75,35 +71,12 @@ type TakeoffWorkerRepository = {
     tenantId: string;
     lastErrorAtIso?: string;
   }) => Promise<void>;
-  acquireBatchReconcileLease: (input: {
-    jobId: string;
-    tenantId: string;
-    nowIso: string;
-    leaseToken: string;
-    leaseExpiresAtIso: string;
-  }) => Promise<{
-    claimed: boolean;
-    attemptCount: number | null;
-  }>;
   renewLease: (input: {
-    kind: "processing" | "reconcile";
     jobId: string;
     tenantId: string;
     leaseToken: string;
     nowIso: string;
     leaseExpiresAtIso: string;
-  }) => Promise<void>;
-  scheduleReconcile: (input: {
-    jobId: string;
-    tenantId: string;
-    dueAtIso: string;
-    leaseToken: string;
-  }) => Promise<void>;
-  markBatchReconcileTimeoutAsFailed: (input: {
-    jobId: string;
-    tenantId: string;
-    nowIso: string;
-    leaseToken: string;
   }) => Promise<void>;
 };
 
@@ -114,7 +87,6 @@ type ProcessTakeoffJobAttemptOptions = {
   processLevelAFn?: typeof processLevelA;
   processLevelBFn?: typeof processLevelB;
   processLevelCFn?: typeof processLevelC;
-  reconcileTakeoffBatchJobFn?: typeof reconcileTakeoffBatchJob;
   repository?: TakeoffWorkerRepository;
   logger?: Pick<typeof console, "info" | "warn" | "error">;
 };
@@ -138,21 +110,6 @@ function isUuidLike(value: string) {
   );
 }
 
-function isBatchReconcileCandidate(job: TakeoffWorkerJobRow) {
-  return (
-    job.status === "processing" &&
-    job.processing_strategy === "batch" &&
-    typeof job.provider_batch_id === "string" &&
-    job.provider_batch_id.length > 0
-  );
-}
-
-function hasTerminalProviderBatchState(job: TakeoffWorkerJobRow) {
-  return ["succeeded", "failed", "cancelled", "expired"].includes(
-    job.provider_batch_state ?? ""
-  );
-}
-
 function createSupabaseTakeoffWorkerRepository(
   supabase: SupabaseClientLike
 ): TakeoffWorkerRepository {
@@ -166,13 +123,7 @@ function createSupabaseTakeoffWorkerRepository(
             "tenant_id",
             "level",
             "status",
-            "processing_strategy",
-            "provider_batch_id",
-            "provider_batch_state",
-            "provider_reconcile_due_at",
-            "provider_reconcile_attempt_count",
-            "provider_reconcile_lease_token",
-            "provider_reconcile_lease_expires_at",
+            "execution_provider",
             "retry_count",
             "error_code",
             "error_message",
@@ -273,50 +224,11 @@ function createSupabaseTakeoffWorkerRepository(
       }
     },
 
-    async acquireBatchReconcileLease(input) {
-      const { data, error } = await (supabase as unknown as {
-        rpc: (
-          fn: string,
-          args: Record<string, unknown>
-        ) => Promise<SupabaseMutationResult>;
-      }).rpc("acquire_takeoff_batch_reconcile_lease", {
-        p_job_id: input.jobId,
-        p_tenant_id: input.tenantId,
-        p_now: input.nowIso,
-        p_lease_token: input.leaseToken,
-        p_lease_expires_at: input.leaseExpiresAtIso,
-      });
-
-      if (error) {
-        throw toTakeoffError(error, {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          fallbackMessage: "Impossible de reserver le lease de reconciliation batch.",
-          retryable: false,
-          jobId: input.jobId,
-        });
-      }
-
-      const row =
-        Array.isArray(data) && data.length > 0 && data[0] && typeof data[0] === "object"
-          ? (data[0] as Record<string, unknown>)
-          : null;
-
-      return {
-        claimed: row?.claimed === true,
-        attemptCount:
-          typeof row?.provider_reconcile_attempt_count === "number"
-            ? row.provider_reconcile_attempt_count
-            : null,
-      };
-    },
-
     async renewLease(input) {
       const { data, error } = await (supabase as unknown as {
         rpc: (fn: string, args: Record<string, unknown>) => Promise<SupabaseMutationResult>;
       }).rpc(
-        input.kind === "processing"
-          ? "renew_takeoff_processing_lease"
-          : "renew_takeoff_batch_reconcile_lease",
+        "renew_takeoff_processing_lease",
         {
           p_job_id: input.jobId,
           p_tenant_id: input.tenantId,
@@ -326,64 +238,6 @@ function createSupabaseTakeoffWorkerRepository(
         }
       );
       if (error || data !== true) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible.", retryable: false, jobId: input.jobId });
-    },
-
-    async scheduleReconcile(input) {
-      const { data, error } = await supabase
-        .from("takeoff_jobs")
-        .update({
-          provider_reconcile_due_at: input.dueAtIso,
-          provider_reconcile_lease_token: null,
-          provider_reconcile_lease_expires_at: null,
-        })
-        .eq("id", input.jobId)
-        .eq("tenant_id", input.tenantId)
-        .eq("status", "processing")
-        .eq("provider_reconcile_lease_token", input.leaseToken)
-        .select("id")
-        .maybeSingle();
-
-      if (error) {
-        throw toTakeoffError(error, {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          fallbackMessage: "Impossible de reprogrammer la reconciliation batch.",
-          retryable: false,
-          jobId: input.jobId,
-        });
-      }
-      if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease de reconciliation n'est plus disponible.", retryable: false, jobId: input.jobId });
-    },
-
-    async markBatchReconcileTimeoutAsFailed(input) {
-      const { data, error } = await supabase
-        .from("takeoff_jobs")
-        .update({
-          status: "failed",
-          completed_at: input.nowIso,
-          error_code: TakeoffErrorCode.AI_TIMEOUT,
-          error_message:
-            "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.",
-          provider_reconcile_due_at: null,
-          provider_reconcile_lease_token: null,
-          provider_reconcile_lease_expires_at: null,
-          last_error_at: input.nowIso,
-        })
-        .eq("id", input.jobId)
-        .eq("tenant_id", input.tenantId)
-        .eq("status", "processing")
-        .eq("provider_reconcile_lease_token", input.leaseToken)
-        .select("id")
-        .maybeSingle();
-
-      if (error) {
-        throw toTakeoffError(error, {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          fallbackMessage: "Impossible de clore le job batch en timeout provider.",
-          retryable: false,
-          jobId: input.jobId,
-        });
-      }
-      if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease de reconciliation n'est plus disponible.", retryable: false, jobId: input.jobId });
     },
   };
 }
@@ -430,9 +284,6 @@ type TakeoffLevelProcessor =
   | typeof processLevelB
   | typeof processLevelC;
 
-type TakeoffLevelProcessorResult = Awaited<ReturnType<TakeoffLevelProcessor>>;
-
-type TakeoffBatchReconcileResult = Awaited<ReturnType<typeof reconcileTakeoffBatchJob>>;
 
 // What one attempt knows once its job is loaded. Every step reads the clock
 // through `now`, so the order of the steps is the order of the clock reads.
@@ -449,13 +300,6 @@ type TakeoffJobAttempt = {
   repository: TakeoffWorkerRepository;
   serviceRoleClient: SupabaseClientLike;
   assertTenantActive: (tenantId: string) => Promise<void>;
-};
-
-type BatchReconcileLeaseClaim = {
-  leaseToken: string;
-  nowIso: string;
-  claimed: boolean;
-  attemptCount: number | null;
 };
 
 type TakeoffJobAttemptOutcomeFields = Omit<
@@ -545,20 +389,15 @@ async function assertTenantStillActive(
   }
 }
 
-function takeoffLeaseRenewal(
-  attempt: TakeoffJobAttempt,
-  kind: "processing" | "reconcile",
-  leaseTtlSeconds: number
-): TakeoffLeaseRenewal {
+function takeoffLeaseRenewal(attempt: TakeoffJobAttempt): TakeoffLeaseRenewal {
   return ({ jobId, tenantId, leaseToken }) => {
     const leaseNow = attempt.now();
     return attempt.repository.renewLease({
-      kind,
       jobId,
       tenantId,
       leaseToken,
       nowIso: leaseNow.toISOString(),
-      leaseExpiresAtIso: new Date(leaseNow.getTime() + leaseTtlSeconds * 1000).toISOString(),
+      leaseExpiresAtIso: new Date(leaseNow.getTime() + TAKEOFF_PROCESSING_LEASE_TTL_SECONDS * 1000).toISOString(),
     });
   };
 }
@@ -668,218 +507,6 @@ async function settleCanceledJob(attempt: TakeoffJobAttempt, current: TakeoffWor
   });
 }
 
-async function claimBatchReconcileLease(
-  attempt: TakeoffJobAttempt
-): Promise<BatchReconcileLeaseClaim> {
-  const { job, now } = attempt;
-  const leaseToken = crypto.randomUUID();
-  const nowIso = now().toISOString();
-  const leaseExpiresAtIso = new Date(
-    now().getTime() + TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS * 1000
-  ).toISOString();
-  const lease = await attempt.repository.acquireBatchReconcileLease({
-    jobId: job.id,
-    tenantId: job.tenant_id,
-    nowIso,
-    leaseToken,
-    leaseExpiresAtIso,
-  });
-
-  return { leaseToken, nowIso, claimed: lease.claimed, attemptCount: lease.attemptCount };
-}
-
-async function failExhaustedBatchReconcile(
-  attempt: TakeoffJobAttempt,
-  claim: BatchReconcileLeaseClaim
-) {
-  const { job } = attempt;
-  await attempt.repository.markBatchReconcileTimeoutAsFailed({
-    jobId: job.id,
-    tenantId: job.tenant_id,
-    nowIso: claim.nowIso,
-    leaseToken: claim.leaseToken,
-  });
-
-  return attemptOutcome(attempt, job, {
-    status: "failed_terminal",
-    retryCount: attempt.retryCount,
-    retryable: false,
-    shouldRequeue: false,
-    durationMs: elapsedMs(attempt),
-    errorCode: TakeoffErrorCode.AI_TIMEOUT,
-    errorMessage:
-      "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.",
-  });
-}
-
-async function scheduleNextBatchReconcile(
-  attempt: TakeoffJobAttempt,
-  job: TakeoffWorkerJobRow,
-  leaseToken: string,
-  reconcileAttemptCount: number
-) {
-  const backoffSeconds = getTakeoffBatchReconcileBackoffSeconds(reconcileAttemptCount);
-  const nextRunAtIso = new Date(attempt.now().getTime() + backoffSeconds * 1000).toISOString();
-
-  await attempt.repository.scheduleReconcile({
-    jobId: job.id,
-    tenantId: job.tenant_id,
-    dueAtIso: nextRunAtIso,
-    leaseToken,
-  });
-
-  return { backoffSeconds, nextRunAtIso };
-}
-
-async function settleBatchReconcileResult(
-  attempt: TakeoffJobAttempt,
-  claim: BatchReconcileLeaseClaim,
-  reconcileResult: TakeoffBatchReconcileResult
-) {
-  if (reconcileResult.status === "awaiting_provider_result") {
-    const { backoffSeconds, nextRunAtIso } = await scheduleNextBatchReconcile(
-      attempt,
-      attempt.job,
-      claim.leaseToken,
-      claim.attemptCount ?? 1
-    );
-
-    return attemptOutcome(attempt, attempt.job, {
-      status: "awaiting_provider_result",
-      retryCount: attempt.retryCount,
-      retryable: false,
-      shouldRequeue: true,
-      requeueReason: "reconcile",
-      nextRunInSeconds: backoffSeconds,
-      nextRunAt: nextRunAtIso,
-      durationMs: elapsedMs(attempt),
-      errorCode: null,
-      errorMessage: null,
-    });
-  }
-
-  return completedJobOutcome(attempt);
-}
-
-async function retryBatchReconcileLater(
-  attempt: TakeoffJobAttempt,
-  claim: BatchReconcileLeaseClaim,
-  current: TakeoffWorkerJobRow,
-  mappedError: TakeoffError
-) {
-  const { backoffSeconds, nextRunAtIso } = await scheduleNextBatchReconcile(
-    attempt,
-    current,
-    claim.leaseToken,
-    claim.attemptCount ?? current.provider_reconcile_attempt_count ?? 1
-  );
-
-  attempt.logger.warn("Takeoff async worker scheduled reconcile retry", {
-    job_id: current.id,
-    tenant_id: current.tenant_id,
-    level: current.level,
-    attempt: claim.attemptCount ?? 1,
-    duration_ms: elapsedMs(attempt),
-    status: "awaiting_provider_result",
-    correlation_id: attempt.correlationId,
-    error_code: mappedError.code,
-  });
-
-  return attemptOutcome(attempt, current, {
-    status: "awaiting_provider_result",
-    retryCount: sanitizeRetryCount(current.retry_count),
-    retryable: true,
-    shouldRequeue: true,
-    requeueReason: "reconcile",
-    nextRunInSeconds: backoffSeconds,
-    nextRunAt: nextRunAtIso,
-    durationMs: elapsedMs(attempt),
-    errorCode: mappedError.code,
-    errorMessage: mappedError.message,
-  });
-}
-
-async function settleBatchReconcileFailure(
-  attempt: TakeoffJobAttempt,
-  claim: BatchReconcileLeaseClaim,
-  error: unknown
-) {
-  const { job } = attempt;
-  const mappedError = toTakeoffError(error, {
-    fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-    fallbackMessage: "La reconciliation batch du job takeoff a echoue.",
-    jobId: job.id,
-    level: toTakeoffLevel(job.level),
-  });
-  const refreshed = await attempt.repository.getJobById(job.id);
-  const current = refreshed ?? job;
-
-  if (current.status === "processing" && isBatchReconcileCandidate(current) && mappedError.retryable) {
-    return retryBatchReconcileLater(attempt, claim, current, mappedError);
-  }
-
-  if (current.status === "canceled") {
-    return settleCanceledJob(attempt, current);
-  }
-
-  if (TAKEOFF_TERMINAL_JOB_STATUSES.has(current.status)) {
-    return attemptOutcome(attempt, current, {
-      status: "failed_terminal",
-      retryCount: sanitizeRetryCount(current.retry_count),
-      retryable: false,
-      shouldRequeue: false,
-      durationMs: elapsedMs(attempt),
-      errorCode: current.error_code ?? mappedError.code,
-      errorMessage: current.error_message ?? mappedError.message,
-    });
-  }
-
-  return attemptOutcome(attempt, current, {
-    status: "in_progress",
-    retryCount: sanitizeRetryCount(current.retry_count),
-    retryable: false,
-    shouldRequeue: false,
-    durationMs: elapsedMs(attempt),
-    errorCode: current.error_code ?? mappedError.code,
-    errorMessage: current.error_message ?? mappedError.message,
-  });
-}
-
-// Reconciles a job whose provider batch is running, under a fenced reconcile lease.
-async function reconcileProviderBatch(
-  attempt: TakeoffJobAttempt,
-  reconcileTakeoffBatchJobFn: typeof reconcileTakeoffBatchJob
-) {
-  const { job } = attempt;
-  const claim = await claimBatchReconcileLease(attempt);
-
-  if (!claim.claimed) {
-    return untouchedJobOutcome(attempt, "in_progress");
-  }
-
-  if (
-    (claim.attemptCount ?? 0) > TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS &&
-    !hasTerminalProviderBatchState(job)
-  ) {
-    return failExhaustedBatchReconcile(attempt, claim);
-  }
-
-  try {
-    const reconcileResult = await reconcileTakeoffBatchJobFn(
-      job.id,
-      takeoffProcessorOptions(
-        attempt,
-        takeoffLeaseRenewal(attempt, "reconcile", TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS)
-      )
-    );
-    // Awaited here so that a failure to schedule the next reconcile or to
-    // refresh the job is handled as a reconcile failure.
-    return await settleBatchReconcileResult(attempt, claim, reconcileResult);
-  } catch (error) {
-    return settleBatchReconcileFailure(attempt, claim, error);
-  }
-}
-
 function selectLevelProcessor(
   level: string,
   options: ProcessTakeoffJobAttemptOptions
@@ -908,30 +535,6 @@ async function failUnsupportedLevel(attempt: TakeoffJobAttempt) {
     errorCode: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
     errorMessage: "Le niveau takeoff n'est pas encore supporte par le worker async.",
   });
-}
-
-function settleLevelProcessorResult(
-  attempt: TakeoffJobAttempt,
-  result: TakeoffLevelProcessorResult
-) {
-  if (result.status === "submitted_to_provider") {
-    const nextRunAtIso = attempt.now().toISOString();
-
-    return attemptOutcome(attempt, attempt.job, {
-      status: "submitted_to_provider",
-      retryCount: attempt.retryCount,
-      retryable: false,
-      shouldRequeue: true,
-      requeueReason: "reconcile",
-      nextRunInSeconds: 0,
-      nextRunAt: nextRunAtIso,
-      durationMs: elapsedMs(attempt),
-      errorCode: null,
-      errorMessage: null,
-    });
-  }
-
-  return completedJobOutcome(attempt);
 }
 
 async function scheduleJobRetry(
@@ -1077,16 +680,10 @@ async function runLevelProcessor(
   processLevelFn: TakeoffLevelProcessor
 ) {
   try {
-    const result = await processLevelFn(
-      attempt.job.id,
-      takeoffProcessorOptions(
-        attempt,
-        takeoffLeaseRenewal(attempt, "processing", TAKEOFF_PROCESSING_LEASE_TTL_SECONDS)
-      )
-    );
+    await processLevelFn(attempt.job.id, takeoffProcessorOptions(attempt, takeoffLeaseRenewal(attempt)));
     // Awaited here so that a failure to refresh the job is handled as a
     // processing failure.
-    return await settleLevelProcessorResult(attempt, result);
+    return await completedJobOutcome(attempt);
   } catch (error) {
     return settleLevelProcessingFailure(attempt, error);
   }
@@ -1136,16 +733,12 @@ export async function processTakeoffJobAttempt(
     });
   }
 
+  // Before any write: a job of a former provider is never run, retried nor scheduled again.
+  assertTakeoffJobUsesLocalProvider(job);
+
   if (job.status === "failed") {
     const retryGateOutcome = await gateFailedJobRetry(attempt);
     if (retryGateOutcome) return retryGateOutcome;
-  }
-
-  if (isBatchReconcileCandidate(job)) {
-    return reconcileProviderBatch(
-      attempt,
-      options.reconcileTakeoffBatchJobFn ?? reconcileTakeoffBatchJob
-    );
   }
 
   if (job.status === "processing") {

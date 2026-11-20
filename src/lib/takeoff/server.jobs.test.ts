@@ -12,16 +12,18 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
 
+// The resume check is reduced to its refusal of a former provider's job; chatgpt-takeoff.test.ts covers the real one.
+vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ assertLocalTakeoffResumeReady: vi.fn() }));
+
+import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { TakeoffError } from "@/lib/takeoff/errors";
+import { assertTakeoffJobUsesLocalProvider, TakeoffError } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   cancelTakeoffJob,
   listTakeoffJobs,
-  reconcileTakeoffJobNow,
   resubmitTakeoffJob,
-  retryTakeoffJob,
 } from "@/lib/takeoff/server";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -57,6 +59,7 @@ type TakeoffJobStoredRow = {
   schema_version: string | null;
   model: string | null;
   thinking_level: string | null;
+  execution_provider: "gemini" | "chatgpt_local";
   media_resolution: string | null;
   retry_count: number;
   token_count: number | null;
@@ -153,8 +156,8 @@ function baseJob(
     plan_set_id: input.plan_set_id ?? null,
     prompt_version: input.prompt_version ?? "takeoff-a-v1",
     schema_version: input.schema_version ?? "v1",
-    model: input.model ?? "gemini-3-flash-preview",
-    thinking_level: input.thinking_level ?? "high",
+    model: input.model ?? "account-model",
+    thinking_level: input.thinking_level ?? null,
     media_resolution: input.media_resolution ?? null,
     retry_count: input.retry_count ?? 0,
     token_count: input.token_count ?? 400,
@@ -164,6 +167,7 @@ function baseJob(
     completed_at: input.completed_at ?? "2026-02-25T10:00:00.000Z",
     error_code: input.error_code ?? "AI_TIMEOUT",
     error_message: input.error_message ?? "Timed out",
+    execution_provider: input.execution_provider ?? "chatgpt_local",
     created_by: input.created_by ?? USER_ID,
     created_at: input.created_at ?? "2026-02-25T09:55:00.000Z",
     updated_at: input.updated_at ?? "2026-02-25T10:00:00.000Z",
@@ -614,6 +618,9 @@ describe("takeoff job server helpers (TKF-009)", () => {
     vi.clearAllMocks();
     vi.useRealTimers();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+    vi.mocked(assertLocalTakeoffResumeReady).mockImplementation(async (_supabase, _tenantId, job) => {
+      assertTakeoffJobUsesLocalProvider(job);
+    });
   });
 
   it("filters jobs by status level and period while keeping status counters scoped by base filters", async () => {
@@ -682,7 +689,7 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(response.pagination.total).toBe(1);
   });
 
-  it("blocks retry when max retries is reached", async () => {
+  it("blocks resubmit when max retries is reached", async () => {
     const supabase = createSupabaseMock({
       jobs: [
         baseJob({
@@ -700,47 +707,13 @@ describe("takeoff job server helpers (TKF-009)", () => {
       tenantRole: "admin",
     } as never);
 
-    await expect(retryTakeoffJob(JOB_ID)).rejects.toMatchObject({
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
     });
   });
 
-  it.each(["running", "succeeded"] as const)(
-    "blocks retry while provider batch state is %s",
-    async (providerBatchState) => {
-      const supabase = createSupabaseMock({
-        jobs: [
-          baseJob({
-            status: "failed",
-            retry_count: 0,
-            completed_at: "2026-02-25T08:00:00.000Z",
-            processing_strategy: "batch",
-            provider_batch_id: `batch-${providerBatchState}`,
-            provider_batch_state: providerBatchState,
-          }),
-        ],
-      });
-
-      vi.mocked(getAuthenticatedContext).mockResolvedValue({
-        supabase,
-        userId: USER_ID,
-        tenantId: TENANT_ID,
-        tenantRole: "admin",
-      } as never);
-
-      await expect(retryTakeoffJob(JOB_ID)).rejects.toMatchObject({
-        status: 409,
-        code: "CONFLICT",
-        details: expect.objectContaining({
-          provider_batch_id: `batch-${providerBatchState}`,
-          provider_batch_state: providerBatchState,
-        }),
-      });
-    }
-  );
-
-  it("enforces retry backoff", async () => {
+  it("enforces resubmit backoff after a failure", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-25T10:00:10.000Z"));
 
@@ -761,13 +734,13 @@ describe("takeoff job server helpers (TKF-009)", () => {
       tenantRole: "admin",
     } as never);
 
-    await expect(retryTakeoffJob(JOB_ID)).rejects.toMatchObject({
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
     });
   });
 
-  it("returns success when retry audit insert fails after status mutation", async () => {
+  it("returns success when resubmit audit insert fails after status mutation", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const supabase = createSupabaseMock({
       jobs: [
@@ -792,7 +765,7 @@ describe("takeoff job server helpers (TKF-009)", () => {
       tenantRole: "admin",
     } as never);
 
-    const response = await retryTakeoffJob(JOB_ID);
+    const response = await resubmitTakeoffJob(JOB_ID);
 
     expect(response.job.status).toBe("pending");
     expect(response.job.retry_count).toBe(2);
@@ -801,7 +774,7 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       "Takeoff audit logging failed (non-blocking)",
       expect.objectContaining({
-        action: "takeoff.job.retried",
+        action: "takeoff.job.resubmitted",
         tenantId: TENANT_ID,
         jobId: JOB_ID,
       })
@@ -817,13 +790,6 @@ describe("takeoff job server helpers (TKF-009)", () => {
           status: "failed",
           retry_count: 1,
           completed_at: "2026-02-25T08:00:00.000Z",
-          processing_strategy: "batch",
-          provider_batch_id: "batch-123",
-          provider_batch_state: "failed",
-          provider_batch_updated_at: "2026-02-25T07:59:00.000Z",
-          provider_reconcile_due_at: "2026-02-25T07:58:00.000Z",
-          provider_reconcile_attempt_count: 4,
-          provider_reconcile_lease_expires_at: "2026-02-25T07:58:30.000Z",
         }),
       ],
     });
@@ -841,61 +807,15 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(response.outcome).toBe("applied");
     expect(response.job.status).toBe("pending");
     expect(response.job.retry_count).toBe(2);
-    expect(response.job.provider_batch_id).toBeNull();
-    expect(response.job.provider_reconcile_due_at).toBeNull();
-    expect(response.job.provider_reconcile_attempt_count).toBe(0);
+    expect(response.job).toMatchObject({ error_code: null, error_message: null, completed_at: null });
     expect(supabase.__state.auditLogs.at(-1)?.action).toBe(
       "takeoff.job.resubmitted"
     );
   });
 
-  it("allows reconcile when the provider batch already succeeded upstream", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "processing",
-          completed_at: null,
-          error_code: null,
-          error_message: null,
-          processing_strategy: "batch",
-          provider_batch_id: "batch-succeeded",
-          provider_batch_state: "succeeded",
-          provider_batch_updated_at: "2026-02-25T08:00:00.000Z",
-          provider_reconcile_due_at: null,
-          provider_reconcile_attempt_count: 2,
-        }),
-      ],
-    });
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase,
-      userId: USER_ID,
-      tenantId: TENANT_ID,
-      tenantRole: "admin",
-    } as never);
-
-    const response = await reconcileTakeoffJobNow(JOB_ID);
-
-    expect(response.command).toBe("reconcile");
-    expect(response.outcome).toBe("applied");
-    expect(response.job.status).toBe("processing");
-    expect(response.job.provider_batch_state).toBe("succeeded");
-    expect(response.job.provider_reconcile_due_at).toBeTruthy();
-  });
-
-  it("blocks resubmit when the provider batch already succeeded upstream", async () => {
-    const supabase = createSupabaseMock({
-      jobs: [
-        baseJob({
-          status: "failed",
-          processing_strategy: "batch",
-          provider_batch_id: "batch-succeeded",
-          provider_batch_state: "succeeded",
-          error_code: "AI_TIMEOUT",
-          error_message: "Timed out waiting for reconcile",
-        }),
-      ],
-    });
+  it("refuses to resubmit a job of a former provider without changing it or auditing", async () => {
+    const job = baseJob({ status: "failed", execution_provider: "gemini" });
+    const supabase = createSupabaseMock({ jobs: [job] });
 
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       supabase,
@@ -904,14 +824,9 @@ describe("takeoff job server helpers (TKF-009)", () => {
       tenantRole: "engineer",
     } as never);
 
-    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
-      status: 409,
-      code: "CONFLICT",
-      details: expect.objectContaining({
-        provider_batch_id: "batch-succeeded",
-        provider_batch_state: "succeeded",
-      }),
-    });
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({ status: 422, code: "AI_PROVIDER", retryable: false });
+    expect(supabase.__state.jobsById.get(JOB_ID)).toEqual(job);
+    expect(supabase.__state.auditLogs).toEqual([]);
   });
 
   it("blocks operator actions for viewer role", async () => {
@@ -938,15 +853,7 @@ describe("takeoff job server helpers (TKF-009)", () => {
       status: 403,
       code: "FORBIDDEN",
     });
-    await expect(reconcileTakeoffJobNow(JOB_ID)).rejects.toMatchObject({
-      status: 403,
-      code: "FORBIDDEN",
-    });
     await expect(cancelTakeoffJob(JOB_ID)).rejects.toMatchObject({
-      status: 403,
-      code: "FORBIDDEN",
-    });
-    await expect(retryTakeoffJob(JOB_ID)).rejects.toMatchObject({
       status: 403,
       code: "FORBIDDEN",
     });
@@ -955,9 +862,7 @@ describe("takeoff job server helpers (TKF-009)", () => {
   });
 
   it.each([
-    ["retry", retryTakeoffJob],
     ["resubmit", resubmitTakeoffJob],
-    ["reconcile", reconcileTakeoffJobNow],
     ["cancel", cancelTakeoffJob],
   ] as const)("conceals another tenant's job from %s without changing it or auditing", async (_name, action) => {
     const job = baseJob({ tenant_id: OTHER_TENANT_ID });
