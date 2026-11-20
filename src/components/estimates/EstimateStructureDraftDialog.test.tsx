@@ -2,16 +2,16 @@ import { cleanup,render,screen,within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/structure-drafts-client", () => ({
   fetchEstimateStructureDraft: vi.fn(),
   generateEstimateStructureDraft: vi.fn(),
 }));
 
 import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
 import {
-fetchEstimateStructureDraft,
-generateEstimateStructureDraft,
-} from "@/lib/estimates/client";
+  fetchEstimateStructureDraft,
+  generateEstimateStructureDraft,
+} from "@/lib/estimates/structure-drafts-client";
 
 const draftFixture = {
   draftId: "draft-1",

@@ -10,8 +10,8 @@ import {
   fetchEstimatePdfStatus,
   downloadEstimatePdf,
   requestEstimatePdfGeneration,
-  type EstimateEditorData,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/pdf-client";
+import type { EstimateEditorData } from "@/lib/estimates/editor-read-contracts";
 import type { EstimatePdfLayoutOptions } from "@/lib/estimates/pdf-layout";
 import type { EstimateStatus } from "@/lib/estimates/status";
 

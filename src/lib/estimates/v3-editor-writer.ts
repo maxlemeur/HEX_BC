@@ -12,8 +12,8 @@ import { createEstimateBatchAttempt } from "@/lib/estimates/batch-intentions";
 import {
   batchEstimateOperations,
   type EstimateBatchOperation,
-  type EstimateVersionToken,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/batch-operations-client";
+import type { EstimateVersionToken } from "@/lib/estimates/client-version";
 import type { EstimateItem, EstimateItemInsertPayload, EstimateItemUpdatePayload } from "@/lib/estimates/editor-items";
 import {
   buildEstimateV3ItemInsertPayload,

@@ -1,4 +1,5 @@
-import type { V3ConvertedLine } from "@/lib/estimates/client";
+/** Ligne v1/v2 dont les heures changent en entrant dans une v3 (P-12) : heures source → heures dérivées. */
+export type V3ConvertedLine = { title: string; templateHours: number; convertedHours: number };
 
 const HOURS_FORMAT = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 4 });
 const LISTED_LINES = 5;

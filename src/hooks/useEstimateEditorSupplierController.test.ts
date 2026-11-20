@@ -7,7 +7,7 @@ const clientMocks = vi.hoisted(() => ({
   bulkUpdateEstimateItems: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/items-client", () => ({
   bulkUpdateEstimateItems: clientMocks.bulkUpdateEstimateItems,
 }));
 

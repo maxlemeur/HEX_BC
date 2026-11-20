@@ -19,7 +19,7 @@ const clientMocks = vi.hoisted(() => ({
   deleteEstimateItem: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/items-client", () => ({
   bulkUpdateEstimateItems: clientMocks.bulkUpdateEstimateItems,
   deleteEstimateItem: clientMocks.deleteEstimateItem,
 }));

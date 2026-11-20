@@ -1,5 +1,5 @@
 import type { EstimateBatchIntention } from "@/lib/estimates/batch-intentions";
-import type { EstimateBatchResult } from "@/lib/estimates/client";
+import type { EstimateBatchResult } from "@/lib/estimates/batch-operations-client";
 import type { EstimateItemUpdatePayload } from "@/lib/estimates/editor-items";
 import type { BatchOperationInput } from "@/lib/estimates/schemas";
 import { canonicalizeEstimateBatchOperations } from "@/lib/estimates/batch-request";

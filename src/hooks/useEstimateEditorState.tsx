@@ -134,25 +134,30 @@ import {
   ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
   ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
 } from "@/lib/estimate-editor-virtualization";
+import { acquireEstimateDraftLock, releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
 import {
-  acquireEstimateDraftLock,
   createEstimateLaborRole,
   createMarginTier as createMarginTierClient,
   updateMarginTier as updateMarginTierClient,
   deleteMarginTier as deleteMarginTierClient,
-  duplicateEstimateSection,
-  fetchEstimateDraftVersions,
-  fetchEstimateEditorData,
-  type EstimateBatchOperationResult,
-  type EstimateEditorData,
-  releaseEstimateDraftLock,
-  saveEstimateVersion,
+  updateEstimateLaborRole,
+} from "@/lib/estimates/reference-data-client";
+import { duplicateEstimateSection } from "@/lib/estimates/section-copy-client";
+import { fetchEstimateDraftVersions } from "@/lib/estimates/version-list-client";
+import { fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
+import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
+import type {
+  EstimateEditorData,
+  VersionZeroDraftSummary,
+} from "@/lib/estimates/editor-read-contracts";
+import { saveEstimateVersion } from "@/lib/estimates/version-settings-client";
+import {
   readEstimateLineOfferChoiceSuggestion,
   setEstimateLineOfferChoice,
-  updateEstimateLaborRole,
-  type VersionZeroDraftSummary,
-  type SuggestionLearningState as SuggestionLearningClientState,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/offer-choice-client";
+import type {
+  SuggestionLearningState as SuggestionLearningClientState,
+} from "@/lib/estimates/suggestion-learning-client";
 import type { Database } from "@/types/database";
 import { deferEffectStateUpdate } from "@/hooks/useEstimateEditorAutoSave";
 import { useFocusItemHighlight } from "@/hooks/useFocusItemHighlight";

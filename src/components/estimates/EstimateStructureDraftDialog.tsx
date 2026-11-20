@@ -10,7 +10,7 @@ import {
   type ApplyEstimateStructureDraftPayload,
   type ApplyEstimateStructureDraftResult,
   type EstimateStructureDraftApplyMode,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/structure-drafts-client";
 import {
   buildDraftOverrides,
   buildFilterCounts,

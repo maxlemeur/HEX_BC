@@ -1,4 +1,4 @@
-import { isRecord } from "@/lib/value-guards";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export type JsonRecord = Record<string, unknown>;
 export function toNumber(value: unknown): number | null {
@@ -83,4 +83,18 @@ export function pickArray(root: unknown, keys: string[]): unknown[] {
   }
 
   return [];
+}
+
+export function parseOptionalNullableStringProperty(
+  record: JsonRecord,
+  keys: string[]
+): string | null | undefined {
+  for (const key of keys) {
+    if (!hasOwnProperty(record, key)) continue;
+    const value = record[key];
+    if (value === null) return null;
+    return toNonEmptyString(value);
+  }
+
+  return undefined;
 }

@@ -1,11 +1,11 @@
 import { createEstimateBatchAttempt } from "@/lib/estimates/batch-intentions";
 import {
   batchEstimateOperations,
-  bulkUpdateEstimateItems,
   type EstimateBatchOperation,
-  type EstimateBatchOperationResult,
-  type EstimateVersionToken,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/batch-operations-client";
+import { bulkUpdateEstimateItems } from "@/lib/estimates/items-client";
+import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
+import type { EstimateVersionToken } from "@/lib/estimates/client-version";
 import type { EstimateVersionTotalsPatch } from "@/lib/estimates/editor-items";
 
 export type EstimateLineSaveReceipt = {

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   createEstimateVariant,
   duplicateEstimateVersion,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/version-variant-client";
 import { cn } from "@/lib/utils";
 
 type DuplicateEstimateButtonProps = {

@@ -27,7 +27,6 @@
     "src/lib/catalogue/server.ts": 2100,
     "src/lib/direction/server.ts": 1300,
     "src/lib/estimate-calculations.ts": 1900,
-    "src/lib/estimates/client.ts": 4000,
     "src/lib/estimates/explanations.ts": 1900,
     "src/lib/estimates/generated-ouvrages.ts": 3500,
     "src/lib/estimates/pdf-generator.tsx": 1600,

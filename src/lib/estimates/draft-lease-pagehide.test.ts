@@ -31,7 +31,7 @@ describe("draft lease release on pagehide", () => {
       ? Promise.resolve(new Response(JSON.stringify({ ok: true, data: { released: true } }), { status: 200, headers: { "content-type": "application/json" } }))
       : new Promise<Response>(() => undefined)));
     vi.stubGlobal("fetch", fetchMock);
-    const { acquireEstimateDraftLock } = await import("@/lib/estimates/client");
+    const { acquireEstimateDraftLock } = await import("@/lib/estimates/client-locks");
     const { getEstimateDraftLockSessionId } = await import("@/lib/estimates/draft-lock-session-client");
 
     const identity = getEstimateDraftLockSessionId(VERSION_ID);

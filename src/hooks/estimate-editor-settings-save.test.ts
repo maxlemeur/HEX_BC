@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { persistEstimateSettingsWithLockRecovery } from "@/hooks/estimate-editor-settings-save";
-import { EstimateApiError } from "@/lib/estimates/client";
+import { EstimateApiError } from "@/lib/estimates/client-errors";
 import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 
 function deferred<T>() {

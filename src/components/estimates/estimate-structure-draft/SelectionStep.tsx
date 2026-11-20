@@ -1,5 +1,5 @@
 import { Alert } from "@/components/ui/alert";
-import type { EstimateStructureDraft } from "@/lib/estimates/client";
+import type { EstimateStructureDraft } from "@/lib/estimates/structure-drafts-client";
 import {
   confidenceText,
   isWeakSignalNode,

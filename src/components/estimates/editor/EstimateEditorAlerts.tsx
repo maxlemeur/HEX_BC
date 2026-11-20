@@ -4,7 +4,8 @@ import dynamic from "next/dynamic";
 import { EstimateSendBlockers } from "@/components/estimates/EstimateSendBlockers";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import type { EstimateEditorData, EstimateSendGatingFlag } from "@/lib/estimates/client";
+import type { EstimateEditorData } from "@/lib/estimates/editor-read-contracts";
+import type { EstimateSendGatingFlag } from "@/lib/estimates/version-lifecycle-client";
 import type { EstimateMutationRecovery } from "./EstimateMutationRecoveryAlert";
 
 const EstimateMutationRecoveryAlert = dynamic(() =>
