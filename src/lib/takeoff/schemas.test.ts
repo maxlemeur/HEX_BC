@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
+import { listTakeoffJobsQuerySchema, TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
+
+it("allows the version filter to narrow an affaire's takeoff list", () => {
+  const filters = {
+    project_id: "11111111-1111-4111-8111-111111111111",
+    estimate_version_id: "22222222-2222-4222-8222-222222222222",
+  };
+  expect(listTakeoffJobsQuerySchema.parse(filters)).toMatchObject(filters);
+});
 
 function createBasePayload(level: "A" | "B" | "C") {
   return {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
+import { getAuthenticatedTakeoffContext, getTakeoffJobDetailByIdOrThrow, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import {
   TakeoffError,
@@ -8,6 +8,7 @@ import {
   toTakeoffError,
 } from "@/lib/takeoff/errors";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
+import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 
 export async function getEstimateVersionProjectIdOrThrow(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
@@ -76,4 +77,39 @@ export async function assertTakeoffJobAccessibleForVersion(input: {
     retryable: false,
     jobId: input.jobId,
   });
+}
+
+/** Resolve an affaire review before rendering its client-side requests. */
+export async function resolveTakeoffReviewScope(input: {
+  projectId: string;
+  jobId: string;
+  versionId?: string;
+}) {
+  if (!takeoffJobIdSchema.safeParse(input.projectId).success
+    || !takeoffJobIdSchema.safeParse(input.jobId).success
+    || (input.versionId !== undefined && !takeoffJobIdSchema.safeParse(input.versionId).success)) return null;
+
+  const projectId = input.projectId.toLowerCase();
+  const jobId = input.jobId.toLowerCase();
+  const versionId = input.versionId?.toLowerCase();
+  const auth = await getAuthenticatedTakeoffContext();
+  try {
+    const job = await getTakeoffJobDetailByIdOrThrow({ ...auth, projectId, jobId });
+    if (versionId !== undefined && versionId !== job.estimate_version_id) {
+      if (job.estimate_version_id === null) return null;
+      if (await getEstimateVersionProjectIdOrThrow({ ...auth, versionId }) !== projectId) return null;
+      const { data: link, error } = await auth.supabase.from("takeoff_version_links").select("id")
+        .eq("tenant_id", auth.tenantId).eq("takeoff_job_id", job.id)
+        .eq("source_version_id", job.estimate_version_id).eq("target_version_id", versionId).maybeSingle();
+      if (error) throw mapSupabaseError(error, "Impossible de vérifier le report du métré.");
+      if (!link) return null;
+    }
+    return {
+      versionId: versionId ?? job.estimate_version_id,
+      canEdit: auth.tenantRole === "admin" || auth.tenantRole === "engineer",
+    };
+  } catch (error) {
+    if (error instanceof TakeoffError && error.status === 404) return null;
+    throw error;
+  }
 }

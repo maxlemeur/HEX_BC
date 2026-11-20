@@ -47,7 +47,6 @@ async function relaunch(ui: WorkerUi, upload: Upload, providerItems: ProviderIte
   const bytes = Buffer.from(await buildVectorPlanPdf({ printedScale: false }));
   const sourcePath = `${tenantId}/${second}/${relaunchName}`;
   (ui.army.ownedTakeoffUploads ??= []).push({ projectId: ids.projectId, tenantId, jobId: second });
-  expect((await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
   const snapshot = await client.from("takeoff_jobs").select("preparation_snapshot").eq("id", first).single();
   expect(snapshot.error).toBeNull();
   const inserted = await client.from("takeoff_jobs").insert({ id: second, tenant_id: tenantId, estimate_version_id: ids.versionId,
@@ -55,6 +54,7 @@ async function relaunch(ui: WorkerUi, upload: Upload, providerItems: ProviderIte
     source_file_type: "application/pdf", source_file_size_bytes: bytes.length, ...await ownedWorkerJobOwner(),
     preparation_snapshot: (snapshot.data as { preparation_snapshot: unknown }).preparation_snapshot } as never).select("id").single();
   expect(inserted.error).toBeNull();
+  expect((await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
   const run = await startOwnedWorker(ui, ids, second, "success", { vectors: true, owner, providerItems }).done;
   expect(run.outcome.status).toBe("completed");
   return { second, relaunchName, retained: run.items.filter((item) => !item.is_excluded) };

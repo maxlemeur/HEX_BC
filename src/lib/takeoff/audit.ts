@@ -91,7 +91,8 @@ const takeoffAuditMetadataSchemas = {
   "takeoff.job.created": z
     .object({
       level: z.enum(TAKEOFF_LEVELS),
-      estimate_version_id: z.string().uuid(),
+      estimate_version_id: z.string().uuid().nullable(),
+      project_id: z.string().uuid().optional(),
       source_file_name: nullableNameSchema,
       idempotency_key: z.string().trim().min(1).max(255).nullable(),
       plan_set_id: z.string().uuid().nullable().optional(),
@@ -278,7 +279,8 @@ export type TakeoffAuditMetadataByAction = {
 export type BuildTakeoffAuditMetadataInputByAction = {
   "takeoff.job.created": {
     level: TakeoffLevel;
-    estimate_version_id: string;
+    estimate_version_id: string | null;
+    project_id?: string;
     source_file_name: string | null;
     idempotency_key?: string | null;
     plan_set_id?: string | null;
@@ -390,6 +392,7 @@ export const takeoffAuditMetadataBuilders: TakeoffAuditMetadataBuilders = {
     takeoffAuditMetadataSchemas["takeoff.job.created"].parse({
       level: input.level,
       estimate_version_id: input.estimate_version_id,
+      ...(input.project_id ? { project_id: input.project_id } : {}),
       source_file_name: normalizeNullableString(input.source_file_name),
       idempotency_key: normalizeNullableString(input.idempotency_key ?? null),
       plan_set_id: input.plan_set_id ?? null,

@@ -6,6 +6,7 @@ import { takeoffScopeCoverage } from "@/lib/takeoff/scope-coverage";
 import { quantitySourceComparison } from "@/lib/takeoff/quantity-review-policy";
 import { takeoffReviewContextResponseSchema, type TakeoffReviewContext } from "@/lib/takeoff/review-context-contracts";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
+import { TAKEOFF_COMPARISON_DEFERRED } from "@/lib/takeoff/apply-readiness";
 import { Button } from "@/components/ui/button";
 
 const money = (value: number | null) => value === null ? "Montant inconnu" :
@@ -43,9 +44,9 @@ export function importantReviewItemIds(context: TakeoffReviewContext | null) {
   return context?.posts.filter(post => post.recommend_review !== false || (post.impact_cents ?? 0) > 0).flatMap(post => post.item_ids) ?? [];
 }
 
-export function TakeoffReviewPolicyPanel({ items, providerMeta, context, error, onFocusItem }: {
+export function TakeoffReviewPolicyPanel({ items, providerMeta, context, error, onFocusItem, hasDestination = true }: {
   items: TakeoffJobItem[]; providerMeta: Record<string, unknown> | null;
-  context: TakeoffReviewContext | null; error: string | null; onFocusItem: (id: string) => void;
+  hasDestination?: boolean; context: TakeoffReviewContext | null; error: string | null; onFocusItem: (id: string) => void;
 }) {
   const coverage = useMemo(() => {
     const parsed = takeoffPreparationSchema.safeParse(record(record(providerMeta).preparation_snapshot).preparation);
@@ -57,7 +58,7 @@ export function TakeoffReviewPolicyPanel({ items, providerMeta, context, error, 
     return comparison?.delta ? [[comparison.group, { item, comparison }] as const] : [];
   })).values()];
   return <section aria-label="Contrôle ciblé et couverture" className="max-h-56 min-w-0 shrink-0 space-y-3 overflow-y-auto break-words border-b border-border bg-surface px-4 py-3 text-sm">
-    <p>Contrôle recommandé dès 1 000 € HT ou 1 % du lot. Une anomalie reste signalée sous ce seuil. Vous pouvez poursuivre malgré les avertissements de quantité.</p>
+    {hasDestination ? <p>Contrôle recommandé dès 1 000 € HT ou 1 % du lot. Une anomalie reste signalée sous ce seuil. Vous pouvez poursuivre malgré les avertissements de quantité.</p> : <p>{TAKEOFF_COMPARISON_DEFERRED} Les règles portent sur les mesures de ce métré.</p>}
     {error ? <p role="status" className="text-warning">{error}</p> : null}
     {context?.unlinked_item_ids.length ? <p className="text-warning">{context.unlinked_item_ids.length} élément(s) sans rattachement chiffré : enjeu financier inconnu, contrôle recommandé.</p> : null}
     {sourceGaps.length ? <ul aria-label="Écarts entre les lectures" className="space-y-2">{sourceGaps.map(({ item, comparison }) =>
@@ -86,6 +87,6 @@ export function TakeoffReviewPolicyPanel({ items, providerMeta, context, error, 
         </table>}
       <p className="mt-2 text-muted-foreground">Des éléments repérés et des preuves présentes ne garantissent pas à eux seuls l’exhaustivité du métré.</p>
     </details>
-    <p className="text-muted-foreground">Longueurs vendues : cumul par ligne de devis, puis arrondi unique au mètre supérieur.</p>
+    {hasDestination && <p className="text-muted-foreground">Longueurs vendues : cumul par ligne de devis, puis arrondi unique au mètre supérieur.</p>}
   </section>;
 }

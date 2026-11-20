@@ -795,15 +795,7 @@ export const listTakeoffJobsQuerySchema = z
     limit: optionalLimitSearchParamSchema,
     offset: optionalOffsetSearchParamSchema,
   })
-  .strict()
-  .refine(
-    (data) => !(data.project_id && data.estimate_version_id),
-    {
-      message:
-        "project_id et estimate_version_id sont mutuellement exclusifs.",
-      path: ["project_id"],
-    }
-  );
+  .strict();
 
 export const getTakeoffJobDetailsQuerySchema = z
   .object({

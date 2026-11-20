@@ -3093,9 +3093,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs",
     summary: "Lister les jobs Takeoff",
     description:
-      "Retourne les jobs takeoff du tenant courant avec filtres (version, statut, niveau, periode), compteurs par statut et pagination.",
+      "Retourne les jobs takeoff du tenant courant avec filtres, compteurs par statut et pagination. Les filtres d’affaire et de version peuvent être combinés.",
     tags: ["Takeoff"],
     parameters: [
+      queryParameter({ name: "project_id", description: "Filtrer les métrés par affaire.", schemaName: "TakeoffJobProjectIdQueryParameter", schema: uuidSchema, required: false }),
       takeoffJobEstimateVersionIdQueryParameter,
       takeoffJobStatusQueryParameter,
       takeoffJobLevelQueryParameter,

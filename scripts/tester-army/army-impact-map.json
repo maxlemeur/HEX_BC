@@ -801,10 +801,13 @@
         "src/lib/takeoff/**",
         "src/app/api/takeoff/**",
         "scripts/tester-army/takeoff-worker-*",
-        "src/components/takeoff/review/TakeoffVectorViewer.tsx"
+        "e2e/fixtures/sample-plan.pdf",
+        "src/components/takeoff/review/TakeoffVectorViewer.tsx",
+        "supabase/migrations/*_takeoff_jobs_by_affaire.sql"
       ],
       "journeys": [
-        "e2e/army/takeoff/worker-lifecycle.e2e.ts"
+        "e2e/army/takeoff/worker-lifecycle.e2e.ts",
+        "e2e/army/takeoff/affaire-without-version.e2e.ts"
       ]
     },
     {

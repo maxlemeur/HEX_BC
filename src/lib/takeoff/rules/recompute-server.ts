@@ -108,26 +108,45 @@ export type TakeoffRulesRecomputation = { lines: number; written: number; skippe
  * error is thrown to the caller, who decides whether it may go on (the stored results, or their stale state, still
  * block in the apply trigger).
  */
-export async function recomputeTakeoffRulesForVersion(input: {
-  tenantId: string;
-  estimateVersionId: string;
-  supabase?: ServiceClient;
-}): Promise<TakeoffRulesRecomputation> {
+type TakeoffRuleScope = { estimateVersionId: string; jobId?: never; projectId?: never }
+  | { estimateVersionId?: never; jobId: string; projectId: string };
+type TakeoffRuleRecomputeInput = TakeoffRuleScope & { tenantId: string; supabase?: ServiceClient };
+
+export function recomputeTakeoffRulesForVersion(input: Extract<TakeoffRuleRecomputeInput, { estimateVersionId: string }>) {
+  return recomputeTakeoffRules(input);
+}
+
+export function recomputeTakeoffRulesForJob(input: Extract<TakeoffRuleRecomputeInput, { jobId: string }>) {
+  return recomputeTakeoffRules(input);
+}
+
+const EMPTY_RECOMPUTATION = { lines: 0, written: 0, skipped: 0, reopened: 0 };
+
+async function recomputeTakeoffRules(input: TakeoffRuleRecomputeInput): Promise<TakeoffRulesRecomputation> {
   const supabase = input.supabase ?? createServiceRoleClient();
-  // Independent of the worker flag: existing rule inputs stay protected after it is off.
-  const { data: hasInputs, error: presenceError } = await supabase.rpc("takeoff_rule_version_has_inputs" as never, {
-    p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
-  } as never);
-  if (presenceError || typeof hasInputs !== "boolean") failed("Impossible de vérifier la présence de règles.", presenceError);
-  if (!hasInputs) return { lines: 0, written: 0, skipped: 0, reopened: 0 };
-  // The version as this computation reads it: the writer writes nothing if it changed meanwhile.
-  const { data: stamp, error: stampError } = await supabase.rpc("takeoff_rule_version_stamp" as never, {
-    p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
-  } as never);
-  if (stampError || typeof stamp !== "string") failed("Impossible de lire l’état de la version pour les règles.", stampError);
-  const { data: jobData, error: jobError } = await supabase.from("takeoff_jobs" as never)
+  const { tenantId, estimateVersionId } = input;
+  const scope = estimateVersionId === undefined
+    ? { p_tenant_id: tenantId, p_project_id: input.projectId, p_job_id: input.jobId }
+    : { p_tenant_id: tenantId, p_estimate_version_id: estimateVersionId };
+  if (estimateVersionId !== undefined) {
+    // Existing inputs stay protected after the worker flag is off.
+    const { data: hasInputs, error } = await supabase.rpc("takeoff_rule_version_has_inputs" as never, scope as never);
+    if (error || typeof hasInputs !== "boolean") failed("Impossible de vérifier la présence de règles.", error);
+    if (!hasInputs) return EMPTY_RECOMPUTATION;
+  }
+  const { data: stamp, error: stampError } = await supabase.rpc(
+    (estimateVersionId === undefined ? "takeoff_rule_job_stamp" : "takeoff_rule_version_stamp") as never, scope as never);
+  if (stampError) failed("Impossible de lire l’état du métré pour les règles.", stampError);
+  if (estimateVersionId === undefined && stamp === null) return EMPTY_RECOMPUTATION;
+  if (typeof stamp !== "string") failed("Impossible de lire l’état du métré pour les règles.", null);
+
+  const jobQuery = supabase.from("takeoff_jobs" as never)
     .select("id, status, created_at, sources:preparation_snapshot->preparation->sources" as never)
-    .eq("tenant_id" as never, input.tenantId as never).eq("estimate_version_id" as never, input.estimateVersionId as never)
+    .eq("tenant_id" as never, tenantId as never);
+  const { data: jobData, error: jobError } = await (estimateVersionId === undefined
+    ? jobQuery.eq("id" as never, input.jobId as never).eq("project_id" as never, input.projectId as never)
+      .is("estimate_version_id" as never, null)
+    : jobQuery.eq("estimate_version_id" as never, estimateVersionId as never))
     .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true });
   if (jobError) failed("Impossible de lire les jobs de la version pour les règles.", jobError);
   const jobs = (jobData ?? []) as unknown as JobRow[];
@@ -192,12 +211,12 @@ export async function recomputeTakeoffRulesForVersion(input: {
     };
   });
   let quantityLines = lines;
-  if (lines.some(line => line.inputs?.kind === "surface")) {
+  if (estimateVersionId !== undefined && lines.some(line => line.inputs?.kind === "surface")) {
     const [targets, links] = await Promise.all([
       readAllRows(() => supabase.from("estimate_items").select("id,title,description,source_metadata", { count: "exact" })
-        .eq("tenant_id", input.tenantId).eq("version_id", input.estimateVersionId).eq("source_provider", "dpgf").eq("item_type", "line")),
+        .eq("tenant_id", input.tenantId).eq("version_id", estimateVersionId).eq("source_provider", "dpgf").eq("item_type", "line")),
       readAllRows(() => supabase.from("takeoff_dpgf_links").select("takeoff_item_id,estimate_item_id", { count: "exact" })
-        .eq("tenant_id", input.tenantId).eq("version_id", input.estimateVersionId)),
+        .eq("tenant_id", input.tenantId).eq("version_id", estimateVersionId)),
     ]);
     if (targets.error) failed("Impossible de lire les lignes de prix pour le contrôle des surfaces.", targets.error);
     if (links.error) failed("Impossible de lire les rattachements des surfaces.", links.error);
@@ -232,8 +251,8 @@ export async function recomputeTakeoffRulesForVersion(input: {
   if (unbounded > 0) {
     console.error("takeoff.rules.results_unbounded", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: unbounded });
   }
-  const { written, reopened } = await writeTakeoffRuleResultChunks({ supabase, tenantId: input.tenantId,
-    estimateVersionId: input.estimateVersionId, writes, transforms, stamp });
+  const { written, reopened } = await writeTakeoffRuleResultChunks({
+    ...input, supabase, writes, transforms, stamp });
   if (reopened > 0) {
     console.info("takeoff.rules.reopened", { tenant_id: input.tenantId, estimate_version_id: input.estimateVersionId, lines: reopened });
   }
@@ -247,16 +266,19 @@ type RuleResultWrite = { id: string; results: TakeoffRuleResult[]; complete_fail
  * grow: TI-677 PR D) moves the version's stamp: the writer returns the stamp after its own writes, and the next chunk
  * checks that one (with the stamp read before the computation it would write nothing). Returns the lines written.
  */
-export async function writeTakeoffRuleResultChunks(input: {
+export async function writeTakeoffRuleResultChunks(input: TakeoffRuleScope & {
   supabase: ServiceClient;
   tenantId: string;
-  estimateVersionId: string;
   writes: readonly RuleResultWrite[];
   transforms: ReadonlyArray<{ item_id: string; transform: TakeoffFrameTransform | null }>;
   stamp: string;
   chunk?: number;
 }) {
-  const size = input.chunk ?? TAKEOFF_RULES_WRITE_CHUNK;
+  const forJob = input.estimateVersionId === undefined;
+  const size = Math.min(input.chunk ?? TAKEOFF_RULES_WRITE_CHUNK, forJob ? 250 : TAKEOFF_RULES_WRITE_CHUNK);
+  const scope = forJob
+    ? { p_tenant_id: input.tenantId, p_project_id: input.projectId, p_job_id: input.jobId }
+    : { p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId };
   let stamp = input.stamp;
   let written = 0;
   let reopened = 0;
@@ -273,8 +295,8 @@ export async function writeTakeoffRuleResultChunks(input: {
       proofBytes += bytes;
       end++;
     }
-    const { data, error } = await input.supabase.rpc("write_takeoff_rule_results" as never, {
-      p_tenant_id: input.tenantId, p_estimate_version_id: input.estimateVersionId,
+    const { data, error } = await input.supabase.rpc((forJob ? "write_takeoff_job_rule_results" : "write_takeoff_rule_results") as never, {
+      ...scope,
       p_items: input.writes.slice(offset, end), p_transforms: input.transforms.slice(transformOffset, transformOffset + size), p_stamp: stamp,
     } as never);
     if (error) failed("Impossible d’enregistrer les résultats des règles.", error);
@@ -290,11 +312,10 @@ export async function writeTakeoffRuleResultChunks(input: {
 }
 
 /** The same computation, never throwing: logged, for callers that go on without it (the stored state still blocks). */
-export async function recomputeTakeoffRulesQuietly(input: { tenantId: string; estimateVersionId: string; context: string;
-  supabase?: ServiceClient }) {
+export async function recomputeTakeoffRulesQuietly(input: TakeoffRuleRecomputeInput & { context: string }) {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const outcome = await recomputeTakeoffRulesForVersion(input);
+      const outcome = await recomputeTakeoffRules(input);
       if (outcome.skipped === 0 || attempt === 2) return outcome;
     } catch (error) {
       console.error("takeoff.rules.recompute_failed", {

@@ -31,7 +31,7 @@ import {
   TakeoffReviewErrorState,
   TakeoffReviewLoadingState,
 } from "@/components/takeoff/review/TakeoffReviewChrome";
-import { takeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
+import { TAKEOFF_COMPARISON_DEFERRED, takeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import {
   getStatusCss,
@@ -125,7 +125,8 @@ export type { ReviewItem } from "@/lib/takeoff/review-item-edits";
 
 type TakeoffReviewPageProps = {
   jobId: string;
-  versionId: string;
+  versionId: string | null;
+  canEdit?: boolean;
   projectId: string;
 };
 
@@ -142,6 +143,7 @@ const TAKEOFF_JOBS_LIST_PAGE_MAX = 100;
 export default function TakeoffReviewPage({
   jobId,
   versionId,
+  canEdit = true,
   projectId,
 }: TakeoffReviewPageProps) {
   const toast = useToast();
@@ -153,7 +155,7 @@ export default function TakeoffReviewPage({
 
   // ---- Review mode from URL (V3-012: Assisté / Production / Validation)
   const reviewModeParam = searchParams.get("reviewMode");
-  useAssistantScreen({ projectId, screen: { screen: "takeoff_review", versionId, jobId } });
+  useAssistantScreen({ projectId, screen: { screen: "takeoff_review", versionId: versionId ?? undefined, jobId } });
 
   const currentReviewMode: ReviewMode = useMemo(() => {
     if (
@@ -209,13 +211,14 @@ export default function TakeoffReviewPage({
       : "items";
   const dpgfCompareView: TakeoffDpgfComparisonView =
     dpgfViewParam === "exceptions_only" ? "exceptions_only" : "all";
-  const activeTab: ViewTab = isShowingSimplified ? "items" : requestedTab;
+  const activeTab: ViewTab = isShowingSimplified || (!versionId && (requestedTab === "dpgf" || requestedTab === "compare"))
+    ? "items" : requestedTab;
 
   const compareWithJobId = useMemo(() => {
-    if (!compareWithParam) return null;
+    if (!versionId || !compareWithParam) return null;
     const trimmed = compareWithParam.trim();
     return trimmed.length > 0 ? trimmed : null;
-  }, [compareWithParam]);
+  }, [compareWithParam, versionId]);
 
   const compareThreshold = useMemo(() => {
     if (!thresholdParam) return DEFAULT_COMPARE_THRESHOLD;
@@ -413,6 +416,7 @@ export default function TakeoffReviewPage({
     const abortController = new AbortController();
 
     async function loadCompareCandidates() {
+      if (!versionId) return;
       const documentKey = takeoffCompareDocumentKey({
         plan_set_id: jobPlanSetId,
         source_file_name: jobFileName,
@@ -518,6 +522,7 @@ export default function TakeoffReviewPage({
 
   const loadDpgfComparison = useCallback(
     async (mode: DpgfFetchMode) => {
+      if (!versionId) return;
       dpgfCompareReadRef.current?.abort();
       const read = new AbortController();
       dpgfCompareReadRef.current = read;
@@ -598,6 +603,7 @@ export default function TakeoffReviewPage({
 
   const updateItemField = useCallback(
     (itemId: string, field: string, value: unknown) => {
+      if (!canEdit) return;
       const selected = items.find((item) => item.id === itemId);
       // A failure V settles only with a coded reason (network, scale, printed area) is justified in the targeted review.
       if (field === "is_verified" && value === true && requiresAcceptanceReason(selected?.rule_results)) {
@@ -629,7 +635,7 @@ export default function TakeoffReviewPage({
         })
       );
     },
-    [items, projectId, router, jobId, versionId, toast]
+    [canEdit, items, projectId, router, jobId, versionId, toast]
   );
 
   // TI-664 L5c: PATCH answers carry the job's rule states; one that arrives after a later request's answer (autosave
@@ -683,7 +689,7 @@ export default function TakeoffReviewPage({
   );
 
   const performSave = useCallback(async () => {
-    if (savingRef.current) return;
+    if (!canEdit || savingRef.current) return;
 
     const dirtyItems = items.filter((i) => i._dirty && !i._saving);
     if (dirtyItems.length === 0) return;
@@ -748,7 +754,7 @@ export default function TakeoffReviewPage({
     } finally {
       savingRef.current = false;
     }
-  }, [applyPatchResults, items, jobId, nextPatchSequence, toast]);
+  }, [applyPatchResults, canEdit, items, jobId, nextPatchSequence, toast]);
 
   const hasDirty = items.some((i) => i._dirty);
   useEffect(() => {
@@ -813,6 +819,7 @@ export default function TakeoffReviewPage({
 
   const handleExcludeItems = useCallback(
     (itemIds: string[]) => {
+      if (!canEdit) return;
       const includedIds = itemIds.filter((id) => {
         const item = items.find((i) => i.id === id);
         return item && !item.is_excluded;
@@ -821,11 +828,12 @@ export default function TakeoffReviewPage({
       setExclusionTargetIds(includedIds);
       setExclusionModalOpen(true);
     },
-    [items]
+    [canEdit, items]
   );
 
   const handleIncludeItems = useCallback(
     (itemIds: string[]) => {
+      if (!canEdit) return;
       setItems((prev) =>
         prev.map((item) => {
           if (!itemIds.includes(item.id) || !item.is_excluded) return item;
@@ -833,7 +841,7 @@ export default function TakeoffReviewPage({
         })
       );
     },
-    []
+    [canEdit]
   );
 
   const handleSyncToItems = useCallback(
@@ -892,6 +900,7 @@ export default function TakeoffReviewPage({
 
   const handleApplyDiffSelection = useCallback(
     async (selectedBaseItemIds: string[]) => {
+      if (!canEdit) return;
       setApplySelectionError(null);
 
       const hasPendingSave = items.some((item) => item._dirty || item._saving);
@@ -953,7 +962,7 @@ export default function TakeoffReviewPage({
         setApplySelectionSubmitting(false);
       }
     },
-    [applyPatchResults, items, jobId, nextPatchSequence, toast]
+    [applyPatchResults, canEdit, items, jobId, nextPatchSequence, toast]
   );
 
   const handleExclusionConfirm = useCallback(
@@ -991,6 +1000,8 @@ export default function TakeoffReviewPage({
   const pagesInEstimate = useTakeoffJobPageContributions(jobId, versionId, { applied: hasAlreadyBeenApplied, revision: savedSourcePages });
   const readiness = takeoffApplyReadiness({
     jobStatus,
+    hasDestination: versionId !== null,
+    canEdit,
     includedCount: includedItems.length,
     hasDirtyOrSaving,
     hasSaveErrors,
@@ -1070,7 +1081,7 @@ export default function TakeoffReviewPage({
               <TakeoffRulesRecovery jobId={jobId} pending={items.some((item) => item.rules_stale)}
                 beginRevision={nextPatchSequence}
                 getRevision={() => patchSequence.current.sent}
-                disabled={hasAlreadyBeenApplied || hasDirtyOrSaving}
+                disabled={!canEdit || hasAlreadyBeenApplied || hasDirtyOrSaving}
                 onRefreshed={(detail) => {
                   patchSequence.current.applied = patchSequence.current.sent;
                   const byId = new Map(detail.items.data.map((item) => [item.id, item]));
@@ -1121,6 +1132,8 @@ export default function TakeoffReviewPage({
       <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={hasAlreadyBeenApplied}
         jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
 
+      {!versionId && <p className="text-sm text-muted-foreground">{TAKEOFF_COMPARISON_DEFERRED} Les règles portent sur les mesures de ce métré.</p>}
+
       {jobLevel === "C" && <LazyTakeoffVectorViewer jobId={jobId} planSetId={jobPlanSetId} />}
       {jobLevel === "C" && (
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
@@ -1129,6 +1142,7 @@ export default function TakeoffReviewPage({
       {currentReviewMode === "assisted" ? (
         <AssistedReviewPanel
           items={items}
+          readOnly={!canEdit}
           reviewedIds={assistedReviewedIds}
           markedForReviewIds={assistedMarkedForReviewIds}
           onReviewedIdsChange={setAssistedReviewedIds}
@@ -1148,10 +1162,10 @@ export default function TakeoffReviewPage({
           hasSaveErrors={hasSaveErrors}
           requiresLocalizedProof={jobLevel === "C"}
           onOpenEvidencePanel={handleOpenEvidencePanel}
-          onVerifyItem={handleMarkVerified}
-          onExcludeItem={(itemId) => handleExcludeItems([itemId])}
-          onIncludeItem={(itemId) => handleIncludeItems([itemId])}
-          onOpenDpgfExceptions={openDpgfExceptions}
+          onVerifyItem={canEdit ? handleMarkVerified : undefined}
+          onExcludeItem={canEdit ? (itemId) => handleExcludeItems([itemId]) : undefined}
+          onIncludeItem={canEdit ? (itemId) => handleIncludeItems([itemId]) : undefined}
+          onOpenDpgfExceptions={versionId ? openDpgfExceptions : undefined}
           onOpenDetailedReview={() => openProductionReview("items")}
           readiness={readiness}
           onOpenApplyWizard={handleOpenApplyWizard}
@@ -1164,6 +1178,8 @@ export default function TakeoffReviewPage({
           confidenceThreshold={lowConfidenceThreshold}
           activeTab={activeTab}
           onSetActiveTab={setActiveTab}
+          hasDestination={versionId !== null}
+          readOnly={!canEdit}
           compareCandidates={compareCandidates}
           compareWithJobId={compareWithJobId}
           compareThreshold={compareThreshold}
@@ -1206,7 +1222,7 @@ export default function TakeoffReviewPage({
         onConfirm={handleExclusionConfirm}
       /> : null}
 
-      {applyWizardOpen ? <TakeoffApplyWizard
+      {applyWizardOpen && versionId ? <TakeoffApplyWizard
         open={applyWizardOpen}
         jobId={jobId}
         versionId={versionId}
@@ -1237,6 +1253,7 @@ export default function TakeoffReviewPage({
           <EvidencePanel
             key={panelItem.id}
             item={panelItem}
+            readOnly={!canEdit}
             itemIndex={panelIndex}
             totalItems={items.length}
             onClose={handleCloseEvidencePanel}

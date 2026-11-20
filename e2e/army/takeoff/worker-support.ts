@@ -74,11 +74,14 @@ export async function ownedWorkerJobOwner() {
   return { execution_provider: "chatgpt_local" as const, execution_host_id: await ownedWorkerHostId(), processing_strategy: "sync" as const };
 }
 
-export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
+export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId: string; versionId: null }, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
   options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner;
     providerItems?: Array<{ designation: string; quantity: number; unit: string; source_page: number; confidence: number; evidence: string }> } = {}) {
-  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
-    throw new Error("A dedicated worker profile and this invocation's owned estimate are required.");
+  const ownsScope = ids.versionId === null
+    ? ui.army.ownedTakeoffAffaires?.includes(ids.projectId)
+    : ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId);
+  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ownsScope) {
+    throw new Error("A dedicated worker profile and this invocation's owned scope are required.");
   }
   const names = ["PATH", "TMPDIR", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
     "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD", "E2E_ALLOWED_SUPABASE_HOST", "E2E_ARMY_LOCAL_DB_URL", "E2E_ARMY_BASE_URL",
@@ -94,7 +97,7 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
     // The worker child signs in as the job's owner: a journey's dedicated owner, else the campaign account.
     ...(options.owner ? { E2E_LOGIN_EMAIL: options.owner.email, E2E_LOGIN_PASSWORD: options.owner.password } : {}) };
   const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/tester-army/takeoff-worker-attempt.mjs",
-    ids.projectId, ids.versionId, jobId, ui.army.runPrefix, mode], { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
+    ids.projectId, ids.versionId ?? "-", jobId, ui.army.runPrefix, mode], { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
   let resolveProvider!: (value: { event: string; jobId: string; status: string }) => void;
   let rejectProvider!: (error: Error) => void;
   const provider = new Promise<{ event: string; jobId: string; status: string }>((resolve, reject) => { resolveProvider = resolve; rejectProvider = reject; });
@@ -146,13 +149,13 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "lo
   const jobId = randomUUID();
   const sourcePath = `${tenantId}/${jobId}/${fileName}`;
   const bytes = await readFile(filePath);
-  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "text/csv" });
-  expect(uploaded.error).toBeNull();
   const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: userId, level: "A", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
     source_file_type: "text/csv", source_file_size_bytes: bytes.length,
     ...provider === "historical" ? { execution_provider: "gemini" } : await ownedWorkerJobOwner() }).select("id").single();
   expect(inserted.error).toBeNull();
+  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "text/csv" });
+  expect(uploaded.error).toBeNull();
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await expect(ui.browser).toHaveURL(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await recordEvidence(ui.army, "worker-ui-created", { ids, jobId, fileName, engine: before.version.calc_engine_version, provider,
@@ -267,13 +270,13 @@ export async function launchWorkerVectorUpload(ui: WorkerUi) {
   const sourcePath = `${tenantId}/${jobId}/${fileName}`;
   // The review reads this owned upload through its signed URL: the campaign's network guard allows exactly that path.
   (ui.army.ownedTakeoffUploads ??= []).push({ projectId: ids.projectId, tenantId, jobId });
-  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" });
-  expect(uploaded.error).toBeNull();
   const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: userId, level: "C", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
     source_file_type: "application/pdf", source_file_size_bytes: bytes.length, ...await ownedWorkerJobOwner(),
     preparation_snapshot: snapshot } as never).select("id").single();
   expect(inserted.error).toBeNull();
+  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" });
+  expect(uploaded.error).toBeNull();
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
   expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
   await recordEvidence(ui.army, "TKW09-vector-upload-created", { ids, jobId, tenantId, owner: owner.userId, sha256: hash,

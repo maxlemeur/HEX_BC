@@ -29,7 +29,8 @@ const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 function createJob(overrides: Partial<TakeoffJobSummary>): TakeoffJobSummary {
   return {
     id: overrides.id ?? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    estimate_version_id: overrides.estimate_version_id ?? VERSION_ID,
+    project_id: overrides.project_id,
+    estimate_version_id: overrides.estimate_version_id === undefined ? VERSION_ID : overrides.estimate_version_id,
     status: overrides.status ?? "completed",
     level: overrides.level ?? "A",
     processing_strategy: overrides.processing_strategy ?? "sync",
@@ -142,10 +143,10 @@ function createRadarResponse(jobId: string) {
   };
 }
 
-function renderTab() {
+function renderTab(versionId: string | null = VERSION_ID) {
   return render(
     <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
-      <TakeoffExceptionsTab projectId={PROJECT_ID} versionId={VERSION_ID} />
+      <TakeoffExceptionsTab projectId={PROJECT_ID} versionId={versionId} />
     </SWRConfig>
   );
 }
@@ -184,8 +185,10 @@ describe("TakeoffExceptionsTab", () => {
     const reviewLink = await screen.findByRole("link", { name: "Revoir" });
 
     expect(listTakeoffJobs).toHaveBeenCalledWith({
+      project_id: PROJECT_ID,
       estimate_version_id: VERSION_ID,
       limit: 20,
+      offset: 0,
     });
     expect(fetchTakeoffRiskRadar).toHaveBeenCalledWith(appliedJob.id, {
       version_id: appliedJob.estimate_version_id,
@@ -225,5 +228,22 @@ describe("TakeoffExceptionsTab", () => {
       severity: null,
       status: "to_process",
     });
+  });
+
+  it("finds the historical comparison behind a full page of versionless jobs", async () => {
+    const versionless = Array.from({ length: 20 }, (_, index) => createJob({
+      id: `affaire-job-${index}`, project_id: PROJECT_ID, estimate_version_id: null,
+    }));
+    const older = createJob({ id: "historical-job" });
+    const firstPage = createJobListResponse(versionless);
+    firstPage.pagination.total = 21;
+    vi.mocked(listTakeoffJobs).mockResolvedValueOnce(firstPage).mockResolvedValueOnce(createJobListResponse([older]));
+    vi.mocked(fetchTakeoffRiskRadar).mockResolvedValue(createRadarResponse(older.id));
+
+    renderTab(null);
+
+    await screen.findByRole("link", { name: "Revoir" });
+    expect(listTakeoffJobs).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 20, project_id: PROJECT_ID }));
+    expect(fetchTakeoffRiskRadar).toHaveBeenCalledWith(older.id, expect.objectContaining({ version_id: VERSION_ID }));
   });
 });

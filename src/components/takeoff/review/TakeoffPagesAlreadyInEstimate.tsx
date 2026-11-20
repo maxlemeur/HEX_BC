@@ -41,13 +41,13 @@ function takeoffLabel(job: Job | undefined) {
  * again would stay hidden; the earlier read is not shown meanwhile. Read again too at each `revision` (a line's source
  * page saved): the page compared has changed. The earlier read stays shown until then; it was right a moment ago.
  */
-export function useTakeoffJobPageContributions(jobId: string | null, versionId: string,
+export function useTakeoffJobPageContributions(jobId: string | null, versionId: string | null,
   options: { applied?: boolean; revision?: number } = {}): Read {
-  const base = jobId ? `${jobId}:${versionId}:${options.applied ? "applied" : "open"}` : null;
+  const base = jobId && versionId ? `${jobId}:${versionId}:${options.applied ? "applied" : "open"}` : null;
   const key = base ? `${base}:${options.revision ?? 0}` : null;
   const [read, setRead] = useState<Read & { key: string | null; base: string | null }>({ key: null, base: null, data: null, error: null });
   useEffect(() => {
-    if (!key || !jobId) return;
+    if (!key || !jobId || !versionId) return;
     const controller = new AbortController();
     void fetchTakeoffJobPageContributions(jobId, versionId, { signal: controller.signal }).then(
       (data) => setRead({ key, base, data, error: null }),

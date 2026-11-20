@@ -175,16 +175,18 @@ export async function getTakeoffJobById(input: {
   supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
   tenantId: string;
   jobId: string;
+  projectId?: string;
 }) {
-  const { data, error } = await input.supabase
+  const query = input.supabase
     .from("takeoff_jobs" as never)
     .select(
-      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at, preparation_snapshot, execution_provider, execution_host_id, created_by" as never
+      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at, plan_set_id, preparation_snapshot, execution_provider, execution_host_id, created_by" as never
     )
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("id" as never, input.jobId as never)
-    .abortSignal(new AbortController().signal)
-    .maybeSingle();
+    .abortSignal(new AbortController().signal);
+  if (input.projectId) query.eq("project_id" as never, input.projectId as never);
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     throw toTakeoffError(

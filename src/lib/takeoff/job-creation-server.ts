@@ -15,6 +15,9 @@ import {
   getTakeoffChunkingConfigForTenant,
   getTakeoffLevelCProcessingConfigForTenant,
 } from "@/lib/takeoff/feature-flags";
+import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
+import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
+import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { type TakeoffLevel } from "@/lib/takeoff/types";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
@@ -24,6 +27,7 @@ import {
   TAKEOFF_PLAN_SET_LEVEL,
   type TakeoffJobRow,
   type TakeoffJobCreateResponse,
+  deriveDeterministicJobId,
   derivePlanSetTakeoffJobId,
   normalizeTakeoffJobRow,
 } from "@/lib/takeoff/job-creation-input";
@@ -85,7 +89,35 @@ export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSe
   return normalizeTakeoffJobRow(existing);
 }
 
+type CreateAffaireTakeoffJobInput = {
+  projectId: string;
+  planSetId: string;
+  preparationRevision: number;
+  operationId: string;
+};
+
 export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJobInput): Promise<TakeoffJobCreateResponse> {
+  return createPreparedPlanSetTakeoffJob(input);
+}
+
+/** The server caller supplies one operation ID and keeps it on retries. */
+export async function createAffaireTakeoffJob(input: CreateAffaireTakeoffJobInput) {
+  const operationId = parseWithSchema(takeoffJobIdSchema, input.operationId, "Identifiant d’opération invalide.");
+  return createPreparedPlanSetTakeoffJob({ ...input, operationId: operationId.toLowerCase(), estimateVersionId: null, level: "C", provider: "chatgpt" });
+}
+
+type AffaireJobReceipt = Omit<TakeoffJobCreateResponse, "estimate_version_id"> & {
+  estimate_version_id: null;
+  project_id: string;
+};
+
+function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobInput): Promise<TakeoffJobCreateResponse>;
+function createPreparedPlanSetTakeoffJob(input: CreateAffaireTakeoffJobInput & {
+  estimateVersionId: null; level: "C"; provider: "chatgpt"; sourceVersionId?: never;
+}): Promise<AffaireJobReceipt>;
+async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobInput | (CreateAffaireTakeoffJobInput & {
+  estimateVersionId: null; level: "C"; provider: "chatgpt"; sourceVersionId?: never;
+})): Promise<TakeoffJobCreateResponse | AffaireJobReceipt> {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId, tenantRole } = context;
   const level = input.level ?? TAKEOFF_PLAN_SET_LEVEL;
@@ -101,17 +133,34 @@ export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJo
     });
   }
 
-  const existing = await findTakeoffJobForPlanSetLaunch(input);
+  const { estimateVersionId, projectId } = input;
+  const jobId = input.estimateVersionId === null
+    ? deriveDeterministicJobId(tenantId, `takeoff-affaire:${input.operationId}`)
+    : derivePlanSetTakeoffJobId({ ...input, tenantId, level });
+  async function findExisting(executionProvider?: Parameters<typeof findTakeoffJobForPlanSetLaunch>[1]) {
+    if (input.estimateVersionId !== null) return findTakeoffJobForPlanSetLaunch(input, executionProvider);
+    const row = await getTakeoffJobById({ supabase, tenantId, projectId, jobId });
+    if (!row || row.estimate_version_id !== null) return null;
+    const snapshot = row.preparation_snapshot as { preparation_revision?: number } | null;
+    if (row.plan_set_id !== input.planSetId || snapshot?.preparation_revision !== input.preparationRevision) {
+      throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+        message: "Cette opération est déjà associée à une autre préparation.", retryable: false, jobId });
+    }
+    assertReplayedTakeoffProcessing(row, { level: "C", provider: "chatgpt" });
+    if (row.status === "pending") await assertLocalTakeoffResumeReady(supabase, tenantId, row);
+    return affaireJobReceipt(row, projectId);
+  }
+
+  if (estimateVersionId === null) {
+    await assertPreparationProjectAccess(context, projectId, true);
+  }
+  const existing = await findExisting();
   if (existing) return existing;
 
   assertTakeoffProviderAvailable(parseTakeoffProvider(input.provider));
   await assertTakeoffEnabled(tenantId, { supabase });
-  await assertEstimateVersionAccessibleAsDraft({
-    supabase,
-    tenantId,
-    userId,
-    tenantRole,
-    estimateVersionId: input.estimateVersionId,
+  if (estimateVersionId !== null) await assertEstimateVersionAccessibleAsDraft({
+    supabase, tenantId, userId, tenantRole, estimateVersionId,
   });
   const preparationSnapshot = await assertConfirmedTakeoffPreparation({
     context, projectId: input.projectId, estimateVersionId: input.estimateVersionId,
@@ -131,7 +180,6 @@ export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJo
     planSetId: input.planSetId,
   });
 
-  const jobId = derivePlanSetTakeoffJobId({ ...input, tenantId, level });
   const sourceFile = await resolvePlanSetSourceFile({
     supabase,
     tenantId,
@@ -154,13 +202,14 @@ export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJo
     row: {
       id: jobId,
       tenant_id: tenantId,
-      estimate_version_id: input.estimateVersionId,
+      estimate_version_id: estimateVersionId,
+      project_id: projectId,
       plan_set_id: input.planSetId,
       level,
       status: "pending",
       processing_strategy: "sync",
       source_file_name: sourceFile.sourceFileName,
-      source_file_path: sourceFile.sourceFilePath,
+      source_file_path: estimateVersionId === null ? null : sourceFile.sourceFilePath,
       source_file_type: sourceFile.sourceFileType,
       source_file_size_bytes: sourceFile.sourceFileSizeBytes,
       prompt_version: getTakeoffPromptVersion(level),
@@ -172,7 +221,7 @@ export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJo
 
   if (insertError || !insertedJob) {
     if (insertError?.code === "23505") {
-      const winner = await findTakeoffJobForPlanSetLaunch(input, executionOwner.execution_provider);
+      const winner = await findExisting(executionOwner.execution_provider);
       if (winner) return winner;
     }
     if (insertError) throw takeoffJobInsertError(insertError, jobId, level);
@@ -189,7 +238,8 @@ export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJo
     const createdAuditMetadata =
       takeoffAuditMetadataBuilders["takeoff.job.created"]({
         level,
-        estimate_version_id: createdJob.estimate_version_id,
+        estimate_version_id: estimateVersionId,
+        ...(estimateVersionId === null ? { project_id: projectId } : {}),
         source_file_name: createdJob.source_file_name,
         plan_set_id: input.planSetId,
         classification: planSetClassification,
@@ -217,5 +267,10 @@ export async function createTakeoffJobFromPlanSet(input: CreatePreparedPlanSetJo
     throw error;
   }
 
-  return normalizeTakeoffJobRow(createdJob);
+  return estimateVersionId === null ? affaireJobReceipt(createdJob, projectId) : normalizeTakeoffJobRow(createdJob);
+}
+
+function affaireJobReceipt(row: TakeoffJobRow, projectId: string): AffaireJobReceipt {
+  return { id: row.id, project_id: projectId, estimate_version_id: null, status: row.status,
+    level: row.level, source_file_name: row.source_file_name, created_at: row.created_at };
 }

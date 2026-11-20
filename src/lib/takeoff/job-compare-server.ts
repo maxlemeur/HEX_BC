@@ -63,6 +63,8 @@ export async function compareTakeoffJobs(
   const otherDocumentKey = takeoffCompareDocumentKey(otherJob);
 
   if (
+    baseJob.project_id !== otherJob.project_id ||
+    baseJob.estimate_version_id === null ||
     baseJob.estimate_version_id !== otherJob.estimate_version_id ||
     !baseDocumentKey ||
     !otherDocumentKey ||

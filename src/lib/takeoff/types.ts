@@ -530,7 +530,7 @@ export type TakeoffActivityCenterCounters = {
 
 export type TakeoffActivityCenterJobRow = {
   jobId: string;
-  estimateVersionId: string;
+  estimateVersionId: string | null;
   versionLabel: string;
   lotLabel: string | null;
   planSetLabel: string | null;

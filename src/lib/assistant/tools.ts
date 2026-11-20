@@ -11,7 +11,6 @@ import { AssistantToolError, AssistantToolResult, withUserFacingRefusals, type A
 import { takeoffLinesPage } from "@/lib/assistant/takeoff-reading";
 import type { AuthenticatedContext } from "@/lib/estimates/server-context";
 import { getTakeoffJobDetails, listTakeoffJobs } from "@/lib/takeoff/job-read-server";
-import { getEstimateVersionProjectIdOrThrow } from "@/lib/takeoff/version-access-server";
 
 const id = z.string().uuid();
 const page = z.number().int().min(1).max(100_000);
@@ -111,13 +110,10 @@ export function buildAssistantTools(scope: {
           };
         }
         // The affaire is checked on the job's own row before any of its lines is read.
-        const job = await scope.context.supabase.from("takeoff_jobs").select("id, estimate_version_id")
+        const job = await scope.context.supabase.from("takeoff_jobs").select("id, project_id")
           .eq("id", input.jobId).eq("tenant_id", scope.context.tenantId).maybeSingle();
         if (job.error || !job.data) throw new AssistantToolError("Ce métré est introuvable ou vous n’y avez pas accès.");
-        const projectId = await getEstimateVersionProjectIdOrThrow({
-          supabase: scope.context.supabase, tenantId: scope.context.tenantId, versionId: job.data.estimate_version_id,
-        });
-        if (projectId !== scope.projectId) throw new AssistantToolError("Ce métré n’appartient pas à l’affaire de cette conversation.");
+        if (job.data.project_id !== scope.projectId) throw new AssistantToolError("Ce métré n’appartient pas à l’affaire de cette conversation.");
         const offset = input.offset ?? 0;
         const detail = await getTakeoffJobDetails(input.jobId, { items_limit: TAKEOFF_ITEMS_PAGE, items_offset: offset });
         return {

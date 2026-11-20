@@ -4,6 +4,7 @@ export const TAKEOFF_JOB_PROCESSING_SELECT = [
   "id",
   "tenant_id",
   "estimate_version_id",
+  "project_id",
   "level",
   "status",
   "source_file_name",
@@ -25,7 +26,8 @@ export const TAKEOFF_JOB_PROCESSING_SELECT = [
 const takeoffJobProcessingSchema = z.object({
   id: z.string().uuid(),
   tenant_id: z.string().uuid(),
-  estimate_version_id: z.string().uuid(),
+  estimate_version_id: z.string().uuid().nullable(),
+  project_id: z.string().uuid().optional(),
   level: z.string(),
   status: z.string(),
   source_file_name: z.string().nullable(),

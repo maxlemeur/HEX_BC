@@ -5,6 +5,8 @@
 
 /** A condition that keeps the takeoff away from the send dialog, in the order the review names them. */
 export type TakeoffApplyBlocker =
+  | "no_destination"
+  | "read_only"
   | "already_applied"
   | "no_included_line"
   | "saving"
@@ -16,6 +18,8 @@ export type TakeoffApplyBlocker =
 
 export type TakeoffApplyReadinessInput = {
   jobStatus: string | null;
+  hasDestination?: boolean;
+  canEdit?: boolean;
   includedCount: number;
   hasDirtyOrSaving: boolean;
   hasSaveErrors: boolean;
@@ -47,7 +51,11 @@ export type TakeoffApplyReadiness = {
 export const TAKEOFF_NO_INCLUDED_LINE_MESSAGE =
   "Aucune ligne retenue. Réintégrez au moins une ligne avant l'envoi au tableau de chiffrage.";
 
+export const TAKEOFF_COMPARISON_DEFERRED = "Comparaison au devis disponible à l’envoi.";
+
 const BLOCKER_MESSAGES: Record<TakeoffApplyBlocker, string> = {
+  no_destination: TAKEOFF_COMPARISON_DEFERRED,
+  read_only: "Ce métré est accessible en lecture seule.",
   already_applied: "Ce métré a déjà été appliqué au chiffrage.",
   no_included_line: TAKEOFF_NO_INCLUDED_LINE_MESSAGE,
   saving: "Attendez la fin des sauvegardes avant l'envoi au tableau de chiffrage.",
@@ -67,7 +75,13 @@ function forceGuidance(blockedCount: number): string {
 }
 
 export function takeoffApplyReadiness(input: TakeoffApplyReadinessInput): TakeoffApplyReadiness {
+  if (input.hasDestination === false || input.canEdit === false) {
+    const blocker = input.hasDestination === false ? "no_destination" : "read_only";
+    return { state: "blocked", canOpen: false, blockers: [blocker], message: BLOCKER_MESSAGES[blocker], guidance: null };
+  }
   const conditions: Record<TakeoffApplyBlocker, boolean> = {
+    no_destination: false,
+    read_only: false,
     already_applied: input.jobStatus === "applied",
     no_included_line: input.includedCount === 0,
     saving: input.hasDirtyOrSaving,

@@ -23,13 +23,14 @@ export type TakeoffJobRow = TakeoffJobResponse & {
   execution_provider?: "gemini" | "chatgpt_local";
   execution_host_id?: string | null;
   created_by?: string | null;
+  plan_set_id?: string | null;
   source_file_path?: string | null;
   preparation_snapshot?: unknown;
 };
 
 export type TakeoffJobCreateResponse = TakeoffJobResponse;
 
-function deriveDeterministicJobId(tenantId: string, idempotencyKey: string) {
+export function deriveDeterministicJobId(tenantId: string, idempotencyKey: string) {
   const seed = toHexSha256(`${tenantId}:${idempotencyKey}`);
   const bytes = Buffer.from(seed.slice(0, 32), "hex");
 

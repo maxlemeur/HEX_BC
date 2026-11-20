@@ -45,6 +45,8 @@ export type TakeoffReviewExpertProps = {
   confidenceThreshold: number;
 
   activeTab: ViewTab;
+  hasDestination?: boolean;
+  readOnly?: boolean;
   onSetActiveTab: (tab: ViewTab) => void;
 
   compareCandidates: TakeoffJobSummary[];
@@ -156,6 +158,8 @@ export function TakeoffReviewExpert({
   jobLevel,
   confidenceThreshold,
   activeTab,
+  hasDestination = true,
+  readOnly = false,
   onSetActiveTab,
   compareCandidates,
   compareWithJobId,
@@ -183,7 +187,7 @@ export function TakeoffReviewExpert({
   const tablesCount = tables.length;
   const hasTables = tablesCount > 0;
   const hasCompareTab = compareCandidates.length > 0 || compareWithJobId !== null;
-  const hasDpgfTab = true;
+  const hasDpgfTab = hasDestination;
   const selectedCompareCandidate =
     compareCandidates.find((job) => job.id === compareWithJobId) ?? null;
   // The apply guard's verdict, computed once for the « Anomalies » count and the table's « Avec anomalies » filter.
@@ -369,7 +373,7 @@ export function TakeoffReviewExpert({
             <TakeoffDiffView
               key={`${compareData.base_job_id}:${compareData.other_job_id}:${compareData.threshold}`}
               compare={compareData}
-              onApplySelection={onApplyDiffSelection}
+              onApplySelection={readOnly ? undefined : onApplyDiffSelection}
               isApplyingSelection={applySelectionSubmitting}
               applySelectionError={applySelectionError}
             />
@@ -385,6 +389,7 @@ export function TakeoffReviewExpert({
         <TakeoffTableView
           tables={tables}
           items={items}
+          readOnly={readOnly}
           onUpdateItem={onUpdateItem}
           onExcludeItems={onExcludeItems}
           onIncludeItems={onIncludeItems}
@@ -393,6 +398,7 @@ export function TakeoffReviewExpert({
       ) : (
         <TakeoffReviewTable
           items={items}
+          readOnly={readOnly}
           onUpdateItem={onUpdateItem}
           onExcludeItems={onExcludeItems}
           onIncludeItems={onIncludeItems}

@@ -5,7 +5,7 @@ vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn()
 import { createSupabaseFake } from "@/lib/takeoff/metre-m3.test-utils";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import {
-  recomputeTakeoffRulesForVersion, recomputeTakeoffRulesQuietly, writeTakeoffRuleResultChunks,
+  recomputeTakeoffRulesForJob, recomputeTakeoffRulesForVersion, recomputeTakeoffRulesQuietly, writeTakeoffRuleResultChunks,
 } from "@/lib/takeoff/rules/recompute-server";
 
 // TI-677 (PR D, review): a chunk whose write reopens a verified line moves that line's updated_at, hence the version's
@@ -213,5 +213,55 @@ describe("reading the plan page of each vector page", () => {
   it("keeps the duplicate of two direct uploads it knows by their name only, the same name", async () => {
     const { written } = await recompute(() => null, ["R+1.pdf", "R+1.pdf"]);
     expect(written[0].results.find((result) => result.rule === "zone_overlap")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+});
+
+describe("recomputing rules for an affaire job", () => {
+  it("reads the requested job only and reports a stale computation as skipped", async () => {
+    const jobs = [
+      { id: "analysis-one", project_id: "affaire-one", estimate_version_id: null, status: "completed" },
+      { id: "analysis-two", project_id: "affaire-two", estimate_version_id: null, status: "completed" },
+    ];
+    const lines = jobs.map((job, index) => ({
+      id: `line-${index}`,
+      job_id: job.id,
+      designation: "Soudures inox",
+      unit: "u",
+      quantity: 48,
+      metadata: { rule_inputs: ruleInputsFromDesignation({ designation: "Soudures inox", unit: "u", quantity: 48 }) },
+      updated_at: "2026-11-20T09:00:00Z",
+      rules_stale: true,
+      rules_stale_at: "2026-11-20T09:00:00Z",
+      rules_evaluated_at: null,
+    }));
+    const fake = createSupabaseFake({
+      tables: {
+        takeoff_jobs: ({ filters }) => ({ data: jobs.filter(job => filters.every(
+          filter => filter.kind === "in" || filter.column === "tenant_id" || job[filter.column as keyof typeof job] === filter.value,
+        )), error: null }),
+        takeoff_items: ({ filters }) => {
+          const selected = filters.find(filter => filter.column === "job_id")?.value as string[];
+          const data = lines.filter(line => selected.includes(line.job_id));
+          return { data, error: null, count: data.length };
+        },
+        takeoff_vector_pages: () => ({ data: [], error: null, count: 0 }),
+        takeoff_item_geometries: () => ({ data: [], error: null, count: 0 }),
+      },
+      rpc: {
+        takeoff_rule_job_stamp: () => ({ data: "before-edit", error: null }),
+        write_takeoff_job_rule_results: () => ({ data: [], error: null }),
+      },
+    });
+
+    await expect(recomputeTakeoffRulesForJob({
+      tenantId: "tenant", projectId: "affaire-one", jobId: "analysis-one", supabase: fake.client as never,
+    })).resolves.toEqual({ lines: 1, written: 0, skipped: 1, reopened: 0 });
+    expect(fake.rpcCalls.at(-1)).toMatchObject({
+      fn: "write_takeoff_job_rule_results",
+      args: { p_project_id: "affaire-one", p_job_id: "analysis-one", p_stamp: "before-edit",
+        p_items: [{ id: "line-0", results: [{ code: "NON_OBSERVABLE_TO_ENTER" }] }] },
+    });
+    expect(fake.tablesTouched).not.toContain("estimate_items");
+    expect(fake.tablesTouched).not.toContain("takeoff_dpgf_links");
   });
 });

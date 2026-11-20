@@ -88,11 +88,11 @@ async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: s
     const jobId = randomUUID();
     const sourcePath = `${tenantId}/${jobId}/${fileName}`;
     (ui.army.ownedTakeoffUploads ??= []).push({ projectId: ids.projectId, tenantId, jobId });
-    expect((await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
     const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
       created_by: owner.userId, level: "C", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
       source_file_type: "application/pdf", source_file_size_bytes: bytes.length, ...await ownedWorkerJobOwner() } as never).select("id").single();
     expect(inserted.error).toBeNull();
+    expect((await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
     const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, rules: true, owner }).done;
     expect(completed.job).toMatchObject({ status: "completed", level: "C" });
     return jobId;

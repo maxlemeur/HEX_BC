@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const cents = z.number().int().nonnegative().refine(Number.isSafeInteger).nullable();
 export const takeoffReviewContextResponseSchema = z.object({
-  version_id: z.string().uuid(),
+  version_id: z.string().uuid().nullable(),
   unlinked_item_ids: z.array(z.string().uuid()),
   posts: z.array(z.object({
     line_id: z.string().uuid(), title: z.string(), lot_id: z.string().uuid().nullable(),
@@ -16,5 +16,7 @@ export const takeoffReviewContextResponseSchema = z.object({
     unit_price_cents: z.number().int().refine(Number.isSafeInteger).nullable(),
     lot: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
   })),
-});
+}).refine((context) => context.version_id !== null
+  || (context.posts.length === 0 && context.item_pricing.length === 0 && context.unlinked_item_ids.length === 0),
+  "Les comparaisons chiffrées nécessitent un devis.");
 export type TakeoffReviewContext = z.infer<typeof takeoffReviewContextResponseSchema>;
