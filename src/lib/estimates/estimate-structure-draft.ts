@@ -4,7 +4,6 @@ import type {
   EstimateStructureDraftNode,
   EstimateStructureDraftNodeAction,
 } from "@/lib/estimates/client";
-import { toNonEmptyString } from "@/lib/value-guards";
 
 export type TreeFilterKey =
   | "create"
@@ -145,7 +144,7 @@ export function flattenNodes(nodes: EstimateStructureDraftNode[]) {
 }
 
 export function normalizeSectionTitleKey(value: string | null | undefined) {
-  const normalized = toNonEmptyString(value);
+  const normalized = value?.trim();
   if (!normalized) {
     return "section";
   }

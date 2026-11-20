@@ -490,20 +490,6 @@ function normalizedSupabaseError(error: SupabaseErrorLike) {
     .toLowerCase();
 }
 
-export function isMissingEstimateRoundingAdjustmentSchema(
-  error: SupabaseErrorLike | null | undefined,
-) {
-  if (!error) return false;
-  const code = error.code?.toUpperCase() ?? "";
-  const message = normalizedSupabaseError(error);
-
-  return (
-    code === "42703" &&
-    message.includes("rounding_adjustment_cents") &&
-    message.includes("estimate_versions")
-  );
-}
-
 // PostgREST answers PGRST205 / « schema cache » for a table it has not reloaded yet,
 // which happens for a moment after a deployment that touches the schema.
 function isEstimateTermsSchemaUnavailable(error: SupabaseErrorLike) {

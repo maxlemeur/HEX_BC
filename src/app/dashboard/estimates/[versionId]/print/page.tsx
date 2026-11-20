@@ -28,10 +28,7 @@ import {
 } from "@/lib/estimates/margin-tiers-loader";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
-import {
-  isMissingEstimateRoundingAdjustmentSchema,
-  resolveEstimatePdfPreviewLayout,
-} from "@/lib/estimates/pdf-generator";
+import { resolveEstimatePdfPreviewLayout } from "@/lib/estimates/pdf-generator";
 import { formatEstimateReference } from "@/lib/estimates/reference";
 import {
   describeEstimatePdfLayout,
@@ -66,8 +63,6 @@ type PrintPageProps = {
 
 const PRINT_VERSION_SELECT =
   "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
-const LEGACY_PRINT_VERSION_SELECT =
-  "id, updated_at, project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, content_revision, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, estimate_reference, site_address, client_name )";
 
 function resolveEstimatePortalUrl(versionId: string) {
   const portalBaseUrl = process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL?.trim();
@@ -104,30 +99,11 @@ export default async function PrintEstimatePage({
     requestedLayout
   );
 
-  const versionPromise = (async () => {
-    const primaryResult = await supabase
-      .from("estimate_versions")
-      .select(PRINT_VERSION_SELECT)
-      .eq("id", versionId)
-      .single();
-
-    if (!isMissingEstimateRoundingAdjustmentSchema(primaryResult.error)) {
-      return primaryResult;
-    }
-
-    const legacyResult = await supabase
-      .from("estimate_versions")
-      .select(LEGACY_PRINT_VERSION_SELECT)
-      .eq("id", versionId)
-      .single();
-
-    return {
-      ...legacyResult,
-      data: legacyResult.data
-        ? { ...legacyResult.data, rounding_adjustment_cents: 0 }
-        : null,
-    };
-  })();
+  const versionPromise = supabase
+    .from("estimate_versions")
+    .select(PRINT_VERSION_SELECT)
+    .eq("id", versionId)
+    .single();
 
   const [versionResult, userContext, previewLayout] = await Promise.all([
     versionPromise,

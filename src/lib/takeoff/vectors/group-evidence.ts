@@ -241,6 +241,7 @@ export function readLegendBlocks(model: PageModel, reading: Pick<VectorPageReadi
     box.x0 -= 25 * hh;
     box.y0 -= 5 * hh;
     box.y1 += 1.5 * hh;
+    // The texts of each row inside the block, left to right (a name then its code).
     for (const row of members) {
       row.texts = [...new Set(flat.filter((text) => Math.abs(text.y - text.height / 2 - row.y) <= rule.rowHeights * row.h && text.x >= box.x0 && text.x <= box.x1)
         .sort((first, second) => first.x - second.x).map((text) => text.str.trim()))];

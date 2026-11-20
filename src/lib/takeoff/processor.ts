@@ -477,7 +477,9 @@ function parseTakeoffWorkbook(input: {
 function buildLevelBTableMapping(tables: TakeoffExchange["tables"]) {
   if (!tables || tables.length === 0) return null;
 
+  // Track cumulative item counter per page to correlate sequential items
   const pageItemCounters = new Map<number, number>();
+  // Map: "page:itemIndexInPage" → { table_index, row_index }
   const mapping = new Map<string, { table_index: number; row_index: number }>();
 
   tables.forEach((table, tableIndex) => {
@@ -583,6 +585,7 @@ function normalizeTakeoffExchange(input: TakeoffSourceProvenance & {
   const tableMapping = isLevelB
     ? buildLevelBTableMapping(input.exchange.tables)
     : null;
+  // Runtime counter per page for matching items to table rows
   const pageItemCounters = new Map<number, number>();
 
   input.exchange.items.forEach((item, index) => {
@@ -639,6 +642,7 @@ function normalizeTakeoffExchange(input: TakeoffSourceProvenance & {
       source_file: sourceFileName ?? undefined,
     };
 
+    // Level B: resolve table_index / row_index from page position
     let tableMeta: { table_index: number; row_index: number } | undefined;
     if (tableMapping && normalizedItem.source_page != null) {
       const page = normalizedItem.source_page;

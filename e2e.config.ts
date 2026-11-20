@@ -14,6 +14,10 @@ const critical = process.env.E2E_ARMY_SUITE === "critical";
 const full = critical && process.env.E2E_ARMY_CRITICAL_SELECTION === "full";
 const development = critical && process.env.E2E_ARMY_CRITICAL_SELECTION === "development";
 const polish = critical && process.env.E2E_ARMY_CRITICAL_SELECTION === "polish";
+// A selection this file does not know would silently run the default list under the name the launcher records.
+if (critical && process.env.E2E_ARMY_CRITICAL_SELECTION && !full && !development && !polish) {
+  throw new Error(`Unknown E2E_ARMY_CRITICAL_SELECTION "${process.env.E2E_ARMY_CRITICAL_SELECTION}": expected full, development or polish.`);
+}
 const localBusiness = critical && /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\/?$/.test(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
 const coverage = process.env.E2E_ARMY_SUITE === "coverage";
 const numericComponents = ["numeric-price", "numeric-decimals", "numeric-loss", "numeric-all"].includes(process.env.E2E_GENERATED_COMPONENTS_SELECTION ?? "");

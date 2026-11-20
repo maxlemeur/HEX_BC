@@ -334,6 +334,8 @@ export function resolveEstimateV3ArticleAssociation(
   };
 }
 
+/* ---------- Unités (référentiel, D9) ---------- */
+
 const UNIT_BY_CODE = new Map(MEASUREMENT_UNITS.filter((unit) => unit.active).map((unit) => [unit.code, unit]));
 
 /** « ml — mètre linéaire » (contrat d'écran §4.2) ; vide sans unité. */
@@ -422,6 +424,8 @@ export function resolveEstimateV3MobileLineMeta(item: Pick<EstimateItem, "pricin
   return { unitValue: item.unit_code ?? "", metaLabel: label };
 }
 
+/* ---------- TVA (D8) ---------- */
+
 /** « 20 », « 5,5 », « 2,1 » : taux de TVA en pourcentage fr-FR. */
 export function formatEstimateV3TaxRate(rateBp: number): string {
   return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(rateBp / 100);
@@ -437,6 +441,8 @@ export function resolveEstimateV3TaxRateOptions(
   }
   return allowedRates;
 }
+
+/* ---------- Pied (D7, D8) ---------- */
 
 export type EstimateV3SummaryView = {
   totalHtCents: number;

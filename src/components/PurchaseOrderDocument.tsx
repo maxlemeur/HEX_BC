@@ -265,6 +265,7 @@ export function PurchaseOrderDocument({
             </p>
           </div>
 
+          {/* Espace pour équilibrer */}
           <div className="min-w-0" />
         </div>
       </div>
@@ -689,6 +690,7 @@ export function PurchaseOrderDocument({
       <div className="mb-8 flex justify-end print:mb-4">
         <div className="w-full max-w-[320px] space-y-2">
           <div className="rounded-xl border border-border overflow-hidden">
+            {/* Total HT - Highlighted for B2B */}
             <div className="flex justify-between items-center px-5 py-3 bg-brand-blue print-color-adjust">
               <span className="text-xs font-bold uppercase tracking-wide text-white/80">
                 Total HT

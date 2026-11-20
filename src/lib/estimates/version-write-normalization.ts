@@ -1,8 +1,9 @@
 import { badRequest } from "@/lib/http/api-response";
+import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 
 export const DEFAULT_CURRENCY = "EUR";
 
-const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
+const INVALID_CURRENCY = `Devise invalide. Valeurs autorisees: ${SUPPORTED_ESTIMATE_CURRENCIES.join(", ")}.`;
 
 export function normalizeEstimateCurrencyOrThrow(
   value: string | null | undefined,
@@ -15,7 +16,7 @@ export function normalizeEstimateCurrencyOrThrow(
 
   if (!normalized) {
     if (options?.fallback) return options.fallback;
-    throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
+    throw badRequest(INVALID_CURRENCY);
   }
 
   if (
@@ -28,5 +29,5 @@ export function normalizeEstimateCurrencyOrThrow(
     return options.fallback;
   }
 
-  throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
+  throw badRequest(INVALID_CURRENCY);
 }

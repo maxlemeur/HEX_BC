@@ -447,7 +447,7 @@ describe("classification of a page (group-decisions-server.ts classifyVectorGrou
     expect(GROUP_DECISIONS_CALL_IMAGE_BYTES).toBe(10 * 1024 * 1024);
     const mb = 1024 * 1024;
     const batches = async (sizes: number[], legendBytes: number) => {
-      const stream = streamedBatches(sizes, async (index) => ({ ...IMAGE, data: "A".repeat(sizes[index]) }), legendBytes, GROUP_DECISIONS_LIMITS.batchSize);
+      const stream = streamedBatches(sizes.map((_, group) => group), async (index) => ({ ...IMAGE, data: "A".repeat(sizes[index]) }), legendBytes, GROUP_DECISIONS_LIMITS.batchSize);
       const formed: number[][] = [];
       for (let batch = await stream.next(); Array.isArray(batch); batch = await stream.next()) formed.push(batch.map((entry) => entry.group));
       return formed;
@@ -456,7 +456,7 @@ describe("classification of a page (group-decisions-server.ts classifyVectorGrou
     expect((await batches(Array.from({ length: 25 }, () => mb), 3 * mb)).map((batch) => batch.length)).toEqual([7, 7, 7, 4]);
     // Small images: 20 per call at most; one image past the bound alone still makes its call.
     expect((await batches(Array.from({ length: 45 }, () => 1000), 0)).map((batch) => batch.length)).toEqual([20, 20, 5]);
-    expect(await batches([11 * mb, 11 * mb], 0)).toEqual([[11 * mb], [11 * mb]]);
+    expect(await batches([11 * mb, 11 * mb], 0)).toEqual([[0], [1]]);
     // In the classification: 30 groups of 1 MB images, 3 calls of 10 instead of 2 of 20 and 10.
     const { decide, seen } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
     const big = { ...IMAGE, data: "A".repeat(mb) };

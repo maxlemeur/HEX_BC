@@ -57,6 +57,8 @@ const DnSchema = z.string()
     }
   });
 
+// manifest.json
+
 export const RAW_STATUSES = ["binary", "text_only", "failed"] as const;
 export const DOCUMENT_ROLES = ["truth", "reserve", "no_truth", "load_test"] as const;
 export const FILE_TYPES = ["pdf", "xlsx"] as const;
@@ -234,6 +236,8 @@ function keyIdentity(key: QuantityKey, phase: string | null = null) {
   return JSON.stringify([key.kind, key.zone, key.level, key.network, key.material, key.dn, key.organ, key.room,
     key.unit, phase]);
 }
+
+// truth/<id>.json
 
 /**
  * How a workbook row is numbered. `workbook`: the 1-based worksheet row, as a

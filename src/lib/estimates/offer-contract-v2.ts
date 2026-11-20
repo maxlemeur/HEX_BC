@@ -6,7 +6,7 @@ import type {
   EstimateItem,
 } from "@/lib/estimates/prepare-estimate-document-data";
 import { isPoseOnlyLine } from "@/lib/estimates/line-nature";
-import { incomplete } from "@/lib/estimates/offer-contract-capture";
+import { incomplete, orderedOfferRows } from "@/lib/estimates/offer-contract-capture";
 import {
   parseOfferDocumentProof,
   type OfferProofParseOptions,
@@ -72,47 +72,23 @@ export type ClientContract2BuildInput = {
  * rendue par l'analyseur strict, qui refuse toute incohérence au lieu de la réparer.
  */
 export function buildClientContract2(input: ClientContract2BuildInput): ClientContract2 {
-  const byId = new Map(input.sourceRows.map((entry) => [entry.id, entry]));
-  if (byId.size !== input.sourceRows.length) incomplete();
-  const children = new Map<string | null, ClientContract2BuildInput["sourceRows"][number][]>();
-  for (const entry of input.sourceRows) {
-    if (entry.parent_id !== null && byId.get(entry.parent_id)?.item_type !== "section") incomplete();
-    if (entry.item_type === "line" && !Object.hasOwn(input.prepared.v3.linesById, entry.id)) incomplete();
-    const siblings = children.get(entry.parent_id) ?? [];
-    siblings.push(entry);
-    children.set(entry.parent_id, siblings);
-  }
-  // Même ordre stable que le préparateur du document (position), jamais un ordre par identifiant.
-  for (const siblings of children.values()) siblings.sort((left, right) => left.position - right.position);
-  const rows: CommercialRow2[] = [];
-  const visited = new Set<string>();
   const showPortions = input.prepared.layout.priceMode === "fo_mo_and_total";
-  const walk = (parentId: string | null, depth: number): void => {
-    for (const entry of children.get(parentId) ?? []) {
-      if (visited.has(entry.id) || depth > 7 || (entry.item_type === "section" && depth > 6)) incomplete();
-      visited.add(entry.id);
-      const common = { id: entry.id, parentId: entry.parent_id, position: entry.position, depth,
-        title: entry.title?.trim() || "Sans titre" };
-      if (entry.item_type === "section") {
-        if (!Object.hasOwn(input.prepared.sectionTotalsById, entry.id) || !Object.hasOwn(input.prepared.numberingById, entry.id)) incomplete();
-        const sale = input.prepared.sectionTotalsById[entry.id];
-        rows.push({ kind: "section", ...common, number: input.prepared.numberingById[entry.id], ...(isKitSection(entry) ? { kitMetier: true as const } : {}), saleHtCents: sale.totalHtCents,
-          ...(showPortions ? { foSaleHtCents: sale.foTotalCents, moSaleHtCents: sale.moTotalCents } : {}) });
-        walk(entry.id, depth + 1);
-      } else {
-        const line = input.prepared.v3.linesById[entry.id];
-        if (entry.quantity === null) incomplete();
-        rows.push({ kind: "line", ...common, quantity: entry.quantity, unitCode: line.unitCode, unitLabel: line.unitLabel,
-          pricingStatus: line.pricingStatus, taxRateBp: line.taxRateBp, unitSaleHtCents: line.unitSaleHtCents,
-          saleHtCents: line.saleHtCents,
-          ...(showPortions ? { foSaleHtCents: line.foSaleHtCents, moSaleHtCents: line.moSaleHtCents } : {}),
-          // TI-539 : le choix explicite POSE SEULE de la ligne figée s'imprime avec sa désignation.
-          ...(isPoseOnlyLine(entry) ? { poseOnly: true as const } : {}) });
-      }
+  const rows: CommercialRow2[] = orderedOfferRows<ClientContract2BuildInput["sourceRows"][number]>(input.sourceRows, (lineId) => Object.hasOwn(input.prepared.v3.linesById, lineId)).map(({ entry, common }) => {
+    if (entry.item_type === "section") {
+      if (!Object.hasOwn(input.prepared.sectionTotalsById, entry.id) || !Object.hasOwn(input.prepared.numberingById, entry.id)) incomplete();
+      const sale = input.prepared.sectionTotalsById[entry.id];
+      return { kind: "section", ...common, number: input.prepared.numberingById[entry.id], ...(isKitSection(entry) ? { kitMetier: true as const } : {}), saleHtCents: sale.totalHtCents,
+        ...(showPortions ? { foSaleHtCents: sale.foTotalCents, moSaleHtCents: sale.moTotalCents } : {}) };
     }
-  };
-  walk(null, 0);
-  if (visited.size !== input.sourceRows.length) incomplete();
+    const line = input.prepared.v3.linesById[entry.id];
+    if (entry.quantity === null) incomplete();
+    return { kind: "line", ...common, quantity: entry.quantity, unitCode: line.unitCode, unitLabel: line.unitLabel,
+      pricingStatus: line.pricingStatus, taxRateBp: line.taxRateBp, unitSaleHtCents: line.unitSaleHtCents,
+      saleHtCents: line.saleHtCents,
+      ...(showPortions ? { foSaleHtCents: line.foSaleHtCents, moSaleHtCents: line.moSaleHtCents } : {}),
+      // TI-539 : le choix explicite POSE SEULE de la ligne figée s'imprime avec sa désignation.
+      ...(isPoseOnlyLine(entry) ? { poseOnly: true as const } : {}) };
+  });
   const totals = input.prepared.v3.totals;
   return parseClientContract2Snapshot({
     schemaVersion: 2, version: { ...input.version },

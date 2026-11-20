@@ -640,6 +640,7 @@ export function CatalogueManager() {
                 className="mt-4 grid gap-4 rounded-lg border border-border bg-surface-subtle p-4 lg:grid-cols-2"
               >
                 <div className="flex min-w-0 flex-col gap-2">
+                  {/* M-21: Renamed "Limite scan" */}
                   <FieldLabel htmlFor="catalogue-link-limit">Nombre max de lignes à analyser</FieldLabel>
                   <NumberInput
                     id="catalogue-link-limit"
@@ -679,6 +680,7 @@ export function CatalogueManager() {
             ) : null}
 
             <div className="mt-4">
+              {/* M-21: Renamed "Dry run" */}
               <label className="inline-flex min-h-9 items-center gap-2 text-sm text-foreground-secondary">
                 <input
                   type="checkbox"

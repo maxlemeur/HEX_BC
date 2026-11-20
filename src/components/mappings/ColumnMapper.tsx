@@ -29,6 +29,7 @@ const TARGET_GROUP_LABELS: Record<string, string> = {
 
 export type ColumnMapping = Record<string, string>;
 
+// Confidence badge helpers (UX2-010)
 const EMPTY_SAMPLE_VALUES: Record<string, string[]> = {};
 
 const CONFIDENCE_LABELS: Record<MappingConfidenceBand, string> = {

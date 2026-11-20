@@ -513,6 +513,8 @@ export type {
   TakeoffRuleForcingRow,
 } from "@/lib/takeoff/metrics-types";
 
+/* --- Activity Center types (V3-007) --- */
+
 export type TakeoffActivityCenterConfidenceLabel =
   | "Élevée"
   | "Moyenne"

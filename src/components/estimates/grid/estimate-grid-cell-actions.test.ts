@@ -222,6 +222,19 @@ describe("planEstimateGridPaste", () => {
     expect(describeEstimateGridPlanLeftovers({ writes: [], rejected: [], readOnlyCount: 0 })).toBeNull();
   });
 
+  it("never writes the supplier cell: it opens the comparison panel", () => {
+    const item = line("a");
+    const plan = planEstimateGridPaste(
+      single("a", "supplier"),
+      [["Fournisseur Durand"]],
+      [{ rowId: "a", columnKeys: ["supplier"] }],
+      () => item,
+      context,
+    );
+    expect(plan.writes).toEqual([]);
+    expect(plan.readOnlyCount).toBe(1);
+  });
+
   it("resolves a type by label or code and refuses an ambiguous or disabled one", () => {
     const { rows, getItem } = grid([line("a"), line("b"), line("c")]);
     const plan = planEstimateGridPaste(

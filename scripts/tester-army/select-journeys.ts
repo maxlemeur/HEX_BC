@@ -408,13 +408,18 @@ export function expandJourneys(map: ImpactMap, references: readonly string[], se
   return [...journeys];
 }
 
-/** The globs of a test list of e2e.config.ts, each `...name` replaced by the entries of `const name = [...]`. */
+/**
+ * The globs of a test list of e2e.config.ts, each `...name` replaced by the entries of `const name = [...]`.
+ * The list is read as text: an entry written any other way than a double-quoted literal is refused, not skipped.
+ */
 function configTestGlobs(config: string, list: string): string[] {
   const entries = list.replace(/\.\.\.([A-Za-z_$][\w$]*)/gu, (_spread, name: string) => {
-    const constant = new RegExp(`const ${name} = \\[([^\\]]*)\\]`, "u").exec(config);
+    const constant = new RegExp(`const ${name}(?:: [^=]+)? = \\[([^\\]]*)\\]`, "u").exec(config);
     if (!constant) throw new Error(`The list ${name} of e2e.config.ts cannot be read.`);
     return constant[1];
   });
+  const leftover = entries.replace(/"[^"]+"/gu, "").replace(/[\s,]/gu, "");
+  if (leftover) throw new Error(`A test list of e2e.config.ts has entries that cannot be read: ${leftover.slice(0, 80)}`);
   return [...entries.matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
 }
 
