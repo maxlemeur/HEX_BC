@@ -1,7 +1,8 @@
 import { sanitizeFilenameSegment, toNullableNumber, toEuroAmount, resolveDepthByItemId, usesLaborSplit, resolveLaborRoleLabel, resolveLaborHours, resolveLaborCoefficient, resolveExportAid } from "@/lib/estimates/legacy-export-projection";
 import { PassThrough, Readable } from "node:stream";
 import { type EstimateItemRecord } from "@/lib/estimate-calculations";
-import { resolveEstimateEngineVersion, shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateCostingSheetSource } from "@/lib/estimates/engine/amounts-source";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { ESTIMATE_EXPORT_PROGRESS_COMPLETE, ESTIMATE_EXPORT_XLSX_CONTENT_TYPE, createWorkbookWriterFactory, setCurrencyColumns, type EstimateExportStreamResult, type WorkbookWriterFactory, styleWorksheetHeader } from "@/lib/estimates/export-stream";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";
@@ -325,9 +326,7 @@ async function buildDpgfExportPayload(
     includeExportCalculationContext: true,
   });
   const items = details.items as EstimateItemRecord[];
-  const engineV3 = usesSaleCoefficients(resolveEstimateEngineVersion(details.version));
-  const preserveStoredSnapshot =
-    !engineV3 && shouldPreserveStoredEstimateV2Snapshot(details.version);
+  const engine = resolveEstimateEngineVersion(details.version);
   const supplyTypeById = new Map(
     (details.supply_types ?? []).map((supplyType) => [supplyType.id, supplyType.name])
   );
@@ -347,7 +346,7 @@ async function buildDpgfExportPayload(
     versionTitle: details.version.title,
     dateDevis: details.version.date_devis,
   };
-  if (engineV3) {
+  if (usesSaleCoefficients(engine)) {
     return { ...identity, rows: [], v3: { document: await loadEstimateV3ExportDocument(versionId),
       supplyTypeById, laborRoleNameById, categoryById } };
   }
@@ -360,7 +359,7 @@ async function buildDpgfExportPayload(
       categoryById,
       isLaborSplitEnabled:
         details.is_labor_split_enabled ?? isLaborSplitEnabled,
-      preserveStoredSnapshot,
+      preserveStoredSnapshot: resolveEstimateCostingSheetSource(engine, details.version) === "frozen",
     }),
   };
 }

@@ -15,9 +15,9 @@ import { buildStoredEstimateBreakdown } from "@/lib/estimate-v2-snapshot";
 import {
   resolveCalcEngineVersion,
   resolveEstimateEngineVersion,
-  shouldPreserveStoredEstimateV2Snapshot,
 } from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
+import { resolveEstimateAmountsSource } from "@/lib/estimates/engine/amounts-source";
 import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { internalError } from "@/lib/http/api-response";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/version-read-server";
@@ -422,9 +422,8 @@ async function buildEstimateExportPayload(
   const calcEngineVersion = resolveCalcEngineVersion(
     versionDetails.version as { calc_engine_version?: number | null }
   );
-  const preserveStoredSnapshot = shouldPreserveStoredEstimateV2Snapshot(
-    versionDetails.version
-  );
+  const preserveStoredSnapshot =
+    resolveEstimateAmountsSource(calcEngineVersion, versionDetails.version) === "frozen";
   const liveV2 = isUnifiedEngine(calcEngineVersion) && !preserveStoredSnapshot;
   const items = liveV2
     ? [...listItemsResult.items].sort((left, right) =>
@@ -442,7 +441,7 @@ async function buildEstimateExportPayload(
       (versionDetails.version as { contractor_role?: string | null })
         .contractor_role === "subcontractor",
   };
-  if (isLegacyEngine(calcEngineVersion) && versionDetails.version.status !== "draft") {
+  if (isLegacyEngine(calcEngineVersion) && preserveStoredSnapshot) {
     // V1 issued lines hold gross amounts. Preserve the contractual footer and
     // allocate it using those persisted weights, without today's MO or tiers.
     const totals = computeReadOnlyTotals({

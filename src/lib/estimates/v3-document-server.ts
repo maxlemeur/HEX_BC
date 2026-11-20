@@ -4,6 +4,7 @@ import type {
   EstimateItem,
   PrepareEstimateDocumentV3Input,
 } from "@/lib/estimates/prepare-estimate-document-data";
+import { resolveEstimateAmountsSource } from "@/lib/estimates/engine/amounts-source";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
@@ -31,17 +32,6 @@ export type EstimateV3DocumentSource = {
   frozen: boolean;
 };
 
-/** Le gel v3 décrit la révision courante, ou la version n'est plus un brouillon. */
-export function isEstimateV3DocumentFrozen(version: {
-  status: string;
-  content_revision: number;
-  calc_snapshot_content_revision: number | null;
-}): boolean {
-  return version.status !== "draft"
-    || (Number.isInteger(version.calc_snapshot_content_revision)
-      && version.calc_snapshot_content_revision === version.content_revision);
-}
-
 export async function loadEstimateV3DocumentSource(input: {
   supabase: Supabase;
   tenantId: string;
@@ -55,7 +45,8 @@ export async function loadEstimateV3DocumentSource(input: {
     .single();
   if (error) throw mapSupabaseError(error, "Impossible de charger la version.");
   if (!data) throw notFound("Version de chiffrage introuvable.");
-  if (!usesSaleCoefficients(requireEstimateEngineVersion(data))) {
+  const engine = requireEstimateEngineVersion(data);
+  if (!usesSaleCoefficients(engine)) {
     throw badRequest("Le document v3 est réservé au moteur de calcul 3.");
   }
   const { estimate_projects: embedded, ...row } = data as VersionRow & {
@@ -68,7 +59,7 @@ export async function loadEstimateV3DocumentSource(input: {
     commercial_rounding_cents: row.commercial_rounding_cents ?? null,
   };
   const items = await readAllEstimateItems(input);
-  if (isEstimateV3DocumentFrozen(stored)) {
+  if (resolveEstimateAmountsSource(engine, stored) === "frozen") {
     await assertEstimateVersionUnchanged({ supabase: input.supabase, version: data });
     return { version: stored, items, frozen: true };
   }

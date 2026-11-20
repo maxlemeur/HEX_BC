@@ -91,7 +91,7 @@ import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { LABOR_SPLIT_FEATURE_FLAG_KEY } from "@/lib/feature-flag-keys";
 import { useEstimateV3Settings } from "@/hooks/useEstimateV3Settings";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import { hasFreshEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
+import { hasFreshCalcSnapshot } from "@/lib/estimates/engine/amounts-source";
 import { isLegacyEngine, isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
 import {
   reconcilesEditorTotals, resolveEditorEngineContext,
@@ -2630,7 +2630,8 @@ export function useEstimateEditorState({
     : undefined;
   // Lot 2, sous-lot 2.6 : une v3 n'a pas de multiplicateur de marge (marque nette, D5) ; jamais
   // `effective_margin_multiplier`, que la v2 affiche comme multiplicateur.
-  const storedMarginMultiplier = isV3 ? undefined : hasFreshEstimateV2Snapshot(version) &&
+  const storedMarginMultiplier = isV3 ? undefined : isUnifiedEngine(calcEngineVersion) && version != null &&
+    hasFreshCalcSnapshot(version) &&
     typeof snapshotMultiplier === "number" && Number.isFinite(snapshotMultiplier) &&
     snapshotMultiplier >= 0 && snapshotMultiplier <= 100
     ? snapshotMultiplier
