@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
@@ -15,6 +15,10 @@ import {
 } from "@/lib/memberships/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  connectionSecretContext,
+  sealDriveSecret,
+} from "@/lib/affaires/google-drive/secrets";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -22,6 +26,9 @@ const ACTOR_USER_ID = "33333333-3333-4333-8333-333333333333";
 const TARGET_USER_ID = "44444444-4444-4444-8444-444444444444";
 const ACTOR_MEMBERSHIP_ID = "55555555-5555-4555-8555-555555555555";
 const TARGET_MEMBERSHIP_ID = "66666666-6666-4666-8666-666666666666";
+const DRIVE_CONNECTION_ID = "77777777-7777-4777-8777-777777777777";
+const DRIVE_GRANT_VERSION = "88888888-8888-4888-8888-888888888888";
+const DRIVE_TOKEN_KEY = Buffer.alloc(32, 5);
 
 type TenantRole = "admin" | "engineer" | "viewer" | "director";
 type QueryMode = "read" | "insert" | "update" | "delete";
@@ -29,7 +36,7 @@ type QuerySource = "authenticated" | "directory";
 type SelectOptions = { count?: "exact"; head?: boolean };
 type QueryResult = {
   data: unknown;
-  error: null;
+  error: { code: string; message: string } | null;
   count?: number;
 };
 
@@ -79,6 +86,9 @@ type MembershipScenario = {
   createdMembership: MembershipRow;
   updatedMembership: MembershipRow;
   tenantActive: boolean;
+  // The target member's Google Drive connection, and whether its Google account is connected elsewhere.
+  drive: { connectedElsewhere: boolean } | null;
+  removalFails: boolean;
 };
 
 class MembershipQuery {
@@ -181,6 +191,21 @@ class MembershipQuery {
       };
     }
 
+    if (this.table === "google_drive_connections") {
+      // The membership trigger deletes the member's connection with the membership.
+      if (this.hasFilter("google_account_id"))
+        return {
+          data: this.scenario.drive?.connectedElsewhere ? [{ id: "elsewhere" }] : [],
+          error: null,
+        };
+      return {
+        data: this.scenario.drive
+          ? { id: DRIVE_CONNECTION_ID, grant_version: DRIVE_GRANT_VERSION }
+          : null,
+        error: null,
+      };
+    }
+
     if (this.table !== "tenant_memberships") {
       throw new Error(`Unexpected table: ${this.table}`);
     }
@@ -202,7 +227,10 @@ class MembershipQuery {
     }
 
     if (this.mode === "delete") {
-      return { data: null, error: null };
+      return {
+        data: null,
+        error: this.scenario.removalFails ? { code: "XX000", message: "fixture failure" } : null,
+      };
     }
 
     if (this.selectOptions?.head) {
@@ -239,6 +267,8 @@ function createMembershipHarness(
     createdMembership: TARGET_MEMBERSHIP,
     updatedMembership: TARGET_MEMBERSHIP,
     tenantActive: true,
+    drive: null,
+    removalFails: false,
     ...overrides,
   };
   const queries: MembershipQuery[] = [];
@@ -256,6 +286,26 @@ function createMembershipHarness(
       const query = new MembershipQuery(source, table, scenario);
       queries.push(query);
       return query;
+    }),
+    rpc: vi.fn(async (name: string) => {
+      if (name !== "google_drive_single_secret" || !scenario.drive)
+        return { data: [], error: null };
+      const context = connectionSecretContext(TENANT_ID, TARGET_USER_ID, "google_account_fixture");
+      return {
+        data: [{
+          tenant_id: TENANT_ID,
+          user_id: TARGET_USER_ID,
+          google_account_id: "google_account_fixture",
+          status: "active",
+          updated_at: "2026-07-03T08:00:00.000Z",
+          shared_grant: scenario.drive.connectedElsewhere,
+          refresh_token_ciphertext: sealDriveSecret(DRIVE_TOKEN_KEY, "fixture-refresh", context),
+          write_refresh_token_ciphertext: null,
+          write_enabled: false,
+          grant_version: DRIVE_GRANT_VERSION,
+        }],
+        error: null,
+      };
     }),
   });
   const authenticatedClient = buildClient("authenticated");
@@ -355,5 +405,67 @@ describe("memberships service authorization", () => {
     });
 
     expect(mutationQueries(queries)).toHaveLength(0);
+  });
+});
+
+describe("removing a member who connected Google Drive (Google simulated)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv("MERGEONE_GOOGLE_DRIVE_ENABLED", "true");
+    vi.stubEnv("MERGEONE_GOOGLE_DRIVE_CLIENT_ID", "fixture-client");
+    vi.stubEnv("MERGEONE_GOOGLE_DRIVE_CLIENT_SECRET", "fixture-secret");
+    vi.stubEnv("MERGEONE_GOOGLE_DRIVE_TOKEN_KEY", DRIVE_TOKEN_KEY.toString("base64"));
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:9");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "fixture-role");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  const answerRevocations = (queries: MembershipQuery[], status: number) => {
+    const revocations: Array<{ token: string | null; afterRemoval: boolean }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://oauth2.googleapis.com/revoke");
+      revocations.push({
+        token: new URLSearchParams(String(init.body)).get("token"),
+        afterRemoval: queries.some((query) => query.table === "tenant_memberships" && query.mode === "delete"),
+      });
+      return new Response(null, { status });
+    }));
+    return revocations;
+  };
+
+  it.each([
+    { connectedElsewhere: false, revoked: ["fixture-refresh"] },
+    { connectedElsewhere: true, revoked: [] },
+  ])("revokes their Google grant after the removal unless the account stays connected elsewhere ($connectedElsewhere)", async ({ connectedElsewhere, revoked }) => {
+    const { queries } = createMembershipHarness({ drive: { connectedElsewhere } });
+    const revocations = answerRevocations(queries, 200);
+
+    await expect(deleteMembership(TARGET_MEMBERSHIP_ID)).resolves.toEqual({ deleted_id: TARGET_MEMBERSHIP_ID });
+    expect(revocations).toEqual(revoked.map((token) => ({ token, afterRemoval: true })));
+  });
+
+  it("removes the member when Google fails to revoke their grant", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { queries } = createMembershipHarness({ drive: { connectedElsewhere: false } });
+      const revocations = answerRevocations(queries, 503);
+
+      await expect(deleteMembership(TARGET_MEMBERSHIP_ID)).resolves.toEqual({ deleted_id: TARGET_MEMBERSHIP_ID });
+      expect(revocations).toEqual([{ token: "fixture-refresh", afterRemoval: true }]);
+      expect(logged).toHaveBeenCalledWith("Google Drive grant not revoked", expect.objectContaining({ cause: "member_removed" }));
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it("revokes nothing when the membership could not be removed", async () => {
+    const { queries } = createMembershipHarness({ drive: { connectedElsewhere: false }, removalFails: true });
+    const revocations = answerRevocations(queries, 200);
+
+    await expect(deleteMembership(TARGET_MEMBERSHIP_ID)).rejects.toThrow("Impossible de retirer le membre.");
+    expect(revocations).toEqual([]);
   });
 });

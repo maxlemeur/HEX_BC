@@ -14,15 +14,15 @@ export default function DataDeletionPage() {
     <PublicPage>
       <article className="mx-auto max-w-3xl space-y-10">
         <header>
-          <p className="mb-3 text-sm text-muted-foreground">MergeOne · TIMAX · Mise à jour le 29 octobre 2026</p>
+          <p className="mb-3 text-sm text-muted-foreground">MergeOne · TIMAX · Mise à jour le 20 novembre 2026</p>
           <h1 className="text-4xl font-bold tracking-tight">Supprimer vos données ou déconnecter Drive</h1>
           <p className="mt-5 text-lg leading-8 text-muted-foreground">Vous pouvez retirer l’accès à Google Drive indépendamment de votre compte MergeOne. La suppression des données partagées d’une entreprise constitue une demande distincte.</p>
         </header>
         <PolicySection title="Retirer l’écriture ou le compte Drive">
           <ol className="list-decimal space-y-2 pl-6">
             <li>Ouvrez votre profil dans MergeOne, puis la section Google Drive.</li>
-            <li>Choisissez « Revenir à la lecture seule » pour désactiver les écritures dans MergeOne, ou « Retirer le compte Google » pour supprimer cette connexion et ses jetons.</li>
-            <li>Pour révoquer aussi le consentement chez Google, ouvrez les <a className="text-primary underline" href="https://myaccount.google.com/permissions">applications autorisées de votre compte Google</a>, choisissez MergeOne et retirez son accès. Cela peut interrompre les autres connexions de ce même compte à MergeOne.</li>
+            <li>Choisissez « Revenir à la lecture seule » pour désactiver les écritures dans MergeOne, ou « Retirer le compte Google » pour supprimer cette connexion et ses jetons. MergeOne révoque alors aussi son accès chez Google, sauf si le même compte Google reste connecté ailleurs dans MergeOne, par exemple dans une autre entreprise. Un message vous indique si Google n’a pas confirmé la révocation.</li>
+            <li>Vous pouvez aussi retirer l’accès depuis les <a className="text-primary underline" href="https://myaccount.google.com/permissions">applications autorisées de votre compte Google</a> : choisissez MergeOne et retirez son accès. Cela interrompt toutes les connexions de ce même compte à MergeOne.</li>
           </ol>
           <p>Le retrait du compte ne supprime pas les fichiers originaux dans Google Drive. Les liens, copies de travail, données extraites et devis déjà présents dans les affaires restent dans l’entreprise jusqu’à leur suppression distincte.</p>
         </PolicySection>

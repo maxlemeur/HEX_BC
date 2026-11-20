@@ -6,7 +6,7 @@ import { ArrowLeftIcon, ArrowRightIcon, CircleCheckIcon, ExternalLinkIcon, FileT
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { DRIVE_FOLDER_MIME, DRIVE_MAX_FILES, DRIVE_OAUTH_OUTCOMES, DRIVE_OAUTH_START_PATH, driveFileRejection,
-  type DriveFile, type DriveLinkResult, type DriveListing, type DriveLocation, type DriveOAuthOutcome, type DriveState } from "@/lib/affaires/google-drive/contracts";
+  driveGrantReleaseSchema, driveRemovalNotice, type DriveFile, type DriveLinkResult, type DriveListing, type DriveLocation, type DriveOAuthOutcome, type DriveState } from "@/lib/affaires/google-drive/contracts";
 
 type Choice = { file: DriveFile; folder?: { id: string; name: string } };
 async function responseData<T>(response: Response): Promise<T> {
@@ -172,12 +172,10 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
   async function disconnect() {
     const account = state?.connections.find((connection) => connection.id === connectionId);
     if (!account) return;
-    const { revoked, stillUsed } = await post<{ revoked: boolean; stillUsed: boolean | null }>({ action: "disconnect", connectionId: account.id, grantVersion: account.grantVersion });
+    const release = driveGrantReleaseSchema.parse(await post({ action: "disconnect", connectionId: account.id, grantVersion: account.grantVersion }));
     generation.current++;
     setListing(undefined); setTrail([]); setSelected([]); setFolderSelections({}); setManualIds([]); setConnectionId(undefined);
-    setNotice(revoked ? `Compte ${account.email} retiré. Les fichiers déjà liés restent dans l'affaire.`
-      : stillUsed ? `Compte ${account.email} retiré. Il reste connecté ailleurs dans MergeOne : son accès Google n'est pas révoqué.`
-      : `Compte ${account.email} retiré de MergeOne. Révoquer MergeOne dans Google peut aussi couper les autres connexions de ce compte à l’application.`);
+    setNotice(`${driveRemovalNotice(`Compte ${account.email}`, release)} Les fichiers déjà liés restent dans l'affaire.`);
     const data = await loadState(controller.current?.signal);
     setState(data);
     const next = data.connections[0]?.id;
