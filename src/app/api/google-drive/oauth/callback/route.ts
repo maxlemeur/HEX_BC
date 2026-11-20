@@ -16,7 +16,7 @@ import {
 import { GoogleDriveReader } from "@/lib/affaires/google-drive/provider";
 import { driveConfiguration } from "@/lib/affaires/google-drive/secrets";
 import { rearmLotsFailedWithConnection } from "@/lib/affaires/google-drive/store";
-import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 
 export const runtime = "nodejs";
 // Room for the analyses that a reconnection runs again after the response.

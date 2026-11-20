@@ -33,7 +33,7 @@ import {
   dossierDocumentState,
   type DossierDocument,
 } from "@/lib/affaires/document-triage";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import {
   Dialog,
   DialogContent,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 // What the affaire page waits for on its own (the documents of the dossier while they are added and

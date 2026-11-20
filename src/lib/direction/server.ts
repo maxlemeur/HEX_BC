@@ -2,7 +2,7 @@ import { readAllRows, readAllRowsInChunks, type CompleteRowsQuery } from "@/lib/
 import type { PostgrestError } from "@supabase/supabase-js";
 import { cache } from "react";
 
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { forbidden } from "@/lib/http/api-response";
 import { resolveCalcEngineVersionForDisplay, resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { resolveEffectiveMarginBp, resolveV3NetMarginBp } from "@/lib/estimates/effective-margin";

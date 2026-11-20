@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as XLSX from "xlsx";
 
 vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
@@ -13,11 +12,9 @@ vi.mock("@/lib/affaires/register-sync-server", () => ({
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-sync-server";
 import {
-  __securityTesting__,
-  mergeGeneratedAffaireBriefWithFallback,
   updateAffaireBrief,
   confirmAffaireBrief,
-} from "@/lib/affaires/intake-server";
+} from "@/lib/affaires/intake-brief-server";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -31,84 +28,6 @@ const DOC_ASSUMPTION = "99999999-9999-4999-8999-999999999999";
 const DOC_VIGILANCE = "88888888-8888-4888-8888-888888888888";
 const DOC_SUMMARY = "77777777-7777-4777-8777-777777777777";
 const NOW = "2026-03-07T10:00:00.000Z";
-
-function toArrayBuffer(buffer: Buffer) {
-  return buffer.buffer.slice(
-    buffer.byteOffset,
-    buffer.byteOffset + buffer.byteLength
-  ) as ArrayBuffer;
-}
-
-describe("affaire intake resource budgets", () => {
-  it("rejects an excessive file count before creating upload state", () => {
-    const files = Array.from(
-      { length: 21 },
-      (_value, index) => new File(["x"], `piece-${index}.pdf`)
-    );
-
-    expect(() =>
-      __securityTesting__.validateAffaireIntakeUploadBatch(files)
-    ).toThrow(/ne peut pas dépasser 20 fichiers/);
-  });
-
-  it("rejects an excessive cumulative batch while preserving ordinary batches", () => {
-    const first = new File(["x"], "lot-a.pdf");
-    const second = new File(["x"], "lot-b.pdf");
-    Object.defineProperty(first, "size", { value: 60 * 1024 * 1024 });
-    Object.defineProperty(second, "size", { value: 50 * 1024 * 1024 });
-
-    expect(() =>
-      __securityTesting__.validateAffaireIntakeUploadBatch([first, second])
-    ).toThrow(/volume cumule.*depasse 100 Mo/);
-    expect(() =>
-      __securityTesting__.validateAffaireIntakeUploadBatch([
-        new File(["contenu"], "lot-legitime.pdf"),
-      ])
-    ).not.toThrow();
-  });
-
-  it("preflights XLSX expansion metadata before SheetJS parsing", async () => {
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.aoa_to_sheet([
-        ["Code", "Description", "Qte"],
-        ["A-001", "Cable cuivre", 12],
-      ]),
-      "DPGF"
-    );
-    const legitimate = Buffer.from(
-      XLSX.write(workbook, { type: "buffer", bookType: "xlsx" })
-    );
-
-    await expect(
-      __securityTesting__.buildSpreadsheetSnippet(
-        "dpgf.xlsx",
-        toArrayBuffer(legitimate)
-      )
-    ).resolves.toContain("A-001");
-
-    const malicious = Buffer.from(legitimate);
-    const centralEntryOffset = malicious.indexOf(
-      Buffer.from([0x50, 0x4b, 0x01, 0x02])
-    );
-    expect(centralEntryOffset).toBeGreaterThanOrEqual(0);
-    malicious.writeUInt32LE(0x7fffffff, centralEntryOffset + 24);
-
-    expect(() =>
-      __securityTesting__.validateSpreadsheetBudget(
-        "dpgf.xlsx",
-        toArrayBuffer(malicious)
-      )
-    ).toThrow(/depasse la taille autorisee|ratio de decompression/);
-    expect(() =>
-      __securityTesting__.validateSpreadsheetBudget(
-        "dpgf.xls",
-        toArrayBuffer(malicious)
-      )
-    ).toThrow(/depasse la taille autorisee|ratio de decompression/);
-  });
-});
 
 function createProjectRow() {
   return {
@@ -357,163 +276,6 @@ function createSupabaseContext() {
 describe("affaire intake server brief regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it.each([
-    { label: "absent", sourceDocumentIds: [] },
-    { label: "invented", sourceDocumentIds: [DOC_BETA] },
-  ])("does not substitute fallback sources for $label model attribution", ({ sourceDocumentIds }) => {
-    const fallback = {
-      summary: { text: "Synthese de repli", sourceDocumentIds: [DOC_ALPHA] },
-      projectObject: { text: "Objet de repli", sourceDocumentIds: [DOC_ALPHA] },
-      scope: [{ text: "Perimetre de repli", sourceDocumentIds: [DOC_ALPHA] }],
-      lots: [], receivedPieces: [], assumptions: [], vigilancePoints: [], missingElements: [],
-    };
-    const result = mergeGeneratedAffaireBriefWithFallback({
-      generated: {
-        ...fallback,
-        summary: { text: "Affirmation sans preuve", sourceDocumentIds },
-        scope: [{ text: "Calorifuge a verifier", sourceDocumentIds }],
-      },
-      fallback,
-      documents: [{
-        id: DOC_ALPHA, file_name: "alpha.pdf", document_kind: "cctp", confidence: 0.9, issues: [],
-        extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
-      }],
-    });
-
-    expect(result.summary).toEqual({ text: "Affirmation sans preuve", sourceDocumentIds: [] });
-    expect(result.scope).toEqual([{ text: "Calorifuge a verifier", sourceDocumentIds: [] }]);
-    expect(result.projectObject.sourceDocumentIds).toEqual([DOC_ALPHA]);
-  });
-
-  it("retains only known unique document associations without certifying their content", () => {
-    const fallback = {
-      summary: { text: "Synthese", sourceDocumentIds: [DOC_ALPHA] },
-      projectObject: { text: "Objet", sourceDocumentIds: [DOC_ALPHA] },
-      scope: [], lots: [], receivedPieces: [], assumptions: [], vigilancePoints: [], missingElements: [],
-    };
-    const result = mergeGeneratedAffaireBriefWithFallback({
-      generated: { ...fallback, summary: { text: "Association a verifier", sourceDocumentIds: [DOC_BETA, DOC_ALPHA, DOC_ALPHA] } },
-      fallback,
-      documents: [{
-        id: DOC_ALPHA, file_name: "alpha.pdf", document_kind: "cctp", confidence: 0.9, issues: [],
-        extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
-      }],
-    });
-    expect(result.summary).toEqual({ text: "Association a verifier", sourceDocumentIds: [DOC_ALPHA] });
-  });
-
-  it("filters fallback associations against the same inventory when model text is absent", () => {
-    const fallback = {
-      summary: { text: "Synthese conservee", sourceDocumentIds: [DOC_BETA] },
-      projectObject: { text: "Objet conserve", sourceDocumentIds: [DOC_ALPHA] },
-      scope: [{ text: "Perimetre conserve", sourceDocumentIds: [DOC_BETA] }],
-      lots: [], receivedPieces: [], assumptions: [], vigilancePoints: [], missingElements: [],
-    };
-    const result = mergeGeneratedAffaireBriefWithFallback({
-      generated: null,
-      fallback,
-      documents: [{
-        id: DOC_ALPHA, file_name: "alpha.pdf", document_kind: "cctp", confidence: 0.9, issues: [],
-        extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] },
-      }],
-    });
-    expect(result.summary).toEqual({ text: "Synthese conservee", sourceDocumentIds: [] });
-    expect(result.scope).toEqual([{ text: "Perimetre conserve", sourceDocumentIds: [] }]);
-    expect(result.projectObject.sourceDocumentIds).toEqual([DOC_ALPHA]);
-  });
-
-  it("preserves trailing fallback rows when the model returns fewer brief entries", () => {
-    const result = mergeGeneratedAffaireBriefWithFallback({
-      generated: {
-        summary: {
-          text: "Synthese AI",
-          sourceDocumentIds: [DOC_ALPHA],
-        },
-        projectObject: {
-          text: "Objet AI",
-          sourceDocumentIds: [DOC_ALPHA],
-        },
-        scope: [
-          {
-            text: "Lot Alpha AI",
-            sourceDocumentIds: [DOC_ALPHA],
-          },
-        ],
-        lots: [],
-        receivedPieces: [],
-        assumptions: [],
-        vigilancePoints: [],
-        missingElements: [],
-      },
-      fallback: {
-        summary: {
-          text: "Synthese fallback",
-          sourceDocumentIds: [DOC_ALPHA],
-        },
-        projectObject: {
-          text: "Objet fallback",
-          sourceDocumentIds: [DOC_ALPHA],
-        },
-        scope: [
-          {
-            text: "Lot Alpha fallback",
-            sourceDocumentIds: [DOC_ALPHA],
-          },
-          {
-            text: "Lot Beta fallback",
-            sourceDocumentIds: [DOC_BETA],
-          },
-        ],
-        lots: [],
-        receivedPieces: [],
-        assumptions: [],
-        vigilancePoints: [],
-        missingElements: [],
-      },
-      documents: [
-        {
-          id: DOC_ALPHA,
-          file_name: "alpha.pdf",
-          document_kind: "plans",
-          confidence: 0.9,
-          issues: [],
-          extracted_metadata: {
-            projectName: null,
-            clientName: null,
-            deadlineAt: null,
-            detectedLots: [],
-            detectedVariants: [],
-          },
-        },
-        {
-          id: DOC_BETA,
-          file_name: "beta.pdf",
-          document_kind: "cctp",
-          confidence: 0.8,
-          issues: [],
-          extracted_metadata: {
-            projectName: null,
-            clientName: null,
-            deadlineAt: null,
-            detectedLots: [],
-            detectedVariants: [],
-          },
-        },
-      ],
-    });
-
-    expect(result.scope).toEqual([
-      {
-        text: "Lot Alpha AI",
-        sourceDocumentIds: [DOC_ALPHA],
-      },
-      {
-        text: "Lot Beta fallback",
-        sourceDocumentIds: [DOC_BETA],
-      },
-    ]);
   });
 
   it("rejects confirmation of a stale brief version", async () => {

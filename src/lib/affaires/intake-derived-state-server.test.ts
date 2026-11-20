@@ -16,7 +16,8 @@ vi.mock("@/lib/affaires/register-sync-server", () => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { fetchAffaireIntakeWorkspace, reconcileAffairePlanPresence, refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
+import { reconcileAffairePlanPresence, refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-derived-state-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { readLinkedDriveDocument } from "@/lib/affaires/google-drive/content";
 import { syncAffairePlanGap } from "@/lib/affaires/register-sync-server";

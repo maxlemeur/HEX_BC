@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { __securityTesting__ } from "@/lib/affaires/intake-server";
+import { __securityTesting__ } from "@/lib/affaires/intake-upload-server";
 
 // The storage reads the type of the body it receives, not the option beside it,
 // and the bucket lists the types it takes: a browser that names a DXF

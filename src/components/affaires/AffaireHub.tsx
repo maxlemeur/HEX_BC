@@ -34,7 +34,7 @@ import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 import type { ConfirmUnifiedImportFlowResult } from "@/lib/affaires/import-flow-results";
 
 import { useToast } from "@/components/feedback/toast-provider";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import type { IntakeDpgfCandidate } from "./unified-import-flow/types";
 import type {
   AffaireRegisterPageResult,
