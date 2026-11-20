@@ -4,11 +4,11 @@
 // A pull request now runs only the journeys its files reach, so the selection
 // itself becomes part of the evidence. Ways it can silently lose coverage,
 // each pinned below:
-// 1. a critical journey the CI runs (e2e.config.ts) is missing from the map,
-//    so no source change ever selects it: the selector itself must then run
+// 1. the runner (e2e.config.ts) and the selector run different journeys, or a
+//    journey the CI runs is reached by no rule of the map, so only an edit of
+//    the journey file itself selects it: the selector itself must then run
 //    the full suite, since this guard alone cannot block a merge;
-// 2. a journey is in the map but no rule reaches it, so only an edit of the
-//    journey file itself selects it;
+// 2. a rule names a journey the CI no longer runs (renamed, deleted);
 // 3. the map names a path that no longer exists (renamed journey, deleted
 //    route): its rule matches nothing and the impact it described is lost;
 // 4. a fail-safe default weakens: a shared-core path, an unknown, deleted or
@@ -19,21 +19,20 @@
 // 6. a journey reads a fixture by path that the map does not route to it;
 // 7. the workflow skips the journeys for anything but an explicit "none", or
 //    leaks the worker count or the build-cache save outside their scope;
-// 8. a takeoff journey (e2e/army/takeoff/**, run only by the full selection of
-//    e2e.config.ts) that a pull request reaches is not run by its CI: missing
-//    from the map's fullOnly list, reached by no rule, dropped when the
-//    selector is unsure, skipped by the takeoff job for anything but an
-//    explicit "none", or listed in a form (a subfolder, for example) the
-//    runner's full --files refuses before running anything.
+// 8. a takeoff journey (e2e/army/takeoff/**, run only by the full selection)
+//    that a pull request reaches is not run by its CI: reached by no rule,
+//    dropped when the selector is unsure, skipped by the takeoff job for
+//    anything but an explicit "none", or listed in a form (a subfolder, for
+//    example) the runner's full --files refuses before running anything.
 // 9. the partition of a selection into parallel shard jobs (army-shards.json,
 //    planShards) loses or doubles a journey: a selected file in no shard or in
 //    two, a shard without the login setup or without an authenticated business
 //    journey (the runner refuses it), a plan that depends on the order of its
 //    input, a list the runner's --files would refuse or that cannot be
 //    established still sharded instead of one shard running the runner's own
-//    whole suite, a nightly full listing taken from the map instead of
-//    e2e.config.ts and the working tree (an unregistered journey would never
-//    run), or a matrix output the workflow cannot read.
+//    whole suite, a nightly full listing other than the runner's full
+//    selection in the working tree (an unregistered journey would never run),
+//    or a matrix output the workflow cannot read.
 // 10. two journeys that each start their own cold development server
 //    (army-shards.json neverTogether: the two chatgpt-local files) planned in
 //    one shard, where its two workers would compile both servers at once on
@@ -44,15 +43,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  MAP_PATH,
   buildSourceGraph,
   classifyPath,
-  criticalSuiteJourneys,
   expandJourneys,
-  fullOnlySuiteJourneys,
-  fullSelectionGlobs,
   globToRegExp,
   listRepositoryFiles,
   loadImpactMap,
@@ -62,13 +59,16 @@ import {
   planShards,
   selectFromRepository,
   selectJourneys,
+  selectionJourneys,
   shardMatrix,
   validateImpactMap,
   validateShardDurations,
+  withSuiteJourneys,
   type ImpactMap,
   type ShardDurations,
   type ShardPlan,
   type SourceGraph,
+  type StoredImpactMap,
 } from "../../scripts/tester-army/select-journeys";
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE, FULL_ONLY_JOURNEY_FILE } from "../../scripts/tester-army/journey-files.mjs";
 
@@ -82,6 +82,7 @@ const REQUIRED_FULL = [
   "next.config.ts",
   "tsconfig.json",
   "e2e.config.ts",
+  "scripts/tester-army/journey-selections.mjs",
   "e2e/army/critical/fixtures.ts",
   "scripts/run-tester-army-ci.ts",
   "scripts/run-tester-army.mjs",
@@ -103,13 +104,31 @@ let map: ImpactMap;
 let files: string[];
 let fileSet: Set<string>;
 let graph: SourceGraph;
+/** The journey files the runner runs for the CI critical suite (a loopback backend) and for the full selection. */
+let criticalSuite: string[];
+let fullSelection: string[];
 
-beforeAll(() => {
-  map = loadImpactMap(root).map;
+/** The journey files of this tree that e2e.config.ts runs for an environment, the configuration loaded as the e2e CLI loads it. */
+async function runnerJourneys(environment: Record<string, string>): Promise<string[]> {
+  vi.resetModules();
+  for (const [name, value] of Object.entries(environment)) vi.stubEnv(name, value);
+  try {
+    const { tests } = (await import("../../e2e.config")).default;
+    return selectionJourneys(typeof tests === "string" ? [tests] : tests, files);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+}
+
+beforeAll(async () => {
   files = listRepositoryFiles(root);
+  map = loadImpactMap(root, files).map;
   fileSet = new Set(files);
   graph = buildSourceGraph(root, map, files);
-});
+  const critical = { E2E_ARMY_SUITE: "critical", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321" };
+  criticalSuite = await runnerJourneys(critical);
+  fullSelection = await runnerJourneys({ ...critical, E2E_ARMY_CRITICAL_SELECTION: "full" });
+}, 30_000);
 
 function select(paths: string[], event = "pull_request") {
   return selectJourneys({ map, graph, event, paths });
@@ -129,13 +148,8 @@ function mapGlobs(): Array<{ where: string; glob: string }> {
     ...map.docs.map((glob) => ({ where: "docs", glob })),
     ...map.nonRuntime.map((glob) => ({ where: "nonRuntime", glob })),
     ...map.full.map((glob) => ({ where: "full", glob })),
-    ...map.fullOnly.globs.map((glob) => ({ where: "fullOnly", glob })),
     ...map.rules.flatMap((rule) => rule.paths.map((glob) => ({ where: `rule ${rule.id}`, glob }))),
   ];
-}
-
-function criticalSuiteFromConfig(): string[] {
-  return criticalSuiteJourneys(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"), files);
 }
 
 // The former chatgpt-local.e2e.ts, split so that no single file sets the duration of the Critical check.
@@ -146,13 +160,19 @@ const CHATGPT_DECISIONS = "e2e/army/local/chatgpt-local-decisions.e2e.ts";
 const TAKEOFF_GLOB = "e2e/army/takeoff/**/*.e2e.ts";
 const TEAM_B = "e2e/army/takeoff/team-b-user-stories.e2e.ts";
 
-function fullOnlySuiteFromConfig(): string[] {
-  return fullOnlySuiteJourneys(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"), map.fullOnly.globs, files);
+/** The takeoff journeys the runner's full selection runs. */
+function takeoffJourneys(): string[] {
+  return fullSelection.filter((file) => globToRegExp(TAKEOFF_GLOB).test(file));
+}
+
+/** The map without the rules that reach a journey. */
+function unreached(journey: string): ImpactMap {
+  return { ...map, rules: map.rules.filter((rule) => !expandJourneys(map, rule.journeys).includes(journey) || rule.journeys.includes("*")) };
 }
 
 describe("TesterArmy critical impact map", () => {
   it("is structurally valid and names only existing paths", () => {
-    expect(validateImpactMap(map, (file) => fileSet.has(file), criticalSuiteFromConfig(), fullOnlySuiteFromConfig())).toEqual([]);
+    expect(validateImpactMap(map, (file) => fileSet.has(file))).toEqual([]);
     const stale: string[] = [];
     for (const { where, glob } of mapGlobs()) {
       const alternatives = expandBraces(glob);
@@ -168,39 +188,44 @@ describe("TesterArmy critical impact map", () => {
     expect(stale).toEqual([]);
   });
 
-  it("lists exactly the journeys the CI critical suite runs, each reachable from a rule", () => {
-    // The CI stack is loopback, so the localBusiness branch is the one CI runs.
-    const suite = criticalSuiteFromConfig();
-    expect(suite).toContain("e2e/army/critical/stale-save.e2e.ts");
-    expect(suite).toContain("e2e/army/local/tech-debt-lock-boundaries.e2e.ts");
-    expect([...map.suite.journeys].sort()).toEqual(suite);
-    const reached = new Set(map.rules
-      .filter((rule) => !rule.journeys.includes("*"))
-      .flatMap((rule) => expandJourneys(map, rule.journeys)));
-    const unreachable = map.suite.journeys.filter((journey) => journey !== map.suite.setup && !reached.has(journey));
-    expect(unreachable).toEqual([]);
+  it("refuses a journey list stored in the map, which the selection would ignore", () => {
+    const stored = JSON.parse(fs.readFileSync(path.join(root, MAP_PATH), "utf8")) as StoredImpactMap;
+    expect(withSuiteJourneys(stored, files)).toEqual(map);
+    expect(() => withSuiteJourneys({ ...stored, suite: { ...stored.suite, journeys: map.suite.journeys } } as StoredImpactMap, files))
+      .toThrow("stores suite.journeys");
+    expect(() => withSuiteJourneys({ ...stored, fullOnly: { ...stored.fullOnly, globs: [TAKEOFF_GLOB] } } as StoredImpactMap, files))
+      .toThrow("stores fullOnly.globs");
   });
 
-  it("lists exactly the takeoff journeys only the full selection runs, each reachable from a rule", () => {
-    expect(map.fullOnly.globs).toEqual([TAKEOFF_GLOB]);
-    const fullOnly = fullOnlySuiteFromConfig();
+  it("maps exactly the journeys the runner runs for the CI critical suite, each reachable from a rule", () => {
+    // The CI stack is loopback, so the local business selection is the one CI runs.
+    expect(criticalSuite).toContain("e2e/army/critical/stale-save.e2e.ts");
+    expect(criticalSuite).toContain("e2e/army/local/tech-debt-lock-boundaries.e2e.ts");
+    expect(map.suite.journeys).toEqual(criticalSuite);
+    // The validator, which selectFromRepository runs first, refuses a journey no rule reaches.
+    for (const journey of ["e2e/army/critical/dpgf-import.e2e.ts", "e2e/army/local/purchase-readiness.e2e.ts"]) {
+      expect(validateImpactMap(unreached(journey), (file) => fileSet.has(file)), journey)
+        .toContain(`No rule of the map reaches the journey ${journey}.`);
+    }
+  });
+
+  it("refuses a critical selection the runner does not know rather than run the default list under its name", async () => {
+    const critical = { E2E_ARMY_SUITE: "critical", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321" };
+    for (const name of ["takeoff", "Full", "constructor"]) {
+      await expect(runnerJourneys({ ...critical, E2E_ARMY_CRITICAL_SELECTION: name }), name)
+        .rejects.toThrow(`Unknown E2E_ARMY_CRITICAL_SELECTION "${name}": expected full, development or polish.`);
+    }
+    expect(await runnerJourneys({ ...critical, E2E_ARMY_CRITICAL_SELECTION: "" })).toEqual(criticalSuite);
+  }, 30_000);
+
+  it("maps exactly the takeoff journeys only the runner's full selection runs, each reachable from a rule", () => {
+    const fullOnly = takeoffJourneys();
     expect(fullOnly).toContain(TEAM_B);
-    expect([...map.fullOnly.journeys].sort()).toEqual(fullOnly);
+    expect(map.fullOnly.journeys).toEqual(fullOnly);
     expect(fullOnly.filter((journey) => map.suite.journeys.includes(journey))).toEqual([]);
-    const reached = new Set(map.rules
-      .filter((rule) => !rule.journeys.includes("*"))
-      .flatMap((rule) => expandJourneys(map, rule.journeys)));
-    expect(fullOnly.filter((journey) => !reached.has(journey))).toEqual([]);
+    expect(validateImpactMap(unreached(TEAM_B), (file) => fileSet.has(file))).toContain(`No rule of the map reaches the journey ${TEAM_B}.`);
     // "*" (the application shell) reaches them too.
     expect(expandJourneys(map, ["*"])).toEqual(expect.arrayContaining([...map.suite.journeys, ...fullOnly]));
-
-    // A glob the full selection no longer runs, or an unreadable list, invalidates the map.
-    const config = fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8");
-    expect(() => fullOnlySuiteJourneys(config, ["e2e/army/zz-gone/**/*.e2e.ts"], files)).toThrow(/zz-gone/u);
-    expect(() => fullOnlySuiteJourneys("export default {};", map.fullOnly.globs, files)).toThrow(/full/u);
-    expect(validateImpactMap(map, (file) => fileSet.has(file), criticalSuiteFromConfig(), [])).toContain(
-      `The map lists ${TEAM_B} as full-only, which the full selection does not run.`,
-    );
   });
 
   it("keeps the owner's shared-core paths on the full suite", () => {
@@ -237,15 +262,13 @@ describe("TesterArmy critical impact map", () => {
     }
   });
 
-  it("runs the full suite when the CI runs a journey the map does not list, or the reverse", () => {
+  it("runs the full suite when the CI runs a journey no rule reaches, or a rule names one the CI no longer runs", () => {
     // A filtered run would otherwise skip that journey and still be recorded as
     // a passing filtered-critical proof (a merge is not blocked by this guard).
     const editor = ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"];
     expect(selectFromRepository(root, { event: "pull_request", paths: editor, repositoryFiles: files }).mode).toBe("files");
 
     const unmapped = "e2e/army/critical/zz-unmapped-journey.e2e.ts";
-    expect(criticalSuiteJourneys(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"), [...files, unmapped]))
-      .toContain(unmapped);
     const added = selectFromRepository(root, { event: "pull_request", paths: editor, repositoryFiles: [...files, unmapped] });
     expect(added).toMatchObject({ mode: "full", files: [] });
     expect(added.reason).toMatch(/^fail-safe: Invalid impact map: /u);
@@ -257,12 +280,6 @@ describe("TesterArmy critical impact map", () => {
     });
     expect(removed.mode).toBe("full");
     expect(removed.reason).toContain(removedJourney);
-
-    // An e2e.config.ts list the selector cannot read leaves every journey unproven.
-    expect(validateImpactMap(map, (file) => fileSet.has(file), [], fullOnlySuiteFromConfig())).toContain(
-      `The map lists ${map.suite.setup}, which the critical suite does not run.`,
-    );
-    expect(() => criticalSuiteJourneys("export default {};", files)).toThrow(/localBusiness/u);
   });
 
   it("escalates every dependency of the shared core to the full suite", () => {
@@ -395,7 +412,7 @@ describe("TesterArmy critical impact map", () => {
     expect(select(["docs/README.md"], "push").fullOnly.mode).toBe("none");
   });
 
-  it("runs a takeoff journey the map does not list, never one the checkout lacks", () => {
+  it("runs a takeoff journey no rule reaches, never one the checkout lacks", () => {
     const editor = ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"];
     const added = "e2e/army/takeoff/zz-unmapped-journey.e2e.ts";
     const unlisted = selectFromRepository(root, { event: "pull_request", paths: editor, repositoryFiles: [...files, added] });
@@ -422,16 +439,16 @@ describe("TesterArmy critical impact map", () => {
     const refusedBy = (selection: { fullOnly: { files: string[] } }) =>
       selection.fullOnly.files.filter((file) => !FULL_ONLY_JOURNEY_FILE.test(file));
     const editor = ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"];
-    // e2e.config.ts globs e2e/army/takeoff/**: a journey in a subfolder runs,
-    // unlisted (fail-safe) as listed (its own change selects it).
+    // The full selection globs e2e/army/takeoff/**: a journey in a subfolder runs,
+    // reached by no rule (fail-safe) as by one (its own change selects it).
     const nested = "e2e/army/takeoff/metre/new-journey.e2e.ts";
     const unlisted = selectFromRepository(root, { event: "pull_request", paths: editor, repositoryFiles: [...files, nested] });
     expect(unlisted.fullOnly.mode).toBe("all");
     expect(unlisted.fullOnly.files).toContain(nested);
     expect(refusedBy(unlisted)).toEqual([]);
-    const listedMap: ImpactMap = { ...map, fullOnly: { ...map.fullOnly, journeys: [...map.fullOnly.journeys, nested] } };
-    expect(validateImpactMap(listedMap, (file) => file === nested || fileSet.has(file), criticalSuiteFromConfig(),
-      [...fullOnlySuiteFromConfig(), nested].sort())).toEqual([]);
+    const listedMap: ImpactMap = { ...map, fullOnly: { ...map.fullOnly, journeys: [...map.fullOnly.journeys, nested].sort() },
+      rules: [...map.rules, { id: "metre", paths: ["src/metre/**"], journeys: [nested] }] };
+    expect(validateImpactMap(listedMap, (file) => file === nested || fileSet.has(file))).toEqual([]);
     const listed = selectJourneys({ map: listedMap, graph, event: "pull_request", paths: [nested] });
     expect(listed.fullOnly).toEqual({ mode: "files", reason: expect.any(String), files: [map.suite.setup, nested].sort() });
     expect(refusedBy(listed)).toEqual([]);
@@ -443,8 +460,8 @@ describe("TesterArmy critical impact map", () => {
     "fails safe when the takeoff runner refuses %s", (refused) => {
     expect(FULL_ONLY_JOURNEY_FILE.test(refused), refused).toBe(false);
     const oddMap: ImpactMap = { ...map, fullOnly: { ...map.fullOnly, journeys: [...map.fullOnly.journeys, refused] } };
-    expect(validateImpactMap(oddMap, (file) => file === refused || fileSet.has(file), criticalSuiteFromConfig(),
-      [...fullOnlySuiteFromConfig(), refused].sort())).toContain(`The runner's full --files refuses the full-only journey ${refused}.`);
+    expect(validateImpactMap(oddMap, (file) => file === refused || fileSet.has(file)))
+      .toContain(`The runner's full --files refuses the full-only journey ${refused}.`);
     const selection = selectFromRepository(root, { event: "pull_request", paths: ["src/app/dashboard/estimates/[versionId]/edit/page.tsx"], repositoryFiles: [...files, refused] });
     expect(selection.mode).toBe("full");
     expect(selection.fullOnly).toMatchObject({ mode: "all", files: [] });
@@ -545,17 +562,16 @@ describe("TesterArmy shard plans", () => {
   }
 
   it("partitions every selected journey into exactly one shard, with the login setup and an authenticated journey in each", () => {
-    expect(validateShardDurations(durations, [...map.suite.journeys, ...fullOnlySuiteFromConfig(),
-      ...fullSelectionListing()])).toEqual([]);
+    expect(validateShardDurations(durations, [...map.suite.journeys, ...map.fullOnly.journeys, ...fullSelection])).toEqual([]);
     const settings = durations.suites.critical;
 
-    // The full critical suite (a shared-core path): the e2e.config.ts listing, split.
+    // The full critical suite (a shared-core path): the runner's listing, split.
     const full = selectFromRepository(root, { event: "pull_request", paths: ["scripts/run-tester-army-ci.ts"], repositoryFiles: files });
     expect(full.mode).toBe("full");
     expect(full.shards.shards.length).toBeGreaterThan(1);
     expect(full.shards.shards.length).toBeLessThanOrEqual(settings.maxShards);
     expect(full.shards.workers).toBe(settings.workers);
-    expectPartition(full.shards, criticalSuiteFromConfig(), "full critical suite");
+    expectPartition(full.shards, criticalSuite, "full critical suite");
 
     // An impact selection: exactly its files, the anchor of an anonymous change included.
     for (const paths of [["src/app/dashboard/estimates/[versionId]/edit/page.tsx"], ["e2e/army/critical/auth-rejection.e2e.ts"]]) {
@@ -591,7 +607,7 @@ describe("TesterArmy shard plans", () => {
   }, 30_000);
 
   it("runs one unsharded shard, never a partial list, when the list is refused by the runner or cannot be established", () => {
-    const listing = criticalSuiteFromConfig();
+    const listing = criticalSuite;
     const base = { suite: "critical" as const, setup: map.suite.setup, anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE };
     const whole = { files: [], shards: [{ shard: 1, total: 1, files: [], seconds: 0 }] };
     // A path the runner's critical --files refuses (subfolder): the runner's own whole suite.
@@ -660,7 +676,7 @@ describe("TesterArmy shard plans", () => {
 
     // A list the planner cannot honour is refused with the durations file: a lone file, a file twice, a file no
     // suite runs, more files than a suite that runs them has shards.
-    const journeys = [...map.suite.journeys, ...fullOnlySuiteFromConfig(), ...fullSelectionListing()];
+    const journeys = [...map.suite.journeys, ...map.fullOnly.journeys, ...fullSelection];
     const problems = (neverTogether: unknown) => validateShardDurations({ ...durations, neverTogether } as ShardDurations, journeys);
     expect(problems([[CHATGPT_TAKEOFF, CHATGPT_DECISIONS]])).toEqual([]);
     expect(problems(undefined)).toEqual([]);
@@ -671,7 +687,7 @@ describe("TesterArmy shard plans", () => {
     }
   }, 30_000);
 
-  it("shards the nightly full suite from e2e.config.ts and the working tree, its development phase in its own job", () => {
+  it("shards the nightly full suite from the runner's full selection and the working tree, its development phase in its own job", () => {
     const added = "e2e/army/extended/zz-unregistered-journey.e2e.ts";
     const plan = planFullSuite(root, { repositoryFiles: [...files, added] });
     expect(plan.development).toBe("separate");
@@ -679,15 +695,20 @@ describe("TesterArmy shard plans", () => {
     expect(plan.shards.length).toBeGreaterThan(1);
     expect(plan.shards.length).toBeLessThanOrEqual(durations.suites.full.maxShards);
     expect(plan.files).toContain(added);
-    expectPartition(plan, [...fullSelectionListing(), added], "full suite");
+    expectPartition(plan, [...fullSelection, added], "full suite");
     expect(plan.files.filter((file) => !FULL_JOURNEY_FILE.test(file))).toEqual([]);
 
     // A filtered dispatch (--grep) is one unsharded shard without the development phase.
     expect(planFullSuite(root, { repositoryFiles: files, unsharded: "dispatch --grep" }))
       .toMatchObject({ files: [], development: "none", shards: [{ shard: 1, total: 1, files: [] }] });
-    // An unreadable full list: one unsharded shard running both phases on its stack, as before sharding.
-    expect(planFullSuite(root, { repositoryFiles: files, config: "export default {};" }))
-      .toMatchObject({ files: [], development: "in-shard", shards: [{ shard: 1, total: 1, files: [] }] });
+    // An unreadable impact map: one unsharded shard running both phases on its stack, as before sharding.
+    const mapless = fs.mkdtempSync(path.join(os.tmpdir(), "army-full-plan-"));
+    try {
+      expect(planFullSuite(mapless, { repositoryFiles: files }))
+        .toMatchObject({ files: [], development: "in-shard", shards: [{ shard: 1, total: 1, files: [] }] });
+    } finally {
+      fs.rmSync(mapless, { recursive: true, force: true });
+    }
   });
 
   it("hands the workflow one matrix entry per shard, its files comma-joined", () => {
@@ -714,7 +735,7 @@ describe("TesterArmy shard plans", () => {
       const selection = selectFromRepository(root, { event: "pull_request", paths: ["scripts/run-tester-army-ci.ts"] });
       expect(matrix).toEqual(shardMatrix(selection.shards));
       expect(matrix.map((entry) => entry.files.split(",")).flat().filter((file) => file !== map.suite.setup).sort())
-        .toEqual(criticalSuiteFromConfig().filter((file) => file !== map.suite.setup));
+        .toEqual(criticalSuite.filter((file) => file !== map.suite.setup));
       expect(JSON.parse(critical.takeoff_shards)).toEqual(shardMatrix(selection.takeoffShards));
 
       fs.writeFileSync(paths, "docs/testing/tester-army-ci.md\n");
@@ -731,12 +752,6 @@ describe("TesterArmy shard plans", () => {
     // Four selector processes and two in-process plans: timed out at 5,3 s on a loaded runner (PR #75, run 39176050241).
   }, 30_000);
 });
-
-/** Journey files the e2e.config.ts full selection runs in this working tree. */
-function fullSelectionListing(): string[] {
-  const globs = fullSelectionGlobs(fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"));
-  return files.filter((file) => globs.some((glob) => globToRegExp(glob).test(file))).sort();
-}
 
 describe("TesterArmy critical workflow wiring", () => {
   const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");

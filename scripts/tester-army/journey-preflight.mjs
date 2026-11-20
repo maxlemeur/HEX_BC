@@ -5,19 +5,14 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { CALC_V3_PHASE_DEFINITIONS } from "./calc-v3-phases.ts";
+import { SELECTION_GLOBS } from "./journey-selections.mjs";
+
 /**
- * Files whose double-quoted e2e/army/local journey paths and globs are the
- * standing selections: every phase of e2e.config.ts, the calc-v3 phases and
- * the offer-emission and resend-portal profiles. Read as text, as
- * select-journeys.ts reads e2e.config.ts.
+ * The globs of the standing selections: those of journey-selections.mjs and
+ * the tests of every calc-v3 phase, coverage phases included.
  */
-export const LOCAL_JOURNEY_COLLECTORS = [
-  "e2e.config.ts",
-  "scripts/tester-army/calc-v3-phases.ts",
-  "scripts/tester-army/coverage-phases.ts",
-  "e2e/army/local/offer-emission.config.ts",
-  "e2e/army/local/resend-portal.config.ts",
-];
+export const STANDING_SELECTION_GLOBS = [...SELECTION_GLOBS, ...Object.values(CALC_V3_PHASE_DEFINITIONS).flatMap((phase) => phase.tests)];
 
 /**
  * No business journey is excluded from standing selections. Kept as an empty
@@ -37,17 +32,16 @@ function globPattern(glob) {
 
 /**
  * Problems that let a local journey file go unrun silently: a file no
- * collector names and no exclusion lists, or an exclusion that is collected,
- * missing or without its run document. Empty when every journey is accounted for.
+ * standing selection collects and no exclusion lists, or an exclusion that is
+ * collected, missing or without its run document. Empty when every journey is
+ * accounted for.
  * @param {string} root
- * @param {{ collectors?: readonly string[], outsideSelections?: Readonly<Record<string, string>> }} [options]
+ * @param {{ selections?: readonly string[], outsideSelections?: Readonly<Record<string, string>> }} [options]
  * @returns {string[]}
  */
 export function localJourneyCoverageProblems(root, options = {}) {
-  const collectors = options.collectors ?? LOCAL_JOURNEY_COLLECTORS;
   const outside = options.outsideSelections ?? LOCAL_JOURNEYS_OUTSIDE_SELECTIONS;
-  const globs = collectors.flatMap((file) => [...fs.readFileSync(path.join(root, file), "utf8")
-    .matchAll(/"(e2e\/army\/local\/[^"\s]*\.e2e\.ts)"/gu)].map((match) => globPattern(match[1])));
+  const globs = (options.selections ?? STANDING_SELECTION_GLOBS).map(globPattern);
   const directory = path.join(root, LOCAL_DIRECTORY);
   const journeys = fs.existsSync(directory)
     ? fs.readdirSync(directory, { recursive: true, withFileTypes: true })
@@ -58,7 +52,7 @@ export function localJourneyCoverageProblems(root, options = {}) {
   const problems = [];
   for (const file of journeys) {
     if (!collected(file) && !(file in outside)) {
-      problems.push(`${file} is collected by no TesterArmy selection (${collectors.join(", ")}) and is not listed in ` +
+      problems.push(`${file} is collected by no TesterArmy selection (scripts/tester-army/journey-selections.mjs, the calc-v3 phases) and is not listed in ` +
         "LOCAL_JOURNEYS_OUTSIDE_SELECTIONS (scripts/tester-army/journey-preflight.mjs): add it to a selection, or list it with the document of the run that executes it.");
     }
   }
@@ -232,8 +226,8 @@ export function selectionPreflightProblems({ pairs, grep, files = [], workers = 
  * The critical or full selection `e2e list` collects on the owned loopback
  * stack, before that stack exists: no app, engine or worker starts. The flags
  * are those scripts/run-tester-army.mjs passes for a critical run; the
- * loopback Supabase URL only selects the e2e.config.ts localBusiness list, as
- * every owned stack is loopback.
+ * loopback Supabase URL only selects the local business suite of
+ * journey-selections.mjs, as every owned stack is loopback.
  * With `changedSince`, the test filters of e2e.config.ts judge the change since that ref, as a run would: a
  * pair they left out has the disposition "filtered", its `filter` and its `reason`; `onNotes` receives what the
  * filters printed (one line each).

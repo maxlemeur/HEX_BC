@@ -170,8 +170,8 @@ chaque configuration, jamais un repli.
 
 ## Parcours E2E
 
-`e2e/army/local/takeoff-lab.e2e.ts` (listes `full` et `critical` de
-`e2e.config.ts`) lance le serveur local comme les parcours ChatGPT local, avec la
+`e2e/army/local/takeoff-lab.e2e.ts` (sélections `full` et critical locale de
+`scripts/tester-army/journey-selections.mjs`) lance le serveur local comme les parcours ChatGPT local, avec la
 fixture `chatgpt-provider-fixture.mjs` et Decisions en fixture : aucun appel réel.
 Son dataset fictif et sa sortie vide sont sous
 `.e2e/army/critical/artifacts/<id>/`.

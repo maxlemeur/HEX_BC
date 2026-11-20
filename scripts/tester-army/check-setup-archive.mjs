@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LOCAL_JOURNEY_COLLECTORS, LOCAL_JOURNEYS_OUTSIDE_SELECTIONS } from "./journey-preflight.mjs";
+import { LOCAL_JOURNEYS_OUTSIDE_SELECTIONS } from "./journey-preflight.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const directory = path.join(root, ".e2e/retro-runtime/setup-archive-checks", randomUUID());
@@ -132,10 +132,11 @@ async function fixture(name) {
     await writeFile(path.join(directory, "package.json"), JSON.stringify({ name, version }));
   }
   // The real wrapper imports and executes the journey preflight before setup.
-  // Mount its actual collectors and documented exclusions; the fixture CLI
-  // still owns all test execution, without a browser or backend.
+  // Mount it with the selections it imports and its documented exclusions; the
+  // fixture CLI still owns all test execution, without a browser or backend.
   const preflightInputs = new Set(["scripts/tester-army/journey-files.mjs", "scripts/tester-army/journey-preflight.mjs",
-    ...LOCAL_JOURNEY_COLLECTORS, ...Object.entries(LOCAL_JOURNEYS_OUTSIDE_SELECTIONS).flat()]);
+    "scripts/tester-army/journey-selections.mjs", "scripts/tester-army/calc-v3-phases.ts", "scripts/tester-army/coverage-phases.ts",
+    ...Object.entries(LOCAL_JOURNEYS_OUTSIDE_SELECTIONS).flat()]);
   for (const file of preflightInputs) {
     await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
     await cp(path.join(root, file), path.join(cwd, file));

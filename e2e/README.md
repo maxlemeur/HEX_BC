@@ -93,9 +93,13 @@ Cette vérification ne conserve aucune capture, vidéo, trace, liste de membres 
 
 Les assertions exactes portent sur les montants, la persistance, les droits et
 les téléchargements. Les mocks de composants n'établissent pas une preuve
-SQL/RLS. Un nouveau parcours doit rejoindre une sélection de `e2e.config.ts` ou
-le registre explicite de `scripts/tester-army/journey-preflight.mjs` ; son simple
-ajout au dossier ne garantit pas son exécution.
+SQL/RLS. Un nouveau parcours doit rejoindre une sélection de
+`scripts/tester-army/journey-selections.mjs` (les listes que `e2e.config.ts`,
+la sélection par impact et le contrôle préalable lisent toutes), une phase de
+`scripts/tester-army/calc-v3-phases.ts` ou le registre explicite de
+`scripts/tester-army/journey-preflight.mjs`, et une règle de
+`scripts/tester-army/army-impact-map.json` s'il fait partie de la suite critical
+ou du métré ; son simple ajout au dossier ne garantit pas son exécution.
 
 Les API installées sont documentées dans
 `node_modules/e2e/skills/e2e/references/` et `node_modules/e2e/docs/reference/`.

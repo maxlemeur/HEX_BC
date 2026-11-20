@@ -303,7 +303,8 @@ try {
   inputs = [
     path.join(root, "e2e.config.ts"),
     path.join(root, "scripts", "run-tester-army.mjs"),
-    ...(coverage ? [] : [path.join(root, "scripts", "tester-army", "installed-dependencies.mjs")]),
+    // The journey lists; a coverage run fingerprints all of scripts/tester-army below.
+    ...(coverage ? [] : [path.join(root, "scripts", "tester-army", "installed-dependencies.mjs"), path.join(root, "scripts", "tester-army", "journey-selections.mjs")]),
     path.join(root, "package-lock.json"),
     path.join(root, "package.json"),
     path.join(root, "next.config.ts"),
@@ -323,7 +324,7 @@ try {
   if (coverage) {
     await writeFile(path.join(coverageInputs, "source.diff"), git(["diff", "HEAD", "--binary"]));
     await writeFile(path.join(coverageInputs, "source-status.txt"), git(["status", "--short", "--branch"]));
-    for (const file of ["e2e.config.ts", "scripts/run-tester-army.mjs", ...git(["ls-files", "--others", "--exclude-standard", "-z", "--", "src", "e2e/army", "scripts/tester-army", "supabase/migrations"]).toString().split("\0").filter(Boolean)]) {
+    for (const file of ["e2e.config.ts", "scripts/tester-army/journey-selections.mjs", "scripts/run-tester-army.mjs", ...git(["ls-files", "--others", "--exclude-standard", "-z", "--", "src", "e2e/army", "scripts/tester-army", "supabase/migrations"]).toString().split("\0").filter(Boolean)]) {
       const target = path.join(coverageInputs, "source", file);
       await mkdir(path.dirname(target), { recursive: true });
       await cp(path.join(root, file), target);
