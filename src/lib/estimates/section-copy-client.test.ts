@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { fetchAffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-client";
 import {
-  fetchAffaireLinkedDpgfSource, fetchEstimateImportSources, importEstimateSections,
-} from "@/lib/estimates/client";
+  fetchEstimateImportSources,
+  importEstimateSections,
+} from "@/lib/estimates/section-copy-client";
 import { recoverEstimateEditorRead, registerEstimateEditorMutations } from "@/lib/estimates/editor-mutations";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 

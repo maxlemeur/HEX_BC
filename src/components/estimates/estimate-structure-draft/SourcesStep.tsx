@@ -1,6 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import type { EstimateStructureDraft } from "@/lib/estimates/client";
+import type { EstimateStructureDraft } from "@/lib/estimates/structure-drafts-client";
 import {
   isAssemblyOnlyWeakSignalMode,
   sourceKindLabel,

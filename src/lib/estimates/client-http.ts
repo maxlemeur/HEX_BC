@@ -2,7 +2,7 @@ import { EstimateApiError, toErrorMessage, extractErrorDetails, extractErrorCode
 import { hasOwnProperty, toBooleanValue } from "@/lib/estimates/client-json";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
-import { isRecord } from "@/lib/value-guards";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export const ESTIMATE_VERSION_API_PATH_PATTERN =
   /^\/api\/estimates\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?]|$)/i;
@@ -88,4 +88,24 @@ export async function requestJsonUncoordinated<T>(
 
   const root = unwrapSuccessfulEnvelopePayload(payload, fallbackMessage);
   return root as T;
+}
+
+export function extractFilenameFromContentDisposition(
+  contentDisposition: string | null
+): string | null {
+  if (!contentDisposition) return null;
+
+  const utf8Match = contentDisposition.match(/filename\\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      const decoded = decodeURIComponent(utf8Match[1]);
+      return toNonEmptyString(decoded);
+    } catch {
+      return toNonEmptyString(utf8Match[1]);
+    }
+  }
+
+  const asciiMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  if (!asciiMatch?.[1]) return null;
+  return toNonEmptyString(asciiMatch[1]);
 }

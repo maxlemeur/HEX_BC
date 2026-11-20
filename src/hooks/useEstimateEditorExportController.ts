@@ -20,10 +20,7 @@ import type {
   EstimateItem,
   EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
-import {
-  exportEstimate,
-  type EstimateExportMode,
-} from "@/lib/estimates/client";
+import { exportEstimate, type EstimateExportMode } from "@/lib/estimates/export-client";
 import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 type ActiveEstimateExportMode = EstimateExportMode | "csv";

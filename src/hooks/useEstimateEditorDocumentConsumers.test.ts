@@ -11,7 +11,7 @@ import type { EditorEstimateItem } from "@/lib/estimates/editor-items";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), reorder: vi.fn(), move: vi.fn(), remove: vi.fn() }));
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/items-client", () => ({
   createEstimateItem: mocks.create,
   reorderEstimateItems: mocks.reorder,
   moveEstimateItem: mocks.move,

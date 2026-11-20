@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/browser-download", () => ({ downloadBlob: vi.fn() }));
 
 import { downloadBlob } from "@/lib/browser-download";
-import { downloadEstimatePdf } from "@/lib/estimates/client";
+import { downloadEstimatePdf } from "@/lib/estimates/pdf-client";
 
 // A ready job is not a delivered PDF. Keep transport/HTML failures separate from
 // success; the real browser journey separately asserts a received PDF download.

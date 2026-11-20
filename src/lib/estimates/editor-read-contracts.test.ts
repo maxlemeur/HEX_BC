@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchEstimateEditorData } from "@/lib/estimates/client";
+import { fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
 import { createEstimateEditorResponseFixture as editorResponse } from "@/test/fixtures/estimate-editor-response";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";

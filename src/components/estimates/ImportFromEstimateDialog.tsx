@@ -20,11 +20,13 @@ import { formatEUR } from "@/lib/money";
 import {
   fetchEstimateImportableSections,
   fetchEstimateImportSources,
-  type EstimateImportSectionPreview,
-  type EstimateImportSourceVersion,
   type ImportEstimateSectionsMode,
   type ImportEstimateSectionsPayload,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/section-copy-client";
+import type {
+  EstimateImportSectionPreview,
+  EstimateImportSourceVersion,
+} from "@/lib/estimates/section-copy-contracts";
 
 type ImportFromEstimateDialogProps = {
   isOpen: boolean;

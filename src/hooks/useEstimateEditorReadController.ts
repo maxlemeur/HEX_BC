@@ -2,12 +2,12 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
 import {
-  fetchEstimateEditorData,
   fetchEstimateSuggestionLearnings,
-  isEstimateApiError,
   type SuggestionLearningState,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/suggestion-learning-client";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { normalizeEstimateEditorIdentity } from "@/lib/estimates/editor-document-state";
 import { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";
 import { isOlderEstimateVersionToken } from "@/lib/estimates/version-token";

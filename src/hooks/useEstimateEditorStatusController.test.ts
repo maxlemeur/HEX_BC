@@ -9,7 +9,7 @@ const clientMocks = vi.hoisted(() => ({
   updateEstimateStatus: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/version-lifecycle-client", () => ({
   fetchEstimateSendGating: clientMocks.fetchEstimateSendGating,
   updateEstimateStatus: clientMocks.updateEstimateStatus,
 }));
@@ -18,10 +18,8 @@ import {
 useEstimateEditorStatusController,
 type EstimateEditorStatusControllerInput,
 } from "@/hooks/useEstimateEditorStatusController";
-import type {
-EstimateSendGatingResponse,
-EstimateStatus,
-} from "@/lib/estimates/client";
+import type { EstimateSendGatingResponse } from "@/lib/estimates/version-lifecycle-client";
+import type { EstimateStatus } from "@/lib/estimates/status";
 import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 

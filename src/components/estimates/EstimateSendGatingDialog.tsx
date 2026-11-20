@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatEUR } from "@/lib/money";
-import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
+import type { EstimateSendGatingFlag } from "@/lib/estimates/version-lifecycle-client";
 import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
 import { OFFER_PROVISIONAL_QUANTITY_WARNING, OFFER_RESERVE_WARNING } from "@/lib/estimates/offer-choice";
 import { provisionalMentionsOverflowMessage } from "@/lib/estimates/provisional-quantity";

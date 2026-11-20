@@ -28,11 +28,11 @@ import {
   generateVersionZeroDraft,
   materializeVersionZeroDraft,
   reviewVersionZeroLine,
-  type VersionZeroDraftSummary,
   type VersionZeroReview,
   type VersionZeroReviewLine,
   type VersionZeroReviewLot,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/version-zero-drafts-client";
+import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import { parseVersionZeroQuantityInput } from "@/lib/estimates/version-zero-utils";
 import { cn } from "@/lib/utils";
 

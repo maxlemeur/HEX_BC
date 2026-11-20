@@ -1,10 +1,12 @@
-import type { EstimateEditorData, EstimateVersionWithProject } from "@/lib/estimates/client";
+import type { Database } from "@/types/database";
+import type { EstimateEditorData } from "@/lib/estimates/editor-read-contracts";
 import type { BufferedItemDerivation, BufferedUpdate } from "@/lib/estimates/bulk-buffer";
 import {
   buildEstimateItemUpdatePayload,
   withStableEditorClientKeys,
   type EditorEstimateItem,
   type EstimateItemUpdatePayload,
+  type EstimateVersionRow,
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
 import { reconcileCreatedItemWithLocalDraft } from "@/lib/estimates/editor-optimistic";
@@ -19,6 +21,24 @@ import {
   resyncEstimateDocumentV3Settings,
   type EstimateDocumentV3SettingsState,
 } from "@/lib/estimates/editor-document-v3-settings";
+
+type EstimateProjectRow =
+  Database["public"]["Tables"]["estimate_projects"]["Row"];
+
+export type EstimateVersionWithProject = EstimateVersionRow & {
+  estimate_projects:
+    | Pick<
+        EstimateProjectRow,
+        "id" | "name" | "reference" | "client_name" | "is_archived"
+      >
+    | Pick<
+        EstimateProjectRow,
+        "id" | "name" | "reference" | "client_name" | "is_archived"
+      >[]
+    | { name: string }
+    | { name: string }[]
+    | null;
+};
 
 export type EstimateEditorDocumentScope = {
   actorId: string | null;

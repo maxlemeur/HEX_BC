@@ -9,7 +9,7 @@ import { EstimateSuggestionRulesManager } from "@/components/estimates/EstimateS
 import { LaborRolesManager } from "@/components/estimates/LaborRolesManager";
 import { MarginTiersManager } from "@/components/estimates/MarginTiersManager";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import type { EstimateVersionEvent } from "@/lib/estimates/client";
+import type { EstimateVersionEvent } from "@/lib/estimates/schemas";
 import type { Database } from "@/types/database";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

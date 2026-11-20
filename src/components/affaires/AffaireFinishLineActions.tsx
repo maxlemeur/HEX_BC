@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState, useTransition } from "react";
 
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
-import { exportEstimate } from "@/lib/estimates/client";
+import { exportEstimate } from "@/lib/estimates/export-client";
 import type { EstimateStatus } from "@/lib/estimates/status";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";

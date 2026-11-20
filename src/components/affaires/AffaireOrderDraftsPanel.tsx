@@ -11,14 +11,16 @@ import {
   createEstimatePurchaseOrderDrafts,
   fetchEstimatePurchaseOrderDraftPreparation,
   fetchEstimatePurchaseOrderDraftReceipt,
-  isEstimateApiError,
-  type CreateEstimatePurchaseOrderDraftsInput,
-  type EstimatePurchaseOrderDraftBlockedLine,
-  type EstimatePurchaseOrderDraftBlockedReason,
-  type EstimatePurchaseOrderDraftCreationResult,
-  type EstimatePurchaseOrderDraftPreparation,
-  type EstimatePurchaseOrderStatus,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/purchase-order-drafts-client";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
+import type {
+  CreateEstimatePurchaseOrderDraftsInput,
+  EstimatePurchaseOrderDraftBlockedLine,
+  EstimatePurchaseOrderDraftBlockedReason,
+  EstimatePurchaseOrderDraftCreationResult,
+  EstimatePurchaseOrderDraftPreparation,
+  EstimatePurchaseOrderStatus,
+} from "@/lib/estimates/purchase-order-draft-contracts";
 import { formatEUR } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { buttonVariants } from "@/components/ui/button";

@@ -15,8 +15,10 @@ vi.mock("@/lib/estimate-calculations", () => ({
   computeEstimateLineValues: mocks.computeEstimateLineValues,
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/batch-operations-client", () => ({
   batchEstimateOperations: mocks.batchEstimateOperations,
+}));
+vi.mock("@/lib/estimates/items-client", () => ({
   deleteEstimateItem: mocks.deleteEstimateItem,
   reorderEstimateItems: mocks.reorderEstimateItems,
 }));

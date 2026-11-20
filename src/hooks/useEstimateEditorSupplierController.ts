@@ -13,7 +13,8 @@ import {
   type SetStateAction,
 } from "react";
 
-import { bulkUpdateEstimateItems, type EstimateVersionToken } from "@/lib/estimates/client";
+import { bulkUpdateEstimateItems } from "@/lib/estimates/items-client";
+import type { EstimateVersionToken } from "@/lib/estimates/client-version";
 import { resolveEditorEngineContext } from "@/lib/estimates/editor-engine";
 import { commitEstimateV3Operations } from "@/lib/estimates/v3-editor-writer";
 import {

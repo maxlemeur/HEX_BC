@@ -18,8 +18,8 @@ import { RiskAlertBanner } from "@/components/direction/RiskAlertBanner";
 import {
   createEstimateVariant,
   duplicateEstimateVersion,
-  type VersionZeroDraftSummary,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/version-variant-client";
+import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import { useUiMode } from "@/hooks/useUiMode";
 import type {

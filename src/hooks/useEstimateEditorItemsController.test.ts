@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   reorderEstimateItems: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/items-client", () => ({
   createEstimateItem: mocks.createEstimateItem,
   deleteEstimateItem: mocks.deleteEstimateItem,
   reorderEstimateItems: mocks.reorderEstimateItems,

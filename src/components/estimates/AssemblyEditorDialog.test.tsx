@@ -11,7 +11,7 @@ import {
 AssemblyEditorDialog,
 type AssemblyEditorInput,
 } from "@/components/estimates/AssemblyEditorDialog";
-import type { EstimateAssemblyDetail } from "@/lib/estimates/client";
+import type { EstimateAssemblyDetail } from "@/lib/estimates/assemblies-client";
 
 const LABOR_ROLE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SUPPLY_TYPE_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";

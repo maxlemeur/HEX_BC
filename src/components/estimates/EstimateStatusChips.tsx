@@ -1,6 +1,6 @@
 "use client";
 
-import type { EstimateStatus } from "@/lib/estimates/client";
+import type { EstimateStatus } from "@/lib/estimates/status";
 import { cn } from "@/lib/utils";
 
 type EstimateStatusChipsProps = {
