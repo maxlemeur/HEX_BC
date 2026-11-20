@@ -20,8 +20,9 @@ import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
   assertDraftLockOwnedByCurrentUser,
-  canAccessOwnerResource,
   assertDraftStatus,
+  getVersionAccessOrThrow,
+  type VersionAccessQuery,
 } from "@/lib/estimates/server-context";
 import type { Database, Json } from "@/types/database";
 
@@ -42,7 +43,6 @@ import {
 import { assertCanWriteEstimateWorkflows } from "./write-access";
 import { keepTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 import { toNonEmptyString } from "@/lib/value-guards";
-import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 import { normalizeSectionTitleKey } from "@/lib/estimates/estimate-structure-draft";
 
 type Supabase = SupabaseClient<Database>;
@@ -69,7 +69,6 @@ type EstimateStructureDraftApplicationInsert =
   Database["public"]["Tables"]["estimate_structure_draft_applications"]["Insert"];
 type EstimateStructureDraftApplyRpcResult =
   Database["public"]["Functions"]["apply_estimate_structure_draft"]["Returns"][number];
-type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type GenerateEstimateStructureDraftInput = z.infer<
   typeof generateEstimateStructureDraftSchema
 >;
@@ -143,13 +142,6 @@ type VersionAccessRow = Pick<
   | "calc_engine_version"
 > & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
-
-type AuthenticatedContext = {
-  supabase: Supabase;
-  userId: string;
-  tenantId: string;
-  tenantRole: TenantRole;
 };
 
 export type EstimateAiGenerationOperation =
@@ -453,43 +445,12 @@ export async function withEstimateAiGenerationLease<T>(input: {
     }
   }
 }
-async function getVersionAccessOrThrow(
-  supabase: Supabase,
-  versionId: string,
-  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
-): Promise<{ version: VersionAccessRow; project: EmbeddedProjectAccess }> {
-  const { data, error } = await supabase
-    .from("estimate_versions")
-    .select(
-      "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, calc_engine_version, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
-    )
-    .eq("id", versionId)
-    .eq("tenant_id", context.tenantId)
-    .single();
 
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = data as unknown as VersionAccessRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-  if (
-    !project ||
-    project.tenant_id !== context.tenantId ||
-    project.is_archived ||
-    !canAccessOwnerResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  return {
-    version,
-    project,
-  };
-}
+const STRUCTURE_DRAFT_VERSION_ACCESS: VersionAccessQuery = {
+  mode: "owner_or_admin_on_active_project",
+  versionColumns: "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, calc_engine_version",
+  projectColumns: "name, reference, client_name, notes",
+};
 
 async function fetchEstimateVersionToken(input: {
   supabase: Supabase;
@@ -2361,7 +2322,9 @@ export async function generateEstimateStructureDraft(
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   // Lot 3.2, entrée 2 (P-14) : la génération n'écrit qu'une preview, sur tout moteur.
-  const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    supabase, versionId, context, STRUCTURE_DRAFT_VERSION_ACCESS
+  );
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -2521,7 +2484,9 @@ export async function getEstimateStructureDraft(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
 
-  await getVersionAccessOrThrow(supabase, versionId, context);
+  await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    supabase, versionId, context, STRUCTURE_DRAFT_VERSION_ACCESS
+  );
   const loaded = await loadEstimateStructureDraftOrThrow({
     supabase,
     tenantId,
@@ -2793,7 +2758,9 @@ export async function applyEstimateStructureDraft(
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    supabase, versionId, context, STRUCTURE_DRAFT_VERSION_ACCESS
+  );
   // Lot 3.2, entrée 2 (P-14) : une v3 s'applique par la même fonction atomique, sous le contrat d'écrivain v3
   // (20261025163000) ; jamais par l'écriture directe de secours.
   const isV3 = usesPerUnitLabor(resolveEstimateEngineVersion(version));

@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/estimates/version-owner-access", () => ({ getOwnedEstimateVersion: vi.fn() }));
+vi.mock("@/lib/estimates/server-context", () => ({ getVersionAccessOrThrow: vi.fn() }));
 vi.mock("@/lib/estimates/read-all-items-server", () => ({ readAllEstimateItems: vi.fn(), assertEstimateVersionUnchanged: vi.fn() }));
 
 import { loadEstimateReading } from "@/lib/assistant/estimate-reading-server";
 import { AssistantToolError } from "@/lib/assistant/loop";
 import { conflict, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
-import type { AuthenticatedContext } from "@/lib/estimates/server-context";
-import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
+import { getVersionAccessOrThrow, type AuthenticatedContext } from "@/lib/estimates/server-context";
 
 // A client that fails the test if anything is read through it.
 const from = vi.fn(() => { throw new Error("the estimate must not be read"); });
@@ -30,10 +29,10 @@ describe("estimate read by the assistant", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it("refuses an estimate of another affaire before reading any of it, even one the member may open", async () => {
-    vi.mocked(getOwnedEstimateVersion).mockResolvedValue({
-      version: { id: "v-1", tenant_id: "tenant-1", status: "draft", estimate_projects: null },
+    vi.mocked(getVersionAccessOrThrow).mockResolvedValue({
+      version: { id: "v-1" },
       project: { id: "another-affaire", tenant_id: "tenant-1", user_id: "user-1" },
-    });
+    } as never);
     const read = loadEstimateReading(context, { versionId: "v-1", projectId: "conversation-affaire" });
     await expect(read).rejects.toBeInstanceOf(AssistantToolError);
     await expect(read).rejects.toThrow("n’appartient pas à l’affaire de cette conversation");
@@ -42,7 +41,7 @@ describe("estimate read by the assistant", () => {
   });
 
   it("answers an estimate the member may not open like a missing one, without saying which", async () => {
-    vi.mocked(getOwnedEstimateVersion).mockRejectedValue(notFound("Version de chiffrage introuvable."));
+    vi.mocked(getVersionAccessOrThrow).mockRejectedValue(notFound("Version de chiffrage introuvable."));
     const read = loadEstimateReading(context, { versionId: "v-2", projectId: "conversation-affaire" });
     await expect(read).rejects.toBeInstanceOf(AssistantToolError);
     await expect(read).rejects.toThrow("introuvable ou vous n’y avez pas accès");
@@ -51,10 +50,10 @@ describe("estimate read by the assistant", () => {
 
   describe("an estimate edited while it is read", () => {
     beforeEach(() => {
-      vi.mocked(getOwnedEstimateVersion).mockResolvedValue({
-        version: { id: "v-1", tenant_id: "tenant-1", status: "sent", estimate_projects: null },
+      vi.mocked(getVersionAccessOrThrow).mockResolvedValue({
+        version: { id: "v-1" },
         project: { id: "conversation-affaire", tenant_id: "tenant-1", user_id: "user-1" },
-      });
+      } as never);
       vi.mocked(readAllEstimateItems).mockResolvedValue([]);
     });
 

@@ -78,18 +78,21 @@ import { captureOfferClientContract } from "@/lib/estimates/offer-contract-captu
 import { parseOfferPresentation, type ClientContract1 } from "@/lib/estimates/offer-contract";
 import { buildClientContract2, type ClientContract2 } from "@/lib/estimates/offer-contract-v2";
 import { buildCommercialEstimatePdfDocument } from "@/components/estimate-document/CommercialEstimateDocument";
-import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import {
+  assertDraftLockOwnedByCurrentUser,
+  getVersionAccessOrThrow,
+  type VersionAccessQuery,
+} from "@/lib/estimates/server-context";
 import { freezeEstimateV2Snapshot } from "@/lib/estimates/v2-snapshot-server";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type { Database, Json } from "@/types/database";
 
-import { conflict, forbidden, internalError, mapSupabaseError, notFound } from "@/lib/http/api-response";
+import { conflict, internalError, mapSupabaseError } from "@/lib/http/api-response";
 import type {
   EstimateVersionChangelog,
   EstimateVersionChangelogChange,
   EstimateVersionChangelogField,
 } from "./changelog";
-import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = ServerSupabaseClient;
 
@@ -108,8 +111,13 @@ type SupabaseErrorLike = {
   hint?: string | null;
 };
 
-const VERSION_ACCESS_SELECT =
-  "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, currency, content_revision, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name)";
+/** Une personne atteint le PDF d'une version quand l'éditeur la lui ouvre, et un rôle lecteur de l'approbation aussi. */
+const PDF_VERSION_ACCESS: VersionAccessQuery = {
+  mode: "owner_or_approval_reader",
+  versionColumns:
+    "id, tenant_id, project_id, version_number, status, updated_at, date_devis, validite_jours, exclusions, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, contractor_role, total_ht_cents, total_tax_cents, total_ttc_cents, rounding_adjustment_cents, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, currency, content_revision",
+  projectColumns: "name, reference, estimate_reference, site_address, client_name",
+};
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
@@ -378,34 +386,6 @@ const CHANGELOG_PERCENT_FORMATTER = new Intl.NumberFormat("fr-FR", {
   maximumFractionDigits: 2,
 });
 
-async function getVersionAccessOrThrow(
-  context: AuthenticatedContext,
-  versionId: string,
-): Promise<VersionAccess> {
-  const { data, error } = await context.supabase
-    .from("estimate_versions")
-    .select(VERSION_ACCESS_SELECT)
-    .eq("id", versionId)
-    .eq("tenant_id", context.tenantId)
-    .single();
-
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = data as unknown as VersionWithProject;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (!project || project.tenant_id !== context.tenantId) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  return {
-    version,
-    project,
-  };
-}
-
 async function loadItems(input: {
   supabase: Supabase;
   tenantId: string;
@@ -596,14 +576,13 @@ export async function markEstimatePdfProcessing(
   draftLockSessionId: string | null = null,
 ): Promise<EstimatePdfGenerationClaim> {
   const context = await getAuthenticatedContext();
-  let access = await getVersionAccessOrThrow(context, versionId);
+  let access = await getVersionAccessOrThrow<VersionWithProject, EmbeddedProject>(
+    context.supabase, versionId, context, PDF_VERSION_ACCESS
+  );
   // Lot 2, sous-lots 2.1 puis 2.7 : le moteur est lu strictement ; une v3 fige son document (M5).
   const engine = requireEstimateEngineVersion(access.version);
   assertEstimatePdfMutationAllowed(access.version.status, "manual");
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  if (access.project.user_id !== context.userId && !context.isTenantAdmin) {
-    throw forbidden("La préparation du document est réservée au propriétaire du devis.");
-  }
   await assertDraftLockOwnedByCurrentUser({
     supabase: context.supabase,
     tenantId: context.tenantId,
@@ -628,7 +607,9 @@ export async function markEstimatePdfProcessing(
       purpose: "document",
       draftLockSessionId,
     });
-    access = await getVersionAccessOrThrow(context, versionId);
+    access = await getVersionAccessOrThrow<VersionWithProject, EmbeddedProject>(
+      context.supabase, versionId, context, PDF_VERSION_ACCESS
+    );
     if (access.version.updated_at !== frozen.updated_at ||
         access.version.calc_snapshot_content_revision !== access.version.content_revision) {
       throw conflict("Le devis a changé pendant la préparation du PDF.", undefined, "VERSION_CONFLICT");
@@ -650,7 +631,9 @@ export async function markEstimatePdfFailed(
   claim: EstimatePdfGenerationClaim,
 ): Promise<void> {
   const context = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(context, versionId);
+  await getVersionAccessOrThrow<VersionWithProject, EmbeddedProject>(
+    context.supabase, versionId, context, PDF_VERSION_ACCESS
+  );
   const publicationClient = createServiceRoleClient();
 
   await failEstimatePdfGeneration({
@@ -668,7 +651,9 @@ export async function generateEstimatePdfNow(
   options: PdfGenerateOptions = {},
 ): Promise<PdfReadyPayload> {
   const context = await getAuthenticatedContext();
-  const access = await getVersionAccessOrThrow(context, versionId);
+  const access = await getVersionAccessOrThrow<VersionWithProject, EmbeddedProject>(
+    context.supabase, versionId, context, PDF_VERSION_ACCESS
+  );
   const engine = requireEstimateEngineVersion(access.version);
 
   const existing = await getDocumentRow({
@@ -1152,7 +1137,9 @@ export async function getEstimatePdfLayoutConfiguration(
   versionId: string,
 ): Promise<EstimatePdfLayoutConfiguration> {
   const context = await getAuthenticatedContext();
-  const access = await getVersionAccessOrThrow(context, versionId);
+  const access = await getVersionAccessOrThrow<VersionWithProject, EmbeddedProject>(
+    context.supabase, versionId, context, PDF_VERSION_ACCESS
+  );
   const [items, termsTemplate] = await Promise.all([
     loadItems({
       supabase: context.supabase,
@@ -1179,7 +1166,9 @@ export async function resolveEstimatePdfPreviewLayout(
   requestedLayout: EstimatePdfLayoutOptions,
 ) {
   const context = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(context, versionId);
+  await getVersionAccessOrThrow<VersionWithProject, EmbeddedProject>(
+    context.supabase, versionId, context, PDF_VERSION_ACCESS
+  );
   const [termsTemplate, existing] = await Promise.all([
     loadEstimateTermsTemplate({
       supabase: context.supabase,
@@ -1215,7 +1204,9 @@ export async function getEstimatePdfStatus(
   versionId: string,
 ): Promise<PdfStatusPayload> {
   const context = await getAuthenticatedContext();
-  const access = await getVersionAccessOrThrow(context, versionId);
+  const access = await getVersionAccessOrThrow<VersionWithProject, EmbeddedProject>(
+    context.supabase, versionId, context, PDF_VERSION_ACCESS
+  );
 
   const row = await getDocumentRow({
     supabase: context.supabase,

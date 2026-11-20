@@ -1,4 +1,4 @@
-import type { TenantRole, EstimateItemRow, TenantMembershipAccessRow, ExtendedEstimateRuleType, EstimateRuleScopeType, EstimateRuleAction, EstimateApprovalStatus, EstimateReviewDecision, EstimateReviewCorrectionStatus, EstimateVersionApprovalStatus, EstimateRuleRow, EstimateRuleInsert, EstimateRuleUpdate, EstimateApprovalRow, EstimateReviewCycleRow, EstimateReviewCorrectionItemRow, EstimateRiskAlertTargetRow, AffaireRegisterHypothesisTargetRow, EstimateAuditLogRow, DecideEstimateReviewCycleResult, Supabase, AuthenticatedContext, EmbeddedReviewerProfile, EmbeddedApprovalProjectAccess, VersionAccessRow, EstimateReviewCycleWithProfilesRow, EstimateReviewCommentWithProfilesRow, EstimateReviewCorrectionItemWithProfilesRow, EstimateReviewCorrectionEventWithProfilesRow, EstimateApprovalDecisionEventRow, RulesEngineVersion, RulesEngineProject, RulesEngineItemAccess, EstimateRuleViolation, EvaluateRulesResult, EstimateApprovalDecisionCommentInput, SubmitEstimateApprovalInput, SubmitEstimateApprovalResult, RuleSignalContext, ApprovalSummaryReason, EstimateApprovalCommentTarget, EstimateApprovalCorrectionEvent, EstimateApprovalCorrectionItem, EstimateApprovalChangeField, EstimateApprovalChangesSinceLastCycle, EstimateApprovalReviewComment, EstimateApprovalReviewer, EstimateApprovalReviewCycle, EstimateApprovalSubmissionSignal, EstimateApprovalSummaryCore, EstimateApprovalSummary, ApprovalAuditTrigger, EstimateRulesWithApprovals, NormalizedDecisionComment } from "@/lib/estimates/approval-types";
+import type { EstimateItemRow, TenantMembershipAccessRow, ExtendedEstimateRuleType, EstimateRuleScopeType, EstimateRuleAction, EstimateApprovalStatus, EstimateReviewDecision, EstimateReviewCorrectionStatus, EstimateVersionApprovalStatus, EstimateRuleRow, EstimateRuleInsert, EstimateRuleUpdate, EstimateApprovalRow, EstimateReviewCycleRow, EstimateReviewCorrectionItemRow, EstimateRiskAlertTargetRow, AffaireRegisterHypothesisTargetRow, EstimateAuditLogRow, DecideEstimateReviewCycleResult, Supabase, AuthenticatedContext, EmbeddedReviewerProfile, EmbeddedApprovalProjectAccess, VersionAccessRow, EstimateReviewCycleWithProfilesRow, EstimateReviewCommentWithProfilesRow, EstimateReviewCorrectionItemWithProfilesRow, EstimateReviewCorrectionEventWithProfilesRow, EstimateApprovalDecisionEventRow, RulesEngineVersion, RulesEngineProject, RulesEngineItemAccess, EstimateRuleViolation, EvaluateRulesResult, EstimateApprovalDecisionCommentInput, SubmitEstimateApprovalInput, SubmitEstimateApprovalResult, RuleSignalContext, ApprovalSummaryReason, EstimateApprovalCommentTarget, EstimateApprovalCorrectionEvent, EstimateApprovalCorrectionItem, EstimateApprovalChangeField, EstimateApprovalChangesSinceLastCycle, EstimateApprovalReviewComment, EstimateApprovalReviewer, EstimateApprovalReviewCycle, EstimateApprovalSubmissionSignal, EstimateApprovalSummaryCore, EstimateApprovalSummary, ApprovalAuditTrigger, EstimateRulesWithApprovals, NormalizedDecisionComment } from "@/lib/estimates/approval-types";
 import { evaluateLoadedRules, resolveLatestApprovalByRule, normalizeThresholdValue, formatPercentBp, formatEuroCents } from "@/lib/estimates/rule-evaluation";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -22,13 +22,25 @@ import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { readAllEstimateItems } from "./read-all-items-server";
-import { canAccessOwnerResource } from "./server-context";
 import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
-import { getAuthenticatedContext, isTenantAdmin } from "@/lib/estimates/server-context";
+import {
+  ESTIMATE_APPROVAL_ROLES,
+  canAccessOwnerResource,
+  getAuthenticatedContext,
+  getVersionAccessOrThrow,
+  hasEstimateApprovalRole,
+  isTenantAdmin,
+  type VersionAccessQuery,
+} from "@/lib/estimates/server-context";
 import { asFiniteNumber } from "@/lib/value-guards";
 import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 
-const TENANT_DIRECTOR_ROLE: TenantRole = "director";
+const APPROVAL_VERSION_ACCESS: VersionAccessQuery = {
+  mode: "owner_or_approval_reader",
+  versionColumns:
+    "id, tenant_id, status, updated_at, content_revision, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, version_number, project_id, title, date_devis, validite_jours, total_ht_cents, margin_bp, global_coefficient, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, gross_ht_cents, discount_applied_cents, currency, tax_rate_bp, rounding_mode, rounding_step_cents, approval_status, approval_summary, approval_evaluated_at",
+  projectColumns: "name, client_name",
+};
 
 function sortJsonValue(value: Json | null): Json | null {
   if (value === null) {
@@ -135,24 +147,6 @@ function formatChangeFieldValue(input: {
   }
 
   return String(input.value);
-}
-
-function isTenantDirector(tenantRole: TenantRole) {
-  return tenantRole === TENANT_DIRECTOR_ROLE;
-}
-
-function isTenantApprover(tenantRole: TenantRole) {
-  return isTenantAdmin(tenantRole) || isTenantDirector(tenantRole);
-}
-
-function canAccessApprovalResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    input.resourceUserId === input.context.userId ||
-    isTenantApprover(input.context.tenantRole)
-  );
 }
 
 function requiresTakeoffEvidenceCoverage(ruleType: ExtendedEstimateRuleType) {
@@ -1100,7 +1094,7 @@ async function listAvailableEstimateApprovalReviewers(input: {
     .from("tenant_memberships")
     .select("tenant_id, user_id, role, is_default, created_at")
     .eq("tenant_id", input.context.tenantId)
-    .in("role", ["admin", "director"])
+    .in("role", ESTIMATE_APPROVAL_ROLES.approve)
     .order("role", { ascending: true })
     .order("is_default", { ascending: false })
     .order("created_at", { ascending: true });
@@ -1934,7 +1928,9 @@ export async function listEstimateApprovalDecisionJournal(input: {
   decision?: EstimateApprovalDecisionFilter | null;
 }): Promise<EstimateApprovalDecisionJournal> {
   const context = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(context, input.versionId);
+  await getVersionAccessOrThrow<VersionAccessRow, EmbeddedApprovalProjectAccess>(
+    context.supabase, input.versionId, context, APPROVAL_VERSION_ACCESS
+  );
 
   const baseEventsQuery = context.supabase
     .from("estimate_version_events")
@@ -2135,7 +2131,7 @@ async function enrichEstimateApprovalSummary(input: {
   const pendingApprovalCount = activeCyclePendingApprovals.length;
   const availableReviewers = await input.reviewReads.availableReviewers;
   const canPrepareRequest =
-    (input.context.tenantRole === "admin" || input.context.tenantRole === "engineer") &&
+    hasEstimateApprovalRole(input.context.tenantRole, "request") &&
     canAccessOwnerResource({
       context: input.context,
       resourceUserId: input.project.user_id,
@@ -2192,7 +2188,7 @@ async function enrichEstimateApprovalSummary(input: {
     (!correctionSourceCycle || allCorrectionsTreated) &&
     submissionBlockers.length === 0;
   const canDecide =
-    isTenantApprover(input.context.tenantRole) &&
+    hasEstimateApprovalRole(input.context.tenantRole, "approve") &&
     activeCycleRow !== null &&
     pendingApprovalCount > 0;
   const activeCycle =
@@ -2631,7 +2627,9 @@ export async function getEstimateApprovalSummary(
   versionId: string
 ): Promise<EstimateApprovalSummary> {
   const context = await getAuthenticatedContext();
-  const { version, project } = await getVersionAccessOrThrow(context, versionId);
+  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedApprovalProjectAccess>(
+    context.supabase, versionId, context, APPROVAL_VERSION_ACCESS
+  );
 
   return syncEstimateApprovalSummary({
     context,
@@ -2648,7 +2646,9 @@ export async function updateEstimateReviewCorrectionItemStatus(input: {
   note?: string | null;
 }) {
   const context = await getAuthenticatedContext();
-  const access = await getVersionAccessOrThrow(context, input.versionId);
+  const access = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedApprovalProjectAccess>(
+    context.supabase, input.versionId, context, APPROVAL_VERSION_ACCESS
+  );
 
   if (access.project.user_id !== context.userId) {
     throw forbidden("Action réservée au proprietaire du chiffrage.");
@@ -2707,43 +2707,6 @@ export async function updateEstimateReviewCorrectionItemStatus(input: {
   };
 }
 
-async function getVersionAccessOrThrow(
-  context: AuthenticatedContext,
-  versionId: string
-): Promise<{ version: VersionAccessRow; project: EmbeddedApprovalProjectAccess }> {
-  const { data, error } = await context.supabase
-    .from("estimate_versions")
-    .select(
-      "id, tenant_id, status, updated_at, content_revision, calc_engine_version, calc_snapshot_content_revision, calc_snapshot_context, version_number, project_id, title, date_devis, validite_jours, total_ht_cents, margin_bp, global_coefficient, margin_multiplier, margin_mode, discount_bp, discount_amount_cents, gross_ht_cents, discount_applied_cents, currency, tax_rate_bp, rounding_mode, rounding_step_cents, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
-    )
-    .eq("id", versionId)
-    .eq("tenant_id", context.tenantId)
-    .single();
-
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = data as unknown as VersionAccessRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== context.tenantId ||
-    !canAccessApprovalResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  return {
-    version,
-    project,
-  };
-}
-
 function assertAdminRole(context: Pick<AuthenticatedContext, "tenantRole">) {
   if (isTenantAdmin(context.tenantRole)) {
     return;
@@ -2752,14 +2715,14 @@ function assertAdminRole(context: Pick<AuthenticatedContext, "tenantRole">) {
 }
 
 function assertRequesterRole(context: Pick<AuthenticatedContext, "tenantRole">) {
-  if (context.tenantRole === "admin" || context.tenantRole === "engineer") {
+  if (hasEstimateApprovalRole(context.tenantRole, "request")) {
     return;
   }
   throw forbidden("Action réservée aux demandeurs d'approbation.");
 }
 
 function assertApproverRole(context: Pick<AuthenticatedContext, "tenantRole">) {
-  if (isTenantApprover(context.tenantRole)) {
+  if (hasEstimateApprovalRole(context.tenantRole, "approve")) {
     return;
   }
   throw forbidden("Action réservée aux rôles de validation.");
@@ -3164,7 +3127,7 @@ async function resolveAssignedReviewerOrThrow(input: {
   return assignedReviewer;
 }
 
-type VersionApprovalAccess = Awaited<ReturnType<typeof getVersionAccessOrThrow>>;
+type VersionApprovalAccess = { version: VersionAccessRow; project: EmbeddedApprovalProjectAccess };
 type SubmitForReviewInput = Extract<SubmitEstimateApprovalInput, { action: "submit_for_review" }>;
 type RequestRuleApprovalInput = Extract<SubmitEstimateApprovalInput, { action: "request" }>;
 type DecideReviewCycleInput = Extract<SubmitEstimateApprovalInput, { action: "decide" }>;
@@ -3194,7 +3157,9 @@ async function freezeDraftSnapshotIfRequired(input: {
   access: VersionApprovalAccess;
 }) {
   if (await freezeApprovalV2DraftIfRequired(input.context, input.access.version))
-    return getVersionAccessOrThrow(input.context, input.versionId);
+    return getVersionAccessOrThrow<VersionAccessRow, EmbeddedApprovalProjectAccess>(
+      input.context.supabase, input.versionId, input.context, APPROVAL_VERSION_ACCESS
+    );
   return input.access;
 }
 
@@ -3729,7 +3694,9 @@ export async function submitEstimateApproval(
   input: SubmitEstimateApprovalInput
 ): Promise<SubmitEstimateApprovalResult> {
   const context = await getAuthenticatedContext();
-  const access = await getVersionAccessOrThrow(context, input.versionId);
+  const access = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedApprovalProjectAccess>(
+    context.supabase, input.versionId, context, APPROVAL_VERSION_ACCESS
+  );
 
   if (input.action === "submit_for_review") {
     return submitEstimateForReview({ context, access, approvalInput: input });

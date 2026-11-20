@@ -11,8 +11,12 @@ import {
   readJsonStringArray,
 } from "@/lib/estimates/generated-ouvrage-evidence";
 import { normalizeGeneratedOuvrageParent } from "@/lib/estimates/generated-ouvrage-parent";
-import { assertDraftStatus, assertDraftLockOwnedByCurrentUser as assertDraftLockSessionOwnedByCurrentUser, canAccessOwnerResource } from "@/lib/estimates/server-context";
-import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
+import {
+  assertDraftStatus,
+  assertDraftLockOwnedByCurrentUser as assertDraftLockSessionOwnedByCurrentUser,
+  getVersionAccessOrThrow,
+  type VersionAccessQuery,
+} from "@/lib/estimates/server-context";
 import { prepareEstimateBatch, sameEstimateBatchTimestamp, EstimateBatchPreparationError } from "@/lib/estimates/batch-preparation";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { hoursPerUnitHalfUp } from "@/lib/estimates/template-v3-hours";
@@ -794,43 +798,11 @@ function pickStringArray(value: unknown) {
     .filter((entry): entry is string => Boolean(entry));
 }
 
-async function getVersionAccessOrThrow(
-  supabase: Supabase,
-  versionId: string,
-  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
-): Promise<{ version: VersionAccessRow; project: EmbeddedProjectAccess }> {
-  const { data, error } = await supabase
-    .from("estimate_versions")
-    .select(
-      "id, project_id, status, updated_at, margin_multiplier, calc_engine_version, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
-    )
-    .eq("id", versionId)
-    .eq("tenant_id", context.tenantId)
-    .single();
-
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const row = data as unknown as VersionAccessRow;
-  const project = resolveEmbeddedOne(row.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== context.tenantId ||
-    !canAccessOwnerResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  return {
-    version: row,
-    project,
-  };
-}
+const GENERATED_OUVRAGE_VERSION_ACCESS: VersionAccessQuery = {
+  mode: "owner_or_admin_on_active_project",
+  versionColumns: "id, project_id, status, updated_at, margin_multiplier, calc_engine_version",
+  projectColumns: "name, reference, client_name, notes",
+};
 
 async function loadLotLabel(input: {
   supabase: Supabase;
@@ -2484,10 +2456,11 @@ export async function generateOuvragesFromText(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  const { version, project } = await getVersionAccessOrThrow(
+  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
     supabase,
     parsed.versionId,
-    context
+    context,
+    GENERATED_OUVRAGE_VERSION_ACCESS
   );
 
   if (project.id !== parsed.projectId) {
@@ -2756,14 +2729,13 @@ async function getGeneratedOuvrageResumeAccess(
   context: AuthenticatedContext,
   versionId: string
 ) {
-  const access = await getVersionAccessOrThrow(context.supabase, versionId, context);
+  const access = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    context.supabase, versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
+  );
   if (context.tenantRole !== "admin" && context.tenantRole !== "engineer") {
     throw forbidden("Votre rôle ne permet pas de reprendre un brouillon d'ouvrages.");
   }
   assertDraftStatus(access.version.status);
-  if (access.project.is_archived) {
-    throw conflict("Cette affaire est archivée. La reprise est indisponible.");
-  }
   return access;
 }
 
@@ -2902,7 +2874,9 @@ export async function fetchGeneratedOuvrageDraft(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
 
-  await getVersionAccessOrThrow(supabase, parsed.versionId, context);
+  await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
+  );
 
   const loaded = await loadGeneratedOuvrageDraftOrThrow({
     supabase,
@@ -2919,11 +2893,13 @@ export async function fetchGeneratedOuvrageSubdetailDraft(
 ): Promise<GeneratedOuvrageSubdetailResult> {
   const parsed = generatedOuvrageSubdetailFetchInputSchema.parse(input);
   const context = await getAuthenticatedContext();
+  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    context.supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
+  );
   const snapshot = await readGeneratedOuvrageReview(context, parsed);
   if (snapshot.subdetailDraft) return reviewedResult(snapshot);
   assertCanWriteEstimateWorkflows(context.tenantRole);
   if (!parsed.draftLockSessionId) throw conflict("Un verrou actif de cette page est requis.", undefined, "LOCK_REQUIRED");
-  const { version } = await getVersionAccessOrThrow(context.supabase, parsed.versionId, context);
   assertDraftStatus(version.status);
   const candidate = snapshot.candidate;
   const candidateSources = normalizeDraftResult({ draft: snapshot.draft, candidates: [candidate],
@@ -3018,7 +2994,9 @@ export async function updateGeneratedOuvrageSubdetailDraft(
   const parsed = generatedOuvrageSubdetailUpdateInputSchema.parse(input);
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  const { version } = await getVersionAccessOrThrow(context.supabase, parsed.versionId, context);
+  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    context.supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
+  );
   assertDraftStatus(version.status);
   const snapshot = await readGeneratedOuvrageReview(context, parsed);
   const candidate = snapshot.candidate;
@@ -3186,9 +3164,10 @@ export async function insertGeneratedOuvrages(input: InsertGeneratedOuvragesInpu
     }
     return replay;
   }
-  const { version, project } = await getVersionAccessOrThrow(supabase, parsed.versionId, context);
+  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
+    supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
+  );
   assertDraftStatus(version.status);
-  if (project.is_archived) throw conflict("Cette affaire est archivée.");
   // Lot 2, sous-lot 2.8 (D16) : une v3 reçoit le rendement par unité ; ses montants sont ceux du moteur 3,
   // calculés par la base dans la transaction (M6), sans projection du client.
   const isV3 = resolveEstimateEngineVersion(version) === 3;
@@ -3319,6 +3298,7 @@ export async function rejectGeneratedOuvrageDraft(input: RejectGeneratedOuvrageD
     reason: input.reason ? normalizeText(input.reason, MAX_REASON_LENGTH) : null });
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
+  await getVersionAccessOrThrow(context.supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS);
   let response;
   try {
     response = await context.supabase.rpc("reject_generated_ouvrage_candidate", { p_version_id: parsed.versionId,

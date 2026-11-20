@@ -5,8 +5,7 @@ import { buildEstimateReading, type EstimateReadingSource } from "@/lib/assistan
 import { AssistantToolError, isUserFacingRefusal } from "@/lib/assistant/loop";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
-import type { AuthenticatedContext } from "@/lib/estimates/server-context";
-import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
+import { getVersionAccessOrThrow, type AuthenticatedContext } from "@/lib/estimates/server-context";
 import { calculateEstimateBreakdownForItems, calculateEstimateV3SnapshotForItems } from "@/lib/estimates/version-totals";
 
 const NO_ACCESS = "Ce devis est introuvable ou vous n’y avez pas accès.";
@@ -42,7 +41,8 @@ export async function listAffaireEstimateVersions(context: AuthenticatedContext,
 export async function loadEstimateReading(
   context: AuthenticatedContext, input: { versionId: string; projectId: string },
 ): Promise<EstimateReading> {
-  const access = await getOwnedEstimateVersion(context, input.versionId).catch(() => { throw new AssistantToolError(NO_ACCESS); });
+  const access = await getVersionAccessOrThrow(context.supabase, input.versionId, context, { mode: "owner_or_admin", versionColumns: "id" })
+    .catch(() => { throw new AssistantToolError(NO_ACCESS); });
   if (access.project.id !== input.projectId) {
     throw new AssistantToolError("Ce devis n’appartient pas à l’affaire de cette conversation.");
   }
