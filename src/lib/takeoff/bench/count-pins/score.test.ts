@@ -77,3 +77,36 @@ it.each([
   const score = scorePage([{ ...pin(2), ...identity }], [pin(2)], [], []);
   expect(score.spatial.drawing).toMatchObject({ tp: 0, fp: 1, fn: 1 });
 });
+
+it("consumes one supplied echo and counts every further echo as a held-out false positive", () => {
+  const score = scorePage([pin(10), pin(10)], [pin(10), pin(13)], [0], []);
+  for (const axis of Object.values(score.withoutSuppliedExamples)) {
+    expect(axis).toMatchObject({ tp: 0, fp: 1, fn: 1 });
+  }
+  expect(score.suppliedExamples).toMatchObject({ spatiallyPaired: 1, duplicateEchoes: 1 });
+});
+
+it("keeps a genuine discovery nearer than a supplied example", () => {
+  const score = scorePage([pin(13)], [pin(10), pin(13)], [0], []);
+  expect(score.withoutSuppliedExamples.dn).toMatchObject({ tp: 1, fp: 0, fn: 0 });
+  expect(score.suppliedExamples.spatiallyPaired).toBe(0);
+});
+
+it("attributes an exactly equidistant prediction to the supplied truth", () => {
+  const score = scorePage([pin(12)], [pin(10), pin(14)], [0], []);
+  expect(score.withoutSuppliedExamples.drawing).toMatchObject({ tp: 0, fp: 0, fn: 1 });
+  expect(score.suppliedExamples.spatiallyPaired).toBe(1);
+});
+
+it("withholds every typed credit on the equal-distance alternating cycle", () => {
+  const truth = [{ ...pin(0), y: 0 }, { ...pin(6, "DN 32"), y: 0 }, { ...pin(3, "DN 20", "b"), y: 6 }];
+  const predictions = [
+    { ...pin(3, "DN 32"), y: 0 }, { ...pin(4.5), y: 3 }, { ...pin(1.5, "DN 32", "b"), y: 3 },
+  ];
+  for (const input of [predictions, [...predictions].reverse()]) {
+    const { spatial } = scorePage(input, truth, [], []);
+    expect(spatial.drawing.tp).toBe(3);
+    expect(spatial.dn.tp).toBe(0);
+    expect(spatial.poste.tp).toBe(0);
+  }
+});

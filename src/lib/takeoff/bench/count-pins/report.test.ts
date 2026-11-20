@@ -31,3 +31,9 @@ it("reports one reader agreement and both reader-only positions despite equal to
     { poste: target.id, dn: "DN 20", matches: [[[1, 10], [1, 10]]], leftOnly: [[50, 10]], rightOnly: [[150, 10]] },
   ]);
 });
+
+it("labels two missing diameters as agreement on the poste only", () => {
+  expect(compareReaders([pin(1, null)], [pin(1, null)])).toEqual([
+    { poste: target.id, dn: null, agreement: "poste-only", matches: [[[1, 10], [1, 10]]], leftOnly: [], rightOnly: [] },
+  ]);
+});

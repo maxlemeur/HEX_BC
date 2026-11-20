@@ -783,18 +783,19 @@ déterministe. Le programme fonctionne hors ligne et le reçu indique zéro
 appel et zéro revue humaine. `--help` liste les méthodes et `--seed` permet
 de choisir la graine (676 par défaut). Le reçu identifie le commit, l'état
 du worktree, Node, PDF.js, la configuration et les empreintes des PDF et
-annotations. Le CLI exige un checkout propre. L'option `--allow-dirty`
-autorise une mesure de travail et inscrit `reproducible: false` dans son
-reçu. Voir le [code du banc](../../src/lib/takeoff/bench/count-pins/).
+annotations. Le CLI vérifie le checkout qui contient son script, avec tous
+les fichiers non suivis et sans les variables Git héritées. L'option
+`--allow-dirty` autorise une mesure de travail et inscrit
+`reproducible: false` dans son reçu. Voir le [code du banc](../../src/lib/takeoff/bench/count-pins/).
 
 Tout repère dans une zone négative, bord compris, compte comme faux positif
-et est exclu de l'appariement. Le score forme le plus grand nombre de paires
-à une distance maximale de 4 points, puis minimise leur distance totale sans
-tolérance d'arrondi sur la somme. À distance totale égale, il retient le moins
-de vrais positifs typés au total (poste et poste avec DN), puis le moins de
-vrais positifs de poste si l'égalité persiste. Ce choix est indépendant de
-l'ordre des repères. Une paire doit appartenir au même plan, à la même
-génération d'octets et à la même page originale. Les positions sont mesurées
+et est exclu de l'appariement. Chaque côté de la zone est élargi de
+`1e-6` point pour absorber l'arrondi de projection. Le score forme le plus
+grand nombre de paires à une distance maximale de 4 points, puis minimise
+leur distance totale sans tolérance d'arrondi sur la somme. À égalité,
+aucun crédit typé pour une paire qui ne figure pas dans tous les appariements
+optimaux. Une paire doit appartenir au même plan, à la même génération
+d'octets et à la même page originale. Les positions sont mesurées
 à l'échelle 1, origine en haut à gauche de la CropBox visible après rotation
 et prise en compte de UserUnit. Le score juge ensuite chaque paire sur
 trois axes :
@@ -811,13 +812,20 @@ sa précision et réduit son rappel. Une précision sans prédiction est
 indéfinie. Deux DN intervertis peuvent donner deux quantités exactes et
 aucun repère correctement typé. Le reçu indique les quantités par poste sur
 la totalité d'un dossier et les scores spatiaux par page, dossier, poste,
-support et densité. Les faux positifs de famille inconnue figurent sur une
-ligne sans attribution. Leur présence rend la précision par famille
-indéterminée. Pour le score hors exemples, le banc réserve d'abord les
-occurrences fournies et leurs prédictions les plus proches dans un
-appariement un à un, avant de juger les découvertes sur les mêmes pages.
-Le reçu compte les exemples fournis. Leur temps de préparation n'est pas
-mesuré.
+support et densité. Par famille, le score de dessin crédite les occurrences
+appariées dans tous les optima et compte les repères qui peuvent rester sans
+paire comme faux positifs. Les repères de famille inconnue qui peuvent
+rester sans paire figurent sur la ligne sans attribution. Ils rendent la
+précision indéterminée pour les familles à portée ou pour toutes les
+familles en l'absence de référence proche.
+
+Pour le score hors exemples, chaque repère est attribué à la vérité terrain
+la plus proche dans le rayon. En cas d'égalité, l'exemple fourni prime.
+Par exemple fourni, le repère qui en est le plus proche est écarté du score
+hors exemples. Ses autres échos comptent comme doublons et faux positifs.
+Les repères les plus proches d'une occurrence indépendante suivent
+l'appariement habituel. Le reçu compte les exemples fournis et les échos
+en double. Le temps de préparation des exemples n'est pas mesuré.
 
 Les scans sans calque sont des abstentions pour les méthodes vectorielles.
 Leurs occurrences restent dans le dénominateur du rappel. Une portée de
@@ -829,7 +837,8 @@ Une réponse absente, invalide ou tronquée laisse la page non évaluée pour le
 rejeu et pour sa fusion. Le reçu donne la couverture et les scores des pages
 évaluées et des pages communes. Sur les pages que les deux lecteurs ont
 terminées, il indique les accords à 4 points pour le même poste et le même DN
-émis, ainsi que les positions propres à chaque lecteur. Les plans vides, les
+émis, ainsi que les positions propres à chaque lecteur. Si aucun DN n'a été
+émis, `agreement: "poste-only"` indique un accord sur le poste seul. Les plans vides, les
 légendes, les détails et les doublons restent visibles dans le reçu.
 
 Pour qualifier une famille sur des documents réels, il faut des dossiers

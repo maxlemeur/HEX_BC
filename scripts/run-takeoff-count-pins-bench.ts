@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { FICTION_SEED } from "@/lib/takeoff/bench/count-pins/fiction";
 import { REPLAY_SCHEMA_VERSION, TILE_OVERLAP, WIDE_PAGE } from "@/lib/takeoff/bench/count-pins/replay";
 import { METHODS, runCountBench, type Method } from "@/lib/takeoff/bench/count-pins/run";
-import { MATCH_RADIUS } from "@/lib/takeoff/bench/count-pins/score";
+import { MATCH_RADIUS, NEGATIVE_ZONE_TOLERANCE } from "@/lib/takeoff/bench/count-pins/score";
 import { version as pdfjs } from "pdfjs-dist/package.json";
 
 async function main() {
@@ -26,9 +27,15 @@ async function main() {
   if (!/^\d+$/.test(values.seed) || !Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
     throw new Error("The seed must be an unsigned 32-bit integer.");
   }
-  const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8" }).trim();
+  const repository = fileURLToPath(new URL("..", import.meta.url));
+  const gitEnv = { ...process.env };
+  for (const name of Object.keys(gitEnv)) {
+    if (name.startsWith("GIT_")) delete gitEnv[name];
+  }
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", repository, ...args], { encoding: "utf8", env: gitEnv }).trim();
   const revision = git("rev-parse", "HEAD");
-  const isDirty = () => Boolean(git("status", "--porcelain"));
+  const isDirty = () => Boolean(git("status", "--porcelain", "--untracked-files=all"));
   const checkDirty = (dirty: boolean) => {
     if (dirty && !values["allow-dirty"]) {
       throw new Error("A reproducible receipt requires a clean checkout. Use --allow-dirty for a non-reproducible run.");
@@ -36,6 +43,7 @@ async function main() {
   };
   const startedDirty = isDirty();
   checkDirty(startedDirty);
+  process.chdir(repository);
   const report = await runCountBench(methods as Method[], seed);
   if (git("rev-parse", "HEAD") !== revision) throw new Error("HEAD changed during the benchmark.");
   const dirty = isDirty() || startedDirty;
@@ -52,7 +60,8 @@ async function main() {
     matching: {
       algorithm: "maximum-cardinality-minimum-total-distance",
       radius: MATCH_RADIUS,
-      tieBreak: "fewest-poste-plus-dn-true-positives-then-fewest-poste-true-positives",
+      typedCredit: "pairs-forced-in-all-optimal-matchings",
+      negativeZoneTolerancePoints: NEGATIVE_ZONE_TOLERANCE,
     },
     fusion: { algorithm: "same-poste-one-to-one", radius: MATCH_RADIUS },
   };

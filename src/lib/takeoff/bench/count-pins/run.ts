@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
-import { boxContains, type Point } from "../../vectors/geometry";
+import { boxContains } from "../../vectors/geometry";
 import { extractVectorPage } from "../../vectors/extraction";
 import { FICTION_TARGETS, fictionalSheets } from "./fiction";
 import { combine } from "./fusion";
 import { readDeterministic } from "./propose";
 import { replayTiles, tileLayout } from "./replay";
 import { aggregateSpatial, compareReaders, quantityScore } from "./report";
-import { MATCH_RADIUS, metrics, scorePage } from "./score";
+import { MATCH_RADIUS, metrics, negativeZone, samePageInRadius, scorePage } from "./score";
 import { indexSymbolPage } from "./symbols";
 import type { JudgedPin, PageFrame, Pin, Poste } from "./types";
 
@@ -81,9 +81,7 @@ async function measurePage(fixture: Awaited<ReturnType<typeof fictionalSheets>>[
   const recordings = syntheticRecordings(frame, fixture.replay, fixture.truncateTile);
   const replay = replayTiles(frame, FICTION_TARGETS, recordings);
   const truth = fixture.truth.map((pin) => ({ ...pin, sheet: fixture.id, generation, page, method: "truth", evidence: [] }));
-  const zones = Object.entries(fixture.negativeZones).map(([name, bounds]) => ({
-    name, contains: (pin: Point) => boxContains(bounds, pin),
-  }));
+  const zones = Object.entries(fixture.negativeZones).map(([name, bounds]) => negativeZone(name, bounds));
   const results = methods.map((method) => {
     const readsReplay = method === "tile-replay" || method === "fusion-with-replay";
     const pins =
@@ -116,27 +114,40 @@ type EvaluatedPage = { page: MeasuredPage; result: MethodResult & { score: NonNu
 
 function spatialByFamily(pages: EvaluatedPage[]) {
   const knownFamilies = new Set<string>(FICTION_TARGETS.map(({ organ }) => organ));
-  const unattributed = pages.flatMap(({ result }) =>
-    result.score.unmatched.filter(({ organ }) => organ === null || !knownFamilies.has(organ)),
-  );
+  const unattributed: JudgedPin[] = [];
+  const indeterminateFamilies = new Set<string>();
+  for (const { page, result } of pages) {
+    for (const pin of result.score.possiblyUnmatched) {
+      if (pin.organ !== null && knownFamilies.has(pin.organ)) continue;
+      unattributed.push(pin);
+      const nearbyFamilies = page.truth
+        .filter((reference) => samePageInRadius(pin, reference, MATCH_RADIUS))
+        .map((reference) => reference.organ)
+        .filter((organ): organ is NonNullable<typeof organ> => organ !== null);
+      // A false positive without a nearby reference has no family evidence.
+      for (const family of nearbyFamilies.length ? nearbyFamilies : knownFamilies) {
+        indeterminateFamilies.add(family);
+      }
+    }
+  }
   const byFamily = FICTION_TARGETS.map(({ id, organ }) => {
     const scores = pages.map(({ page, result }) => {
       const familyTruth = page.truth.filter((pin) => pin.organ === organ);
-      // Use the original geometric pairs: a wrong family can cause both a
-      // missed truth under its own family and a false prediction under another.
-      const drawingPairs = result.score.pairs.filter(([, j]) => page.truth[j].organ === organ);
-      const postePairs = drawingPairs.filter(([i, j]) => result.pins[i].poste === page.truth[j].poste);
+      const drawingTp = result.score.alwaysMatchedTruth.filter((j) => page.truth[j].organ === organ).length;
+      const drawingFp = result.score.possiblyUnmatched.filter((pin) => pin.organ === organ).length;
+      const postePairs = result.score.forcedPairs.filter(([i, j]) =>
+        page.truth[j].organ === organ && result.pins[i].poste === page.truth[j].poste,
+      );
       const dnPairs = postePairs.filter(([i, j]) => page.truth[j].dn !== null && result.pins[i].dn === page.truth[j].dn);
       const predicted = result.pins.filter((pin) => pin.organ === organ);
       return {
-        // An unnamed yet matched drawing is credited to its truth family.
-        drawing: metrics(drawingPairs.length, drawingPairs.length + result.score.unmatched.filter((pin) => pin.organ === organ).length, familyTruth.length),
+        drawing: metrics(drawingTp, drawingTp + drawingFp, familyTruth.length),
         poste: metrics(postePairs.length, predicted.filter((pin) => pin.poste !== null).length, familyTruth.length),
         dn: metrics(dnPairs.length, predicted.filter((pin) => pin.dn !== null).length, familyTruth.filter((pin) => pin.dn !== null).length),
       };
     });
     const spatial = aggregateSpatial(scores);
-    if (spatial && unattributed.length) {
+    if (spatial && indeterminateFamilies.has(organ)) {
       for (const axis of Object.values(spatial)) axis.precision = null;
     }
     return { poste: id, organ, spatial };
@@ -176,6 +187,7 @@ function summarize(method: Method, pages: MeasuredPage[], common: Set<MeasuredPa
     examples: {
       supplied: selected.reduce((n, { result }) => n + result.suppliedExamples.length, 0),
       paired: rated.reduce((n, { result }) => n + result.score.suppliedExamples.spatiallyPaired, 0),
+      duplicateEchoes: rated.reduce((n, { result }) => n + result.score.suppliedExamples.duplicateEchoes, 0),
       annotationTimeMs: null,
     },
     abstentions: {
