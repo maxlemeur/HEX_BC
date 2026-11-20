@@ -77,7 +77,7 @@ it("withholds precision for a family that an optionally unmatched unknown mark c
   }
 });
 
-type Mark = { x: number; organ: "vanne" | null; dn: string | null };
+type Mark = { x: number; organ: "vanne" | "filtre" | null; dn: string | null };
 
 async function familyRows(truthX: number[], marks: Mark[]) {
   const [fixture] = await fiction.fictionalSheets();
@@ -124,6 +124,15 @@ it("charges the unattributed row once for two unknown marks competing for one va
   const { method, valve } = await familyRows([12], [{ x: 10, organ: null, dn: null }, { x: 14, organ: null, dn: null }]);
   expect(method.evaluatedSpatial?.drawing).toMatchObject({ tp: 1, fp: 1, fn: 0 });
   expect(method.byPoste.find((row) => row.poste === null)?.spatial?.drawing).toEqual({ tp: 0, fp: 1, fn: 0, precision: 0, recall: null });
+  expect(valve.drawing).toEqual({ tp: 1, fp: 0, fn: 0, precision: null, recall: 1 });
+});
+
+it("charges marks of a family outside the list on the unattributed row", async () => {
+  const { method, valve } = await familyRows([12], [
+    { x: 12, organ: "vanne", dn: "DN 20" }, { x: 200, organ: "filtre", dn: null }, { x: 13, organ: "filtre", dn: null },
+  ]);
+  expect(method.evaluatedSpatial?.drawing).toMatchObject({ tp: 1, fp: 2, fn: 0 });
+  expect(method.byPoste.find((row) => row.poste === null)?.spatial?.drawing).toEqual({ tp: 0, fp: 2, fn: 0, precision: 0, recall: null });
   expect(valve.drawing).toEqual({ tp: 1, fp: 0, fn: 0, precision: null, recall: 1 });
 });
 
