@@ -11,7 +11,8 @@ La page **Métrés** affiche les postes d’une affaire sans devis. Elle reprend
 liée et ses correspondances validées, dans l’ordre des lignes importées. Une
 prestation sans quantité de référence reste visible. La quantité de la DPGF est
 une référence documentaire. La feuille, la ligne ou la page d’origine apparaissent
-lorsqu’elles sont connues. Un CSV indique la position de l’enregistrement. Le
+lorsqu’elles sont connues. L’aperçu CSV indique l’ordre des enregistrements
+importés. Pour un classeur, il affiche la ligne du tableau importé. Le
 détail de lecture signale les lignes ambiguës ou sans correspondance. Pour les
 totaux et pieds de tableau, il indique leur emplacement et le motif d’exclusion.
 

@@ -62,6 +62,22 @@ async function fixtureBytes(format: "csv" | "xls" | "xlsx" | "pdf") {
   return Buffer.from(XLSX.write(workbook, { bookType: "biff8", type: "buffer" }));
 }
 
+async function readStoredDpgf(client: Awaited<ReturnType<typeof bareAffaire>>["client"], projectId: string) {
+  const source = await client.from("dpgf_imports").select("id").eq("project_id", projectId).single();
+  expect(source.error).toBeNull();
+  const importId = source.data!.id;
+  const [raw, mappings, mapped] = await Promise.all([
+    client.from("dpgf_rows_raw").select("*").eq("import_id", importId).order("row_index"),
+    client.from("dpgf_mappings").select("*").eq("import_id", importId),
+    client.from("dpgf_rows_mapped").select("*").eq("import_id", importId),
+  ]);
+  expect([raw.error, mappings.error, mapped.error]).toEqual([null, null, null]);
+  expect(raw.data!.length).toBeGreaterThan(0);
+  expect(mappings.data).toHaveLength(1);
+  expect(mapped.data).toHaveLength(raw.data!.length);
+  return { raw: raw.data!, mappings: mappings.data!, mapped: mapped.data! };
+}
+
 describe("Aperçu des postes à mesurer", () => {
   test("POSTE affiche le gabarit de plomberie avant tout devis", options, async ({ ui }) => {
     const { app, screen, army } = ui;
@@ -136,13 +152,25 @@ describe("Aperçu des postes à mesurer", () => {
       await screen.getByRole("button", "Retour au hub", { exact: true }).click();
       await expect(screen.getByRole("heading", "Mapping enregistré", { exact: true })).toBeVisible();
 
+      const stored = await readStoredDpgf(client, projectId);
+      if (format === "csv") {
+        const expectedRows = [firstSection, firstLine, secondSection, secondLine, unquantifiedLine, subtotal];
+        expect(stored.raw.map(({ row_index, payload }) => ({ row_index, payload }))).toEqual(
+          expectedRows.map((cells, row_index) => ({
+            row_index,
+            payload: Object.fromEntries(headers.map((header, index) => [header.replace(" ", "_"), cells[index] || null])),
+          }))
+        );
+      }
+      await recordEvidence(army, `POSTE-stockage-${format}`, stored);
+
       await app.open(href);
       const table = screen.getByRole("table", "Postes à mesurer", { exact: true });
       const homonyms = table.getByRole("row").filter({ hasText: "Lavabo en céramique" });
       await expect(homonyms).toHaveCount(2);
       const sourceLocations = format === "pdf" ? ["Page 1", "Page 2"]
-        : format === "csv" ? ["Enregistrement 3", "Enregistrement 5"]
-          : format === "xlsx" ? ["Ligne 5", "Ligne 7"] : ["Ligne 3", "Ligne 5"];
+        : format === "csv" ? ["Enregistrement importé 2", "Enregistrement importé 4"]
+          : ["Ligne du tableau 3", "Ligne du tableau 5"];
       await expect(homonyms.nth(0)).toContainText(sourceLocations[0]);
       await expect(homonyms.nth(1)).toContainText(sourceLocations[1]);
       await expect(homonyms.nth(0).getByRole("cell", "2", { exact: true })).toBeVisible();

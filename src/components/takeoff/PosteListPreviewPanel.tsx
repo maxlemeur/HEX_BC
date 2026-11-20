@@ -26,9 +26,10 @@ function sourceLocation(origin: {
   sourcePage?: number | null;
   sheetName?: string | null;
   reference?: string | null;
-}, csv: boolean) {
-  const line = origin.sourceRowNumber
-    ? `${csv ? "Enregistrement" : "Ligne"} ${origin.sourceRowNumber}`
+}, sourceFormat: string | undefined) {
+  const csv = sourceFormat === "csv";
+  const line = !csv && origin.sourceRowNumber
+    ? `${sourceFormat === "xlsx" ? "Ligne du tableau" : "Ligne"} ${origin.sourceRowNumber}`
     : origin.rowIndex === null ? "Ligne mappée"
       : `${csv ? "Enregistrement importé" : "Ligne importée"} ${origin.rowIndex + 1}`;
   return [
@@ -41,7 +42,7 @@ function sourceLocation(origin: {
 
 export async function PosteListPreviewPanel({ projectId, query }: { projectId: string; query: Query }) {
   const preview = await loadPosteListPreview(projectId).catch(() => ({ kind: "unavailable" } as const));
-  const csv = "sourceFormat" in preview && preview.sourceFormat === "csv";
+  const sourceFormat = "sourceFormat" in preview ? preview.sourceFormat : undefined;
   const limited = preview.kind === "limited" || ("limitedVisibility" in preview && preview.limitedVisibility);
   const ready = preview.kind === "template" || preview.kind === "dpgf";
   const projection = preview.kind === "dpgf" || preview.kind === "prepare" ? preview.projection : undefined;
@@ -104,7 +105,7 @@ export async function PosteListPreviewPanel({ projectId, query }: { projectId: s
                     <td className="px-2 py-2">{item.expectedUnit ?? "À préciser"}</td>
                     {item.origin.kind === "dpgf" && <>
                       <td className="px-2 py-2">{item.referenceQuantity === null ? "—" : referenceFormat.format(item.referenceQuantity)}</td>
-                      <td className="px-2 py-2">{sourceLocation(item.origin, csv)}</td>
+                      <td className="px-2 py-2">{sourceLocation(item.origin, sourceFormat)}</td>
                     </>}
                   </tr>
                 ))}
@@ -118,7 +119,7 @@ export async function PosteListPreviewPanel({ projectId, query }: { projectId: s
             <ul className="list-disc space-y-1 pl-6 pt-2 text-sm">
               {projection.issues.slice(Math.max(0, start - items.length), end - items.length).map((issue) => (
                 <li key={`${issue.rawRowId}:${issue.mappedRowId}:${issue.reason}`}>
-                  {issue.reason === "footer" ? sourceLocation(issue, csv) : issue.title || sourceLocation(issue, csv)}
+                  {issue.reason === "footer" ? sourceLocation(issue, sourceFormat) : issue.title || sourceLocation(issue, sourceFormat)}
                   {" · "}{ISSUE_LABELS[issue.reason]}
                 </li>
               ))}

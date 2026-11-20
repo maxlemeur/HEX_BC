@@ -44,11 +44,10 @@ type ParsedWorkbookRowStyle = {
 async function extractRowStyles(
   buffer: ArrayBuffer,
   sheetName: string,
-  matrix: unknown[][],
-  sourceRowOffset: number,
+  matrix: unknown[][]
 ): Promise<ParsedWorkbookRowStyle[]> {
   const fallback = Array.from({ length: matrix.length }, (_, index) => ({
-    sourceRowNumber: sourceRowOffset + index + 1,
+    sourceRowNumber: index + 1,
     boldColumnIndexes: [],
     mergedColumnIndexes: [],
     outlineLevel: null,
@@ -175,9 +174,7 @@ export async function parseWorkbook(
   const matrix = sheetMatrices[selectedSheetIndex];
   if (!selectedSheetName || !matrix) return [];
 
-  const range = workbook.Sheets[selectedSheetName]?.["!ref"];
-  const sourceRowOffset = range ? XLSX.utils.decode_range(range).s.r : 0;
-  const rowStyles = await extractRowStyles(buffer, selectedSheetName, matrix, sourceRowOffset);
+  const rowStyles = await extractRowStyles(buffer, selectedSheetName, matrix);
 
   return toImportRows(matrix, selectedSheetName, rowStyles, headerRowNumber);
 }

@@ -24,7 +24,6 @@ export type ParsedImportFile = {
 
 export type ParseImportFileOptions = {
   headerRowNumber?: number | null;
-  includeCsvRowStructure?: boolean;
 };
 
 type ParsedWorkbookRowStyle = {
@@ -108,11 +107,9 @@ const convertPercentFormattedCells = (${PERCENT_CELLS_SOURCE});
     );
     const sheetName = workbook.SheetNames[selectedSheetIndex] ?? null;
     const matrix = selectedSheetIndex >= 0 ? sheetMatrices[selectedSheetIndex] ?? [] : [];
-    const range = sheetName && workbook.Sheets[sheetName]?.["!ref"];
-    const sourceRowOffset = range ? XLSX.utils.decode_range(range).s.r : 0;
 
     const rowStyles = Array.from({ length: matrix.length }, (_, index) => ({
-      source_row_number: sourceRowOffset + index + 1,
+      source_row_number: index + 1,
       bold_column_indexes: [],
       merged_column_indexes: [],
       outline_level: null,
@@ -141,7 +138,7 @@ const convertPercentFormattedCells = (${PERCENT_CELLS_SOURCE});
             }
 
             rowStyles[rowIndex] = {
-              source_row_number: sourceRowOffset + rowIndex + 1,
+              source_row_number: rowIndex + 1,
               bold_column_indexes: boldColumnIndexes,
               merged_column_indexes: mergedColumnIndexes,
               outline_level:
@@ -381,9 +378,9 @@ export async function parseImportFile(
     const sourceMatrixIndex = headerRowIndex + bodyIndex + 1;
     const rowStyle = rowStyles[sourceMatrixIndex];
     const structure =
-      sourceFormat === "xlsx" || options?.includeCsvRowStructure
+      sourceFormat === "xlsx"
         ? {
-            sheet_name: sourceFormat === "csv" ? null : sheetName,
+            sheet_name: sheetName,
             source_row_number: rowStyle?.source_row_number ?? sourceMatrixIndex + 1,
             bold_columns: (rowStyle?.bold_column_indexes ?? []).flatMap(
               (index) => headers[index] ?? []
@@ -392,7 +389,7 @@ export async function parseImportFile(
               (index) => headers[index] ?? []
             ),
             outline_level: rowStyle?.outline_level ?? null,
-            column_order: sourceFormat === "xlsx" ? headers : [],
+            column_order: headers,
           }
         : null;
 
