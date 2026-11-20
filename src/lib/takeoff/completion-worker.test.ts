@@ -18,12 +18,8 @@ function fixture(status: string) {
     getJobById: vi.fn(async () => ({ ...row })),
     isTenantActive: vi.fn(async () => true),
     markUnsupportedLevelAsFailed: vi.fn(),
-    scheduleRetry: vi.fn(),
     clearRetrySchedule: vi.fn(),
     renewLease: vi.fn(),
-    acquireBatchReconcileLease: vi.fn(),
-    scheduleReconcile: vi.fn(),
-    markBatchReconcileTimeoutAsFailed: vi.fn(),
   };
   return { row, repository, options: { correlationId: id, now: () => now, repository, logger: {
     info: vi.fn(), warn: vi.fn(), error: vi.fn(),
@@ -42,7 +38,6 @@ describe("durable takeoff failure decisions", () => {
       }),
     });
     expect(outcome).toMatchObject({ status: "failed_retryable", next_run_at: nextRetryAt, error_code: "AI_TIMEOUT" });
-    expect(repository.scheduleRetry).not.toHaveBeenCalled();
     expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
   });
 
@@ -64,7 +59,6 @@ describe("durable takeoff failure decisions", () => {
       processLevelCFn: vi.fn().mockRejectedValue(new Error("lease claim failed")),
     });
     expect(outcome).toMatchObject({ status: "in_progress", should_requeue: false });
-    expect(repository.scheduleRetry).not.toHaveBeenCalled();
     expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
   });
 

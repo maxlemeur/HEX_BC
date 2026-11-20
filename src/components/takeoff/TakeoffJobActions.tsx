@@ -12,7 +12,7 @@ import { getTakeoffFailureReasonLabel } from "@/lib/takeoff/visible-status";
 export type ActionKind = "resubmit" | "cancel";
 type ActivityJob = TakeoffActivityCenterResponse["jobs"][number];
 
-function nextStep(detail: TakeoffJobSummary, role?: string | null) {
+function nextStep(detail: TakeoffJobSummary, row: ActivityJob, role?: string | null) {
   if (detail.can_resubmit) return "Vous pouvez soumettre cette analyse à nouveau.";
   if (detail.retry_count >= TAKEOFF_RETRY_MAX) return "Le nombre maximal de relances est atteint. Préparez un nouveau métré.";
   if (row.analysisCompletion?.outcome === "failure") return "Cette analyse est close. Préparez un nouveau métré.";
@@ -51,7 +51,7 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
             <p>Motif de l’échec indisponible. <button type="button" className="underline" onClick={() => void mutate()}>Relire le diagnostic</button></p>
           ) : <p>Chargement du motif de l’échec…</p>}
           <p>Relances utilisées : {detail?.retry_count ?? job.retryCount} sur {TAKEOFF_RETRY_MAX}</p>
-          {detail && <p>{nextStep(detail, profile?.tenant_role)}</p>}
+          {detail && <p>{nextStep(detail, job, profile?.tenant_role)}</p>}
         </div>
       )}
       <div className="flex flex-wrap gap-2">

@@ -11,6 +11,7 @@ vi.mock("@/lib/observability/error-reporter", () => ({
 import { reportError } from "@/lib/observability/error-reporter";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { processTakeoffJobAttempt } from "@/lib/takeoff/async-worker";
+import { takeoffAnalysisFailureFields } from "@/lib/takeoff/completion-outcome";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 type WorkerJobRow = {
@@ -19,6 +20,7 @@ type WorkerJobRow = {
   level: string;
   status: string;
   execution_provider: string | null;
+  analysis_outcome?: string | null;
   retry_count: number;
   error_code: string | null;
   error_message: string | null;
@@ -35,12 +37,6 @@ const FIXED_NOW = new Date("2026-02-25T11:00:00.000Z");
 function createWorkerRepository(initialJob: WorkerJobRow) {
   const state = {
     job: { ...initialJob },
-    scheduleCalls: [] as Array<{
-      jobId: string;
-      tenantId: string;
-      nextRetryAtIso: string;
-      lastErrorAtIso: string;
-    }>,
     clearCalls: [] as Array<{
       jobId: string;
       tenantId: string;
@@ -66,22 +62,6 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
           error_message: "Le niveau takeoff n'est pas encore supporte par le worker async.",
           last_error_at: input.nowIso,
           next_retry_at: null,
-        };
-      }
-    ),
-    scheduleRetry: vi.fn(
-      async (input: {
-        jobId: string;
-        tenantId: string;
-        nextRetryAtIso: string;
-        lastErrorAtIso: string;
-      }) => {
-        state.scheduleCalls.push(input);
-        state.job = {
-          ...state.job,
-          status: "failed",
-          next_retry_at: input.nextRetryAtIso,
-          last_error_at: input.lastErrorAtIso,
         };
       }
     ),
@@ -140,7 +120,7 @@ describe("processTakeoffJobAttempt", () => {
     expect(processLevelAFn).not.toHaveBeenCalled();
   });
 
-  it("schedules retry on retryable failed job", async () => {
+  it("returns the retry that the processor committed", async () => {
     const { state, repository } = createWorkerRepository({
       id: JOB_ID,
       tenant_id: TENANT_ID,
@@ -162,6 +142,7 @@ describe("processTakeoffJobAttempt", () => {
         retry_count: 0,
         error_code: TakeoffErrorCode.AI_TIMEOUT,
         error_message: "Timed out",
+        next_retry_at: at(5),
       };
 
       throw new TakeoffError({
@@ -188,9 +169,8 @@ describe("processTakeoffJobAttempt", () => {
     expect(outcome.should_requeue).toBe(true);
     expect(outcome.requeue_reason).toBe("retry");
     expect(outcome.next_run_in_seconds).toBe(5);
-    expect(repository.scheduleRetry).toHaveBeenCalledTimes(1);
     expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("returns failed_terminal when retry budget is exhausted", async () => {
@@ -199,6 +179,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
+      analysis_outcome: "failure",
       execution_provider: "chatgpt_local",
       retry_count: 3,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
@@ -237,8 +218,7 @@ describe("processTakeoffJobAttempt", () => {
 
     expect(outcome.status).toBe("failed_terminal");
     expect(outcome.should_requeue).toBe(false);
-    expect(repository.scheduleRetry).not.toHaveBeenCalled();
-    expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
+    expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
     expect(processLevelAFn).not.toHaveBeenCalled();
   });
 
@@ -350,12 +330,11 @@ describe("processTakeoffJobAttempt", () => {
       logger,
     });
 
-    expect(outcome.status).toBe("failed_terminal");
+    expect(outcome.status).toBe("noop_terminal");
     expect(outcome.should_requeue).toBe(false);
-    expect(repository.scheduleRetry).not.toHaveBeenCalled();
-    expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
+    expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
     expect(processLevelAFn).not.toHaveBeenCalled();
   });
 
@@ -643,7 +622,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
   });
 
   describe("failed job gate", () => {
-    it("closes an exhausted retry budget and keeps the last error date", async () => {
+    it("leaves a historical exhausted retry and its error date untouched", async () => {
       const harness = createAttemptHarness(
         workerJob({
           status: "failed",
@@ -659,10 +638,10 @@ describe("processTakeoffJobAttempt attempt endings", () => {
 
       expect(outcome).toEqual(
         expectedOutcome({
-          status: "failed_terminal",
+          status: "noop_terminal",
           trigger: "retry",
           retryCount: 3,
-          durationMs: 2000,
+          durationMs: 1000,
           errorCode: "AI_TIMEOUT",
           errorMessage: "Timed out",
         })
@@ -670,22 +649,11 @@ describe("processTakeoffJobAttempt attempt endings", () => {
       expect(harness.sequence()).toEqual([
         ["getJobById", JOB_ID],
         ["isTenantActive", TENANT_ID],
-        ["clearRetrySchedule", { jobId: JOB_ID, tenantId: TENANT_ID, lastErrorAtIso: at(-60) }],
-        [
-          "logger.error",
-          "Takeoff async worker rejected an unscheduled or exhausted retry",
-          {
-            job_id: JOB_ID,
-            tenant_id: TENANT_ID,
-            retry_count: 3,
-            trigger: "retry",
-            correlation_id: CORRELATION_ID,
-          },
-        ],
       ]);
+      expect(harness.state.job.last_error_at).toBe(at(-60));
     });
 
-    it("rejects a failed job that was not triggered as a scheduled retry", async () => {
+    it("keeps the committed retry when a manual trigger is replayed", async () => {
       const harness = createAttemptHarness(
         workerJob({
           status: "failed",
@@ -700,7 +668,12 @@ describe("processTakeoffJobAttempt attempt endings", () => {
 
       expect(outcome).toEqual(
         expectedOutcome({
-          status: "failed_terminal",
+          status: "failed_retryable",
+          retryable: true,
+          shouldRequeue: true,
+          requeueReason: "retry",
+          nextRunInSeconds: 0,
+          nextRunAt: at(-10),
           trigger: "manual",
           retryCount: 1,
           durationMs: 3000,
@@ -711,12 +684,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
       expect(harness.sequence()).toEqual([
         ["getJobById", JOB_ID],
         ["isTenantActive", TENANT_ID],
-        ["clearRetrySchedule", { jobId: JOB_ID, tenantId: TENANT_ID, lastErrorAtIso: at(2) }],
-        [
-          "logger.error",
-          "Takeoff async worker rejected an unscheduled or exhausted retry",
-          expect.objectContaining({ trigger: "manual", retry_count: 1 }),
-        ],
       ]);
       expect(harness.processLevelAFn).not.toHaveBeenCalled();
     });
@@ -949,10 +916,10 @@ describe("processTakeoffJobAttempt attempt endings", () => {
 
       expect(outcome).toEqual(
         expectedOutcome({
-          status: "failed_terminal",
+          status: "in_progress",
           trigger: "create",
           level: "B",
-          durationMs: 4000,
+          durationMs: 2000,
           errorCode: TakeoffErrorCode.TAKEOFF_TENANT_INACTIVE,
           errorMessage: "Le tenant a été suspendu avant l'appel fournisseur.",
         })
@@ -963,9 +930,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         ["processLevelB", JOB_ID, expect.anything()],
         ["isTenantActive", TENANT_ID],
         ["getJobById", JOB_ID],
-        ["clearRetrySchedule", { jobId: JOB_ID, tenantId: TENANT_ID, lastErrorAtIso: at(2) }],
-        ["logger.error", "Takeoff async worker reached terminal failure", expect.anything()],
-        ["reportError", expect.anything()],
       ]);
     });
 
@@ -1029,11 +993,14 @@ describe("processTakeoffJobAttempt attempt endings", () => {
       [1, 15],
       [2, 45],
     ])(
-      "schedules retry %i of a retryable failure after %i seconds",
+      "returns the committed retry %i with a %i second delay",
       async (retryCount, backoffSeconds) => {
         const harness = createAttemptHarness(workerJob({ retry_count: retryCount }));
         harness.processLevelAFn.mockImplementationOnce(async () => {
-          harness.state.job = { ...harness.state.job, status: "failed", error_code: "AI_TIMEOUT" };
+          harness.state.job = {
+            ...harness.state.job, status: "failed", error_code: "AI_TIMEOUT", error_message: "Trop de requêtes",
+            ...takeoffAnalysisFailureFields({ retryable: true, retryCount, completedAtIso: at(2) }),
+          };
           throw new TakeoffError({ code: TakeoffErrorCode.AI_RATE_LIMIT, message: "Trop de requêtes", retryable: true });
         });
 
@@ -1049,7 +1016,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
             requeueReason: "retry",
             nextRunInSeconds: backoffSeconds,
             nextRunAt: at(2 + backoffSeconds),
-            durationMs: 5000,
+            durationMs: 3000,
             errorCode: "AI_TIMEOUT",
             errorMessage: "Trop de requêtes",
           })
@@ -1059,28 +1026,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
           ["isTenantActive", TENANT_ID],
           ["processLevelA", JOB_ID, expect.anything()],
           ["getJobById", JOB_ID],
-          [
-            "scheduleRetry",
-            {
-              jobId: JOB_ID,
-              tenantId: TENANT_ID,
-              nextRetryAtIso: at(2 + backoffSeconds),
-              lastErrorAtIso: at(3),
-            },
-          ],
-          [
-            "logger.warn",
-            "Takeoff async worker scheduled retry",
-            {
-              job_id: JOB_ID,
-              tenant_id: TENANT_ID,
-              level: "A",
-              attempt: retryCount + 1,
-              duration_ms: 4000,
-              status: "failed_retryable",
-              correlation_id: CORRELATION_ID,
-            },
-          ],
         ]);
       }
     );
@@ -1088,7 +1033,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
     it("ends a retryable failure that exhausted its retry budget", async () => {
       const harness = createAttemptHarness(workerJob({ retry_count: 3 }));
       harness.processLevelAFn.mockImplementationOnce(async () => {
-        harness.state.job = { ...harness.state.job, status: "failed" };
+        harness.state.job = { ...harness.state.job, status: "failed", analysis_outcome: "failure" };
         throw new TakeoffError({ code: TakeoffErrorCode.AI_TIMEOUT, message: "Timed out", retryable: true });
       });
 
@@ -1099,7 +1044,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
           status: "failed_terminal",
           trigger: "retry",
           retryCount: 3,
-          durationMs: 4000,
+          durationMs: 3000,
           errorCode: TakeoffErrorCode.AI_TIMEOUT,
           errorMessage: "Timed out",
         })
@@ -1109,7 +1054,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         ["isTenantActive", TENANT_ID],
         ["processLevelA", JOB_ID, expect.anything()],
         ["getJobById", JOB_ID],
-        ["clearRetrySchedule", { jobId: JOB_ID, tenantId: TENANT_ID, lastErrorAtIso: at(2) }],
         [
           "logger.error",
           "Takeoff async worker reached terminal failure",
@@ -1118,7 +1062,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
             tenant_id: TENANT_ID,
             level: "A",
             attempt: 4,
-            duration_ms: 3000,
+            duration_ms: 2000,
             status: "failed_terminal",
             correlation_id: CORRELATION_ID,
             error_code: TakeoffErrorCode.AI_TIMEOUT,
@@ -1141,7 +1085,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
       ]);
     });
 
-    it("ends a retryable failure when the job was not marked failed", async () => {
+    it("leaves an unclaimed job available after a retryable failure", async () => {
       const harness = createAttemptHarness(workerJob());
       harness.processLevelAFn.mockRejectedValueOnce(
         new TakeoffError({ code: TakeoffErrorCode.AI_TIMEOUT, message: "Timed out", retryable: true })
@@ -1149,13 +1093,11 @@ describe("processTakeoffJobAttempt attempt endings", () => {
 
       const outcome = await harness.run("create");
 
-      expect(outcome.status).toBe("failed_terminal");
-      expect(harness.repository.scheduleRetry).not.toHaveBeenCalled();
-      expect(harness.repository.clearRetrySchedule).toHaveBeenCalledWith({
-        jobId: JOB_ID,
-        tenantId: TENANT_ID,
-        lastErrorAtIso: at(2),
-      });
+      expect(outcome.status).toBe("in_progress");
+      expect(outcome.error_code).toBe(TakeoffErrorCode.AI_TIMEOUT);
+      expect(outcome.should_requeue).toBe(false);
+      expect(harness.state.job.status).toBe("pending");
+      expect(harness.repository.clearRetrySchedule).not.toHaveBeenCalled();
     });
 
     it("maps an unexpected processor exception to the async processing failure", async () => {
@@ -1168,17 +1110,15 @@ describe("processTakeoffJobAttempt attempt endings", () => {
 
         expect(outcome).toEqual(
           expectedOutcome({
-            status: "failed_terminal",
+            status: "in_progress",
             trigger: "create",
-            durationMs: 4000,
+            durationMs: 2000,
             errorCode: TakeoffErrorCode.INTERNAL_ERROR,
             errorMessage: "Le traitement async du job takeoff a echoue.",
           })
         );
         expect(consoleError).toHaveBeenCalledWith("Unexpected takeoff error", expect.any(Error));
-        expect(vi.mocked(reportError)).toHaveBeenCalledWith(
-          expect.objectContaining({ error: new Error("Le traitement async du job takeoff a echoue.") })
-        );
+        expect(vi.mocked(reportError)).not.toHaveBeenCalled();
       } finally {
         consoleError.mockRestore();
       }
@@ -1213,20 +1153,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         },
         status: "failed",
       },
-      {
-        stage: "the retry scheduling",
-        arrange: (harness: ReturnType<typeof createAttemptHarness>, failure: Error) => {
-          harness.repository.scheduleRetry.mockRejectedValueOnce(failure);
-        },
-        status: "failed",
-      },
-      {
-        stage: "the terminal failure write",
-        arrange: (harness: ReturnType<typeof createAttemptHarness>, failure: Error) => {
-          harness.repository.clearRetrySchedule.mockRejectedValueOnce(failure);
-        },
-        status: "pending",
-      },
     ])("propagates a failure of $stage without logging the settlement", async ({ arrange, status }) => {
       const harness = createAttemptHarness(workerJob());
       harness.processLevelAFn.mockImplementationOnce(async () => {
@@ -1257,13 +1183,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         job: workerJob(),
         arrange: (harness: ReturnType<typeof createAttemptHarness>, failure: Error) => {
           harness.repository.isTenantActive.mockRejectedValueOnce(failure);
-        },
-      },
-      {
-        stage: "the rejected retry write",
-        job: workerJob({ status: "failed", retry_count: 3 }),
-        arrange: (harness: ReturnType<typeof createAttemptHarness>, failure: Error) => {
-          harness.repository.clearRetrySchedule.mockRejectedValueOnce(failure);
         },
       },
       {

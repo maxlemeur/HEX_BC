@@ -116,7 +116,7 @@ export async function resubmitTakeoffJob(
     tenantId,
     jobId: normalizedJobId,
   });
-  assertCanManuallyResubmitAnalysis(existingJob);
+  if (existingJob.execution_provider === "chatgpt_local") assertCanManuallyResubmitAnalysis(existingJob);
   await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
 
   if (existingJob.status !== "failed" && existingJob.status !== "canceled") {
