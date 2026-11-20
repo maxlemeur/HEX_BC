@@ -4,12 +4,12 @@ import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database } from "@/types/database";
 import { mapSupabaseError, notFound } from "@/lib/http/api-response";
 import {
-  canAccessOwnerResource,
+  canAccessApprovalResource,
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   isTenantAdmin,
 } from "./server-context";
-import type { AuthenticatedContext, VersionAccessRow } from "./server-context";
+import type { VersionAccessRow } from "./server-context";
 
 export type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
 
@@ -212,16 +212,6 @@ function normalizePositiveInteger(input: {
   return normalized;
 }
 
-function canAccessEstimateReadResource(input: {
-  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
-  resourceUserId: string;
-}) {
-  return (
-    canAccessOwnerResource(input) ||
-    input.context.tenantRole === "director"
-  );
-}
-
 export async function listEstimateProjectVersions(input: {
   projectId: string;
   page?: number;
@@ -269,7 +259,7 @@ export async function listEstimateProjectVersions(input: {
   const project = projectData as EstimateProjectOwnerRow;
   if (
     project.tenant_id !== tenantId ||
-    !canAccessEstimateReadResource({
+    !canAccessApprovalResource({
       context,
       resourceUserId: project.user_id,
     })
@@ -471,32 +461,12 @@ export async function listEstimateVersionVariants(
 ): Promise<ListEstimateVersionVariantsResult> {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
-  const { data, error } = await supabase
-    .from("estimate_versions")
-    .select(
-      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
-    )
-    .eq("id", versionId)
-    .eq("tenant_id", tenantId)
-    .single();
-
-  if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
-
-  const version = data as unknown as VersionAccessRow;
-  const project = resolveEmbeddedOne(version.estimate_projects);
-
-  if (
-    !project ||
-    project.tenant_id !== tenantId ||
-    !canAccessEstimateReadResource({
-      context,
-      resourceUserId: project.user_id,
-    })
-  ) {
-    throw notFound("Version de chiffrage introuvable.");
-  }
+  const { version } = await getVersionAccessOrThrow<Pick<VersionAccessRow, "id" | "project_id" | "parent_version_id">>(
+    supabase,
+    versionId,
+    context,
+    { mode: "owner_or_approval_reader", versionColumns: "id, project_id, parent_version_id" }
+  );
 
   const baseVersionId = version.parent_version_id ?? version.id;
 

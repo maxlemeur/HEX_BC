@@ -19,7 +19,7 @@ import type { TestFilter } from "e2e";
 
 import {
   MAP_PATH, SELECTION_DATA, buildSourceGraph, classifyPath, expandJourneys, loadImpactMap, mapChangesBeyondRules, matchesAny,
-  selectFromRepository, type ImpactMap, type SourceGraph,
+  selectFromRepository, withSuiteJourneys, type ImpactMap, type SourceGraph, type StoredImpactMap,
 } from "./select-journeys";
 
 /** The decision model: the one the application's own Decisions use (src/lib/ai/decisions.ts). */
@@ -51,11 +51,15 @@ function tiedJourneys(map: ImpactMap, files: readonly string[]): string[] {
   return files.flatMap((file) => expandJourneys(map, map.rules.filter((rule) => matchesAny(file, rule.paths)).flatMap((rule) => rule.journeys)));
 }
 
-/** The impact map as the change's base holds it; undefined when it cannot be read there. */
+/** The impact map as the change's base holds it, with the journeys of the base's tree; undefined when either cannot be read. */
 function baseImpactMap(root: string, base: string): ImpactMap | undefined {
-  const shown = spawnSync("git", ["show", `${base}:${MAP_PATH}`], { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-  if (shown.status !== 0) return undefined;
-  try { return JSON.parse(shown.stdout) as ImpactMap; } catch { return undefined; }
+  const git = (args: string[]) => spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const shown = git(["show", `${base}:${MAP_PATH}`]);
+  const listed = git(["ls-tree", "-r", "-z", "--name-only", base]);
+  if (shown.status !== 0 || listed.status !== 0) return undefined;
+  try {
+    return withSuiteJourneys(JSON.parse(shown.stdout) as StoredImpactMap, listed.stdout.split("\0").filter(Boolean));
+  } catch { return undefined; }
 }
 
 export const armyImpactFilter = {
@@ -71,7 +75,7 @@ export const armyImpactFilter = {
     const kept = new Set([...selection.files, ...selection.fullOnly.files]);
     const exclude: Record<string, string> = {};
     for (const test of tests) {
-      // A journey the map does not list is not its to judge: it runs.
+      // A journey outside the critical suite and the takeoff journeys is not its to judge: it runs.
       if (!known.has(test.file) || kept.has(test.file) || (everyFullOnly && fullOnly.has(test.file))) continue;
       exclude[test.id] = fullOnly.has(test.file) ? selection.fullOnly.reason : selection.reason;
     }

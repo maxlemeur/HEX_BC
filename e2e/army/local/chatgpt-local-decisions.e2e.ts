@@ -1,4 +1,4 @@
-import { submitPreparedCsv } from "../takeoff/prepared-csv";
+import { launchPreparedPlanSet } from "../takeoff/prepared-takeoff";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -32,7 +32,6 @@ import { labSessionCookies, rawLabRequest } from "./takeoff-lab-support";
 // own and removes it: DEC01 starts without one, and the lab's output holds the runs of VEC01 alone.
 const server = chatGptLocalServer();
 let localOrigin: string;
-let serverWorkspace: { id: string };
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;
 let transportLog: string;
@@ -54,7 +53,7 @@ async function preparePlanFixture(unsetPreferences = false) {
 }
 
 beforeAll(async () => {
-  ({ workspace: serverWorkspace, origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir } = await server.start());
+  ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir } = await server.start());
 });
 // The tests here open the takeoff pages too (ASSIST02 launches a job and reads its review, the intake tests open the
 // affaire): the same waves as the takeoff file, one hook each, so that no first use waits for its compile.
@@ -535,7 +534,7 @@ if (!existsSync(liveProbePath)) test("ASSIST01 the assistant answers in the esti
 });
 
 
-// A finished fictional CSV job is read from the review screen, then refused from another affaire.
+// A finished fictional plan job is read from the review screen, then refused from another affaire.
 if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and rejects another affaire", {
   tags: ["critical", "local", "chatgpt"], session: "army", timeout: 420_000,
 }, async ({ app, screen, browser }) => {
@@ -546,16 +545,11 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré assistant" }, army);
-    const csv = path.resolve(`.e2e/army/critical/artifacts/${prefix}.csv`);
-    await writeFile(csv, "designation;quantity;unit\nARMY copper pipe;12.5;m\n");
-    const created = await submitPreparedCsv(ui, ids, csv, "auto",
-      `.build/tester-army/next-${serverWorkspace!.id}/dev/server/server-reference-manifest.json`);
-    expect(created.status).toBe(201);
-    const jobId = created.id!;
+    const { jobId } = await launchPreparedPlanSet(ui, army, ids, { level: "B", provider: "auto" });
     const read = () => apiRequest<{ data: { job: { status: string }; items: { data: Array<{ designation: string; quantity: number; unit: string }> } } }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
     await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("completed");
     const detail = (await read()).body.data;
-    expect(detail.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "ARMY copper pipe", quantity: 12.5, unit: "m" })]));
+    expect(detail.items.data).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "Tuyauterie cuivre DN20", quantity: 12.5, unit: "m" })]));
     const other = await createEstimateViaWizard(ui, { projectName: `${prefix}-other`, title: "Autre affaire" }, army);
     await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
     await screen.getByTestId("assistant-toggle").click();
@@ -563,7 +557,7 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     await panel.getByTestId("assistant-input").fill(`ASSIST02 ${jobId}`);
     await panel.getByTestId("assistant-send").click();
     const answer = panel.getByTestId("assistant-message-assistant");
-    await expect(answer).toContainText("ARMY copper pipe : 12.5 m", DEV_SERVER_WORK);
+    await expect(answer).toContainText("Tuyauterie cuivre DN20 : 12.5 m", DEV_SERVER_WORK);
     await expect(answer).toHaveAttribute("data-status", "complete");
     await expect(answer.getByTestId("assistant-activity")).toContainText("Lecture du métré");
     const screenshot = await app.screenshot("assistant-takeoff-answer");
@@ -572,7 +566,7 @@ if (!existsSync(liveProbePath)) test("ASSIST02 takeoff review reads its job and 
     await panel.getByTestId("assistant-input").fill(`ASSIST02 ${jobId}`);
     await panel.getByTestId("assistant-send").click();
     await expect(answer).toContainText("Ce métré n’appartient pas à l’affaire de cette conversation.", DEV_SERVER_WORK);
-    await expect(answer).not.toContainText("ARMY copper pipe");
+    await expect(answer).not.toContainText("Tuyauterie cuivre DN20");
     await recordEvidence(army, "assistant-takeoff-answer", { ids, other, jobId, quantity: 12.5, provider: "fixture", screenshot });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });

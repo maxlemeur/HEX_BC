@@ -256,8 +256,15 @@ pas à elle seule toutes les situations fiscales d'une entreprise.
 
 Les brouillons sont recalculables ; avant revue ou émission, les moteurs 2 et 3
 figent le contexte et les montants sous contrôle de révision. Une modification
-ultérieure invalide la fraîcheur du snapshot. Les documents émis relisent les
-données figées, sans réappliquer les tarifs ou flags actuels.
+ultérieure invalide la fraîcheur du snapshot. Une version qui n'est plus un
+brouillon se lit sur ses montants figés (fiche, impression, PDF, export XLSX),
+quel que soit son moteur, sans réappliquer les tarifs ou flags actuels. Un
+brouillon v2 ou v3 se lit sur son snapshot tant qu'il est frais, sinon il est
+recalculé ; un brouillon v1 est toujours recalculé. Exception nommée : les
+feuilles de chiffrage (BDC, DPGF) listent des entrées et des coûts, qu'une v1 ne
+fige pas ; celles d'une v1 partent de ses entrées, en lecture seule une fois
+envoyée, avec les taux du jour. Ces règles et le prédicat de fraîcheur sont dans
+[amounts-source.ts](../../src/lib/estimates/engine/amounts-source.ts).
 Voir [cycle-de-vie.md](cycle-de-vie.md).
 
 Pour une modification de calcul, sélectionner les cas concernés dans

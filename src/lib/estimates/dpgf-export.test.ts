@@ -11,6 +11,15 @@ import { detectImportProfile } from "@/lib/imports/optima-profile";
 import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
 import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { resolveEstimateLineTruth } from "@/lib/estimates/line-truth";
+import {
+  SENT_ENGINE_1_LINE,
+  SENT_ENGINE_1_VERSION,
+  SENT_ENGINE_2_LINE,
+  SENT_ENGINE_2_VERSION,
+  SENT_ESTIMATE_IDS,
+  SENT_ESTIMATE_PROJECT,
+  TODAY_LABOR_ROLE,
+} from "@/test/fixtures/sent-estimate";
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -364,5 +373,41 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     const profile = detectImportProfile(keys);
     expect(profile?.id).toBe("dpgf_export");
     expect(profile?.mapping).toMatchObject({ Majoration_MO: "h_mo_majoration_coefficient", Prix_unitaire_HT_EUR: "unit_price_ht" });
+  });
+
+  // A sent version is read from its frozen amounts: the line was sent at 12,00 €/h and its role costs
+  // 15,00 €/h today (src/test/fixtures/sent-estimate.ts).
+  describe("a sent version", () => {
+    const exportLine = async (version: object, line: object, status: string) => {
+      vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+        version: { ...version, status, estimate_projects: SENT_ESTIMATE_PROJECT },
+        items: [line],
+        supply_types: [],
+        labor_roles: [TODAY_LABOR_ROLE],
+        categories: [],
+      } as never);
+      const { workbookWriterFactory, worksheets } = createWorkbookHarness();
+      const exported = await streamEstimateVersionDpgfXlsx(SENT_ESTIMATE_IDS.version, {
+        workbookWriterFactory,
+        isLaborSplitEnabled: false,
+      });
+      await new Response(exported.stream).arrayBuffer();
+      return worksheets.find((sheet) => sheet.name === "Données")?.rows[1] as unknown[];
+    };
+
+    it("exports an engine-2 version with its stored unit sale price instead of its costing inputs", async () => {
+      const draft = await exportLine(SENT_ENGINE_2_VERSION, SENT_ENGINE_2_LINE, "draft");
+      expect(draft.slice(5, 12)).toEqual([50, "", 1, 2, 1, 100, "Poseur fictif"]);
+
+      const sent = await exportLine(SENT_ENGINE_2_VERSION, SENT_ENGINE_2_LINE, "sent");
+      expect(sent.slice(5, 12)).toEqual([74.4, "", 1, null, null, null, ""]);
+    });
+
+    // Named exception (resolveEstimateCostingSheetSource): the DPGF of an engine-1 version exports
+    // its inputs, read-only once sent, and re-imports with the same values.
+    it("exports the inputs of an engine-1 version", async () => {
+      const sent = await exportLine(SENT_ENGINE_1_VERSION, SENT_ENGINE_1_LINE, "sent");
+      expect(sent.slice(5, 12)).toEqual([50, "", 1, 2, 1, 100, "Poseur fictif"]);
+    });
   });
 });

@@ -2,7 +2,8 @@ import "server-only";
 
 import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
 import { readAffaireDocumentPreview } from "@/lib/affaires/intake-document-preview";
-import { readAffaireBriefDraft, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
+import { readAffaireBriefDraft } from "@/lib/affaires/intake-server";
 import { normalizeIntakeTranscription } from "@/lib/affaires/intake-transcription";
 import { fetchAffaireRegisterPage } from "@/lib/affaires/register-server";
 import { charsetOf, documentReadType, UNREADABLE_FORMAT } from "@/lib/assistant/document-reading";
@@ -17,7 +18,7 @@ const REGISTER_TEXT = 500;
 /** The member may still read the affaire (owner, admin or director): checked again by every read, with their own rights. */
 async function affaireAccess(projectId: string) {
   try {
-    return await requireAffaireProjectReadAccess(projectId);
+    return await requireAffaireAccess(projectId, "read");
   } catch (error) {
     if (isUserFacingRefusal(error)) throw new AssistantToolError(NO_ACCESS);
     throw error;

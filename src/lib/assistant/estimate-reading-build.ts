@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { EstimateReading, EstimateReadingAmounts, EstimateReadingNode } from "@/lib/assistant/estimate-reading";
+import type { EstimateReading, EstimateReadingAmounts, EstimateReadingNode, EstimateReadingView } from "@/lib/assistant/estimate-reading";
 import type { EstimateBreakdown } from "@/lib/estimate-calculations";
 import type { EstimateV3Breakdown } from "@/lib/estimates/engine-v3/types";
 import { assertNever, requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
@@ -18,7 +18,9 @@ export type EstimateReadingSource = {
     /** The engine refuses the draft as it stands, with the reason it words for the estimator. */
     | { kind: "refused"; message: string }
     /** An issued version: its frozen amounts, never recalculated at today's rates. */
-    | { kind: "frozen" };
+    | { kind: "frozen" }
+    /** An engine 3 draft as its read-only page shows it: the amounts its last save stored and checked. */
+    | { kind: "stored" };
 };
 
 const UNKNOWN_TOTALS: EstimateReading["totals"] = {
@@ -36,7 +38,7 @@ function versionLabel(version: { version_number: number | null; variant_label?: 
  * apart. A line whose status is not « priced » carries no amount, in a draft as
  * in an issued version, so that a status at zero is never read as a price.
  */
-export function buildEstimateReading(source: EstimateReadingSource): EstimateReading {
+export function buildEstimateReading(source: EstimateReadingSource, view: EstimateReadingView): EstimateReading {
   const { version, items, calculation } = source;
   const engine = requireEstimateEngineVersion(version);
   const isV3 = usesSaleCoefficients(engine);
@@ -150,13 +152,33 @@ export function buildEstimateReading(source: EstimateReadingSource): EstimateRea
     },
   }));
 
-  return {
+  const reading: EstimateReading = {
+    view,
     version: {
       id: version.id, label: versionLabel(version), title: version.title, status: version.status, engine,
       // Stored per version; the application's own default when the column is empty.
       currency: normalizeEstimateCurrency(version.currency) ?? "EUR",
-      amountsBasis: calculation.kind === "frozen" ? "frozen" : "draft_calculation",
+      amountsBasis: calculation.kind === "frozen" || calculation.kind === "stored" ? calculation.kind : "draft_calculation",
     },
     params, totals, warnings, nodes,
+  };
+  return view === "editor" ? reading : withoutEditorSide(reading);
+}
+
+/** The document view keeps what the document shows and drops the rest at the source, so no output can return it. */
+function withoutEditorSide(reading: EstimateReading): EstimateReading {
+  return {
+    ...reading,
+    params: {},
+    totals: { ...reading.totals, costHtCents: null },
+    nodes: reading.nodes.map((node) => node.line === null ? node : {
+      ...node,
+      line: {
+        ...node.line, description: null, source: null, foCostText: null,
+        inputs: { unitPriceHtCents: null, kFo: null, hMoPerUnit: null, hMo: null, kMo: null, taxRateBp: node.line.inputs.taxRateBp },
+        amounts: node.line.amounts === null ? null
+          : { ...node.line.amounts, costHtCents: null, foHtCents: null, moHtCents: null, hours: null },
+      },
+    }),
   };
 }

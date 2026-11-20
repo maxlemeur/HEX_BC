@@ -27,18 +27,20 @@ export async function prepareArmyTypeScriptConfig(root = repositoryRoot) {
   }, null, 2)}\n`);
 }
 
-export async function buildSourceEvidence() {
+/** The files that identify a production build: a change outside them (journeys, docs, migrations) never rebuilds it. */
+export const buildSourceScopes = ["src", "public", "scripts", "tools", "next.config.ts", "postcss.config.mjs", "package.json", "package-lock.json", "tsconfig.json", "openapi.json"];
+
+export async function buildSourceEvidence(root = repositoryRoot) {
   const git = (args, encoding = "utf8") => {
-    const result = spawnSync("git", ["-c", `safe.directory=${repositoryRoot}`, ...args], { cwd: repositoryRoot,
+    const result = spawnSync("git", ["-c", `safe.directory=${root}`, ...args], { cwd: root,
       env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }, encoding, windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
     requireValue(result.status === 0, "Read-only Git source evidence is unavailable.");
     return result.stdout;
   };
-  const scopes = ["src", "public", "scripts", "tools", "next.config.ts", "postcss.config.mjs", "package.json", "package-lock.json", "tsconfig.json", "openapi.json"];
-  const names = [...new Set([...git(["ls-files", "-z", "--", ...scopes]).split("\0"),
-    ...git(["ls-files", "--others", "--exclude-standard", "-z", "--", ...scopes]).split("\0")])].filter(Boolean).sort();
+  const names = [...new Set([...git(["ls-files", "-z", "--", ...buildSourceScopes]).split("\0"),
+    ...git(["ls-files", "--others", "--exclude-standard", "-z", "--", ...buildSourceScopes]).split("\0")])].filter(Boolean).sort();
   const inputs = await Promise.all(names.map(async (file) => {
-    try { return { path: file, sha256: sha256(await readFile(path.join(repositoryRoot, file))) }; }
+    try { return { path: file, sha256: sha256(await readFile(path.join(root, file))) }; }
     catch (error) { if (error.code === "ENOENT") return { path: file, missing: true }; throw error; }
   }));
   return { revision: git(["rev-parse", "HEAD"]).trim(), diffSha256: sha256(git(["diff", "HEAD", "--binary"], "buffer")), inputs };

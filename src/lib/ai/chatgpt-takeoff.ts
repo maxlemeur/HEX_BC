@@ -9,7 +9,7 @@ import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import { assertTakeoffJobUsesLocalProvider, TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import type { CallGeminiStructuredOptions, CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
+import type { StructuredCall, StructuredCallOptions } from "@/lib/ai/structured-call";
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import type { TakeoffProvider } from "@/lib/takeoff/types";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
@@ -27,8 +27,8 @@ export function assertTakeoffProviderAvailable(provider: TakeoffProvider) {
 }
 
 export async function getTakeoffExecutionOwner(supabase: ServerSupabaseClient, owner: ChatGptOwner, requestedProvider: TakeoffProvider = "auto"): Promise<{
-  execution_provider?: never; execution_host_id?: never;
-} | { execution_provider: "chatgpt_local"; execution_host_id: string }> {
+  execution_provider: "chatgpt_local"; execution_host_id: string;
+}> {
   assertTakeoffProviderAvailable(parseTakeoffProvider(requestedProvider));
   if (!isLocalChatGptEnabled()) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
@@ -57,8 +57,8 @@ export async function getTakeoffExecutionOwner(supabase: ServerSupabaseClient, o
   return { execution_provider: "chatgpt_local" as const, execution_host_id: await getChatGptHostId() };
 }
 
-export async function assertLocalTakeoffExecutionHost(job: TakeoffJobProcessingRow) {
-  if (job.execution_provider !== "chatgpt_local") return null;
+export async function assertLocalTakeoffExecutionHost(job: TakeoffJobProcessingRow): Promise<string> {
+  assertTakeoffJobUsesLocalProvider(job);
   if (!isLocalChatGptEnabled() || job.execution_host_id !== await getChatGptHostId()) {
     throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
       message: "Ce métré est réservé au forfait ChatGPT sur son Mac d’origine. Relancez-le depuis ce Mac." });
@@ -71,7 +71,6 @@ export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClie
   execution_provider?: string | null; execution_host_id?: string | null; created_by?: string | null;
 }) {
   assertTakeoffJobUsesLocalProvider(job);
-  if (job.execution_provider !== "chatgpt_local") return;
   if (!job.created_by) throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
     message: "Le créateur du métré n’est plus disponible. Préparez une nouvelle analyse." });
   // Job and operator authorization precede this privileged, tenant-scoped read.
@@ -80,24 +79,23 @@ export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClie
   if (membership.error || !membership.data) throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
     message: "Le créateur n’a plus d’accès actif à cette affaire. Préparez une nouvelle analyse." });
   const owner = await getTakeoffExecutionOwner(supabase, { userId: job.created_by, tenantId }, "chatgpt");
-  if (!owner.execution_host_id || owner.execution_host_id !== job.execution_host_id) {
+  if (owner.execution_host_id !== job.execution_host_id) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Relancez ce métré depuis le Mac d’origine avec le forfait ChatGPT du créateur connecté." });
   }
 }
 
-type LocalTakeoffProvider = {
+export type LocalTakeoffProvider = {
   model: string;
   reasoningEffort?: ChatGptReasoningEffort | null;
   /** The profile, model and effort the job runs with: every request pins them (the vector reading's too, TI-704). */
   selection: { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null };
-  call: <T>(options: CallGeminiStructuredOptions<T>) => Promise<CallGeminiStructuredResult<T>>;
+  call: StructuredCall;
   /** The creator's active membership of the job's tenant, checked before each plan request (FORBIDDEN otherwise). */
   assertOwnerActive: () => Promise<void>;
 };
 
-export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow): Promise<LocalTakeoffProvider | null> {
-  if (job.execution_provider !== "chatgpt_local") return null;
+export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow): Promise<LocalTakeoffProvider> {
   await assertLocalTakeoffExecutionHost(job);
   // The persisted job supplies ownership, never the triggering HTTP session.
   const owner: ChatGptOwner = { userId: job.created_by ?? "", tenantId: job.tenant_id };
@@ -126,12 +124,12 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
     reasoningEffort: selection.reasoningEffort,
     selection,
     assertOwnerActive,
-    call: async <T>(options: CallGeminiStructuredOptions<T>) => {
+    call: async <T>(options: StructuredCallOptions<T>) => {
       await assertOwnerActive();
       try {
         return await callLocalChatGptStructured(owner, options, selection);
       } catch (error) {
-        // Stop here: no Gemini escalation, automatic retry, or raw provider data.
+        // Stop here: no automatic retry or raw provider data.
         throw new TakeoffError({
           code: error instanceof z.ZodError || error instanceof SyntaxError
             ? TakeoffErrorCode.AI_SCHEMA : TakeoffErrorCode.AI_PROVIDER,

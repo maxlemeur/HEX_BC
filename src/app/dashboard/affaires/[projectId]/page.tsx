@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { AffaireHub } from "@/components/affaires/AffaireHub";
 import { AffaireDocumentPage } from "@/components/affaires/AffaireDocumentPage";
 import { getUserContext } from "@/lib/auth/server";
-import { fetchAffaireIntakeWorkspace, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import {
@@ -78,7 +79,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   if (!hasOverviewQuery) {
     // Document triage does not need approval projections, estimate calculations or the register.
     const [workspace, access, takeoffEnabled] = await Promise.all([
-      fetchAffaireIntakeWorkspace(projectId), requireAffaireProjectReadAccess(projectId), isTakeoffEnabled(tenantId).catch(() => false),
+      fetchAffaireIntakeWorkspace(projectId), requireAffaireAccess(projectId, "read"), isTakeoffEnabled(tenantId).catch(() => false),
     ]).catch((error: unknown) => { if (error && typeof error === "object" && "code" in error && error.code === "NOT_FOUND") notFound(); throw error; });
     if (workspace.documents.length > 0) return <AffaireDocumentPage projectId={projectId} projectName={access.project.name} workspace={workspace}
       canManage={Boolean(workspace.canManageDocuments && profile?.tenant_role !== "director")} takeoffEnabled={takeoffEnabled} />;

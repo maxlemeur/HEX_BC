@@ -13,7 +13,8 @@
 // 3. a key, a database URL or the account address reaches the state file;
 // 4. a journey-only change triggers a rebuild, or an application change, a
 //    deleted source or a build replaced by another run in this checkout does
-//    not: the iteration then exercises other code than the checkout;
+//    not, or an iteration reads its sources from another checkout than its
+//    own: the iteration then exercises other code than the checkout;
 // 5. the Army production build type-checks a file outside the rebuild hash,
 //    so a skipped rebuild would skip a check a qualification run performs;
 // 6. migrations or supabase/config.toml change under a running loop and the
@@ -65,30 +66,13 @@
 // 20. a state whose recorded checkout no longer exists (moved or renamed) is
 //    called a copy, which steers the operator into deleting the only record
 //    of a native stack instead of recovering it.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-// A session iteration reads its source evidence from the real checkout through
-// Git (`git diff HEAD` exits fatally when a modified file vanishes mid-read, as
-// it does while other work edits the tree). The session test pins the
-// supervisor's own checks, so it reads fixed evidence instead; the other tests
-// keep reading the real checkout, whose build inputs they guard.
-const sourceEvidence = vi.hoisted(() => ({ fixed: false }));
-vi.mock("../../scripts/tester-army/local-recipe-common.mjs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../scripts/tester-army/local-recipe-common.mjs")>();
-  return {
-    ...actual,
-    buildSourceEvidence: () => sourceEvidence.fixed
-      ? Promise.resolve({ revision: "0".repeat(40), diffSha256: "0".repeat(64), inputs: [{ path: "src/app/page.tsx", sha256: "1".repeat(64) }] })
-      : actual.buildSourceEvidence(),
-    untrackedJourneyInputs: (...args: Parameters<typeof actual.untrackedJourneyInputs>) =>
-      sourceEvidence.fixed ? [] : actual.untrackedJourneyInputs(...args),
-  };
-});
+import { afterEach, describe, expect, it } from "vitest";
 
 import { runDevLoopSession } from "../../scripts/tester-army/dev-loop";
 import {
@@ -109,7 +93,7 @@ import {
   supervisorModulesDigest,
   writeLoopState,
 } from "../../scripts/tester-army/dev-loop-state";
-import { buildSourceEvidence, prepareArmyTypeScriptConfig } from "../../scripts/tester-army/local-recipe-common.mjs";
+import { buildSourceEvidence, buildSourceScopes, prepareArmyTypeScriptConfig } from "../../scripts/tester-army/local-recipe-common.mjs";
 
 const root = process.cwd();
 const temporary: string[] = [];
@@ -121,9 +105,38 @@ function temporaryDirectory(prefix = "army-dev-loop-unit-") {
 }
 
 afterEach(() => {
-  sourceEvidence.fixed = false;
   for (const directory of temporary.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
 });
+
+function write(checkout: string, file: string, contents: string) {
+  fs.mkdirSync(path.dirname(path.join(checkout, file)), { recursive: true });
+  fs.writeFileSync(path.join(checkout, file), contents);
+}
+
+// Without GIT_DIR and the like that a hook exports, the fixture commits land in `checkout`, never in the repository running the suite.
+const fixtureGitEnvironment: NodeJS.ProcessEnv = { ...process.env };
+for (const name of Object.keys(fixtureGitEnvironment)) if (name.startsWith("GIT_")) delete fixtureGitEnvironment[name];
+
+function git(checkout: string, ...args: string[]) {
+  const result = spawnSync("git", ["-c", "user.email=army@example.invalid", "-c", "user.name=army", "-c", "commit.gpgsign=false", ...args],
+    { cwd: checkout, encoding: "utf8", env: fixtureGitEnvironment });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+/**
+ * A Git checkout this file owns, `files` committed. The real checkout changes
+ * under the suite (other work edits, checks out or stashes it), and Git then
+ * fails, or lists a file that is gone by the time it is read.
+ */
+function gitCheckout(files: Record<string, string>, prefix?: string) {
+  const checkout = temporaryDirectory(prefix);
+  for (const [file, contents] of Object.entries(files)) write(checkout, file, contents);
+  git(checkout, "init", "-q");
+  git(checkout, "add", "-A");
+  git(checkout, "commit", "-q", "--no-verify", "-m", "fixture");
+  return checkout;
+}
 
 function loopState(overrides: Partial<LoopState> = {}): LoopState {
   const now = Date.now();
@@ -177,25 +190,24 @@ function request(socketPath: string, body: Record<string, unknown>) {
 }
 
 /**
- * A supervisor session on a disposable checkout: fake supervisor modules,
- * one migration, a build stub and journeys that only record their call.
- * The stub records no build inputs, so every iteration rebuilds, and calls
- * `afterBuild` with its call count, 1 being the start. The application port
- * is closed when the session opens.
+ * A supervisor session on a Git checkout of its own: fake supervisor modules,
+ * one migration, one application source, one journey, a build stub that
+ * records the checkout's sources as build-local.mjs does, and journeys that
+ * only record their call. The stub calls `afterBuild` with its call count,
+ * 1 being the start. The application port is closed when the session opens.
  */
 async function openSession(options: {
   afterBuild?: (count: number, checkout: string) => void;
 } = {}) {
-  sourceEvidence.fixed = true;
-  const checkout = temporaryDirectory("army-dev-loop-session-");
-  fs.mkdirSync(path.join(checkout, "supabase/migrations"), { recursive: true });
-  fs.writeFileSync(path.join(checkout, "supabase/migrations/001_base.sql"), "create table a ();\n");
-  fs.writeFileSync(path.join(checkout, "supabase/config.toml"), "project_id = \"miaouffrage\"\n");
-  fs.mkdirSync(path.join(checkout, "scripts/tester-army"), { recursive: true });
-  fs.writeFileSync(path.join(checkout, DEV_LOOP_SUPERVISOR_ENTRY), "import { session } from \"./tester-army/dev-loop\";\nvoid session;\n");
-  fs.writeFileSync(path.join(checkout, "scripts/tester-army/dev-loop.ts"), "export const session = 1;\n");
-  fs.mkdirSync(path.join(checkout, ".build/tester-army/next"), { recursive: true });
-  fs.writeFileSync(path.join(checkout, ".build/tester-army/next/BUILD_ID"), "build-unit\n");
+  const checkout = gitCheckout({
+    "supabase/migrations/001_base.sql": "create table a ();\n",
+    "supabase/config.toml": "project_id = \"miaouffrage\"\n",
+    [DEV_LOOP_SUPERVISOR_ENTRY]: "import { session } from \"./tester-army/dev-loop\";\nvoid session;\n",
+    "scripts/tester-army/dev-loop.ts": "export const session = 1;\n",
+    "src/app/page.tsx": "export default function Page() { return null; }\n",
+    "e2e/army/local/hub.e2e.ts": "export {};\n",
+  }, "army-dev-loop-session-");
+  write(checkout, ".build/tester-army/next/BUILD_ID", "build-unit\n");
   const appOrigin = `http://localhost:${await closedPort()}`;
   let current = loopState({
     checkout, status: "starting", expiresAt: null, appOrigin,
@@ -217,10 +229,8 @@ async function openSession(options: {
     sessionManifest: { command: ["unit"], startedAt: new Date().toISOString(), appOrigin, workers: 1, fixtures: {}, database: {} },
     redact: (value) => value,
     build: async () => {
-      const builds = path.join(checkout, ".e2e/army/recipes/builds/unit");
-      fs.mkdirSync(builds, { recursive: true });
-      fs.writeFileSync(path.join(builds, "manifest.json"), JSON.stringify({
-        buildId: "build-unit", sourceChangedDuringBuild: false, inputs: [],
+      write(checkout, ".e2e/army/recipes/builds/unit/manifest.json", JSON.stringify({
+        buildId: "build-unit", sourceChangedDuringBuild: false, inputs: (await buildSourceEvidence(checkout)).inputs,
       }));
       buildCount += 1;
       options.afterBuild?.(buildCount, checkout);
@@ -235,7 +245,7 @@ async function openSession(options: {
   expect(current).toMatchObject({ status: "ready", socket: expect.any(String) });
   const results = async (grep: string) =>
     (await request(current.socket!, { action: "run", loopId: current.loopId, grep })).filter((message) => message.type === "result");
-  return { controller, session, journeys, results };
+  return { checkout, controller, session, journeys, results };
 }
 
 describe("TesterArmy dev loop", () => {
@@ -265,27 +275,45 @@ describe("TesterArmy dev loop", () => {
   });
 
   it("rebuilds for application changes and a replaced build, never for journey-only changes", async () => {
-    const source = await buildSourceEvidence();
-    const paths = source.inputs.map((input: { path: string }) => input.path);
-    expect(paths.some((file: string) => file.startsWith("e2e/"))).toBe(false);
-    for (const required of ["next.config.ts", "package-lock.json", "package.json", "tsconfig.json"]) expect(paths).toContain(required);
-    expect(paths.some((file: string) => file.startsWith("src/app/"))).toBe(true);
+    const checkout = gitCheckout({
+      "src/app/page.tsx": "export default function Page() { return null; }\n",
+      "src/lib/total.ts": "export const total = 1;\n",
+      "next.config.ts": "export default {};\n",
+      "package.json": "{ \"name\": \"fixture\" }\n",
+      "package-lock.json": "{ \"lockfileVersion\": 3 }\n",
+      "tsconfig.json": "{}\n",
+      "e2e/army/local/hub.e2e.ts": "export {};\n",
+      "e2e.config.ts": "export default {};\n",
+    });
+    const inputs = async () => (await buildSourceEvidence(checkout)).inputs;
+    const sources = await inputs();
+    const digest = applicationSourceDigest(sources);
+    expect(applicationSourceDigest([...sources].reverse())).toBe(digest);
 
-    const digest = applicationSourceDigest(source.inputs);
-    const sourceIndex = paths.findIndex((file: string) => file.startsWith("src/lib/"));
-    const edited = source.inputs.map((input: { path: string; sha256?: string }, index: number) =>
-      index === sourceIndex ? { ...input, sha256: "0".repeat(64) } : input);
-    const deleted = source.inputs.map((input: { path: string }, index: number) =>
-      index === sourceIndex ? { path: input.path, missing: true } : input);
-    expect(applicationSourceDigest([...source.inputs].reverse())).toBe(digest);
-    expect(applicationSourceDigest(edited)).not.toBe(digest);
-    expect(applicationSourceDigest(deleted)).not.toBe(digest);
+    write(checkout, "e2e/army/local/hub.e2e.ts", "export const edited = 1;\n");
+    write(checkout, "e2e/army/local/new.e2e.ts", "export {};\n");
+    write(checkout, "e2e.config.ts", "export default { workers: 2 };\n");
+    expect(applicationSourceDigest(await inputs())).toBe(digest);
+
+    for (const file of ["src/app/page.tsx", "src/lib/total.ts", "next.config.ts", "package.json", "package-lock.json", "tsconfig.json"]) {
+      const original = fs.readFileSync(path.join(checkout, file), "utf8");
+      write(checkout, file, `${original}\n`);
+      expect(applicationSourceDigest(await inputs()), file).not.toBe(digest);
+      write(checkout, file, original);
+    }
+    expect(applicationSourceDigest(await inputs())).toBe(digest);
+    write(checkout, "src/lib/added.ts", "export {};\n");
+    expect(applicationSourceDigest(await inputs())).not.toBe(digest);
+    fs.rmSync(path.join(checkout, "src/lib/added.ts"));
+    fs.rmSync(path.join(checkout, "src/lib/total.ts"));
+    const deleted = applicationSourceDigest(await inputs());
+    expect(deleted).not.toBe(digest);
 
     const built = { appSourceSha256: digest, buildId: "build-1" };
     const intact = { buildManifestIntact: true };
     expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: "build-1", ...intact })).toMatchObject({ rebuild: false });
     expect(decideRebuild({ built: undefined, appSourceSha256: digest, buildIdOnDisk: "build-1", ...intact })).toMatchObject({ rebuild: true });
-    expect(decideRebuild({ built, appSourceSha256: applicationSourceDigest(edited), buildIdOnDisk: "build-1", ...intact }))
+    expect(decideRebuild({ built, appSourceSha256: deleted, buildIdOnDisk: "build-1", ...intact }))
       .toMatchObject({ rebuild: true, reason: expect.stringMatching(/application sources changed/) });
     expect(decideRebuild({ built, appSourceSha256: digest, buildIdOnDisk: "build-2", ...intact }))
       .toMatchObject({ rebuild: true, reason: expect.stringMatching(/replaced/) });
@@ -300,14 +328,13 @@ describe("TesterArmy dev loop", () => {
     const checkout = temporaryDirectory();
     await prepareArmyTypeScriptConfig(checkout);
     const config = JSON.parse(fs.readFileSync(path.join(checkout, ".build/tester-army/tsconfig.json"), "utf8")) as { include: string[] };
-    const inputs = (await buildSourceEvidence()).inputs.map((input: { path: string }) => input.path);
     // Generated by Next at build time, not repository sources.
     const generated = new Set(["../../next-env.d.ts", "next/types/**/*.ts", "next/dev/types/**/*.ts"]);
     for (const include of config.include.filter((pattern) => !generated.has(pattern))) {
       expect(include.startsWith("../../"), include).toBe(true);
       const prefix = include.slice("../../".length).split("*")[0];
       expect(prefix.startsWith("e2e/"), include).toBe(false);
-      expect(inputs.some((file: string) => file.startsWith(prefix)), include).toBe(true);
+      expect(buildSourceScopes.some((scope: string) => prefix === scope || prefix.startsWith(`${scope}/`)), include).toBe(true);
     }
   });
 
@@ -388,16 +415,36 @@ describe("TesterArmy dev loop", () => {
   });
 
   describe.skipIf(process.platform === "win32")("supervisor session", () => {
+    it("decides each rebuild from its own checkout and records that checkout's sources", async () => {
+      const loop = await openSession();
+      try {
+        write(loop.checkout, "e2e/army/local/hub.e2e.ts", "export const edited = 1;\n");
+        write(loop.checkout, "e2e/army/local/new.e2e.ts", "export {};\n");
+        const [journeyOnly] = await loop.results("HUB03");
+        expect(journeyOnly).toMatchObject({ status: "passed", rebuilt: false });
+        const manifest = JSON.parse(fs.readFileSync(path.join(loop.checkout, String(journeyOnly.evidence)), "utf8")) as { source: unknown };
+        expect(manifest.source).toMatchObject({
+          revision: git(loop.checkout, "rev-parse", "HEAD"),
+          untrackedJourneyInputs: [expect.objectContaining({ path: "e2e/army/local/new.e2e.ts" })],
+        });
+        expect(loop.journeys).toEqual(["HUB03"]);
+      } finally {
+        loop.controller.abort("SIGTERM");
+        await within(loop.session, 5_000, "the session returns after SIGTERM");
+      }
+    }, 60_000);
+
     it("rechecks migrations and config.toml after a rebuild, immediately before the journeys", async () => {
-      // The stub's empty inputs make the iteration rebuild; a new migration
-      // lands as it returns. build-local.mjs would not see that untracked file
+      // An application edit makes the iteration rebuild; a new migration lands
+      // as the build returns. build-local.mjs would not see that untracked file
       // either (supabase/ is outside its scopes): only the recheck refuses it (15).
       const loop = await openSession({
         afterBuild: (count, checkout) => {
-          if (count === 2) fs.writeFileSync(path.join(checkout, "supabase/migrations/002_during_build.sql"), "create table b ();\n");
+          if (count === 2) write(checkout, "supabase/migrations/002_during_build.sql", "create table b ();\n");
         },
       });
       try {
+        write(loop.checkout, "src/app/page.tsx", "export default function Page() { return 1; }\n");
         expect(await loop.results("HUB03")).toEqual([expect.objectContaining({
           status: "failed", rebuilt: true, error: expect.stringMatching(/Migrations or supabase\/config.toml changed/),
         })]);

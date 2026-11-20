@@ -1549,7 +1549,7 @@
           "Affaires"
         ],
         "summary": "Parcourir Drive, gérer des liens, vérifier la version d’une pièce ou retirer un compte",
-        "description": "Drive désactivé par défaut. Autorisation tenant/affaire à chaque opération. Les opérations de sélection désignent un compte Google enregistré du membre, jamais un jeton. Lier un fichier n’en copie pas le contenu. check_version désigne la pièce active de l’affaire par son documentId et lit ses métadonnées avec le compte qui l’a liée. Le champ versionStatus vaut unchanged, newer ou unknown. Le contrôle ne modifie pas la pièce et ne déclenche aucune analyse.",
+        "description": "Drive désactivé par défaut. Autorisation tenant/affaire à chaque opération. Les opérations de sélection désignent un compte Google enregistré du membre, jamais un jeton. Lier un fichier n’en copie pas le contenu. check_version désigne la pièce active de l’affaire par son documentId et lit ses métadonnées avec le compte qui l’a liée. Le champ versionStatus vaut unchanged, newer ou unknown. Le contrôle ne modifie pas la pièce et ne déclenche aucune analyse. disconnect retire le compte puis révoque son accès chez Google, sauf s'il reste connecté ailleurs dans MergeOne ; la réponse indique revoked et stillUsed.",
         "parameters": [
           {
             "name": "projectId",
@@ -18777,7 +18777,7 @@
           "Affaires"
         ],
         "summary": "Gérer le compte Drive et ses écritures explicites",
-        "description": "Vérifie le membre, le tenant et la version affichée. Désactiver l'écriture efface son jeton, sans révoquer tout le compte Google. Le Picker reçoit uniquement un jeton drive.file court. Commentaire et renommage sont limités aux fichiers autorisés par Google, avec vérification des capacités du fichier. Même origine obligatoire, réponse privée sans cache.",
+        "description": "Vérifie le membre, le tenant et la version affichée. Retirer le compte (disconnect) le supprime puis révoque son accès chez Google, sauf si le même compte Google reste connecté ailleurs dans MergeOne ; la réponse indique revoked et stillUsed, et un échec chez Google n'empêche pas le retrait. Désactiver l'écriture efface son jeton, sans révoquer tout le compte Google. Le Picker reçoit uniquement un jeton drive.file court. Commentaire et renommage sont limités aux fichiers autorisés par Google, avec vérification des capacités du fichier. Même origine obligatoire, réponse privée sans cache.",
         "requestBody": {
           "description": "Action explicite du propriétaire ; aucun jeton fourni par le navigateur.",
           "required": true,
@@ -24531,127 +24531,6 @@
             }
           }
         }
-      },
-      "post": {
-        "tags": [
-          "Takeoff"
-        ],
-        "summary": "Creer un job Takeoff",
-        "description": "Cree un job Takeoff a partir d'un upload CSV/XLS/XLSX ou PDF et retourne le job pending.",
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "description": "Cle optionnelle d'idempotence pour dedupliquer les creations de jobs Takeoff.",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/IdempotencyKeyHeaderParameter"
-            }
-          }
-        ],
-        "requestBody": {
-          "description": "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id`, `level=A/B/C` et `provider` optionnel (auto ou chatgpt). Le forfait ChatGPT local doit être connecté.",
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTakeoffJobFormDataRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Job Takeoff cree avec succes.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffJobCreateResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Requete invalide ou payload non conforme.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentification requise.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Acces interdit.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Ressource introuvable.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflit metier ou de concurrence.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Fichier trop volumineux (maximum 10 Mo).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation metier echouee (niveau non supporte, format fichier ou UUID invalides).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Erreur interne serveur.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/takeoff/jobs/{jobId}": {
@@ -26291,108 +26170,6 @@
         }
       }
     },
-    "/api/takeoff/jobs/{jobId}/reconcile": {
-      "post": {
-        "tags": [
-          "Takeoff"
-        ],
-        "summary": "Reconcilier un job Takeoff",
-        "description": "Reconcilie l'etat du job et relance le traitement asynchrone si necessaire.",
-        "parameters": [
-          {
-            "name": "jobId",
-            "in": "path",
-            "description": "Identifiant UUID du job Takeoff.",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/ReconcileTakeoffJobJobIdParameter"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "État confirmé du job et résultat de la réconciliation.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffReconcileResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Requete invalide ou payload non conforme.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentification requise.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Acces interdit.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Ressource introuvable.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflit metier ou de concurrence.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Erreur interne serveur.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Worker asynchrone indisponible.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/takeoff/jobs/{jobId}/resubmit": {
       "post": {
         "tags": [
@@ -26478,108 +26255,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/takeoff/jobs/{jobId}/retry": {
-      "post": {
-        "tags": [
-          "Takeoff"
-        ],
-        "summary": "Relancer un job Takeoff echoue",
-        "description": "Relance un job en echec si la limite de retry n'est pas atteinte et si le delai de backoff est ecoule.",
-        "parameters": [
-          {
-            "name": "jobId",
-            "in": "path",
-            "description": "Identifiant UUID du job takeoff.",
-            "required": true,
-            "schema": {
-              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Job takeoff relance.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffJobActionResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Requete invalide ou payload non conforme.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentification requise.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Acces interdit.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Job takeoff introuvable.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflit metier ou de concurrence.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation metier echouee.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Erreur interne serveur.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
                 }
               }
             }
@@ -29469,7 +29144,6 @@
               "TAKEOFF_FILE_TOO_LARGE",
               "TAKEOFF_FILE_TYPE_INVALID",
               "TAKEOFF_PDF_CORRUPTED",
-              "TAKEOFF_PDF_INSPECTION_TIMEOUT",
               "TAKEOFF_PDF_NOT_INTERPRETABLE",
               "TAKEOFF_LEVEL_UNSUPPORTED",
               "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
@@ -29477,8 +29151,6 @@
               "TAKEOFF_TENANT_UNAUTHORIZED",
               "TAKEOFF_TENANT_INACTIVE",
               "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
-              "IDEMPOTENCY_KEY_INVALID",
-              "IDEMPOTENCY_KEY_REUSED",
               "AI_RATE_LIMIT",
               "AI_TIMEOUT",
               "AI_SCHEMA",
@@ -29544,7 +29216,6 @@
                   "TAKEOFF_FILE_TOO_LARGE",
                   "TAKEOFF_FILE_TYPE_INVALID",
                   "TAKEOFF_PDF_CORRUPTED",
-                  "TAKEOFF_PDF_INSPECTION_TIMEOUT",
                   "TAKEOFF_PDF_NOT_INTERPRETABLE",
                   "TAKEOFF_LEVEL_UNSUPPORTED",
                   "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
@@ -29552,8 +29223,6 @@
                   "TAKEOFF_TENANT_UNAUTHORIZED",
                   "TAKEOFF_TENANT_INACTIVE",
                   "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
-                  "IDEMPOTENCY_KEY_INVALID",
-                  "IDEMPOTENCY_KEY_REUSED",
                   "AI_RATE_LIMIT",
                   "AI_TIMEOUT",
                   "AI_SCHEMA",
@@ -83210,9 +82879,6 @@
                         "null"
                       ]
                     },
-                    "can_reconcile": {
-                      "type": "boolean"
-                    },
                     "can_cancel": {
                       "type": "boolean"
                     },
@@ -83409,140 +83075,6 @@
               "jobs",
               "counters",
               "pagination"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "ok",
-          "data"
-        ],
-        "additionalProperties": false
-      },
-      "IdempotencyKeyHeaderParameter": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 255
-      },
-      "CreateTakeoffJobFormDataRequest": {
-        "type": "object",
-        "properties": {
-          "file": {},
-          "estimate_version_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "level": {
-            "type": "string",
-            "enum": [
-              "A",
-              "B",
-              "C"
-            ]
-          },
-          "provider": {
-            "type": "string",
-            "enum": [
-              "auto",
-              "chatgpt"
-            ]
-          },
-          "preparation_revision": {
-            "type": "string",
-            "pattern": "^[1-9]\\d*$"
-          }
-        },
-        "required": [
-          "file",
-          "estimate_version_id",
-          "level",
-          "preparation_revision"
-        ]
-      },
-      "ApiTakeoffJobCreateResponse": {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true
-          },
-          "data": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "pending",
-                  "processing",
-                  "completed",
-                  "failed",
-                  "canceled",
-                  "applied"
-                ]
-              },
-              "level": {
-                "type": "string",
-                "enum": [
-                  "A",
-                  "B",
-                  "C"
-                ]
-              },
-              "source_file_name": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "estimate_version_id": {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              "created_at": {
-                "type": "string"
-              },
-              "dispatch": {
-                "type": "object",
-                "properties": {
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "accepted",
-                      "queued_for_recovery",
-                      "persistence_unconfirmed"
-                    ]
-                  },
-                  "correlation_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "persisted": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "status",
-                  "correlation_id",
-                  "persisted"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "id",
-              "status",
-              "level",
-              "source_file_name",
-              "estimate_version_id",
-              "created_at"
             ],
             "additionalProperties": false
           }
@@ -83868,9 +83400,6 @@
                       "string",
                       "null"
                     ]
-                  },
-                  "can_reconcile": {
-                    "type": "boolean"
                   },
                   "can_cancel": {
                     "type": "boolean"
@@ -85055,9 +84584,6 @@
                       "null"
                     ]
                   },
-                  "can_reconcile": {
-                    "type": "boolean"
-                  },
                   "can_cancel": {
                     "type": "boolean"
                   },
@@ -85566,9 +85092,6 @@
                       "null"
                     ]
                   },
-                  "can_reconcile": {
-                    "type": "boolean"
-                  },
                   "can_cancel": {
                     "type": "boolean"
                   },
@@ -85698,9 +85221,7 @@
               "command": {
                 "type": "string",
                 "enum": [
-                  "retry",
                   "cancel",
-                  "reconcile",
                   "resubmit"
                 ]
               },
@@ -92680,497 +92201,6 @@
         ],
         "additionalProperties": false
       },
-      "ReconcileTakeoffJobJobIdParameter": {
-        "type": "string",
-        "format": "uuid",
-        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-      },
-      "ApiTakeoffReconcileResponse": {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true
-          },
-          "data": {
-            "type": "object",
-            "properties": {
-              "job": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "estimate_version_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "processing",
-                      "completed",
-                      "failed",
-                      "canceled",
-                      "applied"
-                    ]
-                  },
-                  "level": {
-                    "type": "string",
-                    "enum": [
-                      "A",
-                      "B",
-                      "C"
-                    ]
-                  },
-                  "processing_strategy": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "sync",
-                          "batch"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider_batch_id": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_batch_state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "submitted",
-                          "pending",
-                          "running",
-                          "succeeded",
-                          "failed",
-                          "cancelled",
-                          "expired",
-                          "unknown"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider_batch_updated_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_type": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_size_bytes": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "plan_set_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "prompt_version": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "schema_version": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "model": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "thinking_level": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "media_resolution": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "retry_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "error_code": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "error_message": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "next_retry_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "last_error_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "dispatch_status": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "started",
-                          "queued",
-                          "trigger_failed"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_outcome": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "accepted",
-                          "configuration_missing",
-                          "http_error",
-                          "timeout",
-                          "network_error"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_trigger": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "create",
-                          "retry",
-                          "manual",
-                          "reconcile"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_correlation_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_status_code": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 100,
-                        "maximum": 599
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_updated_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_reconcile_due_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_reconcile_attempt_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "provider_reconcile_lease_expires_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "operator_state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "none",
-                          "submitted_to_provider",
-                          "awaiting_provider_result",
-                          "provider_failed",
-                          "orphan_to_reconcile"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "operator_state_label": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "can_reconcile": {
-                    "type": "boolean"
-                  },
-                  "can_cancel": {
-                    "type": "boolean"
-                  },
-                  "can_resubmit": {
-                    "type": "boolean"
-                  },
-                  "started_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "completed_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "created_at": {
-                    "type": "string"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  },
-                  "items_count": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "version_number": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "metrics": {
-                    "type": "object",
-                    "properties": {
-                      "token_count": {
-                        "anyOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "cost_cents": {
-                        "anyOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "duration_ms": {
-                        "anyOf": [
-                          {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      }
-                    },
-                    "required": [
-                      "token_count",
-                      "cost_cents",
-                      "duration_ms"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "id",
-                  "estimate_version_id",
-                  "status",
-                  "level",
-                  "processing_strategy",
-                  "provider_batch_id",
-                  "provider_batch_state",
-                  "provider_batch_updated_at",
-                  "source_file_name",
-                  "source_file_type",
-                  "source_file_size_bytes",
-                  "prompt_version",
-                  "schema_version",
-                  "model",
-                  "thinking_level",
-                  "media_resolution",
-                  "retry_count",
-                  "error_code",
-                  "error_message",
-                  "next_retry_at",
-                  "last_error_at",
-                  "started_at",
-                  "completed_at",
-                  "created_at",
-                  "updated_at",
-                  "metrics"
-                ],
-                "additionalProperties": false
-              },
-              "command": {
-                "type": "string",
-                "enum": [
-                  "retry",
-                  "cancel",
-                  "reconcile",
-                  "resubmit"
-                ]
-              },
-              "outcome": {
-                "type": "string",
-                "enum": [
-                  "applied",
-                  "noop"
-                ]
-              },
-              "dispatch": {
-                "type": "object",
-                "properties": {
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "accepted",
-                      "queued_for_recovery",
-                      "persistence_unconfirmed"
-                    ]
-                  },
-                  "correlation_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "persisted": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "status",
-                  "correlation_id",
-                  "persisted"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "job"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "ok",
-          "data"
-        ],
-        "additionalProperties": false
-      },
       "ResubmitTakeoffJobJobIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -93477,9 +92507,6 @@
                       "null"
                     ]
                   },
-                  "can_reconcile": {
-                    "type": "boolean"
-                  },
                   "can_cancel": {
                     "type": "boolean"
                   },
@@ -93609,9 +92636,7 @@
               "command": {
                 "type": "string",
                 "enum": [
-                  "retry",
                   "cancel",
-                  "reconcile",
                   "resubmit"
                 ]
               },

@@ -5,7 +5,7 @@ import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import type { CallGeminiStructuredOptions, CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
+import type { StructuredCallOptions, StructuredCallResult } from "@/lib/ai/structured-call";
 import {
   chatGptModelReasoningCapabilities, chatGptPreferencesSchema, DEFAULT_CHATGPT_MODEL,
   type ChatGptAvailableModel, type ChatGptPreferences, type ChatGptReasoningEffort,
@@ -217,7 +217,7 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
 }
 
 type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
-export type LocalChatGptResult<T> = CallGeminiStructuredResult<T> & { reasoningEffort: ChatGptReasoningEffort | null };
+export type LocalChatGptResult<T> = StructuredCallResult<T> & { reasoningEffort: ChatGptReasoningEffort | null };
 /** An answer that is not JSON (SyntaxError) or does not match the schema (ZodError). */
 export type LocalChatGptSchemaError = SyntaxError | z.ZodError;
 /**
@@ -229,13 +229,13 @@ export type LocalChatGptRawResult<T> =
   | (LocalChatGptResult<T> & { rawText: string; schemaError: null })
   | (Omit<LocalChatGptResult<T>, "data"> & { data: null; rawText: string; schemaError: LocalChatGptSchemaError });
 
-export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>,
+export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: StructuredCallOptions<T>,
   selection?: LocalChatGptSelection, override?: LocalChatGptOverride): Promise<LocalChatGptResult<T>>;
 /** Provider errors still throw; only the answer's parse comes back as `schemaError`. */
-export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>,
+export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: StructuredCallOptions<T>,
   selection: LocalChatGptSelection | undefined, override: LocalChatGptOverride | undefined,
   mode: { returnRawOnSchemaError: true }): Promise<LocalChatGptRawResult<T>>;
-export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: CallGeminiStructuredOptions<T>, selection?: LocalChatGptSelection, override?: LocalChatGptOverride, mode?: { returnRawOnSchemaError: true }): Promise<LocalChatGptResult<T> | LocalChatGptRawResult<T>> {
+export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: StructuredCallOptions<T>, selection?: LocalChatGptSelection, override?: LocalChatGptOverride, mode?: { returnRawOnSchemaError: true }): Promise<LocalChatGptResult<T> | LocalChatGptRawResult<T>> {
   const startedAt = Date.now();
   const credential = await getLocalChatGptCredential(owner);
   if (!credential) throw new Error("Connectez votre compte ChatGPT.");
@@ -283,7 +283,7 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
     tokenCount: usage.total_tokens, tokenUsage,
     // No API-priced charge: the request consumes the user's ChatGPT allowance.
     costCents: 0, model: sent.model, reasoningEffort,
-    promptVersion: options.context?.promptVersion ?? "unknown", providerBatchId: null, providerBatchStateRaw: null,
+    promptVersion: options.context?.promptVersion ?? "unknown",
   };
   let data: T;
   try {

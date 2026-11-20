@@ -18,13 +18,7 @@ type WorkerJobRow = {
   tenant_id: string;
   level: string;
   status: string;
-  processing_strategy: string | null;
-  provider_batch_id: string | null;
-  provider_batch_state: string | null;
-  provider_reconcile_due_at: string | null;
-  provider_reconcile_attempt_count: number;
-  provider_reconcile_lease_token: string | null;
-  provider_reconcile_lease_expires_at: string | null;
+  execution_provider: string | null;
   retry_count: number;
   error_code: string | null;
   error_message: string | null;
@@ -51,12 +45,6 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
       jobId: string;
       tenantId: string;
       lastErrorAtIso?: string;
-    }>,
-    reconcileCalls: [] as Array<{
-      jobId: string;
-      tenantId: string;
-      dueAtIso: string;
-      leaseToken: string;
     }>,
     unsupportedCalls: [] as Array<{
       jobId: string;
@@ -111,39 +99,7 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
         };
       }
     ),
-    acquireBatchReconcileLease: vi.fn(
-      async (input: { jobId: string; tenantId: string; nowIso: string; leaseToken: string; leaseExpiresAtIso: string }): Promise<{ claimed: boolean; attemptCount: number | null }> => {
-        void input;
-        return { claimed: false, attemptCount: null };
-      }
-    ),
     renewLease: vi.fn(async () => undefined),
-    scheduleReconcile: vi.fn(
-      async (input: { jobId: string; tenantId: string; dueAtIso: string; leaseToken: string }) => {
-        state.reconcileCalls.push(input);
-        state.job = {
-          ...state.job,
-          provider_reconcile_due_at: input.dueAtIso,
-          provider_reconcile_lease_token: null,
-          provider_reconcile_lease_expires_at: null,
-        };
-      }
-    ),
-    markBatchReconcileTimeoutAsFailed: vi.fn(
-      async (input: { jobId: string; tenantId: string; nowIso: string; leaseToken: string }) => {
-        state.job = {
-          ...state.job,
-          status: "failed",
-          error_code: TakeoffErrorCode.AI_TIMEOUT,
-          error_message:
-            "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.",
-          provider_reconcile_due_at: null,
-          provider_reconcile_lease_token: null,
-          provider_reconcile_lease_expires_at: null,
-          last_error_at: input.nowIso,
-        };
-      }
-    ),
   };
 
   return {
@@ -159,13 +115,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "pending",
-      processing_strategy: "sync",
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
+      execution_provider: "chatgpt_local",
       retry_count: 0,
       error_code: null,
       error_message: null,
@@ -196,13 +146,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "pending",
-      processing_strategy: "sync",
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
+      execution_provider: "chatgpt_local",
       retry_count: 0,
       error_code: null,
       error_message: null,
@@ -255,13 +199,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
-      processing_strategy: "sync",
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
+      execution_provider: "chatgpt_local",
       retry_count: 3,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out",
@@ -310,13 +248,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
-      processing_strategy: "sync",
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
+      execution_provider: "chatgpt_local",
       retry_count: 1,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out",
@@ -347,13 +279,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
-      processing_strategy: "sync",
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
+      execution_provider: "chatgpt_local",
       retry_count: 1,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out",
@@ -394,13 +320,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
-      processing_strategy: "sync",
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
+      execution_provider: "chatgpt_local",
       retry_count: 1,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out during previous attempt",
@@ -445,13 +365,7 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "processing",
-      processing_strategy: "sync",
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 0,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
+      execution_provider: "chatgpt_local",
       retry_count: 1,
       error_code: null,
       error_message: null,
@@ -475,108 +389,6 @@ describe("processTakeoffJobAttempt", () => {
     expect(processLevelAFn).not.toHaveBeenCalled();
   });
 
-  it("reconciles persisted terminal batch states instead of timing them out", async () => {
-    const { state, repository } = createWorkerRepository({
-      id: JOB_ID,
-      tenant_id: TENANT_ID,
-      level: "A",
-      status: "processing",
-      processing_strategy: "batch",
-      provider_batch_id: "batches/test-terminal",
-      provider_batch_state: "succeeded",
-      provider_reconcile_due_at: null,
-      provider_reconcile_attempt_count: 4,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
-      retry_count: 1,
-      error_code: null,
-      error_message: null,
-      created_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-      next_retry_at: null,
-      last_error_at: null,
-    });
-
-    repository.acquireBatchReconcileLease.mockResolvedValueOnce({
-      claimed: true,
-      attemptCount: 999,
-    });
-    const reconcileTakeoffBatchJobFn = vi.fn(async () => {
-      state.job = {
-        ...state.job,
-        status: "completed",
-        error_code: null,
-        error_message: null,
-      };
-
-      return {
-        jobId: JOB_ID,
-        resultId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-        status: "completed" as const,
-        itemsCount: 1,
-        warningsCount: 0,
-        tokenCount: 100,
-        costCents: 12,
-        durationMs: 250,
-      };
-    });
-
-    const outcome = await processTakeoffJobAttempt(JOB_ID, {
-      correlationId: CORRELATION_ID,
-      trigger: "reconcile",
-      repository,
-      reconcileTakeoffBatchJobFn,
-      now: () => FIXED_NOW,
-      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    });
-
-    expect(outcome.status).toBe("completed");
-    expect(reconcileTakeoffBatchJobFn).toHaveBeenCalledTimes(1);
-    expect(repository.markBatchReconcileTimeoutAsFailed).not.toHaveBeenCalled();
-    expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
-  });
-
-  it("renews the five-minute batch lease and fences reconcile scheduling with its token", async () => {
-    const { repository } = createWorkerRepository({
-      id: JOB_ID,
-      tenant_id: TENANT_ID,
-      level: "A",
-      status: "processing",
-      processing_strategy: "batch",
-      provider_batch_id: "batches/test-pending",
-      provider_batch_state: "running",
-      provider_reconcile_due_at: FIXED_NOW.toISOString(),
-      provider_reconcile_attempt_count: 1,
-      provider_reconcile_lease_token: null,
-      provider_reconcile_lease_expires_at: null,
-      retry_count: 0,
-      error_code: null,
-      error_message: null,
-      created_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-      next_retry_at: null,
-      last_error_at: null,
-    });
-    repository.acquireBatchReconcileLease.mockResolvedValueOnce({ claimed: true, attemptCount: 2 });
-    const reconcile = vi.fn(async (_jobId: string, options: { renewLease?: (input: { jobId: string; tenantId: string; leaseToken: string }) => Promise<void> }) => {
-      const token = repository.acquireBatchReconcileLease.mock.calls[0]![0].leaseToken;
-      await options.renewLease?.({ jobId: JOB_ID, tenantId: TENANT_ID, leaseToken: token });
-      return { jobId: JOB_ID, status: "awaiting_provider_result" as const, providerBatchId: "batches/test-pending", providerBatchStateRaw: "JOB_STATE_RUNNING", durationMs: 10 };
-    });
-
-    const outcome = await processTakeoffJobAttempt(JOB_ID, {
-      correlationId: CORRELATION_ID,
-      trigger: "reconcile",
-      repository,
-      reconcileTakeoffBatchJobFn: reconcile as never,
-      now: () => FIXED_NOW,
-      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    });
-
-    const claim = repository.acquireBatchReconcileLease.mock.calls[0]![0];
-    expect(claim.leaseExpiresAtIso).toBe("2026-02-25T11:05:00.000Z");
-    expect(repository.renewLease).toHaveBeenCalledWith(expect.objectContaining({ kind: "reconcile", leaseToken: claim.leaseToken, leaseExpiresAtIso: "2026-02-25T11:05:00.000Z" }));
-    expect(repository.scheduleReconcile).toHaveBeenCalledWith(expect.objectContaining({ leaseToken: claim.leaseToken }));
-    expect(outcome.status).toBe("awaiting_provider_result");
-  });
 });
 
 type AttemptProcessorOptions = {
@@ -597,8 +409,6 @@ type RecordedMock = {
 const LEASE_TOKEN = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const CREATED_BY = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const RESULT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
-const BATCH_TIMEOUT_MESSAGE =
-  "Le batch provider n'a pas atteint d'état terminal après epuisement des tentatives de reconciliation.";
 
 function at(seconds: number) {
   return new Date(FIXED_NOW.getTime() + seconds * 1000).toISOString();
@@ -610,13 +420,7 @@ function workerJob(overrides: Partial<WorkerJobRow> = {}): WorkerJobRow {
     tenant_id: TENANT_ID,
     level: "A",
     status: "pending",
-    processing_strategy: "sync",
-    provider_batch_id: null,
-    provider_batch_state: null,
-    provider_reconcile_due_at: null,
-    provider_reconcile_attempt_count: 0,
-    provider_reconcile_lease_token: null,
-    provider_reconcile_lease_expires_at: null,
+    execution_provider: "chatgpt_local",
     retry_count: 0,
     error_code: null,
     error_message: null,
@@ -625,17 +429,6 @@ function workerJob(overrides: Partial<WorkerJobRow> = {}): WorkerJobRow {
     last_error_at: null,
     ...overrides,
   };
-}
-
-function batchJob(overrides: Partial<WorkerJobRow> = {}) {
-  return workerJob({
-    status: "processing",
-    processing_strategy: "batch",
-    provider_batch_id: "batches/test-running",
-    provider_batch_state: "running",
-    provider_reconcile_attempt_count: 1,
-    ...overrides,
-  });
 }
 
 function completedResult() {
@@ -648,16 +441,6 @@ function completedResult() {
     tokenCount: 100,
     costCents: 12,
     durationMs: 250,
-  };
-}
-
-function awaitingProviderResult() {
-  return {
-    jobId: JOB_ID,
-    status: "awaiting_provider_result" as const,
-    providerBatchId: "batches/test-running",
-    providerBatchStateRaw: "JOB_STATE_RUNNING",
-    durationMs: 10,
   };
 }
 
@@ -722,9 +505,8 @@ function createAttemptHarness(initialJob: WorkerJobRow) {
   const processLevelAFn = vi.fn<AttemptProcessor>();
   const processLevelBFn = vi.fn<AttemptProcessor>();
   const processLevelCFn = vi.fn<AttemptProcessor>();
-  const reconcileTakeoffBatchJobFn = vi.fn<AttemptProcessor>();
 
-  const run = (trigger: "create" | "retry" | "manual" | "reconcile", jobId = JOB_ID) =>
+  const run = (trigger: "create" | "retry" | "manual", jobId = JOB_ID) =>
     processTakeoffJobAttempt(jobId, {
       correlationId: CORRELATION_ID,
       trigger,
@@ -732,7 +514,6 @@ function createAttemptHarness(initialJob: WorkerJobRow) {
       processLevelAFn: processLevelAFn as never,
       processLevelBFn: processLevelBFn as never,
       processLevelCFn: processLevelCFn as never,
-      reconcileTakeoffBatchJobFn: reconcileTakeoffBatchJobFn as never,
       now,
       logger,
     });
@@ -743,16 +524,11 @@ function createAttemptHarness(initialJob: WorkerJobRow) {
       processLevelA: processLevelAFn as unknown as RecordedMock,
       processLevelB: processLevelBFn as unknown as RecordedMock,
       processLevelC: processLevelCFn as unknown as RecordedMock,
-      reconcileTakeoffBatchJob: reconcileTakeoffBatchJobFn as unknown as RecordedMock,
       "logger.info": logger.info as unknown as RecordedMock,
       "logger.warn": logger.warn as unknown as RecordedMock,
       "logger.error": logger.error as unknown as RecordedMock,
       reportError: vi.mocked(reportError) as unknown as RecordedMock,
     });
-
-  const claimLease = (attemptCount: number | null) => {
-    repository.acquireBatchReconcileLease.mockResolvedValueOnce({ claimed: true, attemptCount });
-  };
 
   return {
     state,
@@ -762,20 +538,10 @@ function createAttemptHarness(initialJob: WorkerJobRow) {
     processLevelAFn,
     processLevelBFn,
     processLevelCFn,
-    reconcileTakeoffBatchJobFn,
     run,
     sequence,
-    claimLease,
   };
 }
-
-const leaseClaim = {
-  jobId: JOB_ID,
-  tenantId: TENANT_ID,
-  nowIso: at(2),
-  leaseToken: LEASE_TOKEN,
-  leaseExpiresAtIso: at(3 + 300),
-};
 
 describe("processTakeoffJobAttempt attempt endings", () => {
   beforeEach(() => {
@@ -835,6 +601,23 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         })
       );
       expect(harness.sequence()).toEqual([["getJobById", JOB_ID]]);
+    });
+
+    it("refuses a job of a former provider before any write or processing", async () => {
+      const harness = createAttemptHarness(
+        workerJob({ status: "failed", execution_provider: "gemini", retry_count: 1, next_retry_at: at(-60), error_code: "AI_TIMEOUT" })
+      );
+
+      await expect(harness.run("retry")).rejects.toMatchObject({
+        code: TakeoffErrorCode.AI_PROVIDER,
+        status: 422,
+        retryable: false,
+        message: expect.stringContaining("Cet ancien métré"),
+      });
+      expect(harness.sequence()).toEqual([
+        ["getJobById", JOB_ID],
+        ["isTenantActive", TENANT_ID],
+      ]);
     });
 
     it("leaves a job of a suspended tenant untouched", async () => {
@@ -995,444 +778,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
     });
   });
 
-  describe("provider batch reconcile", () => {
-    it("leaves a batch whose reconcile lease is held by another worker", async () => {
-      const harness = createAttemptHarness(batchJob());
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({ status: "in_progress", trigger: "reconcile", durationMs: 1000 })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-      ]);
-    });
-
-    it("fails a batch that exhausted its reconcile attempts without a terminal provider state", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(25);
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "failed_terminal",
-          trigger: "reconcile",
-          durationMs: 4000,
-          errorCode: TakeoffErrorCode.AI_TIMEOUT,
-          errorMessage: BATCH_TIMEOUT_MESSAGE,
-        })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-        [
-          "markBatchReconcileTimeoutAsFailed",
-          { jobId: JOB_ID, tenantId: TENANT_ID, nowIso: at(2), leaseToken: LEASE_TOKEN },
-        ],
-      ]);
-    });
-
-    it("renews the lease and schedules the next reconcile while the provider is still running", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(3);
-      harness.reconcileTakeoffBatchJobFn.mockImplementationOnce(async (jobId, options) => {
-        await options.renewLease({ jobId, tenantId: TENANT_ID, leaseToken: LEASE_TOKEN });
-        return awaitingProviderResult();
-      });
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "awaiting_provider_result",
-          trigger: "reconcile",
-          shouldRequeue: true,
-          requeueReason: "reconcile",
-          nextRunInSeconds: 40,
-          nextRunAt: at(5 + 40),
-          durationMs: 6000,
-        })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-        ["reconcileTakeoffBatchJob", JOB_ID, expect.anything()],
-        [
-          "renewLease",
-          {
-            kind: "reconcile",
-            jobId: JOB_ID,
-            tenantId: TENANT_ID,
-            leaseToken: LEASE_TOKEN,
-            nowIso: at(4),
-            leaseExpiresAtIso: at(4 + 300),
-          },
-        ],
-        [
-          "scheduleReconcile",
-          { jobId: JOB_ID, tenantId: TENANT_ID, dueAtIso: at(5 + 40), leaseToken: LEASE_TOKEN },
-        ],
-      ]);
-    });
-
-    it("still reconciles a running batch at the last allowed reconcile attempt", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(24);
-      harness.reconcileTakeoffBatchJobFn.mockResolvedValueOnce(awaitingProviderResult());
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "awaiting_provider_result",
-          trigger: "reconcile",
-          shouldRequeue: true,
-          requeueReason: "reconcile",
-          nextRunInSeconds: 60,
-          nextRunAt: at(4 + 60),
-          durationMs: 5000,
-        })
-      );
-      expect(harness.repository.markBatchReconcileTimeoutAsFailed).not.toHaveBeenCalled();
-      expect(harness.reconcileTakeoffBatchJobFn).toHaveBeenCalledTimes(1);
-    });
-
-    it("schedules the next reconcile from the first backoff when the lease reports no attempt count", async () => {
-      const harness = createAttemptHarness(batchJob({ provider_reconcile_attempt_count: 3 }));
-      harness.claimLease(null);
-      harness.reconcileTakeoffBatchJobFn.mockResolvedValueOnce(awaitingProviderResult());
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "awaiting_provider_result",
-          trigger: "reconcile",
-          shouldRequeue: true,
-          requeueReason: "reconcile",
-          nextRunInSeconds: 10,
-          nextRunAt: at(4 + 10),
-          durationMs: 5000,
-        })
-      );
-      expect(harness.repository.scheduleReconcile).toHaveBeenCalledWith({
-        jobId: JOB_ID,
-        tenantId: TENANT_ID,
-        dueAtIso: at(4 + 10),
-        leaseToken: LEASE_TOKEN,
-      });
-    });
-
-    it("does not reschedule a reconcile once the refreshed job has no provider batch", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(2);
-      harness.reconcileTakeoffBatchJobFn.mockImplementationOnce(async () => {
-        harness.state.job = { ...harness.state.job, provider_batch_id: null };
-        throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "Provider indisponible", retryable: true });
-      });
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "in_progress",
-          trigger: "reconcile",
-          durationMs: 4000,
-          errorCode: TakeoffErrorCode.AI_PROVIDER,
-          errorMessage: "Provider indisponible",
-        })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-        ["reconcileTakeoffBatchJob", JOB_ID, expect.anything()],
-        ["getJobById", JOB_ID],
-      ]);
-    });
-
-    it("reports a reconciled batch with the refreshed job", async () => {
-      const harness = createAttemptHarness(batchJob({ retry_count: 1 }));
-      harness.claimLease(null);
-      harness.reconcileTakeoffBatchJobFn.mockImplementationOnce(async () => {
-        harness.state.job = {
-          ...harness.state.job,
-          status: "completed",
-          retry_count: 2,
-          error_message: "Note du rapprochement",
-        };
-        return completedResult();
-      });
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "completed",
-          trigger: "reconcile",
-          retryCount: 2,
-          durationMs: 4000,
-          errorMessage: "Note du rapprochement",
-        })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-        ["reconcileTakeoffBatchJob", JOB_ID, expect.anything()],
-        ["getJobById", JOB_ID],
-      ]);
-      expect(harness.reconcileTakeoffBatchJobFn.mock.calls[0]![1]).toEqual({
-        tenantId: TENANT_ID,
-        userId: CREATED_BY,
-        supabase: vi.mocked(createServiceRoleClient).mock.results.at(-1)!.value,
-        now: harness.now,
-        assertTenantActive: expect.any(Function),
-        renewLease: expect.any(Function),
-      });
-    });
-
-    it("schedules another reconcile after a retryable failure while the batch is still processing", async () => {
-      const harness = createAttemptHarness(batchJob({ provider_reconcile_attempt_count: 3 }));
-      harness.claimLease(null);
-      harness.reconcileTakeoffBatchJobFn.mockRejectedValueOnce(
-        new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "Provider indisponible", retryable: true })
-      );
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "awaiting_provider_result",
-          trigger: "reconcile",
-          retryable: true,
-          shouldRequeue: true,
-          requeueReason: "reconcile",
-          nextRunInSeconds: 40,
-          nextRunAt: at(4 + 40),
-          durationMs: 6000,
-          errorCode: TakeoffErrorCode.AI_PROVIDER,
-          errorMessage: "Provider indisponible",
-        })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-        ["reconcileTakeoffBatchJob", JOB_ID, expect.anything()],
-        ["getJobById", JOB_ID],
-        [
-          "scheduleReconcile",
-          { jobId: JOB_ID, tenantId: TENANT_ID, dueAtIso: at(4 + 40), leaseToken: LEASE_TOKEN },
-        ],
-        [
-          "logger.warn",
-          "Takeoff async worker scheduled reconcile retry",
-          {
-            job_id: JOB_ID,
-            tenant_id: TENANT_ID,
-            level: "A",
-            attempt: 1,
-            duration_ms: 5000,
-            status: "awaiting_provider_result",
-            correlation_id: CORRELATION_ID,
-            error_code: TakeoffErrorCode.AI_PROVIDER,
-          },
-        ],
-      ]);
-    });
-
-    it("settles a batch canceled during reconcile", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(2);
-      harness.reconcileTakeoffBatchJobFn.mockImplementationOnce(async () => {
-        harness.state.job = {
-          ...harness.state.job,
-          status: "canceled",
-          error_message: "Annulé par l'utilisateur",
-        };
-        throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Job annulé", retryable: false });
-      });
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "canceled",
-          trigger: "reconcile",
-          durationMs: 4000,
-          errorMessage: "Annulé par l'utilisateur",
-        })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-        ["reconcileTakeoffBatchJob", JOB_ID, expect.anything()],
-        ["getJobById", JOB_ID],
-        ["clearRetrySchedule", { jobId: JOB_ID, tenantId: TENANT_ID }],
-      ]);
-    });
-
-    it("reports a terminal failure when the batch reached a terminal status before the reconcile error", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(2);
-      harness.reconcileTakeoffBatchJobFn.mockImplementationOnce(async () => {
-        harness.state.job = { ...harness.state.job, status: "completed" };
-        throw new TakeoffError({ code: TakeoffErrorCode.AI_SCHEMA, message: "Sortie invalide", retryable: true });
-      });
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "failed_terminal",
-          trigger: "reconcile",
-          durationMs: 4000,
-          errorCode: TakeoffErrorCode.AI_SCHEMA,
-          errorMessage: "Sortie invalide",
-        })
-      );
-      expect(harness.repository.scheduleReconcile).not.toHaveBeenCalled();
-      expect(harness.repository.clearRetrySchedule).not.toHaveBeenCalled();
-    });
-
-    it.each([
-      {
-        name: "a non-retryable error while the batch is still processing",
-        afterError: {},
-        expected: { errorCode: TakeoffErrorCode.AI_SAFETY, errorMessage: "Bloqué" },
-      },
-      {
-        name: "a failure recorded by the reconcile itself",
-        afterError: { status: "failed", error_code: "AI_PROVIDER", error_message: "Batch en échec" },
-        expected: { errorCode: "AI_PROVIDER", errorMessage: "Batch en échec" },
-      },
-    ])("leaves the batch in progress after $name", async ({ afterError, expected }) => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(2);
-      harness.reconcileTakeoffBatchJobFn.mockImplementationOnce(async () => {
-        harness.state.job = { ...harness.state.job, ...afterError };
-        throw new TakeoffError({ code: TakeoffErrorCode.AI_SAFETY, message: "Bloqué", retryable: false });
-      });
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({ status: "in_progress", trigger: "reconcile", durationMs: 4000, ...expected })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-        ["reconcileTakeoffBatchJob", JOB_ID, expect.anything()],
-        ["getJobById", JOB_ID],
-      ]);
-    });
-
-    it("treats a reconcile lease lost while scheduling the next reconcile as a reconcile failure", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(2);
-      harness.reconcileTakeoffBatchJobFn.mockResolvedValueOnce(awaitingProviderResult());
-      harness.repository.scheduleReconcile.mockRejectedValueOnce(
-        new TakeoffError({
-          code: TakeoffErrorCode.CONFLICT,
-          message: "Le lease de reconciliation n'est plus disponible.",
-          retryable: false,
-        })
-      );
-
-      const outcome = await harness.run("reconcile");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "in_progress",
-          trigger: "reconcile",
-          durationMs: 5000,
-          errorCode: TakeoffErrorCode.CONFLICT,
-          errorMessage: "Le lease de reconciliation n'est plus disponible.",
-        })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["acquireBatchReconcileLease", leaseClaim],
-        ["reconcileTakeoffBatchJob", JOB_ID, expect.anything()],
-        [
-          "scheduleReconcile",
-          { jobId: JOB_ID, tenantId: TENANT_ID, dueAtIso: at(4 + 20), leaseToken: LEASE_TOKEN },
-        ],
-        ["getJobById", JOB_ID],
-      ]);
-    });
-
-    it("handles a failed refresh after a completed reconcile as a reconcile failure", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(2);
-      harness.reconcileTakeoffBatchJobFn.mockImplementationOnce(async () => {
-        harness.state.job = { ...harness.state.job, status: "completed" };
-        return completedResult();
-      });
-      harness.repository.getJobById
-        .mockImplementationOnce(async () => ({ ...harness.state.job }))
-        .mockRejectedValueOnce(new Error("lecture impossible"));
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-      try {
-        const outcome = await harness.run("reconcile");
-
-        expect(outcome).toEqual(
-          expectedOutcome({
-            status: "failed_terminal",
-            trigger: "reconcile",
-            durationMs: 4000,
-            errorCode: TakeoffErrorCode.INTERNAL_ERROR,
-            errorMessage: "La reconciliation batch du job takeoff a echoue.",
-          })
-        );
-        expect(harness.repository.getJobById).toHaveBeenCalledTimes(3);
-        expect(consoleError).toHaveBeenCalledWith("Unexpected takeoff error", expect.any(Error));
-      } finally {
-        consoleError.mockRestore();
-      }
-    });
-
-    it("propagates a failure to refresh the job after a reconcile error", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(2);
-      harness.reconcileTakeoffBatchJobFn.mockRejectedValueOnce(
-        new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: true })
-      );
-      const readFailure = new Error("lecture impossible");
-      harness.repository.getJobById
-        .mockImplementationOnce(async () => ({ ...harness.state.job }))
-        .mockRejectedValueOnce(readFailure);
-
-      await expect(harness.run("reconcile")).rejects.toBe(readFailure);
-      expect(harness.repository.scheduleReconcile).not.toHaveBeenCalled();
-      expect(harness.logger.warn).not.toHaveBeenCalled();
-    });
-
-    it("propagates a failure to schedule the reconcile retry", async () => {
-      const harness = createAttemptHarness(batchJob());
-      harness.claimLease(2);
-      harness.reconcileTakeoffBatchJobFn.mockRejectedValueOnce(
-        new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: true })
-      );
-      const conflict = new TakeoffError({ code: TakeoffErrorCode.CONFLICT, retryable: false });
-      harness.repository.scheduleReconcile.mockRejectedValueOnce(conflict);
-
-      await expect(harness.run("reconcile")).rejects.toBe(conflict);
-      expect(harness.logger.warn).not.toHaveBeenCalled();
-    });
-  });
-
   describe("level processing", () => {
     it("leaves a job another worker is processing", async () => {
       const harness = createAttemptHarness(workerJob({ status: "processing" }));
@@ -1532,35 +877,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
       );
     });
 
-    it("requeues a job submitted to the provider batch for an immediate reconcile", async () => {
-      const harness = createAttemptHarness(workerJob());
-      harness.processLevelAFn.mockResolvedValueOnce({
-        jobId: JOB_ID,
-        status: "submitted_to_provider",
-        providerBatchId: "batches/test-running",
-        durationMs: 10,
-      });
-
-      const outcome = await harness.run("create");
-
-      expect(outcome).toEqual(
-        expectedOutcome({
-          status: "submitted_to_provider",
-          trigger: "create",
-          shouldRequeue: true,
-          requeueReason: "reconcile",
-          nextRunInSeconds: 0,
-          nextRunAt: at(2),
-          durationMs: 3000,
-        })
-      );
-      expect(harness.sequence()).toEqual([
-        ["getJobById", JOB_ID],
-        ["isTenantActive", TENANT_ID],
-        ["processLevelA", JOB_ID, expect.anything()],
-      ]);
-    });
-
     it("renews the thirty-minute processing lease on the processor's request", async () => {
       const harness = createAttemptHarness(workerJob());
       harness.processLevelAFn.mockImplementationOnce(async (jobId, options) => {
@@ -1574,7 +890,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
       expect(harness.repository.renewLease.mock.calls).toEqual([
         [
           {
-            kind: "processing",
             jobId: JOB_ID,
             tenantId: TENANT_ID,
             leaseToken: LEASE_TOKEN,
@@ -1610,7 +925,7 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         ["getJobById", JOB_ID],
         ["isTenantActive", TENANT_ID],
         ["processLevelA", JOB_ID, expect.anything()],
-        ["renewLease", expect.objectContaining({ kind: "processing" })],
+        ["renewLease", expect.objectContaining({ jobId: JOB_ID, leaseToken: LEASE_TOKEN })],
         ["getJobById", JOB_ID],
       ]);
     });
@@ -1952,21 +1267,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
         },
       },
       {
-        stage: "the reconcile lease claim",
-        job: batchJob(),
-        arrange: (harness: ReturnType<typeof createAttemptHarness>, failure: Error) => {
-          harness.repository.acquireBatchReconcileLease.mockRejectedValueOnce(failure);
-        },
-      },
-      {
-        stage: "the batch timeout write",
-        job: batchJob(),
-        arrange: (harness: ReturnType<typeof createAttemptHarness>, failure: Error) => {
-          harness.claimLease(25);
-          harness.repository.markBatchReconcileTimeoutAsFailed.mockRejectedValueOnce(failure);
-        },
-      },
-      {
         stage: "the unsupported level write",
         job: workerJob({ level: "Z" }),
         arrange: (harness: ReturnType<typeof createAttemptHarness>, failure: Error) => {
@@ -1981,7 +1281,6 @@ describe("processTakeoffJobAttempt attempt endings", () => {
       await expect(harness.run("retry")).rejects.toBe(failure);
       expect(harness.logger.error).not.toHaveBeenCalled();
       expect(harness.processLevelAFn).not.toHaveBeenCalled();
-      expect(harness.reconcileTakeoffBatchJobFn).not.toHaveBeenCalled();
     });
   });
 });

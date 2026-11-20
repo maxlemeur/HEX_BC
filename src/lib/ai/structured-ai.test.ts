@@ -5,10 +5,8 @@ vi.mock("next/headers", () => ({ headers: vi.fn().mockResolvedValue(new Headers(
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn().mockResolvedValue({ userId: "user", tenantId: "tenant" }) }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn().mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "army-plan-model", accessToken: "fixture", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"] }] }) }));
 vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ callLocalChatGptStructured: vi.fn() }));
-vi.mock("@/lib/takeoff/gemini-client", () => ({ callGeminiStructured: vi.fn().mockResolvedValue({ data: { ok: true }, model: "gemini-model" }) }));
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
-import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 
 const options = { prompt: "test", schema: z.object({ ok: z.boolean() }) };
@@ -17,12 +15,10 @@ afterEach(() => vi.unstubAllEnvs());
 it("never falls back to the paid API after a selected ChatGPT connection fails", async () => {
   vi.mocked(callLocalChatGptStructured).mockRejectedValue(new Error("quota"));
   await expect(callStructuredAi(options)).rejects.toThrow("quota");
-  expect(callGeminiStructured).not.toHaveBeenCalled();
 });
 it("refuses inference outside the local opt-in without using a paid provider", async () => {
   vi.stubEnv("NODE_ENV", "production");
   await expect(callStructuredAi(options)).rejects.toThrow(/ChatGPT.*local/);
-  expect(callGeminiStructured).not.toHaveBeenCalled();
   expect(getAuthenticatedContext).not.toHaveBeenCalled();
 });
 it("uses the verified workflow creator without consulting HTTP identity", async () => {
@@ -33,5 +29,4 @@ it("uses the verified workflow creator without consulting HTTP identity", async 
 });
 it("refuses a workflow with no active creator without paid-provider fallback", async () => {
   await expect(callStructuredAi(options, null)).rejects.toThrow("créateur");
-  expect(callGeminiStructured).not.toHaveBeenCalled();
 });

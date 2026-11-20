@@ -6,10 +6,22 @@ les écritures sur les fichiers choisis dans Google Picker ; elle doit apparteni
 au même compte Google et ne remplace pas le jeton de lecture.
 
 Le profil permet de connecter, reconnecter, désactiver l'écriture et retirer le
-compte. Un retrait conserve les liens et copies existants. La révocation distante
-Google est manuelle car elle peut affecter toutes les connexions du même compte.
+compte. Un retrait conserve les liens et copies existants et révoque aussi
+l'accès chez Google, lecture et écriture. Google révoque en une fois tous les
+jetons d'un compte pour l'application : l'accès est donc conservé tant qu'une
+autre connexion MergeOne (autre entreprise ou autre membre) utilise le même
+compte Google. Google injoignable ou en échec n'empêche pas le retrait : l'échec
+est journalisé et la réponse l'indique (`revoked`, `stillUsed`). Les mêmes règles
+s'appliquent au retrait d'un membre de l'entreprise et à une autorisation que
+Google accorde pour un compte identifié mais que MergeOne refuse (autre compte,
+retour OAuth périmé). Quand le compte Google reste inconnu (portée refusée, accès
+durable absent, Drive injoignable), l'autorisation n'est pas révoquée : l'échec
+de connexion est journalisé. Une suppression faite hors de l'application (SQL,
+tableau de bord Supabase) ne peut pas appeler Google : révoquer alors l'accès à la
+main, si ce compte Google n'est connecté nulle part ailleurs dans MergeOne.
 Le consentement à l'écriture Google et l'autorisation effective dans MergeOne sont
-distincts : désactiver l'écriture supprime son jeton côté serveur.
+distincts : désactiver l'écriture supprime son jeton côté serveur, sans révoquer
+l'accès Google que la lecture utilise encore.
 Une reconnexion en lecture conserve le droit d'écriture précédemment activé et
 son jeton. Si Google révoque ce jeton, le prochain renouvellement de l'accès
 d'écriture le détecte et demande de réactiver l'écriture ; une désactivation

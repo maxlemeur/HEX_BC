@@ -1,7 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { createEmptyAffaireIntakeExtractedMetadata, type AffaireProjectAccess } from "@/lib/affaires/intake";
+import type { AffaireAccess } from "@/lib/affaires/access-server";
+import { createEmptyAffaireIntakeExtractedMetadata } from "@/lib/affaires/intake";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { driveFileUrl, driveFolderUrl, type DriveFile, type DriveFolderLink, type DriveLinkResult,
   type DriveLinkedFile, type DriveProvenance } from "./contracts";
@@ -17,7 +18,7 @@ export class DriveStoreError extends Error {
 const internalError = (message: string) => new DriveStoreError(500, message);
 const RECORDING = "Liens Drive en cours d'enregistrement.";
 
-type Access = AffaireProjectAccess;
+type Access = AffaireAccess;
 type Database = { from: (table: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 const database = (access: Access) => access.context.supabase as unknown as Database;
 const LINK_SELECT = "id,upload_id,file_name,created_at,drive_file_id,drive_folder_id,drive_folder_name,drive_revision,drive_connection_id";

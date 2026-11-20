@@ -1,7 +1,6 @@
 import "server-only";
 import { ApiError, badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
-import type { AffaireProjectAccess } from "@/lib/affaires/intake";
-import { requireAffaireProjectOwnerOrAdmin } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess, type AffaireAccess } from "@/lib/affaires/access-server";
 import { readLinkedDriveFile } from "./content";
 import { driveFileRejection, type DriveRequest, type DriveState, type DriveVersionStatus } from "./contracts";
 import { disconnectDriveConnection, driveAccessToken, forgetDriveAccess, listDriveConnections, requireOwnDriveConnection } from "./connections";
@@ -18,10 +17,10 @@ export function toDriveApiError(error: unknown) {
 async function guarded<T>(work: () => Promise<T>) {
   try { return await work(); } catch (error) { throw toDriveApiError(error); }
 }
-const member = (access: AffaireProjectAccess) => access.context;
+const member = (access: AffaireAccess) => access.context;
 
 export async function driveState(projectId: string): Promise<DriveState> {
-  const access = await requireAffaireProjectOwnerOrAdmin(projectId);
+  const access = await requireAffaireAccess(projectId, "write");
   const enabled = driveConfiguration().enabled;
   // A lot an interrupted link request left unarmed is resumed here: its files show as already linked.
   // This read therefore writes, and must not be cached.
@@ -35,7 +34,7 @@ export async function driveState(projectId: string): Promise<DriveState> {
 }
 
 async function checkDriveVersion(
-  { context, project }: AffaireProjectAccess,
+  { context, project }: AffaireAccess,
   documentId: string,
   signal: AbortSignal,
 ): Promise<{ versionStatus: DriveVersionStatus }> {
@@ -62,7 +61,7 @@ async function checkDriveVersion(
 export async function executeDriveRequest(projectId: string, request: DriveRequest, signal: AbortSignal) {
   // Membership, active tenant and affaire ownership are resolved again on every operation,
   // before any Google token is used. The browser never holds one.
-  const access = await requireAffaireProjectOwnerOrAdmin(projectId);
+  const access = await requireAffaireAccess(projectId, "write");
   const configuration = driveConfiguration();
   if (!configuration.enabled) throw new ApiError({ status: 503, code: "DRIVE_DISABLED",
     message: "Google Drive attend la validation et la configuration OAuth de ce POC." });

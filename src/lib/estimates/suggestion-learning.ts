@@ -1,5 +1,3 @@
-import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
-
 import {
   forbidden,
   mapSupabaseError,
@@ -8,12 +6,22 @@ import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
   type ServerSupabaseClient,
 } from "@/lib/auth/tenant-context";
-import { assertDraftLockOwnedByCurrentUser, assertDraftStatus, isTenantAdmin } from "@/lib/estimates/server-context";
+import {
+  assertDraftLockOwnedByCurrentUser,
+  assertDraftStatus,
+  getVersionAccessOrThrow,
+  isTenantAdmin,
+  type VersionAccessQuery,
+} from "@/lib/estimates/server-context";
 import type { Database } from "@/types/database";
 import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = ServerSupabaseClient;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
+
+type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
+
+const LEARNING_VERSION_ACCESS: VersionAccessQuery = { mode: "owner_or_admin", versionColumns: "status" };
 
 type AuthenticatedContext = {
   supabase: Supabase;
@@ -430,7 +438,9 @@ export async function getLearnings(input: {
   let scopedRuleIds: string[] | undefined;
 
   if (input.versionId) {
-    const { project } = await getOwnedEstimateVersion(context, input.versionId);
+    const { project } = await getVersionAccessOrThrow(
+      context.supabase, input.versionId, context, LEARNING_VERSION_ACCESS
+    );
     scopedRuleIds = await loadRuleIdsForVersion({
       context,
       ownerUserId: project.user_id,
@@ -496,7 +506,9 @@ export async function trackCorrection(input: {
     };
   }
 
-  const { version, project } = await getOwnedEstimateVersion(context, input.versionId);
+  const { version, project } = await getVersionAccessOrThrow<{ status: EstimateStatus }>(
+    context.supabase, input.versionId, context, LEARNING_VERSION_ACCESS
+  );
   assertDraftStatus(version.status);
 
   await assertDraftLockOwnedByCurrentUser({

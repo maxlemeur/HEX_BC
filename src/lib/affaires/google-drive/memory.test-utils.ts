@@ -76,6 +76,10 @@ export function memoryBackend() {
     order() {
       return this;
     }
+    limit(count: number) {
+      this.end = this.start + count - 1;
+      return this;
+    }
     range(start: number, end: number) {
       this.start = start;
       this.end = end;
@@ -347,6 +351,10 @@ export function fakeDrive() {
   const responses = new Map<string, number>();
   const sharedWithMe = new Set<string>();
   const tokens: Array<Record<string, string>> = [];
+  const revoked: string[] = [];
+  let revocation: { status: number; error?: string } | "unreachable" = {
+    status: 200,
+  };
   const fetchMock = vi.fn(
     async (input: URL | RequestInfo, options?: RequestInit) => {
       const url = new URL(String(input));
@@ -356,8 +364,13 @@ export function fakeDrive() {
           new URLSearchParams(String(options?.body)),
         );
         tokens.push(body);
-        if (url.pathname === "/revoke")
-          return new Response(null, { status: responses.get("revoke") ?? 200 });
+        if (url.pathname === "/revoke") {
+          revoked.push(body.token);
+          if (revocation === "unreachable") throw new TypeError("fetch failed");
+          return revocation.error
+            ? Response.json({ error: revocation.error }, { status: revocation.status })
+            : new Response(null, { status: revocation.status });
+        }
         const status = responses.get(body.grant_type);
         if (status)
           return Response.json({ error: "invalid_grant" }, { status });
@@ -407,5 +420,16 @@ export function fakeDrive() {
         : Response.json(file);
     },
   );
-  return { files, responses, sharedWithMe, tokens, fetchMock };
+  return {
+    files,
+    responses,
+    sharedWithMe,
+    tokens,
+    revoked,
+    // What Google answers to the next revocations.
+    answerRevocation: (answer: typeof revocation) => {
+      revocation = answer;
+    },
+    fetchMock,
+  };
 }

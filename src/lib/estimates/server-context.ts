@@ -97,6 +97,34 @@ export function canAccessOwnerResource(input: {
   );
 }
 
+/**
+ * Rôles du workflow d'approbation. `read` lit les ressources d'approbation de tout chiffrage du
+ * tenant ; le propriétaire du chiffrage lit les siennes quel que soit son rôle, et une demande
+ * exige aussi d'être propriétaire ou admin.
+ */
+export const ESTIMATE_APPROVAL_ROLES = {
+  request: ["admin", "engineer"],
+  approve: ["admin", "director"],
+  read: ["admin", "director"],
+} as const satisfies Record<string, readonly TenantRole[]>;
+
+export function hasEstimateApprovalRole(
+  tenantRole: TenantRole,
+  action: keyof typeof ESTIMATE_APPROVAL_ROLES
+) {
+  return (ESTIMATE_APPROVAL_ROLES[action] as readonly TenantRole[]).includes(tenantRole);
+}
+
+export function canAccessApprovalResource(input: {
+  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
+  resourceUserId: string;
+}) {
+  return (
+    input.resourceUserId === input.context.userId ||
+    hasEstimateApprovalRole(input.context.tenantRole, "read")
+  );
+}
+
 export function errorMessageContains(
   error: PostgrestError,
   expectedMessageFragment: string
@@ -110,16 +138,76 @@ export function toRpcUuid(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+/**
+ * Qui atteint une version de chiffrage. Chaque règle exige la version et son affaire dans le
+ * tenant de l'appelant et répond 404 sinon.
+ * - `owner_or_admin` : propriétaire de l'affaire ou admin du tenant, la règle de l'éditeur ;
+ * - `owner_or_admin_on_active_project` : la même, sur une affaire non archivée (409 sinon) ;
+ * - `owner_or_approval_reader` : propriétaire ou rôle `read` de `ESTIMATE_APPROVAL_ROLES`.
+ */
+export type VersionAccessMode =
+  | "owner_or_admin"
+  | "owner_or_admin_on_active_project"
+  | "owner_or_approval_reader";
+
+export type VersionAccessQuery = {
+  mode: VersionAccessMode;
+  /** Colonnes de estimate_versions, sans l'affaire embarquée. */
+  versionColumns: string;
+  /** Colonnes de estimate_projects en plus de celles que la règle lit (id, tenant_id, user_id, is_archived). */
+  projectColumns?: string;
+};
+
+type ProjectAccessColumns = Pick<EstimateProjectRow, "id" | "tenant_id" | "user_id" | "is_archived">;
+
+const PROJECT_ACCESS_COLUMNS = ["id", "tenant_id", "user_id", "is_archived"];
+
+const EDITOR_VERSION_ACCESS: VersionAccessQuery = {
+  mode: "owner_or_admin",
+  versionColumns:
+    "id, project_id, tenant_id, status, margin_mode, margin_multiplier, margin_bp, discount_bp, discount_amount_cents, max_section_depth, tax_rate_bp, updated_at, content_revision, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, calc_snapshot_content_revision, calc_snapshot_context, parent_version_id, variant_label, currency, exclusions",
+  projectColumns: "name, reference, estimate_reference, site_address, client_name, notes",
+};
+
+function canReachVersion(
+  mode: VersionAccessMode,
+  context: Pick<AuthenticatedContext, "userId" | "tenantRole">,
+  project: ProjectAccessColumns
+) {
+  const resource = { context, resourceUserId: project.user_id };
+  return mode === "owner_or_approval_reader"
+    ? canAccessApprovalResource(resource)
+    : canAccessOwnerResource(resource);
+}
+
+export async function getVersionAccessOrThrow<
+  TVersion = unknown,
+  TProject extends Pick<EstimateProjectRow, "id" | "tenant_id" | "user_id"> = Pick<EstimateProjectRow, "id" | "tenant_id" | "user_id">,
+>(
+  supabase: Supabase,
+  versionId: string,
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">,
+  query: VersionAccessQuery
+): Promise<{ version: TVersion; project: TProject }>;
+/** Sans requête : les colonnes et la règle de l'éditeur. */
 export async function getVersionAccessOrThrow(
   supabase: Supabase,
   versionId: string,
   context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
-): Promise<{ version: VersionAccessRow; project: EmbeddedProjectAccess }> {
+): Promise<{ version: VersionAccessRow; project: EmbeddedProjectAccess }>;
+export async function getVersionAccessOrThrow(
+  supabase: Supabase,
+  versionId: string,
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">,
+  query: VersionAccessQuery = EDITOR_VERSION_ACCESS
+) {
+  const projectColumns = [...new Set([
+    ...PROJECT_ACCESS_COLUMNS,
+    ...(query.projectColumns ?? "").split(",").map((column) => column.trim()).filter(Boolean),
+  ])].join(", ");
   const { data, error } = await supabase
     .from("estimate_versions")
-    .select(
-      "id, project_id, tenant_id, status, margin_mode, margin_multiplier, margin_bp, discount_bp, discount_amount_cents, max_section_depth, tax_rate_bp, updated_at, content_revision, total_ht_cents, total_tax_cents, total_ttc_cents, calc_engine_version, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents, commercial_rounding_cents, calc_snapshot_content_revision, calc_snapshot_context, parent_version_id, variant_label, currency, exclusions, estimate_projects!inner(id, tenant_id, user_id, name, reference, estimate_reference, site_address, client_name, notes, is_archived)"
-    )
+    .select(`${query.versionColumns}, estimate_projects!inner(${projectColumns})`)
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
     .single();
@@ -128,18 +216,21 @@ export async function getVersionAccessOrThrow(
     throw notFound("Version de chiffrage introuvable.");
   }
 
-  const row = data as unknown as VersionAccessRow;
+  const row = data as unknown as {
+    estimate_projects: ProjectAccessColumns | ProjectAccessColumns[] | null;
+  };
   const project = resolveEmbeddedOne(row.estimate_projects);
 
   if (
     !project ||
     project.tenant_id !== context.tenantId ||
-    !canAccessOwnerResource({
-      context,
-      resourceUserId: project.user_id,
-    })
+    !canReachVersion(query.mode, context, project)
   ) {
     throw notFound("Version de chiffrage introuvable.");
+  }
+
+  if (query.mode === "owner_or_admin_on_active_project" && project.is_archived) {
+    throw conflict("Cette affaire est archivée.");
   }
 
   return {

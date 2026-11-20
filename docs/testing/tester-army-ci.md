@@ -24,7 +24,12 @@ indique qu'aucun parcours n'était requis ; ce n'est pas une exécution E2E.
 
 [`select-journeys.ts`](../../scripts/tester-army/select-journeys.ts) lit
 [`army-impact-map.json`](../../scripts/tester-army/army-impact-map.json), le diff
-Git et le graphe des imports/appels de routes. Sur une PR, il retient les
+Git et le graphe des imports/appels de routes. Les parcours de la suite et du
+métré viennent des sélections de
+[`journey-selections.mjs`](../../scripts/tester-army/journey-selections.mjs),
+celles que lance `e2e.config.ts`, appliquées à l'arbre de travail : la carte
+n'en garde aucune liste. Un parcours qu'aucune règle de la carte n'atteint
+élargit la sélection à la suite entière. Sur une PR, il retient les
 parcours atteints. Un changement partagé, inconnu ou une erreur de sélection
 élargit à la suite entière. Une modification limitée aux chemins documentaires
 reconnus n'exécute aucun parcours.
@@ -60,8 +65,9 @@ supprimé.
 Le premier appel compare les commits (`base...head`), pas le travail non
 commité. `--files` et `--grep` s'excluent. Avant de créer une pile,
 `journey-preflight.mjs` refuse une sélection sans parcours métier, une
-alternative de filtre sans correspondance et un fichier local oublié des
-collecteurs ou du registre d'exclusions. Chaque fichier demandé doit ensuite
+alternative de filtre sans correspondance et un fichier local qu'aucune
+sélection (`journey-selections.mjs`, phases calc-v3) ni le registre
+d'exclusions ne retient. Chaque fichier demandé doit ensuite
 être réellement exécuté et réussi.
 
 ## Filtre par modèle de décision

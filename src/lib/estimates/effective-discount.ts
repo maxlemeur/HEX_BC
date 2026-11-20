@@ -1,4 +1,5 @@
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import { hasFreshCalcSnapshot } from "@/lib/estimates/engine/amounts-source";
 import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { MAX_CENTS } from "@/lib/money";
 import { asRecord } from "@/lib/value-guards";
@@ -7,8 +8,8 @@ export type FixedDiscountVersion = {
   discount_amount_cents?: number | null;
   total_ht_cents?: number | null;
   calc_engine_version?: number | null;
-  content_revision?: number | string | null;
-  calc_snapshot_content_revision?: number | string | null;
+  content_revision?: number | null;
+  calc_snapshot_content_revision?: number | null;
   calc_snapshot_context?: unknown;
   id?: string;
   tenant_id?: string;
@@ -56,13 +57,6 @@ function cents(value: unknown): value is number {
     !Object.is(value, -0) && value >= 0 && value <= MAX_CENTS;
 }
 
-function revision(value: unknown): number | null {
-  const number = typeof value === "number" || typeof value === "string"
-    ? Number(value)
-    : NaN;
-  return Number.isSafeInteger(number) && number > 0 ? number : null;
-}
-
 function readSignal(
   value: unknown,
   version: FixedDiscountVersion,
@@ -90,10 +84,7 @@ function readSignal(
 function resolveV3FixedDiscountSignal(version: FixedDiscountVersion): FixedDiscountSignal {
   if (version.discount_amount_cents == null) return { state: "legacy" };
   if (!cents(version.discount_amount_cents)) return { state: "unavailable" };
-  const currentRevision = revision(version.content_revision);
-  if (currentRevision === null || revision(version.calc_snapshot_content_revision) !== currentRevision) {
-    return { state: "unavailable" };
-  }
+  if (!hasFreshCalcSnapshot(version)) return { state: "unavailable" };
   const context = asRecord(version.calc_snapshot_context);
   const discount = asRecord(context?.discount);
   if (!context || context.engine !== 3 || !discount || discount.kind !== "amount" ||
@@ -121,9 +112,7 @@ export function resolveFixedDiscountSignal(
   if (version.discount_amount_cents == null) return { state: "legacy" };
   if (!cents(version.discount_amount_cents)) return { state: "unavailable" };
   if (evidence) {
-    const currentRevision = revision(version.content_revision);
-    const identityMatches = currentRevision !== null &&
-      evidence.version.content_revision === currentRevision &&
+    const identityMatches = evidence.version.content_revision === version.content_revision &&
       (evidence.source === "authenticated_live" ? version.status === "draft" :
         evidence.source === "stored_v1" && isLegacyEngine(calcEngineVersion) &&
         typeof version.status === "string" && version.status !== "draft") &&
@@ -136,9 +125,7 @@ export function resolveFixedDiscountSignal(
       if (signal) return signal;
     }
   }
-  const currentRevision = revision(version.content_revision);
-  if (!isUnifiedEngine(calcEngineVersion) || currentRevision === null ||
-    revision(version.calc_snapshot_content_revision) !== currentRevision) return { state: "unavailable" };
+  if (!isUnifiedEngine(calcEngineVersion) || !hasFreshCalcSnapshot(version)) return { state: "unavailable" };
   const signal = readSignal(asRecord(version.calc_snapshot_context)?.fixed_discount, version, "snapshot_v2");
   return signal ?? { state: "unavailable" };
 }

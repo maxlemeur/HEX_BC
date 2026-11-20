@@ -5,11 +5,14 @@ import type { Browser } from "@e2e-dev/web";
 import { expect, type App } from "e2e";
 import { z } from "zod";
 import { createEmptyTakeoffPreparation } from "@/lib/takeoff/preparation";
+import { type ArmyState, type createEstimateViaWizard, type OwnedEstimate } from "../critical/fixtures";
+import { createPlanSet, ownedTakeoffJobs, uploadSamplePlan } from "../critical/plans-support";
+import { fillTakeoffPreparation } from "../critical/preparation-support";
 import { querySql } from "../local/calculation-gate-support";
 import { callServerAction, confirmTakeoffPreparationViaAction, serverActionId } from "../local/engine-v3-creators-support";
 
-/** The level-A upload API still accepts a confirmed preparation. Exercise it from an owned affaire. */
-export async function submitPreparedCsv(
+/** Saves and confirms a level-A preparation of a CSV source on an owned affaire: no job is created from it. */
+export async function confirmPreparedCsv(
   ui: { app: App; browser: Browser },
   ids: { projectId: string; versionId: string },
   filePath: string,
@@ -43,18 +46,27 @@ export async function submitPreparedCsv(
     projectId, expectedRevision: (expectedRevision ?? 0) + 1,
   });
   expect(confirmation.ok).toBe(true);
-  return ui.browser.evaluate(async input => {
-    const form = new FormData();
-    form.set("file", new File([input.text], input.name, { type: "text/csv" }));
-    form.set("estimate_version_id", input.versionId);
-    form.set("preparation_revision", String(input.revision));
-    form.set("level", "A");
-    form.set("provider", input.provider);
-    const created = await fetch("/api/takeoff/jobs", {
-      method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: form,
-    });
-    const body = await created.json() as { data?: { id: string }; error?: { code: string; message: string } };
-    return { status: created.status, id: body.data?.id ?? null,
-      code: body.error?.code ?? null, message: body.error?.message ?? null };
-  }, { text, name, versionId, revision: confirmation.revision, provider });
+  return confirmation;
+}
+
+/**
+ * Launches a level B or C takeoff of a fictional plan as the application does: a plan set and its sample PDF on an
+ * owned affaire, its preparation filled and confirmed in the dialog, then « Confirmer et lancer le métré ».
+ */
+export async function launchPreparedPlanSet(
+  ui: Parameters<typeof createEstimateViaWizard>[0],
+  army: ArmyState,
+  ids: OwnedEstimate,
+  processing: { level: "B" | "C"; provider: "auto" | "chatgpt" },
+) {
+  const planSet = await createPlanSet(ui, army, ids, `${army.runPrefix} plans`);
+  const file = await uploadSamplePlan(ui, army, planSet);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff?launch=1&launchPlanSet=${planSet.id}`);
+  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing });
+  await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+  await expect(dialog.getByRole("link", /Centre d'activit/i)).toBeVisible();
+  const jobs = ownedTakeoffJobs(ui.browser, ids);
+  await expect.poll(async () => (await jobs.list()).length, { timeout: 45_000 }).toBe(1);
+  const [job] = await jobs.list();
+  return { jobId: job.id, planSet, file };
 }

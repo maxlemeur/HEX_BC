@@ -454,14 +454,14 @@ const input = JSON.parse(process.argv[1]);
 // Records that belong to an entity or to a block, which LibreDWG hands over with it.
 const PARTS = ["BLOCK", "ENDBLK", "SEQEND", "ATTRIB", "VERTEX_2D", "VERTEX_3D", "VERTEX_MESH", "VERTEX_PFACE", "VERTEX_PFACE_FACE"];
 // Where LibreDWG's reading names a type otherwise than the drawing does.
-const NAMES = { POLYLINE_2D: "POLYLINE2D", POLYLINE_3D: "POLYLINE3D", TABLE: "ACAD_TABLE", PROXY_ENTITY: "ACAD_PROXY_ENTITY", SECTIONOBJECT: "SECTION" };
+const NAMES = { MINSERT: "INSERT", POLYLINE_2D: "POLYLINE2D", POLYLINE_3D: "POLYLINE3D", TABLE: "ACAD_TABLE", PROXY_ENTITY: "ACAD_PROXY_ENTITY", SECTIONOBJECT: "SECTION" };
 (async () => {
   let chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
   const quiet = () => {};
   // The standard output carries the DXF and nothing else: LibreDWG's reading reports on the console.
   for (const method of ["log", "info", "debug", "warn", "error"]) console[method] = quiet;
-  const { LibreDwg, createModule, Dwg_Object_Supertype, Dwg_Object_Type_Inverted } = await import(input.readerUrl);
+  const { LibreDwg, createModule, Dwg_Object_Supertype } = await import(input.readerUrl);
   const libredwg = await createModule({ locateFile: (name) => input.wasmDirectory + name, print: quiet, printErr: quiet });
   const bytes = Buffer.concat(chunks);
   chunks = null;
@@ -478,8 +478,9 @@ const NAMES = { POLYLINE_2D: "POLYLINE2D", POLYLINE_3D: "POLYLINE3D", TABLE: "AC
   for (let index = reader.dwg_get_num_objects(read.data) - 1; index >= 0; index -= 1) {
     const object = reader.dwg_get_object(read.data, index);
     if (!object || reader.dwg_object_get_supertype(object) !== Dwg_Object_Supertype.DWG_SUPERTYPE_ENTITY) continue;
-    const name = String(Dwg_Object_Type_Inverted[reader.dwg_object_get_fixedtype(object)]).replace(/^DWG_TYPE_/, "");
-    if (PARTS.includes(name)) continue;
+    // Fixed type numbers can shift between the WASM build and the JavaScript enum.
+    const name = libredwg.dwg_object_get_name(object)?.data || libredwg.dwg_object_get_dxfname(object);
+    if (!/^[A-Z0-9_]{1,64}$/.test(name) || PARTS.includes(name)) continue;
     const type = NAMES[name] || (name.startsWith("DIMENSION_") ? "DIMENSION" : name);
     unread[type] = (unread[type] || 0) + 1;
     if (type !== "ATTDEF") continue;

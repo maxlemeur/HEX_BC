@@ -4,6 +4,9 @@
 // Contract and failure modes: docs/testing/tester-army-calc-v3.md.
 
 import { COVERAGE_PHASE_DEFINITIONS, COVERAGE_PHASES } from "./coverage-phases.ts";
+import {
+  LOGIN_SETUP, OFFER_EMISSION_JOURNEY, OFFER_EMISSION_SELECTION, OFFER_LOGIN_SETUP, RESEND_PORTAL_JOURNEY, RESEND_PORTAL_SELECTION,
+} from "./journey-selections.mjs";
 
 export const CALC_V3_PHASES = ["journeys", "components", "numeric", "resume", "access", "offers-zero-price", "offers-purchase-unit", "emission", "emission-v3", "resend-portal", "order-send", "order-send-redirect", "emission-redirect", ...COVERAGE_PHASES] as const;
 export type CalcV3Phase = (typeof CALC_V3_PHASES)[number];
@@ -53,7 +56,6 @@ export type CalcV3PhaseDefinition = {
   maxDuration: number;
 };
 
-const CRITICAL_SETUP = "e2e/army/critical/auth.setup.e2e.ts";
 const CRITICAL_SETUP_TITLE = "authenticate the existing E2E account without provisioning memberships";
 
 export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3PhaseDefinition>> = {
@@ -61,7 +63,7 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   journeys: {
     serverMode: "production",
     tests: [
-      CRITICAL_SETUP,
+      LOGIN_SETUP,
       "e2e/army/critical/commercial-rounding.e2e.ts",
       "e2e/army/critical/dpgf-import.e2e.ts",
       "e2e/army/local/estimate-totals-order.e2e.ts",
@@ -70,7 +72,7 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     ],
     setupTitle: CRITICAL_SETUP_TITLE,
     expected: {
-      [CRITICAL_SETUP]: 1,
+      [LOGIN_SETUP]: 1,
       "e2e/army/critical/commercial-rounding.e2e.ts": 2,
       "e2e/army/critical/dpgf-import.e2e.ts": 3,
       "e2e/army/local/estimate-totals-order.e2e.ts": 1,
@@ -81,31 +83,31 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   },
   components: {
     serverMode: "production",
-    tests: [CRITICAL_SETUP, "e2e/army/local/generated-ouvrage-components.e2e.ts"],
+    tests: [LOGIN_SETUP, "e2e/army/local/generated-ouvrage-components.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/generated-ouvrage-components.e2e.ts": 4 },
+    expected: { [LOGIN_SETUP]: 1, "e2e/army/local/generated-ouvrage-components.e2e.ts": 4 },
     maxDuration: 2_400_000,
   },
   numeric: {
     serverMode: "production",
-    tests: [CRITICAL_SETUP, "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts"],
+    tests: [LOGIN_SETUP, "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts": 3 },
+    expected: { [LOGIN_SETUP]: 1, "e2e/army/local/generated-ouvrage-numeric-entry.e2e.ts": 3 },
     maxDuration: 2_400_000,
   },
   resume: {
     serverMode: "production",
-    tests: [CRITICAL_SETUP, "e2e/army/local/generated-ouvrage-resume.e2e.ts"],
+    tests: [LOGIN_SETUP, "e2e/army/local/generated-ouvrage-resume.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/generated-ouvrage-resume.e2e.ts": 9 },
+    expected: { [LOGIN_SETUP]: 1, "e2e/army/local/generated-ouvrage-resume.e2e.ts": 9 },
     defaultGrep: "^GR0[1-9]\\s",
     maxDuration: 3_600_000,
   },
   access: {
     serverMode: "production",
-    tests: [CRITICAL_SETUP, "e2e/army/local/generated-ouvrage-access.e2e.ts"],
+    tests: [LOGIN_SETUP, "e2e/army/local/generated-ouvrage-access.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/generated-ouvrage-access.e2e.ts": 1 },
+    expected: { [LOGIN_SETUP]: 1, "e2e/army/local/generated-ouvrage-access.e2e.ts": 1 },
     maxDuration: 900_000,
   },
   // Sub-lots 2.2 (A7, P-08) and 2.9 (P-18): zero-priced supplier offers, units and purchase units,
@@ -113,24 +115,24 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   // One phase per file, so the plan can put the two in different group jobs.
   "offers-zero-price": {
     serverMode: "production",
-    tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts"],
+    tests: [LOGIN_SETUP, "e2e/army/local/supplier-offer-zero-price.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 4 },
+    expected: { [LOGIN_SETUP]: 1, "e2e/army/local/supplier-offer-zero-price.e2e.ts": 4 },
     maxDuration: 1_200_000,
   },
   "offers-purchase-unit": {
     serverMode: "production",
-    tests: [CRITICAL_SETUP, "e2e/army/local/supplier-offer-purchase-unit.e2e.ts"],
+    tests: [LOGIN_SETUP, "e2e/army/local/supplier-offer-purchase-unit.e2e.ts"],
     setupTitle: CRITICAL_SETUP_TITLE,
-    expected: { [CRITICAL_SETUP]: 1, "e2e/army/local/supplier-offer-purchase-unit.e2e.ts": 5 },
+    expected: { [LOGIN_SETUP]: 1, "e2e/army/local/supplier-offer-purchase-unit.e2e.ts": 5 },
     maxDuration: 1_200_000,
   },
   emission: {
     serverMode: "production",
     sentinelCollector: true,
-    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/offer-emission.e2e.ts"],
+    tests: OFFER_EMISSION_SELECTION,
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/offer-emission.e2e.ts": 6 },
+    expected: { [OFFER_LOGIN_SETUP]: 1, [OFFER_EMISSION_JOURNEY]: 6 },
     defaultGrep: "^OF0[0-4L]\\s",
     // OF03 checks the current "PU HT" client header and its exact sale amount.
     // PDFL, EF and NF stay opt-in through --grep.
@@ -146,9 +148,9 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   "resend-portal": {
     serverMode: "production",
     sentinelCollector: true,
-    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/resend-portal.e2e.ts"],
+    tests: RESEND_PORTAL_SELECTION,
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/resend-portal.e2e.ts": 7 },
+    expected: { [OFFER_LOGIN_SETUP]: 1, [RESEND_PORTAL_JOURNEY]: 7 },
     maxDuration: 3_600_000,
   },
   // Sub-lot 2.7 (D14, D15, M5): a v3 issued under client contract 2 and calculation payload 6, on a
@@ -164,9 +166,9 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   "emission-v3": {
     serverMode: "production",
     sentinelCollector: true,
-    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/engine-v3-emission.e2e.ts"],
+    tests: [OFFER_LOGIN_SETUP, "e2e/army/local/engine-v3-emission.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/engine-v3-emission.e2e.ts": 7 },
+    expected: { [OFFER_LOGIN_SETUP]: 1, "e2e/army/local/engine-v3-emission.e2e.ts": 7 },
     maxDuration: 3_600_000,
   },
   // The send of a purchase order to its supplier by e-mail (docs/testing/purchase-order-send.md): a draft of an
@@ -176,9 +178,9 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
   "order-send": {
     serverMode: "production",
     sentinelCollector: true,
-    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/purchase-order-send.e2e.ts"],
+    tests: [OFFER_LOGIN_SETUP, "e2e/army/local/purchase-order-send.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/purchase-order-send.e2e.ts": 2 },
+    expected: { [OFFER_LOGIN_SETUP]: 1, "e2e/army/local/purchase-order-send.e2e.ts": 2 },
     collectedPdfMustContain: [/BON DE COMMANDE/u, /Total\s+HT\s+119,28\s*€/u],
     maxDuration: 1_200_000,
   },
@@ -188,9 +190,9 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     serverMode: "production",
     sentinelCollector: true,
     emailRedirect: true,
-    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/purchase-order-send-redirect.e2e.ts"],
+    tests: [OFFER_LOGIN_SETUP, "e2e/army/local/purchase-order-send-redirect.e2e.ts"],
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/purchase-order-send-redirect.e2e.ts": 1 },
+    expected: { [OFFER_LOGIN_SETUP]: 1, "e2e/army/local/purchase-order-send-redirect.e2e.ts": 1 },
     collectedPdfMustContain: [/BON DE COMMANDE/u, /Total\s+HT\s+119,28\s*€/u],
     maxDuration: 1_200_000,
   },
@@ -200,9 +202,9 @@ export const CALC_V3_PHASE_DEFINITIONS: Readonly<Record<CalcV3Phase, CalcV3Phase
     serverMode: "production",
     sentinelCollector: true,
     emailRedirect: true,
-    tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/offer-emission.e2e.ts"],
+    tests: OFFER_EMISSION_SELECTION,
     setupTitle: "ordinary native ARMY login for local offer profile",
-    expected: { "e2e/army/local/offer-emission-auth.setup.e2e.ts": 1, "e2e/army/local/offer-emission.e2e.ts": 1 },
+    expected: { [OFFER_LOGIN_SETUP]: 1, [OFFER_EMISSION_JOURNEY]: 1 },
     defaultGrep: "^RD01\\s",
     // RD01 sends one ARMY-OFFER line of 1 u at 20,00 € HT with 20 % VAT, as OF00 does.
     collectedPdfMustContain: [

@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-
 export const AFFAIRE_INTAKE_BUCKET = "affaire-intake";
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 export const AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL = "50 Mo";
@@ -194,21 +192,6 @@ export const affaireIntakeClassificationResultSchema = z
 export const affaireIntakeClassificationAiResultSchema = affaireIntakeClassificationResultSchema.extend({
   extractedMetadata: affaireIntakeAiMetadataSchema.default({ projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] }),
 });
-
-export type AffaireProjectAccessRow = {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  name: string;
-  reference: string | null;
-  client_name: string | null;
-  is_archived: boolean;
-};
-
-export type AffaireProjectAccess = {
-  context: AuthenticatedTenantContext;
-  project: AffaireProjectAccessRow;
-};
 
 export type AffaireIntakeDocumentKind = z.infer<
   typeof affaireIntakeDocumentKindSchema

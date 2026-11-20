@@ -16,6 +16,15 @@ import { getSupplierComparisonsForExport, streamEstimateVersionBdcV11Xlsx } from
 import { getEstimateSupplierComparisons } from "@/lib/estimates/supplier-comparison-server";
 import { getEstimateVersionDetails } from "@/lib/estimates/version-read-server";
 import { loadSupplierExportSearch } from "@/lib/estimates/supplier-export-search";
+import {
+  SENT_ENGINE_1_LINE,
+  SENT_ENGINE_1_VERSION,
+  SENT_ENGINE_2_LINE,
+  SENT_ENGINE_2_VERSION,
+  SENT_ESTIMATE_IDS,
+  SENT_ESTIMATE_PROJECT,
+  TODAY_LABOR_ROLE,
+} from "@/test/fixtures/sent-estimate";
 
 beforeEach(() => { vi.mocked(loadSupplierExportSearch).mockResolvedValue(null); });
 
@@ -490,5 +499,44 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
     expect(lineRow.slice(15, 18)).toEqual([120, 70, 190]);
     expect(lineRow[10]).toBeNull();
     expect(lineRow[13]).toBe("");
+  });
+
+  // A sent version is read from its frozen amounts: the line was sent at 12,00 €/h and its role costs
+  // 15,00 €/h today (src/test/fixtures/sent-estimate.ts).
+  describe("a sent version", () => {
+    const exportLine = async (version: object, line: object, status: string) => {
+      vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+        version: { ...version, status, estimate_projects: SENT_ESTIMATE_PROJECT },
+        items: [line],
+        supply_types: [],
+        labor_roles: [TODAY_LABOR_ROLE],
+        categories: [],
+      } as never);
+      vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({ comparisons: [] } as never);
+      const { workbookWriterFactory, worksheets } = createWorkbookHarness();
+      const exported = await streamEstimateVersionBdcV11Xlsx(SENT_ESTIMATE_IDS.version, {
+        workbookWriterFactory,
+        isLaborSplitEnabled: false,
+      });
+      await new Response(exported.stream).arrayBuffer();
+      return worksheets.find((sheet) => sheet.name === "BDC_V1_1")?.rows[1] as unknown[];
+    };
+
+    it("exports an engine-2 version from its stored amounts instead of a cost at today's hourly rate", async () => {
+      const draft = await exportLine(SENT_ENGINE_2_VERSION, SENT_ENGINE_2_LINE, "draft");
+      expect(draft.slice(15, 18)).toEqual([100, 30, 130]);
+
+      const sent = await exportLine(SENT_ENGINE_2_VERSION, SENT_ENGINE_2_LINE, "sent");
+      expect(sent.slice(7, 9)).toEqual([60, 60]);
+      expect(sent.slice(15, 18)).toEqual([120, 28.8, 148.8]);
+    });
+
+    // Named exception (resolveEstimateCostingSheetSource): the BDC lists costs, which an engine-1
+    // version does not store, nor the hourly rate it was priced with.
+    it("builds the costing sheet of an engine-1 version from its inputs", async () => {
+      const sent = await exportLine(SENT_ENGINE_1_VERSION, SENT_ENGINE_1_LINE, "sent");
+      expect(sent.slice(7, 13)).toEqual([50, 50, 1, 2, 1, 15]);
+      expect(sent.slice(15, 18)).toEqual([100, 30, 130]);
+    });
   });
 });

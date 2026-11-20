@@ -42,6 +42,12 @@ import { PdfEstimateTotalsCard } from "@/lib/estimates/pdf-totals-card";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import {
+  SENT_ENGINE_1_LINE,
+  SENT_ESTIMATE_LIVE_HT_CENTS,
+  SENT_ESTIMATE_STORED,
+  TODAY_LABOR_ROLE,
+} from "@/test/fixtures/sent-estimate";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -86,6 +92,8 @@ type PdfMockInput = {
     total_tax_cents: number;
     total_ttc_cents: number;
   };
+  /** The tenant's roles as they are today; a version that never reads them leaves them unread. */
+  laborRoles?: Array<{ id: string; hourly_rate_cents: number }>;
   uploadError?: unknown;
   publishError?: unknown;
   documentState?: { value: EstimateDocumentMock | null };
@@ -347,6 +355,10 @@ function createSupabasePdfMock(input?: PdfMockInput) {
     if (table === "estimate_emails") {
       return { select: vi.fn(() => dispatchBuilder) };
     }
+    if (table === "labor_roles" && input?.laborRoles) {
+      const rolesBuilder = { eq: vi.fn(() => rolesBuilder), in: vi.fn(async () => ({ data: input.laborRoles, error: null })) };
+      return { select: vi.fn(() => rolesBuilder) };
+    }
     throw new Error(`Unexpected table: ${table}`);
   });
 
@@ -606,6 +618,41 @@ describe("estimate pdf generator", () => {
     for (const printed of [provision.contract, provision.document]) {
       expect(printed).not.toMatch(/takeoff_provision|Provision interne|Hypothèse|forç|dérogation/);
     }
+  });
+
+  // A version that is no longer a draft is read from its frozen amounts on every surface. The line of
+  // src/test/fixtures/sent-estimate.ts was sent at 12,00 €/h; its role costs 15,00 €/h today.
+  it("publishes a sent engine-1 version with its stored amounts, not today's hourly rate", async () => {
+    vi.mocked(renderToBuffer).mockResolvedValue(Buffer.from("pdf-binary") as never);
+    const sentEngineOne = (versionStatus: "draft" | "sending") => ({
+      versionStatus,
+      itemOverrides: {
+        quantity: SENT_ENGINE_1_LINE.quantity, unit_price_ht_cents: SENT_ENGINE_1_LINE.unit_price_ht_cents,
+        h_mo: SENT_ENGINE_1_LINE.h_mo, labor_role_id: TODAY_LABOR_ROLE.id,
+        pu_ht_cents: SENT_ESTIMATE_STORED.unitPriceCents, line_total_ht_cents: SENT_ESTIMATE_STORED.htCents,
+        line_tax_cents: SENT_ESTIMATE_STORED.taxCents, line_total_ttc_cents: SENT_ESTIMATE_STORED.ttcCents,
+      },
+      versionTotals: {
+        total_ht_cents: SENT_ESTIMATE_STORED.htCents,
+        total_tax_cents: SENT_ESTIMATE_STORED.taxCents,
+        total_ttc_cents: SENT_ESTIMATE_STORED.ttcCents,
+      },
+      laborRoles: [TODAY_LABOR_ROLE],
+    });
+    const publishedTotals = (clients: ReturnType<typeof usePdfClients>) =>
+      (JSON.parse(publishedCopy(clients.serviceRoleSupabase).contract) as { totals: Record<string, number> }).totals;
+
+    const draft = usePdfClients(sentEngineOne("draft"));
+    await generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" });
+    expect(publishedTotals(draft).saleHtCents).toBe(SENT_ESTIMATE_LIVE_HT_CENTS);
+
+    const sending = usePdfClients(sentEngineOne("sending"));
+    await generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "send" });
+    expect(publishedTotals(sending)).toMatchObject({
+      saleHtCents: SENT_ESTIMATE_STORED.htCents,
+      taxCents: SENT_ESTIMATE_STORED.taxCents,
+      payableTtcCents: SENT_ESTIMATE_STORED.ttcCents,
+    });
   });
 
   // TI-682, lot C (D25): the internal reason of an exclusion never reaches the published client copy nor the document.
@@ -947,6 +994,22 @@ describe("estimate pdf generator", () => {
     expect(serviceRoleSupabase.__mocks.upload).not.toHaveBeenCalled();
     expect(authenticatedSupabase.rpc).not.toHaveBeenCalled();
     expect(serviceRoleSupabase.rpc).not.toHaveBeenCalled();
+  });
+
+  // An engine-3 draft is issued from the snapshot frozen just before; a draft changed since then would
+  // print amounts that no longer describe it.
+  it("refuses to print an engine-3 draft whose snapshot no longer describes its revision", async () => {
+    const { authenticatedSupabase, serviceRoleSupabase } = usePdfClients({
+      calcEngineVersion: 3, contentRevision: 5, calcSnapshotContentRevision: 4,
+    });
+
+    await expect(
+      generateEstimatePdfNow(VERSION_ID, { force: true, triggeredBy: "manual" })
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+
+    expect(renderToBuffer).not.toHaveBeenCalled();
+    expect(authenticatedSupabase.__mocks.upload).not.toHaveBeenCalled();
+    expect(serviceRoleSupabase.__mocks.upload).not.toHaveBeenCalled();
   });
 
   it("fails closed without signing when ready metadata contains a foreign path", async () => {

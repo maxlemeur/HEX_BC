@@ -16,6 +16,14 @@ import {
   type WorkbookWriterFactory,
 } from "@/lib/estimates/export-stream";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/version-read-server";
+import {
+  SENT_ENGINE_1_LINE,
+  SENT_ESTIMATE_LIVE_HT_CENTS,
+  SENT_ESTIMATE_PROJECT,
+  SENT_ESTIMATE_STORED,
+  SENT_ENGINE_1_VERSION,
+  TODAY_LABOR_ROLE,
+} from "@/test/fixtures/sent-estimate";
 
 const VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -754,5 +762,26 @@ describe("streamEstimateVersionXlsx", () => {
     expect(toCents(calculatedTtc)).toBe(3366);
     expect(toCents(rounding)).toBe(-33);
     expect(toCents(amountDue)).toBe(3333);
+  });
+
+  // A version that is no longer a draft is read from its frozen amounts on every surface.
+  it("exports a sent engine-1 version with its stored amounts, not today's hourly rate", async () => {
+    const exportedHt = async (status: string) => {
+      vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+        version: { ...SENT_ENGINE_1_VERSION, status, estimate_projects: SENT_ESTIMATE_PROJECT },
+        labor_roles: [TODAY_LABOR_ROLE],
+        margin_tiers: [],
+        is_labor_split_enabled: false,
+      } as never);
+      vi.mocked(listEstimateItems).mockResolvedValue({ items: [SENT_ENGINE_1_LINE] } as never);
+      const { workbookWriterFactory, worksheets } = createWorkbookHarness();
+      const exported = await streamEstimateVersionXlsx(SENT_ENGINE_1_VERSION.id, { workbookWriterFactory });
+      await new Response(exported.stream).arrayBuffer();
+      const summary = worksheets.find((sheet) => sheet.name === "Resume")?.rows as unknown[][];
+      return toCents(summary.find((row) => row[0] === "Total HT")?.[1]);
+    };
+
+    expect(await exportedHt("draft")).toBe(SENT_ESTIMATE_LIVE_HT_CENTS);
+    expect(await exportedHt("sent")).toBe(SENT_ESTIMATE_STORED.htCents);
   });
 });

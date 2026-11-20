@@ -18,7 +18,6 @@ vi.mock("@/lib/supabase/service-role", () => ({
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
-  getTakeoffGeminiDeliveryConfigForTenant: vi.fn(),
   getTakeoffChunkingConfigForTenant: vi.fn(),
   getTakeoffLevelCProcessingConfigForTenant: vi.fn(),
 }));
@@ -28,19 +27,12 @@ vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
   return { ...actual, getTakeoffExecutionOwner: vi.fn() };
 });
 
-vi.mock("@/lib/estimates/source-reference-pdf", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/estimates/source-reference-pdf")>();
-  return { ...actual, inspectSourceReferencePdf: vi.fn() };
-});
-
 import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { inspectSourceReferencePdf } from "@/lib/estimates/source-reference-pdf";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   assertTakeoffEnabled,
   getTakeoffChunkingConfigForTenant,
-  getTakeoffGeminiDeliveryConfigForTenant,
   getTakeoffLevelCProcessingConfigForTenant,
 } from "@/lib/takeoff/feature-flags";
 import {
@@ -55,10 +47,7 @@ import {
   M3_TENANT_ID,
   M3_VERSION_ID,
 } from "@/lib/takeoff/metre-m3.test-utils";
-import {
-  createTakeoffJobFromFormData,
-  createTakeoffJobFromPlanSet,
-} from "@/lib/takeoff/server";
+import { createTakeoffJobFromPlanSet } from "@/lib/takeoff/server";
 
 const OTHER_UPLOAD = `${M3_TENANT_ID}/${M3_JOB_ID}/existing-upload.csv`;
 const SHARED_PLAN = `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/shared-plan.pdf`;
@@ -108,14 +97,6 @@ function createFixture(options: { admissionRejected?: boolean } = {}) {
         throw new Error(`Unexpected takeoff job operation: ${query.operation}`);
       },
     },
-    storage: {
-      "takeoff-files": (call) => {
-        if (call.method !== "upload") throw new Error("Authenticated cleanup is forbidden");
-        effects.push("storage:upload");
-        files.add(call.paths[0]);
-        return { data: { path: call.paths[0] }, error: null };
-      },
-    },
   });
   const admin = createSupabaseFake({
     tables: {
@@ -124,43 +105,23 @@ function createFixture(options: { admissionRejected?: boolean } = {}) {
         return { data: null, error: { code: "XX000", message: "Audit unavailable" } };
       },
     },
-    storage: {
-      "takeoff-files": (call) => {
-        if (call.method !== "remove") throw new Error("Unexpected privileged storage operation");
-        effects.push("storage:remove");
-        for (const path of call.paths) files.delete(path);
-        return { data: null, error: null };
-      },
-    },
   });
   vi.mocked(getAuthenticatedContext).mockResolvedValue(authenticatedContext(fake) as never);
   vi.mocked(createServiceRoleClient).mockReturnValue(admin.client as never);
   return { fake, admin, effects, files, jobs };
 }
 
-function uploadForm() {
-  const formData = new FormData();
-  formData.set("file", new File(["designation;quantity;unit\nTube cuivre;12;ml"], "metre.csv", {
-    type: "text/csv",
-  }));
-  formData.set("estimate_version_id", M3_VERSION_ID);
-  formData.set("level", "A");
-  formData.set("preparation_revision", "1");
-  return formData;
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(assertConfirmedTakeoffPreparation).mockReset().mockResolvedValue(confirmedPreparationFixture());
   vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
-  vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({});
-  vi.mocked(getTakeoffGeminiDeliveryConfigForTenant).mockResolvedValue({ useBatchApi: false } as never);
+  vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:55555555-5555-4555-8555-555555555555" });
   vi.mocked(getTakeoffChunkingConfigForTenant).mockResolvedValue({ maxPdfPages: 50 } as never);
   vi.mocked(getTakeoffLevelCProcessingConfigForTenant).mockResolvedValue({ maxPdfPages: 50 } as never);
 });
 
 describe("takeoff creation compensation", () => {
-  it.each(["upload", "plan_set"])("rejects an unconfirmed preparation before any %s side effect", async (entry) => {
+  it("rejects an unconfirmed preparation before any plan-set side effect", async () => {
     const { fake, admin, effects } = createFixture();
     vi.mocked(assertConfirmedTakeoffPreparation).mockRejectedValueOnce(new TakeoffError({
       status: 409,
@@ -169,67 +130,35 @@ describe("takeoff creation compensation", () => {
       retryable: false,
     }));
 
-    const creation = entry === "upload"
-      ? createTakeoffJobFromFormData(uploadForm())
-      : createTakeoffJobFromPlanSet({
-          projectId: M3_PROJECT_ID,
-          planSetId: M3_PLAN_SET_ID,
-          estimateVersionId: M3_VERSION_ID,
-          preparationRevision: 1,
-        });
+    const creation = createTakeoffJobFromPlanSet({
+      projectId: M3_PROJECT_ID,
+      planSetId: M3_PLAN_SET_ID,
+      estimateVersionId: M3_VERSION_ID,
+      preparationRevision: 1,
+    });
     await expect(creation).rejects.toMatchObject({ status: 409, retryable: false });
     expect(effects).toEqual([]);
     expect(fake.storageCalls).toEqual([]);
     expect(admin.storageCalls).toEqual([]);
     expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
-    expect(inspectSourceReferencePdf).not.toHaveBeenCalled();
   });
 
-  it("removes only its uploaded source, then its job, when the creation audit fails", async () => {
-    const { fake, admin, effects, files, jobs } = createFixture();
-
-    await expect(createTakeoffJobFromFormData(uploadForm())).rejects.toMatchObject({
-      message: "Impossible d'enregistrer l'audit takeoff.",
-    });
-
-    const inserted = fake.writesTo("takeoff_jobs")[0].payload as Record<string, unknown>;
-    const uploadedPath = fake.storageCalls[0].paths[0];
-    expect(inserted.preparation_snapshot).toEqual(confirmedPreparationFixture());
-    expect(inserted.source_file_path).toBe(uploadedPath);
-    expect(admin.storageCalls).toEqual([{
-      bucket: "takeoff-files",
-      method: "remove",
-      paths: [uploadedPath],
-    }]);
-    expect(fake.writesTo("takeoff_jobs")[1]).toMatchObject({
-      operation: "delete",
-      filters: [
-        { kind: "eq", column: "tenant_id", value: M3_TENANT_ID },
-        { kind: "eq", column: "id", value: inserted.id },
-      ],
-    });
-    expect(effects).toEqual([
-      "storage:upload", "job:insert", "audit:failure", "storage:remove", "job:delete",
-    ]);
-    expect(files).toEqual(new Set([OTHER_UPLOAD, SHARED_PLAN]));
-    expect(jobs).toEqual(new Set([M3_JOB_ID]));
-  });
-
-  it("keeps admission refusal retryable and removes only the unclaimed upload", async () => {
+  it("keeps admission refusal retryable and leaves the shared plan storage untouched", async () => {
     const { fake, admin, effects, files, jobs } = createFixture({ admissionRejected: true });
 
-    await expect(createTakeoffJobFromFormData(uploadForm())).rejects.toMatchObject({
+    await expect(createTakeoffJobFromPlanSet({
+      projectId: M3_PROJECT_ID,
+      planSetId: M3_PLAN_SET_ID,
+      estimateVersionId: M3_VERSION_ID,
+    })).rejects.toMatchObject({
       status: 409,
       code: "TAKEOFF_JOB_ADMISSION_LIMIT",
       retryable: true,
     });
 
-    expect(admin.storageCalls).toEqual([{
-      bucket: "takeoff-files",
-      method: "remove",
-      paths: [fake.storageCalls[0].paths[0]],
-    }]);
-    expect(effects).toEqual(["storage:upload", "job:insert", "storage:remove"]);
+    expect(effects).toEqual(["job:insert"]);
+    expect(fake.storageCalls).toEqual([]);
+    expect(admin.storageCalls).toEqual([]);
     expect(files).toEqual(new Set([OTHER_UPLOAD, SHARED_PLAN]));
     expect(jobs).toEqual(new Set([M3_JOB_ID]));
   });

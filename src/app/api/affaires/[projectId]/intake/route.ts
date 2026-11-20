@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
-import { fetchAffaireIntakeWorkspace, requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
@@ -17,7 +18,7 @@ export async function GET(
     const [workspace, plansSummary] = await Promise.all([
       fetchAffaireIntakeWorkspace(projectId),
       withPlans
-        ? requireAffaireProjectReadAccess(projectId)
+        ? requireAffaireAccess(projectId, "read")
           .then(({ context }) => isTakeoffEnabled(context.tenantId))
           // The plans complete the read: when they cannot be read, the page keeps those it shows.
           .then((enabled) => enabled ? fetchAffaireHubPlansSummary(projectId) : null)

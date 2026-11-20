@@ -236,14 +236,14 @@ export async function getUnifiedImportFlowTakeoffCarryOverPreview(
   }
 
   const membership = await getCurrentMembershipOrThrow(supabase, user.id);
-  const isTenantAdmin = membership.role === "admin";
 
   await assertProjectAccessOrThrow({
     supabase,
     projectId: parsed.data.projectId,
     tenantId: membership.tenant_id,
     userId: user.id,
-    isTenantAdmin,
+    tenantRole: membership.role,
+    mode: "write",
   });
 
   const versionContext = await fetchVersionComputationContext(
@@ -307,7 +307,8 @@ export async function confirmUnifiedImportFlow(
       projectId: requestedProjectId,
       tenantId: membership.tenant_id,
       userId: user.id,
-      isTenantAdmin,
+      tenantRole: membership.role,
+      mode: "write",
     });
 
     if (!parsed.data.createEstimate && !importRow.project_id) {
@@ -595,7 +596,8 @@ export async function previewUnifiedImportFlowLines(
     projectId: parsed.data.projectId,
     tenantId: membership.tenant_id,
     userId: user.id,
-    isTenantAdmin,
+    tenantRole: membership.role,
+    mode: "write",
   });
 
   const [rows, versionContext, roles] = await Promise.all([

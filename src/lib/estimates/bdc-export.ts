@@ -1,7 +1,8 @@
 import { sanitizeFilenameSegment, toNullableNumber, toEuroAmount, resolveDepthByItemId, usesLaborSplit, resolveLaborRoleLabel, resolveLaborHours, resolveLaborCoefficient, resolveExportAid } from "@/lib/estimates/legacy-export-projection";
 import { PassThrough, Readable } from "node:stream";
 import { computeEstimateLineValues, type EstimateItemRecord, type EstimateVersionForCalc } from "@/lib/estimate-calculations";
-import { resolveEstimateEngineVersion, shouldPreserveStoredEstimateV2Snapshot } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { resolveEstimateCostingSheetSource } from "@/lib/estimates/engine/amounts-source";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { alternativePriceForLineUnit, type SupplierOfferPurchaseUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { ESTIMATE_EXPORT_PROGRESS_COMPLETE, ESTIMATE_EXPORT_XLSX_CONTENT_TYPE, createWorkbookWriterFactory, type EstimateExportStreamResult, type WorkbookWriterFactory } from "@/lib/estimates/export-stream";
@@ -762,9 +763,10 @@ async function buildBdcExportPayload(
   const categoryById = new Map(
     (details.categories ?? []).map((category) => [category.id, category.name])
   );
-  // Lot 2, sous-lot 2.7b : une v3 est aiguillée avant tout garde ou calcul v1/v2 (computeEstimateLineValues,
-  // shouldPreserveStoredEstimateV2Snapshot) vers son document ; ses montants ne sont jamais recalculés ici (D12).
-  if (usesSaleCoefficients(resolveEstimateEngineVersion(details.version))) {
+  // Lot 2, sous-lot 2.7b : une v3 est aiguillée avant tout calcul v1/v2 (computeEstimateLineValues) vers
+  // son document ; ses montants ne sont jamais recalculés ici (D12).
+  const engine = resolveEstimateEngineVersion(details.version);
+  if (usesSaleCoefficients(engine)) {
     const document = await loadEstimateV3ExportDocument(versionId);
     const v3LineIds = document.items.filter((item) => item.item_type === "line").map((item) => item.id);
     const v3Comparisons = await getSupplierComparisonsForExport(versionId, v3LineIds, document.items);
@@ -782,8 +784,7 @@ async function buildBdcExportPayload(
       v3: { document },
     };
   }
-  const preserveStoredSnapshot =
-    shouldPreserveStoredEstimateV2Snapshot(details.version);
+  const preserveStoredSnapshot = resolveEstimateCostingSheetSource(engine, details.version) === "frozen";
   const lineItemIds = items
     .filter((item) => item.item_type === "line")
     .map((item) => item.id);

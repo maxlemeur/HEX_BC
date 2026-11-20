@@ -1,11 +1,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 
-import { AFFAIRE_INTAKE_BUCKET, type AffaireProjectAccess } from "@/lib/affaires/intake";
+import type { AffaireAccess } from "@/lib/affaires/access-server";
+import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { DriveStoreError } from "@/lib/affaires/google-drive/store";
 
-type Access = AffaireProjectAccess;
+type Access = AffaireAccess;
 type DerivedStateRefresh = (removed: { uploadId: string; wasUploaded: boolean }) => Promise<void>;
 
 // No Next imports: exercised against the owned local RLS and Storage backend.

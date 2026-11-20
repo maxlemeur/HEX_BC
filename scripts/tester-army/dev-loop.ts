@@ -183,12 +183,12 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
     };
     try {
       await assertStartInputs();
-      const source = await buildSourceEvidence();
+      const source = await buildSourceEvidence(input.root);
       const appSourceSha256 = applicationSourceDigest(source.inputs);
       const decision = decideRebuild({
         built: build, appSourceSha256, buildIdOnDisk: readBuildId(input.root), buildManifestIntact: readBuildManifest(input.root, build) !== null,
       });
-      manifest.source = { revision: source.revision, diffSha256: source.diffSha256, appSourceSha256, untrackedJourneyInputs: untrackedJourneyInputs() };
+      manifest.source = { revision: source.revision, diffSha256: source.diffSha256, appSourceSha256, untrackedJourneyInputs: untrackedJourneyInputs(input.root) };
       manifest.build = { rebuilt: decision.rebuild, reason: decision.reason, previousBuildId: build.buildId };
       timings.sourceCheckSeconds = secondsSince(started);
       notify(`Iteration ${index}: ${decision.rebuild ? "rebuilding" : "no rebuild"}, ${decision.reason}.`);

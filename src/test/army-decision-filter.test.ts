@@ -25,6 +25,11 @@
 //    not know, which the selection by impact runs the whole suite for; a pull request that edits the map beyond its
 //    rules (its full, docs or non-runtime globs) hides a file from the guards; the anchor the change itself reaches is
 //    dropped once the model leaves out the rest.
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { DECISION_FILTER, decisionFromPairs } from "../../scripts/tester-army/decision-listing";
@@ -32,12 +37,12 @@ import { DECISION_KEY, DECISION_MIN_PERCENT, armyDecisionFilter, armyImpactFilte
 import {
   MAP_PATH, buildSourceGraph, classifyPath, decisionSkipped, expandJourneys, isEntryPoint, listRepositoryFiles, loadImpactMap,
   mapChangesBeyondRules, matchesAny, narrowSelection, selectFromRepository, selectJourneys, type DecisionListing, type DecisionSuite,
-  type ImpactMap, type Selection, type SourceGraph,
+  type ImpactMap, type Selection, type SourceGraph, type StoredImpactMap,
 } from "../../scripts/tester-army/select-journeys";
 
 const root = process.cwd();
-const { map } = loadImpactMap(root);
 const repositoryFiles = listRepositoryFiles(root);
+const { map } = loadImpactMap(root, repositoryFiles);
 const setup = map.suite.setup;
 const anchor = map.suite.anchor;
 const BASE = "b".repeat(40);
@@ -191,6 +196,52 @@ describe("the decision filter behind its guards", () => {
     widened.nonRuntime = [...widened.nonRuntime, "src/lib/money.ts"];
     widened.full = widened.full.slice(1);
     expect(mapChangesBeyondRules(before, widened)).toEqual(["full", "nonRuntime"]);
+  });
+
+  it("judges nothing when the change adds a journey beside a rule edit, the base's journeys taken from the base's own tree", async () => {
+    const tree = fs.mkdtempSync(path.join(os.tmpdir(), "army-base-map-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", ...args],
+        { cwd: tree, encoding: "utf8" });
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout.trim();
+    };
+    const write = (file: string, text: string) => {
+      fs.mkdirSync(path.dirname(path.join(tree, file)), { recursive: true });
+      fs.writeFileSync(path.join(tree, file), text);
+    };
+    const existing = "e2e/army/critical/existing.e2e.ts";
+    const added = "e2e/army/critical/added.e2e.ts";
+    const stored: StoredImpactMap = {
+      schemaVersion: 1, suite: { anchor: existing, anonymous: [] }, fullOnly: {}, docs: [], nonRuntime: [], full: [], runnerEntries: [],
+      graph: { sourceRoots: ["src", "e2e"], extraFiles: [], apiRouteRoot: "src/app/api", apiCallers: [], apiCallersExcluded: [], importersExcluded: [],
+        escalationExcluded: [] },
+      groups: {}, rules: [{ id: "feature", paths: ["src/feature.ts"], journeys: [existing] }],
+    };
+    const judged = async (files: string[], base: string) => {
+      const { calls, filter } = recording();
+      const result = await filter.filter([candidate(existing)], { ...context(files), projectRoot: tree, changes: { base, root: tree, files: [...files].sort() } });
+      return { calls, note: result.note };
+    };
+    try {
+      write(MAP_PATH, JSON.stringify(stored));
+      write("src/feature.ts", "export const feature = 1;\n");
+      write(existing, "");
+      git("init", "-q");
+      git("add", ".");
+      git("commit", "-q", "-m", "base");
+      const base = git("rev-parse", "HEAD");
+      // A rule edit alone: the model judges it.
+      write(MAP_PATH, JSON.stringify({ ...stored, rules: [...stored.rules, { id: "more", paths: ["src/more/**"], journeys: [existing] }] }));
+      expect((await judged(["src/feature.ts", MAP_PATH], base)).calls).toEqual([["src/feature.ts"]]);
+      // A rule edit that comes with a new journey changes the suite, as when the map listed its journeys.
+      write(added, "");
+      write(MAP_PATH, JSON.stringify({ ...stored, rules: [...stored.rules, { id: "added", paths: ["src/feature.ts"], journeys: [added] }] }));
+      expect(await judged(["src/feature.ts", MAP_PATH, added], base))
+        .toEqual({ calls: [], note: "the model judges nothing: the impact map changed beyond its rules (suite)" });
+    } finally {
+      fs.rmSync(tree, { recursive: true, force: true });
+    }
   });
 
   it("shows the model only what can change the application, a changed journey file included", async () => {

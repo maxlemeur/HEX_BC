@@ -49,11 +49,21 @@ export type EstimateReadingNode = {
   };
 };
 
+/**
+ * What the reader may see of the estimate. `editor`: what the estimate editor shows its owner or an
+ * admin. `document`: what the read-only estimate page and its print show a member who reads the
+ * affaire without opening its estimates in the editor (a director): the document's lines, sections
+ * and totals, without the cost, the entries behind a price or the calculation settings. The affaire
+ * hub also shows such a member the current version's margin, which this view leaves out.
+ */
+export type EstimateReadingView = "editor" | "document";
+
 export type EstimateReading = {
+  view: EstimateReadingView;
   version: {
     id: string; label: string; title: string | null; status: string; engine: number;
     currency: SupportedEstimateCurrency;
-    amountsBasis: "draft_calculation" | "frozen";
+    amountsBasis: "draft_calculation" | "stored" | "frozen";
   };
   params: Record<string, string | number | boolean | null>;
   totals: {
@@ -65,6 +75,12 @@ export type EstimateReading = {
 };
 
 const LINES_PAGE = 80;
+const AMOUNTS_BASIS: Record<EstimateReading["version"]["amountsBasis"], string> = {
+  frozen: "montants figés à l’émission",
+  stored: "montants enregistrés du brouillon",
+  draft_calculation: "calcul du brouillon en cours",
+};
+const DOCUMENT_VIEW_NOTE = "Lecture du devis tel que sa fiche le montre : l’assistant ne lit le déboursé, la saisie des lignes et les paramètres de calcul que pour le propriétaire de l’affaire et les administrateurs.";
 const SECTIONS_LISTED = 200;
 const NOT_PRICED = "not_priced";
 
@@ -125,7 +141,7 @@ function versionSummary(reading: EstimateReading) {
   return {
     id: reading.version.id, version: reading.version.label, titre: reading.version.title, statut: reading.version.status,
     moteur_de_calcul: reading.version.engine, devise: reading.version.currency,
-    montants: reading.version.amountsBasis === "frozen" ? "montants figés à l’émission" : "calcul du brouillon en cours",
+    montants: AMOUNTS_BASIS[reading.version.amountsBasis],
   };
 }
 
@@ -159,14 +175,15 @@ export function estimateOutline(reading: EstimateReading) {
     const amounts = entry.node.line?.amounts;
     return amounts != null && amounts.netHtCents !== amounts.totalHtCents;
   });
+  const editor = reading.view === "editor";
   return {
     devis: versionSummary(reading),
-    parametres: reading.params,
+    ...(editor ? { parametres: reading.params } : { restriction: DOCUMENT_VIEW_NOTE }),
     totaux: {
       total_brut_ht: money(reading.totals.grossHtCents), remise: money(reading.totals.discountCents),
       arrondi_commercial: money(reading.totals.roundingCents), total_ht: money(reading.totals.totalHtCents),
       tva: money(reading.totals.totalTaxCents), total_ttc: money(reading.totals.totalTtcCents),
-      debourse_ht: money(reading.totals.costHtCents),
+      ...(editor ? { debourse_ht: money(reading.totals.costHtCents) } : {}),
     },
     ...(spread ? {
       note: linesBeforeDiscount
@@ -215,6 +232,19 @@ export function estimateLineDetail(reading: EstimateReading, lineId: string) {
   const line = entry.node.line;
   const amounts = line.amounts;
   const money = moneyOf(reading);
+  const taxRate = line.inputs.taxRateBp === null ? null : `${String(line.inputs.taxRateBp / 100).replace(".", ",")} %`;
+  const shownTotals = (shown: EstimateReadingAmounts) => ({
+    pu_ht: money(shown.puHtCents), total_ht: money(shown.totalHtCents),
+    ...(shown.netHtCents === shown.totalHtCents ? {} : { total_net_ht_apres_remise: money(shown.netHtCents) }),
+  });
+  if (reading.view === "document") {
+    return {
+      devis: versionSummary(reading), restriction: DOCUMENT_VIEW_NOTE,
+      id: node.id, section: path.join(" > "), designation: node.title,
+      quantite: line.quantity, unite: line.unit, statut: statusLabel(line.pricingStatus), taux_tva: taxRate,
+      calcul: amounts === null ? null : shownTotals(amounts),
+    };
+  }
   return {
     devis: versionSummary(reading),
     id: node.id, section: path.join(" > "), designation: node.title, description: line.description,
@@ -224,11 +254,10 @@ export function estimateLineDetail(reading: EstimateReading, lineId: string) {
       // One K FO is shown to the estimator: on engine 3 it is in the supply cost sentence, provision included.
       ...(line.foCostText === null ? { k_fo: line.inputs.kFo } : {}),
       heures_mo_par_unite: line.inputs.hMoPerUnit, heures_mo: line.inputs.hMo, k_mo: line.inputs.kMo,
-      taux_tva: line.inputs.taxRateBp === null ? null : `${String(line.inputs.taxRateBp / 100).replace(".", ",")} %`,
+      taux_tva: taxRate,
     },
     calcul: amounts === null ? null : {
-      pu_ht: money(amounts.puHtCents), total_ht: money(amounts.totalHtCents),
-      ...(amounts.netHtCents === amounts.totalHtCents ? {} : { total_net_ht_apres_remise: money(amounts.netHtCents) }),
+      ...shownTotals(amounts),
       debourse_ht: money(amounts.costHtCents), part_fo_ht: money(amounts.foHtCents), part_mo_ht: money(amounts.moHtCents),
       heures_mo: amounts.hours, detail_cout_fo: line.foCostText,
     },

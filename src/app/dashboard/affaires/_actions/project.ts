@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { affaireOwnerFilter } from "@/lib/affaires/access-server";
 import {
   getCurrentMembershipOrThrow,
 } from "@/lib/affaires/import-flow-server";
@@ -38,7 +39,7 @@ export async function updateAffaireProjectMetadataAction(
 
   const membership = await getCurrentMembershipOrThrow(supabase, user.id);
   ensureEngineerOrAdmin(membership.role);
-  const isTenantAdmin = membership.role === "admin";
+  const owner = affaireOwnerFilter({ userId: user.id, tenantRole: membership.role }, "write");
 
   let query = supabase
     .from("estimate_projects")
@@ -54,8 +55,8 @@ export async function updateAffaireProjectMetadataAction(
     .eq("tenant_id", membership.tenant_id)
     .eq("is_archived", false);
 
-  if (!isTenantAdmin) {
-    query = query.eq("user_id", user.id);
+  if (owner) {
+    query = query.eq("user_id", owner);
   }
 
   const { data, error } = await query

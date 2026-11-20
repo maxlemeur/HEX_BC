@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
-import { refreshAffaireIntakeFromActiveDocuments, requireAffaireProjectOwnerOrAdmin, syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
+import { refreshAffaireIntakeFromActiveDocuments, syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-server";
 
 import {
   affaireIntakeDocumentKindSchema,
@@ -89,7 +90,7 @@ export async function setAffaireDocumentAsPrimary(
 
 export async function deleteAffaireIntakeDocument(input: { projectId: string; documentId: string }) {
   const parsed = setAffaireDocumentAsPrimaryInputSchema.parse(input);
-  const access = await requireAffaireProjectOwnerOrAdmin(parsed.projectId);
+  const access = await requireAffaireAccess(parsed.projectId, "write");
   const syncPriorities = () => syncAffaireIntakeDocumentPriorities({ supabase: access.context.supabase, projectId: parsed.projectId });
   let result: Awaited<ReturnType<typeof deleteIntakeDocumentCopy>>;
   try {

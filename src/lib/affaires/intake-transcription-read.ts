@@ -2,7 +2,7 @@ import "server-only";
 
 import { normalizeIntakeTranscription, type IntakeTranscription } from "@/lib/affaires/intake-transcription";
 import { inferAffaireIntakeMimeType } from "@/lib/affaires/intake";
-import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { canTranscribeIntakeDocument, isIntakeRetryReadingRunning } from "@/lib/affaires/intake-transcription-server";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { internalError, notFound } from "@/lib/http/api-response";
@@ -17,7 +17,7 @@ import { internalError, notFound } from "@/lib/http/api-response";
 export async function readAffaireDocumentTranscription(projectId: string, documentId: string): Promise<{
   transcription: IntakeTranscription | null; pending: boolean;
 }> {
-  const { context, project } = await requireAffaireProjectReadAccess(projectId);
+  const { context, project } = await requireAffaireAccess(projectId, "read");
   const { data: document, error: documentError } = await context.supabase.from("affaire_intake_documents").select("id,upload_id,file_name,mime_type")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId)
     .eq("upload_status", "uploaded").is("deleted_at", null).is("deletion_token", null).maybeSingle();

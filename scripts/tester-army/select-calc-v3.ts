@@ -136,7 +136,7 @@ export function selectCalcV3FromRepository({ map, graph, runner }: CalcV3Reposit
 export function selectCalcV3(root: string, paths: string[]): CalcSelection {
   if (!paths.length) return all("Empty or unavailable diff: all phases.");
   try {
-    const { map } = loadImpactMap(root), files = listRepositoryFiles(root);
+    const files = listRepositoryFiles(root), { map } = loadImpactMap(root, files);
     // A documentation-only diff needs no source graph.
     if (documentationOnly(map, paths)) return docsSelection(paths);
     return selectCalcV3FromRepository(loadCalcV3Repository(root, map, files), paths);
