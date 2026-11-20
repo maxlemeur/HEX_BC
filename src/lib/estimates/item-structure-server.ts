@@ -11,7 +11,7 @@ import {
   isAncestorOrSelf,
   resolveSectionLevel,
 } from "@/lib/estimates/hierarchy";
-import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import {
   assertDraftLockOwnedByCurrentUser,
   assertDraftStatus,

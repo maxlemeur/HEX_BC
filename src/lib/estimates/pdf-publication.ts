@@ -5,7 +5,7 @@ import {
   mapSupabaseError,
   notFound,
   type SupabaseErrorLike,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import type { Database, Json } from "@/types/database";
 import type { ClientContract1 } from "@/lib/estimates/offer-contract";
@@ -215,14 +215,6 @@ export function buildContentAddressedEstimatePdfPath(input: {
     input.versionId,
     `${sha256Hash}.pdf`,
   ].join("/");
-}
-
-export function buildLegacyEstimatePdfPath(input: {
-  tenantId: string;
-  projectId: string;
-  versionId: string;
-}) {
-  return `${input.tenantId}/${input.projectId}/${input.versionId}.pdf`;
 }
 
 export function isCanonicalEstimatePdfPath(input: {

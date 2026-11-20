@@ -12,9 +12,8 @@ import {
   notFound,
   payloadTooLarge,
   unprocessableEntity,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   buildPlanFileStoragePath,
   sanitizePlanPdfFilename,
@@ -23,12 +22,12 @@ import {
 import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { DEFAULT_IMPORT_PLAN_SET_NAME, hasDefaultImportPlanSetMarker, selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { stableImportPlanSetId } from "@/lib/takeoff/default-import-plan-set-id";
-import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { coerceNumericSearchParam } from "@/lib/takeoff/schemas";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
+import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 
 const PLAN_FILE_ALLOWED_MIME_TYPE = "application/pdf";
 const PLAN_FILE_ALLOWED_EXTENSION = ".pdf";
@@ -479,12 +478,6 @@ function normalizePlanFileRows(rows: unknown[]): PlanFile[] {
   return rows.map((row) => normalizePlanFileRow(row));
 }
 
-async function getAuthenticatedTakeoffContext() {
-  const context = await getAuthenticatedContext();
-  await assertTakeoffEnabled(context.tenantId, { supabase: context.supabase });
-  return context;
-}
-
 function assertPlanSetMutationRole(role: string | null | undefined) {
   if (role === "admin" || role === "engineer") return;
   throw forbidden("Action réservée aux administrateurs et ingenieurs.");
@@ -855,7 +848,6 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
 }
 
 const projectIdParamSchema = z.string().uuid("project_id invalide.");
-const versionIdParamSchema = z.string().uuid("versionId invalide.");
 
 export const fetchPlanSetsForProject = cache(async (projectId: string) => {
   const parsedProjectId = parseWithSchema(
@@ -892,21 +884,6 @@ export const hasTakeoffAnalysisForProject = cache(async (projectId: string) => {
   }
 
   return data !== null;
-});
-
-export const fetchLinkedTakeoffJobs = cache(async (versionId: string) => {
-  const parsedVersionId = parseWithSchema(
-    versionIdParamSchema,
-    versionId,
-    "versionId invalide."
-  );
-  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
-
-  return listAccessibleTakeoffJobsForVersion({
-    supabase,
-    tenantId,
-    versionId: parsedVersionId,
-  });
 });
 
 export async function getPlanSet(setId: string) {

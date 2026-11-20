@@ -24,7 +24,7 @@ import {
   internalError,
   mapSupabaseError,
   notFound,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
@@ -96,6 +96,7 @@ import {
   syncAffaireRegisterMissingPieces,
   syncAffairePlanGap,
 } from "@/lib/affaires/register-server";
+import { isRecord } from "@/lib/value-guards";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 
@@ -381,11 +382,6 @@ const affaireBriefGenerationSchema = z
 
 type AffaireBriefEntry = z.infer<typeof affaireBriefEntrySchema>;
 type AffaireBriefGeneration = z.infer<typeof affaireBriefGenerationSchema>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function toStringOrNull(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }

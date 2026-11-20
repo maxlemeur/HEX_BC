@@ -3,6 +3,7 @@ import {
   type BulkCreateSupplierPricesInput,
 } from "@/lib/catalogue/schemas";
 import { parseEuroToCents } from "@/lib/money";
+import { stripAccents } from "@/lib/text/fold";
 
 export type CsvImportScalar = string | number | boolean | null | undefined;
 export type CsvImportRow = Record<string, CsvImportScalar>;
@@ -210,10 +211,6 @@ const TARGET_FIELD_ALIASES: Record<PriceBookCsvTargetField, string[]> = {
   ],
   currency: ["currency", "currency code", "devise", "code devise", "devise code"],
 };
-
-function stripAccents(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
 
 function normalizeHeaderToken(value: string): string {
   return stripAccents(value)

@@ -29,7 +29,7 @@ import {
 
 import type { Database } from "@/types/database";
 
-import { badRequest, mapSupabaseError } from "./errors";
+import { badRequest, mapSupabaseError } from "@/lib/http/api-response";
 
 import { getAuthenticatedContext, getVersionAccessOrThrow } from "./server-context";
 

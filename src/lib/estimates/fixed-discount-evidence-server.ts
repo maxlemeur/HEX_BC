@@ -11,7 +11,7 @@ import {
   requireEstimateEngineVersion,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
-import { conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { calculateEstimateSnapshotForItems, type EstimateCalculationDependencies } from "@/lib/estimates/version-totals";
 import type { Database } from "@/types/database";

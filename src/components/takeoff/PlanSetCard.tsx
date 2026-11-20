@@ -22,6 +22,7 @@ import {
 } from "@/lib/takeoff/client";
 import type { PlanFileListItem, PlanSetListItem } from "@/lib/takeoff/types";
 import { ChevronRightIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { isRecord } from "@/lib/value-guards";
 
 type PlanSetCardProps = {
   planSet: PlanSetListItem;
@@ -31,11 +32,6 @@ type PlanSetCardProps = {
   onFilesChanged: (unsynchronizedProjectId?: string) => void;
   onUpdated: () => void;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function toApiErrorMessage(payload: unknown, fallback: string) {
   if (isRecord(payload)) {
     const nestedError = payload.error;

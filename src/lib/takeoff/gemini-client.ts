@@ -3,6 +3,7 @@ import { z } from "zod";
 import { mapGeminiErrorToTakeoffError, TakeoffError } from "@/lib/takeoff/errors";
 import type { TakeoffMetadata } from "@/lib/takeoff/types";
 import { zodToGeminiJsonSchema } from "@/lib/takeoff/schemas";
+import { asRecord } from "@/lib/value-guards";
 
 const DEFAULT_MODEL = "gemini-3.1-pro-preview";
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -96,13 +97,6 @@ const GEMINI_ERROR_STATUSES = new Set([
   "UNAVAILABLE",
   "DEADLINE_EXCEEDED",
 ]);
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
 function summarizeGeminiProviderError(error: unknown) {
   const providerError = asRecord(error);
   const httpStatus = providerError?.status;

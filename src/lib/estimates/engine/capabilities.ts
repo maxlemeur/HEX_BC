@@ -10,6 +10,8 @@
  * `EstimateEngineUnavailableError` au lieu de la relire comme une v1.
  */
 
+import { NamedRefusal } from "@/lib/http/api-error";
+
 export type EstimateEngineVersion = 1 | 2 | 3;
 
 /** Moteur historique : meme domaine que `CalcEngineVersion` (`calc-engine-version.ts`). */
@@ -19,13 +21,12 @@ export const ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE =
   "Ce devis utilise le moteur de calcul 3, pas encore disponible pour cette action.";
 
 /** Refus nomme d'une action pas encore disponible en moteur 3 (HTTP 409 dans les routes). */
-export class EstimateEngineUnavailableError extends Error {
-  readonly code = "ESTIMATE_ENGINE_UNAVAILABLE";
+export class EstimateEngineUnavailableError extends NamedRefusal {
   readonly status = 409;
   readonly engineVersion = 3;
 
   constructor() {
-    super(ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE);
+    super("ESTIMATE_ENGINE_UNAVAILABLE", ESTIMATE_ENGINE_UNAVAILABLE_MESSAGE);
     this.name = "EstimateEngineUnavailableError";
   }
 }

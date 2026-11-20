@@ -106,7 +106,6 @@ export const takeoffPreparationProcessingSchema = z.object({
   level: z.enum(["A", "B", "C"]).nullable(),
   provider: z.enum(["auto", "chatgpt", "gemini"]),
 }).strict();
-export type TakeoffPreparationProcessing = z.infer<typeof takeoffPreparationProcessingSchema>;
 
 export const takeoffPreparationSchema = z.object({
   schema_version: z.literal(1),
@@ -137,7 +136,6 @@ export const takeoffPreparationSchema = z.object({
 export type TakeoffPreparation = z.infer<typeof takeoffPreparationSchema>;
 export type TakeoffPreparationSource = z.infer<typeof takeoffPreparationSourceSchema>;
 export type TakeoffPreparationUnknown = z.infer<typeof takeoffPreparationUnknownSchema>;
-export type TakeoffPreparationObjective = z.infer<typeof objectiveSchema>;
 
 export type TakeoffPreparationIssue = {
   code: string;

@@ -6,7 +6,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertDraftStatus } from "@/lib/estimates/server-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   TakeoffError,

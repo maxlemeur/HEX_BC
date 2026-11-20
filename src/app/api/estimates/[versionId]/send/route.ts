@@ -2,29 +2,21 @@ import { z } from "zod";
 
 import { parseEstimateEmailReceipt } from "@/lib/email/send-estimate-contract";
 import { sendEstimateEmail } from "@/lib/email/send-estimate";
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { sendEstimateSchema } from "@/lib/estimates/schemas";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER, normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
-import { parseJsonBody } from "@/lib/http/request";
+import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 export const runtime = "nodejs";
 
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
 const idempotencyKeySchema = z.string().uuid("Idempotency-Key invalide.");
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return versionIdParamSchema.parse(params).versionId;
-}
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const payload = sendEstimateSchema.parse(await parseJsonBody(request, badRequest));
     const rawIdempotencyKey = request.headers.get("idempotency-key")?.trim();
     if (!rawIdempotencyKey) {

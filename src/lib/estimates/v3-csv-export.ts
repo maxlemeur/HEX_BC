@@ -10,7 +10,7 @@ import {
   normalizeSupplierComparisonsByItemId,
 } from "@/lib/estimates/editor-export";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { conflict } from "@/lib/estimates/errors";
+import { conflict } from "@/lib/http/api-response";
 import { ESTIMATE_EXPORT_PROGRESS_COMPLETE } from "@/lib/estimates/export-stream";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { MAJORATION_PERCENT_HEADER, majorationCoefficientToPercent } from "@/lib/estimates/majoration";

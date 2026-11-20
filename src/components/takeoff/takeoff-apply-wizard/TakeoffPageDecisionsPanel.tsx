@@ -22,6 +22,7 @@ import {
 } from "./page-decisions";
 import { dpgfChange, dpgfFall } from "./dpgf-outcome-text";
 import { formatTakeoffQuantity } from "./shared";
+import { plural } from "@/lib/text/plural";
 
 // TI-682 lot D, PR 2: « Pages déjà au devis », at the application's confirmation. Codex review of 708c7fbf: the screen is
 // organised as the database decides. Each page re-measured is decided once (replace its earlier measure, recommended, or
@@ -32,7 +33,6 @@ import { formatTakeoffQuantity } from "./shared";
 export const PAGE_DECISIONS_TITLE = "Pages déjà au devis";
 
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? "s" : ""}`;
 const quantity = (value: number | null) => (value === null ? "—" : formatTakeoffQuantity(value));
 
 type Job = TakeoffPageReplacementResponse["jobs"][number];

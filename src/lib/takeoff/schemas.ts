@@ -278,39 +278,6 @@ function validateRegexMatchPattern(
   }
 }
 
-export const takeoffMappingRuleActionConfigSchema = z.discriminatedUnion("action", [
-  z
-    .object({
-      action: z.literal("rename"),
-      action_params: takeoffRenameActionParamsSchema,
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal("set_price"),
-      action_params: takeoffSetPriceActionParamsSchema,
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal("set_category"),
-      action_params: takeoffSetCategoryActionParamsSchema,
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal("apply_assembly"),
-      action_params: takeoffApplyAssemblyActionParamsSchema,
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal("skip"),
-      action_params: takeoffSkipActionParamsSchema.optional().default({}),
-    })
-    .strict(),
-]);
-
 const takeoffMappingRuleCreateCommonShape = {
   name: takeoffMappingRuleNameSchema,
   match_pattern: takeoffMappingRulePatternSchema,

@@ -1,7 +1,6 @@
 import { isAffaireIntakeDocumentNeedingReview, isAffaireIntakeDocumentProcessing } from "@/lib/affaires/intake";
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
-import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import {
   buildPilotageSteps,
   type AffairePilotageCurrentVersion,
@@ -9,6 +8,7 @@ import {
   type AffairePilotageWorkspace,
 } from "./AffairePilotagePanel.logic";
 import type { AffaireHubDpgfSourceResult } from "@/lib/affaires/server";
+import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 export type JourneyStage = "cadrage" | "etude" | "remise" | "achats";
 export type JourneyInput = {

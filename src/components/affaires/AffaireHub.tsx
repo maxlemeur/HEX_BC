@@ -51,7 +51,6 @@ import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { AffairePersistedProjectDetails } from "./AffairePersistedProjectDetails";
 import { PlansMetresCard } from "./PlansMetresCard";
-import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import {
   shouldRenderPlansSection,
 } from "./affaire-workflow";
@@ -95,6 +94,7 @@ import { IntakeUploadFeedback, useIntakeUploadFeedback } from "./IntakeUploadFee
 import { useAffaireDossier } from "./useAffaireDossier";
 import { useHubCockpitSuggestions, type HubCockpitInput } from "./useHubCockpitSuggestions";
 import "./AffaireWorkbench.css";
+import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 export { DpgfSourceCard, getEstimateMarginSettingsHref } from "./AffaireHubSections";
 

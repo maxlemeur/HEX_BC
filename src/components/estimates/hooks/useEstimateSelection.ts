@@ -153,5 +153,3 @@ export function useEstimateSelection({
     handleApplyBulkLaborRole,
   };
 }
-
-export type UseEstimateSelectionResult = ReturnType<typeof useEstimateSelection>;

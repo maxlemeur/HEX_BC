@@ -502,5 +502,3 @@ export function useEstimateClipboard({
     copySelectedRowsToClipboard,
   };
 }
-
-export type UseEstimateClipboardResult = ReturnType<typeof useEstimateClipboard>;

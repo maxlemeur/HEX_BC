@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { AutoSaveResult } from "@/hooks/useAutoSave";
 import {
   deferEffectStateUpdate,
@@ -56,6 +55,7 @@ import {
   type EstimateEditorSyncController,
   type EstimateEditorSyncControllerInput,
 } from "@/hooks/useEstimateEditorSyncController.types";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 export type {
   EstimateEditorConflictDraft,

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { conflict } from "@/lib/estimates/errors";
+import { conflict } from "@/lib/http/api-response";
 import {
   prepareEstimateV3FreezeArguments,
   toEstimateV3FreezeError,

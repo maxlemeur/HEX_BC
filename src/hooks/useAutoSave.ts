@@ -92,10 +92,6 @@ export function shouldBlockBeforeUnload(
   return hasPendingChanges || isSaving;
 }
 
-export function shouldAutomaticallyRetry(result: AutoSaveResult) {
-  return result === "error";
-}
-
 export function resolveAutoSaveRetryDelay(
   retryDelayMs: number,
   retryAttempt: number

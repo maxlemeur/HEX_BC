@@ -1,4 +1,5 @@
 import { isImportReservedKey } from "./payload";
+import { stripAccents } from "@/lib/text/fold";
 
 export type SimpleJsonValue = string | number | boolean | null;
 export type ImportJsonValue =
@@ -10,10 +11,6 @@ export type NormalizedImportRow = Record<string, ImportJsonValue>;
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object") return false;
   return Object.prototype.toString.call(value) === "[object Object]";
-}
-
-function stripAccents(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function normalizeOptimaHeader(raw: string): string | null {

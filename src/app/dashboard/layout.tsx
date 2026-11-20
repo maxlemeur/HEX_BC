@@ -4,7 +4,7 @@ import { AssistantDock } from "@/components/assistant/AssistantDock";
 import { DashboardShell } from "@/components/DashboardShell";
 import { NavigationFeedbackProvider } from "@/components/navigation/NavigationFeedback";
 import { CommandPaletteLoader } from "@/components/ui-legacy/CommandPaletteLoader";
-import { UserProvider } from "@/components/UserContext";
+import { UserProvider } from "@/lib/auth/user-context";
 import { WebVitalsReporter } from "@/components/performance/WebVitalsReporter";
 import { isAssistantEnabled } from "@/lib/assistant/model";
 import { getSupabase, getUserContext } from "@/lib/auth/server";

@@ -1,18 +1,6 @@
 "use client";
 
-import type { SupplierPriceFormState } from "@/components/catalogue/prices-manager/types";
 import { Badge } from "@/components/ui/badge";
-
-export const EMPTY_FORM: SupplierPriceFormState = {
-  supplier_id: "",
-  product_id: "",
-  unit_price_euros: "",
-  currency: "EUR",
-  valid_from: "",
-  valid_to: "",
-  source: "",
-  notes: "",
-};
 
 export function formatDate(value: string | undefined | null) {
   if (!value) return "-";

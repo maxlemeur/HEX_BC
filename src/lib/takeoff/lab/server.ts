@@ -9,7 +9,7 @@ import { listLocalChatGptModels } from "@/lib/ai/chatgpt-local-inference";
 import { getOpenAiDecisionsCapability, OPENAI_DECISIONS_MODEL } from "@/lib/ai/decisions";
 import { getUserContext } from "@/lib/auth/server";
 import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
-import { ApiError, badRequest, conflict, forbidden, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict, forbidden, ok, toErrorResponse } from "@/lib/http/api-response";
 import { isJsonContentType } from "@/lib/http/request";
 import { withNoStore } from "@/lib/http/response";
 import { describeError } from "@/lib/takeoff/bench/run";

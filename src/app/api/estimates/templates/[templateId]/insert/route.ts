@@ -1,38 +1,16 @@
-import { z } from "zod";
-
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { insertTemplateIntoVersionSchema } from "@/lib/estimates/schemas";
 import { insertTemplateIntoVersion } from "@/lib/estimates/assemblies-server";
-
-const paramsSchema = z.object({
-  templateId: z.string().uuid("templateId invalide."),
-});
-
-async function getTemplateId(paramsPromise: Promise<{ templateId: string }>) {
-  const params = await paramsPromise;
-  return paramsSchema.parse(params).templateId;
-}
-
-async function parseOptionalJsonBody(request: Request): Promise<unknown> {
-  try {
-    const raw = await request.text();
-    if (!raw.trim()) {
-      return {};
-    }
-    return JSON.parse(raw);
-  } catch {
-    throw badRequest("Payload JSON invalide.");
-  }
-}
+import { uuidRouteParam, parseJsonBodyOrEmptyObject } from "@/lib/http/request";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ templateId: string }> }
 ) {
   try {
-    const templateId = await getTemplateId(params);
+    const templateId = await uuidRouteParam(params, "templateId");
     const { searchParams } = new URL(request.url);
-    const body = await parseOptionalJsonBody(request);
+    const body = await parseJsonBodyOrEmptyObject(request, badRequest);
 
     const payload = insertTemplateIntoVersionSchema.parse({
       versionId: searchParams.get("versionId"),

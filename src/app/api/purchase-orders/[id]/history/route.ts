@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
 import { purchaseOrderItemHistorySchema } from "@/lib/purchase-orders/schemas";
 import { purchaseOrderWriteError } from "@/lib/purchase-orders/write";

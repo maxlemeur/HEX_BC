@@ -19,6 +19,7 @@ import {
   parseStoredCoefficient,
 } from "@/lib/numeric-input/parsers";
 import { dedupeHeaders } from "@/lib/imports/tabular-normalization";
+import { stripAccents } from "@/lib/text/fold";
 
 export const CLIPBOARD_TARGET_FIELDS = [
   "designation",
@@ -308,10 +309,6 @@ const NUMERIC_FIELDS = new Set<ClipboardNumericField>([
   "control_unit_price",
   "hourly_rate",
 ]);
-
-function stripAccents(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
 
 function parseTsvLine(line: string): string[] {
   const cells: string[] = [];

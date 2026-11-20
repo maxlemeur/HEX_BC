@@ -38,7 +38,6 @@ import {
   formatQuantity,
   formatQuotedPrice,
   lineTitle,
-  plural,
   quotedAmountCents,
 } from "./format";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
@@ -50,6 +49,7 @@ import {
   type MaterialRequestQuotesApi,
   type QuotesStatus,
 } from "./useMaterialRequestQuotes";
+import { plural } from "@/lib/text/plural";
 
 /*
  * « Consultation » (TI-691, lot 2 « l'achat », delivery 2): the office asks suppliers for a price with a short

@@ -23,7 +23,7 @@ import {
   usesPerUnitLabor,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
-import { badRequest, internalError, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, internalError, mapSupabaseError } from "@/lib/http/api-response";
 import {
   assertTemplateLaborRolesOwnedForV3,
   templateHoursWithoutQuantityMessage,
@@ -50,6 +50,7 @@ import {
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import type { Database, Json } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -273,20 +274,13 @@ const DEFAULT_VERSION_SETTINGS: LatestVersionDefaults = {
 function todayDateOnly() {
   return new Date().toISOString().slice(0, 10);
 }
-
-function normalizeNullableText(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function toJsonObject(value: Json | undefined): Record<string, Json | undefined> {
   if (!value || Array.isArray(value) || typeof value !== "object") return {};
   return value as Record<string, Json | undefined>;
 }
 
 function createImportSectionTitle(value: string | null | undefined) {
-  const explicitTitle = normalizeNullableText(value);
+  const explicitTitle = toNonEmptyString(value);
   if (explicitTitle) return explicitTitle;
 
   const timestamp = new Intl.DateTimeFormat("fr-FR", {
@@ -538,7 +532,7 @@ function createImportItems(source: Extract<CanonicalV2CreationSource, { kind: "i
           parentId,
           itemType: "section",
           position,
-          title: normalizeNullableText(sourceItem.title) ?? `Section ${position}`,
+          title: toNonEmptyString(sourceItem.title) ?? `Section ${position}`,
         }),
         source_provider: "dpgf",
         source_file_name: source.filename,
@@ -556,9 +550,9 @@ function createImportItems(source: Extract<CanonicalV2CreationSource, { kind: "i
         parentId,
         itemType: "line",
         position,
-        title: normalizeNullableText(sourceItem.title) ?? `Ligne ${position}`,
+        title: toNonEmptyString(sourceItem.title) ?? `Ligne ${position}`,
       }),
-      description: normalizeNullableText(sourceItem.description),
+      description: toNonEmptyString(sourceItem.description),
       quantity: sourceItem.quantity,
       unit_price_ht_cents: sourceItem.unit_price_ht_cents,
       tax_rate_bp: sourceItem.tax_rate_bp,
@@ -694,7 +688,7 @@ function resolveVersionPayload(input: {
 
   return {
     id: randomUUID(),
-    title: normalizeNullableText(input.overrides?.title),
+    title: toNonEmptyString(input.overrides?.title),
     date_devis: base.date_devis,
     validite_jours: base.validite_jours,
     margin_multiplier: base.margin_multiplier,
@@ -762,7 +756,7 @@ function resolveV3VersionPayload(input: {
   }
   return {
     id: randomUUID(),
-    title: normalizeNullableText(input.overrides?.title),
+    title: toNonEmptyString(input.overrides?.title),
     date_devis: base.date_devis,
     validite_jours: base.validite_jours,
     margin_multiplier: base.margin_multiplier,
@@ -1093,9 +1087,9 @@ export async function persistCanonicalEstimateV2(
       ? {
           id: projectId,
           name: input.project.name.trim(),
-          reference: normalizeNullableText(input.project.reference),
-          client_name: normalizeNullableText(input.project.clientName),
-          notes: normalizeNullableText(input.project.notes),
+          reference: toNonEmptyString(input.project.reference),
+          client_name: toNonEmptyString(input.project.clientName),
+          notes: toNonEmptyString(input.project.notes),
         }
       : null;
   const persistenceClient = createServiceRoleClient();
@@ -1196,7 +1190,7 @@ export async function instantiateCanonicalEstimateV2FromTemplate(
     project: input.project,
     expectedCalcEngineVersion: input.expectedCalcEngineVersion,
     version: {
-      title: normalizeNullableText(input.versionTitle),
+      title: toNonEmptyString(input.versionTitle),
       date_devis: input.dateDevis ?? todayDateOnly(),
       validite_jours: input.validiteJours ?? template.validite_jours,
     },

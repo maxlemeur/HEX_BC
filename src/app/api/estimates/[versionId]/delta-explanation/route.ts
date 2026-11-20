@@ -4,7 +4,7 @@ import {
   estimateDeltaExplanationQuerySchema,
   estimateExplanationResponseSchema,
 } from "@/lib/estimates/explanation-schemas";
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { getEstimateDeltaExplanation } from "@/lib/estimates/explanations";
 
 export const runtime = "nodejs";

@@ -1,4 +1,3 @@
-import type { AffaireHubPlansSummaryData } from "@/components/affaires/PlansMetresCard";
 import {
   isAffaireIntakeDocumentNeedingReview,
   resolveAffairePreliminaryStructureCapability,
@@ -15,6 +14,7 @@ import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-draft
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
 import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
+import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 export type CockpitIntent =
   | "add_files"

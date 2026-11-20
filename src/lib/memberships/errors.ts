@@ -16,20 +16,9 @@ export type ApiErrorCode =
   | "VALIDATION_ERROR"
   | "INTERNAL_ERROR";
 
-type ApiErrorBody = {
-  code: ApiErrorCode | string;
-  message: string;
-  details?: unknown;
-};
-
 export type ApiSuccessResponse<T> = {
   ok: true;
   data: T;
-};
-
-export type ApiFailureResponse = {
-  ok: false;
-  error: ApiErrorBody;
 };
 
 export class MembershipsApiError extends Error {

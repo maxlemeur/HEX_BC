@@ -13,9 +13,10 @@ import type {
 } from "@/lib/material-requests/supply-cost-contracts";
 import { formatEUR } from "@/lib/money";
 
-import { plural, SUPPLY_COST_ANCHOR } from "./format";
+import { SUPPLY_COST_ANCHOR } from "./format";
 import { LoadFailure } from "./LoadFailure";
 import { useRetryableLoad } from "./useRetryableLoad";
+import { plural } from "@/lib/text/plural";
 
 function rowLabel(row: AffaireSupplyCostRow): string {
   if (row.kind === "unclassified") return "Non classé";

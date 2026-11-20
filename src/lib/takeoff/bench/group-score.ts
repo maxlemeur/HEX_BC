@@ -5,10 +5,11 @@ import { checkGroupTruthFiles, formatBenchIssue } from "@/lib/takeoff/bench/chec
 import { BenchDatasetError, filesSha256 } from "@/lib/takeoff/bench/dataset";
 import { NETWORK_CODES, type NetworkCode } from "@/lib/takeoff/bench/keys";
 import { GroupTruthFileSchema, type GroupTruthFile, type TakeoffBenchManifest } from "@/lib/takeoff/bench/schemas";
-import { nearestRank, table } from "@/lib/takeoff/bench/vector-report";
+import { table } from "@/lib/takeoff/bench/vector-report";
 import { CANDIDATE_FILTER_REASONS, type CandidateFilterReason } from "@/lib/takeoff/vectors/candidate-filter";
 import { acceptedConfidence, DECISIONS_ACCEPTED_MARGIN, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { PARENT_NETWORK } from "@/lib/takeoff/vectors/legend";
+import { percentile } from "@/lib/takeoff/bench/report";
 
 // The per-group score of a vector run (TI-704): how the run classed the groups
 // of a private truth given apart (`takeoff:bench --group-truth <dir>`), never
@@ -255,7 +256,7 @@ function costOf(pass: GroupScorePassInput) {
   return {
     pages,
     cost: { pages: pages.length, calls, tokens, latency_ms: latency, calls_per_page: share(calls, pages.length), tokens_per_page: share(tokens, pages.length),
-      latency_ms_per_page: share(latency, pages.length), call_latency_ms: { p50: nearestRank(latencies, 50), p95: nearestRank(latencies, 95) } },
+      latency_ms_per_page: share(latency, pages.length), call_latency_ms: { p50: percentile(latencies, 50), p95: percentile(latencies, 95) } },
   };
 }
 

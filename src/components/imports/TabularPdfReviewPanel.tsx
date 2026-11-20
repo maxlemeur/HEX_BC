@@ -7,6 +7,7 @@ import type {
   TabularPdfReviewPayload,
 } from "@/hooks/useImportFlow";
 import { cn } from "@/lib/utils";
+import { plural } from "@/lib/text/plural";
 
 type TabularPdfReviewPanelProps = {
   fileName: string;
@@ -57,10 +58,6 @@ function reviewStateTone(reviewState: TabularPdfReviewPayload["review"]["review_
   }
 }
 
-function countLabel(count: number, singular: string, pluralForm: string) {
-  return `${count} ${count > 1 ? pluralForm : singular}`;
-}
-
 export function TabularPdfReviewPanel({
   fileName,
   fileSizeLabel,
@@ -95,7 +92,7 @@ export function TabularPdfReviewPanel({
           </p>
           <p className="mt-1 text-xs font-medium text-foreground-secondary">
             {reviewStateLabel(pdfReview.review.review_state)} ·{" "}
-            {countLabel(summary.approvable_tables, "tableau exploitable", "tableaux exploitables")} sur{" "}
+            {plural(summary.approvable_tables, "tableau exploitable", "tableaux exploitables")} sur{" "}
             {summary.total_tables}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -161,7 +158,7 @@ export function TabularPdfReviewPanel({
                       p.{table.source_page} · tableau {table.table_index + 1}
                     </Badge>
                     <Badge size="sm">
-                      {countLabel(table.row_count, "ligne", "lignes")}
+                      {plural(table.row_count, "ligne", "lignes")}
                     </Badge>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -222,7 +219,7 @@ export function TabularPdfReviewPanel({
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-4">
         <p className="text-xs text-foreground-secondary">
           {approvedCount > 0
-            ? `${countLabel(approvedCount, "tableau retenu", "tableaux retenus")} avant mapping canonique.`
+            ? `${plural(approvedCount, "tableau retenu", "tableaux retenus")} avant mapping canonique.`
             : hasSelectableTable
               ? "Sélectionnez au moins un tableau à retenir."
               : "Aucun tableau exploitable n’a été retenu pour ce PDF."}

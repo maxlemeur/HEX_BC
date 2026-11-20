@@ -1,7 +1,6 @@
 import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
 import type { MaterialRequestQuote } from "@/lib/material-requests/quote-contracts";
-
-import { plural } from "./format";
+import { plural } from "@/lib/text/plural";
 
 /*
  * Where a material request stands, and what to do next (TI-691). The order of work is fixed: cut the message into

@@ -55,7 +55,7 @@ vi.mock("@/lib/estimates/version-lifecycle-server", () => ({
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { sendEstimateEmail } from "@/lib/email/send-estimate";
-import { badRequest, internalError } from "@/lib/estimates/errors";
+import { badRequest, internalError } from "@/lib/http/api-response";
 import {
   generateEstimatePdfNow,
   getEstimatePdfStatus,

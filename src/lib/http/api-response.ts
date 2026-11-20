@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { EstimateEngineUnavailableError } from "@/lib/estimates/engine/capabilities";
 import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 
 import {
   ApiError,
+  NamedRefusal,
   badRequest,
   conflict,
   forbidden,
   internalError,
   notFound,
   type ApiErrorBody,
-} from "@/lib/estimates/api-error";
+} from "@/lib/http/api-error";
 
 export {
   ApiError,
@@ -25,7 +25,7 @@ export {
   unauthorized,
   unprocessableEntity,
   type ApiErrorCode,
-} from "@/lib/estimates/api-error";
+} from "@/lib/http/api-error";
 
 export type ApiSuccessResponse<T> = {
   ok: true;
@@ -147,9 +147,7 @@ function fromZodError(error: ZodError): ApiError {
 }
 
 export function toErrorResponse(error: unknown) {
-  // Lot 2, sous-lot 2.1 : une action pas encore disponible en moteur 3 est un refus
-  // nommé (409), jamais une erreur interne.
-  const mappedError = error instanceof EstimateEngineUnavailableError
+  const mappedError = error instanceof NamedRefusal
     ? conflict(error.message, undefined, error.code)
     : error;
   return toSharedErrorResponse(mappedError, {
@@ -158,4 +156,16 @@ export function toErrorResponse(error: unknown) {
     createInternalError: () => internalError(),
     unexpectedLogMessage: "Unexpected estimate API error",
   });
+}
+
+/**
+ * The `{ error: message }` body of the purchase-order document routes and the audit
+ * route, which predate the `{ ok, error: { code, message } }` envelope. Anything
+ * that is not an `ApiError` is rethrown.
+ */
+export function jsonApiError(error: unknown) {
+  if (error instanceof ApiError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  throw error;
 }

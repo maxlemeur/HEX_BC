@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
 
 export type SelectedSupplierDetails = {

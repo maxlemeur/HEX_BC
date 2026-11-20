@@ -70,7 +70,7 @@ export type CadMeasureOptions = {
 const LAST_TRACE_KIND = 5;
 const LINE_KIND = 0, ARC_KIND = 2, HATCH_KIND = 6;
 
-const byName = (a: string, b: string) => a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" }) || (a < b ? -1 : a > b ? 1 : 0);
+export const byName = (a: string, b: string) => a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" }) || (a < b ? -1 : a > b ? 1 : 0);
 
 export function measureCadDrawing(drawing: CadDrawing, options: CadMeasureOptions = {}): CadQuantities {
   const { layers, blocks, paths, inserts } = drawing;

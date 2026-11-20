@@ -10,7 +10,6 @@ import {
   AFFAIRE_REGISTER_STATUS_LABELS,
   isAffaireRegisterEntryRevalidationRequired,
   type AffaireRegisterEntry,
-  type AffaireRegisterEntrySeverity,
   type AffaireRegisterEntryStatus,
   type AffaireRegisterSummary,
 } from "@/lib/affaires/register";
@@ -23,19 +22,6 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   hour: "2-digit",
   minute: "2-digit",
 });
-
-export const STATUS_TONE: Record<AffaireRegisterEntryStatus, string> = {
-  open: "bg-warning/10 text-warning",
-  validated: "bg-success/10 text-success",
-  rejected: "bg-danger/10 text-danger",
-  clarify_with_client: "bg-primary/10 text-primary",
-};
-
-export const SEVERITY_TONE: Record<AffaireRegisterEntrySeverity, string> = {
-  info: "bg-muted text-slate-600",
-  warning: "bg-warning/10 text-warning",
-  critical: "bg-danger/10 text-danger",
-};
 
 export function getRegisterBlockingCount(summary: AffaireRegisterSummary) {
   return summary.criticalOpenCount + summary.clarifyWithClientCount +
@@ -154,18 +140,6 @@ export function getEntryStatusLabel(entry: AffaireRegisterEntry) {
   }
 
   return AFFAIRE_REGISTER_STATUS_LABELS[entry.status];
-}
-
-export function getEntryStatusTone(entry: AffaireRegisterEntry) {
-  if (hasAcceptedContinuationDecision(entry)) {
-    return "bg-primary/10 text-primary";
-  }
-
-  if (hasRequiredRevalidation(entry)) {
-    return "bg-danger/10 text-danger";
-  }
-
-  return STATUS_TONE[entry.status];
 }
 
 export function buildDerivedSummary(

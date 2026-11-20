@@ -23,7 +23,7 @@ import {
   storedLineDocumentFields,
   storedOrderAffaire,
   type StoredOrderLineFields,
-} from "@/components/purchase-orders/order-lines";
+} from "@/lib/purchase-orders/order-lines";
 import { buttonVariants } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { COMPANY_INFO } from "@/lib/company-info";

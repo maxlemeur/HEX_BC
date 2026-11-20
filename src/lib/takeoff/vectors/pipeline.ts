@@ -1,5 +1,5 @@
 import {
-  applyCorrespondences, applyDecisions, classifyByKeywords, detectionShare, groupsToReview, isMeasuredNetwork, type DecisionsAnswer, type GroupClass,
+  applyCorrespondences, applyDecisions, classifyByKeywords, detectionShare, groupsToReview, type DecisionsAnswer, type GroupClass,
 } from "@/lib/takeoff/vectors/classify";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { SegmentIndex, boxContains } from "@/lib/takeoff/vectors/geometry";
@@ -102,9 +102,4 @@ export function readVectorPage(extraction: VectorPageExtraction, options: {
     timings: { ...extraction.timings, reading_ms: Math.round(clock() - startedAt) },
     memory: extraction.memory,
   };
-}
-
-/** Groups measured as a network by this reading (a Decisions proposal under its accepted margin is not). */
-export function networkGroups(reading: VectorPageReading) {
-  return reading.groups.filter((group) => isMeasuredNetwork(group));
 }

@@ -17,7 +17,7 @@ import {
   type EstimateV3PricingStatus,
   type EstimateV3SnapshotProjection,
 } from "@/lib/estimates/engine-v3";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 import { ESTIMATE_LINE_PRICING_STATUSES, normalizeMeasurementUnit } from "@/lib/units/normalize";
 
 type Numeric = number | string | null | undefined;

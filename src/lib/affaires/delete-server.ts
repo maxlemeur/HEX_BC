@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type { Database } from "@/types/database";

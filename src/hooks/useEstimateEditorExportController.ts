@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import type {
   EstimateQualityFlagCounts,
@@ -25,6 +24,7 @@ import {
   exportEstimate,
   type EstimateExportMode,
 } from "@/lib/estimates/client";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 type ActiveEstimateExportMode = EstimateExportMode | "csv";
 

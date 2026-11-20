@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import type { TakeoffApplyOverrideItemState } from "@/lib/takeoff/apply-override-state";
 import type { ForcedItem } from "@/lib/takeoff/force-reasons";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { forcedItemSchema, forcedJustificationSchema } from "@/lib/takeoff/schemas";

@@ -39,7 +39,7 @@ import type { Database } from "@/types/database";
 import {
   buildLegacyDocumentBreakdown,
   prepareEstimateDocumentData,
-} from "../../src/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import {
   corpusDigest,
   FAMILIES,

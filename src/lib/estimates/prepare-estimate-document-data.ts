@@ -18,8 +18,6 @@ import {
   type EstimateEngineVersion,
 } from "@/lib/estimates/engine/capabilities";
 import {
-  ESTIMATE_V3_STORED_INCOHERENT,
-  EstimateV3Error,
   readStoredEstimateV3,
   type EstimateV3PricingStatus,
   type StoredEstimateV3Item,
@@ -47,6 +45,7 @@ import {
   type SupportedEstimateCurrency,
 } from "@/lib/money";
 import type { Database } from "@/types/database";
+import { storedIncoherent } from "@/lib/estimates/engine-v3/errors";
 
 export type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 /** Actual stored capture metadata; callers never synthesize a fresh revision. */
@@ -516,21 +515,13 @@ function resolveDocumentLayout(
 const UNIT_SYMBOL_BY_CODE = new Map(MEASUREMENT_UNITS.map((unit) => [unit.code, unit.symbol]));
 const STORED_QUANTITY_BOUNDS = columnBounds(12, 3);
 
-function incoherent(field: string, reason: string): EstimateV3Error {
-  return new EstimateV3Error(
-    ESTIMATE_V3_STORED_INCOHERENT,
-    `Version v3 figée incohérente (${field}) : ${reason}.`,
-    field
-  );
-}
-
 /** ⌈Q × PU⌋ en décimal exact (A4), sur la quantité stockée (`numeric(12,3)`). */
 function storedLineGross(item: EstimateItem, unitSaleHtCents: number): bigint {
   try {
     const quantity = parseDecimal(item.quantity, `items[${item.id}].quantity`, STORED_QUANTITY_BOUNDS);
     return roundHalfUp(multiply(quantity, decimalFromInteger(BigInt(unitSaleHtCents))));
   } catch {
-    throw incoherent(`items[${item.id}].quantity`, "quantité illisible");
+    throw storedIncoherent(`items[${item.id}].quantity`, "quantité illisible");
   }
 }
 
@@ -569,10 +560,10 @@ function readStoredV3Discount(
   if (discount.kind !== expectedKind || discount.applied_cents !== appliedCents
     || (expectedKind === "amount" && discount.requested_cents !== version.discount_amount_cents)
     || (expectedKind === "rate" && discount.rate_bp !== version.discount_bp)) {
-    throw incoherent("calc_snapshot_context.discount", "intention ou remise appliquée ≠ version");
+    throw storedIncoherent("calc_snapshot_context.discount", "intention ou remise appliquée ≠ version");
   }
   if (context.commercial_rounding?.applied_cents !== commercialRoundingCents) {
-    throw incoherent("calc_snapshot_context.commercial_rounding", "arrondi appliqué ≠ version");
+    throw storedIncoherent("calc_snapshot_context.commercial_rounding", "arrondi appliqué ≠ version");
   }
   return { kind: expectedKind, rateBp: expectedKind === "rate" ? version.discount_bp : null, appliedCents };
 }
@@ -597,16 +588,16 @@ export function prepareEstimateV3DocumentData(input: PrepareEstimateDocumentV3In
     const line = storedById.get(item.id)!;
     const unitCode = item.unit_code ?? null;
     const unitLabel = unitCode === null ? null : (UNIT_SYMBOL_BY_CODE.get(unitCode) ?? null);
-    if (unitCode !== null && unitLabel === null) throw incoherent(`items[${item.id}].unit_code`, "unité absente du référentiel");
+    if (unitCode !== null && unitLabel === null) throw storedIncoherent(`items[${item.id}].unit_code`, "unité absente du référentiel");
     const priced = line.pricing_status === "priced";
     if (priced) {
-      if (unitCode === null) throw incoherent(`items[${item.id}].unit_code`, "unité absente sur une ligne chiffrée");
+      if (unitCode === null) throw storedIncoherent(`items[${item.id}].unit_code`, "unité absente sur une ligne chiffrée");
       // Le PU publié est figé deux fois (D7) : le contrat 2 lit `snapshot_pu_ht_cents`, comme le SQL.
       if (item.snapshot_pu_ht_cents !== line.pu_ht_cents) {
-        throw incoherent(`items[${item.id}].snapshot_pu_ht_cents`, "PU figé ≠ PU publié");
+        throw storedIncoherent(`items[${item.id}].snapshot_pu_ht_cents`, "PU figé ≠ PU publié");
       }
       if (storedLineGross(item, line.pu_ht_cents!) !== BigInt(line.gross_ht_cents)) {
-        throw incoherent(`items[${item.id}].snapshot_gross_ht_cents`, "PT ≠ ⌈Q × PU⌋");
+        throw storedIncoherent(`items[${item.id}].snapshot_gross_ht_cents`, "PT ≠ ⌈Q × PU⌋");
       }
       lineUnitPriceHtById[item.id] = line.pu_ht_cents!;
     }
@@ -640,7 +631,7 @@ export function prepareEstimateV3DocumentData(input: PrepareEstimateDocumentV3In
     let parentId = item.parent_id;
     for (let guard = 0; parentId !== null && guard <= items.length; guard += 1) {
       const totals = sectionTotalsById[parentId];
-      if (!totals) throw incoherent(`items[${item.id}].parent_id`, "section parente absente");
+      if (!totals) throw storedIncoherent(`items[${item.id}].parent_id`, "section parente absente");
       totals.totalHtCents += split.totalHtCents;
       totals.foTotalCents += split.foTotalCents;
       totals.moTotalCents += split.moTotalCents;

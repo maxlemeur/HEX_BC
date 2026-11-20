@@ -18,7 +18,6 @@ import {
   takeoffMappingOverrideSchema,
   takeoffMappingPreviewItemSchema,
   createTakeoffMappingRuleSchema,
-  takeoffMappingRuleActionConfigSchema,
   takeoffMappingRuleActionSchema,
   takeoffMappingRuleMatchTypeSchema,
   takeoffPreviewConversionResponseSchema,
@@ -166,29 +165,6 @@ export type { TakeoffApplySummary } from "@/lib/takeoff/apply-response-contracts
 export type { TakeoffJobListResponse } from "@/lib/takeoff/job-response-contracts";
 
 export type { TakeoffJobResult } from "@/lib/takeoff/job-response-contracts";
-
-export type TakeoffRunMetric = {
-  id: string;
-  created_at: string;
-  tenant_id: string;
-  job_id: string;
-  result_id: string | null;
-  level: TakeoffLevel | string;
-  provider: string;
-  model: string;
-  chunk_index: number;
-  chunk_start_page: number;
-  chunk_end_page: number;
-  input_tokens: number;
-  reasoning_tokens: number;
-  output_tokens: number;
-  total_tokens: number;
-  cost_cents: number;
-  duration_ms: number;
-  timed_out: boolean;
-  budget_exceeded: boolean;
-  metadata: Record<string, unknown>;
-};
 
 export type { TakeoffJobItem } from "@/lib/takeoff/item-response-contracts";
 
@@ -377,9 +353,6 @@ export type TakeoffMappingRuleMatchType = z.infer<
   typeof takeoffMappingRuleMatchTypeSchema
 >;
 export type TakeoffMappingRuleAction = z.infer<typeof takeoffMappingRuleActionSchema>;
-export type TakeoffMappingRuleActionConfig = z.infer<
-  typeof takeoffMappingRuleActionConfigSchema
->;
 export type TakeoffMappingRule = z.infer<typeof TakeoffMappingRuleSchema>;
 export type CreateTakeoffMappingRuleInput = z.infer<
   typeof createTakeoffMappingRuleSchema
@@ -601,32 +574,8 @@ export type TakeoffActivityCenterJobRow = {
   dispatchUpdatedAt?: string | null;
 };
 
-export type TakeoffActivityCenterFilters = {
-  versionId?: string | null;
-  lot?: string | null;
-  planSetId?: string | null;
-  status?: string | null;
-  level?: TakeoffLevel | null;
-  period?: TakeoffJobListPeriod | null;
-};
-
 export type TakeoffActivityCenterResponse = {
   counters: TakeoffActivityCenterCounters;
   jobs: TakeoffActivityCenterJobRow[];
   pagination: { limit: number; offset: number; total: number };
-};
-
-export type TakeoffApplicationHistoryEntry = {
-  jobId: string;
-  versionLabel: string;
-  appliedAt: string;
-  appliedBy: string | null;
-  strategy: string;
-  createdCount: number;
-  updatedCount: number;
-  ignoredCount: number;
-};
-
-export type TakeoffApplicationHistoryResponse = {
-  entries: TakeoffApplicationHistoryEntry[];
 };

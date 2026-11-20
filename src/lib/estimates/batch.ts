@@ -5,7 +5,7 @@ import {
   type EstimateBatchItem,
 } from "@/lib/estimates/batch-preparation";
 import { canonicalizeEstimateBatchOperations } from "@/lib/estimates/batch-request";
-import { ApiError, badRequest, conflict, type SupabaseErrorLike } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { batchOperationSchema, type BatchOperationInput } from "@/lib/estimates/schemas";
 import {
   assertDraftLockOwnedByCurrentUser, assertDraftStatus, getAuthenticatedContext,

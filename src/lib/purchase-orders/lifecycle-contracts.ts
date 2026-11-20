@@ -18,8 +18,6 @@ const revision = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional()
   .transform((value) => (value ? value : null));
 
-export const PURCHASE_ORDER_PRICE_PERS = [1, 10, 100, 1000] as const;
-export type PurchaseOrderPricePer = (typeof PURCHASE_ORDER_PRICE_PERS)[number];
 export const PURCHASE_ORDER_SUPPLIER_REFERENCE_MAX = 120;
 export const PURCHASE_ORDER_RECEPTION_NOTE_MAX = 2000;
 
@@ -42,7 +40,6 @@ export const confirmPurchaseOrderSchema = z.object({
     price_per: z.union([z.literal(1), z.literal(10), z.literal(100), z.literal(1000)]),
   }).strict()).max(1000).default([]),
 }).strict();
-export type ConfirmPurchaseOrderInput = z.input<typeof confirmPurchaseOrderSchema>;
 export type ConfirmPurchaseOrderData = z.output<typeof confirmPurchaseOrderSchema>;
 
 /** Body of POST /api/purchase-orders/{id}/reception. */
@@ -53,7 +50,6 @@ export const receivePurchaseOrderSchema = z.object({
   /** What is still to come, in words. */
   note: optionalText(PURCHASE_ORDER_RECEPTION_NOTE_MAX),
 }).strict();
-export type ReceivePurchaseOrderInput = z.input<typeof receivePurchaseOrderSchema>;
 export type ReceivePurchaseOrderData = z.output<typeof receivePurchaseOrderSchema>;
 
 /** Answer of the confirmation: the order as it now stands. */
@@ -71,19 +67,3 @@ export type PurchaseOrderConfirmed = {
 
 /** Answer of the reception. */
 export type PurchaseOrderReceived = { id: string; status: "received"; edit_revision: number };
-
-/** The codes an API refusal carries, named after the database's own refusals. */
-export const PURCHASE_ORDER_LIFECYCLE_CODES = [
-  "PURCHASE_ORDER_AFFAIRE_ONLY",
-  "PURCHASE_ORDER_CONFIRMATION_NOT_DRAFT",
-  "PURCHASE_ORDER_REVISION_CONFLICT",
-  "PURCHASE_ORDER_CONFIRMATION_DATE_INVALID",
-  "PURCHASE_ORDER_CONFIRMATION_PROOF_REQUIRED",
-  "PURCHASE_ORDER_ITEMS_INVALID",
-  "PURCHASE_ORDER_CONFIRMATION_EMPTY",
-  "PURCHASE_ORDER_TOTAL_NEGATIVE",
-  "PURCHASE_ORDER_AMOUNT_OUT_OF_RANGE",
-  "PURCHASE_ORDER_RECEPTION_NOT_CONFIRMED",
-  "PURCHASE_ORDER_RECEPTION_DATE_INVALID",
-] as const;
-export type PurchaseOrderLifecycleCode = (typeof PURCHASE_ORDER_LIFECYCLE_CODES)[number];

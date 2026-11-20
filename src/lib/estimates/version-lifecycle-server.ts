@@ -2,7 +2,7 @@ import "server-only";
 
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { engineFreezesSnapshot } from "@/lib/estimates/engine/capabilities";
-import { ApiError, badRequest, conflict } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict } from "@/lib/http/api-response";
 import { evaluateEstimateSendGating } from "@/lib/estimates/gating";
 import { normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
 import { loadVerifiedOfferDocument } from "@/lib/estimates/offer-document";

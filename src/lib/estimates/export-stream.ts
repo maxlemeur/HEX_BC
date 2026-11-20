@@ -19,7 +19,7 @@ import {
 } from "@/lib/estimates/calc-engine-version";
 import { ESTIMATE_VAT_REVERSE_CHARGE_NOTICE } from "@/lib/estimates/document-copy";
 import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { internalError } from "@/lib/estimates/errors";
+import { internalError } from "@/lib/http/api-response";
 import { getEstimateVersionDetails, listEstimateItems } from "@/lib/estimates/server";
 import {
   loadEstimateV3ExportDocument,
@@ -27,7 +27,7 @@ import {
   type EstimateV3ExportDocument,
 } from "@/lib/estimates/v3-export";
 import { bankersRound } from "@/lib/money";
-import { sanitizeFilenameSegment } from "@/lib/estimates/legacy-export-projection";
+import { sanitizeFilenameSegment, toEuroAmount } from "@/lib/estimates/legacy-export-projection";
 
 const moduleRequire = createRequire(import.meta.url);
 
@@ -140,11 +140,6 @@ function buildFilename(input: {
       : input.projectName;
   const projectToken = sanitizeFilenameSegment(sourceName, "chiffrage");
   return `devis-${projectToken}-v${input.versionNumber}.xlsx`;
-}
-
-function toEuroAmount(valueCents: number | null | undefined): number | null {
-  if (!Number.isFinite(valueCents ?? NaN)) return null;
-  return (valueCents ?? 0) / 100;
 }
 
 function buildLineRows(input: {
@@ -280,7 +275,7 @@ export function setCurrencyColumns(row: WorksheetRowLike, columns: number[]) {
   });
 }
 
-function styleWorksheetHeader(worksheet: WorksheetLike) {
+export function styleWorksheetHeader(worksheet: WorksheetLike) {
   const headerRow = worksheet.getRow?.(1);
   if (!headerRow) return;
   styleHeaderRow(headerRow);

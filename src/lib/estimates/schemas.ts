@@ -995,8 +995,6 @@ export const createEstimateTemplateFromVersionSchema = z.preprocess(
     description: optionalNullableTextSchema.optional(),
   })
 );
-export const createEstimateTemplateSchema =
-  createEstimateTemplateFromVersionSchema;
 
 export const updateEstimateTemplateSchema = z
   .object({
@@ -1061,8 +1059,6 @@ export const instantiateEstimateFromTemplateSchema = z.preprocess(
       ])
     )
 );
-export const instantiateEstimateTemplateSchema =
-  instantiateEstimateFromTemplateSchema;
 
 export const duplicateEstimateTemplateSchema = z.object({
   name: templateNameSchema.optional(),
@@ -1354,16 +1350,6 @@ export const reviewVersionZeroLineSchema = z.preprocess(
     });
   }
 });
-
-export const materializeVersionZeroDraftSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null || value === "") {
-      return {};
-    }
-    return value;
-  },
-  z.object({})
-);
 
 export const importLinkedDpgfSourceSchema = z.preprocess(
   (value) => {
@@ -1659,27 +1645,17 @@ export { estimateVersionEventSchema, type EstimateVersionEvent } from "@/lib/est
 
 
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
-export type CreateEstimateCreationModeInput = z.infer<typeof createEstimateCreationModeSchema>;
 export type PatchEstimateVersionInput = z.infer<typeof patchEstimateVersionSchema>;
 export type PatchEstimateStatusInput = z.infer<typeof patchEstimateStatusSchema>;
 export type SendEstimateInput = z.infer<typeof sendEstimateSchema>;
-export type CreateEstimateVariantInput = z.infer<typeof createEstimateVariantSchema>;
-export type PromoteEstimateVariantInput = z.infer<typeof promoteEstimateVariantSchema>;
 export type CreateEstimateItemInput = z.infer<typeof createEstimateItemSchema>;
 export type UpdateEstimateItemInput = z.infer<typeof updateEstimateItemSchema>;
 export type BulkUpdateEstimateItemsInput = z.infer<typeof bulkUpdateEstimateItemsSchema>;
 export type BulkUpdateEstimateVersionPatchInput = z.infer<typeof bulkUpdateEstimateVersionPatchSchema>;
-export type BulkUpdateEstimateItemsRequestInput = z.infer<typeof bulkUpdateEstimateItemsRequestSchema>;
 export type DeleteEstimateItemInput = z.infer<typeof deleteEstimateItemSchema>;
 export type ReorderEstimateItemsInput = z.infer<typeof reorderEstimateItemsSchema>;
 export type MoveEstimateItemInput = z.infer<typeof moveEstimateItemSchema>;
-export type BatchCreateEstimateOperationInput = z.infer<typeof batchCreateEstimateOperationSchema>;
-export type BatchUpdateEstimateOperationInput = z.infer<typeof batchUpdateEstimateOperationSchema>;
-export type BatchDeleteEstimateOperationInput = z.infer<typeof batchDeleteEstimateOperationSchema>;
-export type BatchReorderEstimateOperationInput = z.infer<typeof batchReorderEstimateOperationSchema>;
 export type BatchOperationInput = z.infer<typeof batchOperationSchema>;
-export type BatchOperationsInput = z.infer<typeof batchOperationsSchema>;
-export type EstimateSupplierComparisonsRequestInput = z.infer<typeof estimateSupplierComparisonsRequestSchema>;
 export type CreateEstimateCategoryInput = z.infer<typeof createEstimateCategorySchema>;
 export type CreateLaborRoleInput = z.infer<typeof createLaborRoleSchema>;
 export type UpdateLaborRoleInput = z.infer<typeof updateLaborRoleSchema>;
@@ -1687,36 +1663,22 @@ export type CreateMarginTierInput = z.infer<typeof createMarginTierSchema>;
 export type UpdateMarginTierInput = z.infer<typeof updateMarginTierSchema>;
 export type CreateSuggestionRuleInput = z.infer<typeof createSuggestionRuleSchema>;
 export type UpdateSuggestionRuleInput = z.infer<typeof updateSuggestionRuleSchema>;
-export type SuggestionRuleFeedbackValue = z.infer<typeof suggestionRuleFeedbackValueSchema>;
 export type SuggestionRuleFeedbackInput = z.infer<typeof suggestionRuleFeedbackSchema>;
-export type SuggestionLearningFieldInput = z.infer<typeof suggestionLearningFieldSchema>;
-export type TrackSuggestionCorrectionsInput = z.infer<typeof trackSuggestionCorrectionsSchema>;
-export type ReviewSuggestionLearningInput = z.infer<typeof reviewSuggestionLearningSchema>;
-export type PurgeSuggestionLearningInput = z.infer<typeof purgeSuggestionLearningSchema>;
 export type CreateEstimateTemplateFromVersionInput = z.infer<typeof createEstimateTemplateFromVersionSchema>;
-export type CreateEstimateTemplateInput = z.infer<typeof createEstimateTemplateSchema>;
 export type UpdateEstimateTemplateInput = z.infer<typeof updateEstimateTemplateSchema>;
 export type ListEstimateTemplatesQueryInput = z.infer<typeof listEstimateTemplatesQuerySchema>;
 export type InstantiateEstimateFromTemplateInput = z.infer<typeof instantiateEstimateFromTemplateSchema>;
-export type InstantiateEstimateTemplateInput = z.infer<typeof instantiateEstimateTemplateSchema>;
 export type DuplicateEstimateTemplateInput = z.infer<typeof duplicateEstimateTemplateSchema>;
 export type DuplicateEstimateSectionInput = z.infer<typeof duplicateEstimateSectionSchema>;
-export type ImportEstimateSectionsModeInput = z.infer<typeof importEstimateSectionsModeSchema>;
 export type ImportEstimateSectionsInput = z.infer<typeof importEstimateSectionsSchema>;
 export type ImportLinkedDpgfSourceInput = z.infer<typeof importLinkedDpgfSourceSchema>;
 export type VersionZeroDraftStatus = z.infer<typeof versionZeroDraftStatusSchema>;
 export type VersionZeroLotStatus = z.infer<typeof versionZeroLotStatusSchema>;
 export type VersionZeroLineReviewStatus = z.infer<typeof versionZeroLineReviewStatusSchema>;
-export type GenerateVersionZeroDraftInput = z.infer<typeof generateVersionZeroDraftSchema>;
-export type ReviewVersionZeroLineInput = z.infer<typeof reviewVersionZeroLineSchema>;
-export type MaterializeVersionZeroDraftInput = z.infer<typeof materializeVersionZeroDraftSchema>;
 export type ListEstimateImportSourcesQueryInput = z.infer<typeof listEstimateImportSourcesQuerySchema>;
-export type EstimateAssemblyItemInput = z.infer<typeof estimateAssemblyItemSchema>;
-export type EstimateAssemblyMemberInput = z.infer<typeof estimateAssemblyMemberSchema>;
 export type CreateEstimateAssemblyInput = z.infer<typeof createEstimateAssemblySchema>;
 export type UpdateEstimateAssemblyInput = z.infer<typeof updateEstimateAssemblySchema>;
 export type ListEstimateAssembliesQueryInput = z.infer<typeof listEstimateAssembliesQuerySchema>;
-export type InsertAssemblyIntoVersionInput = z.infer<typeof insertAssemblyIntoVersionSchema>;
 
 // ---------------------------------------------------------------------------
 // Wizard step schemas (EST-082)
@@ -1752,7 +1714,3 @@ export const wizardStep3Schema = z.object({
     });
   }
 });
-
-export type WizardStep1Input = z.infer<typeof wizardStep1Schema>;
-export type WizardStep2Input = z.infer<typeof wizardStep2Schema>;
-export type WizardStep3Input = z.infer<typeof wizardStep3Schema>;

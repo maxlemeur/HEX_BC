@@ -8,7 +8,7 @@ import { getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { executeEstimateBatch } from "@/lib/estimates/batch";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
-import { ApiError, badRequest, conflict } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict } from "@/lib/http/api-response";
 import { arbitratePriceReuseLines } from "@/lib/estimates/price-reuse-arbitration";
 import {
   priceReuseApplySchema, priceReuseArbitrationSchema, priceReusePreviewSchema,

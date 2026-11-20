@@ -1,7 +1,7 @@
 import type { PostgrestError } from "@supabase/supabase-js";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import type { GeminiBatchLifecycleEvent } from "@/lib/takeoff/gemini-client";
 import {
   TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS,
@@ -114,17 +114,6 @@ export function normalizeGeminiProviderBatchState(
 
   const normalized = trimmed.toUpperCase();
   return GEMINI_BATCH_STATE_MAP[normalized] ?? "unknown";
-}
-
-export function isTerminalTakeoffProviderBatchState(
-  value: TakeoffProviderBatchState | null | undefined
-) {
-  return (
-    value === "succeeded" ||
-    value === "failed" ||
-    value === "cancelled" ||
-    value === "expired"
-  );
 }
 
 export function getTakeoffBatchReconcileBackoffSeconds(attemptCount: number) {

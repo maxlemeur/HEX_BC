@@ -197,7 +197,4 @@ export const sourceReferenceAttestationSchema = z.strictObject({
   verified_at: timestampSchema, replayed: z.boolean(),
 });
 
-export type SourceReferencePreparationInput = z.input<typeof sourceReferencePreparationInputSchema>;
-export type SourceReferencePreparationResult = z.infer<typeof sourceReferencePreparationResultSchema>;
-export type SourceReferenceConfirmationInput = z.input<typeof sourceReferenceConfirmationInputSchema>;
 export type SourceReferenceConfirmationResult = z.infer<typeof sourceReferenceConfirmationResultSchema>;

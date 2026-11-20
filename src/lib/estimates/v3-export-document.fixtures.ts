@@ -3,7 +3,7 @@
  * as the server prepares it (prepareEstimateV3DocumentData): one priced supply line per entry, in one section, each
  * with its own source_metadata. Fictional values only. Used by the export tests of TI-682 (takeoff provision column).
  */
-import { prepareEstimateV3DocumentData, type EstimateItem } from "@/components/estimate-document/prepare-estimate-document-data";
+import { prepareEstimateV3DocumentData, type EstimateItem } from "@/lib/estimates/prepare-estimate-document-data";
 import { computeEstimateV3Breakdown, projectEstimateV3Snapshot } from "@/lib/estimates/engine-v3";
 import { fixtureLineId, v3Line, v3Params } from "@/lib/estimates/engine-v3/oracle.fixtures";
 import type { EstimateV3ExportDocument } from "@/lib/estimates/v3-export";

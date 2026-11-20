@@ -3,7 +3,7 @@ import "server-only";
 import { assertLocalTakeoffResumeReady, assertTakeoffProviderAvailable, getTakeoffExecutionOwner, parseTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { createHash, randomUUID } from "node:crypto";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { inspectSourceReferencePdf, SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
 import {
   TakeoffError,

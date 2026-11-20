@@ -12,7 +12,6 @@ import {
   type SetStateAction,
 } from "react";
 
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import {
   createEstimateDeletionRestorer,
@@ -53,7 +52,8 @@ import {
   buildSiblingOrderByParent,
   collectSubtreeItemIds,
   sortItemsForTreeRecreation,
-} from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
+} from "@/lib/estimates/editor-item-tree";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 export type EstimateEditorItemPatch = Partial<
   Pick<

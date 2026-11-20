@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { getEstimatePdfLayoutConfiguration } from "@/lib/estimates/pdf-generator";
 
 export const runtime = "nodejs";

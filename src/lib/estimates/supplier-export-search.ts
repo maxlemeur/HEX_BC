@@ -1,5 +1,5 @@
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { readAllRows } from "@/lib/supabase/read-all";
 
 type SupplierExportSearch = { ascii: string[]; unicode: string[] };

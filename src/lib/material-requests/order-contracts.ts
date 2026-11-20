@@ -76,14 +76,10 @@ export type MaterialRequestOrdersCreated = {
 export const createMaterialRequestOrdersSchema = z
   .object({ idempotency_key: z.string().uuid("Clé d'idempotence invalide.") })
   .strict();
-export type CreateMaterialRequestOrdersInput = z.input<typeof createMaterialRequestOrdersSchema>;
 export type CreateMaterialRequestOrdersData = z.output<typeof createMaterialRequestOrdersSchema>;
 
 /** How an order made from a request is delivered: the request's delivery place, copied (line-kinds.ts). */
 export { PURCHASE_ORDER_DELIVERY_MODE_LABELS, type PurchaseOrderDeliveryMode } from "@/lib/purchase-orders/line-kinds";
-
-/** The tax rate of the lines of a draft made from a request, as the manual order form proposes it. */
-export const MATERIAL_REQUEST_ORDER_TAX_RATE_BP = 2000;
 
 /** Error codes of the order routes, beside the generic ones (FORBIDDEN, NOT_FOUND, VALIDATION_ERROR). */
 /** 422: no line of the request is ready to be ordered. */

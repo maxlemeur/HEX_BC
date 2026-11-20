@@ -15,7 +15,7 @@ vi.mock("swr", () => ({ default: () => ({ mutate: vi.fn() }) }));
 vi.mock("@/components/catalogue/api", () => ({ fetchApi: fetchMock }));
 vi.mock("@/components/products/ProductCsvImport", () => ({ ProductCsvImport: () => null }));
 vi.mock("@/components/products/ProductPriceTemplateImport", () => ({ ProductPriceTemplateImport: () => null }));
-vi.mock("@/app/dashboard/products/ProductFormModal", () => ({
+vi.mock("@/components/products/ProductFormModal", () => ({
   ProductFormModal: ({ open, product }: { open: boolean; product: { designation: string } | null }) =>
     open ? <div role="dialog">{product?.designation}</div> : null,
 }));

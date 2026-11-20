@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
+import { isRecord } from "@/lib/value-guards";
 
 type CurrencyRateRecord = {
   id: string;
@@ -48,11 +49,6 @@ type ApiEnvelope<T> = {
 };
 
 const DEFAULT_CURRENCY = "EUR";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function toStringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }

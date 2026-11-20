@@ -1,17 +1,16 @@
 import { getOwnedEstimateVersion } from "@/lib/estimates/version-owner-access";
-import { z } from "zod";
 
 import {
-  badRequest,
   forbidden,
   mapSupabaseError,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import {
   getAuthenticatedTenantContext as getAuthenticatedContext,
   type ServerSupabaseClient,
 } from "@/lib/auth/tenant-context";
-import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import { assertDraftLockOwnedByCurrentUser, isTenantAdmin } from "@/lib/estimates/server-context";
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = ServerSupabaseClient;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -22,8 +21,6 @@ type AuthenticatedContext = {
   tenantId: string;
   tenantRole: TenantRole;
 };
-
-const TENANT_ADMIN_ROLE: TenantRole = "admin";
 
 const FEATURE_FLAG_LEARNING_ENABLED = "EST_163_SUGGESTION_LEARNING";
 const FEATURE_FLAG_LEARNING_THRESHOLD = "EST_163_SUGGESTION_LEARNING_THRESHOLD";
@@ -45,11 +42,7 @@ const SUGGESTION_LEARNING_FIELD_VALUES = [
 
 const TRACKED_FIELD_SET = new Set<string>(SUGGESTION_LEARNING_FIELD_VALUES);
 
-const suggestionLearningFieldSchema = z.enum(SUGGESTION_LEARNING_FIELD_VALUES);
-
-export type SuggestionLearningFieldName = z.infer<
-  typeof suggestionLearningFieldSchema
->;
+export type SuggestionLearningFieldName = (typeof SUGGESTION_LEARNING_FIELD_VALUES)[number];
 
 export type SuggestionLearningReviewStatus = "approved" | "rejected";
 
@@ -108,10 +101,6 @@ export type TrackCorrectionsResult = SuggestionLearningState & {
 
 export type ReviewLearningAction = "approve" | "reject" | "reset";
 
-function isTenantAdmin(tenantRole: TenantRole) {
-  return tenantRole === TENANT_ADMIN_ROLE;
-}
-
 function assertDraftStatus(status: Database["public"]["Enums"]["estimate_status"]) {
   if (status === "draft") return;
   throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
@@ -135,13 +124,6 @@ function parseFlagInteger(input: {
 function parseFeatureFlagEnabled(value: unknown) {
   return value === true;
 }
-
-function normalizeTextValue(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function parseNumericOverride(value: string | null) {
   if (!value) return null;
   const parsed = Number.parseFloat(value.replace(",", "."));
@@ -276,7 +258,7 @@ export function applyLearningBoost(input: {
           overrides.description = correctedValue;
           break;
         case "category_id":
-          overrides.category_id = normalizeTextValue(correctedValue);
+          overrides.category_id = toNonEmptyString(correctedValue);
           break;
         case "k_fo":
           overrides.k_fo = parseNumericOverride(correctedValue);
@@ -285,10 +267,10 @@ export function applyLearningBoost(input: {
           overrides.k_mo = parseNumericOverride(correctedValue);
           break;
         case "labor_role_id":
-          overrides.labor_role_id = normalizeTextValue(correctedValue);
+          overrides.labor_role_id = toNonEmptyString(correctedValue);
           break;
         case "supply_type_id":
-          overrides.supply_type_id = normalizeTextValue(correctedValue);
+          overrides.supply_type_id = toNonEmptyString(correctedValue);
           break;
       }
 
@@ -555,8 +537,8 @@ export async function trackCorrection(input: {
         return null;
       }
 
-      const originalValue = normalizeTextValue(correction.original_value);
-      const correctedValue = normalizeTextValue(correction.corrected_value);
+      const originalValue = toNonEmptyString(correction.original_value);
+      const correctedValue = toNonEmptyString(correction.corrected_value);
 
       if (originalValue === correctedValue) {
         return null;
@@ -637,7 +619,7 @@ export async function reviewLearning(input: {
   const context = await getAuthenticatedContext();
   await assertTenantAdmin(context);
 
-  const normalizedCorrectedValue = normalizeTextValue(input.correctedValue);
+  const normalizedCorrectedValue = toNonEmptyString(input.correctedValue);
 
   if (input.action === "reset") {
     let deleteQuery = context.supabase
@@ -740,13 +722,4 @@ export async function purgeLearnings(input?: {
     retention_months: retentionMonths,
     ...refreshed,
   };
-}
-
-export function assertTrackedFieldName(value: string): SuggestionLearningFieldName {
-  const parsed = suggestionLearningFieldSchema.safeParse(value);
-  if (!parsed.success) {
-    throw badRequest("field_name invalide.");
-  }
-
-  return parsed.data;
 }

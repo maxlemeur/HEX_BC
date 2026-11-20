@@ -5,7 +5,7 @@ import { SourceCoverageWorkspace } from "@/components/estimates/source-coverage/
 import { PageHeader } from "@/components/layout/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { coverageQuerySchema } from "@/lib/estimates/source-coverage-contracts";
 import { readSourceCoverage } from "@/lib/estimates/source-coverage-server";
 

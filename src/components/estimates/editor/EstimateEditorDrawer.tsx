@@ -4,7 +4,7 @@ import { useRef, useState, type ComponentProps } from "react";
 
 import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
 import { EstimateMutationRecoveryAlert, type EstimateMutationRecovery } from "@/components/estimates/editor/EstimateMutationRecoveryAlert";
-import { EstimateSettingsPanel, type EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
+import { EstimateSettingsPanel } from "@/components/estimates/EstimateSettingsPanel";
 import { EstimateSuggestionRulesManager } from "@/components/estimates/EstimateSuggestionRulesManager";
 import { LaborRolesManager } from "@/components/estimates/LaborRolesManager";
 import { MarginTiersManager } from "@/components/estimates/MarginTiersManager";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
 import { XIcon } from "lucide-react";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];

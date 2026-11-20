@@ -23,14 +23,3 @@ export type SupplierPricesPage = {
     uniqueSuppliers: number;
   };
 };
-
-export type SupplierPriceFormState = {
-  supplier_id: string;
-  product_id: string;
-  unit_price_euros: string;
-  currency: string;
-  valid_from: string;
-  valid_to: string;
-  source: string;
-  notes: string;
-};

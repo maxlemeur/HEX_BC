@@ -4,7 +4,7 @@ import { z } from "zod";
 import { findReadableAffaireProject } from "@/lib/affaires/server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { getUserContext } from "@/lib/auth/server";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { getTakeoffLinkedSourceVersionByJobId } from "@/lib/takeoff/version-links";
 

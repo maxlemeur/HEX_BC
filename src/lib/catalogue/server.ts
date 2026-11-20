@@ -35,6 +35,7 @@ import type {
   UpdateSupplierPriceInput,
   UpdateSupplierOfferInput,
 } from "./schemas";
+import { asRecord } from "@/lib/value-guards";
 
 type JsonRecord = Record<string, unknown>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -354,15 +355,6 @@ export function toErrorResponse(error: unknown) {
     detailsLogScope: "catalogue",
   });
 }
-
-function asRecord(value: unknown): JsonRecord | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  return value as JsonRecord;
-}
-
 function normalizeToken(value: unknown) {
   if (typeof value === "string") {
     return value.trim().toLowerCase();

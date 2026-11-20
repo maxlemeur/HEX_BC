@@ -2,7 +2,7 @@ import { validateEstimateResponse } from "@/lib/estimates/response-validation-se
 import { parseDuplicateSectionResponse } from "@/lib/estimates/section-copy-response";
 import { z } from "zod";
 
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { duplicateEstimateSectionSchema } from "@/lib/estimates/schemas";
 import { duplicateSectionFromVersion } from "@/lib/estimates/server";
 import { parseJsonBodyOrEmptyObject } from "@/lib/http/request";

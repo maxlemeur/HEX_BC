@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { applyEstimateStructureDraftSchema } from "@/lib/estimates/schemas";
 import { applyEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
 import { parseJsonBody } from "@/lib/http/request";

@@ -9,7 +9,7 @@ import {
   getServerSnapshot as getCockpitServerSnapshot,
 } from "@/lib/stores/cockpit-suggestions-store";
 
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import { dispatchCockpitExecuteAction } from "@/lib/cockpit/events";

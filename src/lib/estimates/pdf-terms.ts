@@ -4,6 +4,7 @@ import type {
   EstimatePdfTermsConfiguration,
   EstimateTermsPolicy,
 } from "@/lib/estimates/pdf-layout";
+import { isRecord } from "@/lib/value-guards";
 
 export type EstimateTermsTemplate = {
   id: string;
@@ -49,11 +50,6 @@ const ESTIMATE_DRAFT_TERMS_BODY = `1. FORMATION ET DOCUMENTS CONTRACTUELS - Le c
 7. FORCE MAJEURE - Aucune partie n'est responsable d'un manquement causé par un événement de force majeure au sens du droit français. La partie concernée informe l'autre sans délai et l'exécution est suspendue pendant l'empêchement. Si celui-ci se prolonge, les parties conviennent par écrit des suites du contrat ou appliquent les règles légales de résolution.
 
 8. PREUVE, DROIT APPLICABLE ET LITIGES - Les écrits et signatures électroniques convenus sont admis comme preuve. Le contrat est soumis au droit français. Les parties recherchent d'abord une solution amiable ; à défaut, la juridiction compétente est déterminée selon les règles applicables, toute clause attributive devant faire l'objet d'une validation juridique spécifique.`;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function nonBlankString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
@@ -142,13 +138,6 @@ export function parseEstimateTermsClauses(body: string): EstimateTermsClause[] {
         text: paragraph.slice(separatorIndex + 3).trim(),
       };
     });
-}
-
-export function splitEstimateTermsClauses(
-  clauses: EstimateTermsClause[],
-): [EstimateTermsClause[], EstimateTermsClause[]] {
-  const columnBreak = Math.ceil(clauses.length / 2);
-  return [clauses.slice(0, columnBreak), clauses.slice(columnBreak)];
 }
 
 export function createDevelopmentEstimateTermsTemplate(

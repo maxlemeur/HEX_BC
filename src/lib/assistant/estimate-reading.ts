@@ -3,6 +3,7 @@ import "server-only";
 import { AssistantToolError } from "@/lib/assistant/loop";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
+import { foldText } from "@/lib/text/fold";
 
 /**
  * An estimate as the assistant reads it. Every amount comes from the calculation
@@ -77,10 +78,6 @@ function moneyOf(reading: EstimateReading): Money {
 
 function signed(money: Money, cents: number) {
   return `${cents > 0 ? "+" : ""}${money(cents)}`;
-}
-
-function fold(value: string) {
-  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
 /** The status in the estimator's words (« Inclus », « Pour mémoire »…), as the grid and the document print it. */
@@ -193,9 +190,9 @@ export function estimateLines(reading: EstimateReading, options: {
   sectionId?: string; search?: string; offset?: number; unpricedOnly?: boolean;
 }) {
   const money = moneyOf(reading);
-  const search = options.search ? fold(options.search.trim()) : "";
+  const search = options.search ? foldText(options.search.trim()) : "";
   const matching = linesUnder(walk(reading), options.sectionId ?? null)
-    .filter((entry) => !search || fold(entry.node.title).includes(search))
+    .filter((entry) => !search || foldText(entry.node.title).includes(search))
     .filter((entry) => !options.unpricedOnly || entry.node.line?.pricingStatus === NOT_PRICED);
   const offset = Math.max(0, options.offset ?? 0);
   const page = matching.slice(offset, offset + LINES_PAGE);

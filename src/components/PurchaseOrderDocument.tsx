@@ -17,7 +17,7 @@ import {
   type PurchaseOrderAmountKind,
   type PurchaseOrderDeliveryMode,
   type PurchaseOrderLineKind,
-} from "@/components/purchase-orders/order-lines";
+} from "@/lib/purchase-orders/order-lines";
 import { normalizeDocumentIssuerDisplay } from "@/lib/documents/issuer-display";
 
 // Types

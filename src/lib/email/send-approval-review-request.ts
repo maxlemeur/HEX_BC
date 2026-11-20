@@ -3,7 +3,8 @@ import { Resend } from "resend";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
 import { ApprovalReviewRequestEmailTemplate } from "@/lib/email/templates/approval-review-request";
-import { internalError } from "@/lib/estimates/errors";
+import { internalError } from "@/lib/http/api-response";
+import { getRequiredEnvVar } from "@/lib/email/send-estimate-context-server";
 
 type SendApprovalReviewRequestNotificationInput = {
   recipientEmail: string;
@@ -14,14 +15,6 @@ type SendApprovalReviewRequestNotificationInput = {
   submissionMessage?: string | null;
   ruleLabels: string[];
 };
-
-function getRequiredEnvVar(name: "RESEND_API_KEY" | "EMAIL_FROM") {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw internalError(`Configuration email manquante: ${name}.`);
-  }
-  return value;
-}
 
 export async function sendApprovalReviewRequestNotification(
   input: SendApprovalReviewRequestNotificationInput

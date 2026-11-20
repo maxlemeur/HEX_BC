@@ -1,7 +1,7 @@
 import "server-only";
 
 import { requireEstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { excludeDpgfOutOfScope, plannedExclusions } from "@/lib/takeoff/apply-plan-exclusions";
 import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-context-server";

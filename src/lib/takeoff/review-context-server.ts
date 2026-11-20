@@ -9,7 +9,7 @@ import { buildFinancialReviewPosts, buildTakeoffItemPricing, engineTwoUnitPrice 
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { haveComparableQuantities } from "@/lib/takeoff/quantity-compatibility";
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
-import { mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { quantitySourceComparison } from "@/lib/takeoff/quantity-review-policy";
 

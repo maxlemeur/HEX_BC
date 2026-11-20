@@ -15,6 +15,7 @@ import { UploadIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+import { getFileExtension } from "@/components/imports/importWizardFileScan";
 
 type UploadStepProps = {
   projectId: string;
@@ -28,11 +29,6 @@ const NO_INTAKE_CANDIDATES: IntakeDpgfCandidate[] = [];
 async function dossierErrorMessage(response: Response, fallback: string) {
   const payload = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
   return typeof payload?.error?.message === "string" && payload.error.message ? payload.error.message : fallback;
-}
-
-function getFileExtension(name: string): string | null {
-  const ext = name.split(".").pop()?.trim().toLowerCase();
-  return ext && ext.length > 0 ? ext : null;
 }
 
 export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO_INTAKE_CANDIDATES }: UploadStepProps) {

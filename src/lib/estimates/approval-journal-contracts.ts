@@ -1,14 +1,15 @@
-import { isRecord, toNumber, toStringValue, getRootPayload, pickArray } from "@/lib/estimates/client-json";
+import { toNumber, getRootPayload, pickArray } from "@/lib/estimates/client-json";
 import { isEstimateApprovalDecisionFilter, type EstimateApprovalDecisionComment, type EstimateApprovalDecisionEvent, type EstimateApprovalDecisionJournal, type EstimateApprovalDecisionRule, type EstimateApprovalDecisionScope } from "@/lib/estimates/approval-decision-journal";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 function normalizeApprovalDecisionScope(
   value: unknown
 ): EstimateApprovalDecisionScope | null {
   if (!isRecord(value)) return null;
 
-  const scopeType = toStringValue(value.scopeType) ?? toStringValue(value.scope_type);
-  const scopeLabel = toStringValue(value.scopeLabel) ?? toStringValue(value.scope_label);
-  const scopeId = toStringValue(value.scopeId) ?? toStringValue(value.scope_id) ?? null;
+  const scopeType = toNonEmptyString(value.scopeType) ?? toNonEmptyString(value.scope_type);
+  const scopeLabel = toNonEmptyString(value.scopeLabel) ?? toNonEmptyString(value.scope_label);
+  const scopeId = toNonEmptyString(value.scopeId) ?? toNonEmptyString(value.scope_id) ?? null;
 
   if (
     scopeType !== "project" &&
@@ -38,7 +39,7 @@ function normalizeApprovalDecisionComment(
   if (!isRecord(value)) return null;
 
   const scope = normalizeApprovalDecisionScope(value);
-  const comment = toStringValue(value.comment);
+  const comment = toNonEmptyString(value.comment);
   if (!scope || !comment) {
     return null;
   }
@@ -54,16 +55,16 @@ function normalizeApprovalDecisionRule(
 ): EstimateApprovalDecisionRule | null {
   if (!isRecord(value)) return null;
 
-  const ruleId = toStringValue(value.ruleId) ?? toStringValue(value.rule_id);
-  const label = toStringValue(value.label);
-  const signalKey = toStringValue(value.signalKey) ?? toStringValue(value.signal_key);
-  const message = toStringValue(value.message);
+  const ruleId = toNonEmptyString(value.ruleId) ?? toNonEmptyString(value.rule_id);
+  const label = toNonEmptyString(value.label);
+  const signalKey = toNonEmptyString(value.signalKey) ?? toNonEmptyString(value.signal_key);
+  const message = toNonEmptyString(value.message);
   const thresholdValue = toNumber(value.thresholdValue) ?? toNumber(value.threshold_value);
   const actualValue = toNumber(value.actualValue) ?? toNumber(value.actual_value);
   const sourceState =
-    toStringValue(value.sourceState) ?? toStringValue(value.source_state);
+    toNonEmptyString(value.sourceState) ?? toNonEmptyString(value.source_state);
   const approvalStatus =
-    toStringValue(value.approvalStatus) ?? toStringValue(value.approval_status);
+    toNonEmptyString(value.approvalStatus) ?? toNonEmptyString(value.approval_status);
 
   if (
     !ruleId ||
@@ -98,25 +99,25 @@ function normalizeEstimateApprovalDecisionEvent(
 ): EstimateApprovalDecisionEvent | null {
   if (!isRecord(value)) return null;
 
-  const id = toStringValue(value.id);
+  const id = toNonEmptyString(value.id);
   const estimateVersionId =
-    toStringValue(value.estimateVersionId) ??
-    toStringValue(value.estimate_version_id);
+    toNonEmptyString(value.estimateVersionId) ??
+    toNonEmptyString(value.estimate_version_id);
   const occurredAt =
-    toStringValue(value.occurredAt) ??
-    toStringValue(value.occurred_at);
+    toNonEmptyString(value.occurredAt) ??
+    toNonEmptyString(value.occurred_at);
   const createdAt =
-    toStringValue(value.createdAt) ??
-    toStringValue(value.created_at);
-  const decisionRaw = toStringValue(value.decision);
+    toNonEmptyString(value.createdAt) ??
+    toNonEmptyString(value.created_at);
+  const decisionRaw = toNonEmptyString(value.decision);
   const approvalOutcome =
-    toStringValue(value.approvalOutcome) ??
-    toStringValue(value.approval_outcome);
+    toNonEmptyString(value.approvalOutcome) ??
+    toNonEmptyString(value.approval_outcome);
   const commentCount = toNumber(value.commentCount) ?? toNumber(value.comment_count);
   const scopeCount = toNumber(value.scopeCount) ?? toNumber(value.scope_count);
   const perimeterLabel =
-    toStringValue(value.perimeterLabel) ??
-    toStringValue(value.perimeter_label);
+    toNonEmptyString(value.perimeterLabel) ??
+    toNonEmptyString(value.perimeter_label);
   const scopes = pickArray(value, ["scopes"])
     .map((entry) => normalizeApprovalDecisionScope(entry))
     .filter((entry): entry is EstimateApprovalDecisionScope => entry !== null);
@@ -146,18 +147,18 @@ function normalizeEstimateApprovalDecisionEvent(
     occurredAt,
     createdAt,
     actorUserId:
-      toStringValue(value.actorUserId) ??
-      toStringValue(value.actor_user_id) ??
+      toNonEmptyString(value.actorUserId) ??
+      toNonEmptyString(value.actor_user_id) ??
       null,
     actorName:
-      toStringValue(value.actorName) ??
-      toStringValue(value.actor_name) ??
+      toNonEmptyString(value.actorName) ??
+      toNonEmptyString(value.actor_name) ??
       null,
     decision: decisionRaw,
     approvalOutcome,
     cycleId:
-      toStringValue(value.cycleId) ??
-      toStringValue(value.cycle_id) ??
+      toNonEmptyString(value.cycleId) ??
+      toNonEmptyString(value.cycle_id) ??
       null,
     cycleNumber:
       toNumber(value.cycleNumber) ?? toNumber(value.cycle_number) ?? null,
@@ -182,9 +183,9 @@ export function parseEstimateApprovalDecisionJournal(
   const availableAuthors = pickArray(root, ["availableAuthors", "available_authors"])
     .map((entry) => {
       if (!isRecord(entry)) return null;
-      const userId = toStringValue(entry.userId) ?? toStringValue(entry.user_id);
+      const userId = toNonEmptyString(entry.userId) ?? toNonEmptyString(entry.user_id);
       const actorName =
-        toStringValue(entry.actorName) ?? toStringValue(entry.actor_name);
+        toNonEmptyString(entry.actorName) ?? toNonEmptyString(entry.actor_name);
       if (!userId || !actorName) return null;
       return {
         userId,
@@ -197,7 +198,7 @@ export function parseEstimateApprovalDecisionJournal(
     );
   const filtersNode = isRecord(root.filters) ? root.filters : {};
   const decisionRaw =
-    toStringValue(filtersNode.decision) ?? toStringValue(filtersNode.status);
+    toNonEmptyString(filtersNode.decision) ?? toNonEmptyString(filtersNode.status);
   const decision =
     decisionRaw && isEstimateApprovalDecisionFilter(decisionRaw)
       ? decisionRaw
@@ -208,8 +209,8 @@ export function parseEstimateApprovalDecisionJournal(
     availableAuthors,
     filters: {
       actorUserId:
-        toStringValue(filtersNode.actorUserId) ??
-        toStringValue(filtersNode.actor_user_id) ??
+        toNonEmptyString(filtersNode.actorUserId) ??
+        toNonEmptyString(filtersNode.actor_user_id) ??
         null,
       decision,
     },

@@ -4,7 +4,7 @@ import { estimateStatusReasonSchema } from "@/lib/estimates/status-reason";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
-import { conflict, internalError, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { conflict, internalError, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;

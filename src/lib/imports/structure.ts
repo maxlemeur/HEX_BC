@@ -1,8 +1,8 @@
 import { readImportRowStructure } from "./payload";
+import { stripAccents } from "@/lib/text/fold";
 
 type JsonRecord = Record<string, unknown>;
 
-export type ImportStructureDecisionKind = "section" | "line" | "ignore";
 export type ImportStructureLevel = 1 | 2;
 
 export type ImportStructureDecision =
@@ -66,10 +66,6 @@ function asText(value: unknown): string {
     return String(value).trim();
   }
   return "";
-}
-
-function stripAccents(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function normalizeToken(value: unknown) {

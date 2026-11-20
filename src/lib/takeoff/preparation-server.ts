@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { getAuthenticatedContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
 import {
@@ -65,7 +65,6 @@ export async function loadTakeoffPreparation(projectId: string) {
   await assertPreparationProjectAccess(context, projectId);
   return loadPreparation(context, projectId);
 }
-export type TakeoffPreparationState = Awaited<ReturnType<typeof loadTakeoffPreparation>>;
 
 function validateCanonicalSources(draft: TakeoffPreparation, availableSources: TakeoffPreparation["sources"]) {
   const available = new Map(availableSources.map((source) => [source.document_id, source]));

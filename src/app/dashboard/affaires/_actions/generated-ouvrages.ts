@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 
 import {
   fetchResumableGeneratedOuvrageDraft as fetchResumableGeneratedOuvrageDraftServer,

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isUnifiedEngine, requireHistoricalEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { internalError, mapSupabaseError } from "@/lib/estimates/errors";
+import { internalError, mapSupabaseError } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { canUseDevelopmentEstimateTerms } from "@/lib/estimates/pdf-terms-server";
 import {

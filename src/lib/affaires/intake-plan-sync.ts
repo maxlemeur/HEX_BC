@@ -1,5 +1,5 @@
 import { readAllRows } from "@/lib/supabase/read-all";
-import { conflict } from "@/lib/estimates/errors";
+import { conflict } from "@/lib/http/api-response";
 import { createHash } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -24,6 +24,7 @@ import {
 } from "@/lib/takeoff/plan-file-display-name";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import type { Database } from "@/types/database";
+import { isRecord } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -82,11 +83,6 @@ type IntakePlanFileMetadata = {
   intake_generation: string | null;
   [PLAN_FILE_ORIGINAL_NAME_KEY]?: string;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function isDrivePlanSource(document: SyncDocument) {
   return document.source_provider === "google_drive" && !document.storage_path && Boolean(document.drive_file_id);
 }

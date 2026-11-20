@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/layout/empty-state";
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { formatLotPrice, lineKindOf, signedLineAmount } from "@/components/purchase-orders/order-lines";
+import { formatLotPrice, lineKindOf, signedLineAmount } from "@/lib/purchase-orders/order-lines";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { formatFileSize } from "@/lib/file-validation";
 import { formatEUR } from "@/lib/money";

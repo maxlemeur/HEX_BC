@@ -14,6 +14,7 @@ import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
 import { sendEstimateSuggestionRuleFeedback } from "@/lib/estimates/client";
 import { createSuggestionRanker } from "@/lib/estimates/suggestion-scoring";
 import type { Database } from "@/types/database";
+import { toFiniteNumber } from "@/lib/estimates/editor-values";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
@@ -57,10 +58,6 @@ function addDismissedSuggestion(
       [ruleId]: true,
     },
   };
-}
-
-function toFiniteNumber(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function toSuggestionLearningBoost(rule: SuggestionRule | Record<string, unknown>) {

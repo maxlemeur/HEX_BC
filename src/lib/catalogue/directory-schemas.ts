@@ -148,10 +148,7 @@ export const supplierListQuerySchema = z.object({
   id: z.string().uuid(UUID_ERROR_MESSAGE).optional(),
 });
 
-export type ProductActionInput = z.infer<typeof productActionSchema>;
 export type CreateProductInput = z.infer<typeof createProductSchema>["item"];
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
-export type SupplierActionInput = z.infer<typeof supplierActionSchema>;
 export type CreateSupplierInput = z.infer<typeof createSupplierSchema>["item"];
 export type UpdateSupplierInput = z.infer<typeof updateSupplierSchema>;
-export type SupplierListQueryInput = z.infer<typeof supplierListQuerySchema>;

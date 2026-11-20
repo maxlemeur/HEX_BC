@@ -9,6 +9,7 @@ import { fetchLaunchPageContributions, fetchTakeoffJobPageContributions } from "
 import type { TakeoffPageContributionsResponse } from "@/lib/takeoff/page-contributions-contracts";
 import { TAKEOFF_PAGE_KEEP_BOTH_REASON_LABELS } from "@/lib/takeoff/page-replacement-contracts";
 import { cn } from "@/lib/utils";
+import { plural } from "@/lib/text/plural";
 
 // TI-682 lot D: « a plan page enters an estimate once ». These notices say, before the application, which pages of this
 // takeoff the estimate already holds from another one (the page, that takeoff, how many estimate lines it brought). They
@@ -22,7 +23,6 @@ type Job = TakeoffPageContributionsResponse["jobs"][number];
 
 const TITLE = "Pages déjà au devis";
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? "s" : ""}`;
 
 function pageLabel(page: Page) {
   return `${page.file_name ?? "Plan sans nom"}, ${page.page === null ? "page inconnue" : `page ${page.page}`}`;

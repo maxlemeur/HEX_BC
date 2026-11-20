@@ -2,28 +2,9 @@ import type { PassRules } from "@/lib/takeoff/bench/report";
 import type { BenchPass } from "@/lib/takeoff/bench/run";
 import type { VectorBenchPass } from "@/lib/takeoff/bench/vector-run";
 import { visionPageTimings } from "@/lib/takeoff/bench/vision-review";
+import { percentile } from "@/lib/takeoff/bench/report";
 
-// The report of the bench's vision pass (TI-664 L5c, acceptance « jetons et durée p50/p95 par page publiés, durée
-// sans régression face à L1 (mêmes pages, même machine) »):
-// - tokens summed over the calls that carry usage; the calls without it are counted, never read as 0 tokens;
-// - a page's time is its vector call plus its vision review (renders and calls), p50 and p95 by nearest rank, over
-//   every page read and over the reviewed pages alone;
-// - L1 is the level C baseline (--baseline): both sides on the same pages only, those L1 read alone in a successful
-//   call (a multi-page chunk has no time of its own per page) and the run read from its vectors (a raster page takes
-//   its items from L1, at the vector reading's time): « regression » when the run is slower at p50 or p95, null without
-//   such pages; the pages left out are counted;
-// - an interrupted vision pass (a stop, e.g. the plan limit) gives no L1 verdict: its later pages were never reviewed
-//   and carry no vision time. Its partial cost (tokens, latencies, timings) is still reported;
-// - the acceptance counter: per pass and role, the keys at high confidence and those in error after the rules and
-//   after vision; any rise of the errors is flagged.
-
-function nearestRank(values: readonly number[], p: number) {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
-}
-
-const percentiles = (raw: number[]) => ({ p50: nearestRank(raw, 50), p95: nearestRank(raw, 95), raw });
+const percentiles = (raw: number[]) => ({ p50: percentile(raw, 50), p95: percentile(raw, 95), raw });
 
 export type VisionReport = ReturnType<typeof visionReport>;
 

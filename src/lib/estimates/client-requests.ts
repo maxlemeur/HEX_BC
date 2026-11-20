@@ -1,6 +1,5 @@
 import { MAX_CENTS } from "@/lib/estimate-calculations";
 import { assertNoPendingEstimateBatch } from "@/lib/estimates/batch-intentions";
-import { isRecord } from "@/lib/estimates/client-json";
 import { EstimateApiError, isEstimateApiError } from "@/lib/estimates/client-errors";
 import { requestJsonUncoordinated } from "@/lib/estimates/client-http";
 import { parseVersionToken, type EstimateVersionToken, type BulkUpdateEstimateVersionPatch } from "@/lib/estimates/client-version";
@@ -8,6 +7,7 @@ import { parseEstimateEditorData } from "@/lib/estimates/editor-read-contracts";
 import { getEstimateEditorMutationIdentity, hasEstimateEditorMutationSession, runEstimateEditorMutation, isOlderEstimateVersionToken } from "@/lib/estimates/editor-mutations";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
+import { isRecord } from "@/lib/value-guards";
 
 export async function requestJson<T>(
   path: string,

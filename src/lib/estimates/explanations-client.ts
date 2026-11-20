@@ -5,24 +5,12 @@ import {
   type EstimateExplanationSnapshot,
 } from "@/lib/estimates/explanation-schemas";
 import { EstimateApiError } from "@/lib/estimates/client-errors";
-
-type JsonRecord = Record<string, unknown>;
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 const successEnvelopeSchema = z.object({
   ok: z.literal(true),
   data: estimateExplanationResponseSchema,
 });
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toStringValue(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 async function requestExplanation(
   url: string,
   init: RequestInit,
@@ -38,12 +26,12 @@ async function requestExplanation(
 
     if (isRecord(payload)) {
       if (isRecord(payload.error)) {
-        message = toStringValue(payload.error.message) ?? fallbackMessage;
-        code = toStringValue(payload.error.code);
+        message = toNonEmptyString(payload.error.message) ?? fallbackMessage;
+        code = toNonEmptyString(payload.error.code);
         details = payload.error.details ?? null;
       } else {
-        message = toStringValue(payload.message) ?? fallbackMessage;
-        code = toStringValue(payload.code);
+        message = toNonEmptyString(payload.message) ?? fallbackMessage;
+        code = toNonEmptyString(payload.code);
         details = payload.details ?? null;
       }
     }

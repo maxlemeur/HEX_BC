@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { estimateOfferChoiceInputSchema } from "@/lib/estimates/offer-choice";
 import { readEstimateLineOfferChoiceSuggestion, setEstimateLineOfferChoice } from "@/lib/estimates/offer-choice-server";

@@ -1,8 +1,9 @@
-import { isRecord, getRootPayload, pickRecord, toStringValue, toBooleanValue, extractBoolean } from "@/lib/estimates/client-json";
+import { getRootPayload, pickRecord, toBooleanValue, extractBoolean } from "@/lib/estimates/client-json";
 import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { requestJsonUncoordinated as requestJson } from "@/lib/estimates/client-http";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER, normalizeEstimateDraftLockSessionId } from "@/lib/estimates/lock-session";
 import { getEstimateDraftLockSessionId, holdEstimateDraftLockSessionLiveness, retireEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export type EstimateDraftLock = {
   versionId: string;
@@ -61,44 +62,44 @@ export function parseEstimateDraftLock(
   ]);
 
   const versionId =
-    toStringValue(lockEntity.version_id) ??
-    toStringValue(lockEntity.versionId) ??
-    toStringValue(root.version_id) ??
-    toStringValue(root.versionId) ??
+    toNonEmptyString(lockEntity.version_id) ??
+    toNonEmptyString(lockEntity.versionId) ??
+    toNonEmptyString(root.version_id) ??
+    toNonEmptyString(root.versionId) ??
     fallbackVersionId ??
     null;
 
   if (!versionId) return null;
 
   const userId =
-    toStringValue(lockEntity.user_id) ??
-    toStringValue(lockEntity.userId) ??
-    toStringValue(lockEntity.locked_by_user_id) ??
+    toNonEmptyString(lockEntity.user_id) ??
+    toNonEmptyString(lockEntity.userId) ??
+    toNonEmptyString(lockEntity.locked_by_user_id) ??
     (holderEntity
-      ? toStringValue(holderEntity.user_id) ?? toStringValue(holderEntity.id)
+      ? toNonEmptyString(holderEntity.user_id) ?? toNonEmptyString(holderEntity.id)
       : null) ??
     null;
 
   const holderName =
-    toStringValue(lockEntity.holder_name) ??
-    toStringValue(lockEntity.holderName) ??
-    toStringValue(lockEntity.locked_by_name) ??
-    toStringValue(lockEntity.lockedByName) ??
+    toNonEmptyString(lockEntity.holder_name) ??
+    toNonEmptyString(lockEntity.holderName) ??
+    toNonEmptyString(lockEntity.locked_by_name) ??
+    toNonEmptyString(lockEntity.lockedByName) ??
     (holderEntity
-      ? toStringValue(holderEntity.full_name) ??
-        toStringValue(holderEntity.fullName) ??
-        toStringValue(holderEntity.name)
+      ? toNonEmptyString(holderEntity.full_name) ??
+        toNonEmptyString(holderEntity.fullName) ??
+        toNonEmptyString(holderEntity.name)
       : null) ??
     null;
 
   const lockedAt =
-    toStringValue(lockEntity.locked_at) ??
-    toStringValue(lockEntity.lockedAt) ??
+    toNonEmptyString(lockEntity.locked_at) ??
+    toNonEmptyString(lockEntity.lockedAt) ??
     null;
 
   const expiresAt =
-    toStringValue(lockEntity.expires_at) ??
-    toStringValue(lockEntity.expiresAt) ??
+    toNonEmptyString(lockEntity.expires_at) ??
+    toNonEmptyString(lockEntity.expiresAt) ??
     null;
 
   const isOwnedByCurrentUser =
@@ -124,7 +125,7 @@ export function parseEstimateDraftLock(
     null;
 
   const sessionId = normalizeEstimateDraftLockSessionId(
-    toStringValue(lockEntity.session_id) ?? toStringValue(lockEntity.sessionId)
+    toNonEmptyString(lockEntity.session_id) ?? toNonEmptyString(lockEntity.sessionId)
   );
 
   return {

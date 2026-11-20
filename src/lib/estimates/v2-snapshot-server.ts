@@ -18,7 +18,8 @@ import {
 } from "@/lib/estimates/version-totals";
 import type { Database, Json } from "@/types/database";
 
-import { badRequest, conflict, mapSupabaseError, notFound } from "./errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -30,8 +31,6 @@ export type EstimateV2FreezeResult = {
   total_tax_cents?: number;
   total_ttc_cents?: number;
 };
-
-export type EstimateV2SnapshotPurpose = "send" | "approval" | "document";
 
 type FreezeEstimateV2SnapshotInput = {
   supabase: Supabase;
@@ -47,11 +46,6 @@ type FreezeEstimateV2SnapshotInput = {
 );
 
 const VERSION_CONFLICT_ERROR_MESSAGE = ESTIMATE_VERSION_CONFLICT_MESSAGE;
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
-}
 
 /**
  * Module serveur profond du gel v2 : charge le contexte, calcule la projection,

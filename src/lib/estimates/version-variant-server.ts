@@ -1,15 +1,15 @@
 import "server-only";
 
 import type { Database } from "@/types/database";
-import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import {
   assertDraftStatus,
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   toRpcUuid,
 } from "@/lib/estimates/server-context";
-import { toNullableText } from "@/lib/estimates/version-write-normalization";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 
@@ -54,7 +54,7 @@ export async function promoteEstimateVariant(versionId: string) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
-  const variantLabel = toNullableText(version.variant_label);
+  const variantLabel = toNonEmptyString(version.variant_label);
   const parentVersionId = version.parent_version_id ?? null;
 
   if (!variantLabel || !parentVersionId) {

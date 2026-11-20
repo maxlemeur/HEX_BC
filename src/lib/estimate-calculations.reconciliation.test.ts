@@ -21,7 +21,7 @@ import {
   DOCUMENT_CALC_ENGINE_VERSION,
   prepareEstimateDocumentData,
   type EstimateItem,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import { createSeededRandom } from "@/test/seeded-random";
 
 function makeLine(overrides: Partial<EstimateItemRecord> = {}): EstimateItemRecord {

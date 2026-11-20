@@ -45,12 +45,3 @@ export function getServerSnapshot(): CockpitSuggestionsSnapshot {
     suggestions: [],
   };
 }
-
-/** Reset internal state — only for tests. */
-export function _resetForTest() {
-  state = {
-    projectId: null,
-    suggestions: [],
-  };
-  listeners.clear();
-}

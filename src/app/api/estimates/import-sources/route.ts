@@ -1,6 +1,6 @@
 import { validateEstimateResponse } from "@/lib/estimates/response-validation-server";
 import { parseImportSourcesResponse } from "@/lib/estimates/section-copy-response";
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { listEstimateImportSourcesQuerySchema } from "@/lib/estimates/schemas";
 import { listEstimateImportSources } from "@/lib/estimates/server";
 

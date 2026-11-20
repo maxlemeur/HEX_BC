@@ -96,9 +96,6 @@ export const ORACLE_LINES: readonly OracleLine[] = [
   { ref: "O7", quantity: "8", unitPriceCents: 883, hoursPerUnit: "1.30", pu130120: 7388, gross130120: 59104, cost: 48664, pu130130: 7908 },
 ];
 
-export const ORACLE_GROSS_SUM_CENTS = 6905456;
-export const ORACLE_COST_SUM_CENTS = 5487177;
-
 export function oracleItems(taxRateBpByRef: Partial<Record<OracleLine["ref"], number>> = {}) {
   return ORACLE_LINES.map((line, index) =>
     v3Line(index + 1, {
@@ -118,66 +115,6 @@ export function oracleInput(params: Partial<EstimateV3Params> = {}, taxRateBpByR
     ...params,
   });
 }
-
-/* ---------- §5.2 scénarios chiffrés ---------- */
-
-export type ScenarioExpectation = {
-  id: "S1" | "S2" | "S3" | "S4" | "S5";
-  params: Partial<EstimateV3Params>;
-  taxRateBpByRef?: Partial<Record<OracleLine["ref"], number>>;
-  gross: number;
-  discount: number;
-  rounding: number;
-  net: number;
-  tax: number;
-  ttc: number;
-};
-
-const S5_RATES: Partial<Record<OracleLine["ref"], number>> = {
-  O1: 1000,
-  O2: 1000,
-  O3: 1000,
-  O4: 2000,
-  O5: 2000,
-  O6: 2000,
-  O7: 2000,
-};
-
-export const SCENARIOS: readonly ScenarioExpectation[] = [
-  { id: "S1", params: {}, gross: 6905456, discount: 0, rounding: 0, net: 6905456, tax: 1381091, ttc: 8286547 },
-  { id: "S2", params: { discount_amount_cents: 101 }, gross: 6905456, discount: 101, rounding: 0, net: 6905355, tax: 1381071, ttc: 8286426 },
-  { id: "S3", params: { discount_bp: 1000 }, gross: 6905456, discount: 690546, rounding: 0, net: 6214910, tax: 1242982, ttc: 7457892 },
-  {
-    id: "S4",
-    params: { discount_amount_cents: 101, rounding_mode: "down", rounding_step_cents: 10000 },
-    gross: 6905456,
-    discount: 101,
-    rounding: 5355,
-    net: 6900000,
-    tax: 1380000,
-    ttc: 8280000,
-  },
-  {
-    id: "S5",
-    params: { discount_amount_cents: 101 },
-    taxRateBpByRef: S5_RATES,
-    gross: 6905456,
-    discount: 101,
-    rounding: 0,
-    net: 6905355,
-    tax: 1325525,
-    ttc: 8230880,
-  },
-];
-
-/** S5 : répartition des 101 c sur O1..O7 et récapitulatif par taux (§5.2). */
-export const S5_REDUCTIONS = [5, 1, 2, 23, 0, 69, 1];
-export const S5_TAX_BREAKDOWN = [
-  { rate_bp: 1000, base_cents: 555453, tax_cents: 55545 },
-  { rate_bp: 2000, base_cents: 6349902, tax_cents: 1269980 },
-];
-/** TVA ligne à ligne de S5 : l'écart que supprime A5 (§5.2). */
-export const S5_LINE_BY_LINE_TAX = 1325527;
 
 /* ---------- §5.3 cas d'exigence (entrées ; attendus dans requirements.test.ts) ---------- */
 
@@ -204,51 +141,4 @@ export function supplyLineInput(
     sale_coefficient_fo: saleCoefficientFo,
     ...params,
   });
-}
-
-/** A-06 : 1 004 lignes de 99 c à 20 %. */
-export function a06Input(discountAmountCents: number | null) {
-  return v3Input(
-    Array.from({ length: 1004 }, (_, index) => v3Line(index + 1, { unit_price_ht_cents: 99 })),
-    { discount_amount_cents: discountAmountCents }
-  );
-}
-
-/** T-TVA1 : 10 000 c à 20 % et 10 000 c à 5,5 %. */
-export function tTva1Input() {
-  return v3Input([
-    v3Line(1, { unit_price_ht_cents: 10000, tax_rate_bp: 2000 }),
-    v3Line(2, { unit_price_ht_cents: 10000, tax_rate_bp: 550 }),
-  ]);
-}
-
-/** T-TVA-ARR : 3 lignes de 33 c à 20 %. */
-export function tTvaArrInput() {
-  return v3Input([1, 2, 3].map((n) => v3Line(n, { unit_price_ht_cents: 33 })));
-}
-
-/**
- * T-MARG : c 1,25 / 1,25, remise de 20 %. Ligne choisie (interprétation, la conception ne fixe
- * pas les entrées) : Q 4, PR 10 000 c, 0,5 h/u à 4 000 c/h.
- */
-export function tMargInput() {
-  return v3Input(
-    [
-      v3Line(1, {
-        quantity: 4,
-        unit_price_ht_cents: 10000,
-        h_mo_per_unit: "0.5",
-        labor_rate_cents: 4000,
-      }),
-    ],
-    { sale_coefficient_fo: "1.25", sale_coefficient_mo: "1.25", discount_bp: 2000 }
-  );
-}
-
-/** T-STAT : ligne « hors lot » chiffrable à 500 €, à côté d'une ligne chiffrée de 100 €. */
-export function tStatInput() {
-  return v3Input([
-    v3Line(1, { unit_price_ht_cents: 10000 }),
-    v3Line(2, { unit_price_ht_cents: 50000, pricing_status: "out_of_scope" }),
-  ]);
 }

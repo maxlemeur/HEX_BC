@@ -19,6 +19,7 @@ import {
   buildEditorSettingsFromVersion,
   buildHistoricalSettingsPayload,
   haveEstimateSettingsChanged,
+  type EstimateSettingsState,
 } from "@/lib/estimates/editor-settings-state";
 import { isOlderEstimateVersionToken } from "@/lib/estimates/editor-mutations";
 import {
@@ -48,14 +49,13 @@ import {
 import type { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import type { PriceReuseDialog } from "@/components/estimates/PriceReuseDialog";
 import type { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateV3GridModel } from "@/components/estimates/v3/V3LineCells";
 import {
   EstimateSettingsSummaryBar,
   type SettingsSection,
 } from "@/components/estimates/EstimateSettingsSummaryBar";
 import { useToast } from "@/components/feedback/toast-provider";
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { useEstimateEditorExportController } from "@/hooks/useEstimateEditorExportController";
 import { isEstimateEditorOperationScopeCurrent } from "@/hooks/estimate-editor-operation-scope";
 import { estimateEditorAutoSaveStatusClassName } from "@/hooks/estimate-editor-autosave-status";
@@ -657,8 +657,6 @@ export function useEstimateEditorState({
       resolveErrorMessage: resolveEstimateActionError,
     },
   });
-
-
 
   useEffect(() => {
     if (!resolvedVersionId) {

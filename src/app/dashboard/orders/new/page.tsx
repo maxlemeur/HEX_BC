@@ -19,7 +19,7 @@ import { LoadingState } from "@/components/layout/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { SupplierCreateModal, type SupplierCreateResult } from "@/components/SupplierCreateModal";
 import { Alert } from "@/components/ui/alert";
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import {
   computeLineTotals,
   computeOrderTotals,

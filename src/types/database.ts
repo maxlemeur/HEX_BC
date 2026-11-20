@@ -153,24 +153,3 @@ export type Database = Omit<GeneratedDatabase, "public"> & {
     };
   };
 };
-
-export type EstimatePurchaseReceipt = {
-  source_version_id: string;
-  idempotency_key: string;
-  replayed: boolean;
-  summary: { draft_orders_created: number; draft_lines_created: number };
-  orders: Array<{
-    purchase_order_id: string;
-    reference: string;
-    supplier_id: string;
-    supplier_name: string;
-    delivery_site_id: string;
-    item_count: number;
-    total_ht_cents: number;
-    total_tax_cents: number;
-    total_ttc_cents: number;
-    ordered_source_item_ids: string[];
-    current_status: "draft" | "sent" | "confirmed" | "received" | "canceled" | "deleted";
-    can_open: boolean;
-  }>;
-};

@@ -29,6 +29,7 @@ import {
   type MappingTargetField,
   type SourceToTargetMapping,
 } from "./schemas";
+import { stripAccents } from "@/lib/text/fold";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = { [key: string]: Json | undefined };
@@ -345,10 +346,6 @@ function toJsonValue(value: unknown): Json {
     return output;
   }
   return normalizeText(value);
-}
-
-function stripAccents(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function normalizeTemplateMapping(value: unknown): SourceToTargetMapping {

@@ -7,7 +7,7 @@ import {
   collectSubtreeItemIds,
   createTopLevelItemIdsTracker,
   sortItemsForTreeRecreation,
-} from "./item-tree";
+} from "@/lib/estimates/editor-item-tree";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 

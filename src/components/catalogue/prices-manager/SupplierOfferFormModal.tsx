@@ -29,7 +29,7 @@ import { parseEuroToCents } from "@/lib/money";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 import { maxPriceValidTo, resolvePriceValidity } from "@/lib/catalogue/price-validity";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
-import { useOptionalUserContext } from "@/components/UserContext";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 
 type EntityMode = "existing" | "new";
 

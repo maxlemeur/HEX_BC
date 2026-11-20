@@ -38,7 +38,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ id: ORDER_ID }),
   useRouter: () => ({ push, refresh: vi.fn(), replace: vi.fn() }),
 }));
-vi.mock("@/components/UserContext", () => ({
+vi.mock("@/lib/auth/user-context", () => ({
   useUserContext: () => ({ profile: { full_name: "Camille Martin", job_title: "Acheteuse", phone: null, work_email: null } }),
 }));
 vi.mock("@/lib/purchase-orders", () => ({ assertCompletePurchaseOrderSnapshot: vi.fn(async () => undefined) }));

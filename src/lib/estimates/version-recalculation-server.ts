@@ -1,15 +1,15 @@
-import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError } from "@/lib/http/api-response";
 import type { Supabase } from "@/lib/estimates/item-write-types";
 import {
   assertEstimateVersionUnchanged,
   readAllEstimateItems,
 } from "@/lib/estimates/read-all-items-server";
-import { resolveEmbeddedOne } from "@/lib/estimates/server-context";
 import type { EstimateVersionRow } from "@/lib/estimates/version-list-server";
 import {
   calculateEstimateTotalsForItems,
   type CalculatedEstimateTotals,
 } from "@/lib/estimates/version-totals";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type EstimateRecalculationVersionOverrides = Partial<
   Pick<

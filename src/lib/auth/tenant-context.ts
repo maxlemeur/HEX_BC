@@ -11,7 +11,7 @@ import {
   forbidden,
   mapSupabaseError,
   unauthorized,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 

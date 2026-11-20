@@ -3,7 +3,7 @@ import "server-only";
 import {
   badRequest, conflict, forbidden, internalError, mapSupabaseError, notFound,
   type SupabaseErrorLike,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import type { ClientContract1, DocumentProof1 } from "@/lib/estimates/offer-contract";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {

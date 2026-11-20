@@ -24,9 +24,9 @@ import {
   type PurchaseOrderAmountKind,
   type PurchaseOrderLineKind,
   type StoredOrderLineFields,
-} from "@/components/purchase-orders/order-lines";
+} from "@/lib/purchase-orders/order-lines";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { parseEuroToCents } from "@/lib/money";
 import { parseOrderQuantityInput } from "@/lib/purchase-orders/quantities";
 import { assertCompletePurchaseOrderSnapshot } from "@/lib/purchase-orders";

@@ -1,4 +1,5 @@
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type EstimateVersionRow =
   Database["public"]["Tables"]["estimate_versions"]["Row"];
@@ -232,13 +233,6 @@ export type EstimateDiffResult = {
   entries: EstimateDiffEntry[];
   summary: EstimateDiffSummary;
 };
-
-function normalizeStringValue(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 export function normalizeNumberValue(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Object.is(value, -0) ? 0 : value;
@@ -259,7 +253,7 @@ function normalizeComparableValue(
   kind: DiffFieldKind
 ): string | number | null {
   if (kind === "text" || kind === "reference") {
-    return normalizeStringValue(value);
+    return toNonEmptyString(value);
   }
   return normalizeNumberValue(value);
 }
@@ -286,19 +280,19 @@ function buildReferenceLookups(
 
   const allLaborRoles = [...previous.labor_roles, ...current.labor_roles];
   allLaborRoles.forEach((role) => {
-    const name = normalizeStringValue(role.name);
+    const name = toNonEmptyString(role.name);
     laborRolesById.set(role.id, name ?? role.id);
   });
 
   const allCategories = [...previous.categories, ...current.categories];
   allCategories.forEach((category) => {
-    const name = normalizeStringValue(category.name);
+    const name = toNonEmptyString(category.name);
     categoriesById.set(category.id, name ?? category.id);
   });
 
   const allSupplyTypes = [...previous.supply_types, ...current.supply_types];
   allSupplyTypes.forEach((supplyType) => {
-    const name = normalizeStringValue(supplyType.name);
+    const name = toNonEmptyString(supplyType.name);
     supplyTypesById.set(supplyType.id, name ?? supplyType.id);
   });
 
@@ -333,7 +327,7 @@ function resolveDisplayValue(
   lookups: ReferenceLookups
 ): string | number | null {
   if (definition.kind === "text" || definition.kind === "reference") {
-    const normalized = normalizeStringValue(value);
+    const normalized = toNonEmptyString(value);
     if (!normalized) return null;
     if (definition.kind === "reference") {
       return resolveReferenceLabel(normalized, definition, lookups);

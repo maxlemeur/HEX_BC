@@ -9,7 +9,7 @@ import {
   notFound,
   ok,
   toErrorResponse,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import {
   generateEstimatePdfNow,
   getEstimatePdfStatus,
@@ -21,12 +21,9 @@ import {
   ESTIMATE_DRAFT_LOCK_SESSION_HEADER,
   normalizeEstimateDraftLockSessionId,
 } from "@/lib/estimates/lock-session";
+import { uuidRouteParam } from "@/lib/http/request";
 
 export const runtime = "nodejs";
-
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
 
 const estimatePdfLayoutSchema = z.object({
   preset: z.enum(["client_detailed", "decision_summary", "fo_mo"]),
@@ -51,11 +48,6 @@ type JsonErrorPayload = {
     details?: unknown;
   };
 };
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return versionIdParamSchema.parse(params).versionId;
-}
 
 async function parseRequestBody(request: Request) {
   const rawBody = await request.text();
@@ -126,7 +118,7 @@ export async function POST(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const force = parseForceQuery(request);
     const body = await parseRequestBody(request);
 
@@ -193,7 +185,7 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const format = parseFormatQuery(request);
     const status = await getEstimatePdfStatus(versionId);
 

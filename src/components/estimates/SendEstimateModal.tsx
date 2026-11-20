@@ -18,7 +18,7 @@ import {
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { useOptionalUserContext } from "@/components/UserContext";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { useDraftLock } from "@/hooks/useDraftLock";
 import {
   fetchEstimateEditorData,

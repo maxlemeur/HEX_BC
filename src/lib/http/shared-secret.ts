@@ -17,3 +17,12 @@ export function sharedSecretMatches(
   const expectedDigest = createHash("sha256").update(expected).digest();
   return timingSafeEqual(providedDigest, expectedDigest);
 }
+
+/** Scheduled callers send `Authorization: Bearer <CRON_SECRET>`; no secret configured means no access. */
+export function isAuthorizedCronRequest(request: Request) {
+  const secret = process.env.CRON_SECRET;
+  return Boolean(
+    secret &&
+      sharedSecretMatches(request.headers.get("authorization"), `Bearer ${secret}`)
+  );
+}

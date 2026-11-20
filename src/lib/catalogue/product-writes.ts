@@ -5,7 +5,7 @@ import {
   mapSupabaseError,
   notFound,
   unprocessableEntity,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import type { Database } from "@/types/database";
 
 import { getCatalogueWriterClient } from "./access-server";
@@ -20,7 +20,7 @@ import {
 type ProductInsert = Database["public"]["Tables"]["products"]["Insert"];
 type ProductUpdate = Database["public"]["Tables"]["products"]["Update"];
 
-function compactRecord<T extends Record<string, unknown>>(payload: T): T {
+export function compactRecord<T extends Record<string, unknown>>(payload: T): T {
   const next: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload)) {
     if (value === undefined) continue;

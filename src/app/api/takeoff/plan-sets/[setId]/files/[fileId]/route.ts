@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import {
   deletePlanFile,
   getPlanFileDetail,
@@ -8,6 +8,7 @@ import {
   planFileIdSchema,
   planSetIdSchema,
 } from "@/lib/takeoff/plans";
+import { searchParamsObject } from "@/lib/http/request";
 
 const paramsSchema = z
   .object({
@@ -21,17 +22,13 @@ async function getParams(paramsPromise: Promise<{ setId: string; fileId: string 
   return paramsSchema.parse(params);
 }
 
-function toQueryObject(request: Request) {
-  return Object.fromEntries(new URL(request.url).searchParams.entries());
-}
-
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ setId: string; fileId: string }> }
 ) {
   try {
     const { setId, fileId } = await getParams(params);
-    const query = parseGetPlanFileDetailQuery(toQueryObject(request));
+    const query = parseGetPlanFileDetailQuery(searchParamsObject(request));
     const data = await getPlanFileDetail({
       setId,
       fileId,

@@ -15,6 +15,7 @@ import type {
   TakeoffRiskStatus,
 } from "@/lib/takeoff/types";
 import { dedupeLabels } from "@/lib/text/dedupe-labels";
+import { isRecord } from "@/lib/value-guards";
 
 const RISK_WEIGHT_BY_CAUSE: Record<TakeoffRiskCauseCode, number> = {
   missing_proof: 40,
@@ -137,11 +138,6 @@ function statusRank(status: TakeoffRiskStatus) {
       return 1;
   }
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function buildLotContextByLineId(items: RiskEstimateItem[]) {
   const itemById = new Map(items.map((item) => [item.id, item]));
   const lotByLineId = new Map<string, LotContext>();

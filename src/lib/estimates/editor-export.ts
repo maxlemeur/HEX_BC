@@ -1,4 +1,3 @@
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
 import {
   ESTIMATE_QUALITY_FLAG_META,
@@ -12,8 +11,6 @@ import {
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import {
-  isRecord,
-  toNonEmptyString,
   toNullableFiniteNumber,
 } from "@/lib/estimates/editor-values";
 import {
@@ -34,6 +31,8 @@ import {
   type SupportedEstimateCurrency,
 } from "@/lib/money";
 import { sanitizeDownloadFilename } from "@/lib/download-filename";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 export const DEFAULT_ESTIMATE_CURRENCY: SupportedEstimateCurrency = "EUR";
 

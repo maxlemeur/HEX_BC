@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { forbidden, mapSupabaseError } from "@/lib/estimates/errors";
+import { forbidden, mapSupabaseError } from "@/lib/http/api-response";
 
 import { buildCatalogueAccess, canAddToCatalogue, type CatalogueAccess } from "./access";
 

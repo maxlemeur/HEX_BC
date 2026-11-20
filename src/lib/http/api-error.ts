@@ -1,7 +1,6 @@
 /**
- * Typed estimate API errors, with no dependency on `next/server`.
- * Client modules (the estimate editor, through `stored-item-numeric`) import them;
- * the HTTP mapping that needs `NextResponse` stays in `@/lib/estimates/errors`.
+ * Typed API errors, with no dependency on `next/server`: client modules import them.
+ * The HTTP mapping that needs `NextResponse` is in `@/lib/http/api-response`.
  */
 export type ApiErrorCode =
   | "BAD_REQUEST"
@@ -135,4 +134,17 @@ export function internalError(
     message,
     details,
   });
+}
+
+/**
+ * A refusal a domain module throws by name without building an HTTP error:
+ * `toErrorResponse` answers 409 with its code and message.
+ */
+export class NamedRefusal extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
 }

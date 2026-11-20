@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { prepareAssistantReply, runAssistantReply, type AssistantStreamEvent } from "@/lib/assistant/conversation";
 import { assertAssistantRequest } from "@/lib/assistant/model";
-import { toErrorResponse } from "@/lib/estimates/errors";
+import { toErrorResponse } from "@/lib/http/api-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,6 +1,7 @@
 import { foldText } from "@/lib/text/fold";
 
 import type { MaterialRequest, MaterialRequestLine } from "./contracts";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 /**
  * What stands between a line and its validation (TI-690). The office rewrites a technician's request by
@@ -36,13 +37,6 @@ export type AlertContext = {
   /** Every line of the request, the examined one included. */
   lines: readonly MaterialRequestLine[];
 };
-
-function text(value: string | null | undefined): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function comparable(value: string | null | undefined): string {
   return foldText(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -55,9 +49,9 @@ export function effectiveLineMaterial(
   line: Pick<MaterialRequestLine, "material">,
   request: AlertContext["request"],
 ): { material: string | null; source: "line" | "presumed" | null } {
-  const own = text(line.material);
+  const own = toNonEmptyString(line.material);
   if (own) return { material: own, source: "line" };
-  const presumed = text(request.presumed_material);
+  const presumed = toNonEmptyString(request.presumed_material);
   if (presumed && request.material_confirmed) return { material: presumed, source: "presumed" };
   return { material: null, source: null };
 }
@@ -69,7 +63,7 @@ function duplicateKey(line: MaterialRequestLine, request: AlertContext["request"
   return [
     type,
     comparable(line.dimension).replace(/ /g, ""),
-    comparable(text(line.material) ?? request.presumed_material),
+    comparable(toNonEmptyString(line.material) ?? request.presumed_material),
     comparable(line.zone),
     line.imputation,
   ].join("|");
@@ -91,18 +85,18 @@ export function materialRequestLineAlerts(
   } else if (line.quantity_doubtful) {
     block("quantity_doubtful", "quantity", "Quantité à vérifier sur l’original.");
   }
-  if (!text(line.unit)) block("unit_missing", "unit", "Unité à renseigner.");
-  if (!text(line.product_type)) block("type_missing", "product_type", "Type à renseigner.");
+  if (!toNonEmptyString(line.unit)) block("unit_missing", "unit", "Unité à renseigner.");
+  if (!toNonEmptyString(line.product_type)) block("type_missing", "product_type", "Type à renseigner.");
   // A link to an article without size writes « sans dimension » itself (articles-server.ts): a size cleared later is
   // asked again, linked or not.
-  if (!text(line.dimension) && !line.no_dimension) {
+  if (!toNonEmptyString(line.dimension) && !line.no_dimension) {
     block("dimension_missing", "dimension", "Dimension à renseigner, ou indiquer « sans dimension ».");
   }
 
   // Overhead (PPE, small tooling) is not ordered in the sheet's material.
   if (line.imputation === "project") {
-    const own = text(line.material);
-    const presumed = text(context.request.presumed_material);
+    const own = toNonEmptyString(line.material);
+    const presumed = toNonEmptyString(context.request.presumed_material);
     if (!own && !presumed) {
       block("material_missing", "material", "Matière à renseigner.");
     } else if (!own && presumed && !context.request.material_confirmed) {
@@ -144,7 +138,7 @@ function formatQuantity(quantity: number): string {
 }
 
 function lineLabel(line: MaterialRequestLine): string {
-  return [text(line.product_type), text(line.dimension)].filter(Boolean).join(" ");
+  return [toNonEmptyString(line.product_type), toNonEmptyString(line.dimension)].filter(Boolean).join(" ");
 }
 
 /**
@@ -155,7 +149,7 @@ function lineLabel(line: MaterialRequestLine): string {
  */
 function questionsFor(line: MaterialRequestLine, context: AlertContext): string[] {
   const questions: string[] = [];
-  if (!text(line.product_type)) return questions;
+  if (!toNonEmptyString(line.product_type)) return questions;
   for (const alert of materialRequestLineAlerts(line, context)) {
     if (alert.code === "quantity_missing") questions.push("combien ?");
     if (alert.code === "quantity_doubtful" && line.quantity !== null) {
@@ -182,7 +176,7 @@ export function buildClarificationMessage(input: {
     .filter((entry) => entry.questions.length > 0);
   if (asked.length === 0) return null;
 
-  const name = text(input.technicianName);
+  const name = toNonEmptyString(input.technicianName);
   const greeting = name ? `Bonjour ${name},` : "Bonjour,";
   const what = asked.length === 1 ? "une précision" : "quelques précisions";
   const body = asked.map(({ line, questions }) => {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { readAffaireDocumentTranscription } from "@/lib/affaires/intake-transcription-read";
-import { toErrorResponse } from "@/lib/estimates/errors";
+import { toErrorResponse } from "@/lib/http/api-response";
 
 export const runtime = "nodejs";
 const paramsSchema = z.object({

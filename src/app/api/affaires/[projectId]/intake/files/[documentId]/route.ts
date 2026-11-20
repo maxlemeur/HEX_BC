@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { getAffaireIntakeDpgfDownload, readAffaireIntakeDpgfFile } from "@/lib/affaires/intake-server";
-import { badRequest, conflict, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, conflict, ok, toErrorResponse } from "@/lib/http/api-response";
 import { ImportsApiError, toErrorResponse as toImportsErrorResponse, createImportFromMultipartFormData, reviewTabularPdfImportFile, validateTabularPdfReviewFile } from "@/lib/imports/server";
 
 const paramsSchema = z.object({ projectId: z.string().uuid(), documentId: z.string().uuid() });

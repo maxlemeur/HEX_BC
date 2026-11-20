@@ -1,7 +1,8 @@
 import { EstimateApiError, toErrorMessage, extractErrorDetails, extractErrorCode } from "@/lib/estimates/client-errors";
-import { isRecord, hasOwnProperty, toBooleanValue } from "@/lib/estimates/client-json";
+import { hasOwnProperty, toBooleanValue } from "@/lib/estimates/client-json";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
+import { isRecord } from "@/lib/value-guards";
 
 export const ESTIMATE_VERSION_API_PATH_PATTERN =
   /^\/api\/estimates\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?]|$)/i;

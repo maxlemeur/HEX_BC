@@ -6,7 +6,7 @@ import {
 } from "@/lib/affaires/import-flow";
 import type { ImportSaleCoefficients } from "@/lib/affaires/import-engine-server";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 import type { CreateEstimateInput } from "@/lib/estimates/schemas";
 import type { Database } from "@/types/database";
 

@@ -10,15 +10,14 @@ import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import {
   badRequest,
   conflict,
-  forbidden,
   internalError,
   mapSupabaseError,
   notFound,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
-import { assertDraftLockOwnedByCurrentUser } from "@/lib/estimates/server-context";
+import { assertDraftLockOwnedByCurrentUser, assertDraftStatus } from "@/lib/estimates/server-context";
 import {
   assignVersionZeroLotKeys,
   matchVersionZeroLotsByLabel,
@@ -37,6 +36,7 @@ import type {
   VersionZeroLotStatus,
 } from "./schemas";
 import { assertCanWriteEstimateWorkflows } from "./write-access";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -44,7 +44,6 @@ type VersionZeroDraftCounts = NonNullable<
   VersionZeroDraftSummary["activeDraft"]
 >["counts"];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionZeroDraftRow =
   Database["public"]["Tables"]["estimate_version_zero_drafts"]["Row"];
@@ -349,13 +348,6 @@ function resolveEmbeddedOne<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value;
 }
-
-function toNullableText(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function pickStringArray(value: unknown, limit = 12) {
   if (!Array.isArray(value)) return [] as string[];
   return value
@@ -369,7 +361,7 @@ function uniqueStrings(values: Array<string | null | undefined>) {
   const result: string[] = [];
 
   values.forEach((value) => {
-    const normalized = toNullableText(value);
+    const normalized = toNonEmptyString(value);
     if (!normalized) return;
     const key = normalized.toLowerCase();
     if (seen.has(key)) return;
@@ -463,11 +455,6 @@ async function getVersionAccessOrThrow(
     version,
     project,
   };
-}
-
-function assertDraftStatus(status: EstimateStatus) {
-  if (status === "draft") return;
-  throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
 }
 
 async function assertVersionIsEmpty(input: {
@@ -963,7 +950,7 @@ async function supersedeActiveDrafts(input: {
 
 function toSummaryText(value: Json) {
   const record = toJsonRecord(value);
-  return toNullableText(
+  return toNonEmptyString(
     typeof record.summary_text === "string" ? record.summary_text : null
   );
 }
@@ -1016,7 +1003,7 @@ function normalizeReviewLine(row: EstimateVersionZeroLineRow): VersionZeroReview
   const effective =
     row.review_status === "edited"
       ? {
-          title: toNullableText(row.edited_title) ?? row.proposed_title,
+          title: toNonEmptyString(row.edited_title) ?? row.proposed_title,
           description:
             row.edited_description !== null ? row.edited_description : row.proposed_description,
           quantity:
@@ -1526,13 +1513,13 @@ export async function reviewVersionZeroLine(input: {
     review_status: input.reviewStatus,
     edited_title:
       input.reviewStatus === "edited"
-        ? toNullableText(input.editedValues?.title) ?? lineData.proposed_title
+        ? toNonEmptyString(input.editedValues?.title) ?? lineData.proposed_title
         : null,
     edited_description:
       input.reviewStatus === "edited"
         ? input.editedValues?.description === undefined
           ? lineData.proposed_description
-          : toNullableText(input.editedValues.description)
+          : toNonEmptyString(input.editedValues.description)
         : null,
     edited_quantity:
       input.reviewStatus === "edited"
@@ -1544,7 +1531,7 @@ export async function reviewVersionZeroLine(input: {
       input.reviewStatus === "edited"
         ? input.editedValues?.unit === undefined
           ? lineData.proposed_unit
-          : toNullableText(input.editedValues.unit)
+          : toNonEmptyString(input.editedValues.unit)
         : null,
   };
 

@@ -1,5 +1,6 @@
 import { compareQuantityPairs, surfaceBasis } from "@/lib/takeoff/quantity-policy";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
+import { round4 } from "@/lib/takeoff/dpgf-quantity-policy";
 
 // TI-682 lot D4: a DPGF target sums the measures it keeps. Its composition is the list of what each takeoff line still
 // brings to it, stored on the target (`source_metadata.takeoff_quantity_policy`, version 2) by the application, which
@@ -26,8 +27,6 @@ export type DpgfContribution = {
 
 /** A takeoff line as the reconciliation reads it (quantity already the one it compares: a vector surface's model). */
 export type DpgfContributingLine = { item_id: string; quantity: number; metadata: Record<string, unknown> | null };
-
-const round4 = (value: number) => Number(value.toFixed(4));
 
 /** What one takeoff line brings to a DPGF target it feeds. */
 export function dpgfLineContribution(jobId: string, line: DpgfContributingLine): DpgfContribution {

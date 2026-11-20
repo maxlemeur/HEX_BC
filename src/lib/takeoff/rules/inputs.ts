@@ -3,6 +3,7 @@ import type { MaterialCode, NetworkCode } from "@/lib/takeoff/bench/keys";
 import { findNetworkDiameterEntries, resolveNetworkSize } from "@/lib/takeoff/rules/network-diameters";
 import type { NonObservableCause, TakeoffRuleInputs } from "@/lib/takeoff/rules/types";
 import { printedSize as printedVectorSize, type SizeNotation } from "@/lib/takeoff/vectors/vocabulary";
+import { stripAccents } from "@/lib/text/fold";
 
 // Inputs of the fixed rules for one line (TI-664 step 0), written once by the
 // worker and never by the user:
@@ -62,10 +63,6 @@ const NON_OBSERVABLE_PATTERNS: ReadonlyArray<{ cause: NonObservableCause; patter
     pattern: /^(?:mises?\s+en\s+service|essais?|rincages?|desinfections?|epreuves?|DOE|etiquetages?|reperages?|nettoyages?|etudes?|plans?\s+d['’]execution)\b/i,
   },
 ];
-
-function stripAccents(text: string) {
-  return text.normalize("NFD").replace(/[̀-ͯ]/g, "");
-}
 
 /** The head of a designation: before its qualifiers, after « fourniture et pose de » and its variants. */
 export function designationHead(designation: string) {

@@ -1,7 +1,7 @@
 import { ApiKeyTestRequestSchema } from "@/lib/ai/access/contracts";
 import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { apiKeyOk, apiKeyRouteError, readJsonBody, requireApiKeyOwner } from "@/lib/ai/access/route-boundary";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 
 /** « Tester le modèle »: one small billable call with the saved key, no customer document. */
 export async function POST(request: Request) {

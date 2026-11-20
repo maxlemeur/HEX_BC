@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { notFound } from "@/lib/estimates/errors";
+import { notFound } from "@/lib/http/api-response";
 import type { LabCampaign, LabCampaignElement, LabRun, LabStats, LabStatsGroup, LabStoredVerdict, LabVerdict } from "@/lib/takeoff/lab/contracts";
 import { configLabel } from "@/lib/takeoff/lab/contracts";
 import { listLabRuns, type LabAccess } from "@/lib/takeoff/lab/runs";

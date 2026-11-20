@@ -11,8 +11,7 @@ import {
   type BulkUpdateMaterialRequestLinesInput,
   type MaterialRequestImputation,
 } from "@/lib/material-requests/contracts";
-
-import { plural } from "./format";
+import { plural } from "@/lib/text/plural";
 
 type BulkPatch = BulkUpdateMaterialRequestLinesInput["patch"];
 type BulkField = "material" | "material_precision" | "unit" | "zone" | "imputation";

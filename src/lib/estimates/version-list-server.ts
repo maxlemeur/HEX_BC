@@ -2,14 +2,12 @@ import "server-only";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import type { Database } from "@/types/database";
-import { mapSupabaseError, notFound } from "./errors";
+import { mapSupabaseError, notFound } from "@/lib/http/api-response";
 import {
   canAccessOwnerResource,
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   isTenantAdmin,
-  resolveEmbeddedOne,
-  toNullableText,
 } from "./server-context";
 import type { AuthenticatedContext, VersionAccessRow } from "./server-context";
 
@@ -168,6 +166,8 @@ export type ListEstimateProjectDraftVersionsResult = {
 export type EstimateVersionEventAuthor = Pick<ProfileRow, "full_name">;
 
 import { DEFAULT_CURRENCY, normalizeEstimateCurrencyOrThrow } from "@/lib/estimates/version-write-normalization";
+import { toNonEmptyString } from "@/lib/value-guards";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 export { DEFAULT_CURRENCY, normalizeEstimateCurrencyOrThrow } from "@/lib/estimates/version-write-normalization";
 
 const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
@@ -176,7 +176,7 @@ const MAX_VERSION_TIMELINE_PAGE_SIZE = 100;
 
 
 function variantLabelToSequenceIndex(label: string | null | undefined) {
-  const normalized = toNullableText(label)?.toUpperCase();
+  const normalized = toNonEmptyString(label)?.toUpperCase();
   if (!normalized) return null;
 
   let index = 0;
@@ -411,7 +411,7 @@ export async function listEstimateProjectVersions(input: {
       total_ht_cents: row.total_ht_cents,
       currency: row.currency,
       parent_version_id: row.parent_version_id ?? null,
-      variant_label: toNullableText(row.variant_label) ?? null,
+      variant_label: toNonEmptyString(row.variant_label) ?? null,
       author_name: authorNameById.get(authorId) ?? null,
     };
   });
@@ -600,7 +600,7 @@ export async function listEstimateVersionVariants(
       line_count: lineCountByVersionId.get(row.id) ?? 0,
       updated_at: row.updated_at,
       parent_version_id: row.parent_version_id ?? null,
-      variant_label: toNullableText(row.variant_label) ?? null,
+      variant_label: toNonEmptyString(row.variant_label) ?? null,
     }))
     .sort((left, right) => {
       if (left.id === baseVersionId) return -1;

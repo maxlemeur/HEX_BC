@@ -14,7 +14,7 @@ const root = path.resolve(directory, "..", "..");
 const serverOnly = pathToFileURL(path.join(root, "node_modules", "server-only", "empty.js")).href;
 const request = pathToFileURL(path.join(directory, "document-fingerprints-request.ts")).href;
 const spy = pathToFileURL(path.join(directory, "document-fingerprints-spy.ts")).href;
-const preparer = "@/components/estimate-document/prepare-estimate-document-data";
+const preparer = "@/lib/estimates/prepare-estimate-document-data";
 // Compare paths, not URL spellings: a loader may add a query or change case.
 const spyPath = path.normalize(fileURLToPath(spy)).toLowerCase();
 const isSpy = (url) => {

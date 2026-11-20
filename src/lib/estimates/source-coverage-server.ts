@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 
 import { getAuthenticatedTenantContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { type SupabaseErrorLike } from "@/lib/estimates/errors";
+import { type SupabaseErrorLike } from "@/lib/http/api-response";
 import {
   coverageCanonicalRequestSchema, coverageCitationVerificationSchema,
   coverageDecisionMutationSchema, coverageDimensionMutationSchema,

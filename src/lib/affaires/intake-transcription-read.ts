@@ -5,7 +5,7 @@ import { inferAffaireIntakeMimeType } from "@/lib/affaires/intake";
 import { requireAffaireProjectReadAccess } from "@/lib/affaires/intake-server";
 import { canTranscribeIntakeDocument, isIntakeRetryReadingRunning } from "@/lib/affaires/intake-transcription-server";
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import { internalError, notFound } from "@/lib/estimates/errors";
+import { internalError, notFound } from "@/lib/http/api-response";
 
 /**
  * The automatic transcription of an active piece of the dossier, read with the

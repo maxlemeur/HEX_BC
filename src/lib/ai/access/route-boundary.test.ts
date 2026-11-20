@@ -10,7 +10,7 @@ vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: host.v
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: async () => ({ userId: "user-1", tenantId: "tenant-1" }) }));
 
 const { apiKeyRouteError, requireApiKeyOwner } = await import("@/lib/ai/access/route-boundary");
-const { badRequest } = await import("@/lib/estimates/errors");
+const { badRequest } = await import("@/lib/http/api-response");
 
 const request = (method: string, headers: Record<string, string>) => new Request("http://127.0.0.1:3000/api/ai-access/api-key", { method, headers });
 

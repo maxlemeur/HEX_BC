@@ -1,6 +1,6 @@
 import type { Database } from "@/types/database";
 
-import { forbidden } from "./errors";
+import { forbidden } from "@/lib/http/api-response";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 

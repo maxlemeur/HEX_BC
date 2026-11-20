@@ -21,6 +21,7 @@ import {
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
 import { ChevronLeftIcon, ChevronRightIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,13 +85,6 @@ const NESTED_URL_KEYS = [
   "downloadUrl",
   "url",
 ] as const;
-
-function toNonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function toSafeHttpUrl(value: unknown): string | null {
   const normalized = toNonEmptyString(value);
   if (!normalized) return null;

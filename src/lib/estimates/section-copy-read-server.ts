@@ -1,5 +1,5 @@
 import { readAllRows } from "@/lib/supabase/read-all";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import type { Supabase } from "@/lib/estimates/item-write-types";
 import {
   assertEstimateVersionUnchanged,
@@ -12,8 +12,6 @@ import {
   getAuthenticatedContext,
   getVersionAccessOrThrow,
   isTenantAdmin,
-  resolveEmbeddedOne,
-  toNullableText,
   type VersionAccessRow,
 } from "@/lib/estimates/server-context";
 import type { ListEstimateImportSourcesQueryInput } from "@/lib/estimates/schemas";
@@ -24,6 +22,8 @@ import type {
   EstimateImportSectionPreviewItem,
   ListEstimateImportSectionsResult,
 } from "@/lib/estimates/section-copy-contracts";
+import { toNonEmptyString } from "@/lib/value-guards";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type EstimateImportSourceProject = Pick<
   EstimateProjectRow,
@@ -138,7 +138,7 @@ export async function listEstimateImportSections(
 
       return {
         id: section.id,
-        title: toNullableText(section.title) ?? "Section sans titre",
+        title: toNonEmptyString(section.title) ?? "Section sans titre",
         line_count: lineItems.length,
         total_ht_cents: lineItems.reduce(
           (sum, item) => sum + (item.line_total_ht_cents ?? 0),

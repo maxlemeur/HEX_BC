@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { orderRequestOrigin } from "@/components/purchase-orders/order-lines";
+import { orderRequestOrigin } from "@/lib/purchase-orders/order-lines";
 import { orderNextStep } from "@/lib/purchase-orders/next-step";
 
 // TI-691 (owner's walkthrough of 14/11/2026): the order of an affaire says what comes next and leads back to its request.

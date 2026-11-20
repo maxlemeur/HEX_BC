@@ -75,7 +75,6 @@ export const referencePriceResponseSchema = z.object({
 });
 
 export type ReferencePriceResponse = z.infer<typeof referencePriceResponseSchema>;
-export type ReferencePriceProposal = z.infer<typeof referencePriceProposalSchema>;
 export type ReferencePriceAction = z.infer<typeof referencePriceActionSchema>;
 export type ReferencePriceQuery = z.infer<typeof referencePriceQuerySchema>;
 

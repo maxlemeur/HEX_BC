@@ -16,7 +16,7 @@ vi.mock("@/lib/estimates/server-context", async () => {
 });
 
 import { DELETE, GET, PUT } from "@/app/api/estimates/[versionId]/items/[itemId]/offer-choice/route";
-import { conflict } from "@/lib/estimates/errors";
+import { conflict } from "@/lib/http/api-response";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import {
   assertDraftLockOwnedByCurrentUser,

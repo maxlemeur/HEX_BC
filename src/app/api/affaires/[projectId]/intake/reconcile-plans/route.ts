@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { reconcileAffairePlanPresence } from "@/lib/affaires/intake-server";
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 
 export async function POST(
   _request: Request,

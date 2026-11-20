@@ -2,10 +2,10 @@ import type { DiscountMode, EstimateTotals } from "@/lib/estimate-calculations";
 import {
   toFiniteNumber,
   toNullableFiniteNumber,
-  toNonEmptyString,
 } from "@/lib/estimates/editor-values";
 import { resolveEstimateLineNature } from "@/lib/estimates/line-nature";
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export type EstimateVersionRow =
   Database["public"]["Tables"]["estimate_versions"]["Row"];

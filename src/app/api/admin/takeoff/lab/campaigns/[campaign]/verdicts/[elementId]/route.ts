@@ -1,4 +1,4 @@
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 import { LabVerdictRequestSchema } from "@/lib/takeoff/lab/contracts";
 import { labErrorResponse, labOk, requireTakeoffLabWrite } from "@/lib/takeoff/lab/server";
 import { requireLabPaths } from "@/lib/takeoff/lab/storage";

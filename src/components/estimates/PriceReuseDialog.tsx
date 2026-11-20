@@ -32,6 +32,7 @@ import {
   type PriceReuseReferenceView,
 } from "@/lib/estimates/price-reuse-contracts";
 import { formatEUR } from "@/lib/money";
+import { plural } from "@/lib/text/plural";
 
 // Reprise des prix d'un devis de référence (docs/metier/reprise-des-prix.md) : le rapprochement propose, l'IA
 // départage sur demande, l'utilisateur retient ; rien n'est écrit avant « Appliquer ».
@@ -54,7 +55,6 @@ const FILTER_LABELS: Record<Filter, string> = {
   all: "Toutes les lignes", identical: "Identiques", to_review: "À vérifier", new: "Sans correspondance",
 };
 const hours = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 4 });
-const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? "s" : ""}`;
 
 function formatSourceLabel(source: EstimateImportSourceVersion) {
   return `V${source.versionNumber} - ${source.projectName} - ${source.title?.trim() || "Sans titre"}`;

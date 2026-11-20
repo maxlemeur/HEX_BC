@@ -1,6 +1,6 @@
 import { resolveCalcEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isUnifiedEngine } from "@/lib/estimates/engine/capabilities";
-import { conflict, mapSupabaseError } from "@/lib/estimates/errors";
+import { conflict, mapSupabaseError } from "@/lib/http/api-response";
 import { parseBulkUpdateCountDetails, prepareEstimateBulkItems } from "@/lib/estimates/item-bulk-plan";
 import { projectDraftMutation } from "@/lib/estimates/item-draft-projection";
 import {

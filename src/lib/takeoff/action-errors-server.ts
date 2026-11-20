@@ -1,7 +1,7 @@
 import "server-only";
 
 import { ZodError } from "zod";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { TakeoffError } from "@/lib/takeoff/errors";
 import { TakeoffPreparationNotReadyError } from "@/lib/takeoff/preparation";
 import type { SafeTakeoffActionResult, TakeoffActionFailure } from "@/lib/takeoff/action-result";

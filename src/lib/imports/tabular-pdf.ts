@@ -3,6 +3,7 @@ import {
   type ImportRowProvenance,
 } from "@/lib/imports/payload";
 import type { NormalizedImportRow } from "@/lib/imports/parser";
+import { asRecord, toNonEmptyString } from "@/lib/value-guards";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -73,24 +74,6 @@ type TabularPdfDefaults = {
   source_file_name: string | null;
   source_document_id: string | null;
 };
-
-function asRecord(value: unknown): JsonRecord | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  return value as JsonRecord;
-}
-
-function toNullableString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 export function parseInteger(value: unknown): number | null {
   if (typeof value === "number" && Number.isInteger(value)) {
     return value;
@@ -176,14 +159,14 @@ function parseProvenanceDefaults(input: JsonRecord): TabularPdfDefaults {
 
   return {
     source_file_name:
-      toNullableString(
+      toNonEmptyString(
         nested?.sourceFileName ??
           nested?.source_file_name ??
           input.sourceFileName ??
           input.source_file_name
       ) ?? null,
     source_document_id:
-      toNullableString(
+      toNonEmptyString(
         nested?.sourceDocumentId ??
           nested?.source_document_id ??
           input.sourceDocumentId ??
@@ -263,7 +246,7 @@ function parseDetectedTables(value: unknown): TabularPdfDetectedTable[] {
         `tables[${tableIndex}].tableIndex`,
         0
       ),
-      title: toNullableString(record.title),
+      title: toNonEmptyString(record.title),
       headers,
       rows,
     };

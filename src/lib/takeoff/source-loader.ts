@@ -2,7 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { PDFDocument } from "pdf-lib";
 
 import type { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   getTakeoffChunkingConfigForTenant,
@@ -22,6 +22,7 @@ import {
   type PlanSetResourceBudget,
   type PlanSetResourceBudgetFile,
 } from "@/lib/takeoff/plans";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 
@@ -68,13 +69,6 @@ export type DownloadedTakeoffFile = {
 };
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
-
-function normalizeNullableText(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const arrayBuffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(arrayBuffer).set(bytes);
@@ -104,7 +98,7 @@ type PlanFileSourceRow = {
 
 // M1a garde le nom reçu dans plan_files.metadata ; file_name reste la clé Storage nettoyée.
 function getPlanFileSourceLabel(planFile: PlanFileSourceRow) {
-  const fileName = normalizeNullableText(planFile.file_name);
+  const fileName = toNonEmptyString(planFile.file_name);
   if (!fileName) return null;
   return getPlanFileDisplayName({
     file_name: fileName,
@@ -116,7 +110,7 @@ function getPlanFileSourceLabel(planFile: PlanFileSourceRow) {
 }
 
 function getPlanFileSourceRef(planFile: PlanFileSourceRow): TakeoffSourceDocumentRef | undefined {
-  const planFileId = normalizeNullableText(planFile.id);
+  const planFileId = toNonEmptyString(planFile.id);
   return planFileId ? { kind: "plan_file", plan_file_id: planFileId } : undefined;
 }
 
@@ -184,7 +178,7 @@ export async function loadTakeoffSource(input: {
   level: TakeoffSourceLevel;
 }): Promise<DownloadedTakeoffFile> {
   const preparationSnapshot = parsePreparationSnapshot(input.job.preparation_snapshot);
-  const planSetId = normalizeNullableText(input.job.plan_set_id);
+  const planSetId = toNonEmptyString(input.job.plan_set_id);
   if (planSetId && preparationSnapshot) {
     const source = await loadPreparedPlanSource({
       supabase: input.supabase, job: input.job, snapshot: preparationSnapshot,
@@ -251,7 +245,7 @@ export async function loadTakeoffSource(input: {
 
     if (planFiles.length === 1) {
       const singleFile = planFiles[0];
-      const sourcePath = normalizeNullableText(singleFile?.file_path);
+      const sourcePath = toNonEmptyString(singleFile?.file_path);
       if (!sourcePath) {
         throw new TakeoffError({
           code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
@@ -317,7 +311,7 @@ export async function loadTakeoffSource(input: {
 
       const fileName =
         getPlanFileSourceLabel(singleFile) ??
-        normalizeNullableText(input.job.source_file_name) ??
+        toNonEmptyString(input.job.source_file_name) ??
         "plan.pdf";
       const sourceDocument = getPlanFileSourceRef(singleFile);
       return {
@@ -327,8 +321,8 @@ export async function loadTakeoffSource(input: {
           resolveTakeoffPdfMimeType({
             fileName,
             mimeType:
-              normalizeNullableText(data.type) ??
-              normalizeNullableText(singleFile.file_type),
+              toNonEmptyString(data.type) ??
+              toNonEmptyString(singleFile.file_type),
           }) ?? "application/pdf",
         bytes: downloadedBytes,
       };
@@ -345,7 +339,7 @@ export async function loadTakeoffSource(input: {
     }> = [];
 
     for (const planFile of planFiles) {
-      const sourcePath = normalizeNullableText(planFile.file_path);
+      const sourcePath = toNonEmptyString(planFile.file_path);
       if (!sourcePath) {
         throw new TakeoffError({
           code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
@@ -482,7 +476,7 @@ export async function loadTakeoffSource(input: {
     };
   }
 
-  const sourcePath = normalizeNullableText(input.job.source_file_path);
+  const sourcePath = toNonEmptyString(input.job.source_file_path);
   if (!sourcePath) {
     throw new TakeoffError({
       code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
@@ -525,14 +519,14 @@ export async function loadTakeoffSource(input: {
 
   // Le chemin est <empreinte>-<uuid>-<nom nettoyé> : il sert au type MIME, jamais de provenance.
   // Le libellé transmis est le nom reçu à la création du job (M1b).
-  const jobFileName = normalizeNullableText(input.job.source_file_name);
+  const jobFileName = toNonEmptyString(input.job.source_file_name);
   const storageFileName = getFileNameFromStoragePath(sourcePath, jobFileName ?? "upload");
   const mimeType =
     resolveTakeoffPdfMimeType({
       fileName: storageFileName,
       mimeType:
-        normalizeNullableText(data.type) ??
-        normalizeNullableText(input.job.source_file_type),
+        toNonEmptyString(data.type) ??
+        toNonEmptyString(input.job.source_file_type),
     }) ?? inferMimeTypeFromFilename(storageFileName);
 
   let sourcePageNumbersByPage: number[] | undefined;

@@ -1,5 +1,5 @@
 import { setSupplyTypePreferredSupplier } from "@/lib/catalogue/supply-types-server";
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { readJsonBody, supplyTypeParamsSchema } from "@/lib/material-requests/http";
 import { supplyTypePreferredSupplierSchema } from "@/lib/material-requests/supplier-contracts";
 

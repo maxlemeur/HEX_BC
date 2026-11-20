@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
-import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError } from "@/lib/http/api-response";
 import { catalogueFoTypeId, clearStaleFoPriceOrigin, readFoPriceOrigin, sameFoPriceOrigin, sameFoPriceSelection, type FoPriceLine } from "./fo-price-origin";
 
 type Line = FoPriceLine & { supply_type_id?: string | null };

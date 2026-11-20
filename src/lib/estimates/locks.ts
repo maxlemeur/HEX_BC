@@ -10,8 +10,9 @@ import {
   forbidden,
   mapSupabaseError,
   notFound,
-} from "./errors";
+} from "@/lib/http/api-response";
 import { canAccessOwnerResource, isTenantAdmin } from "./server-context";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type Supabase = SupabaseClient<Database>;
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -78,16 +79,6 @@ export type ReleaseDraftLockResult = {
   released: boolean;
   lock: DraftLock | null;
 };
-
-export type GetDraftLockInfoResult = {
-  lock: DraftLock | null;
-};
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
 
 function isDraftStatus(status: EstimateStatus) {
   return status === "draft";
@@ -422,25 +413,6 @@ async function releaseLockInternal(
   };
 }
 
-export async function getLockInfo(
-  versionId: string,
-  sessionId?: string | null
-): Promise<GetDraftLockInfoResult> {
-  const context = await getAuthenticatedContext();
-
-  await assertVersionAccessOrThrow(context, versionId, { requireDraft: false });
-
-  const lock = await getDraftLockInfoInternal({
-    context,
-    versionId,
-    sessionId,
-  });
-
-  return {
-    lock,
-  };
-}
-
 export async function acquireLock(
   versionId: string,
   sessionId: string
@@ -538,14 +510,5 @@ export async function releaseLock(
   return releaseLockInternal(context, versionId, {
     sessionId,
     force: options?.force === true,
-  });
-}
-
-export async function forceReleaseLock(
-  versionId: string,
-  sessionId: string
-): Promise<ReleaseDraftLockResult> {
-  return releaseLock(versionId, sessionId, {
-    force: true,
   });
 }

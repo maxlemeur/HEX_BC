@@ -3,12 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   EstimateItem,
   PrepareEstimateDocumentV3Input,
-} from "@/components/estimate-document/prepare-estimate-document-data";
+} from "@/lib/estimates/prepare-estimate-document-data";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { calculateEstimateV3SnapshotForItems, type EstimateV3TotalsVersionConfig } from "@/lib/estimates/version-totals";
 import type { Database } from "@/types/database";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 /**
  * Lot 2, sous-lot 2.7 - source du document d'une v3 hors émission (aperçu d'impression, exports ;
@@ -39,11 +40,6 @@ export function isEstimateV3DocumentFrozen(version: {
   return version.status !== "draft"
     || (Number.isInteger(version.calc_snapshot_content_revision)
       && version.calc_snapshot_content_revision === version.content_revision);
-}
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 export async function loadEstimateV3DocumentSource(input: {

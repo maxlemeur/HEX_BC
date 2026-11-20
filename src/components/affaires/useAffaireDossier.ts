@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
+import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 
 // What the affaire page waits for on its own (the documents of the dossier while they are added and
 // analysed, the plans they become) is read through the application's API and shown from that read.

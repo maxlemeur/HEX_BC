@@ -11,8 +11,8 @@ import {
   mapSupabaseError,
   ok,
   toErrorResponse,
-} from "@/lib/estimates/errors";
-import { parseJsonBody } from "@/lib/http/request";
+} from "@/lib/http/api-response";
+import { parseJsonBody, uuidRouteParam } from "@/lib/http/request";
 
 type OutlierDismissalRow = {
   id: string;
@@ -34,20 +34,12 @@ type OutlierDismissalInsert = {
   dismissed_by: string;
   dismissed_at: string;
 };
-const paramsSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
 
 const toggleDismissSchema = z.object({
   item_id: z.string().uuid("item_id invalide."),
   flag_key: z.enum(["price_outlier", "quantity_outlier"]),
   dismissed: z.boolean(),
 });
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return paramsSchema.parse(params).versionId;
-}
 
 function buildDismissedMap(
   rows: Pick<OutlierDismissalRow, "item_id" | "flag_key">[]
@@ -110,7 +102,7 @@ export async function GET(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const context = await getAuthenticatedContext();
 
     await getOwnedEstimateVersion(context, versionId);
@@ -131,7 +123,7 @@ export async function POST(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const body = toggleDismissSchema.parse(await parseJsonBody(request, badRequest));
     const context = await getAuthenticatedContext();
 

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 
 export type SaveTenantCataloguePolicyResult =
   | { ok: true; engineersCanEditShared: boolean }

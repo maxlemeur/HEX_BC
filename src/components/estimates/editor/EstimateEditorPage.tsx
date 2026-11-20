@@ -16,7 +16,7 @@ import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEdi
 import { EstimateV3GridProvider } from "@/components/estimates/v3/V3LineCells";
 import { EmptyState } from "@/components/layout/empty-state";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { useEstimateEditorActivityController } from "@/hooks/useEstimateEditorActivityController";
 import { useEstimateEditorHistoryController } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorState } from "@/hooks/useEstimateEditorState";

@@ -2,7 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertLocalTakeoffExecutionHost, resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
@@ -87,6 +87,7 @@ import { isTakeoffRulesEnabled, recomputeTakeoffRulesQuietly } from "@/lib/takeo
 import {
   isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorDecisionsHook, takeoffVectorLocalGroupsHook, type VectorPageOutcome,
 } from "@/lib/takeoff/vectors/worker-server";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 
@@ -249,13 +250,6 @@ type ProcessLevelInternalCompletedResult = ProcessLevelCompletedResult & {
 type ProcessLevelInternalResult =
   | ProcessLevelInternalCompletedResult
   | ProcessLevelSubmittedToProviderResult;
-
-function normalizeNullableText(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function toCsvCell(value: string) {
   if (!/[",\n\r]/.test(value)) {
     return value;
@@ -576,7 +570,7 @@ function takeoffSourceProvenance(
   return {
     sourceFileName: sourceFile.sourceFileNamesByPage
       ? null
-      : normalizeNullableText(sourceFile.fileName) ?? normalizeNullableText(job.source_file_name),
+      : toNonEmptyString(sourceFile.fileName) ?? toNonEmptyString(job.source_file_name),
     sourceDocument: sourceFile.sourceDocument,
     sourceFileNamesByPage: sourceFile.sourceFileNamesByPage,
     sourceDocumentsByPage: sourceFile.sourceDocumentsByPage,
@@ -617,9 +611,9 @@ function normalizeTakeoffExchange(input: TakeoffSourceProvenance & {
     // M1b : le document que le chargeur connaît (page d'un jeu de plans, ou source unique
     // référencée) l'emporte sur le source_file du fournisseur, qui n'est souvent qu'un écho de
     // l'indice du prompt ; la valeur du fournisseur reste une preuve brute dans les métadonnées.
-    const providerSourceFile = normalizeNullableText(item.source_file);
+    const providerSourceFile = toNonEmptyString(item.source_file);
     const canonicalSourceFileName = input.sourceFileNamesByPage
-      ? normalizeNullableText(pageMappedSourceFileName)
+      ? toNonEmptyString(pageMappedSourceFileName)
       : input.sourceDocument
         ? input.sourceFileName
         : null;
@@ -653,7 +647,7 @@ function normalizeTakeoffExchange(input: TakeoffSourceProvenance & {
     const normalizedItem = {
       ...item,
       unit: normalizedUnit.normalizedUnit,
-      category: normalizeNullableText(item.category) ?? null,
+      category: toNonEmptyString(item.category) ?? null,
       source_file: sourceFileName ?? undefined,
     };
 
@@ -677,7 +671,7 @@ function normalizeTakeoffExchange(input: TakeoffSourceProvenance & {
       quantity: normalizedItem.quantity,
       unit: normalizedItem.unit,
       confidence: normalizedItem.confidence ?? null,
-      evidence: normalizeNullableText(normalizedItem.evidence),
+      evidence: toNonEmptyString(normalizedItem.evidence),
       source_file_name: sourceFileName,
       source_page: normalizedItem.source_page ?? null,
       metadata: {
@@ -1978,7 +1972,7 @@ async function upsertDetectedPlanFilePageCount(input: {
   sourceFilePath: string | null;
   pageCount: number;
 }) {
-  const sourceFilePath = normalizeNullableText(input.sourceFilePath);
+  const sourceFilePath = toNonEmptyString(input.sourceFilePath);
   if (!sourceFilePath) {
     return;
   }
@@ -3503,7 +3497,7 @@ async function processTakeoffLevel(
     if (level === TAKEOFF_LEVEL_C) {
       levelCSourceFileName = sourceFile.fileName;
     }
-    const schemaVersion = normalizeNullableText(job.schema_version) ?? "v1";
+    const schemaVersion = toNonEmptyString(job.schema_version) ?? "v1";
     const deliveryMode: GeminiDeliveryMode = processingStrategy;
     const onBatchLifecycleEvent =
       deliveryMode === "batch"
@@ -3932,7 +3926,7 @@ async function processTakeoffLevel(
           hint: {
             sourceFileName:
               levelCSourceFileName ??
-              normalizeNullableText(job.source_file_name) ??
+              toNonEmptyString(job.source_file_name) ??
               "unknown",
             errorDetails: mappedError.details,
           },
@@ -3998,13 +3992,13 @@ export async function reconcileTakeoffBatchJob(
   });
 
   const defaultLevelConfig = getTakeoffLevelConfig(TAKEOFF_LEVEL_A);
-  const model = normalizeNullableText(job.model) ?? defaultLevelConfig.model;
+  const model = toNonEmptyString(job.model) ?? defaultLevelConfig.model;
   const thinkingLevel = normalizeGeminiThinkingLevel(
-    normalizeNullableText(job.thinking_level),
+    toNonEmptyString(job.thinking_level),
     defaultLevelConfig.thinkingLevel
   );
   const promptVersion =
-    normalizeNullableText(job.prompt_version) ?? defaultLevelConfig.promptVersion;
+    toNonEmptyString(job.prompt_version) ?? defaultLevelConfig.promptVersion;
 
   if (job.level !== TAKEOFF_LEVEL_A) {
     throw new TakeoffError({

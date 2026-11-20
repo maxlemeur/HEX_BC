@@ -1,4 +1,4 @@
-import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, mapSupabaseError } from "@/lib/http/api-response";
 import { getFeatureFlagValueForTenant } from "@/lib/feature-flags";
 import {
   ESTIMATE_ITEM_AID_REGEX_FEATURE_FLAG_KEY,

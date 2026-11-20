@@ -1,4 +1,4 @@
-import { internalError } from "@/lib/estimates/errors";
+import { internalError } from "@/lib/http/api-response";
 
 /**
  * Where an outgoing email really goes. While the product is being tested, in development and in production alike,

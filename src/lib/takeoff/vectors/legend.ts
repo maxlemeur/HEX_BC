@@ -1,7 +1,7 @@
 import type { NetworkCode } from "@/lib/takeoff/bench/keys";
 import { isGrey, isNearWhite, parseHexColor } from "@/lib/takeoff/vectors/colors";
 import type { VectorText } from "@/lib/takeoff/vectors/extraction";
-import { boxContains, emptyBox, extendBox, textFrame, type Box } from "@/lib/takeoff/vectors/geometry";
+import { emptyBox, extendBox, textFrame, type Box } from "@/lib/takeoff/vectors/geometry";
 import type { PageModel } from "@/lib/takeoff/vectors/page-model";
 import { airDuctOfLegendCode, networkOfLegendCode } from "@/lib/takeoff/vectors/vocabulary";
 
@@ -192,10 +192,6 @@ function legendBoxes(entries: readonly LegendEntry[], axis: number): Box[] {
     }
   }
   return boxes;
-}
-
-export function inLegend(legend: PageLegend, x: number, y: number) {
-  return legend.boxes.some((box) => boxContains(box, { x, y }));
 }
 
 /** Largest channel gap allowed between a colour and the tint or shade of a legend colour. */

@@ -9,7 +9,7 @@ import {
   forbidden,
   mapSupabaseError,
   notFound,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database, Json } from "@/types/database";
 
@@ -59,6 +59,8 @@ import {
   type AffaireRegisterSummary,
   type AffaireRegisterTimelineEvent,
 } from "./register";
+import { isRecord } from "@/lib/value-guards";
+import { resolveEmbeddedOne } from "@/lib/supabase/embedded";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type Supabase = SupabaseClient<Database>;
@@ -352,19 +354,8 @@ const continueAffaireRegisterWithHypothesisInputSchema = z.object({
   entryId: z.string().uuid("entryId invalide."),
   comment: z.string().trim().max(320).nullable().optional(),
 });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function toStringOrNull(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
 }
 
 function normalizeAffaireProject(row: unknown): AffaireProjectAccessRow | null {
@@ -1630,15 +1621,6 @@ async function fetchAffaireRegisterSummaryWithContext(input: {
   };
 }
 
-export async function fetchAffaireRegisterTimeline(input: {
-  projectId: string;
-  versionId?: string | null;
-  size?: number;
-}): Promise<AffaireRegisterTimelineEvent[]> {
-  const { context, project } = await requireAffaireRegisterProjectAccess(input.projectId, "reader");
-  return fetchAffaireRegisterTimelineWithContext({ context, project, versionId: input.versionId, size: input.size });
-}
-
 async function fetchAffaireRegisterTimelineWithContext(input: {
   context: AuthenticatedRegisterContext;
   project: AffaireProjectAccessRow;
@@ -1879,20 +1861,6 @@ export async function fetchAffaireRegisterScopeOptions(input: {
     lots: rows.filter((row) => row.item_type === "section").map(toOption),
     lines: rows.filter((row) => row.item_type === "line").map(toOption),
   };
-}
-
-export async function fetchAffaireRegisterOwnerOptions(input: {
-  projectId: string;
-}): Promise<AffaireRegisterOwnerOption[]> {
-  const { context } = await requireAffaireRegisterProjectAccess(
-    input.projectId,
-    "reader"
-  );
-
-  return listAssignableRegisterOwners({
-    supabase: context.supabase,
-    tenantId: context.tenantId,
-  });
 }
 
 export async function fetchAffaireRegisterReviewExport(input: {

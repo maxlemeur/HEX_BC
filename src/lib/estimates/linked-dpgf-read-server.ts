@@ -1,5 +1,5 @@
 import { readAllRows } from "@/lib/supabase/read-all";
-import { mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { mapSupabaseError, notFound } from "@/lib/http/api-response";
 import type { Supabase } from "@/lib/estimates/item-write-types";
 import type { AffaireLinkedDpgfSourceResult } from "@/lib/estimates/linked-dpgf-contracts";
 import { canAccessOwnerResource, getAuthenticatedContext } from "@/lib/estimates/server-context";

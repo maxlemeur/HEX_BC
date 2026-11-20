@@ -4,7 +4,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
-import { notFound } from "@/lib/estimates/errors";
+import { notFound } from "@/lib/http/api-response";
 import type { LabBenchReportSummary } from "@/lib/takeoff/lab/contracts";
 import { readLabConfiguration } from "@/lib/takeoff/lab/storage";
 

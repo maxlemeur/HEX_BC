@@ -3,7 +3,7 @@ import {
   costingWorkbookSupplierReferencesSchema,
 } from "@/lib/catalogue/costing-workbook-contract";
 import { importCostingWorkbookSupplierReferences } from "@/lib/catalogue/costing-workbook-supplier-references-server";
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { readJsonBody } from "@/lib/material-requests/http";
 
 export const maxDuration = 60;

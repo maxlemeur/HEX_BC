@@ -8,7 +8,7 @@ import type { AiAccessOwner } from "@/lib/ai/access/api-key-store";
 import { isLoopbackHostname } from "@/lib/ai/access/loopback";
 import { assertLocalChatGptHost } from "@/lib/ai/chatgpt-local-auth";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { ApiError, badRequest, forbidden, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ApiError, badRequest, forbidden, ok, toErrorResponse } from "@/lib/http/api-response";
 import { isJsonContentType, parseJsonBody } from "@/lib/http/request";
 import { withNoStore } from "@/lib/http/response";
 

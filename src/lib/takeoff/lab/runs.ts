@@ -16,7 +16,7 @@ import {
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { callOpenAiDecisions, getOpenAiDecisionsCapability, OPENAI_DECISIONS_MODEL, type OpenAiDecisionAnswer, type OpenAiDecisionQuestion, type OpenAiDecisionsResult } from "@/lib/ai/decisions";
-import { badRequest, conflict, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, notFound } from "@/lib/http/api-response";
 import { classifyCallError, describeError } from "@/lib/takeoff/bench/run";
 import { TAKEOFF_C_TIMEOUT_MS_DEFAULT } from "@/lib/takeoff/constants";
 import {
@@ -32,7 +32,7 @@ import {
   sha256Hex, writeLabJson, type LabPaths,
 } from "@/lib/takeoff/lab/storage";
 import { findLabTask, vectorGroupsQuestionTemplate, type LabTask } from "@/lib/takeoff/lab/tasks";
-import { runVectorGroupsConfig } from "@/lib/takeoff/lab/vectors";
+import { runVectorGroupsConfig, choiceLabel } from "@/lib/takeoff/lab/vectors";
 import { isDecisionsRunStop } from "@/lib/takeoff/vectors/group-decisions-server";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
@@ -90,10 +90,6 @@ function apiKeyUsageOf(usage: ApiKeyCallUsage): LabUsage {
 function billingUsageOf(usage: ApiKeyCallUsage | null): LabBilling["usage"] {
   return usage ? { input: usage.input, cached_input: usage.cachedInput, cache_write: usage.cacheWrite, output: usage.output,
     reasoning: usage.reasoning, total: usage.total } : null;
-}
-
-function choiceLabel(task: LabTask, value: unknown) {
-  return task.question?.choices.find((choice) => choice.value === value)?.label ?? String(value);
 }
 
 function labAnswer(task: LabTask, answer: OpenAiDecisionAnswer): LabAnswer {

@@ -7,7 +7,7 @@ import {
   type ProductPayload,
   type ProductRecord,
   type ProductSupplyType,
-} from "@/app/dashboard/products/ProductFormModal";
+} from "@/components/products/ProductFormModal";
 
 /**
  * Failure modes guarded here (TI-690, article form):

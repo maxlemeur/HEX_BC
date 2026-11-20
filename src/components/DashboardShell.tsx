@@ -12,7 +12,7 @@ import {
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
-import { useUserContext } from "@/components/UserContext";
+import { useUserContext } from "@/lib/auth/user-context";
 import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";
 import { WorkspaceGlobalNavigation } from "@/components/dashboard/WorkspaceGlobalNavigation";
 import { KeyboardShortcutsModal } from "@/components/ui-legacy/KeyboardShortcutsModal";
@@ -33,8 +33,6 @@ const DRAWER_FOCUSABLE_SELECTOR = [
   "textarea:not([disabled])",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
-
-
 
 function buildInitials(value: string) {
   const trimmed = value.trim();

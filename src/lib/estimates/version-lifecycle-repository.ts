@@ -3,7 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/database";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
-import { conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import type { EstimateSealVersionFields } from "@/lib/estimates/estimate-seal";
 import type { DocumentProof1 } from "@/lib/estimates/offer-contract";
 import {

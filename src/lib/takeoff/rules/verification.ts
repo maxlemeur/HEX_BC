@@ -88,8 +88,6 @@ export const verificationJustificationReadSchema = z.object({
     note: z.string().optional() }).optional(),
 });
 
-export type VerificationJustificationRead = z.infer<typeof verificationJustificationReadSchema>;
-
 /** The rules whose failure V settles only with a coded reason, in the order the dialog shows them. */
 export const ACCEPTANCE_REASON_RULES = ["dn_network", "scale_dimension", "area_printed"] as const;
 export type AcceptanceReasonRule = (typeof ACCEPTANCE_REASON_RULES)[number];
@@ -155,7 +153,7 @@ export function printedAreaToReach(results: readonly TakeoffRuleResult[] | undef
   return area.reason_code === MEASURED_OUTLINE_REASON ? null : comparison.printed_m2;
 }
 
-const squareMetres = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value)} m²`;
+export const squareMetres = (value: number) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value)} m²`;
 
 export const ACCEPTANCE_MESSAGES = {
   stale: "Recalculez les règles avant d’accepter la ligne.",

@@ -11,7 +11,7 @@ import {
   mapSupabaseError,
   notFound,
   type SupabaseErrorLike,
-} from "./errors";
+} from "@/lib/http/api-response";
 
 const uuidSchema = z.uuid();
 const revisionSchema = z.union([

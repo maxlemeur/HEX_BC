@@ -20,7 +20,6 @@ import {
 } from "@/lib/estimates/estimate-placement-helpers";
 import {
   assertTemplateLaborRolesOwnedForV3,
-  errorMessageContains,
   loadEstimateTemplateItems,
   loadEstimateTemplateOrThrow,
   templateHoursWithoutQuantityMessage,
@@ -38,7 +37,7 @@ import {
   assertDraftStatus,
   getAuthenticatedContext,
   getVersionAccessOrThrow,
-  toNullableText,
+  errorMessageContains,
 } from "@/lib/estimates/server-context";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import {
@@ -47,7 +46,7 @@ import {
   internalError,
   mapSupabaseError,
   notFound,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import type {
   CreateEstimateAssemblyInput,
   ListEstimateAssembliesQueryInput,
@@ -55,6 +54,7 @@ import type {
 } from "@/lib/estimates/schemas";
 import { listTemplateLinesConvertedForV3 } from "@/lib/estimates/template-v3-hours";
 import type { Database, Json } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateAssemblyRow =
@@ -98,7 +98,7 @@ export async function listEstimateAssemblies(
     .select("*")
     .eq("tenant_id", tenantId);
 
-  const search = toNullableText(query.search);
+  const search = toNonEmptyString(query.search);
   if (search) {
     assembliesQuery = assembliesQuery.or(
       `name.ilike.%${search}%,description.ilike.%${search}%`
@@ -289,9 +289,9 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
       tenant_id: tenantId,
       created_by: userId,
       name: input.name.trim(),
-      description: toNullableText(input.description),
-      reference_code: toNullableText(input.reference_code),
-      unit: toNullableText(input.unit),
+      description: toNonEmptyString(input.description),
+      reference_code: toNonEmptyString(input.reference_code),
+      unit: toNonEmptyString(input.unit),
       pricing_source: "manual",
       ds_cents: metrics.directCostCents,
       indicative_target_price_cents: 0,
@@ -313,7 +313,7 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
     tenant_id: tenantId,
     assembly_id: assembly.id,
     title: item.title.trim(),
-    unit: toNullableText(item.unit),
+    unit: toNonEmptyString(item.unit),
     k_fo: item.k_fo ?? 1,
     k_mo: item.k_mo ?? 1,
     labor_role_id: item.labor_role_id ?? null,
@@ -329,7 +329,7 @@ export async function createEstimateAssembly(input: CreateEstimateAssemblyInput)
     unit_cost_ht_cents: item.unit_cost_ht_cents ?? 0,
     loss_coeff_bp: item.loss_coeff_bp ?? 0,
     yield_value: item.yield_value ?? null,
-    yield_unit: toNullableText(item.yield_unit),
+    yield_unit: toNonEmptyString(item.yield_unit),
     source_metadata: (item.source_metadata ?? {}) as NonNullable<Json>,
   }));
 
@@ -412,13 +412,13 @@ export async function updateEstimateAssembly(
     assemblyPayload.name = (input.name ?? "").trim();
   }
   if ("description" in input) {
-    assemblyPayload.description = toNullableText(input.description);
+    assemblyPayload.description = toNonEmptyString(input.description);
   }
   if ("reference_code" in input) {
-    assemblyPayload.reference_code = toNullableText(input.reference_code);
+    assemblyPayload.reference_code = toNonEmptyString(input.reference_code);
   }
   if ("unit" in input) {
-    assemblyPayload.unit = toNullableText(input.unit);
+    assemblyPayload.unit = toNonEmptyString(input.unit);
   }
   let updatedAssembly: EstimateAssemblyRow;
   if (Object.keys(assemblyPayload).length > 0) {
@@ -455,7 +455,7 @@ export async function updateEstimateAssembly(
       (await loadEstimateAssemblyItems({ supabase, tenantId, assemblyId }));
     const itemsPayload = requestedItems.map((item) => ({
       title: item.title.trim(),
-      unit: toNullableText(item.unit),
+      unit: toNonEmptyString(item.unit),
       k_fo: item.k_fo ?? 1,
       k_mo: item.k_mo ?? 1,
       labor_role_id: item.labor_role_id ?? null,
@@ -471,7 +471,7 @@ export async function updateEstimateAssembly(
       unit_cost_ht_cents: item.unit_cost_ht_cents ?? 0,
       loss_coeff_bp: item.loss_coeff_bp ?? 0,
       yield_value: item.yield_value ?? null,
-      yield_unit: toNullableText(item.yield_unit),
+      yield_unit: toNonEmptyString(item.yield_unit),
       source_metadata: (item.source_metadata ?? {}) as Json,
     }));
 

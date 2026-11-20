@@ -20,6 +20,7 @@ import type {
   MappingSuggestionConfidence,
   MappingTemplateExactMatch,
 } from "@/lib/mappings/server";
+import { asRecord } from "@/lib/value-guards";
 
 type ImportListItem = {
   id: string;
@@ -85,15 +86,6 @@ function resolveImportIdQueryValue(value: string | null): string | null {
 
 const TARGET_FIELDS = MAPPING_TARGET_FIELD_OPTIONS;
 const VALUE_TARGET_FIELDS = TARGET_FIELDS.filter((field) => field.group === "value");
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  return value as Record<string, unknown>;
-}
-
 function toTemplateMapping(value: unknown): Record<string, string> {
   const raw = asRecord(value);
   if (!raw) return {};

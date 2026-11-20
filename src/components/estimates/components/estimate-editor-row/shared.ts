@@ -30,6 +30,7 @@ import {
   parseNumberInput,
 } from "@/lib/estimates/editor-values";
 import type { Database } from "@/types/database";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export type { SpreadsheetCell, SpreadsheetNavigationResult };
 
@@ -68,16 +69,6 @@ function getNumberDisplayFormatter(minDecimals: number, maxDecimals: number) {
     NUMBER_DISPLAY_FORMATTERS.set(key, formatter);
   }
   return formatter;
-}
-
-export function formatLaborRoleOptionLabel(role: LaborRole) {
-  const hourlyRate = getNumberDisplayFormatter(2, 2).format(
-    Math.max(role.hourly_rate_cents, 0) / 100
-  );
-
-  return `${hourlyRate} €/h ${role.name}${
-    !role.is_active ? " (inactif)" : ""
-  }`;
 }
 
 export function getMissingLaborRateMessage(
@@ -350,13 +341,6 @@ export function resolveDisplayCurrency(
 ) {
   return normalizeEstimateCurrency(value) ?? fallback;
 }
-
-function toNonEmptyString(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 export function readSourceMetadataText(item: EstimateItem, keys: string[]) {
   const itemRecord = item as Record<string, unknown>;
 

@@ -5,9 +5,6 @@
 // every division and half-up rounding works on integers.
 import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-units";
 
-export const SUPPLIER_OFFER_PURCHASE_ROUNDINGS = ["none", "ceil"] as const;
-export type SupplierOfferPurchaseRounding = (typeof SUPPLIER_OFFER_PURCHASE_ROUNDINGS)[number];
-
 export type SupplierOfferPurchaseUnit = {
   unit?: string | null;
   estimate_unit_code?: string | null;

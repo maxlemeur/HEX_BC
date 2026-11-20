@@ -52,7 +52,7 @@ type UseEstimateVisibilityParams = {
 const ROOT_KEY = "root";
 const EMPTY_ITEMS: EstimateItem[] = [];
 
-function getParentKey(id: string | null) {
+export function getParentKey(id: string | null) {
   return id ?? ROOT_KEY;
 }
 

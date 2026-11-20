@@ -6,12 +6,11 @@ import {
   throwTemplateNameConflictIfNeeded,
   throwTemplateNotFoundIfNeeded,
   throwTemplateSourceVersionNotFoundIfNeeded,
-  toRpcUuid,
   toTemplateSummary,
 } from "@/lib/estimates/estimate-template-helpers";
 import {
   getAuthenticatedContext,
-  toNullableText,
+  toRpcUuid,
 } from "@/lib/estimates/server-context";
 import type { Database } from "@/types/database";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -25,7 +24,7 @@ import {
   internalError,
   mapSupabaseError,
   notFound,
-} from "@/lib/estimates/errors";
+} from "@/lib/http/api-response";
 import { tryCarryOverTakeoffJobsToNewVersion } from "@/lib/takeoff/carry-over";
 import { assertCanWriteEstimateWorkflows } from "@/lib/estimates/write-access";
 import type {
@@ -35,6 +34,7 @@ import type {
   ListEstimateTemplatesQueryInput,
   UpdateEstimateTemplateInput,
 } from "@/lib/estimates/schemas";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export async function listEstimateTemplates(query: ListEstimateTemplatesQueryInput) {
   const { supabase, tenantId } = await getAuthenticatedContext();
@@ -44,7 +44,7 @@ export async function listEstimateTemplates(query: ListEstimateTemplatesQueryInp
     .select("*")
     .eq("tenant_id", tenantId);
 
-  const search = toNullableText(query.search);
+  const search = toNonEmptyString(query.search);
   if (search) {
     templatesQuery = templatesQuery.or(
       `name.ilike.%${search}%,description.ilike.%${search}%`
@@ -107,7 +107,7 @@ export async function createEstimateTemplateFromVersion(
     {
       p_source_version_id: input.source_version_id,
       p_name: input.name.trim(),
-      p_description: toNullableText(input.description),
+      p_description: toNonEmptyString(input.description),
     }
   );
 
@@ -160,7 +160,7 @@ export async function updateEstimateTemplate(
     payload.name = (input.name ?? "").trim();
   }
   if ("description" in input) {
-    payload.description = toNullableText(input.description);
+    payload.description = toNonEmptyString(input.description);
   }
 
   const { data, error } = await supabase
@@ -238,7 +238,7 @@ export async function duplicateEstimateTemplate(
 
   const { data, error } = await supabase.rpc("duplicate_estimate_template", {
     p_template_id: templateId,
-    p_name: toNullableText(input.name) ?? "",
+    p_name: toNonEmptyString(input.name) ?? "",
   });
 
   if (error) {
@@ -300,7 +300,7 @@ export async function instantiateEstimateFromTemplate(
   const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(tenantRole);
   const targetProjectId = input.project_id ?? null;
-  const projectName = toNullableText(input.project_name);
+  const projectName = toNonEmptyString(input.project_name);
 
   if (!targetProjectId && !projectName) {
     throw badRequest(
@@ -330,9 +330,9 @@ export async function instantiateEstimateFromTemplate(
         : {
             kind: "new",
             name: projectName!,
-            notes: toNullableText(input.project_notes),
+            notes: toNonEmptyString(input.project_notes),
           },
-      versionTitle: toNullableText(input.version_title),
+      versionTitle: toNonEmptyString(input.version_title),
       dateDevis: input.date_devis ?? null,
       validiteJours: input.validite_jours ?? null,
       expectedCalcEngineVersion: input.expected_calc_engine_version,

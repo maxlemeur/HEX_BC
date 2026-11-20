@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { priceReuseApplyInputSchema } from "@/lib/estimates/price-reuse-contracts";
 import { applyPriceReuse } from "@/lib/estimates/price-reuse-server";
 import { parseJsonBody } from "@/lib/http/request";

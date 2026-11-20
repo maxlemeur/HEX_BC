@@ -239,19 +239,15 @@ export const coverageErrorResponseSchema = z.strictObject({
   ok: z.literal(false), error: z.strictObject({ code: coverageErrorCodeSchema, message: z.string() }),
 });
 
-export type CoverageScope = z.infer<typeof coverageScopeSchema>;
 export type CoverageDimension = z.infer<typeof coverageDimensionSchema>;
 export type CoverageCitation = z.infer<typeof coverageCitationSchema>;
 export type CoverageLink = z.infer<typeof coverageLinkSchema>;
 export type CoverageTargetFact = z.infer<typeof coverageTargetFactSchema>;
-export type CoverageTargetState = z.infer<typeof coverageTargetStateSchema>;
 export type CoverageRequirementPayload = z.infer<typeof coverageRequirementPayloadSchema>;
-export type CoverageRequirementSummary = z.infer<typeof coverageRequirementSummarySchema>;
 export type CoverageRequirement = z.infer<typeof coverageRequirementSchema>;
 export type CoverageWorkspace = z.infer<typeof coverageWorkspaceSchema>;
 export type CoveragePreview = z.infer<typeof coveragePreviewSchema>;
 export type CoverageTargets = z.infer<typeof coverageTargetsSchema>;
-export type CoverageEvent = z.infer<typeof coverageEventSchema>;
 export type CoverageReceipt = z.infer<typeof coverageReceiptSchema>;
 export type CoverageMutationResult = z.infer<typeof coverageMutationResultSchema>;
 export type CoverageDimensionMutation = z.infer<typeof coverageDimensionMutationSchema>;

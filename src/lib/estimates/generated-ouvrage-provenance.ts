@@ -5,11 +5,11 @@ import {
   clampConfidence,
   normalizeRiskSignals,
   readJsonStringArray,
-  toNullableText,
 } from "@/lib/estimates/generated-ouvrage-evidence";
 import type { Database, Json } from "@/types/database";
 import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { keepTakeoffProvision } from "@/lib/estimates/takeoff-provision";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
@@ -74,13 +74,13 @@ type GeneratedOuvrageWorkSnapshotRow = {
   metadata: Json;
 };
 
-function toJson(
+export function toJson(
   value: JsonRecord | JsonRecord[] | string[] | string | number | boolean | null
 ) {
   return value as Json;
 }
 
-function mapFragmentKindToCandidateSourceType(
+export function mapFragmentKindToCandidateSourceType(
   kind: GeneratedOuvrageFragmentKind
 ): "text" | "cctp" | "history" | "library" {
   if (kind === "cctp_excerpt") return "cctp";
@@ -334,8 +334,8 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
       source_provider: "generated_ouvrage",
       source_job_id: application.draft_id,
       source_file_name:
-        toNullableText(item.source_file_name) ??
-        toNullableText(sources[0]?.source_file_name) ??
+        toNonEmptyString(item.source_file_name) ??
+        toNonEmptyString(sources[0]?.source_file_name) ??
         "Ouvrage genere",
       source_page: item.source_page ?? sources[0]?.source_page_from ?? null,
       source_extracted_at: draft?.created_at ?? item.source_extracted_at ?? null,
@@ -362,7 +362,7 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
           lot_label: appliedPayload.resolved_lot_label ?? null,
           placement_mode: appliedPayload.placement_mode ?? null,
         },
-        prompt_version: toNullableText(generationMetadata.prompt_version),
+        prompt_version: toNonEmptyString(generationMetadata.prompt_version),
         used_fallback: Boolean(generationMetadata.used_fallback),
         subdetail_summary: snapshotSummary,
         estimate_item_mapping: estimateItemMapping,

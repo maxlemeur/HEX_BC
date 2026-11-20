@@ -5,13 +5,10 @@ import {
   DEFAULT_STALE_PRICE_DAYS,
   parseStalePriceDays,
 } from "@/lib/catalogue/stale-prices";
-import {
-  ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
-  ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
-} from "@/lib/estimate-editor-virtualization";
-import { badRequest, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
+import { badRequest, forbidden, mapSupabaseError } from "@/lib/http/api-response";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
@@ -37,23 +34,6 @@ type ToggleFeatureFlagInput = TenantScopedInput & {
 
 const FEATURE_FLAGS_TABLE = "feature_flags";
 const featureFlagSelect = "tenant_id, flag_key, enabled, value";
-
-export const PRICE_IMPORT_GUIDED_ASSISTANT_FLAG = "PRICE_IMPORT_GUIDED_ASSISTANT";
-export const PRICE_IMPORT_BDC_PROFILE_FLAG = "PRICE_IMPORT_BDC_PROFILE";
-export const PRICE_IMPORT_CREATE_ASSIST_FLAG = "PRICE_IMPORT_CREATE_ASSIST";
-export const PRICE_IMPORT_MULTI_SUPPLIER_FLAG = "PRICE_IMPORT_MULTI_SUPPLIER";
-
-export const PRICE_IMPORT_FEATURE_FLAGS = [
-  PRICE_IMPORT_GUIDED_ASSISTANT_FLAG,
-  PRICE_IMPORT_BDC_PROFILE_FLAG,
-  PRICE_IMPORT_CREATE_ASSIST_FLAG,
-  PRICE_IMPORT_MULTI_SUPPLIER_FLAG,
-] as const;
-
-export const ESTIMATE_EDITOR_VIRTUALIZATION_FEATURE_FLAGS = [
-  ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
-  ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
-] as const;
 
 const tenantIdSchema = z.string().uuid("tenant_id invalide.");
 const userIdSchema = z.string().uuid("user_id invalide.");
@@ -102,13 +82,6 @@ function parseFeatureFlagKeyOrThrow(value: string) {
 
   return parsed.data;
 }
-
-function normalizeFeatureFlagValue(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function parseFeatureFlagRow(value: unknown): FeatureFlagRecord | null {
   const parsed = featureFlagRowSchema.safeParse(value);
   if (!parsed.success) {
@@ -127,7 +100,7 @@ function parseFeatureFlagRow(value: unknown): FeatureFlagRecord | null {
     tenant_id: parsed.data.tenant_id,
     flag_key: normalizedKey.data,
     enabled: parsed.data.enabled,
-    value: normalizeFeatureFlagValue(parsed.data.value ?? null),
+    value: toNonEmptyString(parsed.data.value ?? null),
   };
 }
 
@@ -175,7 +148,7 @@ export async function toggleFeatureFlagForTenant(
   const key = parseFeatureFlagKeyOrThrow(input.key);
   const enabled = input.enabled === true;
   const hasExplicitValue = Object.prototype.hasOwnProperty.call(input, "value");
-  const normalizedValue = normalizeFeatureFlagValue(input.value);
+  const normalizedValue = toNonEmptyString(input.value);
   const supabase = await getSupabase(input.supabase);
 
   const membership = await getTenantMembershipOrThrow(supabase, tenantId, userId);
@@ -283,7 +256,7 @@ export async function getFeatureFlagValueForTenant(
       return null;
     }
 
-    return normalizeFeatureFlagValue((data as { value?: unknown }).value);
+    return toNonEmptyString((data as { value?: unknown }).value);
   } catch {
     return null;
   }

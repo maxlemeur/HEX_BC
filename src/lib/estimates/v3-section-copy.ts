@@ -28,7 +28,7 @@ import {
   type EstimateBatchCommittedResult,
 } from "@/lib/estimates/batch";
 import type { EstimateBatchCreatedId } from "@/lib/estimates/batch-preparation";
-import { ApiError, badRequest, conflict } from "@/lib/estimates/errors";
+import { ApiError, badRequest, conflict } from "@/lib/http/api-response";
 import { batchOperationSchema, type BatchOperationInput } from "@/lib/estimates/schemas";
 import {
   listTemplateLinesConvertedForV3,

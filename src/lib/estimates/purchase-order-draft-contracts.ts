@@ -1,4 +1,5 @@
-import { isRecord, toNumber, toStringValue, toBooleanValue, getRootPayload, pickRecord, pickArray } from "@/lib/estimates/client-json";
+import { toNumber, toBooleanValue, getRootPayload, pickRecord, pickArray } from "@/lib/estimates/client-json";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 export type EstimatePurchaseOrderDraftBlockedReason =
   | "selection_missing"
@@ -169,8 +170,8 @@ export function parseEstimatePurchaseOrderDraftAlternative(
   if (!isRecord(value)) return null;
 
   const supplierPriceId =
-    toStringValue(value.supplier_price_id) ??
-    toStringValue(value.supplierPriceId);
+    toNonEmptyString(value.supplier_price_id) ??
+    toNonEmptyString(value.supplierPriceId);
   if (!supplierPriceId) {
     return null;
   }
@@ -178,24 +179,24 @@ export function parseEstimatePurchaseOrderDraftAlternative(
   return {
     supplierPriceId,
     supplierId:
-      toStringValue(value.supplier_id) ??
-      toStringValue(value.supplierId) ??
+      toNonEmptyString(value.supplier_id) ??
+      toNonEmptyString(value.supplierId) ??
       null,
     supplierName:
-      toStringValue(value.supplier_name) ??
-      toStringValue(value.supplierName) ??
+      toNonEmptyString(value.supplier_name) ??
+      toNonEmptyString(value.supplierName) ??
       null,
     adjustedUnitPriceCents:
       toNumber(value.adjusted_unit_price_cents) ??
       toNumber(value.adjustedUnitPriceCents) ??
       null,
     supplierReference:
-      toStringValue(value.supplier_reference) ??
-      toStringValue(value.supplierReference) ??
+      toNonEmptyString(value.supplier_reference) ??
+      toNonEmptyString(value.supplierReference) ??
       null,
     productDesignation:
-      toStringValue(value.product_designation) ??
-      toStringValue(value.productDesignation) ??
+      toNonEmptyString(value.product_designation) ??
+      toNonEmptyString(value.productDesignation) ??
       null,
     isStale: toBooleanValue(value.is_stale) ?? toBooleanValue(value.isStale) ?? null,
     isSelected:
@@ -208,11 +209,11 @@ export function parseEstimatePurchaseOrderDraftLine(
 ): EstimatePurchaseOrderDraftLine | null {
   if (!isRecord(value)) return null;
 
-  const itemId = toStringValue(value.item_id) ?? toStringValue(value.itemId);
-  const itemTitle = toStringValue(value.item_title) ?? toStringValue(value.itemTitle);
-  const unit = toStringValue(value.unit);
+  const itemId = toNonEmptyString(value.item_id) ?? toNonEmptyString(value.itemId);
+  const itemTitle = toNonEmptyString(value.item_title) ?? toNonEmptyString(value.itemTitle);
+  const unit = toNonEmptyString(value.unit);
   const reviewFingerprint =
-    toStringValue(value.review_fingerprint) ?? toStringValue(value.reviewFingerprint);
+    toNonEmptyString(value.review_fingerprint) ?? toNonEmptyString(value.reviewFingerprint);
   const quantity = toNumber(value.quantity);
   const unitPriceHtCents =
     toNumber(value.unit_price_ht_cents) ?? toNumber(value.unitPriceHtCents);
@@ -224,11 +225,11 @@ export function parseEstimatePurchaseOrderDraftLine(
   const lineTotalTtcCents =
     toNumber(value.line_total_ttc_cents) ?? toNumber(value.lineTotalTtcCents);
   const selectedSupplierPriceId =
-    toStringValue(value.selected_supplier_price_id) ??
-    toStringValue(value.selectedSupplierPriceId);
+    toNonEmptyString(value.selected_supplier_price_id) ??
+    toNonEmptyString(value.selectedSupplierPriceId);
   const productDesignation =
-    toStringValue(value.product_designation) ??
-    toStringValue(value.productDesignation);
+    toNonEmptyString(value.product_designation) ??
+    toNonEmptyString(value.productDesignation);
 
   if (
     !itemId ||
@@ -262,15 +263,15 @@ export function parseEstimatePurchaseOrderDraftLine(
     orderedQuantity:
       toNumber(value.ordered_quantity) ?? toNumber(value.orderedQuantity) ?? quantity,
     orderedUnit:
-      toStringValue(value.ordered_unit) ?? toStringValue(value.orderedUnit) ?? unit,
+      toNonEmptyString(value.ordered_unit) ?? toNonEmptyString(value.orderedUnit) ?? unit,
     orderedUnitPriceHtCents:
       toNumber(value.ordered_unit_price_ht_cents) ??
       toNumber(value.orderedUnitPriceHtCents) ??
       unitPriceHtCents,
     selectedSupplierPriceId,
     supplierReference:
-      toStringValue(value.supplier_reference) ??
-      toStringValue(value.supplierReference) ??
+      toNonEmptyString(value.supplier_reference) ??
+      toNonEmptyString(value.supplierReference) ??
       null,
     productDesignation,
   };
@@ -281,11 +282,11 @@ export function parseEstimatePurchaseOrderDraftGroup(
 ): EstimatePurchaseOrderDraftGroup | null {
   if (!isRecord(value)) return null;
 
-  const groupKey = toStringValue(value.group_key) ?? toStringValue(value.groupKey);
+  const groupKey = toNonEmptyString(value.group_key) ?? toNonEmptyString(value.groupKey);
   const supplierId =
-    toStringValue(value.supplier_id) ?? toStringValue(value.supplierId);
+    toNonEmptyString(value.supplier_id) ?? toNonEmptyString(value.supplierId);
   const supplierName =
-    toStringValue(value.supplier_name) ?? toStringValue(value.supplierName);
+    toNonEmptyString(value.supplier_name) ?? toNonEmptyString(value.supplierName);
   const lineCount = toNumber(value.line_count) ?? toNumber(value.lineCount);
   const totalHtCents =
     toNumber(value.total_ht_cents) ?? toNumber(value.totalHtCents);
@@ -326,9 +327,9 @@ export function parseEstimatePurchaseOrderDraftBlockedLine(
 ): EstimatePurchaseOrderDraftBlockedLine | null {
   if (!isRecord(value)) return null;
 
-  const itemId = toStringValue(value.item_id) ?? toStringValue(value.itemId);
-  const itemTitle = toStringValue(value.item_title) ?? toStringValue(value.itemTitle);
-  const reasonRaw = toStringValue(value.reason);
+  const itemId = toNonEmptyString(value.item_id) ?? toNonEmptyString(value.itemId);
+  const itemTitle = toNonEmptyString(value.item_title) ?? toNonEmptyString(value.itemTitle);
+  const reasonRaw = toNonEmptyString(value.reason);
 
   if (!itemId || !itemTitle || !reasonRaw || !isEstimatePurchaseOrderDraftBlockedReason(reasonRaw)) {
     return null;
@@ -342,17 +343,17 @@ export function parseEstimatePurchaseOrderDraftBlockedLine(
       toNumber(value.unit_price_ht_cents) ?? toNumber(value.unitPriceHtCents),
     taxRateBp: toNumber(value.tax_rate_bp) ?? toNumber(value.taxRateBp),
     selectedSupplierPriceId:
-      toStringValue(value.selected_supplier_price_id) ??
-      toStringValue(value.selectedSupplierPriceId) ??
+      toNonEmptyString(value.selected_supplier_price_id) ??
+      toNonEmptyString(value.selectedSupplierPriceId) ??
       null,
     reason: reasonRaw,
-    reasonDetail: toStringValue(value.reason_detail) ?? toStringValue(value.reasonDetail),
+    reasonDetail: toNonEmptyString(value.reason_detail) ?? toNonEmptyString(value.reasonDetail),
     coverageStatus:
-      toStringValue(value.coverage_status) ??
-      toStringValue(value.coverageStatus) ??
+      toNonEmptyString(value.coverage_status) ??
+      toNonEmptyString(value.coverageStatus) ??
       null,
     riskFlags: pickArray(value, ["risk_flags", "riskFlags"])
-      .map((entry) => toStringValue(entry))
+      .map((entry) => toNonEmptyString(entry))
       .filter((entry): entry is string => entry !== null),
     selectedAlternative: parseEstimatePurchaseOrderDraftAlternative(
       value.selected_alternative ?? value.selectedAlternative
@@ -372,10 +373,10 @@ export function parseEstimatePurchaseOrderTransferredLine(
   value: unknown
 ): EstimatePurchaseOrderTransferredLine | null {
   if (!isRecord(value)) return null;
-  const itemId = toStringValue(value.item_id) ?? toStringValue(value.itemId);
-  const itemTitle = toStringValue(value.item_title) ?? toStringValue(value.itemTitle);
-  const purchaseOrderId = toStringValue(value.purchase_order_id) ?? toStringValue(value.purchaseOrderId);
-  const reference = toStringValue(value.reference);
+  const itemId = toNonEmptyString(value.item_id) ?? toNonEmptyString(value.itemId);
+  const itemTitle = toNonEmptyString(value.item_title) ?? toNonEmptyString(value.itemTitle);
+  const purchaseOrderId = toNonEmptyString(value.purchase_order_id) ?? toNonEmptyString(value.purchaseOrderId);
+  const reference = toNonEmptyString(value.reference);
   const status = parseEstimatePurchaseOrderStatus(value.status);
   const quantity = toNumber(value.quantity);
   const canOpen = toBooleanValue(value.can_open) ?? toBooleanValue(value.canOpen);
@@ -392,7 +393,7 @@ export function parseEstimatePurchaseOrderDraftPreparation(
   const root = getRootPayload(payload);
   if (!isRecord(root)) return null;
 
-  const versionId = toStringValue(root.version_id) ?? toStringValue(root.versionId);
+  const versionId = toNonEmptyString(root.version_id) ?? toNonEmptyString(root.versionId);
   const stalePriceDays =
     toNumber(root.stale_price_days) ?? toNumber(root.stalePriceDays);
   const summary = pickRecord(root, ["summary"]);
@@ -483,8 +484,8 @@ export function parseEstimatePurchaseOrderDraftCreationResult(
   if (!isRecord(root)) return null;
 
   const sourceVersionId =
-    toStringValue(root.source_version_id) ?? toStringValue(root.sourceVersionId);
-  const idempotencyKey = toStringValue(root.idempotency_key) ?? toStringValue(root.idempotencyKey);
+    toNonEmptyString(root.source_version_id) ?? toNonEmptyString(root.sourceVersionId);
+  const idempotencyKey = toNonEmptyString(root.idempotency_key) ?? toNonEmptyString(root.idempotencyKey);
   const replayed = toBooleanValue(root.replayed);
   const summary = pickRecord(root, ["summary"]);
 
@@ -508,18 +509,18 @@ export function parseEstimatePurchaseOrderDraftCreationResult(
       if (!isRecord(entry)) return null;
 
       const purchaseOrderId =
-        toStringValue(entry.purchase_order_id) ??
-        toStringValue(entry.purchaseOrderId);
-      const reference = toStringValue(entry.reference);
+        toNonEmptyString(entry.purchase_order_id) ??
+        toNonEmptyString(entry.purchaseOrderId);
+      const reference = toNonEmptyString(entry.reference);
       const currentStatus = parseEstimatePurchaseOrderStatus(entry.current_status ?? entry.currentStatus);
       const canOpen = toBooleanValue(entry.can_open) ?? toBooleanValue(entry.canOpen);
       const supplierId =
-        toStringValue(entry.supplier_id) ?? toStringValue(entry.supplierId);
+        toNonEmptyString(entry.supplier_id) ?? toNonEmptyString(entry.supplierId);
       const supplierName =
-        toStringValue(entry.supplier_name) ?? toStringValue(entry.supplierName);
+        toNonEmptyString(entry.supplier_name) ?? toNonEmptyString(entry.supplierName);
       const deliverySiteId =
-        toStringValue(entry.delivery_site_id) ??
-        toStringValue(entry.deliverySiteId);
+        toNonEmptyString(entry.delivery_site_id) ??
+        toNonEmptyString(entry.deliverySiteId);
       const itemCount = toNumber(entry.item_count) ?? toNumber(entry.itemCount);
       const totalHtCents =
         toNumber(entry.total_ht_cents) ?? toNumber(entry.totalHtCents);
@@ -560,7 +561,7 @@ export function parseEstimatePurchaseOrderDraftCreationResult(
           "ordered_source_item_ids",
           "orderedSourceItemIds",
         ])
-          .map((itemId) => toStringValue(itemId))
+          .map((itemId) => toNonEmptyString(itemId))
           .filter((itemId): itemId is string => itemId !== null),
       };
     });

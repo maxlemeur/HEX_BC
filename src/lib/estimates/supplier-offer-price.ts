@@ -2,9 +2,7 @@
 // "included" or "free". Mirrors public.supplier_offer_price_eligible
 // (supabase/migrations/20261017093407_supplier_offer_zero_price_policy.sql).
 
-export const SUPPLIER_OFFER_ZERO_PRICE_KINDS = ["included", "free"] as const;
 export const SUPPLIER_OFFER_ZERO_PRICE_KIND_ERROR = "Le marquage « Inclus » ou « Gratuit » exige un prix à 0 €.";
-export type SupplierOfferZeroPriceKind = (typeof SUPPLIER_OFFER_ZERO_PRICE_KINDS)[number];
 
 export type SupplierOfferPrice = {
   unit_price_cents?: number | null;

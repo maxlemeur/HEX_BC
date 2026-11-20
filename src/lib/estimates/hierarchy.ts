@@ -4,7 +4,6 @@ import type { Database } from "@/types/database";
 export const MIN_SECTION_DEPTH = 1;
 export const MAX_SECTION_DEPTH = 4;
 export const DEFAULT_MAX_SECTION_DEPTH = 3;
-export const LEGACY_EXISTING_ESTIMATE_MAX_SECTION_DEPTH = 2;
 
 export const DEFAULT_SECTION_LEVEL_LABELS = [
   "Lot",
@@ -84,33 +83,6 @@ export function buildHierarchyIndex(items: readonly HierarchyItemLike[]): Hierar
     byId,
     childrenByParentId,
   };
-}
-
-export function resolveItemDepth(
-  index: HierarchyIndex,
-  itemId: string
-): number | null {
-  const startingItem = index.byId.get(itemId);
-  if (!startingItem) return null;
-
-  let depth = 0;
-  let cursorParentId = startingItem.parent_id;
-  let guard = 0;
-
-  while (cursorParentId) {
-    guard += 1;
-    if (guard > 2000) return null;
-
-    const parent = index.byId.get(cursorParentId);
-    if (!parent) {
-      return depth;
-    }
-
-    depth += 1;
-    cursorParentId = parent.parent_id;
-  }
-
-  return depth;
 }
 
 export function resolveSectionLevel(
@@ -197,9 +169,4 @@ export function collectSubtreeMetrics(
     lineRelativeDepths,
     hasChildren,
   };
-}
-
-export function getSectionLevelFromDepth(depth: number) {
-  if (!Number.isFinite(depth)) return MIN_SECTION_DEPTH;
-  return Math.max(Math.trunc(depth) + 1, MIN_SECTION_DEPTH);
 }

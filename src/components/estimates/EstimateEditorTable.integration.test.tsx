@@ -17,7 +17,7 @@ import {
 import { type ReactNode, useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { UserProvider } from "@/components/UserContext";
+import { UserProvider } from "@/lib/auth/user-context";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
 import { useEstimateEditorRowActions } from "@/components/estimates/context/EstimateEditorRowActionsContext";
 import { beforePassiveEffectsOf } from "@/test/before-passive-effects";

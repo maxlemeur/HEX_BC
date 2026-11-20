@@ -5,7 +5,6 @@ import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsO
 
 import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import { computeLineHoursFromHoursPerUnit } from "@/lib/affaires/import-flow";
@@ -21,9 +20,11 @@ import {
   type EstimateItemInsertPayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
-import { isRecord, toFiniteNumber } from "@/lib/estimates/editor-values";
+import { toFiniteNumber } from "@/lib/estimates/editor-values";
 import { commitEstimateV3Operations, type EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import { interpretClipboardRowForV3 } from "@/lib/estimates/v3-paste";
+import { isRecord } from "@/lib/value-guards";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 const PASTE_CREATE_BATCH_MAX_OPERATIONS = 100;
 

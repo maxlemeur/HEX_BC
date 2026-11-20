@@ -13,8 +13,6 @@ const SCREEN_LABELS: Record<AssistantScreen["screen"], string> = {
   estimate_editor: "l’éditeur de devis", takeoff_review: "la revue de métré", affaire: "le dossier de l’affaire",
 };
 
-export const ASSISTANT_PROMPT_VERSION = "assistant-lot2-v1";
-
 /** The fixed rules of the assistant, then what this conversation is about. Versioned with the prompt. */
 export function buildAssistantInstructions(input: {
   project: { name: string; reference: string | null; clientName: string | null };

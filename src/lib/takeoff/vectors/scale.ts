@@ -246,3 +246,8 @@ export function readPageScale(input: {
   return { ...base, status: "unverified", reason: formatInfo.matches === false ? "no_dimension_format_differs" : "no_dimension_format_unknown",
     denominator: null, cotes };
 }
+
+/** The « n » of a « 1/n » scale as shown to the operator: whole, or with one decimal. */
+export function formatDenominator(denominator: number) {
+  return Number.isInteger(denominator) ? String(denominator) : denominator.toFixed(1);
+}

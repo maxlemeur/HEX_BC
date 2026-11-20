@@ -13,7 +13,7 @@ import {
   type MarginMode,
 } from "@/lib/estimate-calculations";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { loadMarginTiersForTotals } from "@/lib/estimates/margin-tiers-loader";
 import { computeV3MarginAnalysis } from "@/lib/affaires/margin-analysis-v3";
 import {
@@ -323,20 +323,10 @@ export type AffaireHubPlansSummaryResult = {
 
 export type AffaireHubTimelineResult = ListEstimateProjectVersionsResult;
 
-export type AffaireHubPageDataResult = {
-  summary: AffaireHubSummaryResult;
-  timeline: AffaireHubTimelineResult;
-  dpgfSource: AffaireHubDpgfSourceResult;
-};
-
 export type AffaireHubCoreDataResult = {
   summary: AffaireHubSummaryResult;
   timelineResult: PromiseSettledResult<AffaireHubTimelineResult>;
   dpgfSourceResult: PromiseSettledResult<AffaireHubDpgfSourceResult>;
-};
-
-export type AffaireHubInitialDataResult = AffaireHubCoreDataResult & {
-  marginAnalysisResult: PromiseSettledResult<AffaireHubMarginCardData>;
 };
 
 export type MarginSectionBreakdown = {
@@ -2057,17 +2047,6 @@ async function fetchAffaireManagerFilteredPageDataWithContext(
   };
 }
 
-export async function fetchAffaireCounters(
-  input: Pick<AffaireListQuery, "q" | "status" | "favorites" | "manager"> = {}
-): Promise<AffaireCountersResult> {
-  const context = await getAuthenticatedContext();
-  const query = normalizeAffaireListQuery(input);
-  if (query.manager !== "all") {
-    return (await fetchAffaireManagerFilteredPageDataWithContext(context, query)).counters;
-  }
-  return fetchAffaireCountersWithContext(context, query);
-}
-
 export async function fetchAffaireManagerQueueSummary(
   input: Pick<AffaireListQuery, "q" | "status" | "favorites"> = {}
 ): Promise<AffaireManagerQueueSummary> {
@@ -2226,20 +2205,6 @@ export async function fetchAffaireHubSummary(
   return fetchAffaireHubSummaryWithContext(context, project, options);
 }
 
-export async function fetchAffaireHubTimeline(
-  projectId: string,
-  page?: number
-): Promise<AffaireHubTimelineResult> {
-  const context = await getAuthenticatedContext();
-  const safePage = normalizeHubTimelinePage(page);
-  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
-
-  return listEstimateProjectVersions({
-    projectId: project.id,
-    page: safePage,
-  });
-}
-
 export async function fetchAffaireHubDpgfSource(
   projectId: string
 ): Promise<AffaireHubDpgfSourceResult> {
@@ -2255,30 +2220,6 @@ export const fetchAffaireHubPlansSummary = cache(
     return fetchAffaireHubPlansSummaryWithContext(context, project);
   }
 );
-
-export async function fetchAffaireHubPageData(
-  projectId: string,
-  page?: number
-): Promise<AffaireHubPageDataResult> {
-  const context = await getAuthenticatedContext();
-  const safePage = normalizeHubTimelinePage(page);
-  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
-
-  const [summary, timeline, dpgfSource] = await Promise.all([
-    fetchAffaireHubSummaryWithContext(context, project),
-    listEstimateProjectVersions({
-      projectId: project.id,
-      page: safePage,
-    }),
-    fetchAffaireHubDpgfSourceWithContext(context, project),
-  ]);
-
-  return {
-    summary,
-    timeline,
-    dpgfSource,
-  };
-}
 
 async function fetchAffaireHubCoreDataWithContext(
   context: AffaireContext,
@@ -2306,23 +2247,6 @@ export async function fetchAffaireHubCoreData(
   const safePage = normalizeHubTimelinePage(page);
   const project = await fetchAffaireHubProjectOrThrow(context, projectId);
   return fetchAffaireHubCoreDataWithContext(context, project, safePage);
-}
-
-export async function fetchAffaireHubInitialData(
-  projectId: string,
-  page?: number
-): Promise<AffaireHubInitialDataResult> {
-  const context = await getAuthenticatedContext();
-  const safePage = normalizeHubTimelinePage(page);
-  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
-  const [coreResult, marginAnalysisResult] = await Promise.allSettled([
-    fetchAffaireHubCoreDataWithContext(context, project, safePage),
-    fetchAffaireHubMarginAnalysisWithContext(context, project),
-  ]);
-  if (coreResult.status === "rejected") {
-    throw coreResult.reason;
-  }
-  return { ...coreResult.value, marginAnalysisResult };
 }
 
 /* ------------------------------------------------------------------ */

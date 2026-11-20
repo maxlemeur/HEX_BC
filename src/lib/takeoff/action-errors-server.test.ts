@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ApiError } from "@/lib/estimates/errors";
+import { ApiError } from "@/lib/http/api-response";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, TakeoffPreparationNotReadyError } from "@/lib/takeoff/preparation";
 import { runSafeTakeoffAction } from "@/lib/takeoff/action-errors-server";

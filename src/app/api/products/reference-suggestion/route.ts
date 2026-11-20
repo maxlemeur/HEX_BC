@@ -1,5 +1,5 @@
 import { suggestProductReference } from "@/lib/catalogue/product-writes";
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 
 export async function GET() {
   try {

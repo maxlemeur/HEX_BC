@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePopover } from "@/hooks/usePopover";
 import { SUPPORTED_TAKEOFF_SOURCE_BADGE_PROVIDERS } from "@/lib/takeoff/source-badge";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 const TakeoffLineEvidencePanel = dynamic(
   () => import("@/components/takeoff/TakeoffLineEvidencePanel"),
@@ -106,19 +107,7 @@ type VersionZeroApplication = {
   inferences: string[];
   missingSignals: string[];
   riskSignals: string[];
-};
-
-function toNonEmptyString(value: string | null | undefined) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function normalizeTakeoffLevel(value: string | null | undefined) {
+};function normalizeTakeoffLevel(value: string | null | undefined) {
   const normalized = toNonEmptyString(value)?.toUpperCase() ?? null;
   if (!normalized) return null;
   if (normalized === "A" || normalized === "B" || normalized === "C") {

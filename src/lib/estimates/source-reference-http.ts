@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { ApiError, type SupabaseErrorLike } from "@/lib/estimates/errors";
+import { ApiError, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { sourceReferenceErrorCodeSchema } from "@/lib/estimates/source-reference-contracts";
 import { SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
 import { SourceReferenceStorageError } from "@/lib/estimates/source-reference-storage";

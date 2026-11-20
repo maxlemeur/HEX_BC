@@ -20,9 +20,10 @@ import {
 import { splitSourceText } from "@/lib/material-requests/source-text";
 
 import { ConfirmButton } from "./cells";
-import { checkPhotoSelection, plural } from "./format";
+import { checkPhotoSelection } from "./format";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
+import { plural } from "@/lib/text/plural";
 
 function quarterTurn(rotation: MaterialRequestFileRotation, direction: 1 | -1): MaterialRequestFileRotation {
   return ((rotation + (direction === 1 ? 90 : 270)) % 360) as MaterialRequestFileRotation;

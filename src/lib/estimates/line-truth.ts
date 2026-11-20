@@ -2,6 +2,7 @@ import {
   readTakeoffProvision, takeoffProvisionHypothesisBasis, type TakeoffProvision, type TakeoffProvisionHypothesisBasis,
 } from "@/lib/estimates/takeoff-provision";
 import { forceReasonLabel } from "@/lib/takeoff/force-reason-labels";
+import { isRecord, toNonEmptyString, asFiniteNumber } from "@/lib/value-guards";
 
 type EstimateLineTruthSourceKind =
   | "manual"
@@ -54,25 +55,6 @@ type EstimateLineTruthCarrier = {
   source_metadata?: unknown;
 };
 
-type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function toNonEmptyString(value: unknown) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function toFiniteNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 function clampConfidenceScore(value: number | null) {
   if (value === null) {
     return null;
@@ -123,14 +105,14 @@ function readMetadataConfidence(metadata: unknown): number | null {
   }
 
   const directConfidence = clampConfidenceScore(
-    toFiniteNumber(metadata.confidence) ?? toFiniteNumber(metadata.confidence_score)
+    asFiniteNumber(metadata.confidence) ?? asFiniteNumber(metadata.confidence_score)
   );
   if (directConfidence !== null) {
     return directConfidence;
   }
 
   const summary = isRecord(metadata.subdetail_summary) ? metadata.subdetail_summary : null;
-  const summaryConfidence = clampConfidenceScore(toFiniteNumber(summary?.confidence));
+  const summaryConfidence = clampConfidenceScore(asFiniteNumber(summary?.confidence));
   if (summaryConfidence !== null) {
     return summaryConfidence;
   }
@@ -142,7 +124,7 @@ function readMetadataConfidence(metadata: unknown): number | null {
     }
 
     const confidence = clampConfidenceScore(
-      toFiniteNumber(application.confidence) ?? toFiniteNumber(application.confidence_score)
+      asFiniteNumber(application.confidence) ?? asFiniteNumber(application.confidence_score)
     );
     if (confidence !== null) {
       return confidence;
@@ -452,7 +434,7 @@ export function resolveEstimateLineTruth(
 
   const provider = normalizeProvider(item.source_provider) ?? "manual";
   const fileName = toNonEmptyString(item.source_file_name);
-  const quantity = toFiniteNumber(item.quantity);
+  const quantity = asFiniteNumber(item.quantity);
   const source = resolveSource({
     provider,
     fileName,

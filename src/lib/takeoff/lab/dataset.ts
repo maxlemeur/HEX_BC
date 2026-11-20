@@ -4,7 +4,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
-import { badRequest, conflict, notFound } from "@/lib/estimates/errors";
+import { badRequest, conflict, notFound } from "@/lib/http/api-response";
 import { buildScoreScopes, type ScoreScope } from "@/lib/takeoff/bench/score";
 import { ManifestSchema, TruthFileSchema } from "@/lib/takeoff/bench/schemas";
 import { LAB_DATASET_LAYOUT, LAB_NAME_PATTERN, type LabDocumentSummary } from "@/lib/takeoff/lab/contracts";

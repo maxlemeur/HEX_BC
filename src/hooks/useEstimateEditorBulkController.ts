@@ -27,7 +27,7 @@ import {
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
 import { resolvePromotedEstimateLineNature } from "@/lib/estimates/line-nature";
 import type { EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
-import { buildSiblingOrderByParent } from "@/app/dashboard/estimates/[versionId]/edit/utils/item-tree";
+import { buildSiblingOrderByParent } from "@/lib/estimates/editor-item-tree";
 
 // A move is only saved with its placement; the line payload alone omits it.
 function withPlacement(

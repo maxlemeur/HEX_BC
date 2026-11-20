@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { CLASS_SOURCE_LABELS, isLocalModelPromptVersion, isModelSource, type ClassSource } from "@/lib/takeoff/vectors/classify";
 import { takeoffVectorReadingResponseSchema, type TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
+import { formatDenominator } from "@/lib/takeoff/vectors/scale";
 
 // Viewer of a takeoff job's vector reading (TI-662), in the takeoff review:
 // the plan page rendered by pdfjs in the browser, the centrelines of its
@@ -82,11 +83,6 @@ function networkSources(page: VectorPage | null) {
   return new Map([...found].map(([name, { sources, lowest }]) => [name, order.filter((source) => sources.has(source))
     .map((source) => (lowest.has(source) ? `${CLASS_SOURCE_LABELS[source]} ${percent(lowest.get(source) as number)}` : CLASS_SOURCE_LABELS[source]))
     .join(", ")]));
-}
-
-/** « 1/50 », a calibrated « 1/47.6 ». */
-function formatDenominator(denominator: number) {
-  return Number.isInteger(denominator) ? String(denominator) : denominator.toFixed(1);
 }
 
 function networkLabel(item: VectorPage["items"][number]) {

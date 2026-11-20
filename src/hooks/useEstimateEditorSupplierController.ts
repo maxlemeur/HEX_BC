@@ -24,7 +24,7 @@ import {
   type EstimateVersionRow,
   type EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
-import { isRecord, toFiniteNumber, toNonEmptyString } from "@/lib/estimates/editor-values";
+import { toFiniteNumber } from "@/lib/estimates/editor-values";
 import type {
   EstimateSupplierComparisonAlternativeContract,
   EstimateSupplierComparisonAlternativeKind,
@@ -35,6 +35,7 @@ import type {
   EstimateSupplierPreselectionReview,
   EstimateSupplierPreselectionSummary,
 } from "@/lib/estimates/supplier-preselection";
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
 
 const ALTERNATIVE_KINDS = [
   "best_price",

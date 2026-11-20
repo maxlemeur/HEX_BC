@@ -33,6 +33,7 @@ import {
 } from "./tabular-pdf";
 import { extractTabularPdfTablesFromFile } from "./tabular-pdf-extraction";
 import { normalizeHeaderRowNumber } from "./header-row";
+import { asRecord, toNonEmptyString } from "@/lib/value-guards";
 
 const DPGF_IMPORTS_BUCKET = "dpgf-imports";
 export const MAX_IMPORT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
@@ -226,15 +227,6 @@ export function toErrorResponse(error: unknown) {
   for (const [name, value] of Object.entries(importResponseHeaders)) response.headers.set(name, value);
   return response;
 }
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-
-  return value as Record<string, unknown>;
-}
-
 function toSafeErrorMessage(error: unknown) {
   if (error instanceof ImportsApiError) {
     return error.message;
@@ -246,13 +238,6 @@ function toSafeErrorMessage(error: unknown) {
 
   return "Erreur inconnue.";
 }
-
-function toOptionalNonEmptyString(value: unknown) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function sanitizeFilename(filename: string) {
   const normalized = filename
     .replace(/[\\/]+/g, "-")
@@ -432,10 +417,10 @@ function parseApprovedPdfTables(value: unknown) {
 function parsePdfProvenanceDefaults(value: unknown) {
   const record = asRecord(value);
   return {
-    source_file_name: toOptionalNonEmptyString(
+    source_file_name: toNonEmptyString(
       record?.sourceFileName ?? record?.source_file_name
     ),
-    source_document_id: toOptionalNonEmptyString(
+    source_document_id: toNonEmptyString(
       record?.sourceDocumentId ?? record?.source_document_id
     ),
   };
@@ -478,7 +463,7 @@ function resolvePdfImportFilename(input: JsonRecord, rows: unknown[]) {
     const provenance = asRecord(
       rowRecord.provenance ?? rowRecord[IMPORT_ROW_PROVENANCE_KEY] ?? rowRecord.source
     );
-    const sourceFileName = toOptionalNonEmptyString(
+    const sourceFileName = toNonEmptyString(
       provenance?.sourceFileName ?? provenance?.source_file_name
     );
     if (sourceFileName) {
@@ -537,11 +522,11 @@ function parsePdfRowProvenance(
       0
     ),
     source_file_name:
-      toOptionalNonEmptyString(record.sourceFileName ?? record.source_file_name) ??
+      toNonEmptyString(record.sourceFileName ?? record.source_file_name) ??
       defaults.source_file_name ??
       null,
     source_document_id:
-      toOptionalNonEmptyString(record.sourceDocumentId ?? record.source_document_id) ??
+      toNonEmptyString(record.sourceDocumentId ?? record.source_document_id) ??
       defaults.source_document_id ??
       null,
   };
@@ -898,8 +883,8 @@ export async function createImportFromJsonBody(body: unknown, admittedContext?: 
   }
 
   const filename = sanitizeFilename(
-    toOptionalNonEmptyString(input.filename) ??
-      toOptionalNonEmptyString(input.fileName) ??
+    toNonEmptyString(input.filename) ??
+      toNonEmptyString(input.fileName) ??
       "import.json"
   );
   const sourceFormat = resolveSourceFormatInput(input);
@@ -914,7 +899,7 @@ export async function createImportFromJsonBody(body: unknown, admittedContext?: 
     filename,
     sourceFormat,
   });
-  const storagePath = toOptionalNonEmptyString(input.storagePath);
+  const storagePath = toNonEmptyString(input.storagePath);
   const fileSizeBytes = parseFileSizeBytes(input.fileSizeBytes);
   const projectId = parseOptionalProjectId(input.projectId ?? input.project_id ?? null);
   const context = admittedContext ?? await getAuthenticatedContext();
@@ -1067,11 +1052,11 @@ export async function createImportFromMultipartFormData(
   requireImportWriteRole(context);
   const { supabase, userId, tenantId, isTenantAdmin } = context;
   const filename = sanitizeFilename(
-    toOptionalNonEmptyString(formData.get("filename")) ??
-      toOptionalNonEmptyString(fileEntry.name) ??
+    toNonEmptyString(formData.get("filename")) ??
+      toNonEmptyString(fileEntry.name) ??
       "import"
   );
-  const sourceDocumentId = trustedIntakeDocumentId ?? toOptionalNonEmptyString(
+  const sourceDocumentId = trustedIntakeDocumentId ?? toNonEmptyString(
     formData.get("sourceDocumentId") ?? formData.get("source_document_id")
   );
   const isPdf = isPdfImportFile(fileEntry);

@@ -53,7 +53,7 @@ vi.mock("@/lib/takeoff/dispatch-state", () => ({
 }));
 
 import { POST } from "@/app/api/takeoff/jobs/route";
-import { forbidden } from "@/lib/estimates/errors";
+import { forbidden } from "@/lib/http/api-response";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";

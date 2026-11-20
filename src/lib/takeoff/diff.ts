@@ -15,6 +15,7 @@ import {
   TAKEOFF_COMPARE_MAX_THRESHOLD,
   TAKEOFF_COMPARE_MIN_THRESHOLD,
 } from "@/lib/takeoff/limits";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export { TAKEOFF_COMPARE_MAX_THRESHOLD, TAKEOFF_COMPARE_MIN_THRESHOLD };
 
@@ -94,13 +95,6 @@ function normalizeDiffThreshold(value: number | undefined) {
   if ((value ?? 0) > TAKEOFF_COMPARE_MAX_THRESHOLD) return TAKEOFF_COMPARE_MAX_THRESHOLD;
   return Number((value ?? TAKEOFF_COMPARE_DEFAULT_THRESHOLD).toFixed(2));
 }
-
-function normalizeTextValue(value: string | null | undefined): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function normalizeNumberValue(value: number | null | undefined): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Object.is(value, -0) ? 0 : value;
@@ -229,15 +223,15 @@ function getFieldComparableValue(
   field: TakeoffDiffField["field"]
 ): string | number | null {
   if (field === "designation") {
-    return normalizeTextValue(item.designation);
+    return toNonEmptyString(item.designation);
   }
 
   if (field === "unit") {
-    return normalizeTextValue(item.unit);
+    return toNonEmptyString(item.unit);
   }
 
   if (field === "evidence") {
-    return normalizeTextValue(item.evidence);
+    return toNonEmptyString(item.evidence);
   }
 
   if (field === "quantity") {

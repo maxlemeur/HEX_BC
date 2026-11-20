@@ -5,6 +5,7 @@ import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
+import { plural } from "@/lib/text/plural";
 
 type MappingValidation = {
   is_valid: boolean;
@@ -48,10 +49,6 @@ function readMappedMajoration(mappedRow: Record<string, unknown>) {
     mappedRow.h_mo_majoration_additive ??
     mappedRow.h_mo_majoration
   );
-}
-
-function plural(count: number, singular: string, pluralForm: string) {
-  return `${count} ${count > 1 ? pluralForm : singular}`;
 }
 
 export function DataPreview({

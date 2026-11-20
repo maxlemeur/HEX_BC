@@ -1,6 +1,5 @@
 import type { TakeoffApiError as TakeoffApiErrorShape, TakeoffLevel } from "@/lib/takeoff/types";
 
-type JsonRecord = Record<string, unknown>;
 type TakeoffApiErrorMetadata = Pick<
   TakeoffApiErrorShape,
   "retryable" | "jobId" | "level"
@@ -37,14 +36,4 @@ export class TakeoffApiError extends Error {
 
 export function isTakeoffApiError(error: unknown): error is TakeoffApiError {
   return error instanceof TakeoffApiError;
-}
-
-export function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function toStringValue(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }

@@ -1,4 +1,4 @@
-import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import {
   createEstimateTemplateFromVersionSchema,
   listEstimateTemplatesQuerySchema,

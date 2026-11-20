@@ -11,7 +11,7 @@ import { TakeoffRuleResultsSchema } from "@/lib/takeoff/rules/contracts";
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 

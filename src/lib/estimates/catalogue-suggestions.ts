@@ -1,3 +1,5 @@
+import { toTimestamp } from "@/lib/estimates/supplier-comparison";
+
 export type CatalogueSuggestionPriceSource =
   | "supplier"
   | "reference"
@@ -185,12 +187,6 @@ export function computeCatalogueSearchRelevance(
   });
 
   return primaryMatchRank * 1_000 + secondaryScore;
-}
-
-function toTimestamp(value: string | null | undefined) {
-  if (!value) return 0;
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 const PRICE_SOURCE_PRIORITY: Record<CatalogueSuggestionPriceSource, number> = {

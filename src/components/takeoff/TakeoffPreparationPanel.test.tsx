@@ -19,7 +19,7 @@ import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { UserProvider, useUserContext } from "@/components/UserContext";
+import { UserProvider, useUserContext } from "@/lib/auth/user-context";
 import type { UserProfile } from "@/lib/auth/server";
 import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
 import type { PreparationAdvancedControlsContext } from "@/components/takeoff/TakeoffPreparationPanel";

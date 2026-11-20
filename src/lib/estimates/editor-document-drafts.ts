@@ -1,5 +1,5 @@
 import type { EditorAutoSaveDraft, EditorConflictDraft } from "@/lib/estimates/editor-drafts";
-import { isRecord } from "@/lib/estimates/editor-values";
+import { isRecord } from "@/lib/value-guards";
 
 export type EditorDocumentDraftScope = {
   actorId: string | null;

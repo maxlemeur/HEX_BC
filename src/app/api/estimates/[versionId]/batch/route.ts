@@ -1,18 +1,7 @@
-import { z } from "zod";
-
 import { executeEstimateBatch } from "@/lib/estimates/batch";
-import { ApiError, badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ApiError, badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { batchOperationsSchema } from "@/lib/estimates/schemas";
-import { resolveConcurrencyToken } from "@/lib/http/request";
-
-const versionIdParamSchema = z.object({
-  versionId: z.string().uuid("versionId invalide."),
-});
-
-async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
-  const params = await paramsPromise;
-  return versionIdParamSchema.parse(params).versionId;
-}
+import { resolveConcurrencyToken, uuidRouteParam } from "@/lib/http/request";
 
 async function parseJsonBody(request: Request): Promise<unknown> {
   if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json" || !request.body) {
@@ -70,7 +59,7 @@ export async function POST(
   { params }: { params: Promise<{ versionId: string }> }
 ) {
   try {
-    const versionId = await getVersionId(params);
+    const versionId = await uuidRouteParam(params, "versionId");
     const body = batchOperationsSchema.parse(await parseJsonBody(request));
 
     const data = await executeEstimateBatch(versionId, body.operations, {

@@ -1,3 +1,5 @@
+import { stripAccents } from "@/lib/text/fold";
+
 const HEADER_KEYWORDS = new Set([
   "description",
   "designation",
@@ -19,10 +21,6 @@ const HEADER_KEYWORDS = new Set([
   "fo",
   "mo",
 ]);
-
-function stripAccents(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
 
 function normalizeCell(value: unknown): string {
   if (value === null || value === undefined) return "";

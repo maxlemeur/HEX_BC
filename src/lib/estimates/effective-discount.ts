@@ -1,5 +1,6 @@
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { isLegacyEngine, isUnifiedEngine, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
+import { asRecord } from "@/lib/value-guards";
 
 const MAX_CENTS = 2_147_483_647;
 
@@ -51,13 +52,6 @@ export type FixedDiscountSignal =
   | { state: "legacy" }
   | { state: "unavailable" }
   | ReadyFixedDiscountSignal;
-
-function record(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
 function cents(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) &&
     !Object.is(value, -0) && value >= 0 && value <= MAX_CENTS;
@@ -75,7 +69,7 @@ function readSignal(
   version: FixedDiscountVersion,
   source: ReadyFixedDiscountSignal["source"],
 ): ReadyFixedDiscountSignal | null {
-  const input = record(value);
+  const input = asRecord(value);
   if (!input || !cents(version.discount_amount_cents) || !cents(version.total_ht_cents) ||
     !cents(input.requested_cents) || !cents(input.base_cents) || !cents(input.applied_cents) ||
     input.requested_cents !== version.discount_amount_cents ||
@@ -101,8 +95,8 @@ function resolveV3FixedDiscountSignal(version: FixedDiscountVersion): FixedDisco
   if (currentRevision === null || revision(version.calc_snapshot_content_revision) !== currentRevision) {
     return { state: "unavailable" };
   }
-  const context = record(version.calc_snapshot_context);
-  const discount = record(context?.discount);
+  const context = asRecord(version.calc_snapshot_context);
+  const discount = asRecord(context?.discount);
   if (!context || context.engine !== 3 || !discount || discount.kind !== "amount" ||
     !cents(discount.requested_cents) || !cents(discount.base_cents) || !cents(discount.applied_cents) ||
     discount.requested_cents !== version.discount_amount_cents ||
@@ -146,7 +140,7 @@ export function resolveFixedDiscountSignal(
   const currentRevision = revision(version.content_revision);
   if (!isUnifiedEngine(calcEngineVersion) || currentRevision === null ||
     revision(version.calc_snapshot_content_revision) !== currentRevision) return { state: "unavailable" };
-  const signal = readSignal(record(version.calc_snapshot_context)?.fixed_discount, version, "snapshot_v2");
+  const signal = readSignal(asRecord(version.calc_snapshot_context)?.fixed_discount, version, "snapshot_v2");
   return signal ?? { state: "unavailable" };
 }
 

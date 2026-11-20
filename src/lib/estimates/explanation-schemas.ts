@@ -29,9 +29,6 @@ export const estimateExplanationProvenanceSchema = z.object({
   source_ref: z.string().trim().min(1).nullable().optional(),
   confidence_score: z.number().min(0).max(1).nullable().optional(),
 });
-export type EstimateExplanationProvenance = z.infer<
-  typeof estimateExplanationProvenanceSchema
->;
 
 export const estimateExplanationRiskSignalSchema = z.object({
   label: z.string().trim().min(1),

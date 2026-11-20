@@ -4,7 +4,7 @@ import { afterEach,describe,expect,it,vi } from "vitest";
 
 import {
 ProductFormModal
-} from "@/app/dashboard/products/ProductFormModal";
+} from "@/components/products/ProductFormModal";
 
 const TECHNICAL_DETAILS_SUMMARY = "Détails techniques (optionnel)";
 

@@ -4,7 +4,7 @@ import type { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { EstimateEmailTemplate } from "@/lib/email/templates/estimate";
 import type { EstimateEmailDispatch } from "@/lib/email/estimate-email-dispatch-contracts";
 import { canonicalJsonHash } from "@/lib/email/estimate-email-hash";
-import { conflict, internalError } from "@/lib/estimates/errors";
+import { conflict, internalError } from "@/lib/http/api-response";
 import { generateEstimatePdfNow } from "@/lib/estimates/pdf-generator";
 import { loadVerifiedOfferDocument, type VerifiedOfferDocument } from "@/lib/estimates/offer-document";
 import { sanitizeDownloadFilename } from "@/lib/download-filename";

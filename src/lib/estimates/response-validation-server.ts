@@ -1,6 +1,6 @@
 import "server-only";
 
-import { internalError } from "@/lib/estimates/errors";
+import { internalError } from "@/lib/http/api-response";
 
 /** A malformed result can follow a committed write; it must never become a 400 request error. */
 export function validateEstimateResponse<T>(parse: () => T): T {

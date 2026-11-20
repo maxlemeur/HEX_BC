@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { updateProfileUiMode } from "@/app/dashboard/_actions/profile";
-import { useOptionalUserContext } from "@/components/UserContext";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import {
   DEFAULT_UI_MODE,
   isUiMode,

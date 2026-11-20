@@ -2,20 +2,13 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { jsonApiError } from "@/lib/http/api-response";
 import { validateFileForUpload } from "@/lib/file-validation";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
 } from "@/lib/purchase-orders";
 import { toDevisResponseItem } from "@/lib/purchase-orders/devis-response";
-
-function jsonApiError(error: unknown) {
-  if (error instanceof ApiError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
-  }
-  throw error;
-}
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 

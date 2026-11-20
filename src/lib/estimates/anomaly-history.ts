@@ -24,7 +24,7 @@ import {
 } from "@/lib/feature-flags";
 import type { Database } from "@/types/database";
 
-import { mapSupabaseError } from "./errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];

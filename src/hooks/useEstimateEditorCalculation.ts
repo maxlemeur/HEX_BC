@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from "react";
 
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import {
   computeEstimateBreakdown,
   computeReadOnlyTotals,
@@ -18,6 +17,7 @@ import type {
   EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import { readLaborSplitFields } from "@/lib/estimates/editor-items";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 type EstimateEditorCalculationInput = {
   items: EditorEstimateItem[];

@@ -1,4 +1,4 @@
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { requestParamsSchema } from "@/lib/material-requests/http";
 import { listLineSupplierProposals } from "@/lib/material-requests/suppliers-server";
 

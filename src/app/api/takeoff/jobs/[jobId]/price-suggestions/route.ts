@@ -1,28 +1,21 @@
 import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import {
   getTakeoffPriceSuggestion,
   parseTakeoffPriceSuggestionQuery,
   requestTakeoffPriceSuggestion,
 } from "@/lib/takeoff/server";
-
-function toQueryObject(request: Request) {
-  return Object.fromEntries(new URL(request.url).searchParams.entries());
-}
-
-async function getJobId(paramsPromise: Promise<{ jobId: string }>) {
-  return (await paramsPromise).jobId;
-}
+import { searchParamsObject } from "@/lib/http/request";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
-    const jobId = await getJobId(params);
-    const query = parseTakeoffPriceSuggestionQuery(toQueryObject(request));
+    const jobId = (await params).jobId;
+    const query = parseTakeoffPriceSuggestionQuery(searchParamsObject(request));
     const data = await getTakeoffPriceSuggestion(jobId, query);
 
     return ok(data);
@@ -42,7 +35,7 @@ export async function POST(
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
-    const jobId = await getJobId(params);
+    const jobId = (await params).jobId;
     const body = await request.json();
     const data = await requestTakeoffPriceSuggestion(jobId, body);
 

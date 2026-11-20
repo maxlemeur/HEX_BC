@@ -6,7 +6,7 @@ import {
 } from "@/lib/affaires/import-engine-server";
 import { toRpcImportItems } from "@/lib/affaires/import-flow-server";
 import type { PersistCanonicalEstimateV2Input } from "@/lib/estimates/canonical-v2-creation";
-import { badRequest } from "@/lib/estimates/errors";
+import { badRequest } from "@/lib/http/api-response";
 import {
   loadLatestDpgfMappingForImport,
   loadLatestLinkedDpgfImportForProject,
@@ -16,7 +16,7 @@ import type { CreateEstimateInput } from "@/lib/estimates/schemas";
 import type { AuthenticatedContext } from "@/lib/estimates/server-context";
 import { prepareLinkedDpgfCreationRows } from "@/lib/estimates/version-creation-plan";
 import type { CreateEstimateLatestVersionDefaultsRow } from "@/lib/estimates/version-creation-repository";
-import { toNullableText } from "@/lib/estimates/version-write-normalization";
+import { toNonEmptyString } from "@/lib/value-guards";
 
 export async function loadLinkedDpgfCreationSource(input: {
   context: AuthenticatedContext;
@@ -69,7 +69,7 @@ export async function loadLinkedDpgfCreationSource(input: {
     importId: latestImport.id,
     mappingId: latestMapping?.id ?? null,
     filename: latestImport.filename,
-    sectionTitle: toNullableText(latestImport.filename)
+    sectionTitle: toNonEmptyString(latestImport.filename)
       ? `Import DPGF - ${latestImport.filename}`
       : "Import DPGF",
     items: toRpcImportItems(normalized.validItems, {

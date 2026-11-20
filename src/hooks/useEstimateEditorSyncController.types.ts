@@ -1,7 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 
-import type { EstimateSettingsState } from "@/components/estimates/EstimateSettingsPanel";
 import type { EditorConflictDraft } from "@/lib/estimates/editor-drafts";
 import type { AutoSaveResult, AutoSaveStatus } from "@/hooks/useAutoSave";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
@@ -13,6 +12,7 @@ import type {
   EstimateVersionRow,
   EstimateVersionTotalsPatch,
 } from "@/lib/estimates/editor-items";
+import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 
 /**
  * Cadence de la sauvegarde automatique de l'editeur de devis : une modification

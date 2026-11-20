@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { sameEstimateBatchTimestamp } from "@/lib/estimates/batch-preparation";
-import { ApiError, conflict } from "@/lib/estimates/errors";
+import { ApiError, conflict } from "@/lib/http/api-response";
 
 const uuid = z.string().uuid().transform((value) => value.toLowerCase());
 const timestamp = z.string().refine((value) => Number.isFinite(Date.parse(value)));

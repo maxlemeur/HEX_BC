@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
-import { ApiError, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import { ApiError, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { toEstimateV3VersionTotals } from "@/lib/estimates/v3-persistence";
 import { calculateEstimateV3SnapshotForItems, type EstimateV3TotalsVersionConfig } from "@/lib/estimates/version-totals";

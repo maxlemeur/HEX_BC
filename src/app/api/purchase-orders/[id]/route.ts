@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { ApiError } from "@/lib/estimates/errors";
+import { jsonApiError } from "@/lib/http/api-response";
 import { drainProcurementStorageCleanupOutbox } from "@/lib/procurement/storage-cleanup-outbox";
 import {
   canWritePurchaseOrders,
@@ -11,13 +11,6 @@ import { computeTotalsFromInputs, OrderTotalNegativeError } from "@/lib/order-ca
 import { updatePurchaseOrderSchema, purchaseOrderWriteReceiptSchema } from "@/lib/purchase-orders/schemas";
 import { purchaseOrderInputError, purchaseOrderWriteError, toPurchaseOrderLinePayload } from "@/lib/purchase-orders/write";
 import type { Database, Json } from "@/types/database";
-
-function jsonApiError(error: unknown) {
-  if (error instanceof ApiError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
-  }
-  throw error;
-}
 
 type PurchaseOrderStatus = Database["public"]["Tables"]["purchase_orders"]["Row"]["status"];
 

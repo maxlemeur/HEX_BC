@@ -20,6 +20,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { ApprovedPdfTable, TabularPdfReviewPayload } from "@/hooks/useImportFlow";
 import { cn } from "@/lib/utils";
+import { formatFileSize } from "@/lib/file-validation";
 
 type ImportWizardFileStageSectionProps = {
   approvedPdfTables: ApprovedPdfTable[];
@@ -49,17 +50,6 @@ type ImportWizardFileStageSectionProps = {
   submitError: string | null;
   workerError: string | null;
 };
-
-function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes)) return "-";
-  if (bytes < 1024) return `${bytes} o`;
-
-  const kilobytes = bytes / 1024;
-  if (kilobytes < 1024) return `${kilobytes.toFixed(1)} Ko`;
-
-  const megabytes = kilobytes / 1024;
-  return `${megabytes.toFixed(1)} Mo`;
-}
 
 type StageTone = "neutral" | "primary" | "success" | "warning" | "danger";
 
@@ -286,7 +276,7 @@ export function ImportWizardFileStageSection({
           {fileStage === "pdf_review" && selectedFile && pdfReview && (
             <TabularPdfReviewPanel
               fileName={selectedFile.name}
-              fileSizeLabel={formatSize(selectedFile.size)}
+              fileSizeLabel={formatFileSize(selectedFile.size)}
               pdfReview={pdfReview}
               approvedTables={approvedPdfTables}
               onToggleTable={handleTogglePdfTable}
@@ -304,7 +294,7 @@ export function ImportWizardFileStageSection({
                 <>
                   {selectedFile.name}
                   <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    {formatSize(selectedFile.size)}
+                    {formatFileSize(selectedFile.size)}
                   </span>
                 </>
               }
@@ -360,7 +350,7 @@ export function ImportWizardFileStageSection({
                 <>
                   {selectedFile.name}
                   <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    {formatSize(selectedFile.size)}
+                    {formatFileSize(selectedFile.size)}
                   </span>
                 </>
               }

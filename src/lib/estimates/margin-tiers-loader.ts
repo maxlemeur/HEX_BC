@@ -2,7 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { MarginMode } from "@/lib/estimate-calculations";
-import { mapSupabaseError } from "@/lib/estimates/errors";
+import { mapSupabaseError } from "@/lib/http/api-response";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
 import type { Database } from "@/types/database";
 

@@ -1,7 +1,7 @@
 import { parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
 import { NextResponse } from "next/server";
 
-import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import {
@@ -10,10 +10,6 @@ import {
 } from "@/lib/takeoff/errors";
 import { reconcileTakeoffJobNow } from "@/lib/takeoff/server";
 
-async function getJobId(paramsPromise: Promise<{ jobId: string }>) {
-  return (await paramsPromise).jobId;
-}
-
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ jobId: string }> }
@@ -21,7 +17,7 @@ export async function POST(
   void _request;
 
   try {
-    const jobId = await getJobId(params);
+    const jobId = (await params).jobId;
     const data = await reconcileTakeoffJobNow(jobId);
     let dispatch:
       | {
