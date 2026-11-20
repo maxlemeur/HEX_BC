@@ -15,11 +15,11 @@
 //      nonRuntime glob covers: full suite, since nothing maps its impact;
 // 4. no rule hit and only nonRuntime entry points: nothing (pull request).
 // Any git or map error, an empty diff or an unknown event also gives "full",
-// and so does a map whose journeys differ from those the CI critical suite
-// runs (e2e.config.ts): a journey the map omits would never be selected.
+// and so does a journey of the CI critical suite (journey-selections.mjs) that
+// no rule of the map reaches: no source change would ever select it.
 //
-// Full-only journeys (map "fullOnly": the takeoff journeys, which only the
-// e2e.config.ts full selection runs) are a second set, run by the army-takeoff
+// Full-only journeys (the takeoff journeys, which only the full selection of
+// journey-selections.mjs runs) are a second set, run by the army-takeoff
 // job of e2e-army-critical.yml: on a pull request, those its paths reach; all
 // of them whenever the critical decision is "full" (unsure, forced, other
 // event), listed from the working tree so an unlisted one still runs; none on
@@ -31,11 +31,11 @@
 //
 // Parallel jobs (army-shards.json, docs/testing/tester-army-ci.md, "Jobs
 // parallèles"): the critical files, or the whole critical suite listed from
-// e2e.config.ts, are split into disjoint shards, each with the login setup and
-// an authenticated journey, by longest measured duration first; `--plan full`
-// splits the nightly full selection the same way. A file is never cut. A list
-// the runner would refuse or that cannot be established is one unsharded
-// shard running the runner's own whole suite.
+// journey-selections.mjs, are split into disjoint shards, each with the login
+// setup and an authenticated journey, by longest measured duration first;
+// `--plan full` splits the nightly full selection the same way. A file is
+// never cut. A list the runner would refuse or that cannot be established is
+// one unsharded shard running the runner's own whole suite.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -43,13 +43,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE, FULL_ONLY_JOURNEY_FILE } from "./journey-files.mjs";
+import { FULL_SELECTION, LOCAL_BUSINESS_SUITE, LOGIN_SETUP, TAKEOFF_JOURNEYS } from "./journey-selections.mjs";
 
 export type ImpactRule = { id: string; note?: string; paths: string[]; journeys: string[] };
+/** army-impact-map.json as stored: the roles of a few journeys and the hand-curated globs and rules, never the journey lists. */
+export type StoredImpactMap = Omit<ImpactMap, "suite" | "fullOnly"> & {
+  suite: Pick<ImpactMap["suite"], "anchor" | "anonymous">;
+  fullOnly: Pick<ImpactMap["fullOnly"], "note">;
+};
+/** The map with the journeys journey-selections.mjs selects in a tree (withSuiteJourneys). */
 export type ImpactMap = {
   schemaVersion: number;
+  /** The journeys of the CI critical suite (its local business selection), its login setup, anchor and anonymous journeys. */
   suite: { journeys: string[]; setup: string; anchor: string; anonymous: string[] };
-  /** Journeys only the full selection of e2e.config.ts runs; globs taken verbatim from that list. */
-  fullOnly: { note?: string; globs: string[]; journeys: string[] };
+  /** The takeoff journeys, which only the full selection runs. */
+  fullOnly: { note?: string; journeys: string[] };
   docs: string[];
   nonRuntime: string[];
   full: string[];
@@ -408,94 +416,68 @@ export function expandJourneys(map: ImpactMap, references: readonly string[], se
   return [...journeys];
 }
 
-/**
- * The globs of a test list of e2e.config.ts, each `...name` replaced by the entries of `const name = [...]`.
- * The list is read as text: an entry written any other way than a double-quoted literal is refused, not skipped.
- */
-function configTestGlobs(config: string, list: string): string[] {
-  const entries = list.replace(/\.\.\.([A-Za-z_$][\w$]*)/gu, (_spread, name: string) => {
-    const constant = new RegExp(`const ${name}(?:: [^=]+)? = \\[([^\\]]*)\\]`, "u").exec(config);
-    if (!constant) throw new Error(`The list ${name} of e2e.config.ts cannot be read.`);
-    return constant[1];
-  });
-  const leftover = entries.replace(/"[^"]+"/gu, "").replace(/[\s,]/gu, "");
-  if (leftover) throw new Error(`A test list of e2e.config.ts has entries that cannot be read: ${leftover.slice(0, 80)}`);
-  return [...entries.matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+/** The journey files of a tree that a list of journey-selections.mjs runs, sorted. */
+export function selectionJourneys(globs: readonly string[], repositoryFiles: readonly string[]): string[] {
+  return repositoryFiles.filter((file) => matchesAny(file, globs)).sort();
 }
 
 /**
- * Journey files the CI critical suite runs: the localBusiness test list of
- * e2e.config.ts (the CI stack is loopback), matched against the working tree.
+ * The stored map with the journeys of a tree: the CI critical suite (the CI stack is loopback) and the takeoff
+ * journeys. A list stored in the map is refused: it would be ignored, and go stale while it still looks authoritative.
  */
-export function criticalSuiteJourneys(config: string, repositoryFiles: readonly string[]): string[] {
-  const branch = /critical \? localBusiness \? \[([^\]]*)\]/u.exec(config);
-  if (!branch) throw new Error("The localBusiness critical test list of e2e.config.ts cannot be read.");
-  const globs = configTestGlobs(config, branch[1]);
-  return repositoryFiles.filter((file) => globs.some((glob) => globToRegExp(glob).test(file))).sort();
-}
-
-/** Test globs of the e2e.config.ts full selection (nightly and dispatched full suite). */
-export function fullSelectionGlobs(config: string): string[] {
-  const branch = /: full \? \[([^\]]*)\]/u.exec(config);
-  if (!branch) throw new Error("The full test list of e2e.config.ts cannot be read.");
-  return configTestGlobs(config, branch[1]);
+export function withSuiteJourneys(stored: StoredImpactMap, repositoryFiles: readonly string[]): ImpactMap {
+  const lists = [...["journeys", "setup"].filter((key) => key in stored.suite).map((key) => `suite.${key}`),
+    ...["journeys", "globs"].filter((key) => key in stored.fullOnly).map((key) => `fullOnly.${key}`)];
+  if (lists.length) throw new Error(`${MAP_PATH} stores ${lists.join(", ")}: journey-selections.mjs and the tree give them.`);
+  return {
+    ...stored,
+    suite: { ...stored.suite, setup: LOGIN_SETUP, journeys: selectionJourneys(LOCAL_BUSINESS_SUITE, repositoryFiles) },
+    fullOnly: { ...stored.fullOnly, journeys: selectionJourneys([TAKEOFF_JOURNEYS], repositoryFiles) },
+  };
 }
 
 /**
- * Journey files the map's fullOnly globs select in the working tree. Each glob
- * must be in the full selection of e2e.config.ts, else its journeys may not run.
+ * Problems that make the map unusable, including a journey of the critical
+ * suite or a takeoff journey that no rule reaches (a "*" rule aside): only an
+ * edit of that journey file would select it.
  */
-export function fullOnlySuiteJourneys(config: string, globs: readonly string[], repositoryFiles: readonly string[]): string[] {
-  const full = new Set(fullSelectionGlobs(config));
-  for (const glob of globs) if (!full.has(glob)) throw new Error(`The full selection of e2e.config.ts does not run ${glob}.`);
-  return repositoryFiles.filter((file) => globs.some((glob) => globToRegExp(glob).test(file))).sort();
-}
-
-/**
- * Problems that make the map unusable, including any difference between its
- * journeys and those the CI critical suite, or the full selection's fullOnly
- * globs, run; the guardrail test also runs this.
- */
-export function validateImpactMap(map: ImpactMap, exists: (file: string) => boolean, suiteJourneys: readonly string[],
-  fullOnlyJourneys: readonly string[]): string[] {
+export function validateImpactMap(map: ImpactMap, exists: (file: string) => boolean): string[] {
   const problems: string[] = [];
   const suite = new Set(map.suite.journeys);
-  const fullOnly = new Set(map.fullOnly.journeys);
-  const known = new Set([...suite, ...fullOnly]);
+  const known = new Set([...suite, ...map.fullOnly.journeys]);
   if (map.schemaVersion !== 1) problems.push(`Unsupported map schemaVersion ${map.schemaVersion}.`);
-  const run = new Set(suiteJourneys);
-  for (const journey of suiteJourneys) if (!suite.has(journey)) problems.push(`The critical suite runs ${journey}, which the map does not list.`);
-  for (const journey of map.suite.journeys) if (!run.has(journey)) problems.push(`The map lists ${journey}, which the critical suite does not run.`);
-  const runFullOnly = new Set(fullOnlyJourneys);
-  for (const journey of fullOnlyJourneys) if (!fullOnly.has(journey)) problems.push(`The full selection runs ${journey}, which the map does not list as full-only.`);
   for (const journey of map.fullOnly.journeys) {
-    if (!runFullOnly.has(journey)) problems.push(`The map lists ${journey} as full-only, which the full selection does not run.`);
     if (suite.has(journey)) problems.push(`${journey} is both a critical and a full-only journey.`);
     // The army-takeoff job hands these paths to the runner's full --files.
     if (!FULL_ONLY_JOURNEY_FILE.test(journey)) problems.push(`The runner's full --files refuses the full-only journey ${journey}.`);
   }
   if (!FULL_ONLY_JOURNEY_FILE.test(map.suite.setup)) problems.push(`The runner's full --files refuses the login setup ${map.suite.setup}.`);
-  for (const file of [...map.suite.journeys, ...map.fullOnly.journeys, map.suite.setup, map.suite.anchor, ...map.suite.anonymous, ...map.runnerEntries]) {
+  for (const file of [map.suite.setup, map.suite.anchor, ...map.suite.anonymous, ...map.runnerEntries]) {
     if (!exists(file)) problems.push(`Map points to a missing file: ${file}.`);
   }
   for (const file of [map.suite.setup, map.suite.anchor, ...map.suite.anonymous]) {
     if (!suite.has(file)) problems.push(`${file} is not a suite journey.`);
   }
   if (map.suite.anonymous.includes(map.suite.anchor)) problems.push("The anchor journey must be authenticated.");
-  const globs = [...map.docs, ...map.nonRuntime, ...map.full, ...map.fullOnly.globs, ...map.rules.flatMap((rule) => rule.paths),
+  const globs = [...map.docs, ...map.nonRuntime, ...map.full, ...map.rules.flatMap((rule) => rule.paths),
     ...map.graph.apiCallers, ...map.graph.apiCallersExcluded, ...map.graph.importersExcluded, ...map.graph.escalationExcluded];
   for (const glob of globs) {
     try { globToRegExp(glob); } catch (error) { problems.push((error as Error).message); }
   }
   const ids = new Set<string>();
+  const reached = new Set<string>();
   for (const rule of map.rules) {
     if (ids.has(rule.id)) problems.push(`Duplicate rule id ${rule.id}.`);
     ids.add(rule.id);
     try {
       for (const journey of expandJourneys(map, rule.journeys)) {
         if (!known.has(journey)) problems.push(`Rule ${rule.id} points to ${journey}, which is not a suite journey.`);
+        if (!rule.journeys.includes("*")) reached.add(journey);
       }
     } catch (error) { problems.push(`Rule ${rule.id}: ${(error as Error).message}`); }
+  }
+  for (const journey of known) {
+    if (journey !== map.suite.setup && !reached.has(journey)) problems.push(`No rule of the map reaches the journey ${journey}.`);
   }
   for (const [name, members] of Object.entries(map.groups)) {
     try { expandJourneys(map, [`@${name}`]); } catch (error) { problems.push((error as Error).message); }
@@ -759,13 +741,13 @@ function takeoffShards(setup: string, fullOnly: FullOnlySelection, input: ShardI
 }
 
 /**
- * The nightly full selection split into shards: listed from the e2e.config.ts
- * full globs and the working tree (an unregistered journey is listed too),
- * the development phase in its own job. Filtered (--grep), or a list that
- * cannot be established: one shard of the runner's own selection, which then
- * runs no development phase (--grep) or both phases on its stack.
+ * The nightly full selection split into shards: listed from its globs
+ * (journey-selections.mjs) and the working tree (an unregistered journey is
+ * listed too), the development phase in its own job. Filtered (--grep), or a
+ * list that cannot be established: one shard of the runner's own selection,
+ * which then runs no development phase (--grep) or both phases on its stack.
  */
-export function planFullSuite(root: string, options: { repositoryFiles?: string[]; config?: string; unsharded?: string } = {}): ShardPlan {
+export function planFullSuite(root: string, options: { repositoryFiles?: string[]; unsharded?: string } = {}): ShardPlan {
   const { durations, sha256 } = usableShardDurations(root);
   const unsharded = (reason: string, development: "in-shard" | "none"): ShardPlan => ({
     schemaVersion: "army-shard-plan-1", suite: "full", reason, files: [], workers: durations?.suites?.full?.workers ?? null,
@@ -773,10 +755,9 @@ export function planFullSuite(root: string, options: { repositoryFiles?: string[
   });
   if (options.unsharded) return unsharded(`one shard, the runner's own selection: ${options.unsharded}`, "none");
   try {
-    const { map } = loadImpactMap(root);
     const repositoryFiles = options.repositoryFiles ?? listRepositoryFiles(root);
-    const globs = fullSelectionGlobs(options.config ?? fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8"));
-    const files = repositoryFiles.filter((file) => globs.some((glob) => globToRegExp(glob).test(file)));
+    const { map } = loadImpactMap(root, repositoryFiles);
+    const files = repositoryFiles.filter((file) => matchesAny(file, FULL_SELECTION));
     const plan = planShards({ suite: "full", files, wholeSuite: true, setup: map.suite.setup, anonymous: map.suite.anonymous,
       accepts: FULL_JOURNEY_FILE, durations, durationsSha256: sha256 });
     return { ...plan, development: plan.files.length ? "separate" : "in-shard" };
@@ -841,15 +822,15 @@ export function selectJourneys(input: {
 }
 
 /**
- * Fail-safe full-only selection: every journey the map's globs match in the
- * working tree, so one the map omits still runs. Nothing listable (unreadable
- * map), or a path the runner's full --files would refuse: empty "all", which
- * the army-takeoff job runs as the whole full selection.
+ * Fail-safe full-only selection: every takeoff journey of the working tree,
+ * so one no rule reaches still runs. Nothing listable (unreadable map), or a
+ * path the runner's full --files would refuse: empty "all", which the
+ * army-takeoff job runs as the whole full selection.
  */
 function fullOnlyFailSafe(event: string, map: ImpactMap | undefined, repositoryFiles: readonly string[] | undefined): FullOnlySelection {
   if (event === "push") return PUSH_FULL_ONLY;
   try {
-    const journeys = repositoryFiles!.filter((file) => matchesAny(file, map!.fullOnly.globs));
+    const journeys = map!.fullOnly.journeys;
     const setup = repositoryFiles!.includes(map!.suite.setup) ? [map!.suite.setup] : [];
     const listed = [...setup, ...journeys].sort();
     if (journeys.length && listed.every((file) => FULL_ONLY_JOURNEY_FILE.test(file))) {
@@ -973,9 +954,11 @@ export function narrowSelection(input: { map: ImpactMap; selection: Selection; l
     takeoffShards: takeoffShards(setup, fullOnly, input.shards), decision };
 }
 
-export function loadImpactMap(root: string): { map: ImpactMap; sha256: string } {
+/** The stored map with the journeys of the tree (withSuiteJourneys); sha256 identifies the stored file. */
+export function loadImpactMap(root: string, repositoryFiles: readonly string[] = listRepositoryFiles(root)): { map: ImpactMap; sha256: string } {
   const bytes = fs.readFileSync(path.join(root, MAP_PATH));
-  return { map: JSON.parse(bytes.toString("utf8")) as ImpactMap, sha256: createHash("sha256").update(bytes).digest("hex") };
+  return { map: withSuiteJourneys(JSON.parse(bytes.toString("utf8")) as StoredImpactMap, repositoryFiles),
+    sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
 function changedPathsFromGit(root: string, base: string, head: string): string[] {
@@ -1012,14 +995,11 @@ export function selectFromRepository(root: string, request: SelectionRequest): S
   let loadedMap: ImpactMap | undefined;
   let repositoryFiles = request.repositoryFiles;
   try {
-    const { map, sha256 } = loadImpactMap(root);
-    loadedMap = map;
     repositoryFiles ??= listRepositoryFiles(root);
+    const { map, sha256 } = loadImpactMap(root, repositoryFiles);
+    loadedMap = map;
     const present = new Set(repositoryFiles);
-    const config = fs.readFileSync(path.join(root, "e2e.config.ts"), "utf8");
-    const suiteJourneys = criticalSuiteJourneys(config, repositoryFiles);
-    const fullOnlyJourneys = fullOnlySuiteJourneys(config, map.fullOnly.globs, repositoryFiles);
-    const problems = validateImpactMap(map, (file) => present.has(file), suiteJourneys, fullOnlyJourneys);
+    const problems = validateImpactMap(map, (file) => present.has(file));
     if (problems.length) {
       throw new Error(`Invalid impact map: ${problems[0]}${problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}`);
     }
@@ -1030,7 +1010,7 @@ export function selectFromRepository(root: string, request: SelectionRequest): S
         ? fs.readFileSync(request.pathsFile, "utf8").split(/[\0\r\n]+/).map((file) => file.trim()).filter(Boolean)
         : changedPathsFromGit(root, base ?? "", head));
     const durations = usableShardDurations(root);
-    const shards = { suiteJourneys, durations: durations.durations, durationsSha256: durations.sha256 };
+    const shards = { suiteJourneys: map.suite.journeys, durations: durations.durations, durationsSha256: durations.sha256 };
     const selection = selectJourneys({ map, graph: buildSourceGraph(root, map, repositoryFiles), event, paths,
       forceFull, base, head: givenPaths ? null : head, mapSha256: sha256, shards });
     if (request.decisionFile === undefined) return selection;

@@ -3,13 +3,13 @@
 //
 // On 18/10/2026 a local critical run passed without executing the journeys it
 // was started for (run .e2e/army/ci/2026-10-18T16-46-35-432Z-critical): the
-// new file was in no e2e.config.ts list, the --grep alternative naming it
+// new file was in no selection of e2e.config.ts, the --grep alternative naming it
 // matched nothing, and nothing said so. An E2E run cannot show these gaps,
 // since by construction it reports only what it ran. Ways the selection can
 // still lose a journey silently, each pinned below:
 // 1. a journey file under e2e/army/local/ (any depth) that no standing
-//    selection collects (e2e.config.ts, the calc-v3 phases, the offer-emission
-//    and resend-portal configs) and that is not listed as run elsewhere;
+//    selection collects (scripts/tester-army/journey-selections.mjs, the
+//    calc-v3 and coverage phases) and that is not listed as run elsewhere;
 // 2. a stale exclusion: the listed file is collected after all (the double
 //    entry would hide its later removal from the selection), no longer
 //    exists, or names no existing run document;
@@ -68,7 +68,6 @@ describe("local journey coverage", () => {
 
   it("reports a journey no selection collects, at any depth, and stale exclusions", () => {
     const directory = tree({
-      "e2e.config.ts": 'export default { tests: ["e2e/army/local/a-*.e2e.ts"] };\n',
       "e2e/army/local/a-1.e2e.ts": "",
       "e2e/army/local/b.e2e.ts": "",
       "e2e/army/local/nested/c.e2e.ts": "",
@@ -78,7 +77,7 @@ describe("local journey coverage", () => {
     });
     try {
       const problems = localJourneyCoverageProblems(directory, {
-        collectors: ["e2e.config.ts"],
+        selections: ["e2e/army/local/a-*.e2e.ts"],
         outsideSelections: {
           "e2e/army/local/run-elsewhere.e2e.ts": "docs/testing/run-elsewhere.md",
           "e2e/army/local/a-1.e2e.ts": "docs/testing/run-elsewhere.md",
@@ -92,7 +91,7 @@ describe("local journey coverage", () => {
       expect(problems).not.toContain("b-support.ts");
       expect(problems).not.toContain("run-elsewhere.e2e.ts");
       expect(localJourneyCoverageProblems(directory, {
-        collectors: ["e2e.config.ts"],
+        selections: ["e2e/army/local/a-*.e2e.ts"],
         outsideSelections: { "e2e/army/local/b.e2e.ts": "docs/testing/missing.md", "e2e/army/local/nested/c.e2e.ts": "docs/testing/run-elsewhere.md",
           "e2e/army/local/run-elsewhere.e2e.ts": "docs/testing/run-elsewhere.md" },
       })).toEqual(["e2e/army/local/b.e2e.ts names docs/testing/missing.md, which does not exist."]);

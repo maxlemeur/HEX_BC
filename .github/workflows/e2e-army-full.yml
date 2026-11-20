@@ -5,13 +5,14 @@ name: TesterArmy Full
 # runs real authenticated journeys only after migrations, pgTAP and RLS pass.
 #
 # Nightly full suite: its "full" phase runs every critical journey (the
-# e2e.config.ts "full" selection includes e2e/army/critical/**) besides the
-# extended and takeoff ones, so the critical suite also runs in full each night
-# while pull requests run only the journeys their files reach
+# "full" selection of scripts/tester-army/journey-selections.mjs includes
+# e2e/army/critical/**) besides the extended and takeoff ones, so the critical
+# suite also runs in full each night while pull requests run only the journeys
+# their files reach
 # (e2e-army-critical.yml, docs/testing/tester-army-ci.md).
 #
 # Parallel jobs (docs/testing/tester-army-ci.md, "Jobs parallèles"): the plan
-# job lists the full selection from e2e.config.ts and the working tree and
+# job lists the full selection from journey-selections.mjs and the working tree and
 # splits it into the disjoint shards of scripts/tester-army/army-shards.json,
 # each on its own owned stack at one worker; the development phase runs alone
 # on its own stack (full --phase development). The army-full job is the check:

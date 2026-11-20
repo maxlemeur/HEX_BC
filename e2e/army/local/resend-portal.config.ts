@@ -7,6 +7,7 @@ import type { E2EConfig } from "e2e";
 
 import { COLLECTOR_SENTINEL } from "../../../scripts/tester-army/offer-collector.mjs";
 import { assertInstalledDependencies } from "../../../scripts/tester-army/installed-dependencies.mjs";
+import { RESEND_PORTAL_SELECTION } from "../../../scripts/tester-army/journey-selections.mjs";
 
 assertInstalledDependencies();
 
@@ -45,7 +46,7 @@ async function portalSecret(name: "portalUrl" | "portalToken"): Promise<string> 
 
 export default {
   projectId: "miaouffrage-local-resend-portal",
-  tests: ["e2e/army/local/offer-emission-auth.setup.e2e.ts", "e2e/army/local/resend-portal.e2e.ts"],
+  tests: RESEND_PORTAL_SELECTION,
   targets: [{ name: "chromium-desktop", engine: web({ browser: "chromium", viewport: { width: 1280, height: 800 } }), app: {
     url: appOrigin.origin, readyUrl: `${appOrigin.origin}/login`, environment: "test",
     command: { executable: process.execPath, args: [path.resolve("node_modules/next/dist/bin/next"), "dev", "--webpack", "--experimental-next-config-strip-types", "--hostname", appOrigin.hostname.replace(/^\[|\]$/g, ""), "--port", appOrigin.port], cwd: process.cwd(), env: {

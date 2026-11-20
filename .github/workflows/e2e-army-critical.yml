@@ -16,7 +16,7 @@ name: TesterArmy Critical
 #
 # Parallel jobs (docs/testing/tester-army-ci.md, "Jobs parallèles"): the
 # army-select job decides once. The selected critical journeys (the whole
-# suite listed from e2e.config.ts for a full decision) are split into the
+# suite listed from journey-selections.mjs for a full decision) are split into the
 # disjoint shards of scripts/tester-army/army-shards.json, each on its own
 # owned stack with the login setup and an authenticated journey; a small
 # selection is one shard, a list the runner would refuse one shard of its own
@@ -26,8 +26,8 @@ name: TesterArmy Critical
 # army-critical-evidence. An explicit "none" runs no shard and claims nothing.
 #
 # The army-takeoff-shard jobs run, in parallel and from the same selection,
-# the takeoff journeys (army-impact-map.json "fullOnly", otherwise nightly
-# only) that a pull request reaches, recorded as scope "filtered-full"; all of
+# the takeoff journeys (the "fullOnly" journeys of select-journeys.ts,
+# otherwise nightly only) that a pull request reaches, recorded as scope "filtered-full"; all of
 # them when the critical decision is the full suite (dispatch and label
 # included), none on a push to main. They are split as the critical journeys
 # are (army-shards.json suite "takeoff", one worker each), and the army-takeoff
@@ -386,7 +386,7 @@ jobs:
           # A rerun replaces the artifact of the attempt before it: the name stays unique.
           overwrite: true
 
-  # Takeoff journeys (army-impact-map.json "fullOnly"): only the e2e.config.ts
+  # Takeoff journeys (the "fullOnly" journeys of select-journeys.ts): only the
   # full selection runs them, so without these jobs a pull request reaching them
   # waited for the nightly full suite. The army-select decision, in parallel
   # with the critical shards, split into the shards of army-shards.json suite

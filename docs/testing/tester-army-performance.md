@@ -17,8 +17,9 @@ complètent les mesures navigateur.
 | `npm run e2e:army:performance:navigation:live` | Même navigation sur serveur loopback existant, `localhost:3000` par défaut ; le runner ne le démarre ni ne l'arrête |
 | `npm run e2e:army:performance:affaire` | Création/réutilisation de la seule fixture ARMY possédée : brouillon et deux lignes tarifées, cinq transitions et valeurs exactes |
 
-`e2e/army/performance/` et [e2e.config.ts](../../e2e.config.ts) définissent les
-sélections effectives. Les recettes `dogfood-*` et `editor-draft` demandent leurs
+`e2e/army/performance/` et
+[journey-selections.mjs](../../scripts/tester-army/journey-selections.mjs)
+définissent les sélections effectives. Les recettes `dogfood-*` et `editor-draft` demandent leurs
 configurations et fixtures explicites ; leur présence dans le dossier ne les
 fait pas exécuter par la commande générale.
 
