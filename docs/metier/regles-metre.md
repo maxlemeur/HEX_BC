@@ -61,6 +61,11 @@ techniques de matériaux restent en vigueur.
 - Conserver les mesures brutes. Pour les longueurs vendues, **cumuler par ligne
   de devis puis arrondir une seule fois au mètre supérieur** : 2,2 + 2,2 → 5 m ;
   2,2 + 1,3 → 4 m ; 12,14 → 13 m. Préserver les quantités protectrices DPGF.
+  Des longueurs identiques réunies en une ligne gardent la page principale et la
+  position de la mesure qui vient en premier dans ce que le chiffreur voit : sa page
+  (une mesure sans page en dernier), sa position dans la section, puis sa ligne de
+  métré ; jamais un identifiant tiré à chaque application (suivi de l'envoi, migration
+  [`…_takeoff_send_grouped_lines_and_parts.sql`](../../supabase/migrations/20261121085058_takeoff_send_grouped_lines_and_parts.sql)).
 
 Le temps de métré/quantitatif, contrôle et corrections compris, a un objectif de
 division par quatre minimum. La référence de valorisation est 60 € HT/h.
@@ -514,9 +519,11 @@ devis, ni version, ni section, ni quantité.
   reçoit ; pour chaque ligne de métré, sa cible (nouvelle ligne ou ligne antérieure, laquelle,
   dans quelle section) ; les sections créées ; pour une version créée, ses réglages tels
   qu'elle est enregistrée, dont ceux que la création prend à la politique de calcul du tenant
-  (les coefficients de vente du moteur 3). Ce qui ne l'est pas : les identifiants des lignes créées,
-  leur position, et, pour une ligne qui réunit plusieurs mesures, la mesure qui la représente
-  (sa page principale), que l'envoi choisit comme son écrivain. Un aperçu ne laisse rien : sa
+  (les coefficients de vente du moteur 3) ; et la source de chaque ligne (son fichier, sa page et
+  la ligne de métré qu'elle nomme), dont, pour une ligne qui réunit plusieurs longueurs, la mesure
+  qui la représente : elle vient en premier par sa page, sa position puis sa ligne de métré, et
+  une confirmation qui en a vu une autre est refusée. Ce qui ne l'est pas : les identifiants des
+  lignes créées et leur position. Un aperçu ne laisse rien : sa
   commande déposée part dans la transaction qui lui répond, refus compris (empreinte
   différente, commande expirée ou demande déjà reçue aussi). Un refus de l'aperçu est une
   réponse : le code d'un des refus nommés de l'envoi, et pour un aperçu périmé ou une décision
@@ -553,7 +560,13 @@ devis, ni version, ni section, ni quantité.
   de l'autre, et quand la désignation ne nomme qu'une ligne de la section (deux homonymes
   restent deux lignes). La ligne nomme chaque envoi qui l'alimente (`takeoff_contributions` :
   ses lignes de métré, lues par la règle « une page entre une fois » comme les autres clés
-  de provenance, par la base et par l'écran). Chaque ligne qu'un envoi crée sur un
+  de provenance, par la base et par l'écran). Ses parts disent ses sources actives : A envoie 3,
+  B ajoute 2, C remplace la page de B par 4, D ajoute 1 : les parts sont A et B, puis A et C,
+  puis A, C et D, comme la quantité. Un remplacement de page retire la part du métré remplacé ;
+  un ajout reprend les parts des sources actives de la ligne avant la sienne. Une ligne qu'un
+  remplacement antérieur à ce suivi a laissée avec la part du métré remplacé n'est pas
+  réécrite : son prochain ajout la corrige (sa quantité et ses sources actives étaient déjà
+  justes ; seule la liste des parts, qu'aucun écran ne lit, le nommait). Chaque ligne qu'un envoi crée sur un
   brouillon du moteur 2 nomme ainsi ses lignes de métré. Une ligne plus ancienne du moteur 2,
   qui n'en nomme aucune, reste à part : deux lignes, et l'aperçu le montre.
 - **Contrôles.** Les doublons et la couverture entre métrés, marqués « Comparaison au devis
@@ -590,13 +603,19 @@ devis, ni version, ni section, ni quantité.
   par l'application gardée, ajoute les parts aux lignes antérieures, compare ce qu'il laisse
   au résultat confirmé et enregistre un reçu. Un écart refuse tout
   (`TAKEOFF_SEND_PREVIEW_STALE`) et l'écran recalcule l'aperçu. Une révision d'un repère ou
-  d'une preuve rend l'aperçu caduc même si la quantité ne change pas. Les catégories et les
-  rôles MO par défaut d'un premier brouillon (ceux que donne « Créer un devis ») sont créés
-  après l'envoi : une confirmation refusée n'écrit rien.
+  d'une preuve rend l'aperçu caduc même si la quantité ne change pas. Les lignes d'audit de
+  l'application (« takeoff.apply.completed », et une « takeoff.mapping.applied » par ligne
+  qu'une règle de correspondance change) sont écrites par l'envoi, dans sa transaction, une
+  fois (commande de format 2 ; le format 1 de l'application précédente les laisse à son
+  serveur). Les catégories et les rôles MO par défaut d'un premier brouillon (ceux que donne
+  « Créer un devis ») sont créés après l'envoi : une confirmation refusée n'écrit rien.
 - **Une fois.** Un métré n'est envoyé qu'une fois (`TAKEOFF_SEND_ALREADY_SENT`). Chaque
   confirmation porte un identifiant de commande gardé par l'écran : après un délai dépassé,
   la même commande rejouée renvoie son reçu, sans seconde version ni seconde application,
-  même quand le premier essai s'engage pendant que le second recalcule son aperçu ; le
+  même quand le premier essai s'engage pendant que le second recalcule son aperçu, et refait
+  ce qui suit l'engagement (catégories et rôles MO par défaut d'un premier brouillon, créés sur
+  leur nom, jamais deux fois ; règles des autres métrés du brouillon) : un essai arrêté entre
+  l'engagement et ces effets ne les laisse pas manquer ; le
   même identifiant qui confirme autre chose (empreinte, destination, section, décisions de
   pages, forçage) est refusé (`TAKEOFF_SEND_REQUEST_CONFLICT`), et un membre qui ne lit plus
   le métré (l'affaire passée à un autre ingénieur) n'en reçoit pas le reçu
