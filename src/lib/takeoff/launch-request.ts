@@ -24,8 +24,11 @@ export const TAKEOFF_LAUNCH_MANDATE_REASONS = [
 /** The Mac of the mandate tries again on its own. */
 export const TAKEOFF_LAUNCH_TRANSIENT_REASONS = ["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING", "TAKEOFF_DISABLED"] as const;
 
-/** Why a request ended without its units ending normally: its budget spent, or set aside by a relaunch (its state). */
-export const TAKEOFF_LAUNCH_CLOSURE_REASONS = ["BUDGET_EXHAUSTED", "SUPERSEDED"] as const;
+/**
+ * Why a request ended without its units ending normally: its budget spent, set aside by a relaunch (its state), or the
+ * rest of it stopped by a member (lot 3: the plans not read yet are cancelled, the plans read stay).
+ */
+export const TAKEOFF_LAUNCH_CLOSURE_REASONS = ["BUDGET_EXHAUSTED", "SUPERSEDED", "STOPPED_BY_MEMBER"] as const;
 
 export type TakeoffLaunchDossierReason = (typeof TAKEOFF_LAUNCH_DOSSIER_REASONS)[number];
 export type TakeoffLaunchMandateReason = (typeof TAKEOFF_LAUNCH_MANDATE_REASONS)[number];
@@ -125,8 +128,7 @@ export type TakeoffLaunchManifest = {
   budget: { tokens: number; cost_cents: number };
 };
 
-/** The manifest of the grouped unit, from the snapshot the request seals (its active plans and references). */
-export function buildTakeoffLaunchManifest(input: {
+type TakeoffLaunchManifestInput = {
   intent: TakeoffLaunchManifest["intent"];
   sources: ReadonlyArray<TakeoffPreparationSource>;
   intakeDocumentByPlanFile: ReadonlyMap<string, { intakeDocumentId: string; generation: string | null }>;
@@ -134,7 +136,104 @@ export function buildTakeoffLaunchManifest(input: {
   omittedReferences: TakeoffLaunchManifest["coverage"]["references_omitted"];
   preparationRevision: number;
   budget: TakeoffLaunchManifest["budget"];
-}): TakeoffLaunchManifest {
+};
+
+/** The manifest of the grouped unit, from the snapshot the request seals (its active plans and references). */
+export function buildTakeoffLaunchManifest(input: TakeoffLaunchManifestInput): TakeoffLaunchManifest {
+  const { plans, references } = sealedManifestEntries(input);
+  return {
+    format_version: 1, intent: input.intent, order: { kind: "free_extraction", version: 1, list: null },
+    units: [{ key: TAKEOFF_GROUPED_UNIT_KEY, plans: plans.map((plan) => plan.entry_key) }],
+    plans, references,
+    coverage: { plans_retained: plans.length, plans_omitted: input.omittedPlans, references_omitted: input.omittedReferences },
+    preparation: { revision: input.preparationRevision, rule_version: 1 },
+    budget: input.budget,
+  };
+}
+
+/** The most units a request seals: one per plan, within the plan set's file limit (src/lib/takeoff/plans.ts). */
+export const TAKEOFF_LAUNCH_MAX_UNITS = 20;
+
+/** The key of a plan's unit in a manifest of format 2: its entry, the plan copy's identifier. Never a name or a page. */
+export function takeoffPlanUnitKey(entryKey: string) {
+  return `plan:${entryKey.toLowerCase()}`;
+}
+
+/**
+ * Lot 3, format 2: one unit per retained plan, each analysed by its own job, one at a time on the Mac of the mandate, in
+ * the order recorded here (`ordinal`, from 1), which is exposed before the first reading and never changes afterwards
+ * (a renamed plan or another sort on a screen plans nothing again). Each unit seals its share of the request's budget;
+ * the request's envelope stays the one of a grouped analysis (it is not multiplied by the number of plans).
+ */
+export type TakeoffPlanLaunchManifest = Omit<TakeoffLaunchManifest, "format_version" | "units"> & {
+  format_version: 2;
+  units: Array<TakeoffPlanLaunchUnit>;
+  /** The rule the order was recorded with: the normalized display name, then the copy's identifier. */
+  dispatch: { order: "display_name"; version: 1 };
+};
+export type TakeoffPlanLaunchUnit = {
+  key: string;
+  ordinal: number;
+  /** Its one plan: the entry key of `plans`, which lists the plans in the same order. */
+  plans: [string];
+  /** The original pages read, 1-based; empty for the whole plan. */
+  pages: number[];
+  page_count: number | null;
+  /** Its share of the request's budget: every paid call of its job needs a positive balance of it. */
+  budget: { tokens: number; cost_cents: number };
+};
+export type AnyTakeoffLaunchManifest = TakeoffLaunchManifest | TakeoffPlanLaunchManifest;
+
+/** A display name compared without case, accents or repeated spaces. */
+function normalizedPlanName(name: string) {
+  return name.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+const PLAN_NAME_ORDER = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
+
+/** The recorded order of a request's plans: their normalized display name (« Plan 2 » before « Plan 10 »), then identifier. */
+export function compareTakeoffPlansForDispatch(left: { name: string; entry_key: string }, right: { name: string; entry_key: string }) {
+  return PLAN_NAME_ORDER.compare(normalizedPlanName(left.name), normalizedPlanName(right.name))
+    || (left.entry_key < right.entry_key ? -1 : left.entry_key > right.entry_key ? 1 : 0);
+}
+
+/**
+ * The shares of a request's budget, by weight (the pages a unit reads): each rounded up, so that a positive envelope
+ * never leaves a unit with nothing; their sum exceeds the envelope by less than the number of units, and the request's
+ * own balance is checked as well before every call.
+ */
+export function splitTakeoffRequestBudget(budget: TakeoffLaunchManifest["budget"], weights: ReadonlyArray<number>) {
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  if (weights.length === 0 || weights.some((weight) => !Number.isInteger(weight) || weight < 1)) {
+    throw new Error("Each unit of a request needs a positive weight.");
+  }
+  return weights.map((weight) => ({
+    tokens: Math.ceil((budget.tokens * weight) / total),
+    cost_cents: Math.ceil((budget.cost_cents * weight) / total),
+  }));
+}
+
+/** The manifest of format 2 (lot 3): one unit per active plan of the snapshot the request seals, in the recorded order. */
+export function buildTakeoffPlanLaunchManifest(input: TakeoffLaunchManifestInput): TakeoffPlanLaunchManifest {
+  const entries = sealedManifestEntries(input);
+  const plans = [...entries.plans].sort(compareTakeoffPlansForDispatch);
+  if (plans.length === 0 || plans.length > TAKEOFF_LAUNCH_MAX_UNITS) {
+    throw new Error(`A request seals between 1 and ${TAKEOFF_LAUNCH_MAX_UNITS} plans.`);
+  }
+  const weights = plans.map((plan) => plan.pages.length || plan.page_count || 1);
+  const shares = splitTakeoffRequestBudget(input.budget, weights);
+  return {
+    format_version: 2, intent: input.intent, order: { kind: "free_extraction", version: 1, list: null },
+    units: plans.map((plan, index) => ({ key: takeoffPlanUnitKey(plan.entry_key), ordinal: index + 1, plans: [plan.entry_key],
+      pages: plan.pages, page_count: plan.page_count, budget: shares[index] })),
+    plans, references: entries.references,
+    coverage: { plans_retained: plans.length, plans_omitted: input.omittedPlans, references_omitted: input.omittedReferences },
+    preparation: { revision: input.preparationRevision, rule_version: 1 },
+    budget: input.budget,
+    dispatch: { order: "display_name", version: 1 },
+  };
+}
+
+function sealedManifestEntries(input: Pick<TakeoffLaunchManifestInput, "sources" | "intakeDocumentByPlanFile">) {
   const plans = input.sources.filter((source) => source.active && source.kind === "plan")
     .sort((left, right) => left.document_id.localeCompare(right.document_id))
     .map((source) => {
@@ -154,14 +253,7 @@ export function buildTakeoffLaunchManifest(input: {
       if (!source.content_hash) throw new Error("A sealed reference has no verified digest.");
       return { document_id: source.document_id, kind: source.kind, content_sha256: source.content_hash };
     });
-  return {
-    format_version: 1, intent: input.intent, order: { kind: "free_extraction", version: 1, list: null },
-    units: [{ key: TAKEOFF_GROUPED_UNIT_KEY, plans: plans.map((plan) => plan.entry_key) }],
-    plans, references,
-    coverage: { plans_retained: plans.length, plans_omitted: input.omittedPlans, references_omitted: input.omittedReferences },
-    preparation: { revision: input.preparationRevision, rule_version: 1 },
-    budget: input.budget,
-  };
+  return { plans, references };
 }
 
 /** The reason of a request, in French, as the affaire shows it. Names come from the dossier the reader already sees. */
@@ -192,6 +284,7 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "EVALUATION_FAILED": return "Métré non démarré — la vérification du dossier a échoué plusieurs fois. Reprenez avec votre forfait pour réessayer.";
     case "SUPERSEDED": return "Métré automatique remplacé par une relance de l’analyse : une nouvelle analyse se lance depuis les options du métré.";
     case "BUDGET_EXHAUSTED": return "Métré arrêté — le budget de cette analyse est épuisé. Une nouvelle analyse se lance depuis les options du métré.";
+    case "STOPPED_BY_MEMBER": return "Métré arrêté à la demande d’un métreur : les plans déjà lus restent disponibles, les autres n’ont pas été lus.";
   }
 }
 
