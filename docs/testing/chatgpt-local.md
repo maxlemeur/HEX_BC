@@ -309,8 +309,10 @@ compte propriétaire, son port et son dossier d'artefacts
 - [`chatgpt-local-decisions.e2e.ts`](../../e2e/army/local/chatgpt-local-decisions.e2e.ts) :
   assistance Decisions (DEC01, TRI01), écran Vecteurs du labo (VEC01), reprise
   des prix (PRX02), réanalyse des pièces (INTRETRY01, INTWORD01) et démarrage
-  automatique du métré à la confirmation du dossier (AUTO01 à AUTO05, chacun avec
-  ses propres comptes et le démarrage automatique activé pour lui seul).
+  automatique du métré à la confirmation du dossier (AUTO01 à AUTO05) et sa zone
+  sur l’affaire (AUTO06 : motif lu par un directeur, prise en charge par un
+  opérateur, relance sans version ni brouillon, ancien lien de lancement), chacun
+  avec ses propres comptes et le démarrage automatique activé pour lui seul.
 
 Un seul fichier exécutait ces tests en série sur son serveur et fixait la durée
 du check Critical. Les deux serveurs ne compilent jamais en même temps sur une
