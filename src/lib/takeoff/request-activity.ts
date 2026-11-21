@@ -128,21 +128,22 @@ export function parseTakeoffRequestManifest(raw: unknown): TakeoffRequestManifes
   };
 }
 
+/** A failure whose analysis never began on the Mac: its unit did not start. */
+const NOT_STARTED_CODES = new Set(["TAKEOFF_WORKER_NOT_STARTED", "TAKEOFF_WORKER_QUEUE_EXPIRED", "TAKEOFF_WORKER_HOST_SILENT"]);
+
 /**
- * The state of a unit from its job, until the dispatcher's reading contract (readTakeoffLaunchRequestUnits, one rule in
- * SQL) is on main: queued (its turn, or a technical retry due later), running, succeeded (sent or not), failed,
- * canceled after its reading started, or not_started. Never a success from the presence of a result row.
+ * The state of a unit from its job, until the dispatcher's reading contract (readTakeoffLaunchRequestUnits) is on main:
+ * the same rule as its SQL (private.takeoff_unit_state, migration A of lot 3), so that the swap changes no state. The
+ * recorded end decides first; a failure that never began is « not started »; a job still pending, or failed with its
+ * technical retry still to decide or to run, waits in the queue. Never a success from the presence of a result row.
  */
-function unitStateOf(job: TakeoffRequestUnitJobRow): TakeoffUnitState | null {
-  switch (job.status) {
-    case "pending": return "queued";
-    case "processing": return "running";
-    case "completed":
-    case "applied": return "succeeded";
-    case "failed": return job.next_retry_at && !job.analysis_outcome ? "queued" : "failed";
-    case "canceled": return job.started_at ? "canceled" : "not_started";
-    default: return null;
-  }
+function unitStateOf(job: TakeoffRequestUnitJobRow): TakeoffUnitState {
+  const outcome = job.analysis_outcome;
+  if (outcome === "success" || (!outcome && (job.status === "completed" || job.status === "applied"))) return "succeeded";
+  if (outcome === "canceled" || (!outcome && job.status === "canceled")) return "canceled";
+  if (outcome === "failure") return !job.started_at || NOT_STARTED_CODES.has(job.error_code ?? "") ? "not_started" : "failed";
+  if (job.status === "processing") return "running";
+  return "queued";
 }
 
 /**
@@ -161,8 +162,8 @@ export function deriveTakeoffRequestUnits(input: {
     .map((job) => [job.launch_unit_key as string, job]));
   const units: TakeoffRequestUnitView[] = manifest.units.flatMap((unit) => {
     const job = jobsByUnit.get(unit.key);
-    const state = job ? unitStateOf(job) : null;
-    if (!job || !state) return [];
+    if (!job) return [];
+    const state = unitStateOf(job);
     const plans = unit.plans.map((entry) => manifest.plans.get(entry));
     const plan = plans.length === 1 ? plans[0] : undefined;
     return [{
@@ -171,9 +172,9 @@ export function deriveTakeoffRequestUnits(input: {
       name: plan?.name ?? `Analyse groupée de ${plans.length} plans`,
       pages: unit.pages ?? plan?.pages ?? [],
       jobId: job.id, state,
-      reasonCode: (state === "failed" || state === "canceled" || state === "not_started") && job.error_code && PUBLIC_CODES.has(job.error_code)
+      reasonCode: (state === "failed" || state === "not_started") && job.error_code && PUBLIC_CODES.has(job.error_code)
         ? job.error_code : null,
-      retryAt: state === "queued" ? job.next_retry_at : null,
+      retryAt: job.status === "failed" && !job.analysis_outcome ? job.next_retry_at : null,
       updatedAt: job.updated_at,
       reviewable: state === "succeeded",
     }];

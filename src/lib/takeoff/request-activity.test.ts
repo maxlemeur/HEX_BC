@@ -128,17 +128,30 @@ describe("deriveTakeoffRequestUnits: the dispatcher's shape from a sealed manife
     expect(derived.coverage).toEqual({ expected: 3, queued: 1, running: 1, succeeded: 1, failed: 0, canceled: 0, not_started: 0 });
   });
 
+  // The dispatcher's rule (private.takeoff_unit_state): the recorded end first; a failure that never began is not started.
   it("puts each unit in exactly one state from its job, never from its result rows", () => {
+    const started = "2026-11-21T09:05:01.000Z";
     const derived = deriveTakeoffRequestUnits({ requestId: REQUEST, manifest: parseTakeoffRequestManifest(perPlanManifest), jobs: [
-      unitJob("a", `plan:${PLAN_A}`, { status: "failed", analysis_outcome: "failure", error_code: "TAKEOFF_PDF_CORRUPTED" }),
-      unitJob("b", `plan:${PLAN_B}`, { status: "canceled", started_at: "2026-11-21T09:05:01.000Z", analysis_outcome: "canceled" }),
-      unitJob("c", `plan:${PLAN_C}`, { status: "canceled", analysis_outcome: "canceled", error_code: "PRIVATE_DETAIL" }),
+      unitJob("a", `plan:${PLAN_A}`, { status: "failed", analysis_outcome: "failure", started_at: started, error_code: "TAKEOFF_PDF_CORRUPTED" }),
+      unitJob("b", `plan:${PLAN_B}`, { status: "canceled", analysis_outcome: "canceled", error_code: "PRIVATE_DETAIL" }),
+      unitJob("c", `plan:${PLAN_C}`, { status: "failed", analysis_outcome: "failure", started_at: started, error_code: "TAKEOFF_WORKER_QUEUE_EXPIRED" }),
     ] })!;
     expect(derived.units.map((entry) => [entry.state, entry.reasonCode])).toEqual([
-      ["not_started", null], ["failed", "TAKEOFF_PDF_CORRUPTED"], ["canceled", null],
+      ["not_started", "TAKEOFF_WORKER_QUEUE_EXPIRED"], ["failed", "TAKEOFF_PDF_CORRUPTED"], ["canceled", null],
     ]);
     expect(describeTakeoffRequestActivityCoverage({ units: { ...derived, unknownCalls: null }, groupedPlans: [] }))
       .toBe("0 plan lu sur 3 · 1 en échec · 1 non démarré · 1 arrêté");
+  });
+
+  it("follows the same rule for a failure that never began and a failure still to retry", () => {
+    const derived = deriveTakeoffRequestUnits({ requestId: REQUEST, manifest: parseTakeoffRequestManifest(perPlanManifest), jobs: [
+      unitJob("a", `plan:${PLAN_A}`, { status: "failed", analysis_outcome: "failure", error_code: "AI_PROVIDER" }),
+      unitJob("b", `plan:${PLAN_B}`, { status: "failed", started_at: "2026-11-21T09:05:01.000Z", error_code: "AI_TIMEOUT" }),
+      unitJob("c", `plan:${PLAN_C}`, { status: "completed", analysis_outcome: "success" }),
+    ] })!;
+    expect(derived.units.map((entry) => [entry.key, entry.state])).toEqual([
+      [`plan:${PLAN_C}`, "succeeded"], [`plan:${PLAN_A}`, "not_started"], [`plan:${PLAN_B}`, "queued"],
+    ]);
   });
 
   it("keeps a technical retry due later in the queue, with its due time", () => {
