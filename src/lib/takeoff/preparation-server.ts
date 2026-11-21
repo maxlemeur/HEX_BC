@@ -114,12 +114,14 @@ async function readPreparationRevision(context: AuthenticatedTenantContext, proj
   return state;
 }
 
+/** A dossier piece the draft has not seen in its current role (new, or reclassified) is never left out unseen. */
 function assertDossierSourcesReviewed(draft: TakeoffPreparation, sources: TakeoffPreparation["sources"]) {
   const planSetId = draft.provenance?.plan_set_id;
   if (!planSetId) return;
-  const reviewed = new Set(draft.sources.map((source) => source.document_id));
-  if (sources.some((source) => isDossierDefaultSource(source, planSetId) && !reviewed.has(source.document_id))) {
-    preparationConflict("Des pièces ont été ajoutées au dossier. Rechargez la préparation pour vérifier la sélection mise à jour.");
+  const reviewed = new Map(draft.sources.map((source) => [source.document_id, source.kind]));
+  if (sources.some((source) => (isDossierDefaultSource(source, planSetId) || reviewed.has(source.document_id)) &&
+      reviewed.get(source.document_id) !== source.kind)) {
+    preparationConflict("Des pièces ont été ajoutées ou reclassées dans le dossier. Rechargez la préparation pour vérifier la sélection mise à jour.");
   }
 }
 
@@ -262,8 +264,12 @@ export async function confirmTakeoffPreparation(input: {
     if (draft.provenance && source.kind === "plan") {
       const document = await renderPdfPages(bytes, { ...TAKEOFF_PAGE_TRIAGE_TEXT, pages: [source.pages[0] ?? 1] });
       source.plan_identity = readPlanTitleBlock(document.pages[0]?.regionText ?? "");
-      const recordedRevision = !previousHash || previousHash === source.content_hash ? source.revision : null;
-      source.revision = sources.find((current) => current.document_id === source.document_id)?.revision ?? source.plan_identity?.revision ?? recordedRevision;
+      // The metadata or file name, then what the preparation recorded for these bytes (an index the operator
+      // entered), then the title block. A differing reading stays a difference the member settles.
+      const sameBytes = !previousHash || previousHash === source.content_hash;
+      if (!sameBytes) delete source.revision_reading_kept;
+      const known = sources.find((current) => current.document_id === source.document_id)?.revision;
+      source.revision = known ?? (sameBytes ? source.revision : null) ?? source.plan_identity?.revision ?? null;
     }
   }
   const revision = record.revision + 1;
@@ -275,7 +281,7 @@ export async function confirmTakeoffPreparation(input: {
   }
   if (draft.provenance) {
     draft = resolveDeducedPlanVersions(draft);
-    if (evaluateTakeoffPreparation(draft).blockers.some((blocker) => blocker.code === "source_revision_conflict")) {
+    if (evaluateTakeoffPreparation(draft).blockers.some((blocker) => blocker.code === "source_revision_conflict" || blocker.code === "source_revision_mismatch")) {
       await persistPreparationRecord({ context, projectId: input.projectId, expectedRevision: record.revision, revision,
         draft: draft as unknown as Json, snapshot: null, confirmedAt: null });
       return readPreparationRevision(context, input.projectId, revision, false);
@@ -490,26 +496,29 @@ export async function assertConfirmedTakeoffPreparation(input: {
     preparationConflict("Le fichier téléversé ne correspond pas à la source confirmée.");
   }
   if (preparation.provenance) {
-    // A revision choice binds both files: the discarded one is re-read here, the retained one by the worker.
+    // A revision choice binds both files, and an identical copy is set aside for its bytes: the file left out is
+    // re-read here, the retained one by the worker before any model call.
     const prepared = new Map(preparation.sources.map((source) => [source.document_id, source]));
     const available = new Map(sources.map((source) => [source.document_id, source]));
+    const participants = [
+      ...(preparation.plan_revision_decisions ?? []).flatMap((decision) => [decision.left, decision.right]),
+      ...preparation.sources.filter((source) => source.kind === "plan" && !source.active && source.alternate_of)
+        .map((source) => ({ document_id: source.document_id, content_hash: source.content_hash })),
+    ];
     const checked = new Set<string>();
-    for (const decision of preparation.plan_revision_decisions ?? []) {
-      for (const participant of [decision.left, decision.right]) {
-        const { document_id, content_hash } = participant;
-        const source = prepared.get(document_id);
-        const current = available.get(document_id);
-        if (!source || !current?.file_path || current.kind !== "plan" || current.plan_set_id !== preparation.provenance.plan_set_id ||
-            current.source_version !== source.source_version || source.content_hash !== content_hash) {
-          preparationConflict("Une version de plan a changé. Préparez une nouvelle analyse et vérifiez le choix d’indices.");
-        }
-        if (source.active || checked.has(document_id)) continue;
-        const { data, error } = await input.context.supabase.storage.from(PLAN_FILES_BUCKET).download(current.file_path);
-        if (error || !data || createHash("sha256").update(new Uint8Array(await data.arrayBuffer())).digest("hex") !== content_hash) {
-          preparationConflict(`La version « ${source.document_name} » a changé ou est inaccessible. Préparez une nouvelle analyse et vérifiez le choix d’indices.`);
-        }
-        checked.add(document_id);
+    for (const { document_id, content_hash } of participants) {
+      const source = prepared.get(document_id);
+      const current = available.get(document_id);
+      if (!source || !content_hash || !current?.file_path || current.kind !== "plan" || current.plan_set_id !== preparation.provenance.plan_set_id ||
+          current.source_version !== source.source_version || source.content_hash !== content_hash) {
+        preparationConflict("Une version de plan a changé. Préparez une nouvelle analyse et vérifiez le choix d’indices.");
       }
+      if (source.active || checked.has(document_id)) continue;
+      const { data, error } = await input.context.supabase.storage.from(PLAN_FILES_BUCKET).download(current.file_path);
+      if (error || !data || createHash("sha256").update(new Uint8Array(await data.arrayBuffer())).digest("hex") !== content_hash) {
+        preparationConflict(`La version « ${source.document_name} » a changé ou est inaccessible. Préparez une nouvelle analyse et vérifiez les plans retenus.`);
+      }
+      checked.add(document_id);
     }
   }
   // PostgREST formats timestamptz with +00:00, while the immutable JSON kept Z.

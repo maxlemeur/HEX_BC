@@ -98,6 +98,14 @@ export async function assertLocalTakeoffExecutionHost(job: TakeoffJobProcessingR
   return job.execution_host_id;
 }
 
+/** A job runs on its creator's subscription: only they may make it start (a resubmission, a pending replay). */
+export function assertTakeoffJobStarter(job: { id?: string; created_by?: string | null }, userId: string) {
+  if (job.created_by !== userId) {
+    throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId: job.id,
+      message: "Seule la personne qui a lancé cette analyse peut la démarrer avec son forfait. Préparez une nouvelle analyse avec votre forfait." });
+  }
+}
+
 /** Before requeueing, verify the persisted creator, plan and originating Mac. */
 export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClient, tenantId: string, job: {
   id?: string; execution_provider?: string | null; execution_host_id?: string | null; created_by?: string | null; preparation_snapshot?: unknown;

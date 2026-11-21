@@ -23,8 +23,9 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 const SOURCE_ID = "99999999-9999-4999-8999-999999999999";
 const base = { projectId: M3_PROJECT_ID, planSetId: M3_PLAN_SET_ID, estimateVersionId: M3_VERSION_ID, preparationRevision: 2, level: "B" as const, provider: "auto" as const };
 
-function fixture(preparationSnapshot?: unknown) {
+function fixture(preparationSnapshot?: unknown, createdBy = M3_USER_ID) {
   const job = {
+    created_by: createdBy,
     id: derivePlanSetTakeoffJobId({ ...base, tenantId: M3_TENANT_ID, sourceVersionId: SOURCE_ID }),
     estimate_version_id: M3_VERSION_ID, status: "pending", level: "B", source_file_name: "Plan fictif.pdf",
     source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z", execution_provider: "chatgpt_local",
@@ -55,6 +56,16 @@ describe("prepared plan launch receipts", () => {
     const recovered = await findTakeoffJobForPlanSetLaunch(base);
     expect(recovered?.id).toBe(job.id);
     expect(fake.queries.filter((query) => query.table === "takeoff_jobs")).toHaveLength(2);
+    expect(fake.queries.filter((query) => query.operation !== "select")).toEqual([]);
+  });
+
+  it("refuses to start another member's pending job on a replayed launch", async () => {
+    const { fake } = fixture(undefined, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    for (const launch of [base, { ...base, sourceVersionId: SOURCE_ID }]) {
+      await expect(findTakeoffJobForPlanSetLaunch(launch)).rejects.toMatchObject({
+        status: 403, code: "FORBIDDEN", message: expect.stringContaining("Préparez une nouvelle analyse"),
+      });
+    }
     expect(fake.queries.filter((query) => query.operation !== "select")).toEqual([]);
   });
 

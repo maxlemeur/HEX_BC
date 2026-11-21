@@ -108,6 +108,28 @@ describe("persisted preparation server boundary", () => {
       .toEqual(expect.arrayContaining(["Plan fictif.pdf", "Plan B.pdf", "CCTP.txt"]));
   });
 
+  it.each(["cctp", "dpgf"])("treats an attachment reclassified as %s as a new dossier piece", async (kind) => {
+    const f = fixture();
+    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", storage_path: `${M3_TENANT_ID}/piece.txt`,
+      document_kind: "other", mime_type: "text/plain", size_bytes: 10, updated_at: "2026-11-20T00:00:00Z" };
+    f.intake.push(attachment);
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    expect(draft.sources.find(({ document_id }) => document_id === attachment.id)).toMatchObject({ kind: "other", active: false });
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    const confirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! });
+    const launch = { context: f.context, estimateVersionId: M3_VERSION_ID, planSetId: M3_PLAN_SET_ID,
+      preparationRevision: confirmed.revision, level: "C", provider: "chatgpt" } as const;
+    await expect(assertConfirmedTakeoffPreparation(launch)).resolves.toBeTruthy();
+    attachment.document_kind = kind;
+    await expect(assertConfirmedTakeoffPreparation(launch)).rejects.toMatchObject({ status: 409 });
+    await expect(saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: confirmed.draft, expectedRevision: confirmed.revision }))
+      .rejects.toMatchObject({ status: 409 });
+    const reloaded = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    expect(reloaded.draft.sources.find(({ document_id }) => document_id === attachment.id)).toMatchObject({ kind, active: true });
+    expect(reloaded.changedSourceIds).toContain(attachment.id);
+    expect(reloaded.confirmedAt).toBeNull();
+  });
+
   it("reads and admits the historic upload format before adapting it to a dossier", async () => {
     const f = fixture();
     const hash = "a".repeat(64);
@@ -152,6 +174,24 @@ describe("persisted preparation server boundary", () => {
     expect(f.getRecord()?.confirmed_snapshot).toBeTruthy();
   });
 
+  it("keeps the operator's index and asks before applying a title block that reads another one", async () => {
+    const f = fixture();
+    f.file.metadata = {};
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    draft.sources[0].revision = "A";
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    vi.mocked(renderPdfPages).mockResolvedValue({ pages: [{ regionText: "Indice : B" }] } as never);
+    const pending = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! });
+    expect(pending.confirmedAt).toBeNull();
+    expect(pending.draft.sources[0]).toMatchObject({ revision: "A", plan_identity: expect.objectContaining({ revision: "B" }) });
+    expect(pending.readiness.blockers).toContainEqual(expect.objectContaining({ code: "source_revision_mismatch", source_document_id: f.file.id }));
+    pending.draft.sources[0].revision_reading_kept = "B";
+    const kept = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: pending.draft, expectedRevision: pending.revision });
+    const confirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: kept.revision! });
+    expect(confirmed.confirmedAt).not.toBeNull();
+    expect(confirmed.draft.sources[0].revision).toBe("A");
+  });
+
   it("refuses launch when the discarded revision's bytes change after confirmation", async () => {
     const f = fixture();
     f.file.file_name = "Distribution rev A.pdf";
@@ -174,6 +214,42 @@ describe("persisted preparation server boundary", () => {
     expect(confirmed.draft.sources.filter(({ active }) => active)).toHaveLength(1);
     await expect(assertConfirmedTakeoffPreparation(launch)).resolves.toMatchObject({ preparation_revision: confirmed.revision });
     f.contents.set(alternative.file_path, Buffer.from("replacement bytes"));
+    await expect(assertConfirmedTakeoffPreparation(launch)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("confirms and admits once a plan that left the dossier is removed from the preparation", async () => {
+    const f = fixture();
+    const second = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan second.pdf", file_path: `${M3_TENANT_ID}/plan-second.pdf` };
+    f.files.push(second);
+    f.contents.set(second.file_path, Buffer.from("second plan bytes"));
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    f.files.splice(f.files.indexOf(second), 1);
+    const reopened = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    expect(reopened.readiness.blockers).toContainEqual(expect.objectContaining({ code: "source_unavailable", source_document_id: second.id }));
+    const removed = { ...reopened.draft, sources: reopened.draft.sources.filter(({ document_id }) => document_id !== second.id) };
+    const resaved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: removed, expectedRevision: saved.revision });
+    const confirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: resaved.revision! });
+    expect(confirmed.confirmedAt).not.toBeNull();
+    await expect(assertConfirmedTakeoffPreparation({ context: f.context, estimateVersionId: M3_VERSION_ID, planSetId: M3_PLAN_SET_ID,
+      preparationRevision: confirmed.revision, level: "C", provider: "chatgpt" })).resolves.toBeTruthy();
+  });
+
+  it("refuses launch when a deduplicated identical copy later differs", async () => {
+    const f = fixture();
+    const copy = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan fictif copie.pdf", file_path: `${M3_TENANT_ID}/plan-copie.pdf` };
+    f.files.push(copy);
+    f.contents.set(copy.file_path, f.content);
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    const confirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! });
+    expect(confirmed.draft.sources.filter(({ active }) => active)).toHaveLength(1);
+    expect(confirmed.draft.sources.filter(({ alternate_of }) => alternate_of)).toHaveLength(1);
+    const launch = { context: f.context, estimateVersionId: M3_VERSION_ID, planSetId: M3_PLAN_SET_ID,
+      preparationRevision: confirmed.revision, level: "C", provider: "chatgpt" } as const;
+    await expect(assertConfirmedTakeoffPreparation(launch)).resolves.toBeTruthy();
+    const alternate = confirmed.draft.sources.find(({ alternate_of }) => alternate_of)!;
+    f.contents.set(alternate.file_path!, Buffer.from("different bytes"));
     await expect(assertConfirmedTakeoffPreparation(launch)).rejects.toMatchObject({ status: 409 });
   });
 

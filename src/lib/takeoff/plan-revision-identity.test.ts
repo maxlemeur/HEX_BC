@@ -1,6 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
+import { isSameDocument } from "@/lib/takeoff/page-contributions";
 import { findPlanRevisionConflicts, inferPlanLogicalReference, readPlanTitleBlock } from "@/lib/takeoff/plan-revision-identity";
 
 function plan(id: string, name: string, title?: string) {
@@ -11,7 +12,16 @@ function plan(id: string, name: string, title?: string) {
 describe("plan revisions", () => {
   it("does not assert shared identity for an isolated plan with a generic filename", () => {
     expect(inferPlanLogicalReference(plan("a", "Plan"))).toBeNull();
-    expect(inferPlanLogicalReference(plan("a", "Plan", "N° de plan : P-101\nBâtiment : A"))).toBe("plan:p-101:a");
+    expect(inferPlanLogicalReference(plan("a", "Plan", "N° de plan : P-101\nBâtiment : A"))).toBe("plan:p-101:batiment=a");
+  });
+
+  it("names each part of an inferred identity so a building and a level never collide", () => {
+    const building = plan("a", "Plan", "N° de plan : P-101\nBâtiment : 1");
+    const level = plan("b", "Plan", "N° de plan : P-101\nNiveau : 1");
+    const [left, right] = [building, level].map((source) => inferPlanLogicalReference(source));
+    expect(left).not.toBe(right);
+    expect(isSameDocument({ plan_file_id: "a", content_hash: building.content_hash, file_name: "Plan.pdf", logical_document_id: left },
+      { plan_file_id: "b", content_hash: level.content_hash, file_name: "Plan.pdf", logical_document_id: right })).toBe(false);
   });
   it("matches filename variants without treating a date as a revision", () => {
     const left = plan("a", "Évacuation RDC - Indice A - 2026-10-03");

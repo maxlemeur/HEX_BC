@@ -251,6 +251,67 @@ describe("TakeoffPreparationPanel", () => {
     expect(actions.confirm).toHaveBeenLastCalledWith(expect.objectContaining({ expectedExecutionFingerprint: changed.fingerprint }));
   });
 
+  it("shows a piece that left the dossier and removes it from the preparation", async () => {
+    const other = { ...SOURCE, document_id: "plan-2", document_name: "Plan plomberie R+2.pdf", source_version: "version-b" };
+    const missing = { ...SOURCE, source_version: "", content_hash: null, active: false };
+    availableSources = [other];
+    stored = buildDeducedTakeoffPreparation({ sources: [other], planSetId: PLAN_SET_ID });
+    stored.sources = [missing, ...stored.sources];
+    stored.plan_revision_decisions = [];
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await openOptions();
+    fireEvent.click(await screen.findByRole("button", { name: /Mes documents/ }));
+    expect(screen.getByText("Cette pièce n’est plus dans le dossier.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: `Retirer ${SOURCE.document_name} de la préparation` }));
+    expect(screen.queryByLabelText(`Utiliser ${SOURCE.document_name}`)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    await waitFor(() => expect(actions.save).toHaveBeenCalled());
+    const saved = actions.save.mock.lastCall![0].draft as TakeoffPreparation;
+    expect(saved.sources.map(({ document_id }) => document_id)).toEqual(["plan-2"]);
+    expect(screen.queryByRole("button", { name: `Retirer ${other.document_name} de la préparation` })).not.toBeInTheDocument();
+  });
+
+  it.each([["Garder l’indice A", { revision: "A", revision_reading_kept: "B" }], ["Retenir l’indice B", { revision: "B" }]] as const)(
+    "lets the member settle a title-block index that differs from the retained one (%s)", async (choice, expected) => {
+      stored = buildDeducedTakeoffPreparation({ sources: [{ ...SOURCE, plan_identity: { number: null, building: null, level: null, discipline: null, revision: "B" } }], planSetId: PLAN_SET_ID });
+      render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+      expect(await screen.findByText(/^Le cartouche de « Plan plomberie R\+1[.]pdf » indique l’indice B/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeDisabled();
+      await openOptions();
+      fireEvent.click(await screen.findByRole("button", { name: /Mes documents/ }));
+      fireEvent.click(screen.getByRole("button", { name: choice }));
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+      await waitFor(() => expect(actions.save).toHaveBeenCalled());
+      const saved = (actions.save.mock.lastCall![0].draft as TakeoffPreparation).sources[0];
+      expect(saved).toMatchObject(expected);
+      if (!("revision_reading_kept" in expected)) expect(saved.revision_reading_kept).toBeUndefined();
+      fireEvent.click(screen.getByRole("button", { name: /Vérifier et lancer/ }));
+      expect(screen.queryByText(/^Le cartouche de/)).not.toBeInTheDocument();
+    });
+
+  it("proposes the page triage of an untouched deduced draft without a manual save first", async () => {
+    const storedPlan = { ...SOURCE, file_path: "tenant/plans/plan-1.pdf" };
+    availableSources = [storedPlan];
+    stored = buildDeducedTakeoffPreparation({ sources: [storedPlan], planSetId: PLAN_SET_ID });
+    actions.load.mockResolvedValueOnce(success({ ...state(), revision: null, needsSave: true }));
+    actions.triageAvailability.mockResolvedValue(success({ status: "available", message: "Tri disponible.", model: "gpt-6-luna", max_pages: 60 }));
+    actions.triage.mockImplementation(async () => success({ state: state(), outcome: { message: "Pages proposées.", stop_reason: null } }));
+    // The first save of a deduced draft has no revision to compare.
+    actions.save.mockImplementationOnce(async ({ draft, expectedRevision }) => {
+      if (expectedRevision !== null) throw new Error("La préparation a changé.");
+      stored = structuredClone(draft);
+      storedRevision = 6;
+      return success(state());
+    });
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await openOptions();
+    fireEvent.click(await screen.findByRole("button", { name: /Mes documents/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Proposer le tri des pages" }));
+await waitFor(() => expect(actions.triage).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 6, documentId: SOURCE.document_id })));
+    expect(actions.save).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("La préparation n’est pas enregistrée.")).not.toBeInTheDocument();
+  });
+
   it("includes the selected building in the closed-options recap", async () => {
     stored.scope.buildings = ["Bâtiment Ouest"];
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);

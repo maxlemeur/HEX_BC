@@ -14,8 +14,8 @@ import {
   buildPdfChunks,
   createChunkPromptSourceHint,
   createPdfChunkBytes,
+  countLocatedUnmeasuredQuantities,
   getPdfPageCount,
-  isLocatedUnmeasuredQuantity,
   mergeTakeoffChunkExchanges,
   remapChunkLocalPagesToAbsolute,
   type TakeoffPdfChunk,
@@ -1728,6 +1728,8 @@ type LevelCProcessingError = TakeoffError & {
 type ProcessLevelCAggregate = {
   normalizedExchange: TakeoffExchange;
   itemsForInsert: NormalizedTakeoffItemForInsert[];
+  /** Unmeasured quantities the model located on a page of their fragment, with an observation (chunking.ts). */
+  locatedUnmeasuredQuantities: number;
   tokenCount: number;
   tokenUsage: ProcessLevelCMetricsSummary;
   costCents: number;
@@ -2104,6 +2106,7 @@ async function processLevelCChunks(input: {
   };
   let costCents = 0;
   let durationMs = 0;
+  let locatedUnmeasuredQuantities = 0;
 
   for (const chunk of chunks) {
     const chunkPrompt = getTakeoffPrompt(TAKEOFF_LEVEL_C, {
@@ -2144,6 +2147,7 @@ async function processLevelCChunks(input: {
       });
 
       const parsedExchange = TakeoffExchangeSchema.parse(result.data);
+      locatedUnmeasuredQuantities += countLocatedUnmeasuredQuantities({ chunk, exchange: parsedExchange });
       chunkExchanges.push({
         chunk,
         exchange: remapChunkLocalPagesToAbsolute({
@@ -2277,6 +2281,7 @@ async function processLevelCChunks(input: {
   return {
     normalizedExchange: normalized.exchange,
     itemsForInsert: normalized.itemsForInsert,
+    locatedUnmeasuredQuantities,
     tokenCount: tokenUsage.totalTokens,
     tokenUsage,
     costCents,
@@ -2882,7 +2887,7 @@ async function processTakeoffLevel(
         sourceFile,
         tablesCount: levelCResult.tablesCount,
         itemsCount: levelCResult.itemsForInsert.length,
-        hasUnmeasuredQuantities: levelCResult.normalizedExchange.warnings.some(isLocatedUnmeasuredQuantity),
+        hasUnmeasuredQuantities: levelCResult.locatedUnmeasuredQuantities > 0,
         providerMeta: levelCResult.providerMeta,
       });
 

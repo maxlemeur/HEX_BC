@@ -49,6 +49,8 @@ export const takeoffPreparationSourceSchema = z.object({
   alternate_of: optionalTextSchema.optional(),
   pages_before_deduplication: z.array(z.number().int().positive()).max(2000).optional(),
   selected_in_plan_set: z.boolean().optional(),
+  // The title-block index the member saw and chose not to apply: the retained index stays.
+  revision_reading_kept: z.string().trim().min(1).max(40).optional(),
 }).strict();
 
 const scopeSchema = z.object({
@@ -204,6 +206,12 @@ function hasRecordedDecision(unknown: TakeoffPreparationUnknown) {
 }
 
 /** Shared by the UI, confirmation, launch and replay: AI ranking never alters it. */
+/** A title-block index that differs from the retained one and that the member has not settled yet. */
+export function getUnresolvedRevisionReading(source: Pick<TakeoffPreparationSource, "kind" | "revision" | "plan_identity" | "revision_reading_kept">) {
+  const reading = source.kind === "plan" ? source.plan_identity?.revision : null;
+  return reading && source.revision && reading !== source.revision && source.revision_reading_kept !== reading ? reading : null;
+}
+
 export function evaluateTakeoffPreparation(
   preparation: TakeoffPreparation
 ): TakeoffPreparationReadiness {
@@ -245,8 +253,14 @@ export function evaluateTakeoffPreparation(
     }
     if (!source.source_version.trim() && deduced && source.document_id.startsWith("upload:")) {
       block("source_unavailable", path, `Le fichier téléversé « ${source.document_name} » est indisponible dans le dossier. Retirez-le des sources actives ou ajoutez-le au jeu de plans et vérifiez les pages retenues.`, source.document_id);
+    } else if (!source.source_version.trim() && deduced) {
+      block("source_unavailable", path, `La pièce « ${source.document_name} » n’est plus dans le dossier. Retirez-la de la préparation dans « Mes documents ».`, source.document_id);
     } else if (!source.source_version.trim()) {
       block("source_version_required", path, `L'identité du fichier « ${source.document_name} » doit être vérifiée.`, source.document_id);
+    }
+    const reading = deduced ? getUnresolvedRevisionReading(source) : null;
+    if (reading) {
+      block("source_revision_mismatch", path, `Le cartouche de « ${source.document_name} » indique l’indice ${reading}, la préparation retient l’indice ${source.revision}. Choisissez l’indice à garder dans « Mes documents ».`, source.document_id);
     }
     if (new Set(source.pages).size !== source.pages.length || source.pages.some((page) => page < 1 || (source.page_count !== null && page > source.page_count))) {
       block("source_pages_invalid", `${path}.pages`, `Vérifiez les pages retenues de « ${source.document_name} ».`, source.document_id);

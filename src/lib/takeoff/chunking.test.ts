@@ -5,7 +5,7 @@ import {
   buildPdfChunks,
   createPdfChunkBytes,
   getPdfPageCount,
-  isLocatedUnmeasuredQuantity,
+  countLocatedUnmeasuredQuantities,
   mergeTakeoffChunkExchanges,
   remapChunkLocalPagesToAbsolute,
 } from "@/lib/takeoff/chunking";
@@ -78,7 +78,9 @@ describe("takeoff chunking", () => {
       "RDC.pdf · page indéterminée (fragment 1) — Cote absente.",
       "RDC.pdf · page indéterminée (fragment 1) — Unité absente.",
     ]);
-    expect(exchange.warnings.map(isLocatedUnmeasuredQuantity)).toEqual([true, false, false]);
+    expect(countLocatedUnmeasuredQuantities({ chunk, exchange: createExchange({ items: [], warnings }) })).toBe(1);
+    const empty = { code: "QUANTITE_A_VERIFIER", message: "Page 1 :", severity: "warning" as const };
+    expect(countLocatedUnmeasuredQuantities({ chunk, exchange: createExchange({ items: [], warnings: [empty] }) })).toBe(0);
   });
 
   it("splits pages with overlap for large PDFs", () => {

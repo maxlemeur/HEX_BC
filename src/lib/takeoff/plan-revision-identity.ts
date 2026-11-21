@@ -53,7 +53,9 @@ export function readPlanFilenameRevision(name: string) {
 export function inferPlanLogicalReference(source: PlanIdentitySource, confirmedSamePlan = false) {
   const identity = source.plan_identity;
   if (identity?.number && (identity.building || identity.level || identity.discipline)) {
-    return ["plan", identity.number, identity.building, identity.level, identity.discipline].filter(Boolean).join(":");
+    // Each part is named: a building « 1 » and a level « 1 » are two plans (values hold neither « : » nor « = »).
+    return ["plan", identity.number, ...(["building", "level", "discipline"] as const).flatMap((part) =>
+      identity[part] ? [`${({ building: "batiment", level: "niveau", discipline: "discipline" })[part]}=${identity[part]}`] : [])].join(":");
   }
   if (!confirmedSamePlan) return null;
   const name = identity?.number ?? filenameIdentity(source.document_name).name;

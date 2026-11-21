@@ -176,14 +176,22 @@ export function createChunkPromptSourceHint(input: {
   }-${input.chunk.endPage}`;
 }
 
-const UNDETERMINED_PAGE = "page indéterminée";
-
 /**
- * A quantity the model could not measure, located on the page it reported within its fragment. One without a usable
- * page keeps its message (« page indéterminée ») but cannot make an answer without measured lines acceptable.
+ * Where an unmeasured quantity is, read on the model's own structure: « Page N : observation », N a page of the
+ * fragment and the observation not empty. The display text, built from file names, never decides it.
  */
-export function isLocatedUnmeasuredQuantity(warning: TakeoffExchange["warnings"][number]) {
-  return warning.code === "QUANTITE_A_VERIFIER" && !warning.message.includes(` · ${UNDETERMINED_PAGE} (fragment `);
+function locateUnmeasuredQuantity(chunk: TakeoffPdfChunk, warning: TakeoffExchange["warnings"][number]) {
+  if (warning.code !== "QUANTITE_A_VERIFIER") return null;
+  const heading = /^Page\s+([0-9]+)\s*:\s*/iu.exec(warning.message);
+  const localPage = heading ? Number(heading[1]) : 0;
+  const index = chunk.startPage - 1 + localPage - 1;
+  const observation = heading ? warning.message.slice(heading[0].length).trim() : "";
+  return localPage > 0 && index < chunk.endPage && observation ? { index, observation } : null;
+}
+
+/** The unmeasured quantities of a fragment's answer that have a page and an observation (see above). */
+export function countLocatedUnmeasuredQuantities(input: { chunk: TakeoffPdfChunk; exchange: TakeoffExchange }) {
+  return input.exchange.warnings.filter((warning) => locateUnmeasuredQuantity(input.chunk, warning)).length;
 }
 
 export function remapChunkLocalPagesToAbsolute(input: {
@@ -210,19 +218,18 @@ export function remapChunkLocalPagesToAbsolute(input: {
     ...input.exchange,
     warnings: source ? input.exchange.warnings.map((warning) => {
       if (warning.code !== "QUANTITE_A_VERIFIER") return warning;
-      const heading = /^Page\s+([0-9]+)\s*:\s*/iu.exec(warning.message);
-      const localPage = heading ? Number(heading[1]) : 0;
-      const index = pageOffset + localPage - 1;
-      const file = source.sourceFileNamesByPage?.[index] ?? source.fileName;
+      const located = locateUnmeasuredQuantity(chunk, warning);
+      if (!located) {
+        const observation = warning.message.replace(/^Page\s+[0-9]+\s*:\s*/iu, "").trim() || warning.message;
+        return { ...warning, message: `${source.fileName} · page indéterminée (fragment ${chunk.index + 1}) — ${observation}`.slice(0, 500) };
+      }
+      const file = source.sourceFileNamesByPage?.[located.index] ?? source.fileName;
       const ids = idsByName.get(file);
-      const id = planIdAt(index);
+      const id = planIdAt(located.index);
       const ordinal = id && ids && ids.size > 1 ? ids.get(id) : null;
       const label = ordinal ? `${file} (fichier ${ordinal})` : file;
-      const location = localPage > 0 && index < chunk.endPage
-        ? `${label} · page ${source.sourcePageNumbersByPage?.[index] ?? index + 1}`
-        : `${source.fileName} · ${UNDETERMINED_PAGE} (fragment ${chunk.index + 1})`;
-      const message = warning.message.slice(heading?.[0].length ?? 0);
-      return { ...warning, message: `${location} — ${message}`.slice(0, 500) };
+      const page = source.sourcePageNumbersByPage?.[located.index] ?? located.index + 1;
+      return { ...warning, message: `${label} · page ${page} — ${located.observation}`.slice(0, 500) };
     }) : input.exchange.warnings,
     items: input.exchange.items.map((item) => ({
       ...item,

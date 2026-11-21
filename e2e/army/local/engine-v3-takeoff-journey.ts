@@ -16,7 +16,10 @@ import type { V3Owner } from "./engine-v3-persistence-support";
 const samePolicy = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /** Preserve V3 admission, source-copy and replay coverage on the only supported AI runtime. */
-export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3Owner, actionManifest: string) {
+export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3Owner, actionManifest: string, provider: {
+  /** Runs with the member's ChatGPT plan disconnected, then reconnects the same profile. */
+  unavailable: <T>(run: () => Promise<T>) => Promise<T>;
+}) {
   const { app, screen, browser } = ui;
     requireLocalPlansBackend();
     if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("V3C08 requires the campaign's worker-blocking server guard.");
@@ -82,7 +85,13 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       // R1 : action serveur « Créer un brouillon depuis V… » du hub, sur la v3. La copie garde le moteur 3 (P-15) et
       // l'analyse du jeu de plans est lancée sur elle (niveau C).
       await openPlanPreparation();
-      await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      // The uploaded CSV is not in the dossier: the plan-set preparation keeps it and blocks the launch until the
+      // member takes it out of the sources.
+      const escapedCsvName = csvName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      await expect(dialog.getByText(new RegExp(`^Le fichier téléversé « ${escapedCsvName} » est indisponible dans le dossier[.]`))).toBeVisible();
+      await dialog.getByRole("button", /Mes documents$/).click();
+      await dialog.getByLabel(`Utiliser ${csvName}`, { exact: true }).uncheck();
       await saveTakeoffPreparation({ ...ui, army });
       const preparationRevision = async () => {
         const [row] = await querySql(`select revision from public.takeoff_preparations where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`);
@@ -103,10 +112,21 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       };
       const savedProcessing = await preparationProcessing();
       expect(savedProcessing).toEqual({ level: "C", provider: "chatgpt" });
+      const launchFromSource = async () => callServerAction(browser, await serverActionId("launchPreparedTakeoffFromSourceVersionPlanSetAction", actionManifest),
+        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "C", provider: "chatgpt", preparationRevision: confirmation.revision });
+      // A confirmed preparation whose plan is no longer connected is refused before any copy of the source version.
+      const refusal = await provider.unavailable(async () => {
+        const versions = await storedVersions(owner, anchor.projectId);
+        const inserts = await versionInsertsLogged(owner, anchor.projectId);
+        const result = await launchFromSource();
+        return { result, versionsAdded: (await storedVersions(owner, anchor.projectId)).length - versions.length,
+          versionsInserted: (await versionInsertsLogged(owner, anchor.projectId)) - inserts, jobs: (await jobs!.list()).length };
+      });
+      expect(refusal).toMatchObject({ result: { status: 200, digest: null, ok: false, errorStatus: 422, errorCode: "AI_PROVIDER" },
+        versionsAdded: 0, versionsInserted: 0, jobs: 0 });
       const versionsBefore = await storedVersions(owner, anchor.projectId);
       const insertsBefore = await versionInsertsLogged(owner, anchor.projectId);
-      const action = await callServerAction(browser, await serverActionId("launchPreparedTakeoffFromSourceVersionPlanSetAction", actionManifest),
-        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "C", provider: "chatgpt", preparationRevision: confirmation.revision });
+      const action = await launchFromSource();
       expect(action).toMatchObject({ status: 200, digest: null, ok: true, errorCode: null });
       const versionsAfter = await storedVersions(owner, anchor.projectId);
       const copy = versionsAfter.find((version) => !versionsBefore.some((known) => known.id === version.id)) ?? null;
@@ -137,7 +157,7 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
         fromSource, reopen, jobLevels: written.map((job) => job.level),
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
-      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, action, copyId: copy?.id ?? null, written, observed, savedProcessing,
+      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, refusal, action, copyId: copy?.id ?? null, written, observed, savedProcessing,
         replayBoundary: "Reopen retains the detailed ChatGPT analysis; same preparation, fork and job IDs." });
       expect(observed).toEqual({
         proposal: { targetsV3: true, reasonShown: false, launchEnabled: true },

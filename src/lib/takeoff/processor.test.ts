@@ -2621,7 +2621,9 @@ describe("processLevelC", () => {
     ["keeps documentary review warnings when every quantity remains unknown", "Page 1 : Conduite visible, aucune cote lisible.", true],
     ["refuses a warning-only answer without a usable model-reported page", "Conduite visible, aucune cote lisible.", false],
     ["refuses a warning-only answer with an out-of-fragment page", "Page 2 : Conduite visible, aucune cote lisible.", false],
-  ])("%s", async (_name, message, hasUsablePage) => {
+    ["refuses a warning-only answer whose located warning observes nothing", "Page 1 :", false],
+    ["keeps a located warning of a file whose name reads like an undetermined page", "Page 1 : Conduite visible, aucune cote lisible.", true, "Plan · page indéterminée (fragment 1).pdf"],
+  ])("%s", async (_name, message, hasUsablePage, fileName = "plan-fictif.pdf") => {
     const bytes = await createPdfArrayBuffer(3);
     const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
     const snapshot = confirmedPreparationFixture();
@@ -2630,10 +2632,10 @@ describe("processLevelC", () => {
     snapshot.preparation.conventions = { unit: null, unit_mode: "per_item", measurement_basis: "documentary_evidence", calibration: null, purchase: null, confirmed: false };
     snapshot.preparation.sources[0] = {
       ...snapshot.preparation.sources[0], document_id: `upload:${hash}`, source_version: hash, content_hash: hash,
-      kind: "plan", pages: [2], page_count: 3, document_name: "plan-fictif.pdf",
+      kind: "plan", pages: [2], page_count: 3, document_name: fileName,
     };
     const mock = createTakeoffProcessorSupabaseMock({ job: {
-      level: "C", preparation_snapshot: snapshot, source_file_name: "plan-fictif.pdf", source_file_path: DEFAULT_SOURCE_PATH_C, source_file_type: "application/pdf",
+      level: "C", preparation_snapshot: snapshot, source_file_name: fileName, source_file_path: DEFAULT_SOURCE_PATH_C, source_file_type: "application/pdf",
     }, downloadFile: { bytes, mimeType: "application/pdf" } });
     const warning = { code: "QUANTITE_A_VERIFIER", severity: "warning" as const, message };
     const callProvider = vi.fn().mockResolvedValue(buildProviderResult({
@@ -2652,7 +2654,7 @@ describe("processLevelC", () => {
     const result = await processing;
     expect(result.status).toBe("completed");
     expect(mock.state.takeoffItems).toEqual([]);
-    expect(mock.state.takeoffResults[0].warnings).toEqual([{ ...warning, message: "plan-fictif.pdf · page 2 — Conduite visible, aucune cote lisible." }]);
+    expect(mock.state.takeoffResults[0].warnings).toEqual([{ ...warning, message: `${fileName} · page 2 — Conduite visible, aucune cote lisible.` }]);
   });
 
   // TI-704 option B: with Decisions configured too, a job's vector groups are read by its creator's plan, never by

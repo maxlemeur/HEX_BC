@@ -12,7 +12,7 @@ import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
 import { findPlanRevisionConflicts, getDeclaredPlanReference, hasCyclicPlanRevisionDecisions, type PlanRevisionDecision } from "@/lib/takeoff/plan-revision-identity";
 import { getDeducedPlanCandidates } from "@/lib/takeoff/preparation-from-dossier";
 import { orderTakeoffPreparationQuestions } from "@/lib/takeoff/preparation-assistance";
-import { TAKEOFF_PREPARATION_OBJECTIVES, type TakeoffPreparation } from "@/lib/takeoff/preparation";
+import { getUnresolvedRevisionReading, TAKEOFF_PREPARATION_OBJECTIVES, type TakeoffPreparation } from "@/lib/takeoff/preparation";
 
 type PreparationSourceOption = TakeoffPreparation["sources"][number] & {
   plan_set_id?: string | null;
@@ -85,6 +85,23 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
 
   const changeCalibration = (patch: Partial<NonNullable<TakeoffPreparation["conventions"]["calibration"]>>) => changeConventions({ calibration: { document_id: null, page: null, reference_length: null, reference_unit: null, measured_span: null, measured_span_unit: null, ...draft.conventions.calibration, ...patch } });
 
+  const availableIds = new Set(availableSources.map((source) => source.document_id));
+  // A piece the dossier no longer holds (or a file uploaded for an earlier launch) can leave the preparation; the
+  // version it set aside comes back, so nothing is left out unseen.
+  const removeSource = (documentId: string) => {
+    const calibration = draft.conventions.calibration?.document_id === documentId;
+    onChange({
+      ...draft,
+      sources: draft.sources.filter((source) => source.document_id !== documentId).map((source) => {
+        if (source.alternate_of !== documentId) return source;
+        const restored = { ...source, active: true };
+        delete restored.alternate_of;
+        return restored;
+      }),
+      plan_revision_decisions: (draft.plan_revision_decisions ?? []).filter(({ left, right }) => left.document_id !== documentId && right.document_id !== documentId),
+      conventions: calibration ? { ...draft.conventions, calibration: null, confirmed: false } : draft.conventions,
+    });
+  };
   const candidates = step === 0 ? getDeducedPlanCandidates(draft.sources) : [];
   const revisionPairs = findPlanRevisionConflicts(candidates, []);
   const unresolved = findPlanRevisionConflicts(candidates, draft.plan_revision_decisions ?? []);
@@ -126,6 +143,13 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
         <input type="checkbox" className="mt-0.5 size-4" checked={source.active} disabled={unresolved.some((pair) => pair.includes(source))} onChange={(event) => changeSource(source.document_id, { active: event.target.checked })} aria-label={`Utiliser ${source.document_name}`} />
         <span className="min-w-0 break-words">{source.document_name}{source.revision && <span className="ml-2 text-xs font-normal text-muted-foreground">Indice {source.revision}</span>}</span>
       </label>
+      {draft.provenance && getUnresolvedRevisionReading(source) && <div className="space-y-1 rounded-lg border border-warning p-2 text-sm">
+        <p>Le cartouche indique l’indice {source.plan_identity?.revision}, la préparation retient l’indice {source.revision}.</p>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" className="font-medium text-primary underline" onClick={() => changeSource(source.document_id, { revision_reading_kept: source.plan_identity?.revision ?? undefined })}>Garder l’indice {source.revision}</button>
+          <button type="button" className="font-medium text-primary underline" onClick={() => changeSource(source.document_id, { revision: source.plan_identity?.revision ?? null, revision_reading_kept: undefined })}>Retenir l’indice {source.plan_identity?.revision}</button>
+        </div>
+      </div>}
       {source.active && <PagesField name={source.document_name} pages={source.pages_before_deduplication ?? source.pages} onChange={(pages) => changeSource(source.document_id, { pages })} />}
       {source.active && source.kind === "plan" && <label className="block space-y-1 text-sm"><span>Référence du plan (facultative)</span>
         <Input aria-label={`Référence du plan de ${source.document_name}`} value={getDeclaredPlanReference(source) ?? ""}
@@ -134,8 +158,11 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
             changeSource(source.document_id, { declared_logical_document_id: reference, logical_document_id: reference, inferred_logical_reference: false });
           }} />
       </label>}
-      {draft.provenance && source.document_id.startsWith("upload:")
-        ? <p className="text-sm text-muted-foreground">Fichier téléversé indisponible dans le dossier.</p>
+      {(draft.provenance && source.document_id.startsWith("upload:")) || (!source.document_id.startsWith("upload:") && !availableIds.has(source.document_id))
+        ? <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <p>{source.document_id.startsWith("upload:") ? "Fichier téléversé indisponible dans le dossier." : "Cette pièce n’est plus dans le dossier."}</p>
+          <button type="button" className="font-medium text-primary underline" aria-label={`Retirer ${source.document_name} de la préparation`} onClick={() => removeSource(source.document_id)}>Retirer de la préparation</button>
+        </div>
         : <TakeoffPreparationSourcePreview projectId={projectId} documentId={source.document_id} name={source.document_name} page={source.pages[0]} />}
     </div>)}
     {draft.sources.length === 0 && <p className="text-sm text-muted-foreground">Aucune pièce disponible. Ajoutez vos documents avant de poursuivre.</p>}

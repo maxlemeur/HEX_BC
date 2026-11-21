@@ -1,7 +1,7 @@
 import "server-only";
 
 import { mapSupabaseError } from "@/lib/http/api-response";
-import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";
+import { assertLocalTakeoffResumeReady, assertTakeoffJobStarter } from "@/lib/ai/chatgpt-takeoff";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { TAKEOFF_RETRY_BACKOFF_SECONDS, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -100,10 +100,7 @@ export async function resubmitTakeoffJob(
     tenantId,
     jobId: normalizedJobId,
   });
-  if (existingJob.created_by !== userId) {
-    throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId: normalizedJobId,
-      message: "Seule la personne qui a lancé cette analyse peut la soumettre à nouveau avec son forfait. Préparez une nouvelle analyse avec votre forfait." });
-  }
+  assertTakeoffJobStarter(existingJob, userId);
   await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
 
   if (existingJob.status !== "failed" && existingJob.status !== "canceled") {

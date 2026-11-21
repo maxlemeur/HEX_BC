@@ -542,7 +542,13 @@ test("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, and 
     if (!serverWorkspace) throw new Error("Owned development workspace unavailable.");
     await restrictCriticalBrowser(browser, ui.app, army);
     await verifyV3TakeoffCreation(ui, army, { userId, tenantId: member.data!.tenant_id },
-      path.resolve(`.build/tester-army/next-${serverWorkspace.id}/dev/server/server-reference-manifest.json`));
+      path.resolve(`.build/tester-army/next-${serverWorkspace.id}/dev/server/server-reference-manifest.json`), {
+        unavailable: async (run) => {
+          const store = await readFile(fixtureStore!, "utf8");
+          await writeFile(fixtureStore!, JSON.stringify({ ...JSON.parse(store), selectedId: null }), { mode: 0o600 });
+          try { return await run(); } finally { await writeFile(fixtureStore!, store, { mode: 0o600 }); }
+        },
+      });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;

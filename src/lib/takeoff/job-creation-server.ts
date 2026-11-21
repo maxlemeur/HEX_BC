@@ -1,6 +1,6 @@
 import "server-only";
 
-import { assertLocalTakeoffResumeReady, getConfirmedTakeoffExecutionOwner, requireDetailedTakeoffProcessing } from "@/lib/ai/chatgpt-takeoff";
+import { assertLocalTakeoffResumeReady, assertTakeoffJobStarter, getConfirmedTakeoffExecutionOwner, requireDetailedTakeoffProcessing } from "@/lib/ai/chatgpt-takeoff";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import {
@@ -82,7 +82,10 @@ export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSe
     ...context, estimateVersionId: existing.estimate_version_id,
   });
   assertReplayedTakeoffProcessing(existing, { level, provider });
-  if (existing.status === "pending") await assertLocalTakeoffResumeReady(context.supabase, context.tenantId, existing);
+  if (existing.status === "pending") {
+    assertTakeoffJobStarter(existing, context.userId);
+    await assertLocalTakeoffResumeReady(context.supabase, context.tenantId, existing);
+  }
   return normalizeTakeoffJobRow(existing);
 }
 

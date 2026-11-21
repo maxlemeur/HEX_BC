@@ -36,10 +36,13 @@ Le menu **Options du métré** ouvre quatre étapes dans
    les réserves et la version de devis utilisée par le lancement manuel.
 
 Les choix sont enregistrés avec un contrôle de révision. Une pièce ajoutée au
-dossier (plan du jeu choisi, CCTP ou DPGF) après l’ouverture n’est jamais
-enregistrée comme écartée : l’enregistrement, la confirmation et l’admission
-sont refusés tant que la préparation n’a pas été rechargée, et le rechargement
-la retient par défaut.
+dossier (plan du jeu choisi, CCTP ou DPGF) après l’ouverture, ou reclassée (une
+pièce jointe devenue CCTP, par exemple), n’est jamais enregistrée comme écartée :
+l’enregistrement, la confirmation et l’admission sont refusés tant que la
+préparation n’a pas été rechargée, et le rechargement lui applique le défaut de
+son rôle actuel et la signale comme modifiée. Une pièce qui n’est plus dans le
+dossier est affichée comme telle et peut être retirée de la préparation, qui
+peut ensuite être confirmée et lancée.
 
 Les anciennes préparations sont adaptées au lancement détaillé avec une mention
 visible qui invite à vérifier les sources et le périmètre. Leurs sources et
@@ -58,8 +61,9 @@ nouvelle sélection s’affiche et un nouveau clic est demandé.
 L’admission vérifie que le même membre utilise toujours cette sélection. Le
 traitement et les groupes vectoriels facultatifs la vérifient avant leurs appels.
 Un changement de compte ou de réglage demande une nouvelle analyse. Seul le
-membre qui a lancé une analyse peut la soumettre à nouveau, avec son forfait ;
-toute autre personne est invitée à préparer une nouvelle analyse. Les reprises
+membre qui a lancé une analyse peut la faire démarrer, avec son forfait : la
+soumettre à nouveau, ou rejouer un lancement dont l’analyse attend encore ; toute
+autre personne est invitée à préparer une nouvelle analyse. Les reprises
 techniques du worker gardent la sélection figée. Les anciens jobs sans sélection
 figée conservent leur comportement d’exécution historique.
 
@@ -104,8 +108,9 @@ Avec **Tout mesurer**, une quantité que le modèle n’a pas pu mesurer appara�
 dans « Quantités à vérifier » sans créer de ligne chiffrée. Elle porte son
 fichier et sa page quand le modèle donne une page de son fragment, sinon la
 mention « page indéterminée ». Une réponse sans ligne mesurée n’est acceptée que
-si au moins une de ces quantités porte une page ; sinon toute la réponse est
-refusée, comme avant.
+si au moins une de ces quantités porte une page de son fragment et une
+observation, lues sur la forme « Page N : observation » de la réponse du modèle ;
+sinon toute la réponse est refusée, comme avant.
 
 La présence d'un objectif dans le contrat ne fournit pas à elle seule ses pièces
 de référence : la préparation ne peut pas déclarer un plan comme DPGF pour lever
@@ -150,11 +155,18 @@ retenir ou si les plans sont distincts. Le nom normalisé et le texte lisible du
 cartouche servent à la comparaison ; un numéro de plan suivi d’une seule lettre
 (« P-101_A », « P-101_B ») suffit à poser la question. Un indice lu dans le
 cartouche est une lettre suivie d’au plus deux chiffres, ou un nombre d’au plus
-trois chiffres, après « Indice », « Révision » ou « Rév » ; il ne remplace
-jamais un indice déjà connu par les métadonnées ou le nom du fichier. Les indices
+trois chiffres, après « Indice », « Révision » ou « Rév ». L’indice retenu est
+celui des métadonnées ou du nom du fichier, sinon celui que la préparation a
+enregistré pour ce fichier (un indice saisi), sinon celui du cartouche. Un
+cartouche qui en indique un autre est un écart à trancher dans « Mes documents »
+(garder l’indice retenu ou prendre celui du cartouche) avant le lancement ; il
+n’est jamais appliqué en silence. L’identité déduite d’un cartouche nomme chacune
+de ses parties (bâtiment, niveau, discipline) : un bâtiment « 1 » et un niveau
+« 1 » restent deux plans. Les indices
 connus et les aperçus sont affichés. Le choix est lié aux empreintes des deux
 fichiers : à l’admission, la version écartée est relue et doit être inchangée,
-la version retenue l’est par le traitement avant tout appel. Des choix qui
+comme une copie identique mise de côté, et la version retenue l’est par le
+traitement avant tout appel. Des choix qui
 écarteraient toutes les versions d’un plan sont refusés : retenir une version
 rouvre les choix qui l’écartaient. Un scan sans texte lisible reste utilisable et
 son indice peut rester inconnu.
