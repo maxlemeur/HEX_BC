@@ -99,16 +99,16 @@ select pg_temp.f(70 + n), pg_temp.f(10), pg_temp.f(20 + n), pg_temp.f(50 + n), '
 set local session_replication_role = origin;
 
 -- 1. Exactly the members the released brief policy lets confirm (20260306224500_est372_affaire_brief.sql), by its own
--- functions under the member's session: an administrator by the JWT confirms an affaire he does not own; a member
--- confirms only in the tenant he works in now; the claims are the member's own.
+-- functions under the member's session: an administrator by the JWT confirms an affaire they do not own; a member
+-- confirms only in the tenant they work in now; the claims are the member's own.
 select lives_ok($$select * from pg_temp.confirm(20, 2, pg_temp.claims(2, true))$$,
-  'an engineer the JWT makes an administrator confirms an affaire he does not own, as the released policy lets him');
+  'an engineer the JWT makes an administrator confirms an affaire they do not own, as the released policy allows');
 select results_eq($$select status::text, confirmed_by from public.affaire_briefs where project_id = pg_temp.f(20)$$,
-  $$values ('confirme'::text, pg_temp.f(2))$$, 'the brief is confirmed by him');
+  $$values ('confirme'::text, pg_temp.f(2))$$, 'the brief is confirmed by that engineer');
 select results_eq($$select payer_id, reason_code from public.takeoff_launch_requests where project_id = pg_temp.f(20)$$,
-  $$values (null::uuid, 'OPERATOR_REQUIRED'::text)$$, 'and he pays nothing: the payer rule is the tenant''s');
+  $$values (null::uuid, 'OPERATOR_REQUIRED'::text)$$, 'and pays nothing: the payer rule is the tenant''s');
 select throws_ok($$select * from pg_temp.confirm(22, 2, pg_temp.claims(2))$$, '42501', 'TAKEOFF_BRIEF_CONFIRMATION_FORBIDDEN',
-  'without the override he still cannot');
+  'without the override the engineer still cannot');
 select throws_ok($$select * from pg_temp.confirm(23, 4, pg_temp.claims(4))$$, '42501', 'TAKEOFF_BRIEF_CONFIRMATION_FORBIDDEN',
   'the owner of an affaire who works in another tenant now cannot confirm it in the old one');
 select throws_ok($$select * from pg_temp.confirm(22, 1, pg_temp.claims(2, true))$$, '42501', 'TAKEOFF_BRIEF_CONFIRMATION_FORBIDDEN',
