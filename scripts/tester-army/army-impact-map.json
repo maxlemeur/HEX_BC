@@ -833,7 +833,7 @@
     },
     {
       "id": "affaire-send",
-      "note": "Envoi d'un métré d'affaire au tableau de chiffrage (lot 2, M2) : aperçu par essai à blanc, premier brouillon, plan A puis plan B sur les deux moteurs, page relue, copie et métrés reportés.",
+      "note": "Envoi d'un métré d'affaire au tableau de chiffrage (lot 2, M2) : aperçu par essai à blanc, premier brouillon, plan A puis plan B sur les deux moteurs, page relue, copie et métrés reportés, ligne PE gaz bloquée par la seule destination et forcée par un administrateur (TKAW05).",
       "paths": [
         "src/lib/takeoff/**",
         "src/app/api/takeoff/**",
@@ -841,7 +841,8 @@
         "scripts/tester-army/takeoff-*",
         "e2e/fixtures/sample-plan.pdf",
         "e2e/army/takeoff/zone-plans-fixture.ts",
-        "supabase/migrations/*_takeoff_send_receipts.sql"
+        "supabase/migrations/*_takeoff_send_receipts.sql",
+        "supabase/migrations/*_takeoff_send_grouped_lines_and_parts.sql"
       ],
       "journeys": [
         "e2e/army/takeoff/affaire-send-outcome.e2e.ts",
@@ -1102,6 +1103,7 @@
         "supabase/migrations/*_takeoff_dpgf_merge_refusals.sql",
         "supabase/migrations/*_takeoff_dpgf_merge_any_line.sql",
         "supabase/migrations/*_takeoff_dpgf_section_replace.sql",
+        "supabase/migrations/*_takeoff_send_grouped_lines_and_parts.sql",
         "src/components/takeoff/takeoff-apply-wizard/TakeoffDpgfMergePanel.tsx",
         "src/lib/takeoff/apply-errors.ts",
         "src/components/takeoff/review/TakeoffPagesAlreadyInEstimate.tsx",

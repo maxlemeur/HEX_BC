@@ -12,8 +12,11 @@ import { PDFDocument, PDFName, PDFString, StandardFonts } from "pdf-lib";
 // cote « 4,00 » over a line drawn 5.00 m (ticks at both ends, as
 // vectors/scale.test.ts draws one): it contradicts the title block's scale by
 // 25 %, so the page's scale is « unverified / dimension_mismatch » and every
-// length of the page fails the scale rule (TI-686 D9). Codes and names are
-// generic; nothing comes from a real plan.
+// length of the page fails the scale rule (TI-686 D9). The gas variant draws the
+// same runs on a GAZ layer labelled « GAZ - PEHD DN 32 »: a PE gas network, whose
+// line fails the technical rule that asks for its installation's justification
+// (lot 2, the send's forcing). Codes and names are generic; nothing comes from a
+// real plan.
 
 export const ZONE_PLANS = {
   pageSize: [1190.55, 841.89] as [number, number],
@@ -28,6 +31,8 @@ export const ZONE_PLANS = {
   label: "EF - Inox 316L DN 22",
   overlap_m: 1,
   rooms: ["Bureau 101", "Salle de reunion", "Local technique", "Archives"],
+  /** The same runs, of a PE gas network. */
+  gas: { layer: "RES_GAZ", label: "GAZ - PEHD DN 32", designation: "GAZ PEHD DN 32" },
   /** Revision C of Z1: a cote that contradicts the scale (its text, the length drawn, from and at what height, in metres). */
   contradictedCote: { text: "4,00", drawn_m: 5, from_m: 5, height_m: 7.5 },
 } as const;
@@ -37,13 +42,15 @@ const POINTS_PER_MM = 72 / 25.4;
 const POINTS_PER_M = (1000 / ZONE_PLANS.denominator) * POINTS_PER_MM;
 const MARGIN_PT = 60;
 
-export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones, revision?: "A" | "B" | "C") {
+export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones, revision?: "A" | "B" | "C",
+  options: { network?: "EF" | "GAZ" } = {}) {
+  const gas = options.network === "GAZ";
   const doc = await PDFDocument.create();
   doc.setTitle(`ARMY fictional zone plan ${zone}`);
   doc.setCreationDate(new Date("2026-01-01T00:00:00Z"));
   doc.setModificationDate(new Date("2026-01-01T00:00:00Z"));
   const font = await doc.embedFont(StandardFonts.Helvetica);
-  const layers = ["RES_EF", "MURS"].map((name) => doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFString.of(name) })));
+  const layers = [gas ? ZONE_PLANS.gas.layer : "RES_EF", "MURS"].map((name) => doc.context.register(doc.context.obj({ Type: "OCG", Name: PDFString.of(name) })));
   doc.catalog.set(PDFName.of("OCProperties"), doc.context.obj({ OCGs: layers, D: { Order: layers, ON: layers } }));
   const origin = zone === "Z1" ? 0 : ZONE_PLANS.shift_m;
   const x = (metres: number) => (MARGIN_PT + (metres - origin) * POINTS_PER_M).toFixed(3);
@@ -52,7 +59,7 @@ export async function buildZonePlanPdf(zone: keyof typeof ZONE_PLANS.zones, revi
   const content = ["0 g"];
   const run = zone === "Z2" && revision === "A" ? [11, 13] : ZONE_PLANS.zones[zone].run;
   content.push("/OC /oc0 BDC", "0 0 1 RG 1 w", `${x(run[0])} ${y(9)} m ${x(run[1])} ${y(9)} l S`,
-    text(ZONE_PLANS.label, (Number(x(run[0])) + 20).toFixed(3), (Number(y(9)) + 3).toFixed(3), 6), "EMC");
+    text(gas ? ZONE_PLANS.gas.label : ZONE_PLANS.label, (Number(x(run[0])) + 20).toFixed(3), (Number(y(9)) + 3).toFixed(3), 6), "EMC");
   // The building, inside what both sheets show (4 m to 12 m): walls of 1 to 6 m, every 25 cm from 1 m to 6.75 m high.
   const walls: string[] = [];
   for (let index = 0; index < 24; index += 1) {

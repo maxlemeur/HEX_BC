@@ -25,7 +25,11 @@ import { ZONE_PLANS, buildZonePlanPdf } from "./zone-plans-fixture";
 // B of the next zone sent to the copy: its duplicate with A is found only against that destination and shown before the
 // administrator confirms (a zone duplicate is a recommended control, not a blocker). Written before the fix: red on
 // 986aea27 (B's page was not found, engine 2 and copies compared nothing, the preview showed the measures, not the
-// lines). Fictional plans and values only.
+// lines). TKAW05 (a follow-up of the send): takeoff B of zone Z2 reads a PE gas run whose technical failure the member
+// accepted with a justification; sent to a copy that carries takeoff A of zone Z1, its overlap with A is found, which by
+// itself only recommends a check, but it is a failure the acceptance did not cover: the line is no longer accepted and its
+// technical failure blocks it again. An engineer is told why and offered no forcing; an administrator forces it with a
+// coded reason and a justification, and the audit row and the receipt hold them. Fictional plans and values only.
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 300_000 };
 const SEND = "Envoyer au tableau de chiffrage";
@@ -102,11 +106,11 @@ type Item = TakeoffJobDetailResponse["items"]["data"][number];
  * The review's own choice of quantity sources (as quantity-rules.e2e.ts makes it): the vector EF line of a zone plan is
  * an excluded alternative of the controlled provider's stub lines; the estimator includes it and sets the stubs aside.
  */
-async function retainVectorLine(ui: WorkerUi, jobId: string) {
+async function retainVectorLine(ui: WorkerUi, jobId: string, designation: string = ZONE_PLANS.designation) {
   const read = await apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}?items_limit=200`);
   expect([read.status, read.body.ok]).toEqual([200, true]);
   const items = read.body.data.items.data;
-  const ef = items.find((item) => item.designation === ZONE_PLANS.designation) as Item;
+  const ef = items.find((item) => item.designation === designation) as Item;
   expect(ef).toMatchObject({ is_excluded: true });
   const stubs = items.filter((item) => item.designation === "ARMY worker pipe" || item.designation === "ARMY worker valve");
   const patched = await apiRequest<{ ok: boolean; data: { results: Array<{ item_id: string; success: boolean }> } }>(ui.browser, "PATCH",
@@ -269,4 +273,142 @@ armyTest("TKAW04 a copied draft compares a takeoff with the takeoff carried over
     expect(overlap?.details?.partners?.map((partner) => partner.item_id)).toEqual([runA.id]);
     await recordEvidence(ui.army, "TKAW04-copy-carried-peer", { projectId: seed.projectId, first, copyId,
       jobs: { a: a.jobId, b: b.jobId }, overlap, screenshots: [shown] });
+  });
+
+/** A line of the takeoff as the review reads it, its rules computed again after the last edit. */
+async function itemOf(ui: WorkerUi, jobId: string, itemId: string) {
+  const read = await apiRequest<{ ok: boolean; data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}?items_limit=200`);
+  expect([read.status, read.body.ok]).toEqual([200, true]);
+  return read.body.data.items.data.find((item) => item.id === itemId) as Item;
+}
+
+async function setRole(seed: Affaire, role: "admin" | "engineer") {
+  const changed = await seed.setup.from("tenant_memberships").update({ role }).eq("tenant_id", seed.owner.tenantId)
+    .eq("user_id", seed.owner.userId).select("role").single();
+  expect(changed.data?.role).toBe(role);
+}
+
+armyTest("TKAW05 a PE gas line accepted on its own is blocked again by the overlap its destination reveals, and only an administrator forces it",
+  options, async (ui) => {
+    const seed = await affaire(ui, "AWG", "PE gaz forcé");
+    const gas = (zone: "Z1" | "Z2") => buildZonePlanPdf(zone, undefined, { network: "GAZ" });
+    const z1 = await plan(ui, seed, "Plans gaz Z1", ZONE_PLANS.zones.Z1.fileName, Buffer.from(await gas("Z1")));
+    const z2 = await plan(ui, seed, "Plans gaz Z2", ZONE_PLANS.zones.Z2.fileName, Buffer.from(await gas("Z2")));
+    const failure = (item: Item, rule: string) => item.rule_results?.find((result) => result.rule === rule);
+
+    // A reads the PE gas run of zone Z1. Its technical failure is accepted with a justification (as the targeted review
+    // records it), so that A is sent to the first draft without any forcing; the draft is then copied, as « Dupliquer »
+    // does: A stays on the version it was applied to, carried over to the copy.
+    const a = await launch(ui, seed, z1, 1, { vectors: true, rules: true });
+    const retainedA = await retainVectorLine(ui, a.jobId, ZONE_PLANS.gas.designation);
+    const runA = await itemOf(ui, a.jobId, retainedA.id);
+    expect(failure(runA, "dn_network")).toMatchObject({ status: "fail", code: "DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION",
+      acceptable: true });
+    const acceptedA = await apiRequest<{ data: { succeeded: number } }>(ui.browser, "PATCH", `/api/takeoff/jobs/${a.jobId}/items`, {
+      items: [{ item_id: runA.id, updated_at: runA.updated_at, fields: { is_verified: true, verification_justification: {
+        reason_code: "gas_pe_buried_outside", system_reference: "Fabricant fictif, gamme G, pose enterrée hors emprise" } } }] });
+    expect([acceptedA.status, acceptedA.body.data.succeeded]).toEqual([200, 1]);
+    let dialog = await openSend(ui, seed.projectId, a.jobId);
+    const first = await confirmAndLand(ui, dialog, "Créer le brouillon et envoyer", a.jobId);
+    const copied = await ui.browser.evaluate(async (versionId) => {
+      const response = await fetch(`/api/estimates/${versionId}/duplicate`, { method: "POST", credentials: "same-origin" });
+      return { status: response.status, body: await response.json() as { data?: { version_id?: string } } };
+    }, first);
+    expect(copied.status).toBe(201);
+    const copyId = copied.body.data!.version_id!;
+
+    // B reads the PE gas run of zone Z2, 1.00 m of which zone Z1 draws too. The member accepts its technical failure in
+    // the targeted review, with its coded reason and the system's reference: on its own, B's line is accepted, and its
+    // comparison with other takeoffs waits for a destination.
+    const b = await launch(ui, seed, z2, 2, { vectors: true, rules: true });
+    const retainedB = await retainVectorLine(ui, b.jobId, ZONE_PLANS.gas.designation);
+    await ui.app.open(takeoffReviewHref({ projectId: seed.projectId, jobId: b.jobId, targeted: true, line: retainedB.id }));
+    await ui.screen.getByRole("button", "Accepter", { exact: false }).click();
+    const acceptance = ui.screen.getByRole("dialog");
+    await expect(acceptance.getByRole("heading", "Justifier l’acceptation")).toBeVisible();
+    await acceptance.getByLabel("Motif").selectOption({ value: "gas_pe_buried_outside" });
+    await acceptance.getByLabel("Référence du système").fill("Fabricant fictif, gamme G, enterré hors emprise du bâtiment");
+    await acceptance.getByRole("button", "Confirmer l’acceptation").click();
+    await expect(ui.screen.getByText("Ligne acceptée avec justification", { exact: true })).toBeVisible();
+    const runB = await itemOf(ui, b.jobId, retainedB.id);
+    expect(runB).toMatchObject({ is_verified: true, verification_justification: { reason_code: "gas_pe_buried_outside" } });
+    expect(failure(runB, "dn_network")).toMatchObject({ status: "fail", code: "DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION" });
+    expect((failure(runB, "zone_overlap")?.details as { cross_job_comparison?: string } | undefined)?.cross_job_comparison)
+      .toBe("deferred");
+    const sentB = () => querySql(`select count(*) from public.takeoff_send_receipts where job_id = '${b.jobId}';
+      select count(*) from public.estimate_items where version_id = '${copyId}' and source_job_id = '${b.jobId}';
+      select coalesce(estimate_version_id::text, 'none') from public.takeoff_jobs where id = '${b.jobId}';`);
+
+    // An engineer who owns the affaire: sent to the copy, B is compared with A, carried over. The overlap only recommends
+    // a check, but the acceptance did not cover it: the line is no longer accepted, and its PE gas failure blocks it. The
+    // engineer is told why, is offered no forcing, and nothing is written.
+    await setRole(seed, "engineer");
+    dialog = await openSend(ui, seed.projectId, b.jobId);
+    await dialog.getByLabel("Devis qui reçoit le métré", { exact: true }).selectOption({ value: `draft:${copyId}` });
+    await expect(dialog.getByText(/vérifiés avec les métrés de ce brouillon/)).toBeVisible({ timeout: 30_000 });
+    await expect(dialog.getByText("Des lignes sont bloquées par les contrôles : seul un administrateur peut forcer leur envoi.",
+      { exact: true })).toBeVisible();
+    const blockedRow = dialog.getByRole("row", new RegExp(ZONE_PLANS.gas.designation));
+    await expect(blockedRow).toContainText("Règle en échec");
+    await expect(blockedRow).toContainText(/PE gaz : justifier une pose enterrée/);
+    await expect(dialog.getByText("Forcer l'application", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("button", /^Forcer l'application/)).toHaveCount(0);
+    await expect(dialog.getByRole("button", "Confirmer l'envoi", { exact: true })).toBeDisabled();
+    const refusedShown = await ui.app.screenshot("takeoff-affaire-send-gas-engineer-refused");
+    // Asked directly, the server refuses it with the same reason, and writes nothing.
+    const previewed = await apiRequest<{ data: { fingerprint: string; section: { kind: "new" } | { kind: "existing"; id: string } } }>(
+      ui.browser, "POST", `/api/takeoff/jobs/${b.jobId}/send-to-estimate/preview`,
+      { destination: { kind: "existing_draft", version_id: copyId } });
+    expect(previewed.status).toBe(200);
+    const shownSection = previewed.body.data.section;
+    const forcedByEngineer = await apiRequest<{ error: { code: string; details?: { blocked_items?: Array<{ item_id: string;
+      reasons: string[] }> } } }>(ui.browser, "POST", `/api/takeoff/jobs/${b.jobId}/send-to-estimate`, {
+      request_id: randomUUID(), fingerprint: previewed.body.data.fingerprint, destination: { kind: "existing_draft", version_id: copyId },
+      section: shownSection.kind === "existing" ? { kind: "existing", id: shownSection.id } : { kind: "new" }, override: true,
+      forced_justifications: ["Contrôlé sur le plan fictif, pose enterrée vérifiée."],
+      forced_items: [{ item_id: runB.id, reason_code: "additional_evidence", justification_index: 0 }] });
+    expect([forcedByEngineer.status, forcedByEngineer.body.error.code]).toEqual([422, "TAKEOFF_APPLY_GUARD_FAILED"]);
+    expect(forcedByEngineer.body.error.details?.blocked_items?.map((item) => [item.item_id, item.reasons]))
+      .toEqual([[runB.id, ["rule_failed"]]]);
+    expect(await sentB()).toEqual(["0", "0", "none"]);
+    expect(await itemOf(ui, b.jobId, runB.id)).toMatchObject({ is_verified: true });
+
+    // An administrator: the same line, the same reason, and the forcing — a coded reason and a justification.
+    await setRole(seed, "admin");
+    dialog = await openSend(ui, seed.projectId, b.jobId);
+    await dialog.getByLabel("Devis qui reçoit le métré", { exact: true }).selectOption({ value: `draft:${copyId}` });
+    await expect(dialog.getByText(/vérifiés avec les métrés de ce brouillon/)).toBeVisible({ timeout: 30_000 });
+    await expect(dialog.getByRole("row", new RegExp(ZONE_PLANS.gas.designation))).toContainText(/PE gaz : justifier une pose enterrée/);
+    const force = dialog.getByRole("button", "Forcer l'application (1 ligne)", { exact: true });
+    await expect(force).toBeDisabled();
+    const justification = "Pose enterrée hors emprise contrôlée sur le plan fictif ; doublon de zone vérifié avec le métré Z1.";
+    await dialog.getByLabel(`Motif : ${ZONE_PLANS.gas.designation}`, { exact: true }).selectOption({ value: "additional_evidence" });
+    await dialog.getByLabel(`Justification : ${ZONE_PLANS.gas.designation}`, { exact: true }).fill(justification);
+    await expect(force).toBeEnabled({ timeout: 30_000 });
+    const forcedShown = await ui.app.screenshot("takeoff-affaire-send-gas-admin-forces");
+    await force.click();
+    await expect(ui.browser).toHaveURL(new RegExp(`/dashboard/estimates/${copyId}/edit`), { timeout: 60_000 });
+
+    // The audit row of the forcing, written with the send, and consumed by it; the receipt of the send to the copy.
+    const [audit] = await querySql(`select jsonb_build_object('user', a.user_id, 'version', a.estimate_version_id,
+        'forced', a.after_data #> '{metadata,forced_items}', 'justifications', a.after_data #> '{metadata,forced_justifications}',
+        'consumed', (select count(*) from public.takeoff_apply_override_consumptions c where c.audit_log_id = a.id),
+        'completed', (select count(*) from public.audit_logs d where d.record_id = a.record_id and d.action = 'takeoff.apply.completed'))
+      from public.audit_logs a where a.record_id = '${b.jobId}' and a.action = 'takeoff.apply.override';`);
+    expect(JSON.parse(audit)).toEqual({ user: seed.owner.userId, version: copyId,
+      forced: [{ item_id: runB.id, reason_code: "additional_evidence", justification_index: 0 }],
+      justifications: [justification], consumed: 1, completed: 1 });
+    const receipt = await receiptOf(b.jobId);
+    expect(receipt.parts).toMatchObject([{ takeoff_item_id: runB.id, target: { kind: "new_line" } }]);
+    expect(receipt.result.lines_created).toHaveLength(1);
+    expect(await sentB()).toEqual(["1", "1", copyId]);
+    const [overlap] = await querySql(`select jsonb_build_object('verified', i.is_verified, 'overlap', (select r ->> 'code'
+        from jsonb_array_elements(i.rule_results) r where r ->> 'rule' = 'zone_overlap'),
+      'partners', (select jsonb_agg(p ->> 'item_id') from jsonb_array_elements(i.rule_results) r,
+        jsonb_array_elements(r #> '{details,partners}') p where r ->> 'rule' = 'zone_overlap'))
+      from public.takeoff_items i where i.id = '${runB.id}';`);
+    expect(JSON.parse(overlap)).toEqual({ verified: false, overlap: "ZONE_OVERLAP_DUPLICATE", partners: [runA.id] });
+    await recordEvidence(ui.army, "TKAW05-gas-destination-blocker-forced", { projectId: seed.projectId, first, copyId,
+      jobs: { a: a.jobId, b: b.jobId }, refused: forcedByEngineer.status, audit: JSON.parse(audit), receipt,
+      screenshots: [refusedShown, forcedShown] });
   });
