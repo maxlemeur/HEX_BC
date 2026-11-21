@@ -35,7 +35,7 @@
     "src/lib/mappings/server.ts": 1700,
     "src/lib/openapi/registry.ts": 5300,
     "src/lib/takeoff/plans.ts": 1400,
-    "src/lib/takeoff/processor.ts": 3200,
+    "src/lib/takeoff/processor.ts": 600,
     "src/lib/takeoff/server.ts": 100,
     "src/lib/takeoff/types.ts": 600
   },
