@@ -188,7 +188,19 @@ describe("resolveTakeoffLaunchDecision", () => {
     ["a reader's confirmation waits for an operator", "blocked", "OPERATOR_REQUIRED", null, operator, "take_on"],
     ["a reader cannot take it on", "blocked", "OPERATOR_REQUIRED", null, { ...operator, tenantRole: "director", canWriteAffaire: false }, "none"],
     ["the hosted application sends to the Mac", "blocked", "LOCAL_RUNTIME_REQUIRED", "payer", { ...operator, executionHostId: null }, "open_mac"],
+    ["repeated failures wait for a gesture", "blocked", "EVALUATION_FAILED", "payer", operator, "resume"],
+    ["an automatic start set aside by a relaunch is restarted only by a gesture", "blocked", "SUPERSEDED", "payer", { ...operator, userId: "other" }, "take_on"],
   ] as const)("%s", (_case, state, reasonCode, payerId, viewer, action) => {
-    expect(resolveTakeoffLaunchDecision({ state, reasonCode, payerId, viewer })).toEqual({ action });
+    expect(resolveTakeoffLaunchDecision({ state, reasonCode, payerId, viewer, updatedAt: new Date().toISOString() })).toEqual({ action });
+  });
+  it("offers a request that waited too long for the Mac of its mandate to a gesture", () => {
+    const now = new Date("2026-11-21T12:00:00Z");
+    const waited = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString();
+    expect(resolveTakeoffLaunchDecision({ state: "evaluating", reasonCode: null, payerId: "payer", viewer: operator, updatedAt: waited(5), now }))
+      .toEqual({ action: "wait" });
+    expect(resolveTakeoffLaunchDecision({ state: "evaluating", reasonCode: null, payerId: "payer", viewer: operator, updatedAt: waited(20), now }))
+      .toEqual({ action: "resume" });
+    expect(resolveTakeoffLaunchDecision({ state: "evaluating", reasonCode: null, payerId: "payer", viewer: { ...operator, userId: "other" },
+      updatedAt: waited(20), now })).toEqual({ action: "take_on" });
   });
 });

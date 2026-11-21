@@ -215,6 +215,8 @@ select results_eq($$select outcome, job_id from public.admit_takeoff_launch_requ
 select is((select count(*)::integer from public.takeoff_jobs where launch_request_id = pg_temp.request(20)), 1, 'and creates no other');
 select throws_ok($$update public.takeoff_jobs set launch_request_id = null, launch_unit_key = null where id = pg_temp.f(60)$$,
   '42501', 'TAKEOFF_JOB_IDENTITY_IMMUTABLE', 'a job never leaves its request');
+select throws_ok($$delete from public.takeoff_jobs where id = pg_temp.f(60)$$, '42501', 'TAKEOFF_JOB_REQUEST_OPEN',
+  'the job of a running request is never deleted: its request would wait for ever');
 
 -- A consumed request is never re-armed: the dossier leaves and re-enters « confirmé », a plan is added.
 update public.affaire_briefs set status = 'a_confirmer', confirmed_at = null, confirmed_by = null where id = pg_temp.f(35);
@@ -302,7 +304,7 @@ select results_eq($$select outcome, reason_code from public.admit_takeoff_launch
   $$values ('blocked'::text, 'PAYER_NOT_ELIGIBLE'::text)$$, 'a payer demoted before the admission pays nothing');
 update public.tenant_memberships set role = 'engineer' where user_id = pg_temp.f(1) and tenant_id = pg_temp.f(10);
 
--- 11. A job of a request that nobody takes is closed by the recovery, and its request with it, as not started.
+-- 11. A job of a request that nobody takes ends as never started (the recovery closes it so), and its request with it.
 select set_config('request.jwt.claim.sub', '', true), set_config('request.jwt.claims', '', true);
 delete from public.takeoff_job_admissions where tenant_id = pg_temp.f(10) and job_id not in (select id from public.takeoff_jobs);
 insert into public.estimate_projects (id, tenant_id, user_id, name) values
@@ -317,6 +319,20 @@ values (pg_temp.f(52), pg_temp.f(10), pg_temp.f(42), 'plan-sous-sol.pdf',
 select is((select state from public.record_takeoff_launch_mandate(pg_temp.f(10), pg_temp.f(23), pg_temp.f(1), 'confirmation',
   pg_temp.host(), pg_temp.selection())), 'evaluating', 'the confirmer of a third affaire mandates its request');
 update public.takeoff_launch_requests set evaluation_lease_token = null, evaluation_lease_expires_at = null where evaluation_lease_token is not null;
+-- Three evaluations that stop on an error in a row leave the request blocked, visibly, until a gesture.
+create function pg_temp.fail_evaluation(token integer) returns text language sql as $$
+  select public.record_takeoff_launch_evaluation_failure(c.request_id, pg_temp.f(token))
+  from public.claim_takeoff_launch_evaluations(pg_temp.host(), pg_temp.f(token)) c where c.project_id = pg_temp.f(23)
+$$;
+select is(pg_temp.fail_evaluation(84), 'evaluating', 'a first failed evaluation gives the lease back');
+select is(pg_temp.fail_evaluation(85), 'evaluating', 'a second one too');
+select is(pg_temp.fail_evaluation(86), 'blocked', 'the third leaves the request blocked');
+select results_eq($$select state, reason_code, evaluation_failures from public.takeoff_launch_requests where id = pg_temp.request(23)$$,
+  $$values ('blocked'::text, 'EVALUATION_FAILED'::text, 3)$$, 'with its reason, and nothing retries it on its own');
+select is((select count(*)::integer from public.claim_takeoff_launch_evaluations(pg_temp.host(), pg_temp.f(87)) where project_id = pg_temp.f(23)), 0,
+  'a request blocked by repeated failures is not claimed again');
+select results_eq($$select state, payer_id from public.record_takeoff_launch_mandate(pg_temp.f(10), pg_temp.f(23), pg_temp.f(1), 'take_over',
+  pg_temp.host(), pg_temp.selection())$$, $$values ('evaluating'::text, pg_temp.f(1))$$, 'the payer''s gesture evaluates it again');
 delete from claimed;
 insert into claimed select * from public.claim_takeoff_launch_evaluations(pg_temp.host(), pg_temp.f(97));
 select results_eq($$select outcome, job_id from public.admit_takeoff_launch_request(pg_temp.request(23), pg_temp.f(97),
@@ -330,6 +346,28 @@ select results_eq($$select state, outcome, units_failed from public.takeoff_laun
 select results_eq($$select outcome, plans_read_count, plans_failed_count, plans_not_started_count, recipient_user_id
   from public.takeoff_completion_notifications where request_id = pg_temp.request(23)$$,
   $$values ('failure'::text, 0, 0, 1, pg_temp.f(1))$$, 'its notice counts the plan as not started, for its payer');
+
+-- An explicit relaunch sets aside an automatic start that had not begun: it never spends later on its own.
+select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
+  pg_temp.f(74), 'reread_plans', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(51), pg_temp.snapshot(41), pg_temp.job(69, 41))$$,
+  $$values ('admitted'::text, pg_temp.f(69))$$, 'a relaunch on the affaire whose automatic start waits for its payer runs');
+select results_eq($$select state, reason_code, reason_details ->> 'request_id' from public.takeoff_launch_requests where id = pg_temp.request(21)$$,
+  $$values ('blocked'::text, 'SUPERSEDED'::text, (select id::text from public.takeoff_launch_requests where intent_key = pg_temp.f(74)))$$,
+  'the automatic start is set aside by it, and names it');
+
+-- A dossier confirmed after activation whose confirmation recorded no request is reserved by the operator who takes it on.
+insert into public.estimate_projects (id, tenant_id, user_id, name) values
+  (pg_temp.f(24), pg_temp.f(10), pg_temp.f(1), 'Affaire dont la confirmation n’a rien enregistré (fictive)');
+insert into public.affaire_intake_uploads (id, project_id, created_by, status) values (pg_temp.f(34), pg_temp.f(24), pg_temp.f(1), 'ready');
+insert into public.affaire_briefs (id, project_id, upload_id, status, summary, project_object, confirmed_at, confirmed_by)
+values (pg_temp.f(39), pg_temp.f(24), pg_temp.f(34), 'confirme', 'Résumé fictif', 'Objet fictif', clock_timestamp(), pg_temp.f(3));
+select results_eq($$select state, payer_id from public.record_takeoff_launch_mandate(pg_temp.f(10), pg_temp.f(24), pg_temp.f(1), 'take_over',
+  pg_temp.host(), pg_temp.selection())$$, $$values ('evaluating'::text, pg_temp.f(1))$$, 'the take-over reserves the automatic request');
+select results_eq($$select origin, confirmed_by, mandate_kind from public.takeoff_launch_requests where project_id = pg_temp.f(24)$$,
+  $$values ('automatic'::text, pg_temp.f(3), 'take_over'::text)$$, 'it keeps the confirmer and records the gesture');
+select throws_ok($$select * from public.record_takeoff_launch_mandate(pg_temp.f(10), pg_temp.f(22), pg_temp.f(1), 'take_over',
+  pg_temp.host(), pg_temp.selection())$$, 'P0002', 'TAKEOFF_LAUNCH_REQUEST_NOT_FOUND',
+  'a dossier confirmed before the activation is not armed by a take-over either');
 
 -- 12. Deleting an affaire removes its requests, their jobs and notices, also through the service role.
 set local role service_role;

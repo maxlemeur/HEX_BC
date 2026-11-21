@@ -12,15 +12,16 @@ export type TakeoffLaunchRequestState = (typeof TAKEOFF_LAUNCH_REQUEST_STATES)[n
 /** The dossier does not allow an analysis yet: a change of the dossier evaluates it again. */
 export const TAKEOFF_LAUNCH_DOSSIER_REASONS = [
   "DOSSIER_EMPTY", "DOSSIER_PROCESSING", "DOSSIER_TO_REVIEW", "BRIEF_NOT_CONFIRMED", "NO_EXPLOITABLE_PLAN",
-  "PLAN_COPY_MISSING", "PREPARATION_NEEDS_REVIEW", "REFERENCE_UNAVAILABLE", "PLAN_SET_TOO_LARGE", "TAKEOFF_DISABLED",
+  "PLAN_COPY_MISSING", "PREPARATION_NEEDS_REVIEW", "PLAN_SET_TOO_LARGE",
 ] as const;
 /** Only the gesture of the member who pays (or of an operator who takes it on) lifts these. */
 export const TAKEOFF_LAUNCH_MANDATE_REASONS = [
   "OPERATOR_REQUIRED", "MANDATE_REQUIRED", "LOCAL_RUNTIME_REQUIRED", "HOST_NOT_AUTHORISED", "CHATGPT_NOT_CONNECTED",
   "CHATGPT_ACCESS_REVOKED", "CHATGPT_MODEL_MISSING", "CHATGPT_SELECTION_CHANGED", "PAYER_NOT_ELIGIBLE",
+  "EVALUATION_FAILED", "SUPERSEDED",
 ] as const;
 /** The Mac of the mandate tries again on its own. */
-export const TAKEOFF_LAUNCH_TRANSIENT_REASONS = ["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING"] as const;
+export const TAKEOFF_LAUNCH_TRANSIENT_REASONS = ["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING", "TAKEOFF_DISABLED"] as const;
 
 export type TakeoffLaunchDossierReason = (typeof TAKEOFF_LAUNCH_DOSSIER_REASONS)[number];
 export type TakeoffLaunchMandateReason = (typeof TAKEOFF_LAUNCH_MANDATE_REASONS)[number];
@@ -159,7 +160,6 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "NO_EXPLOITABLE_PLAN": return "Dossier confirmé sans plan exploitable : ajoutez un plan PDF pour que le métré démarre.";
     case "PLAN_COPY_MISSING": return `Métré non démarré — copie de travail manquante pour ${names || "un plan du dossier"}. Rendez la pièce accessible ou retirez-la du dossier.`;
     case "PREPARATION_NEEDS_REVIEW": return "Métré non démarré — choisissez dans les options du métré la version à retenir des plans concernés.";
-    case "REFERENCE_UNAVAILABLE": return "Métré non démarré — une pièce de référence retenue n’est pas lisible.";
     case "PLAN_SET_TOO_LARGE": return "Métré non démarré — les plans dépassent les limites d’une analyse. Restreignez-les dans les options du métré.";
     case "TAKEOFF_DISABLED": return "Le métré n’est pas activé pour cette entreprise.";
     case "OPERATOR_REQUIRED": return "Métré non démarré — prise en charge par un métreur requise";
@@ -174,6 +174,8 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "ADMISSION_LIMIT": return "Métré en attente — trop d’analyses en cours ou récentes sur ce forfait. Il démarrera dès que possible.";
     case "SOURCE_UNREADABLE": return "Métré en attente — une pièce du dossier n’a pas pu être lue. Nouvelle tentative automatique.";
     case "ANOTHER_ANALYSIS_RUNNING": return "Métré en attente — une autre analyse de l’affaire est en cours.";
+    case "EVALUATION_FAILED": return "Métré non démarré — la vérification du dossier a échoué plusieurs fois. Reprenez avec votre forfait pour réessayer.";
+    case "SUPERSEDED": return "Métré automatique remplacé par une relance de l’analyse.";
   }
 }
 

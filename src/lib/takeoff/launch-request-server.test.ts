@@ -43,7 +43,7 @@ const BYTES = new TextEncoder().encode("%PDF-1.4 plan fictif du rez-de-chaussée
 const SELECTION = { profileId: "profil-fictif", model: "modele-fictif", reasoningEffort: null, hostId: HOST };
 const FILE_PATH = `${TENANT}/${PLAN_SET}/${PLAN_FILE}/plan-rdc.pdf`;
 
-function dossier(input: { classification?: string; copy?: "same" | "older" | "none"; executionHost?: string } = {}) {
+function dossier(input: { classification?: string; copy?: "same" | "older" | "none"; executionHost?: string; running?: boolean } = {}) {
   const document = {
     id: DOCUMENT, tenant_id: TENANT, project_id: PROJECT, upload_id: "aaaaaaaa-0000-4000-8000-000000000070", created_by: PAYER,
     storage_path: `${TENANT}/dossier/plan-rdc.pdf`, deletion_token: null, plan_copy_generation: "generation-2",
@@ -59,8 +59,10 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "no
   const recorded: unknown[] = [];
   const fake = createSupabaseFake({
     tables: {
-      takeoff_launch_requests: () => ({ data: { id: REQUEST, origin: "automatic", payer_id: PAYER,
-        execution_host_id: input.executionHost ?? HOST, mandate_selection: SELECTION }, error: null }),
+      takeoff_launch_requests: (query: FakeQuery) => filterValue(query, "state") === "admitted"
+        ? { data: input.running ? [{ id: "aaaaaaaa-0000-4000-8000-000000000031" }] : [], error: null }
+        : { data: { id: REQUEST, origin: "automatic", payer_id: PAYER, execution_host_id: input.executionHost ?? HOST,
+          mandate_selection: SELECTION }, error: null },
       affaire_briefs: () => ({ data: { status: "confirme" }, error: null }),
       affaire_intake_documents: () => ({ data: [document], error: null, count: 1 }),
       plan_sets: () => ({ data: [{ id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
@@ -77,6 +79,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "no
       claim_takeoff_launch_evaluations: () => ({ data: [{ request_id: REQUEST, tenant_id: TENANT, project_id: PROJECT,
         origin: "automatic", payer_id: PAYER, mark: 7 }], error: null }),
       record_takeoff_launch_evaluation: (args) => { recorded.push(args); return { data: "blocked", error: null }; },
+      record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
       admit_takeoff_launch_request: (args) => {
         admitted.push(args);
         return { data: [{ outcome: "admitted", job_id: (args as { p_job: { id: string } }).p_job.id, reason_code: null }], error: null };
@@ -159,6 +162,22 @@ describe("evaluateTakeoffLaunchRequests", () => {
     await evaluateTakeoffLaunchRequests();
     expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "CHATGPT_NOT_CONNECTED" })]);
     expect(admitted).toEqual([]);
+  });
+
+  it("waits, before reading any plan, while another request of the affaire runs", async () => {
+    const { fake, admitted, recorded } = dossier({ running: true });
+    await evaluateTakeoffLaunchRequests();
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "ANOTHER_ANALYSIS_RUNNING" })]);
+    expect(fake.storageCalls).toEqual([]);
+    expect(admitted).toEqual([]);
+  });
+
+  it("gives the lease back and counts the failure when an evaluation stops on an error", async () => {
+    const { fake, admitted } = dossier();
+    vi.mocked(loadPreparation).mockRejectedValue(new Error("lecture impossible"));
+    await evaluateTakeoffLaunchRequests();
+    expect(admitted).toEqual([]);
+    expect(fake.rpcCalls.map((call) => call.fn)).toContain("record_takeoff_launch_evaluation_failure");
   });
 
   it("refuses a mandate prepared on another Mac", async () => {

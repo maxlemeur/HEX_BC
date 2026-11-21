@@ -1222,6 +1222,11 @@ test("INTWORD01 Word analysis reports per-file failures and preserves manual cho
 // The automatic start of the takeoff (lot 2, migration 20261121083011_takeoff_launch_requests.sql). Each journey has
 // owners of its own (createLocalChatGptOwner): their analyses count against no other journey's admission budget, and the
 // file's owner keeps no profile for them. The automatic start is activated for the journey only.
+/** Signs `email` in on this file's server, after leaving any session this browser context holds there. */
+async function signInAs(ui: Parameters<typeof signIn>[0], email: string) {
+  await ui.browser.clearCookies({ domain: new URL(localOrigin).hostname });
+  await signIn(ui, localOrigin, email);
+}
 async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: string, name: string, email: string) {
   const { client } = await localChatGptClient(email);
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", projectId);
@@ -1247,7 +1252,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
   const store = await writePlanFixture(owner.email, null, false);
   await activateOwnedAutomaticStart();
   try {
-    await signIn({ app, screen, browser }, localOrigin, owner.email);
+    await signInAs({ app, screen, browser }, owner.email);
     const prefix = `ARMY-auto-start-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
@@ -1261,9 +1266,10 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
 
     // The member who confirms is told who pays, at the gesture.
     await ui.app.open(`/dashboard/affaires/${ids.projectId}#brief`);
-    const confirm = screen.getByRole("button", /^Confirmer le brief(?: affaire)?$/).first();
-    if (await confirm.isVisible()) await confirm.click();
-    else await screen.getByRole("link", "Confirmer le brief", { exact: true }).first().click();
+    // The brief's section opens with the page's hydration: its button appears then.
+    const confirm = screen.getByRole("button", "Confirmer le brief", { exact: true });
+    await expect(confirm).toBeVisible(DEV_SERVER_WORK);
+    await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText("Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.");
     await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
@@ -1294,13 +1300,16 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
     await expect.poll(async () => (await readPlanFiles(browser, planSet.id)).length, DEV_SERVER_WORK).toBe(2);
     const added = (await readPlanFiles(browser, planSet.id)).filter(file => !(request.manifest_plans ?? []).includes(file.id));
     expect(added.map(file => file.file_name)).toEqual([`${prefix}-plan-etage.pdf`]);
-    await expect.poll(async () => (await readOwnedAffaireJobs(ids.projectId)).length, { timeout: 20_000 }).toBe(1);
+    // The request is consumed: the database never hands it to the Mac's loop again (takeoff-launch-requests.test.sql).
+    expect(await readOwnedAffaireJobs(ids.projectId)).toHaveLength(1);
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([expect.objectContaining({ id: request.id, state: "closed" })]);
     expect(await planReads() - readsBefore).toBe(1);
     expect(await forbiddenRequests()).toBe(0);
     await recordEvidence(army, "AUTO01-automatic-start", { ids, request, jobs, planReads: 1, staleConfirmation: stale,
       addedAfterAnalysis: added.map(file => file.id), boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend." });
   } finally {
+    // The next journey signs its own account in: leave no session of these owners.
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
     await deactivateOwnedAutomaticStart();
     await rm(store, { force: true });
   }
@@ -1316,7 +1325,7 @@ if (!existsSync(liveProbePath)) test("AUTO02 a director who confirms the dossier
   const stores = [await writePlanFixture(owner.email, null, false), await writePlanFixture(director.email, null, false)];
   await activateOwnedAutomaticStart();
   try {
-    await signIn({ app, screen, browser }, localOrigin, owner.email);
+    await signInAs({ app, screen, browser }, owner.email);
     const prefix = `ARMY-auto-director-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
@@ -1325,7 +1334,7 @@ if (!existsSync(liveProbePath)) test("AUTO02 a director who confirms the dossier
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
     const readsBefore = await planReads();
     // The director's hub shows no confirmation button; the confirmation itself is open to every reader of the affaire.
-    await signIn({ app, screen, browser }, localOrigin, director.email);
+    await signInAs({ app, screen, browser }, director.email);
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     const confirmed = await callServerAction(browser, await serverActionId("confirmAffaireBrief", actionManifest()),
       { projectId: ids.projectId, expectedUpdatedAt: (await readOwnedBrief(ids.projectId))!.updated_at });
@@ -1333,13 +1342,15 @@ if (!existsSync(liveProbePath)) test("AUTO02 a director who confirms the dossier
     expect(await readOwnedBrief(ids.projectId)).toMatchObject({ status: "confirme", confirmed_by: director.userId });
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([expect.objectContaining({ origin: "automatic", state: "blocked",
       reason_code: "OPERATOR_REQUIRED", confirmed_by: director.userId, payer_id: null, requested_by: null })]);
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    // A request blocked for an operator is never handed to a Mac's loop (takeoff-launch-requests.test.sql): no job.
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
     expect(await forbiddenRequests()).toBe(0);
     await recordEvidence(army, "AUTO02-director-confirmation", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
       jobs: 0, planReads: 0, boundary: "Fictional dossier, two owned members, ChatGPT transport fixture on an owned local backend." });
   } finally {
+    // The next journey signs its own account in: leave no session of these owners.
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
     await deactivateOwnedAutomaticStart();
     for (const store of stores) await rm(store, { force: true });
   }
@@ -1353,7 +1364,7 @@ if (!existsSync(liveProbePath)) test("AUTO03 a confirmer without a ChatGPT conne
   const store = await writePlanFixture(owner.email, null, false);
   await activateOwnedAutomaticStart();
   try {
-    await signIn({ app, screen, browser }, localOrigin, owner.email);
+    await signInAs({ app, screen, browser }, owner.email);
     const prefix = `ARMY-auto-offline-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
@@ -1363,20 +1374,23 @@ if (!existsSync(liveProbePath)) test("AUTO03 a confirmer without a ChatGPT conne
     await rm(store, { force: true });
     const readsBefore = await planReads();
     await ui.app.open(`/dashboard/affaires/${ids.projectId}#brief`);
-    const confirm = screen.getByRole("button", /^Confirmer le brief(?: affaire)?$/).first();
-    if (await confirm.isVisible()) await confirm.click();
-    else await screen.getByRole("link", "Confirmer le brief", { exact: true }).first().click();
+    // The brief's section opens with the page's hydration: its button appears then.
+    const confirm = screen.getByRole("button", "Confirmer le brief", { exact: true });
+    await expect(confirm).toBeVisible(DEV_SERVER_WORK);
+    await confirm.click();
     await screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true }).getByRole("button", "Oui, confirmer", { exact: true }).click();
     await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code]),
       DEV_SERVER_WORK).toEqual([["blocked", "CHATGPT_NOT_CONNECTED"]]);
     expect((await readOwnedLaunchRequests(ids.projectId))[0]).toMatchObject({ payer_id: owner.userId, execution_host_id: null });
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    // Without a mandate the request has no Mac: no loop claims it until the payer's gesture (takeoff-launch-requests.test.sql).
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
     expect(await forbiddenRequests()).toBe(0);
     await recordEvidence(army, "AUTO03-no-connection", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0], jobs: 0,
       planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
   } finally {
+    // The next journey signs its own account in: leave no session of these owners.
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
     await deactivateOwnedAutomaticStart();
     await rm(store, { force: true });
   }

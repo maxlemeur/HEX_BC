@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 
 import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
-import { findIntakePlansWithoutWorkingCopy, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
+import { findIntakePlansWithoutWorkingCopy, isEligiblePlanDocument, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
 import { DOCUMENT_SELECT, normalizeDocumentRow } from "@/lib/affaires/intake-rows";
 import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -241,6 +241,8 @@ type Refusal = { state: "not_eligible" | "blocked"; reason: TakeoffLaunchReason;
  */
 async function sealAutomaticSnapshot(service: Service, input: {
   tenantId: string; projectId: string; planSet: DossierPlanSet; payerId: string; selection: TakeoffExecutionSelection; jobId: string;
+  /** Plans of the dossier the analysis cannot read (not PDF): named in the coverage, never read. */
+  unsupportedPlans: TakeoffLaunchPiece[];
 }): Promise<Sealed | Refusal> {
   const loaded = await loadPreparation({ supabase: service, tenantId: input.tenantId }, input.projectId, input.planSet.id);
   const draft = structuredClone(loaded.draft) as TakeoffPreparation;
@@ -264,8 +266,16 @@ async function sealAutomaticSnapshot(service: Service, input: {
       continue;
     }
     const current = available.get(source.document_id);
-    if (!current || current.source_version !== source.source_version || current.kind !== source.kind || !current.file_path) {
+    // A piece that changed while the dossier was read: the next pass reads it again.
+    if (current && (current.source_version !== source.source_version || current.kind !== source.kind)) {
       return { state: "blocked", reason: "SOURCE_UNREADABLE", pieces: [] };
+    }
+    if (!current?.file_path) {
+      // No stored copy to read (a reference linked from Google Drive, a piece gone from the dossier).
+      if (source.kind === "plan") return { state: "blocked", reason: "PLAN_COPY_MISSING", pieces: [{ id: source.document_id, name: source.document_name }] };
+      source.active = false;
+      omittedReferences.push({ id: source.document_id, name: source.document_name, reason: "unreadable" });
+      continue;
     }
     if (source.kind !== "plan") {
       const unsupported = !classifyPreparationReferenceFormat({ file_name: source.document_name, mime_type: source.mime_type });
@@ -341,9 +351,12 @@ async function sealAutomaticSnapshot(service: Service, input: {
   const intake = new Map(input.planSet.files.flatMap((file) => typeof file.metadata.intake_document_id === "string"
     ? [[file.id, { intakeDocumentId: file.metadata.intake_document_id,
       generation: typeof file.metadata.intake_generation === "string" ? file.metadata.intake_generation : null }] as const] : []));
-  const omittedPlans = snapshot.preparation.sources.filter((source) => source.kind === "plan" && !source.active && source.plan_set_id === input.planSet.id)
-    .map((source) => ({ id: source.document_id, name: source.document_name,
-      reason: (source.alternate_of && plans.some((plan) => plan.content_hash && plan.content_hash === source.content_hash) ? "identical_copy" : "alternate") as "alternate" | "identical_copy" }));
+  const omittedPlans: TakeoffLaunchManifest["coverage"]["plans_omitted"] = [
+    ...snapshot.preparation.sources.filter((source) => source.kind === "plan" && !source.active && source.plan_set_id === input.planSet.id)
+      .map((source) => ({ id: source.document_id, name: source.document_name,
+        reason: (source.alternate_of && plans.some((plan) => plan.content_hash && plan.content_hash === source.content_hash) ? "identical_copy" : "alternate") as "alternate" | "identical_copy" })),
+    ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
+  ];
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
     omittedPlans, omittedReferences, preparationRevision: snapshot.preparation_revision });
   return { snapshot, manifest, sourceFile };
@@ -395,10 +408,18 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
     mandateIssue: mandate.issue ?? (sameSelection(request.mandate_selection, mandate.selection) ? null : "CHATGPT_SELECTION_CHANGED"),
   });
   if (decision.state !== "ready") return refuse(decision);
+  // The cheap checks before any download: another request of the affaire runs.
+  const { data: running, error: runningError } = await service.from("takeoff_launch_requests").select("id")
+    .eq("tenant_id", claim.tenant_id).eq("project_id", claim.project_id).eq("state", "admitted").limit(1);
+  if (runningError) databaseError(runningError, "Impossible de lire les métrés de l’affaire.");
+  if ((running ?? []).length > 0) return refuse({ state: "blocked", reason: "ANOTHER_ANALYSIS_RUNNING", pieces: [] });
   assertTakeoffWorkerConfiguration();
   const jobId = deriveDeterministicJobId(claim.tenant_id, `takeoff-request:${claim.request_id}:${TAKEOFF_GROUPED_UNIT_KEY}`);
   const sealed = await sealAutomaticSnapshot(service, { tenantId: claim.tenant_id, projectId: claim.project_id, planSet: planSet!,
-    payerId: request.payer_id, selection: mandate.selection!, jobId });
+    payerId: request.payer_id, selection: mandate.selection!, jobId,
+    unsupportedPlans: documents.filter((document) => document.document_kind === "plans" && document.upload_status === "uploaded"
+      && document.classification_status === "classified" && !isEligiblePlanDocument(document as unknown as SyncDocument))
+      .map((document) => ({ id: document.id, name: document.file_name })) });
   if ("reason" in sealed) return refuse(sealed);
   const { data, error: admitError } = await service.rpc("admit_takeoff_launch_request", {
     p_request_id: claim.request_id, p_token: token, p_mark: claim.mark,
@@ -431,9 +452,11 @@ export async function evaluateTakeoffLaunchRequests(input: { hostId?: string; li
     try {
       results.push(await evaluateClaimedRequest(service, claim, token, hostId));
     } catch (cause) {
-      // The request keeps its state; its lease expires and the next pass evaluates it again.
+      // The lease is given back and the next pass evaluates it again; the third failure in a row blocks it, visibly.
       console.error("takeoff.launch_request.evaluation_failed", { requestId: claim.request_id,
         code: cause instanceof TakeoffError ? cause.code : (cause as { code?: string })?.code ?? null });
+      const { error: failureError } = await service.rpc("record_takeoff_launch_evaluation_failure", { p_request_id: claim.request_id, p_token: token });
+      if (failureError) console.error("takeoff.launch_request.failure_unrecorded", { requestId: claim.request_id });
     }
   }
   return results;
@@ -483,7 +506,8 @@ export async function launchTakeoffRelaunch(input: {
   // The confirmer's own subscription, as pinned at the confirmation, on this Mac.
   const owner = await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot);
   const selection = snapshot.execution_selection!;
-  const jobId = deriveDeterministicJobId(context.tenantId, `takeoff-request-command:${input.intentKey.toLowerCase()}:${TAKEOFF_GROUPED_UNIT_KEY}`);
+  const jobId = deriveDeterministicJobId(context.tenantId,
+    `takeoff-request-command:${input.projectId.toLowerCase()}:${input.intentKey.toLowerCase()}:${TAKEOFF_GROUPED_UNIT_KEY}`);
   const config = await getTakeoffLevelCProcessingConfigForTenant(context.tenantId, { supabase: service });
   const plans = snapshot.preparation.sources.filter((source) => source.active && source.kind === "plan");
   const sourceFile = await resolvePlanSetSourceFile({ supabase: context.supabase, tenantId: context.tenantId, planSetId: input.planSetId,
@@ -512,7 +536,7 @@ export async function launchTakeoffRelaunch(input: {
   }
   if (error?.message === "TAKEOFF_JOB_ADMISSION_LIMIT") {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.TAKEOFF_JOB_ADMISSION_LIMIT, retryable: true,
-      message: "Trop d'analyses takeoff en cours ou créées récemment. Réessayez plus tard." });
+      message: "Trop d’analyses de métré en cours ou lancées récemment sur ce forfait. Réessayez plus tard." });
   }
   if (error) databaseError(error, "Impossible de relancer le métré.");
   const row = data?.[0];
@@ -534,6 +558,11 @@ export type AffaireTakeoffLaunchView = {
   active: boolean;
   /** A dossier confirmed before the activation is not armed: its last job, or the options of the takeoff. */
   confirmedBeforeActivation: boolean;
+  /**
+   * A dossier confirmed after the activation whose confirmation recorded no request (the call after its commit failed):
+   * shown as not started, and taken on by an operator's gesture, never left silent.
+   */
+  confirmedWithoutRequest: null | { message: string; action: import("@/lib/takeoff/operator-state").TakeoffLaunchAction; actionLabel: string | null };
   request: null | {
     id: string; origin: "automatic" | "manual"; state: TakeoffLaunchRequestState;
     reason: TakeoffLaunchReason | null; message: string | null; pieces: TakeoffLaunchPiece[];
@@ -552,7 +581,7 @@ export type AffaireTakeoffLaunchView = {
 
 type RequestRow = {
   id: string; origin: string; state: string; reason_code: string | null; reason_details: unknown; payer_id: string | null;
-  created_at: string; admitted_at: string | null; closed_at: string | null; outcome: string | null;
+  created_at: string; updated_at: string; admitted_at: string | null; closed_at: string | null; outcome: string | null;
   units_expected: number | null; units_succeeded: number; units_failed: number; units_canceled: number;
 };
 
@@ -563,7 +592,7 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
   const [activation, requests, brief, viewers] = await Promise.all([
     readTakeoffLaunchActivation(service),
     context.supabase.from("takeoff_launch_requests")
-      .select("id, origin, state, reason_code, reason_details, payer_id, created_at, admitted_at, closed_at, outcome, units_expected, units_succeeded, units_failed, units_canceled")
+      .select("id, origin, state, reason_code, reason_details, payer_id, created_at, updated_at, admitted_at, closed_at, outcome, units_expected, units_succeeded, units_failed, units_canceled")
       .eq("tenant_id", context.tenantId).eq("project_id", projectId)
       .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1),
     context.supabase.from("affaire_briefs").select("status, confirmed_at").eq("tenant_id", context.tenantId).eq("project_id", projectId).maybeSingle(),
@@ -575,9 +604,15 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
   const latest = (requests.data?.[0] ?? null) as RequestRow | null;
   const confirmedBeforeActivation = Boolean(activation.launchActiveFrom && brief.data?.status === "confirme" && brief.data.confirmed_at
     && Date.parse(brief.data.confirmed_at) < Date.parse(activation.launchActiveFrom));
-  if (!latest) return { active: activation.launchActive, confirmedBeforeActivation, request: null, dossierChangedSinceAnalysis: null };
-
   const { resolveTakeoffLaunchDecision, describeTakeoffLaunchAction } = await import("@/lib/takeoff/operator-state");
+  if (!latest) {
+    const confirmedAfterActivation = activation.launchActive && brief.data?.status === "confirme" && !confirmedBeforeActivation;
+    const { action } = resolveTakeoffLaunchDecision({ state: "blocked", reasonCode: "MANDATE_REQUIRED", payerId: null, viewer: viewers(projectId) });
+    return { active: activation.launchActive, confirmedBeforeActivation, request: null, dossierChangedSinceAnalysis: null,
+      confirmedWithoutRequest: confirmedAfterActivation
+        ? { message: describeTakeoffLaunchReason("MANDATE_REQUIRED"), action, actionLabel: describeTakeoffLaunchAction(action) } : null };
+  }
+
   const reason = isTakeoffLaunchReason(latest.reason_code) ? latest.reason_code : null;
   const details = (latest.reason_details ?? {}) as { pieces?: unknown };
   const pieces = Array.isArray(details.pieces) ? details.pieces.flatMap((piece) => {
@@ -585,14 +620,14 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
     return typeof entry?.id === "string" && typeof entry.name === "string" ? [{ id: entry.id, name: entry.name }] : [];
   }) : [];
   const { action } = resolveTakeoffLaunchDecision({ state: latest.state, reasonCode: latest.reason_code, payerId: latest.payer_id,
-    viewer: viewers(projectId) });
+    updatedAt: latest.updated_at, viewer: viewers(projectId) });
   const { data: jobs, error: jobError } = latest.admitted_at ? await context.supabase.from("takeoff_jobs").select("id")
     .eq("tenant_id", context.tenantId).eq("launch_request_id", latest.id).order("launch_unit_key").limit(1)
     : { data: [] as Array<{ id: string }>, error: null };
   if (jobError) databaseError(jobError, "Impossible de lire l’analyse du métré.");
 
   return {
-    active: activation.launchActive, confirmedBeforeActivation,
+    active: activation.launchActive, confirmedBeforeActivation, confirmedWithoutRequest: null,
     request: {
       id: latest.id, origin: latest.origin === "manual" ? "manual" : "automatic", state: latest.state as TakeoffLaunchRequestState,
       reason, message: reason ? describeTakeoffLaunchReason(reason, pieces) : null, pieces,

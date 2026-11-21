@@ -40,6 +40,9 @@ values ('d4900000-0000-4000-8000-000000000030', 'd4900000-0000-4000-8000-0000000
 insert into public.affaire_briefs (id, project_id, upload_id, status, summary, project_object, confirmed_at, confirmed_by)
 values ('d4900000-0000-4000-8000-000000000035', 'd4900000-0000-4000-8000-000000000010', 'd4900000-0000-4000-8000-000000000030',
   'confirme', 'Résumé fictif', 'Objet fictif', now(), 'd4900000-0000-4000-8000-000000000001');
+insert into public.affaire_intake_documents (id, upload_id, file_name, upload_status, storage_path, classification_status, document_kind)
+values ('d4900000-0000-4000-8000-000000000060', 'd4900000-0000-4000-8000-000000000030', 'annexe.pdf', 'uploaded', 'fixture/annexe',
+  'classified', 'annexes');
 insert into public.plan_sets (id, tenant_id, project_id, name)
 select 'd4900000-0000-4000-8000-000000000040', m.tenant_id, 'd4900000-0000-4000-8000-000000000010', 'Plans du dossier'
 from public.tenant_memberships m where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default;
@@ -119,12 +122,13 @@ create function pg_temp.admit_sql(p_token uuid, p_job integer) returns text lang
       'preparation', jsonb_build_object('schema_version', 1, 'destination', '{"kind":"analysis_only","estimate_version_id":null}'::jsonb,
         'processing', '{"level":"C","provider":"chatgpt"}'::jsonb, 'sources', jsonb_build_array(jsonb_build_object(
           'document_id', %4$L::uuid, 'kind', 'plan', 'active', true, 'confirmed', true, 'plan_set_id', %7$L::uuid,
-          'file_path', %8$L, 'page_count', 1, 'source_updated_at', %9$L::timestamptz)))),
+          'file_path', %8$L, 'page_count', %11$s, 'source_updated_at', %9$L::timestamptz)))),
     jsonb_build_object('id', %10$L::uuid, 'plan_set_id', %7$L::uuid, 'source_file_name', 'plan-rdc.pdf', 'source_file_type', 'application/pdf',
       'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', %6$L))$admit$,
     (select request_id from race_claim), p_token, (select mark from race_claim), pg_temp.fx(50), pg_temp.fx(1), pg_temp.host(),
     pg_temp.fx(40), (select file_path from public.plan_files where id = pg_temp.fx(50)),
-    (select updated_at from public.plan_files where id = pg_temp.fx(50)), pg_temp.fx(p_job))
+    (select updated_at from public.plan_files where id = pg_temp.fx(50)), pg_temp.fx(p_job),
+    (select page_count from public.plan_files where id = pg_temp.fx(50)))
 $$;
 create temp table admit_sql as select pg_temp.admit_sql(pg_temp.fx(91), 60) as body;
 select is(extensions.dblink_exec('race_writer', 'begin'), 'BEGIN', 'a member changes a plan of the dossier');
@@ -155,6 +159,26 @@ select is((select count(*)::integer from race_claim), 1, 'the first process clai
 select is((select x.answer from extensions.dblink('race_b', pg_temp.admit_sql(pg_temp.fx(93), 61)) as x(answer text)), 'lost:',
   'a process without the lease admits nothing');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(10)), 0, 'still no job');
+
+-- 4. A change of the dossier numbered before another but committed after the evaluation read the dossier: the admission
+-- sees it and admits nothing (red when the position was the highest mark number: the late mark did not raise it).
+select is((select x.state from extensions.dblink('race_a', format(
+  'select public.record_takeoff_launch_evaluation(%L, %L, 0, %L)', (select request_id from race_claim), pg_temp.fx(92), 'evaluating'))
+  as x(state text)), 'evaluating', 'the first process gives its lease back');
+select is(extensions.dblink_exec('race_writer', 'begin'), 'BEGIN', 'a member marks a piece of the dossier to review');
+select is(extensions.dblink_exec('race_writer', format($review$update public.affaire_intake_documents set issues = array['Pièce à revoir (fictif)']
+  where id = %L$review$, pg_temp.fx(60))), 'UPDATE 1', 'the change is written, its mark numbered, not yet committed');
+select is(extensions.dblink_exec('race_setup', format('update public.affaire_briefs set confirmed_at = confirmed_at where id = %L', pg_temp.fx(35))),
+  'UPDATE 1', 'another change of the dossier, numbered after it, commits first');
+delete from race_claim;
+insert into race_claim select x.request_id::uuid, x.mark from extensions.dblink('race_a', format(
+  'select request_id::text, mark from public.claim_takeoff_launch_evaluations(%L, %L)', pg_temp.host(), pg_temp.fx(94)))
+  as x(request_id text, mark bigint);
+select is((select count(*)::integer from race_claim), 1, 'the Mac claims the request and reads the dossier''s position');
+select is(extensions.dblink_exec('race_writer', 'commit'), 'COMMIT', 'the first change commits after that read');
+select is((select x.answer from extensions.dblink('race_a', pg_temp.admit_sql(pg_temp.fx(94), 62)) as x(answer text)), 'stale:',
+  'the admission sees a change it did not evaluate and admits nothing');
+select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(10)), 0, 'no job exists');
 
 -- Clean the committed synthetic fixtures and the cut-offs.
 select is(extensions.dblink_exec('race_setup', $cleanup$

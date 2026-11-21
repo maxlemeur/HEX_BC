@@ -91,10 +91,12 @@ tard (une par plan). Les règles sont dans
 la base en garantit l’unicité et l’admission (migration
 `20261121083011_takeoff_launch_requests.sql`).
 
-- **Une seule fois par affaire.** Quand le dossier devient « Dossier confirmé »
-  (même règle que le titre du parcours : pièces présentes, aucune à revoir ni en
-  classement, brief confirmé), la demande automatique de l’affaire est réservée.
-  Il n’y en a qu’une, pour toute la vie de l’affaire : deux confirmations, un
+- **Une seule fois par affaire.** La confirmation du brief réserve la demande
+  automatique de l’affaire ; l’analyse démarre quand le dossier est « Dossier
+  confirmé » (même règle que le titre du parcours : pièces présentes, aucune à
+  revoir ni en classement, brief confirmé), que le classement finisse avant ou
+  après la confirmation. Il n’y a qu’une demande automatique, pour toute la vie
+  de l’affaire : deux confirmations, un
   dossier qui sort puis revient à « confirmé », un plan ajouté ensuite ou un
   échec ne la réarment jamais. Un dossier confirmé avant l’activation n’est pas
   armé : il garde son dernier métré et les options.
@@ -126,7 +128,15 @@ la base en garantit l’unicité et l’admission (migration
   causes passagères (limite d’admission, lecture d’une pièce, autre analyse en
   cours sur l’affaire) sont réessayées par le Mac.
 - **Une seule demande admise à la fois par affaire.** Une relance pendant
-  l’exécution renvoie l’analyse en cours.
+  l’exécution renvoie l’analyse en cours. Une relance admise met de côté un
+  démarrage automatique qui n’avait pas commencé : il ne dépense plus rien sans
+  un geste. Le job d’une demande en cours ne peut pas être supprimé.
+- **Une demande qui attend son Mac** plus de quinze minutes peut être reprise
+  par son payeur ou prise en charge par un autre opérateur. Trois vérifications
+  du dossier qui échouent de suite la bloquent avec ce motif jusqu’à un geste.
+- **Budget.** Les jetons et le coût observés de toutes les tentatives sont
+  cumulés sur la demande ; le contrôle d’un budget de demande avant une nouvelle
+  tentative n’est pas encore appliqué (lot 3, avec le journal des appels).
 - **Fin.** La fin enregistrée du job ferme la demande et publie un seul avis et
   un seul courriel à son payeur ; les jobs d’une demande ne publient pas d’avis
   propre. Un job jamais pris en charge est clos par la reprise des métrés en attente, et la
