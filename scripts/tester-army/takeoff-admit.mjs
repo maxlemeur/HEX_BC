@@ -43,6 +43,8 @@ const owner = { tenantId: project.data.tenant_id, userId: project.data.user_id }
 await saveChatGptStore(owner, { selectedId: "army", profiles: [{
   id: "army", clientId: "army", issuer: "army", subject: "army", email: process.env.E2E_LOGIN_EMAIL,
   model: "army", accessToken: "local-fixture-only", expiresAt: Date.now() + 3600_000, scopes: ["chatgpt.tokens.use.direct"],
+  // The connection the journeys' confirmations pin (OWNED_WORKER_AUTHORIZATION, e2e/army/takeoff/worker-support.ts).
+  authorizationId: "army-connexion",
 }] });
 const input = { projectId, planSetId, operationId, preparationRevision };
 try {

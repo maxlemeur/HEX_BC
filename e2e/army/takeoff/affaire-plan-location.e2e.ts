@@ -17,7 +17,7 @@ import { querySql } from "../local/calculation-gate-support";
 import { callServerAction, serverActionId } from "../local/engine-v3-creators-support";
 import { startOwnedTakeoffAdmission } from "./affaire-admission-support";
 import { buildVectorPlanPdf } from "./vector-plan-fixture";
-import { ownedWorkerHostId, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
+import { ownedWorkerSelection, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
 
 // Lot 3, « Localisation canonique »: the building and the level of a plan revision are read from what the plan shows,
 // corrected once on the plan, and found again in the plan centre, the review and a relaunch of the same revision. Three
@@ -113,7 +113,7 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   preparation.processing = { level: "C", provider: "chatgpt" };
   const confirmedAt = new Date().toISOString();
   const snapshot = { ...createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedAt, confirmedBy: userId }),
-    execution_selection: { profileId: "army", model: "army", reasoningEffort: null, hostId: await ownedWorkerHostId() } };
+    execution_selection: await ownedWorkerSelection() };
   expect(snapshot.readiness.can_launch).toBe(true);
   expect((await setup.from("takeoff_preparations").insert({ tenant_id: tenantId, project_id: projectId, revision: 1, draft: preparation,
     confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId })).error).toBeNull();
@@ -468,7 +468,7 @@ armyTest("TKPL02 a dossier plan replaced while its location is open: the member 
   preparation.processing = { level: "C", provider: "chatgpt" };
   const confirmedAt = new Date().toISOString();
   const snapshot = { ...createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedAt, confirmedBy: userId }),
-    execution_selection: { profileId: "army", model: "army", reasoningEffort: null, hostId: await ownedWorkerHostId() } };
+    execution_selection: await ownedWorkerSelection() };
   expect(snapshot.readiness.can_launch).toBe(true);
   expect((await setup.from("takeoff_preparations").insert({ tenant_id: tenantId, project_id: projectId, revision: 1, draft: preparation,
     confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId })).error).toBeNull();
