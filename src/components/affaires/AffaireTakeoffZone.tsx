@@ -16,6 +16,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import type { AffaireDossierState } from "@/lib/affaires/intake";
 import type { AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
 import {
   buildAffaireTakeoffZone,
@@ -80,8 +81,17 @@ function ZoneLink({ link, onReviewBrief, onOpenDocuments, onAddDocuments }: {
  * access to its options. Every former « Préparer le métré » of the affaire leads here; nothing here launches on mount.
  */
 export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
-  const { projectId, initialData, canOperate } = props;
+  const { projectId, canOperate } = props;
   const toast = useToast();
+  // The member of the page, in its active tenant: the zone's cache is theirs, and the zone shows only what the server
+  // read for them (a session changed without a reload never shows another member's zone).
+  const user = useOptionalUserContext();
+  const viewerTenantId = user?.tenantId ?? props.initialData?.viewer.tenantId ?? null;
+  const viewerUserId = user?.profile?.id ?? props.initialData?.viewer.userId ?? null;
+  const ownData = useCallback((zoneData: AffaireTakeoffZoneData | null | undefined) => (zoneData
+    && zoneData.viewer.tenantId === viewerTenantId && zoneData.viewer.userId === viewerUserId ? zoneData : null),
+  [viewerTenantId, viewerUserId]);
+  const initialData = useMemo(() => ownData(props.initialData), [ownData, props.initialData]);
   const [optionsOpen, setOptionsOpen] = useState(Boolean(props.initialOptionsOpen && canOperate));
   const [gestureBusy, setGestureBusy] = useState(false);
   const [gestureError, setGestureError] = useState<string | null>(null);
@@ -90,8 +100,8 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
   }), [canOperate, projectId, props.dossier, props.planFileCount]);
   // Stable while its inputs are: SWR restarts its polling timer whenever this function changes.
   const refreshInterval = useCallback((latest: AffaireTakeoffZoneData | undefined) =>
-    (zoneOf(latest ?? initialData)?.live ? LIVE_REFRESH_MS : 0), [initialData, zoneOf]);
-  const { data, error, mutate } = useSWR(["affaire-takeoff-zone", projectId], () => readZone(projectId), {
+    (zoneOf(ownData(latest) ?? initialData)?.live ? LIVE_REFRESH_MS : 0), [initialData, ownData, zoneOf]);
+  const { data, error, mutate } = useSWR(["affaire-takeoff-zone", viewerTenantId, viewerUserId, projectId], () => readZone(projectId), {
     fallbackData: initialData ?? undefined,
     // The server read failed: try again once the zone is shown, then on focus.
     revalidateOnMount: initialData === null,
@@ -99,8 +109,9 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
     refreshInterval,
     keepPreviousData: true,
   });
-  const model: AffaireTakeoffZoneModel | null = useMemo(() => zoneOf(data ?? (error ? null : initialData)),
-    [data, error, initialData, zoneOf]);
+  // An answer read for another member (or kept from another key) is never shown: the zone then says it cannot read it.
+  const model: AffaireTakeoffZoneModel | null = useMemo(() => zoneOf(data === undefined ? (error ? null : initialData) : ownData(data)),
+    [data, error, initialData, ownData, zoneOf]);
 
   const refresh = useCallback(() => {
     void mutate();

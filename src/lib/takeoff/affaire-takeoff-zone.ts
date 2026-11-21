@@ -85,6 +85,8 @@ export type AffaireTakeoffZoneData = {
    * with it and an automatic start waits for it.
    */
   unrequestedRunning: boolean;
+  /** Whom the server read this for: the page shows only its own member's zone. */
+  viewer: { tenantId: string; userId: string };
 };
 
 export type AffaireTakeoffZoneInput = {

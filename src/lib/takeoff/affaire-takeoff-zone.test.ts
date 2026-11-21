@@ -33,7 +33,8 @@ function request(overrides: Partial<AffaireTakeoffZoneRequest> = {}): AffaireTak
 
 function data(overrides: Partial<AffaireTakeoffZoneData> = {}): AffaireTakeoffZoneData {
   return { active: true, canOperate: true, confirmedBeforeActivation: false, request: null, dossierChangedSinceAnalysis: null,
-    latestJob: null, latestReview: null, latestEnd: null, unrequestedRunning: false, ...overrides };
+    latestJob: null, latestReview: null, latestEnd: null, unrequestedRunning: false,
+    viewer: { tenantId: "44444444-4444-4444-8444-444444444444", userId: "55555555-5555-4555-8555-555555555555" }, ...overrides };
 }
 
 function zone(overrides: Partial<AffaireTakeoffZoneInput> = {}) {

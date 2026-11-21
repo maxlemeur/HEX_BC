@@ -146,5 +146,6 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
     // The request's own end when it has one, else the affaire's latest.
     latestEnd: events.find((event) => event.eventId === completionEventId) ?? events[0] ?? null,
     unrequestedRunning: Boolean(waitingOrRead.data?.length || retryDue.data?.length),
+    viewer: { tenantId: context.tenantId, userId: context.userId },
   };
 }
