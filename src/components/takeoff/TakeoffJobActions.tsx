@@ -1,59 +1,41 @@
 import Link from "next/link";
-import useSWR from "swr";
 
-import { useUserContext } from "@/lib/auth/user-context";
 import { buttonVariants } from "@/components/ui/button";
-import { fetchTakeoffJob, type TakeoffActivityCenterResponse } from "@/lib/takeoff/client";
-import { isTakeoffOperatorMutationRole, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/operator-state";
-import type { TakeoffJobSummary } from "@/lib/takeoff/types";
+import { TAKEOFF_RESUME_RELOAD_TEXT } from "@/components/takeoff/takeoff-resume-view";
+import type { TakeoffActivityCenterResponse } from "@/lib/takeoff/client";
+import { describeTakeoffResume, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/operator-state";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
-import { getTakeoffFailureReasonLabel, takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
+import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
+
+export { useTakeoffResumeRefresh } from "@/components/takeoff/takeoff-resume-view";
 
 export type ActionKind = "resubmit" | "cancel";
 type ActivityJob = TakeoffActivityCenterResponse["jobs"][number];
 
-function nextStep(detail: TakeoffJobSummary, row: ActivityJob, role?: string | null) {
-  if (detail.can_resubmit) return "Vous pouvez soumettre cette analyse à nouveau.";
-  if (detail.retry_count >= TAKEOFF_RETRY_MAX) return "Le nombre maximal de relances est atteint. Préparez un nouveau métré.";
-  if (row.analysisCompletion?.outcome === "failure") return "Cette analyse est close. Préparez un nouveau métré.";
-  if (detail.next_retry_at) return "Une reprise automatique est programmée.";
-  if (!isTakeoffOperatorMutationRole(role)) return "Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.";
-  // Within its budget, only a job of a former provider cannot be submitted again by an operator.
-  return "Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez un nouveau métré.";
-}
-
+/**
+ * The row's actions. The list decided them with the resume policy of the server, for this member: the row shows that
+ * decision and its reason in French, and asks for nothing more (no read of the job's detail). An answer without a
+ * decision (an older server) offers nothing and asks for a reload.
+ */
 export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
   job: ActivityJob;
   projectId: string;
   pendingAction?: ActionKind;
   onAction: (jobId: string, action: ActionKind) => Promise<void>;
 }) {
-  const { profile } = useUserContext();
   const failed = job.technicalStatusRaw === "failed";
-  const { data: detail, error, mutate } = useSWR(
-    failed ? ["takeoff-failure", job.jobId, profile?.id, profile?.tenant_role, job.retryCount,
-      job.providerBatchUpdatedAt, job.providerReconcileLeaseExpiresAt] : null,
-    async () => (await fetchTakeoffJob(job.jobId, { itemsLimit: 1 })).job,
-    // The key changes with the job's own changes: a window focus reads nothing new.
-    { revalidateOnFocus: false },
-  );
-  const canResubmit = failed ? detail?.can_resubmit : job.canResubmit;
+  const decided = Boolean(job.resume);
+  const stopped = !job.resume || job.resume.reason !== "not_stopped";
+  const nextStep = job.resume ? describeTakeoffResume(job.resume) : TAKEOFF_RESUME_RELOAD_TEXT;
   const reviewEnabled = job.statusRaw === "completed" || job.statusRaw === "review_required";
 
   return (
     <div className="space-y-2">
-      {failed && (
+      {stopped && (
         <div className="space-y-1 text-xs text-muted-foreground">
-          {detail ? (
-            <p>{job.analysisCompletion?.outcome === "failure"
-              ? takeoffCompletionFailureReason(detail.error_code)
-              : getTakeoffFailureReasonLabel({ errorCode: detail.error_code })
-                ?? (detail.error_code ? `Analyse interrompue (code ${detail.error_code}).` : "Analyse interrompue sans code de diagnostic.")}</p>
-          ) : error ? (
-            <p>Motif de l’échec indisponible. <button type="button" className="underline" onClick={() => void mutate()}>Relire le diagnostic</button></p>
-          ) : <p>Chargement du motif de l’échec…</p>}
-          <p>Relances utilisées : {detail?.retry_count ?? job.retryCount} sur {TAKEOFF_RETRY_MAX}</p>
-          {detail && <p>{nextStep(detail, job, profile?.tenant_role)}</p>}
+          {failed && <p>{describeTakeoffJobFailure(job.errorCode)}</p>}
+          {failed && <p>Relances utilisées : {job.retryCount} sur {TAKEOFF_RETRY_MAX}</p>}
+          {nextStep && <p>{nextStep}</p>}
         </div>
       )}
       <div className="flex flex-wrap gap-2">
@@ -65,7 +47,7 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
             Revue
           </Link>
         ) : null}
-        {canResubmit ? (
+        {job.resume?.action === "retry_now" ? (
           <button
             type="button"
             className={buttonVariants({ variant: "outline" })}
@@ -79,7 +61,7 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
               : "Soumettre à nouveau"}
           </button>
         ) : null}
-        {job.canCancel ? (
+        {decided && job.canCancel ? (
           <button
             type="button"
             className={buttonVariants({ variant: "outline" })}

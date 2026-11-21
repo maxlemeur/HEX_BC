@@ -1,5 +1,8 @@
 import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
+import { TAKEOFF_RESUME_RELOAD_TEXT } from "@/components/takeoff/takeoff-resume-view";
+import { describeTakeoffResume } from "@/lib/takeoff/operator-state";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
 
 export type TakeoffNextStepAction =
   | { kind: "launch"; label: string }
@@ -102,21 +105,19 @@ export function resolveTakeoffNextStep({
     };
   }
 
-  if (latestJob.technicalStatusRaw === "canceled") {
+  // A stopped analysis: the banner says what its resume decision says, and offers a new analysis only when the decision
+  // does (a member who cannot act, a retry to wait for or a retry of the same analysis get no launch button).
+  const canceled = latestJob.technicalStatusRaw === "canceled";
+  if (canceled || latestJob.statusRaw === "action_required") {
+    const lead = canceled
+      ? "La dernière analyse a été arrêtée avant la fin."
+      : `La dernière analyse n’a pas abouti. ${describeTakeoffJobFailure(latestJob.errorCode)}`;
+    const decision = latestJob.resume;
+    const next = decision ? describeTakeoffResume(decision) : TAKEOFF_RESUME_RELOAD_TEXT;
     return {
-      title: "Analyse annulée",
-      description: "La dernière analyse a été arrêtée avant la fin. Préparez un nouveau métré quand vous êtes prêt.",
-      action: launchAgain,
-    };
-  }
-
-  if (latestJob.statusRaw === "action_required") {
-    // The failure labels already say what to do next.
-    const hint = context?.failureReasonLabel ?? "Consultez le motif et les actions disponibles dans la liste des analyses.";
-    return {
-      title: "Analyse à reprendre",
-      description: `La dernière analyse n’a pas abouti. ${hint}`,
-      action: launchAgain,
+      title: canceled ? "Analyse annulée" : decision?.reason === "retry_scheduled" ? "Reprise programmée" : "Analyse à reprendre",
+      description: next ? `${lead} ${next}` : lead,
+      action: decision?.action === "new_analysis" ? launchAgain : null,
     };
   }
 

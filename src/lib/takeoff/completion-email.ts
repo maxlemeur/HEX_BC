@@ -5,20 +5,25 @@ import { Resend, type CreateEmailOptions, type ErrorResponse } from "resend";
 import { canonicalJsonHash } from "@/lib/email/estimate-email-hash";
 import { isOneMailbox, readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import type { Database } from "@/types/database";
 
 type Notification = Database["public"]["Tables"]["takeoff_completion_notifications"];
 export type CompletionEmailClaim = Pick<Notification["Row"],
-  "id" | "project_id" | "recipient_email" | "outcome" | "provider_key" | "attempt_count" | "first_send_at"
+  "id" | "tenant_id" | "project_id" | "job_id" | "recipient_email" | "outcome" | "provider_key" | "attempt_count" | "first_send_at"
 >;
 
 type Settlement = Pick<Notification["Update"], "delivery_state" | "last_delivery_code"> &
   Partial<Pick<Notification["Update"],
-    "next_attempt_at" | "provider_id" | "first_send_at" | "routing_mode" | "effective_email" | "payload_hash"
+    "next_attempt_at" | "provider_id" | "first_send_at" | "routing_mode" | "effective_email" | "payload_hash" | "attempt_count"
   >>;
 
 type DeliveryIO = {
   prepare: (mode: "live" | "redirect", effectiveEmail: string, hash: string) => Promise<boolean>;
+  /** Milliseconds left, on the database's clock, before the lease ends or the provider forgets the first key; null when either is gone. */
+  confirmDispatch: () => Promise<number | null>;
+  /** The test the takeoff pages apply: when it fails, the job's page answers 404 and the link goes to the affaire. */
+  takeoffEnabled: () => Promise<boolean>;
   settle: (result: Settlement) => Promise<void>;
   send: (message: CreateEmailOptions, key: string) => Promise<{
     data: { id: string } | null;
@@ -30,8 +35,14 @@ const RETRY_DELAYS_SECONDS = [30, 120, 600, 1_800, 3_600] as const;
 const MAX_ATTEMPTS = 8;
 // Resend retains the key for 24 hours. Leave time for clock skew and transport.
 const IDEMPOTENCY_WINDOW_MS = 23 * 60 * 60 * 1_000;
+const SEND_TIMEOUT_MS = 15_000;
+// A call starts only if it can end, timeout included, before the lease and the window do.
+const DISPATCH_MARGIN_MS = SEND_TIMEOUT_MS + 5_000;
+// A sender that stops before the call gives its attempt back and lets the next claim come soon.
+const GIVEN_BACK_DELAY_MS = 30_000;
 
-function affaireEmailUrl(projectId: string, origin: string | undefined) {
+// The job's end on the affaire's activity: every reader of the affaire may open it, and it shows a failure's reason.
+function affaireEmailUrl(projectId: string, jobId: string | null, origin: string | undefined) {
   if (!origin) throw new Error("Missing takeoff email origin.");
   const url = new URL(origin);
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
@@ -41,7 +52,9 @@ function affaireEmailUrl(projectId: string, origin: string | undefined) {
   ) {
     throw new Error("Invalid takeoff email origin.");
   }
-  return new URL(`/dashboard/affaires/${projectId}`, url.origin).href;
+  const link = new URL(jobId ? `/dashboard/affaires/${projectId}/takeoff` : `/dashboard/affaires/${projectId}`, url.origin);
+  if (jobId) link.searchParams.set("job", jobId);
+  return link.href;
 }
 
 function retryOrStop(claim: CompletionEmailClaim, now: Date, code: string, mayHaveSent: boolean): Settlement {
@@ -61,6 +74,7 @@ export async function deliverTakeoffCompletionEmail(
   io: DeliveryIO,
   env: Readonly<Record<string, string | undefined>>,
   now: Date,
+  clock: () => number = Date.now,
 ) {
   const alreadyAttempted = claim.first_send_at !== null;
   if (claim.first_send_at && now.getTime() - Date.parse(claim.first_send_at) >= IDEMPOTENCY_WINDOW_MS) {
@@ -86,12 +100,13 @@ export async function deliverTakeoffCompletionEmail(
   try {
     const from = env.EMAIL_FROM?.trim();
     if (!from || !env.RESEND_API_KEY?.trim()) throw new Error("Missing Resend configuration.");
-    const link = affaireEmailUrl(claim.project_id, env.MERGEONE_TAKEOFF_EMAIL_ORIGIN);
+    const jobPage = claim.job_id && await io.takeoffEnabled() ? claim.job_id : null;
+    const link = affaireEmailUrl(claim.project_id, jobPage, env.MERGEONE_TAKEOFF_EMAIL_ORIGIN);
     const complete = claim.outcome === "success";
     const subject = complete ? "Votre métré est terminé" : "Votre métré nécessite une vérification";
     const summary = complete
       ? "Le résultat de votre analyse est disponible dans l’affaire."
-      : "Votre analyse n’a pas pu aboutir. Consultez l’affaire pour connaître le motif.";
+      : "Votre analyse n’a pas pu aboutir. Son suivi dans l’affaire en donne le motif.";
     const routing = readOutgoingEmailRouting(env);
     const routed = routeOutgoingEmail(routing, { to: claim.recipient_email, subject });
     routingMode = routing.mode;
@@ -100,7 +115,7 @@ export async function deliverTakeoffCompletionEmail(
       from,
       to: routed.to,
       subject: routed.subject,
-      text: `${summary}\n\nOuvrir l’affaire\n${link}`,
+      text: `${summary}\n\n${jobPage ? "Ouvrir le suivi du métré" : "Ouvrir l’affaire"}\n${link}`,
     };
     // Include the provider configuration in the fingerprint because changing
     // Resend accounts can change the namespace of the idempotency key.
@@ -111,6 +126,21 @@ export async function deliverTakeoffCompletionEmail(
   }
 
   if (!(await io.prepare(routingMode, effectiveEmail, fingerprint))) return;
+  // A sender can stop for any length of time after prepare. At the moment of sending, the database checks again that
+  // it still holds its lease and that the provider still keeps the first attempt's key; the call then starts only
+  // while enough of both remains, by this process's clock read before that check.
+  const checkedAt = clock();
+  const remainingMs = await io.confirmDispatch();
+  if (remainingMs === null) return;
+  if (clock() + DISPATCH_MARGIN_MS > checkedAt + remainingMs) {
+    // Too little lease is left to finish a call: none is made, and the attempt is given back. An attempt counts only
+    // when the provider is called, or when a sender stops without being able to give it back.
+    await io.settle({
+      delivery_state: "pending", last_delivery_code: "DISPATCH_WINDOW_TOO_SHORT", attempt_count: claim.attempt_count - 1,
+      next_attempt_at: new Date(clock() + GIVEN_BACK_DELAY_MS).toISOString(),
+    });
+    return;
+  }
   let response: Awaited<ReturnType<DeliveryIO["send"]>>;
   try {
     response = await io.send(request, claim.provider_key);
@@ -159,6 +189,15 @@ export async function drainTakeoffCompletionEmails(options: { id?: string; limit
         if (error) throw new Error("Impossible de vérifier le destinataire du courriel de métré.");
         return data === true;
       },
+      async confirmDispatch() {
+        const { data, error } = await client.rpc("confirm_takeoff_completion_email_dispatch", {
+          p_id: row.id,
+          p_lease_token: row.lease_token!,
+        });
+        if (error) throw new Error("Impossible de vérifier l’envoi du courriel de métré.");
+        return typeof data === "number" ? data : null;
+      },
+      takeoffEnabled: () => isTakeoffEnabled(row.tenant_id, { supabase: client }),
       async settle(result) {
         const { error } = await client.from("takeoff_completion_notifications")
           .update({ next_attempt_at: null, ...result, lease_token: null, lease_expires_at: null })
@@ -168,9 +207,9 @@ export async function drainTakeoffCompletionEmails(options: { id?: string; limit
       },
       send: (message, key) => new Resend(process.env.RESEND_API_KEY?.trim()).emails.send(message, {
         idempotencyKey: key,
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       }),
-    }, process.env, new Date());
+    }, process.env, new Date(), Date.now);
   }
   return claimed;
 }

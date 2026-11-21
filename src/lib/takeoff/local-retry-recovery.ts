@@ -9,6 +9,8 @@ import { TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
 
 const POLL_INTERVAL_MS = 15_000;
 const BATCH_SIZE = 5;
+// The database reads a Mac as live for five minutes after its last sign (private.takeoff_local_host_live_window).
+const HOST_ACTIVITY_INTERVAL_MS = 60_000;
 
 type ServiceRoleClient = NonNullable<ReturnType<typeof createOptionalServiceRoleClient>>;
 
@@ -93,5 +95,17 @@ export function startLocalTakeoffRetryRecovery() {
       running = false;
     }
   };
+  // What this Mac last did, on a timer of its own so that a long analysis in the poll above does not silence it: the
+  // hosted recovery tells a job waiting its turn on a live Mac from one that nobody will take.
+  const recordActivity = async () => {
+    try {
+      const { error } = await client.rpc("record_local_takeoff_host_activity", { p_host_id: await getChatGptHostId() });
+      if (error) throw error;
+    } catch {
+      console.error("takeoff.local_host_activity.deferred");
+    }
+  };
+  void recordActivity();
+  setInterval(() => void recordActivity(), HOST_ACTIVITY_INTERVAL_MS).unref();
   setInterval(() => void recover(), POLL_INTERVAL_MS).unref();
 }

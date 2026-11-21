@@ -163,6 +163,9 @@ entrées et identités déterministes ;
 porte les accès, le stockage et les compensations. Le rejeu conserve l'identité
 du job et ne répète pas ses effets. Une erreur métier transitoire conserve son
 indicateur `retryable` ; cet indicateur ne déclenche aucune relance automatique.
+Ce qu'un membre peut faire d'une analyse arrêtée suit une seule
+[règle de reprise](../metier/reprise-metre.md), appliquée par la liste, le détail
+et la commande de nouvelle soumission.
 
 Les suggestions de prix utilisent
 [price-suggestion-preparation.ts](../../src/lib/takeoff/price-suggestion-preparation.ts)

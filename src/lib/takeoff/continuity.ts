@@ -1,3 +1,4 @@
+import { describeTakeoffResume, TAKEOFF_RESUME_RELOAD_TEXT } from "@/lib/takeoff/operator-state";
 import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
 
 const ACQUIRED_STATUSES = new Set(["completed", "review_required"]);
@@ -16,6 +17,8 @@ export type TakeoffContinuityHistoryEntry = {
 export type TakeoffContinuitySnapshot = {
   title: string;
   description: string;
+  /** The link to the takeoff's activity, named after the latest analysis's decision; null when nothing is to follow. */
+  actionLabel: string | null;
   latestStatusRaw: string;
   acquiredCount: number;
   waitingCount: number;
@@ -53,6 +56,15 @@ function countJobsByStatus(jobs: TakeoffActivityCenterJobRow[]) {
   );
 }
 
+function continuityActionLabel(latestJob: TakeoffActivityCenterJobRow): string | null {
+  if (latestJob.statusRaw === "action_required") {
+    if (latestJob.resume?.action === "retry_now") return "Reprendre l'analyse";
+    if (latestJob.resume?.action === "wait_retry") return "Suivre la reprise";
+    return "Ouvrir le suivi du métré";
+  }
+  return WAITING_STATUSES.has(latestJob.statusRaw) ? "Suivre la reprise" : null;
+}
+
 function buildSnapshotCopy(input: {
   latestJob: TakeoffActivityCenterJobRow;
   acquiredCount: number;
@@ -60,10 +72,12 @@ function buildSnapshotCopy(input: {
   actionRequiredCount: number;
 }) {
   if (input.latestJob.statusRaw === "action_required" && input.acquiredCount > 0) {
+    // What to do with the failed analysis is its resume decision, as the activity shows it.
+    const decision = input.latestJob.resume;
+    const next = decision ? describeTakeoffResume(decision) : TAKEOFF_RESUME_RELOAD_TEXT;
     return {
       title: "Reprise après échec partiel",
-      description:
-        "Les analyses déjà acquises restent visibles. Corrigez ou relancez uniquement la reprise en échec.",
+      description: next ? `Les analyses déjà acquises restent visibles. ${next}` : "Les analyses déjà acquises restent visibles.",
     };
   }
 
@@ -117,6 +131,7 @@ export function buildTakeoffContinuitySnapshot(input: {
 
   return {
     ...copy,
+    actionLabel: continuityActionLabel(latestJob),
     latestStatusRaw: latestJob.statusRaw,
     acquiredCount: counts.acquiredCount,
     waitingCount: counts.waitingCount,

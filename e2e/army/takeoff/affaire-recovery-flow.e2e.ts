@@ -123,11 +123,14 @@ describe("US-6.2 - reprise apres attente, erreur ou echec partiel", { session: "
     const plansSection = await openPlansSection(page, projectId);
 
     await expect(plansSection.getByText("Reprise après échec partiel")).toBeVisible();
+    // Lot 3 (one resume policy): the card says the failed analysis's resume decision instead of telling everyone to
+    // relaunch it. This seeded job names no provider, so it reads as the former one: only a new analysis remains.
     await expect(
       plansSection.getByText(
-        "Les analyses déjà acquises restent visibles. Corrigez ou relancez uniquement la reprise en échec."
+        "Les analyses déjà acquises restent visibles. Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez une nouvelle analyse depuis l’affaire."
       )
     ).toBeVisible();
+    await expect(plansSection.getByText(/Corrigez ou relancez/)).toHaveCount(0);
     await expect(plansSection.getByText("1 acquis")).toBeVisible();
     await expect(plansSection.getByText("0 en attente")).toBeVisible();
     await expect(plansSection.getByText("1 à corriger")).toBeVisible();
@@ -139,7 +142,9 @@ describe("US-6.2 - reprise apres attente, erreur ou echec partiel", { session: "
       partialRecoveryHistory.getByRole("listitem").filter({ hasText: "V1" }).first()
     ).toContainText("Analyse terminée");
 
-    const resumeLink = plansSection.getByRole("link", { name: "Reprendre l'analyse" });
+    // Named after the decision: no « Reprendre » for an analysis that only a new analysis replaces.
+    await expect(plansSection.getByRole("link", { name: "Reprendre l'analyse" })).toHaveCount(0);
+    const resumeLink = plansSection.getByRole("link", { name: "Ouvrir le suivi du métré" });
     await expect(resumeLink).toHaveAttribute(
       "href",
       `/dashboard/affaires/${projectId}/takeoff`

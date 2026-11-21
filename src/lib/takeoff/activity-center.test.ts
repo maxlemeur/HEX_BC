@@ -12,9 +12,23 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
+// The request runs on the local Mac that launched the jobs (the resume policy compares the two); CI disables the real one.
+vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers({ host: "127.0.0.1:3000" })) }));
+vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
+  isLocalChatGptEnabled: vi.fn(() => true), assertLocalChatGptHost: vi.fn(),
+  hasLocalChatGptPlanAccess: vi.fn((profile: { accessToken?: string }) => Boolean(profile.accessToken)),
+}));
+vi.mock("@/lib/ai/chatgpt-local-store", () => ({
+  getChatGptHostId: vi.fn(async () => "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+  readChatGptStore: vi.fn(async () => ({ selectedId: "profile-1", profiles: [{ id: "profile-1", accessToken: "fixture", model: "fixture-model" }] })),
+}));
+
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { listActivityCenterJobs } from "@/lib/takeoff/activity-center";
+import { takeoffActivityCenterResponseSchema } from "@/lib/takeoff/activity-center-contracts";
+import { getTakeoffJobDetails } from "@/lib/takeoff/job-read-server";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
@@ -150,6 +164,13 @@ function createSupabaseMock(input?: {
   planFilePatches?: Record<string, QueryRow>;
   archived?: boolean;
   director?: boolean;
+  /** The affaire's shared ends, newest first, with the job each one ended. */
+  completions?: Array<{ event_id: string; outcome: string; finished_at: string; reason_code: string | null; job_id: string }>;
+  /** Replaces the three default jobs. */
+  jobs?: QueryRow[];
+  /** The count of lines each job has in the grouped read, when it differs from the fixture's line rows. */
+  itemCounts?: Record<string, number>;
+  projectOwner?: string;
 }) {
   const versions = [
     {
@@ -254,6 +275,7 @@ function createSupabaseMock(input?: {
   ];
 
   for (const job of takeoffJobs) Object.assign(job, input?.jobPatches?.[job.id]);
+  const jobs: QueryRow[] = input?.jobs ?? takeoffJobs;
   for (const file of planFiles) Object.assign(file, input?.planFilePatches?.[file.plan_set_id]);
 
   const reviewDecisions = [
@@ -318,14 +340,21 @@ function createSupabaseMock(input?: {
   ];
 
   return {
-    rpc: vi.fn(async (name: string) => {
+    rpc: vi.fn(async (name: string, args: { p_limit?: number; p_offset?: number; p_job_id?: string | null } = {}) => {
       if (name !== "list_affaire_takeoff_completions") throw new Error(`Unexpected RPC: ${name}`);
+      if (input?.completions) {
+        const offset = args.p_offset ?? 0;
+        const rows = input.completions.filter((row) => !args.p_job_id || row.job_id === args.p_job_id)
+          .slice(offset, offset + Math.min(args.p_limit ?? 20, 101))
+          .map((row) => ({ event_id: row.event_id, outcome: row.outcome, finished_at: row.finished_at, reason_code: row.reason_code }));
+        return { data: rows, error: null };
+      }
       return { data: input?.director ? [{ event_id: EVENT_ID, outcome: "success", finished_at: FINISHED_AT }] : [], error: null };
     }),
     from: vi.fn((table: string) => {
       if (table === "estimate_projects") {
         return { select: vi.fn(() => createSelectBuilder([
-          { id: PROJECT_ID, tenant_id: TENANT_ID, user_id: "owner", is_archived: input?.archived ?? false },
+          { id: PROJECT_ID, tenant_id: TENANT_ID, user_id: input?.projectOwner ?? "owner", is_archived: input?.archived ?? false },
         ])) };
       }
       if (table === "estimate_versions") {
@@ -338,8 +367,10 @@ function createSupabaseMock(input?: {
 
       if (table === "takeoff_jobs") {
         return {
-          select: vi.fn((_columns?: string, options?: SelectOptions) =>
-            createSelectBuilder(input?.director ? [] : takeoffJobs, options)
+          select: vi.fn((columns?: string, options?: SelectOptions) => columns?.includes("(count)")
+            ? createSelectBuilder((input?.director ? [] : jobs).map((job) => ({ id: job.id, tenant_id: job.tenant_id,
+              items: [{ count: (input?.itemCounts ?? {})[String(job.id)] ?? takeoffItems.filter((item) => item.job_id === job.id).length }] })))
+            : createSelectBuilder(input?.director ? [] : jobs, options)
           ),
         };
       }
@@ -358,6 +389,10 @@ function createSupabaseMock(input?: {
             createSelectBuilder(planFiles, options)
           ),
         };
+      }
+
+      if (table === "takeoff_results") {
+        return { select: vi.fn(() => createSelectBuilder([])) };
       }
 
       if (table === "takeoff_dpgf_review_decisions") {
@@ -423,8 +458,53 @@ describe("listActivityCenterJobs", () => {
     const response = await listActivityCenterJobs({ project_id: PROJECT_ID });
     expect(response.jobs).toEqual([]);
     expect(response).toMatchObject({ analysisCompletions: [
-      { eventId: EVENT_ID, outcome: "success", finishedAt: FINISHED_AT },
+      { eventId: EVENT_ID, outcome: "success", finishedAt: FINISHED_AT, failureReason: null },
     ] });
+  });
+
+  it("lists only the job a failure link names, whatever page it would fall on", async () => {
+    const all = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 1 });
+    const older = all.jobs[0]?.jobId === JOB_C_ID ? JOB_A_ID : JOB_C_ID;
+    const focused = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 1, jobId: older });
+    expect(focused.jobs.map((job) => job.jobId)).toEqual([older]);
+    expect(focused.pagination).toMatchObject({ offset: 0, total: 1 });
+    // The facts of the page keep counting the whole affaire.
+    expect(focused.counters).toEqual(all.counters);
+  });
+
+  it("gives a director who cannot read the job its shared end and French reason", async () => {
+    const completions = [
+      { event_id: EVENT_ID, outcome: "success", finished_at: FINISHED_AT, reason_code: null, job_id: JOB_B_ID },
+      { event_id: "99999999-9999-4999-8999-999999999998", outcome: "failure", finished_at: "2026-11-19T08:00:00.000Z",
+        reason_code: "AI_PROVIDER", job_id: JOB_A_ID },
+    ];
+    const supabase = createSupabaseMock({ director: true, completions });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID, tenantRole: "director", userId: "director", supabase,
+    } as never);
+    const response = await listActivityCenterJobs({ project_id: PROJECT_ID, jobId: JOB_A_ID });
+    expect(supabase.rpc).toHaveBeenCalledWith("list_affaire_takeoff_completions", expect.objectContaining({ p_job_id: JOB_A_ID }));
+    expect(response.jobs).toEqual([]);
+    expect(response.analysisCompletions).toEqual([{ eventId: "99999999-9999-4999-8999-999999999998", outcome: "failure",
+      finishedAt: "2026-11-19T08:00:00.000Z", failureReason: "Le service d’analyse n’a pas pu terminer le métré." }]);
+  });
+
+  it("pages the shared ends for a reader who sees no job", async () => {
+    const completions = ["1", "2", "3"].map((digit, index) => ({
+      event_id: `99999999-9999-4999-8999-99999999999${digit}`, outcome: "success",
+      finished_at: `2026-11-1${9 - index}T08:00:00.000Z`, reason_code: null, job_id: JOB_A_ID,
+    }));
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID, tenantRole: "director", userId: "director",
+      supabase: createSupabaseMock({ director: true, completions }),
+    } as never);
+    const first = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 2 });
+    expect(first.analysisCompletions.map((event) => event.eventId)).toEqual([completions[0].event_id, completions[1].event_id]);
+    expect(first.analysisCompletionsHasOlder).toBe(true);
+    // The ends have their own page, whatever page of jobs is shown.
+    const next = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 2, offset: 0, completionsOffset: 2 });
+    expect(next.analysisCompletions.map((event) => event.eventId)).toEqual([completions[2].event_id]);
+    expect(next.analysisCompletionsHasOlder).toBe(false);
   });
 
   it("refuses to load even the shared end after the affaire is archived", async () => {
@@ -582,5 +662,133 @@ describe("listActivityCenterJobs", () => {
     expect(response.jobs).toHaveLength(2);
     expect(response.jobs.map((job) => job.jobId)).toEqual([JOB_A_ID, JOB_B_ID]);
     expect(response.jobs.every((job) => job.statusRaw === "review_required")).toBe(true);
+  });
+});
+
+describe("listActivityCenterJobs: the resume of stopped analyses", () => {
+  const MEMBER_ID = "aaaaaaaa-0000-4000-8000-000000000001";
+  const THIS_MAC = "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const ids = Array.from({ length: 7 }, (_, index) => `bbbbbbbb-0000-4000-8000-00000000000${index + 1}`);
+
+  /** A whole row, as the detail reads it too. */
+  function stoppedJob(index: number, patch: QueryRow = {}): QueryRow {
+    return {
+      id: ids[index], tenant_id: TENANT_ID, project_id: PROJECT_ID, estimate_version_id: VERSION_ID, plan_set_id: null,
+      source_file_name: `plan-${index}.pdf`, source_file_type: "application/pdf", source_file_size_bytes: 20, level: "C",
+      status: "failed", processing_strategy: "sync", provider_batch_id: null, provider_batch_state: null, provider_batch_updated_at: null,
+      provider_reconcile_due_at: null, provider_reconcile_attempt_count: 0, provider_reconcile_lease_expires_at: null,
+      prompt_version: null, schema_version: null, model: null, thinking_level: null, media_resolution: null,
+      retry_count: 0, error_code: "AI_PROVIDER", error_message: "Raw provider text", next_retry_at: null,
+      last_error_at: "2026-11-20T07:00:00.000Z", analysis_outcome: null, analysis_finished_at: null, analysis_completion_event_id: null,
+      execution_provider: "chatgpt_local", execution_host_id: THIS_MAC, created_by: MEMBER_ID,
+      dispatch_status: null, dispatch_outcome: null, dispatch_trigger: null, dispatch_correlation_id: null, dispatch_status_code: null,
+      dispatch_updated_at: null, token_count: null, cost_cents: null, duration_ms: null, started_at: "2026-11-20T06:59:00.000Z",
+      completed_at: "2026-11-20T07:00:00.000Z", created_at: `2026-11-20T0${index}:00:00.000Z`, updated_at: "2026-11-20T07:00:00.000Z",
+      ...patch,
+    };
+  }
+
+  const cases: Array<[QueryRow, { action: string; reason: string; availableAt: string | null }, string | null]> = [
+    [{}, { action: "retry_now", reason: "retry_available", availableAt: null }, "AI_PROVIDER"],
+    [{ analysis_outcome: "failure", analysis_finished_at: FINISHED_AT, analysis_completion_event_id: EVENT_ID },
+      { action: "new_analysis", reason: "analysis_closed", availableAt: null }, "AI_PROVIDER"],
+    [{ execution_provider: "gemini", execution_host_id: null }, { action: "new_analysis", reason: "legacy_provider", availableAt: null }, "AI_PROVIDER"],
+    [{ error_code: "AI_TIMEOUT", next_retry_at: "2099-01-01T00:00:00.000Z" },
+      { action: "wait_retry", reason: "retry_scheduled", availableAt: "2099-01-01T00:00:00.000Z" }, "AI_TIMEOUT"],
+    // A row the previous application version wrote: no diagnostic, no end date, no recorded end.
+    [{ error_code: null, error_message: null, completed_at: null, started_at: null },
+      { action: "retry_now", reason: "retry_available", availableAt: null }, null],
+    [{ error_code: "SOME_FUTURE_CODE" }, { action: "retry_now", reason: "retry_available", availableAt: null }, "SOME_FUTURE_CODE"],
+    [{ status: "canceled", error_code: null, analysis_outcome: "canceled", analysis_finished_at: FINISHED_AT },
+      { action: "new_analysis", reason: "analysis_closed", availableAt: null }, null],
+  ];
+
+  function signIn(supabase: ReturnType<typeof createSupabaseMock>, tenantRole = "engineer") {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID, tenantRole, userId: MEMBER_ID, supabase,
+    } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+  });
+
+  it("decides each failed analysis from the rows it already loaded, without a read per analysis", async () => {
+    const supabase = createSupabaseMock({ jobs: cases.map(([patch], index) => stoppedJob(index, patch)), projectOwner: MEMBER_ID });
+    signIn(supabase);
+
+    const response = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 20, offset: 0 });
+
+    expect(Object.fromEntries(response.jobs.map((job) => [job.jobId, [job.resume, job.errorCode, job.canResubmit]])))
+      .toEqual(Object.fromEntries(cases.map(([, resume, errorCode], index) =>
+        [ids[index], [resume, errorCode, resume.action === "retry_now"]])));
+    // The jobs and the grouped count of their lines (fix round 1): two reads, whatever the number of rows.
+    const tables = supabase.from.mock.calls.map(([table]) => table);
+    expect(tables.filter((table) => table === "takeoff_jobs")).toHaveLength(2);
+    expect(tables.filter((table) => table === "takeoff_items")).toHaveLength(0);
+    expect(tables.filter((table) => table === "estimate_projects")).toHaveLength(1);
+    expect(tables).not.toContain("takeoff_results");
+  });
+
+  it.each(["engineer", "director", "viewer"])("gives every row the decision of its detail for a member who is %s", async (tenantRole) => {
+    const supabase = createSupabaseMock({ jobs: cases.map(([patch], index) => stoppedJob(index, patch)), projectOwner: MEMBER_ID });
+    signIn(supabase, tenantRole);
+
+    const response = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 20, offset: 0 });
+    for (const row of response.jobs) {
+      const { job } = await getTakeoffJobDetails(row.jobId, {});
+      expect(row.resume, row.jobId).toBeDefined();
+      expect(job.resume, row.jobId).toEqual({ action: row.resume!.action, reason: row.resume!.reason, available_at: row.resume!.availableAt });
+      expect(job.can_resubmit, row.jobId).toBe(row.canResubmit);
+      expect(job.can_cancel, row.jobId).toBe(row.canCancel);
+    }
+    if (tenantRole !== "engineer") expect(response.jobs.some((job) => job.canResubmit)).toBe(false);
+  });
+
+  it("answers the contract published in OpenAPI, for stopped and other analyses", async () => {
+    signIn(createSupabaseMock({ jobs: cases.map(([patch], index) => stoppedJob(index, patch)), projectOwner: MEMBER_ID }));
+    const stopped = await listActivityCenterJobs({ project_id: PROJECT_ID });
+    signIn(createSupabaseMock({ projectOwner: MEMBER_ID }));
+    const others = await listActivityCenterJobs({ project_id: PROJECT_ID });
+
+    for (const response of [stopped, others]) {
+      expect(takeoffActivityCenterResponseSchema.safeParse(response).error?.issues).toBeUndefined();
+    }
+    expect(others.jobs.map((job) => job.resume?.reason)).toEqual(["not_stopped", "not_stopped", "not_stopped"]);
+  });
+
+  // Fix round 1, point 6: two pages of line rows can add up to a count that never existed (a line of A gone, one of B
+  // come between the pages, C read as 0). The counts of a page come from one statement, never from line rows.
+  it("counts the lines of a page with one grouped read, never from line rows", async () => {
+    const supabase = createSupabaseMock({ jobs: [stoppedJob(0), stoppedJob(1), stoppedJob(2)], projectOwner: MEMBER_ID,
+      itemCounts: { [ids[0]]: 500, [ids[1]]: 0, [ids[2]]: 1 } });
+    signIn(supabase);
+
+    const response = await listActivityCenterJobs({ project_id: PROJECT_ID });
+    expect(Object.fromEntries(response.jobs.map((job) => [job.jobId, job.itemCount])))
+      .toEqual({ [ids[0]]: 500, [ids[1]]: 0, [ids[2]]: 1 });
+    const itemReads = supabase.from.mock.calls.filter(([table]) => table === "takeoff_items");
+    expect(itemReads).toHaveLength(0);
+  });
+
+  it("reads the member's ChatGPT connection once for every row, and tells the launcher to reconnect", async () => {
+    vi.mocked(readChatGptStore).mockResolvedValueOnce({ selectedId: null, profiles: [] } as never);
+    const supabase = createSupabaseMock({ jobs: [stoppedJob(0), stoppedJob(5)], projectOwner: MEMBER_ID });
+    signIn(supabase);
+
+    const response = await listActivityCenterJobs({ project_id: PROJECT_ID });
+    expect(response.jobs.map((job) => job.resume)).toEqual([
+      { action: "none", reason: "plan_disconnected", availableAt: null }, { action: "none", reason: "plan_disconnected", availableAt: null },
+    ]);
+    expect(readChatGptStore).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers nothing but a new analysis to an operator who did not launch the job", async () => {
+    const supabase = createSupabaseMock({ jobs: [stoppedJob(0, { created_by: "cccccccc-0000-4000-8000-000000000001" })] });
+    signIn(supabase, "admin");
+
+    const [row] = (await listActivityCenterJobs({ project_id: PROJECT_ID })).jobs;
+    expect(row).toMatchObject({ canResubmit: false, resume: { action: "new_analysis", reason: "launched_by_other" } });
   });
 });

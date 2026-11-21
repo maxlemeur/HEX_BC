@@ -23,11 +23,25 @@ export async function GET(request: Request) {
       );
     }
 
+    const jobId = searchParams.get("jobId");
+    if (jobId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "BAD_REQUEST", message: "Identifiant d’analyse invalide.", retryable: false },
+        },
+        { status: 400 }
+      );
+    }
+
     const rawLimit = searchParams.has("limit")
       ? Number(searchParams.get("limit"))
       : undefined;
     const rawOffset = searchParams.has("offset")
       ? Number(searchParams.get("offset"))
+      : undefined;
+    const rawCompletionsOffset = searchParams.has("completionsOffset")
+      ? Number(searchParams.get("completionsOffset"))
       : undefined;
 
     const data = await listActivityCenterJobs({
@@ -38,6 +52,7 @@ export async function GET(request: Request) {
       status: searchParams.get("status"),
       level: searchParams.get("level"),
       period: searchParams.get("period"),
+      jobId: jobId?.toLowerCase() ?? null,
       limit:
         rawLimit != null && Number.isFinite(rawLimit) && rawLimit > 0
           ? rawLimit
@@ -45,6 +60,10 @@ export async function GET(request: Request) {
       offset:
         rawOffset != null && Number.isFinite(rawOffset) && rawOffset >= 0
           ? rawOffset
+          : undefined,
+      completionsOffset:
+        rawCompletionsOffset != null && Number.isFinite(rawCompletionsOffset) && rawCompletionsOffset >= 0
+          ? rawCompletionsOffset
           : undefined,
     });
 
