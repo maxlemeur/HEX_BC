@@ -74,6 +74,8 @@ const BLOCKER_MESSAGES: Record<TakeoffSendBlocker, string> = {
   read_only: "Ce métré est accessible en lecture seule.",
   rules_unbounded: "Les contrôles de ce métré ne peuvent pas être enregistrés pour ce devis : contactez le support.",
   draft_locked: "Ce brouillon est ouvert par un autre membre : l’envoi y sera possible quand il l’aura libéré.",
+  plan_send_pending: "L’envoi au tableau de chiffrage d’une analyse par plan arrive avec une prochaine version : relisez son "
+    + "résultat dans la revue ; rien n’est écrit.",
 };
 
 const PRICE_ACTIONS = new Set(["set_price", "apply_assembly"]);
@@ -121,11 +123,13 @@ export function withoutPriceEffects(preview: TakeoffPreviewConversionResponse): 
 }
 
 type SendJob = { id: string; project_id: string; estimate_version_id: string | null; status: string; level: string;
-  plan_set_id: string | null; execution_provider: string | null; preparation_revision: string | null };
+  plan_set_id: string | null; execution_provider: string | null; preparation_revision: string | null;
+  /** A plan's unit of one analysis per plan (« plan:… »), whose send stays closed (the database refuses it too). */
+  launch_unit_key: string | null };
 
 async function readSendJob(ctx: Context, jobId: string): Promise<SendJob> {
   const { data, error } = await ctx.supabase.from("takeoff_jobs" as never)
-    .select("id, project_id, estimate_version_id, status, level, plan_set_id, execution_provider, preparation_revision:preparation_snapshot->>preparation_revision" as never)
+    .select("id, project_id, estimate_version_id, status, level, plan_set_id, execution_provider, launch_unit_key, preparation_revision:preparation_snapshot->>preparation_revision" as never)
     .eq("tenant_id" as never, ctx.tenantId as never).eq("id" as never, jobId as never).maybeSingle();
   if (error) failed(error, "Impossible de charger le métré.", jobId);
   if (!data) {
@@ -270,7 +274,8 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   // A takeoff that cannot be sent from here (already sent, not finished, or read by someone who cannot write the affaire)
   // gets its reason only: nothing of the affaire's versions nor of its estimates is read for it.
   const early: TakeoffSendBlocker | null = job.status === "applied" || job.estimate_version_id !== null ? "already_sent"
-    : job.status !== "completed" ? "not_completed" : !canEdit ? "read_only" : null;
+    : job.status !== "completed" ? "not_completed" : !canEdit ? "read_only"
+      : job.launch_unit_key?.startsWith("plan:") ? "plan_send_pending" : null;
   if (early) return reasonOnly(early);
 
   // The mapping rules' state, read before the rules themselves: a rule changed after it refuses the send.
