@@ -1327,9 +1327,9 @@ describe("processLevelA", () => {
     const callProvider = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([
       { designation: "Tube fictif", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Ligne 2" },
     ])));
-    const resolveProvider = async (_supabase: unknown, _job: unknown, lease?: () => string | null) => ({
+    const resolveProvider = async (_supabase: unknown, _job: unknown, hooks?: { lease?: () => string | null }) => ({
       model: PROVIDER_MODEL, assertOwnerActive: vi.fn(), selection: { profileId: "profile", model: PROVIDER_MODEL, reasoningEffort: null },
-      call: (async (options: unknown) => { leasesSeen.push(lease?.()); return callProvider(options); }) as StructuredCall,
+      call: (async (options: unknown) => { leasesSeen.push(hooks?.lease?.()); return callProvider(options); }) as StructuredCall,
     });
     const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
       resolveProvider: resolveProvider as never });
@@ -1410,7 +1410,7 @@ describe("processLevelA", () => {
     const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW });
     expect(result.status).toBe("completed");
     expect(resolveLocalTakeoffProvider).toHaveBeenCalledWith(mock.supabase, expect.objectContaining({ id: JOB_ID, execution_provider: "chatgpt_local" }),
-      expect.any(Function));
+      { lease: expect.any(Function), beforePaidCall: expect.any(Function) });
     expect(call).toHaveBeenCalledTimes(1);
     expect(mock.state.job).toMatchObject({ model: PROVIDER_MODEL, thinking_level: null, processing_strategy: "sync", cost_cents: 0 });
     expect(mock.state.takeoffResults[0].provider_meta).toMatchObject({ provider: "chatgpt", model: PROVIDER_MODEL });

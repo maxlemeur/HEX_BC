@@ -7,6 +7,7 @@ import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { createDecisionsTokenBudget, type DecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { getPdfPageCount } from "@/lib/takeoff/chunking";
+import { TakeoffError } from "@/lib/takeoff/errors";
 import { takeoffScopeFreeLevels } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
@@ -343,6 +344,11 @@ async function decidePage(run: DecisionsRun, input: {
     return { reading, decisions: pageDecisionsSummary(outcome, stop, promptVersion) };
   } catch (error) {
     if (run.jobError) throw run.jobError.error;
+    // The job's own refusal of a plan request (its right to pay, a usage its ledger could not record) ends the job.
+    if (error instanceof TakeoffError) {
+      run.jobError = { error };
+      throw error;
+    }
     console.error("takeoff.vector.decisions_failed", { job_id: input.log.jobId, tenant_id: input.log.tenantId, document: input.log.document,
       page: input.log.page, message: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
     run.stop = stopOf("exception", "", Boolean(run.hook.local));

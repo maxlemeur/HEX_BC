@@ -49,8 +49,9 @@ const storedPreparationSnapshotSchema = z.object({
   }).strict(),
 }).strict();
 
-function executionFingerprint({ profileId, hostId, model, reasoningEffort }: TakeoffExecutionSelection) {
-  return createHash("sha256").update(JSON.stringify([profileId, hostId, model, reasoningEffort])).digest("hex");
+// The subscription a recap showed, its connection included: a reconnection with the same settings is another one.
+function executionFingerprint({ profileId, hostId, model, reasoningEffort, authorizationId }: TakeoffExecutionSelection) {
+  return createHash("sha256").update(JSON.stringify([profileId, hostId, model, reasoningEffort, authorizationId ?? null])).digest("hex");
 }
 
 export async function loadTakeoffExecutionPreview() {

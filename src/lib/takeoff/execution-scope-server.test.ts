@@ -28,23 +28,40 @@ beforeEach(() => {
 });
 
 describe("resolveTakeoffExecutionProvider", () => {
+  // The check is the provider's `beforePaidCall`: every paid call runs it once its credential is in hand, immediately
+  // before the request is sent (chatgpt-local-inference.test.ts).
+  const resolveWithHooks = () => {
+    const seen: { hooks?: { lease?: () => string | null; beforePaidCall?: () => Promise<void> } } = {};
+    const resolve = vi.fn(async (_supabase: unknown, _job: unknown, hooks?: typeof seen.hooks) => {
+      seen.hooks = hooks;
+      return provider as never;
+    });
+    return { resolve, seen };
+  };
+
   it.each([
     ["the creator may no longer launch on the affaire", "PAYER_NOT_ELIGIBLE", "FORBIDDEN", "n’est plus autorisé"],
     ["the takeoff module was turned off", "TAKEOFF_DISABLED", "FORBIDDEN", "module Takeoff est désactivé"],
     ["the request's budget is spent", "BUDGET_EXHAUSTED", "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", "budget de cette analyse est épuisé"],
-  ])("stops before the next paid call when %s, for a job on a version too", async (_case, reason, code, message) => {
-    const scoped = await resolveTakeoffExecutionProvider({} as never, job("version"), async () => provider as never);
-    await expect(scoped.call({ prompt: "Lire", schema: {} as never })).resolves.toEqual({ data: { quantity: 1 } });
+  ])("gives every paid call the check that stops it when %s, for a job on a version too", async (_case, reason, code, message) => {
+    const { resolve, seen } = resolveWithHooks();
+    await resolveTakeoffExecutionProvider({} as never, job("version"), resolve as never);
+    await expect(seen.hooks?.beforePaidCall?.()).resolves.toBeUndefined();
     answers.push(reason);
-    await expect(scoped.call({ prompt: "Lire", schema: {} as never })).rejects.toMatchObject({ code, retryable: false,
-      message: expect.stringContaining(message) });
-    expect(call).toHaveBeenCalledTimes(1);
+    await expect(seen.hooks?.beforePaidCall?.()).rejects.toMatchObject({ code, retryable: false, message: expect.stringContaining(message) });
   });
 
-  it("checks before the vector requests too (their own check runs through assertOwnerActive)", async () => {
-    const scoped = await resolveTakeoffExecutionProvider({} as never, job(null), async () => provider as never);
+  it("checks once before the provider is resolved: a job that may not pay never reads its creator's subscription", async () => {
+    const { resolve } = resolveWithHooks();
     answers.push("PAYER_NOT_ELIGIBLE");
-    await expect(scoped.assertOwnerActive()).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(provider.assertOwnerActive).not.toHaveBeenCalled();
+    await expect(resolveTakeoffExecutionProvider({} as never, job(null), resolve as never)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("hands the provider the lease the processor reads at each paid call", async () => {
+    const { resolve, seen } = resolveWithHooks();
+    const lease = () => "lease-of-the-claim";
+    await resolveTakeoffExecutionProvider({} as never, job(null), resolve as never, lease);
+    expect(seen.hooks?.lease).toBe(lease);
   });
 });

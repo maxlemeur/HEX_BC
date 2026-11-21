@@ -8,6 +8,7 @@ import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { ChatGptSignInError } from "@/lib/ai/chatgpt-sign-in-errors";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
+import { TakeoffError } from "@/lib/takeoff/errors";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { decisionBatches, selectDecisionCandidates } from "@/lib/takeoff/vectors/group-decisions";
 import {
@@ -155,7 +156,11 @@ export async function localGroupsCall(owner: ChatGptOwner, selection?: LocalGrou
   };
 }
 
-/** Classifies one page's candidate groups through the local plan; never throws but for the job's own check (`beforeCall`). */
+/**
+ * Classifies one page's candidate groups through the local plan; never throws but for the job's own refusals: its check
+ * before each request (`beforeCall`), and a request it refused to pay (its right, checked just before sending) or whose
+ * usage its ledger could not record (a TakeoffError from the request): no request follows, the job stops on it.
+ */
 export async function classifyVectorGroupsLocal(input: {
   bytes: Uint8Array;
   extraction: VectorPageExtraction;
@@ -279,7 +284,7 @@ export async function classifyVectorGroupsLocal(input: {
       if (!images.ended()) session?.cancel();
     };
     const busy = { inFlight: 0, since: 0, total: 0, calls: 0 };
-    /** One request: its log entry, its answers, or the stop it makes; throws only the job check's error. */
+    /** One request: its log entry, its answers, the stop it makes, or the job's own refusal of it. */
     const send = async (groups: readonly CandidateEvidence[]) => {
       const started = clock();
       busy.calls += 1;
@@ -287,6 +292,7 @@ export async function classifyVectorGroupsLocal(input: {
       let entry: GroupDecisionsCall;
       let answers: Map<string, GroupDecisionsAnswer> | null = null;
       let stop: GroupDecisionsStop | null = null;
+      let refusal: { error: unknown } | null = null;
       try {
         const result = await callable({ prompt: localModelPrompt(evidence, groups, legendImages.length),
           images: [...legendImages, ...groups.map((group) => imageOf.get(group.alias) as GroupImage)] });
@@ -298,6 +304,7 @@ export async function classifyVectorGroupsLocal(input: {
         entry = { kind: "batch", questions: groups.length, status: "available", usage: { input_tokens: 0, output_tokens: 0, total_tokens: result.totalTokens },
           latency_ms: 0, render_ms: null };
       } catch (error) {
+        if (error instanceof TakeoffError) refusal = { error };
         const reason = error instanceof LocalGroupsStop ? error.reason : null;
         if (reason) stop = { reason, message: (error as Error).message } as GroupDecisionsStop;
         // An answer that could not be read still consumed the plan's tokens.
@@ -309,7 +316,7 @@ export async function classifyVectorGroupsLocal(input: {
       if (--busy.inFlight === 0) busy.total += ended - busy.since;
       entry.latency_ms = Math.max(0, Math.round(ended - started));
       input.log?.(`chatgpt local ${groups.length} groupe(s): ${entry.status}${entry.usage ? `, ${entry.usage.total_tokens} jetons` : ""}`);
-      return { entry, answers, stop };
+      return { entry, answers, stop, refusal };
     };
     const results: Array<Awaited<ReturnType<typeof send>> | undefined> = [];
     // Started in their order, each once its images are drawn, the job's check one at a time before each start,
@@ -319,6 +326,7 @@ export async function classifyVectorGroupsLocal(input: {
     let capped = false;
     let drawingFailed = false;
     let checkError: { error: unknown } | null = null;
+    let refused: { error: unknown } | null = null;
     try {
       for (let index = 0; ; index += 1) {
         if (index >= maxRequests) {
@@ -344,7 +352,8 @@ export async function classifyVectorGroupsLocal(input: {
         if (halted) break;
         const pending: Promise<void> = send(groups).then((result) => {
           results[index] = result;
-          if (result.stop) {
+          if (result.refusal) refused ??= result.refusal;
+          if (result.stop || result.refusal) {
             halted = true;
             stopDrawing();
           }
@@ -358,6 +367,7 @@ export async function classifyVectorGroupsLocal(input: {
       await Promise.all(running);
     }
     if (checkError) throw (checkError as { error: unknown }).error;
+    if (refused) throw (refused as { error: unknown }).error;
     if (capped) outcome.left_out += sent.length - batches.taken();
     await recordDrawing();
     for (const [index, result] of results.entries()) {

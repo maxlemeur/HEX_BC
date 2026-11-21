@@ -10,7 +10,8 @@ import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 /**
  * Before each paid call of any job, in one database answer: the takeoff module is on for its tenant, its creator may
  * still launch on its affaire (the one payer rule, private.takeoff_launch_payer_eligible) and a launch request's job has
- * budget left. A service-role read never authorizes spending the creator's local plan by itself.
+ * budget left. A service-role read never authorizes spending the creator's local plan by itself. The automatic start's
+ * cut-off is not checked: removing it stops new admissions, an admitted analysis finishes.
  */
 async function assertTakeoffJobMayPay(job: TakeoffJobProcessingRow) {
   const { data, error } = await createServiceRoleClient().rpc("takeoff_job_may_pay", {
@@ -26,24 +27,18 @@ async function assertTakeoffJobMayPay(job: TakeoffJobProcessingRow) {
       : "Le créateur n’est plus autorisé à lancer un métré sur cette affaire." });
 }
 
+/**
+ * The provider of a job's attempt: checked once before it is resolved, then by every paid call (a chunk, a vector group)
+ * once its credential is in hand, immediately before the request is sent, so a module turned off or a right withdrawn
+ * while the credential's lock or refresh waited stops it.
+ */
 export async function resolveTakeoffExecutionProvider(
   supabase: ServerSupabaseClient,
   job: TakeoffJobProcessingRow,
   resolveProvider: typeof resolveLocalTakeoffProvider,
   lease?: () => string | null,
 ): ReturnType<typeof resolveLocalTakeoffProvider> {
-  const assertAffaireAccess = () => assertTakeoffJobMayPay(job);
-  await assertAffaireAccess();
-  const provider = await resolveProvider(supabase, job, lease);
-  return {
-    ...provider,
-    async assertOwnerActive() {
-      await assertAffaireAccess();
-      await provider.assertOwnerActive();
-    },
-    async call(options) {
-      await assertAffaireAccess();
-      return provider.call(options);
-    },
-  };
+  const beforePaidCall = () => assertTakeoffJobMayPay(job);
+  await beforePaidCall();
+  return resolveProvider(supabase, job, { lease, beforePaidCall });
 }

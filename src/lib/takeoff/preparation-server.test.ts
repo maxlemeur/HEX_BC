@@ -6,7 +6,7 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
-import { assertConfirmedTakeoffPreparation as assertConfirmedTakeoffPreparationServer, confirmTakeoffPreparation, loadTakeoffPreparation, saveTakeoffPreparation } from "@/lib/takeoff/preparation-server";
+import { assertConfirmedTakeoffPreparation as assertConfirmedTakeoffPreparationServer, confirmTakeoffPreparation, loadTakeoffExecutionPreview, loadTakeoffPreparation, saveTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import type { PreparationRecordRow } from "@/lib/takeoff/preparation-repository";
 import { toPreparationPlanSource, toPreparationIntakeSource, type PreparationPlanFile, type PreparationIntakeDocument } from "@/lib/takeoff/preparation-sources";
 import { hasTakeoffPreparationCopyReceipt } from "@/lib/takeoff/preparation-copy-provenance-server";
@@ -82,7 +82,8 @@ function fixture() {
 }
 
 const selection = { profileId: "alice", model: "gpt-5.4", reasoningEffort: "medium", hostId: "mac", authorizationId: "connexion-alice" } as const;
-const observedFingerprint = createHash("sha256").update(JSON.stringify([selection.profileId, selection.hostId, selection.model, selection.reasoningEffort])).digest("hex");
+const observedFingerprint = createHash("sha256").update(JSON.stringify([selection.profileId, selection.hostId, selection.model, selection.reasoningEffort,
+  selection.authorizationId])).digest("hex");
 const confirmation = { projectId: M3_PROJECT_ID, expectedRevision: 1, expectedExecutionFingerprint: observedFingerprint };
 const OTHER_PLAN_SET_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -120,6 +121,18 @@ describe("persisted preparation server boundary", () => {
     await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
     vi.mocked(getTakeoffExecutionSelection).mockResolvedValue({ ...selection, model: "gpt-5.5" });
     await expect(confirmTakeoffPreparation(confirmation)).rejects.toMatchObject({ status: 409 });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // The recap names the connection too: a reconnection with the same settings is another subscription to confirm.
+  it("requires a new click when the ChatGPT connection changes after the recap, its settings unchanged", async () => {
+    const f = fixture();
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    const recap = await loadTakeoffExecutionPreview();
+    vi.mocked(getTakeoffExecutionSelection).mockResolvedValue({ ...selection, authorizationId: "connexion-alice-2" });
+    await expect(confirmTakeoffPreparation({ ...confirmation, expectedExecutionFingerprint: recap.fingerprint }))
+      .rejects.toMatchObject({ status: 409, code: "TAKEOFF_CHATGPT_SELECTION_CHANGED" });
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
   });
 

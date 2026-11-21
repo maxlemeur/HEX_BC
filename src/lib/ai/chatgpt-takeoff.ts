@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { z } from "zod";
 
 import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
+import { callLocalChatGptStructured, LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-local-inference";
 import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import { assertTakeoffJobUsesLocalProvider, TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -75,14 +75,14 @@ export async function readLocalChatGptSubscription(owner: ChatGptOwner, host?: s
 
 /**
  * The one comparison of a pinned selection with the subscription in use: unchanged, changed (another profile, model,
- * effort or Mac) or withdrawn (disconnected, access lost, or another connection: a reconnection never revives a pin).
- * A pin written before authorizations existed (a job queued by an earlier version) compares the rest.
+ * effort or Mac) or withdrawn (disconnected, access lost, another connection: a reconnection never revives a pin; or a
+ * pin written before authorizations existed, which names no connection to compare: it is never adopted).
  */
 export function compareTakeoffSelection(pinned: unknown, actual: TakeoffExecutionSelection | null): "unchanged" | "changed" | "withdrawn" {
   if (!actual?.authorizationId) return "withdrawn";
   const parsed = takeoffExecutionSelectionSchema.safeParse(pinned);
   if (!parsed.success) return "changed";
-  if (parsed.data.authorizationId !== undefined && parsed.data.authorizationId !== actual.authorizationId) return "withdrawn";
+  if (!parsed.data.authorizationId || parsed.data.authorizationId !== actual.authorizationId) return "withdrawn";
   return parsed.data.hostId === actual.hostId && parsed.data.profileId === actual.profileId && parsed.data.model === actual.model
     && (parsed.data.reasoningEffort ?? null) === (actual.reasoningEffort ?? null) ? "unchanged" : "changed";
 }
@@ -114,10 +114,18 @@ export async function getTakeoffExecutionSelection(supabase: ServerSupabaseClien
   return subscription.selection;
 }
 
+/** Why a job's pinned connection cannot pay: the revocation reason a launch request names (CHATGPT_ACCESS_REVOKED). */
+function connectionWithdrawn(jobId?: string) {
+  return new TakeoffError({ status: 409, code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId,
+    details: { provider: "chatgpt", reason: "CHATGPT_ACCESS_REVOKED" },
+    message: "La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation de ce métré. Reconnectez votre forfait ChatGPT dans Mon profil, puis relancez le métré." });
+}
+
 export function assertPinnedTakeoffSelection(snapshot: unknown, userId: string, actual: TakeoffExecutionSelection) {
   if (!snapshot || typeof snapshot !== "object" || !("execution_selection" in snapshot)) return false;
-  if (!("confirmed_by" in snapshot) || snapshot.confirmed_by !== userId
-    || compareTakeoffSelection(snapshot.execution_selection, actual) !== "unchanged") {
+  const comparison = compareTakeoffSelection(snapshot.execution_selection, actual);
+  if (comparison === "withdrawn" && "confirmed_by" in snapshot && snapshot.confirmed_by === userId) throw connectionWithdrawn();
+  if (!("confirmed_by" in snapshot) || snapshot.confirmed_by !== userId || comparison !== "unchanged") {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Le compte, le modèle ou l’effort ChatGPT a changé depuis la confirmation. Préparez une nouvelle analyse avec votre forfait." });
   }
@@ -185,7 +193,7 @@ export type LocalTakeoffProvider = {
   reasoningEffort?: ChatGptReasoningEffort | null;
   /** The profile, model and effort the job runs with: every request pins them (the vector reading's too, TI-704). */
   selection: { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null; authorizationId?: string | null;
-    onUsage?: (usage: { totalTokens: number; costCents: number }) => Promise<void> };
+    beforeSend?: () => Promise<void>; onUsage?: (usage: { totalTokens: number; costCents: number }) => Promise<void> };
   useProfileForVectorGroups?: boolean;
   call: StructuredCall;
   /** The creator's active membership of the job's tenant, checked before each plan request (FORBIDDEN otherwise). */
@@ -195,15 +203,18 @@ export type LocalTakeoffProvider = {
 /**
  * The provider of one attempt of a job. `lease` reads the processing lease the worker holds at each paid call: the
  * provider is resolved before the claim, so the row it is given carries the lease of an earlier attempt or none.
+ * `beforePaidCall` is the job's right to pay (its module, the payer rule, its budget), checked by every paid call once
+ * its credential is in hand, immediately before the request is sent.
  */
 export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow,
-  lease: () => string | null = () => job.processing_lease_token ?? null): Promise<LocalTakeoffProvider> {
+  hooks: { lease?: () => string | null; beforePaidCall?: () => Promise<void> } = {}): Promise<LocalTakeoffProvider> {
+  const lease = hooks.lease ?? (() => job.processing_lease_token ?? null);
   const hostId = await assertLocalTakeoffExecutionHost(job);
   assertTakeoffWorkerConfiguration();
   // The persisted job supplies ownership, never the triggering HTTP session.
   const owner: ChatGptOwner = { userId: job.created_by ?? "", tenantId: job.tenant_id };
-  // The creator's active membership of the job's tenant; who may pay on the affaire is checked before each paid call by
-  // the execution scope (execution-scope-server.ts), for every job.
+  // The creator's active membership of the job's tenant; who may pay on the affaire is checked by each paid call, just
+  // before it is sent (`beforePaidCall`, from the execution scope, execution-scope-server.ts), for every job.
   async function assertOwnerActive() {
     const { data, error } = owner.userId ? await supabase.from("tenant_memberships")
       .select("user_id, tenants!inner(is_active)").eq("user_id", owner.userId)
@@ -221,17 +232,19 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
   const current = subscription.selection;
   const useProfileForVectorGroups = assertPinnedTakeoffSelection(job.preparation_snapshot, owner.userId, { ...current, hostId });
   // Every paid call (a chunk, a vector group) runs under the connection the job pinned, compared with the credential of
-  // that call; a launch request's job records each call's usage under its lease right after the answer.
+  // that call; a job that pinned none (queued before connections had one) is refused, never run on the current one. A
+  // launch request's job records the usage of every response under its lease.
   const pinned = takeoffExecutionSelectionSchema.safeParse((job.preparation_snapshot as { execution_selection?: unknown } | null)?.execution_selection);
+  if (!pinned.success || !pinned.data.authorizationId) throw connectionWithdrawn(job.id);
   let calls = 0;
   const selection = { profileId: current.profileId, model: current.model, reasoningEffort: current.reasoningEffort ?? null,
-    authorizationId: (pinned.success ? pinned.data.authorizationId : undefined) ?? current.authorizationId,
+    authorizationId: pinned.data.authorizationId, beforeSend: hooks.beforePaidCall,
     onUsage: job.launch_request_id ? async (usage: { totalTokens: number; costCents: number }) => {
       const { error } = await createServiceRoleClient().rpc("record_takeoff_launch_usage", {
         p_job_id: job.id, p_lease_token: lease() ?? "", p_call_key: `call:${++calls}`,
         p_tokens: usage.totalTokens, p_cost_cents: usage.costCents });
-      if (error) throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
-        message: "La consommation de cet appel n’a pas pu être enregistrée : l’analyse s’arrête avant tout autre appel." });
+      if (error) throw new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false, jobId: job.id,
+        message: "La consommation d’un appel ChatGPT n’a pas pu être enregistrée : l’analyse s’arrête avant tout autre appel." });
     } : undefined };
   return {
     model: selection.model,
@@ -244,6 +257,9 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
       try {
         return await callLocalChatGptStructured(owner, options, selection);
       } catch (error) {
+        // The job's own refusals keep their name: its right to pay, a usage its ledger could not record.
+        if (error instanceof TakeoffError) throw error;
+        if (error instanceof LocalChatGptConnectionWithdrawnError) throw connectionWithdrawn(job.id);
         // Stop here: no automatic retry or raw provider data.
         throw new TakeoffError({
           code: error instanceof z.ZodError || error instanceof SyntaxError
