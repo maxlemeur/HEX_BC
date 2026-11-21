@@ -67,6 +67,6 @@ it("says which of the two happened when nobody took the analysis or it waited pa
     { ...failure, reason_code: "TAKEOFF_WORKER_NOT_STARTED", job: null },
     { ...failure, id: "a1000000-0000-4000-8000-000000000007", reason_code: "TAKEOFF_WORKER_QUEUE_EXPIRED", job: null },
   );
-  expect(markup).toContain("L’analyse n’a pas pu démarrer. Vérifiez le poste autorisé avant de préparer une nouvelle analyse.");
-  expect(markup).toContain("L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré.");
+  expect(markup).toContain("L’analyse n’a pas pu démarrer sur le poste autorisé.");
+  expect(markup).toContain("L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré : elle n’a pas démarré.");
 });

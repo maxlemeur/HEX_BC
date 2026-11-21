@@ -18,12 +18,13 @@ alter table private.takeoff_completion_activation
     pickup_grace >= interval '10 minutes' and wait_ceiling >= interval '1 hour' and pickup_grace <= wait_ceiling
   );
 
--- The codes of an end that have a public French reason (FAILURE_REASON_LABELS in src/lib/takeoff/visible-status.ts,
+-- The codes of an end that have a public French reason (FAILURE_FACTS in src/lib/takeoff/visible-status.ts,
 -- TAKEOFF_PUBLIC_FAILURE_CODES in src/lib/takeoff/completion-outcome.ts). Only these reach a reader who cannot read
 -- the job; any other code is shown as the generic reason.
 create function private.takeoff_public_failure_codes()
 returns text[] language sql immutable set search_path = pg_catalog as $$
-  select array['AI_PROVIDER', 'AI_SAFETY', 'AI_SCHEMA', 'AI_TIMEOUT', 'FORBIDDEN', 'TAKEOFF_FILE_TOO_LARGE',
+  select array['AI_PROVIDER', 'AI_RATE_LIMIT', 'AI_SAFETY', 'AI_SCHEMA', 'AI_TIMEOUT', 'FORBIDDEN', 'INTERNAL_ERROR',
+    'TAKEOFF_FILE_TOO_LARGE',
     'TAKEOFF_FILE_TYPE_INVALID', 'TAKEOFF_LEVEL_C_BUDGET_EXCEEDED', 'TAKEOFF_LEVEL_C_INVALID_SCHEMA',
     'TAKEOFF_LEVEL_C_TIMEOUT', 'TAKEOFF_PDF_CORRUPTED', 'TAKEOFF_PDF_NOT_INTERPRETABLE', 'TAKEOFF_WORKER_HOST_SILENT',
     'TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', 'TAKEOFF_WORKER_QUEUE_EXPIRED']::text[];

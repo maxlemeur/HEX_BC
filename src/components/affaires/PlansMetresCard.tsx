@@ -44,12 +44,6 @@ const FE_STATUS_BADGE: Record<string, BadgeVariant> = {
 };
 
 const TAKEOFF_CONTINUITY_PAGE_SIZE = 50;
-const CONTINUITY_WAITING_STATUSES = new Set([
-  "queued",
-  "processing",
-  "provider_pending",
-]);
-
 function WarningIcon() {
   return (
     <TriangleAlertIcon aria-hidden="true" className="inline-block shrink-0" size={14} />
@@ -137,13 +131,8 @@ export function PlansMetresCard({
         latestJobId,
       })
     : null;
-  const continuityActionLabel =
-    continuitySnapshot?.latestStatusRaw === "action_required"
-      ? "Reprendre l'analyse"
-      : continuitySnapshot &&
-          CONTINUITY_WAITING_STATUSES.has(continuitySnapshot.latestStatusRaw)
-        ? "Suivre la reprise"
-        : null;
+  // Named after the latest analysis's resume decision (lib/takeoff/continuity.ts).
+  const continuityActionLabel = continuitySnapshot?.actionLabel ?? null;
 
   if (errorMessage) {
     return (

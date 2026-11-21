@@ -241,11 +241,12 @@ select results_eq($$select job_id, reason_code from public.takeoff_completion_no
     where job_id in (pg_temp.job('51'), pg_temp.job('52')) order by job_id$$,
   $$values (pg_temp.job('51'), null::text), (pg_temp.job('52'), 'AI_SAFETY'::text)$$,
   'an internal code is not published; a code with a public reason is');
-select is(private.takeoff_public_failure_codes(), array['AI_PROVIDER', 'AI_SAFETY', 'AI_SCHEMA', 'AI_TIMEOUT', 'FORBIDDEN',
+select is(private.takeoff_public_failure_codes(), array['AI_PROVIDER', 'AI_RATE_LIMIT', 'AI_SAFETY', 'AI_SCHEMA', 'AI_TIMEOUT',
+  'FORBIDDEN', 'INTERNAL_ERROR',
   'TAKEOFF_FILE_TOO_LARGE', 'TAKEOFF_FILE_TYPE_INVALID', 'TAKEOFF_LEVEL_C_BUDGET_EXCEEDED', 'TAKEOFF_LEVEL_C_INVALID_SCHEMA',
   'TAKEOFF_LEVEL_C_TIMEOUT', 'TAKEOFF_PDF_CORRUPTED', 'TAKEOFF_PDF_NOT_INTERPRETABLE', 'TAKEOFF_WORKER_HOST_SILENT',
   'TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', 'TAKEOFF_WORKER_QUEUE_EXPIRED'],
-  'the allow-list holds the codes the application labels in French (src/lib/takeoff/visible-status.ts)');
+  'the allow-list holds the codes the application labels in French (FAILURE_FACTS, src/lib/takeoff/visible-status.ts)');
 
 select * from finish();
 rollback;

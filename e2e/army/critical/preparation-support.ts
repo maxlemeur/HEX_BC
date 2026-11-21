@@ -9,6 +9,15 @@ export async function openTakeoffPreparation(ui: Ui) {
   await ui.screen.getByRole("menuitem", "Préparer le métré", { exact: true }).click();
   const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await expect(dialog).toBeVisible();
+  await openTakeoffOptions(ui);
+  return dialog;
+}
+
+export async function openTakeoffOptions(ui: Ui) {
+  const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  const options = dialog.getByRole("button", "Options du métré", { exact: true });
+  await expect(options).toBeVisible();
+  if ((await options.getAttribute("aria-expanded")) !== "true") await options.click();
   await expect(dialog.getByRole("button", /Mes documents$/)).toBeVisible();
   return dialog;
 }
@@ -17,7 +26,6 @@ export async function fillTakeoffPreparation(
   ui: Ui,
   input: {
     sources: string[];
-    sourceRevision?: string;
     confirm?: boolean;
     objective?: "count" | "measure_length" | "compare_dpgf" | "prepare_purchase" | "extract_quantities";
     unit?: string;
@@ -25,16 +33,13 @@ export async function fillTakeoffPreparation(
     inclusions?: string;
     levels?: string;
     zones?: string;
-    processing?: { level: "B" | "C"; provider?: "auto" | "gemini" | "chatgpt" };
   }
 ) {
-  const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  const dialog = await openTakeoffOptions(ui);
   await dialog.getByRole("button", /Mes documents$/).click();
   for (const source of input.sources) {
     await dialog.getByLabel(`Utiliser ${source}`, { exact: true }).check();
-    await dialog.getByLabel(`Révision de ${source}`, { exact: true }).fill(input.sourceRevision ?? "A");
   }
-  if (input.confirm !== false) await dialog.getByLabel("Je confirme les pièces actives et leurs révisions", { exact: true }).check();
   await dialog.getByRole("button", /Ce que je veux mesurer$/).click();
   await dialog.getByLabel("Objectif du métré", { exact: true }).selectOption({ value: input.objective ?? "count" });
   if (input.confirm !== false) await dialog.getByLabel("Je confirme cet objectif", { exact: true }).check();
@@ -51,22 +56,11 @@ export async function fillTakeoffPreparation(
   await dialog.getByRole("button", /Vérifier et lancer$/).click();
   await dialog.getByLabel("Responsable de la revue", { exact: true }).fill("Réviseur ARMY");
   if (input.confirm !== false) await dialog.getByLabel("Je confirme la destination et la revue des résultats", { exact: true }).check();
-  if (input.processing) {
-    await dialog.getByText("Options avancées", { exact: true }).click();
-    const name = input.processing.level === "B" ? "Standard" : "Détaillé";
-    const level = dialog.getByRole("radio", name, { exact: true });
-    await level.check();
-    await expect(level).toBeChecked();
-    if (input.processing.provider) {
-      await dialog.getByLabel("Fournisseur IA", { exact: true }).selectOption({ value: input.processing.provider });
-      await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue(input.processing.provider);
-    }
-  }
   return dialog;
 }
 
 export async function saveTakeoffPreparation(ui: Ui) {
-  const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  const dialog = await openTakeoffOptions(ui);
   await dialog.getByRole("button", "Enregistrer maintenant", { exact: true }).click();
-  await expect(dialog.getByText(/^Préparation enregistrée(?: · révision \d+)?$/)).toBeVisible();
+  await expect(dialog.getByText(/^Préparation enregistrée · révision \d+$/)).toBeVisible();
 }

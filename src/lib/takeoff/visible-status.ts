@@ -57,36 +57,28 @@ const IN_FLIGHT_VISIBLE_STATUS_SET = new Set<TakeoffVisibleJobStatus>(
   TAKEOFF_IN_FLIGHT_VISIBLE_JOB_STATUSES,
 );
 
-const FAILURE_REASON_LABELS: Record<string, string> = {
+// What happened, wherever a stopped analysis is shown (the activity, the affaire's overview, the notifications): never
+// what to do, which only the resume decision says where it is known. A new analysis stays detailed: no text proposes
+// another level.
+const FAILURE_FACTS: Record<string, string> = {
   AI_PROVIDER: "Le service d’analyse n’a pas pu terminer le métré.",
+  AI_RATE_LIMIT: "Le service d’analyse a refusé temporairement la demande.",
   FORBIDDEN: "L’accès nécessaire au traitement n’est plus disponible.",
-  TAKEOFF_WORKER_NOT_STARTED:
-    "L’analyse n’a pas pu démarrer. Vérifiez le poste autorisé avant de préparer une nouvelle analyse.",
-  TAKEOFF_WORKER_HOST_SILENT:
-    "L’analyse n’a pas démarré : le poste autorisé ne s’est pas manifesté avant la fin du délai d’attente maximal. Vérifiez qu’il est allumé, connecté et que l’application y est ouverte avant de préparer une nouvelle analyse.",
-  TAKEOFF_WORKER_QUEUE_EXPIRED:
-    "L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré. Elle n’a pas démarré : préparez une nouvelle analyse.",
-  TAKEOFF_WORKER_OUTCOME_UNKNOWN:
-    "Le traitement a été interrompu. Son résultat est inconnu et doit être vérifié avant une nouvelle analyse.",
-  TAKEOFF_FILE_TYPE_INVALID: "Document non exploitable. Importez un autre document PDF lisible.",
-  TAKEOFF_PDF_CORRUPTED:
-    "Le PDF est invalide ou protégé. Réexportez-le avant de relancer l'analyse.",
-  TAKEOFF_PDF_NOT_INTERPRETABLE:
-    "Le PDF est lisible mais reste inexploitable. Importez un PDF mieux exporté ou un autre document.",
-  TAKEOFF_FILE_TOO_LARGE:
-    "Document trop volumineux. Essayez un niveau plus rapide ou découpez le document.",
-  AI_SCHEMA:
-    "Extraction incomplète sur ce document. Changez de niveau ou importez un autre document.",
-  TAKEOFF_LEVEL_C_INVALID_SCHEMA:
-    "Extraction incomplète sur ce document. Changez de niveau ou importez un autre document.",
-  AI_TIMEOUT:
-    "Délai dépassé. Relancez l'analyse ou essayez un niveau plus rapide.",
-  TAKEOFF_LEVEL_C_TIMEOUT:
-    "Délai dépassé. Relancez l'analyse ou essayez un niveau plus rapide.",
-  AI_SAFETY:
-    "Document bloqué pendant l'analyse. Importez un autre document exploitable.",
-  TAKEOFF_LEVEL_C_BUDGET_EXCEEDED:
-    "Le niveau détaillé dépasse le budget prévu. Changez de niveau ou ciblez un document plus simple.",
+  INTERNAL_ERROR: "Une erreur interne a interrompu l’analyse.",
+  TAKEOFF_WORKER_NOT_STARTED: "L’analyse n’a pas pu démarrer sur le poste autorisé.",
+  TAKEOFF_WORKER_HOST_SILENT: "Le poste autorisé ne s’est pas manifesté avant la fin du délai d’attente maximal : l’analyse n’a pas démarré.",
+  TAKEOFF_WORKER_QUEUE_EXPIRED: "L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré : elle n’a pas démarré.",
+  TAKEOFF_WORKER_OUTCOME_UNKNOWN: "Le traitement a été interrompu. Son résultat est inconnu.",
+  TAKEOFF_FILE_TYPE_INVALID: "Document non exploitable.",
+  TAKEOFF_PDF_CORRUPTED: "Le PDF est invalide ou protégé.",
+  TAKEOFF_PDF_NOT_INTERPRETABLE: "Le PDF est lisible mais reste inexploitable.",
+  TAKEOFF_FILE_TOO_LARGE: "Document trop volumineux.",
+  AI_SCHEMA: "Extraction incomplète sur ce document.",
+  TAKEOFF_LEVEL_C_INVALID_SCHEMA: "Extraction incomplète sur ce document.",
+  AI_TIMEOUT: "Délai dépassé.",
+  TAKEOFF_LEVEL_C_TIMEOUT: "Délai dépassé.",
+  AI_SAFETY: "Document bloqué pendant l'analyse.",
+  TAKEOFF_LEVEL_C_BUDGET_EXCEEDED: "L’analyse détaillée dépasse le budget prévu.",
 };
 
 export function getTakeoffVisibleJobStatusLabel(
@@ -169,11 +161,11 @@ export function getTakeoffFailureReasonLabel(input: {
   fallbackMessage?: string | null;
 }): string | null {
   if (input.errorCode) {
-    return FAILURE_REASON_LABELS[input.errorCode] ?? null;
+    return FAILURE_FACTS[input.errorCode] ?? null;
   }
 
   if (input.fallbackMessage && input.fallbackMessage.trim().length > 0) {
-    return "Analyse interrompue. Relancez l'analyse ou importez un autre document.";
+    return "Analyse interrompue.";
   }
 
   return null;
@@ -182,4 +174,14 @@ export function getTakeoffFailureReasonLabel(input: {
 export function takeoffCompletionFailureReason(code: string | null | undefined) {
   return getTakeoffFailureReasonLabel({ errorCode: code })
     ?? "Le traitement n’a pas pu terminer le métré. Consultez l’activité de l’affaire.";
+}
+
+/**
+ * What happened to a failed analysis, on its row and in the banner, in French: never its code, which the screen does not
+ * show, and never an instruction, which the resume decision gives. An old row without a diagnostic says so; a code this
+ * version does not know gets a general reason.
+ */
+export function describeTakeoffJobFailure(code: string | null | undefined) {
+  if (!code) return "Échec sans code disponible.";
+  return FAILURE_FACTS[code] ?? "L’analyse a été interrompue pour une raison non répertoriée.";
 }

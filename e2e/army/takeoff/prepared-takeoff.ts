@@ -50,19 +50,18 @@ export async function confirmPreparedCsv(
 }
 
 /**
- * Launches a level B or C takeoff of a fictional plan as the application does: a plan set and its sample PDF on an
+ * Launches a detailed takeoff of a fictional plan as the application does: a plan set and its sample PDF on an
  * owned affaire, its preparation filled and confirmed in the dialog, then « Confirmer et lancer le métré ».
  */
 export async function launchPreparedPlanSet(
   ui: Parameters<typeof createEstimateViaWizard>[0],
   army: ArmyState,
   ids: OwnedEstimate,
-  processing: { level: "B" | "C"; provider: "auto" | "chatgpt" },
 ) {
   const planSet = await createPlanSet(ui, army, ids, `${army.runPrefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff?launch=1&launchPlanSet=${planSet.id}`);
-  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing });
+  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name] });
   await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
   await expect(dialog.getByRole("link", /Centre d'activit/i)).toBeVisible();
   const jobs = ownedTakeoffJobs(ui.browser, ids);

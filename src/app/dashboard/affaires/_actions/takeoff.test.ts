@@ -27,7 +27,10 @@ vi.mock("@/lib/auth/tenant-context", () => ({
     supabase: { from: () => ({ delete: unexpectedMutationMock }) },
   })),
 }));
-vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ getTakeoffExecutionOwner: vi.fn().mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "fixture-host" }) }));
+vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>(),
+  getConfirmedTakeoffExecutionOwner: vi.fn().mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "fixture-host" }),
+}));
 
 vi.mock("@/lib/takeoff/server", () => ({
   createTakeoffJobFromPlanSet: createTakeoffJobFromPlanSetMock,
@@ -74,7 +77,7 @@ describe("launchTakeoffFromPlanSet", () => {
         projectId: PROJECT_ID,
         planSetId: PLAN_SET_ID,
         versionId: VERSION_ID,
-        level: "B",
+        level: "C", provider: "chatgpt",
       })
     ).resolves.toMatchObject({
       jobId: JOB_ID,
@@ -101,7 +104,7 @@ describe("launchTakeoffFromPlanSet", () => {
         projectId: PROJECT_ID,
         planSetId: PLAN_SET_ID,
         versionId: VERSION_ID,
-        level: "B",
+        level: "C", provider: "chatgpt",
       })
     ).resolves.toMatchObject({
       jobId: JOB_ID,
@@ -119,6 +122,14 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
     vi.clearAllMocks();
   });
 
+  it("requires an explicit ChatGPT provider before copying a source version", async () => {
+    await expect(launchTakeoffFromSourceVersionPlanSet({
+      projectId: PROJECT_ID, planSetId: PLAN_SET_ID, sourceVersionId: VERSION_ID, preparationRevision: 2, level: "C",
+    })).rejects.toMatchObject({ status: 422, code: "BAD_REQUEST" });
+    expect(duplicateEstimateVersionMock).not.toHaveBeenCalled();
+    expect(createTakeoffJobFromPlanSetMock).not.toHaveBeenCalled();
+  });
+
   it("keeps the normal copied draft and its receipt when launch creation fails", async () => {
     duplicateEstimateVersionMock.mockResolvedValue({ version_id: VERSION_ID });
     createTakeoffJobFromPlanSetMock.mockRejectedValue(new Error("launch failed"));
@@ -128,7 +139,7 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
         projectId: PROJECT_ID,
         planSetId: PLAN_SET_ID,
         sourceVersionId: "55555555-5555-4555-8555-555555555555",
-        level: "C",
+        level: "C", provider: "chatgpt",
         preparationRevision: 2,
       }),
     ).rejects.toThrow("launch failed");
@@ -139,7 +150,7 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
 
   it("requires confirmed preparation before creating a business version", async () => {
     assertConfirmedTakeoffPreparationMock.mockRejectedValueOnce(new Error("Confirmez la préparation"));
-    await expect(launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID, sourceVersionId: VERSION_ID, preparationRevision: 2, level: "B" }))
+    await expect(launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID, sourceVersionId: VERSION_ID, preparationRevision: 2, level: "C", provider: "chatgpt" }))
       .rejects.toThrow("Confirmez la préparation");
     expect(duplicateEstimateVersionMock).not.toHaveBeenCalled();
     expect(createTakeoffJobFromPlanSetMock).not.toHaveBeenCalled();
@@ -148,7 +159,7 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
   it("recovers an existing launch after a lost response without duplicating the version", async () => {
     findTakeoffJobForPlanSetLaunchMock.mockResolvedValueOnce({ id: JOB_ID, estimate_version_id: VERSION_ID });
     triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true, correlationId: "replayed" });
-    const result = await launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID, sourceVersionId: VERSION_ID, preparationRevision: 2, level: "B" });
+    const result = await launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID, sourceVersionId: VERSION_ID, preparationRevision: 2, level: "C", provider: "chatgpt" });
     expect(result).toMatchObject({ jobId: JOB_ID, versionId: VERSION_ID });
     expect(duplicateEstimateVersionMock).not.toHaveBeenCalled();
     expect(createTakeoffJobFromPlanSetMock).not.toHaveBeenCalled();
@@ -159,7 +170,7 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
     duplicateEstimateVersionMock.mockResolvedValue({ version_id: VERSION_ID });
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID, estimate_version_id: winnerVersion });
     triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true, correlationId: "winner" });
-    const result = await launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID, sourceVersionId: VERSION_ID, preparationRevision: 2, level: "B" });
+    const result = await launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID, sourceVersionId: VERSION_ID, preparationRevision: 2, level: "C", provider: "chatgpt" });
     expect(result.versionId).toBe(winnerVersion);
     expect(unexpectedMutationMock).not.toHaveBeenCalled();
   });
@@ -169,7 +180,7 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID, estimate_version_id: VERSION_ID });
     triggerTakeoffJobProcessingMock.mockRejectedValueOnce(new Error("dispatch interrupted"));
     await expect(launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID,
-      sourceVersionId: "55555555-5555-4555-8555-555555555555", preparationRevision: 2, level: "B" })).rejects.toThrow("dispatch interrupted");
+      sourceVersionId: "55555555-5555-4555-8555-555555555555", preparationRevision: 2, level: "C", provider: "chatgpt" })).rejects.toThrow("dispatch interrupted");
     expect(recordCopyMock).toHaveBeenCalledWith(expect.objectContaining({ sourceVersionId: "55555555-5555-4555-8555-555555555555", targetVersionId: VERSION_ID, projectId: PROJECT_ID, preparationRevision: 2 }));
     expect(recordCopyMock.mock.invocationCallOrder[0]).toBeLessThan(createTakeoffJobFromPlanSetMock.mock.invocationCallOrder[0]);
     expect(unexpectedMutationMock).not.toHaveBeenCalled();
@@ -179,7 +190,7 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
     duplicateEstimateVersionMock.mockResolvedValue({ version_id: VERSION_ID });
     createTakeoffJobFromPlanSetMock.mockRejectedValueOnce(new Error("creation response lost"));
     await expect(launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID,
-      sourceVersionId: "55555555-5555-4555-8555-555555555555", preparationRevision: 2, level: "B" })).rejects.toThrow("creation response lost");
+      sourceVersionId: "55555555-5555-4555-8555-555555555555", preparationRevision: 2, level: "C", provider: "chatgpt" })).rejects.toThrow("creation response lost");
     expect(unexpectedMutationMock).not.toHaveBeenCalled();
   });
 
@@ -187,7 +198,7 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
     duplicateEstimateVersionMock.mockResolvedValue({ version_id: VERSION_ID });
     recordCopyMock.mockRejectedValueOnce(new Error("receipt unavailable"));
     await expect(launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID,
-      sourceVersionId: "55555555-5555-4555-8555-555555555555", preparationRevision: 2, level: "B" })).rejects.toThrow("receipt unavailable");
+      sourceVersionId: "55555555-5555-4555-8555-555555555555", preparationRevision: 2, level: "C", provider: "chatgpt" })).rejects.toThrow("receipt unavailable");
     expect(createTakeoffJobFromPlanSetMock).not.toHaveBeenCalled();
     expect(unexpectedMutationMock).not.toHaveBeenCalled();
   });
@@ -197,7 +208,7 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
     createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID, estimate_version_id: VERSION_ID });
     triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true, correlationId: "resumed-copy" });
     const result = await launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID,
-      sourceVersionId: "55555555-5555-4555-8555-555555555555", preparationRevision: 2, level: "B" });
+      sourceVersionId: "55555555-5555-4555-8555-555555555555", preparationRevision: 2, level: "C", provider: "chatgpt" });
     expect(result.versionId).toBe(VERSION_ID);
     expect(duplicateEstimateVersionMock).not.toHaveBeenCalled();
     expect(recordCopyMock).not.toHaveBeenCalled();

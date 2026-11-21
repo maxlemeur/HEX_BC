@@ -2,26 +2,25 @@
 
 import {
   loadTakeoffPreparation, saveTakeoffPreparation, confirmTakeoffPreparation, assistTakeoffPreparation, getTakeoffPreparationSourcePreview,
-  getTakeoffPageTriageAvailability, proposeTakeoffPageTriage,
+  getTakeoffPageTriageAvailability, loadTakeoffExecutionPreview, proposeTakeoffPageTriage,
 } from "@/lib/takeoff/preparation-server";
 import type { TakeoffPreparation, TakeoffPreparationProfile } from "@/lib/takeoff/preparation";
 import { loadTakeoffPreparationProfiles, saveTakeoffPreparationProfile } from "@/lib/takeoff/preparation-profiles-server";
 import { runSafeTakeoffAction } from "@/lib/takeoff/action-errors-server";
-import { loadChatGptConnection } from "@/app/dashboard/_actions/chatgpt";
 
 /**
  * Everything the preparation panel reads, in one request when it opens: the preparation, the business profiles,
- * the page triage availability and the ChatGPT connection. Next.js sends a page's Server Actions one at a time, so a
+ * the page triage availability and the ChatGPT selection. Next.js sends a page's Server Actions one at a time, so a
  * read sent later by a step (they used to read when they appeared) went in front of the save, the assistance or the
  * page triage the person asked for, and kept « Enregistrement… » on screen for as long as it took (TI-720).
- * Each part fails on its own; an unknown ChatGPT connection reads as none.
+ * Each part fails on its own; an unavailable ChatGPT selection reads as none.
  */
-export async function loadTakeoffPreparationPanelAction(projectId: string) {
+export async function loadTakeoffPreparationPanelAction(projectId: string, planSetId?: string) {
   const [preparation, profiles, pageTriage, chatGpt] = await Promise.all([
-    runSafeTakeoffAction(() => loadTakeoffPreparation(projectId)),
+    runSafeTakeoffAction(() => loadTakeoffPreparation(projectId, planSetId)),
     runSafeTakeoffAction(() => loadTakeoffPreparationProfiles()),
     runSafeTakeoffAction(() => getTakeoffPageTriageAvailability(projectId)),
-    loadChatGptConnection().catch(() => null),
+    loadTakeoffExecutionPreview().catch(() => null),
   ]);
   return { preparation, profiles, pageTriage, chatGpt };
 }
@@ -32,7 +31,13 @@ export async function saveTakeoffPreparationAction(input: {
   return runSafeTakeoffAction(() => saveTakeoffPreparation(input));
 }
 
-export async function confirmTakeoffPreparationAction(input: { projectId: string; expectedRevision: number }) {
+export async function loadTakeoffExecutionPreviewAction() {
+  return runSafeTakeoffAction(loadTakeoffExecutionPreview);
+}
+
+export async function confirmTakeoffPreparationAction(input: {
+  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string;
+}) {
   return runSafeTakeoffAction(() => confirmTakeoffPreparation(input));
 }
 

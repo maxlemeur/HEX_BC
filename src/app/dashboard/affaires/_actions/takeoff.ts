@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
-import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import { getConfirmedTakeoffExecutionOwner, requireDetailedTakeoffProcessing } from "@/lib/ai/chatgpt-takeoff";
 import { duplicateEstimateVersion } from "@/lib/estimates/version-variant-server";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { createTakeoffJobFromPlanSet, findTakeoffJobForPlanSetLaunch } from "@/lib/takeoff/server";
@@ -17,7 +17,7 @@ const launchTakeoffFromPlanSetSchema = z.object({
   projectId: z.string().uuid(),
   planSetId: z.string().uuid(),
   versionId: z.string().uuid(),
-  level: z.enum(["B", "C"]).default("B"),
+  level: z.enum(["B", "C"]).optional(),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
   preparationRevision: z.number().int().positive().optional(),
   sourceVersionId: z.string().uuid().optional(),
@@ -31,7 +31,7 @@ const launchTakeoffFromSourceVersionPlanSetSchema = z.object({
   projectId: z.string().uuid(),
   planSetId: z.string().uuid(),
   sourceVersionId: z.string().uuid(),
-  level: z.enum(["B", "C"]).default("B"),
+  level: z.enum(["B", "C"]).optional(),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
   preparationRevision: z.number().int().positive().optional(),
 });
@@ -104,15 +104,16 @@ export async function launchTakeoffFromSourceVersionPlanSet(
     ...parsed, estimateVersionId: parsed.sourceVersionId,
   });
   if (existing) return dispatchCreatedTakeoffJob(existing, parsed.projectId);
+  const processing = requireDetailedTakeoffProcessing(parsed);
   // Reject an incomplete preparation before creating a new business version.
   const context = await getAuthenticatedContext();
-  await assertConfirmedTakeoffPreparation({
+  const snapshot = await assertConfirmedTakeoffPreparation({
     context, projectId: parsed.projectId, estimateVersionId: parsed.sourceVersionId,
     preparationRevision: parsed.preparationRevision ?? null, planSetId: parsed.planSetId,
-    level: parsed.level, provider: parsed.provider ?? "auto",
+    ...processing,
   });
   // Check the local provider before creating a new business version.
-  await getTakeoffExecutionOwner(context.supabase, context, parsed.provider);
+  await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot);
   const copyScope = {
     context, projectId: parsed.projectId, sourceVersionId: parsed.sourceVersionId, preparationRevision: parsed.preparationRevision!,
   };
@@ -126,8 +127,7 @@ export async function launchTakeoffFromSourceVersionPlanSet(
   }
   const job = await createTakeoffJobFromPlanSet({
     projectId: parsed.projectId, planSetId: parsed.planSetId, estimateVersionId: targetVersionId,
-    level: parsed.level, preparationRevision: parsed.preparationRevision, sourceVersionId: parsed.sourceVersionId,
-    ...(parsed.provider ? { provider: parsed.provider } : {}),
+    ...processing, preparationRevision: parsed.preparationRevision, sourceVersionId: parsed.sourceVersionId,
   });
   const launchResult = await dispatchCreatedTakeoffJob(job, parsed.projectId);
   return { ...launchResult, versionId: launchResult.versionId ?? targetVersionId };

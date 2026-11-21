@@ -13,7 +13,6 @@ it("labels in French every code the end of an analysis may publish", () => {
 
 it("tells the member when the authorised Mac never reported before the ceiling", () => {
   expect(takeoffCompletionFailureReason("TAKEOFF_WORKER_HOST_SILENT")).toBe(
-    "L’analyse n’a pas démarré : le poste autorisé ne s’est pas manifesté avant la fin du délai d’attente maximal. "
-      + "Vérifiez qu’il est allumé, connecté et que l’application y est ouverte avant de préparer une nouvelle analyse.",
+    "Le poste autorisé ne s’est pas manifesté avant la fin du délai d’attente maximal : l’analyse n’a pas démarré.",
   );
 });

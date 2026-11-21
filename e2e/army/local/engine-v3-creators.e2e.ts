@@ -424,7 +424,6 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       const preparationEnabled = await prepare.isEnabled();
       await prepare.click();
       let dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
-      await dialog.getByRole("button", /Vérifier et lancer$/).click();
       const proposal = {
         targetsV3: await dialog.getByLabel("Version cible", { exact: true }).inputValue() === versionId,
         reasonShown: (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0,
@@ -439,7 +438,7 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       await browser.reload();
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
       await openTakeoffPreparation({ ...ui, army });
-      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "auto" } });
+      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
       const target = await dialog.getByLabel("Version cible", { exact: true }).inputValue();
       const reasonShown = (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0;
       const launchEnabled = await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).isEnabled();
@@ -457,11 +456,16 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       await confirmPreparedCsv(ui, estimate, csvPath, "auto");
       // A rejected source launch must not insert even a temporary business
       // version. The audit count catches a copy created then deleted as well.
-      const pdfPreparation = await openPlanPreparation();
-      await pdfPreparation.getByRole("button", /Vérifier et lancer$/).click();
-      await expect(pdfPreparation.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
-      await expect(pdfPreparation.getByText(/Le niveau enregistré n’est pas compatible/)).toBeVisible();
-      await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "auto" } });
+      await openPlanPreparation();
+      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      // The uploaded CSV is not in the dossier: the plan-set preparation keeps it and blocks the launch until the
+      // member takes it out of the sources. It is never dropped without being shown.
+      const escapedCsvName = csvName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      await expect(dialog.getByText(new RegExp(`^Le fichier téléversé « ${escapedCsvName} » est indisponible dans le dossier[.]`))).toBeVisible();
+      await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
+      await dialog.getByRole("button", /Mes documents$/).click();
+      await expect(dialog.getByText("Fichier téléversé indisponible dans le dossier.", { exact: true })).toBeVisible();
+      await dialog.getByLabel(`Utiliser ${csvName}`, { exact: true }).uncheck();
       await saveTakeoffPreparation({ ...ui, army });
       const preparationRevision = async () => {
         const [row] = await querySql(`select revision from public.takeoff_preparations where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`);
@@ -472,21 +476,20 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
         actionId: await serverActionId("confirmTakeoffPreparationAction"),
         projectId: anchor.projectId, expectedRevision: await preparationRevision(),
       });
-      expect(confirmation).toMatchObject({ status: 200, digest: null, ok: true, errorCode: null });
-      expect(confirmation.revision).toBeGreaterThan(0);
+      expect(confirmation).toMatchObject({ status: 200, digest: null, ok: false, errorCode: "AI_PROVIDER" });
       const preparationProcessing = async () => {
         const [row] = await querySql(`select draft->'processing' from public.takeoff_preparations where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`);
         if (!row) throw new Error("Owned preparation processing unavailable.");
         return JSON.parse(row) as { level: string; provider: string };
       };
       const savedProcessing = await preparationProcessing();
-      expect(savedProcessing).toEqual({ level: "B", provider: "auto" });
+      expect(savedProcessing).toEqual({ level: "C", provider: "chatgpt" });
       const versionsBefore = await storedVersions(owner, anchor.projectId);
       const insertsBefore = await versionInsertsLogged(owner, anchor.projectId);
       const action = await callServerAction(browser, await serverActionId("launchPreparedTakeoffFromSourceVersionPlanSetAction"),
-        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B", provider: "auto", preparationRevision: confirmation.revision });
-      expect(action).toEqual({ status: 200, digest: null, ok: false, errorStatus: 422, errorCode: "AI_PROVIDER",
-        errorMessage: "Le forfait ChatGPT est disponible dans MergeOne local sur le Mac connecté." });
+        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "C", provider: "chatgpt", preparationRevision: await preparationRevision() });
+      expect(action).toEqual({ status: 200, digest: null, ok: false, errorStatus: 409, errorCode: "CONFLICT",
+        errorMessage: "Vérifiez et confirmez la préparation du métré avant de lancer l'analyse." });
       const versionsAfter = await storedVersions(owner, anchor.projectId);
       const fromSource = { status: action.status, masked: action.digest !== null,
         versionsAdded: versionsAfter.length - versionsBefore.length,
@@ -495,16 +498,14 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       const priorJobs = await jobs.list();
       const beforeReopenRevision = await preparationRevision();
       const reopenedDialog = await openPlanPreparation();
-      await reopenedDialog.getByRole("button", /Vérifier et lancer$/).click();
       const reopenedTarget = await reopenedDialog.getByLabel("Version cible", { exact: true }).inputValue();
-      await reopenedDialog.getByText("Options avancées", { exact: true }).click();
-      const replayLevel = reopenedDialog.getByRole("radio", "Standard", { exact: true });
-      await expect(replayLevel).toBeChecked();
-      await expect(reopenedDialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("auto");
+      await expect(reopenedDialog.getByText("Analyse détaillée avec votre forfait ChatGPT", { exact: true })).toBeVisible();
       expect(await preparationProcessing()).toEqual(savedProcessing);
       await expect(reopenedDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
       await reopenedDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
-      await expect(reopenedDialog.getByRole("alert").getByText("Le forfait ChatGPT est disponible dans MergeOne local sur le Mac connecté.", { exact: true })).toBeVisible();
+      const refusal = reopenedDialog.getByRole("alert");
+      await expect(refusal).toBeVisible();
+      await expect(refusal).toContainText("Le forfait ChatGPT est disponible dans MergeOne local sur le Mac connecté.");
       const replayedJobs = await jobs.list();
       const reopen = { targetIsSource: reopenedTarget === versionId,
         preparationRevisionPreserved: await preparationRevision() === beforeReopenRevision,
@@ -515,7 +516,7 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
         fromSource, reopen, jobLevels: written.map((job) => job.level),
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
       await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, action, written, observed, savedProcessing,
-        replayBoundary: "Reopen preserves Standard B and automatic local ChatGPT choice. No provider is connected in this production-mode campaign: neither job nor source-version copy may be created." });
+        replayBoundary: "Reopen preserves the detailed local ChatGPT preparation. No provider is connected in this production-mode campaign: neither job nor source-version copy may be created." });
       expect(observed).toEqual({
         proposal: { targetsV3: true, reasonShown: false, launchEnabled: true },
         dialog: { targetIsV3: true, reasonShown: false, launchEnabled: true },
