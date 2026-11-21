@@ -86,8 +86,6 @@ armyTest("HUB08 without a local plan the prompt retains the preparation without 
   expect(await jobs.list()).toEqual([]);
     await prompt.getByRole("button", "Préparer le métré", { exact: true }).click();
     const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
-    await dialog.getByText("Options avancées", { exact: true }).click();
-    await dialog.getByRole("radio", "Standard", { exact: true }).check();
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
     await expect(dialog.getByText(/forfait ChatGPT.*local/i).first()).toBeVisible();
     expect(await jobs.list()).toEqual([]);
@@ -101,14 +99,11 @@ armyTest("HUB09 intake-synced plans retain provenance and analysis choices in th
   await expect(plansSection.getByText(provenance).first()).toBeVisible();
   const dialog = await openLaunchDialog(ui);
   await expect(dialog.getByLabel("Jeu de plans à analyser", { exact: true })).toHaveValue(set.id);
-  await expect(dialog.getByText("Plans synchronisés depuis les pièces confirmées du dossier. Confirmez les versions à utiliser pour ce métré.", { exact: true })).toBeVisible();
-  await dialog.getByRole("button", /Vérifier et lancer$/).click();
+  await expect(dialog.getByText("Plans synchronisés depuis les pièces confirmées du dossier. Toutes les pages des plans retenus sont analysées par défaut.", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("combobox", "Version cible", { exact: true })).toBeVisible();
-  await dialog.getByText("Options avancées", { exact: true }).click();
-  await expect(dialog.getByText("Niveau d'analyse", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("radio", "Standard", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("radio", "Détaillé", { exact: true })).toBeVisible();
-  await recordEvidence(ui.army, "HUB09-intake-provenance", { estimate, planSetId: set.id, hubProvenance: true, dialogProvenance: true, levels: ["B", "C"] });
+  await expect(dialog.getByText("Analyse détaillée avec votre forfait ChatGPT", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("radio", "Standard", { exact: true })).toHaveCount(0);
+  await recordEvidence(ui.army, "HUB09-intake-provenance", { estimate, planSetId: set.id, hubProvenance: true, dialogProvenance: true, level: "C" });
 });
 
 armyTest("HUB10 launch dialog selects an older version as the source of a new draft", options, async (ui) => {
@@ -116,7 +111,6 @@ armyTest("HUB10 launch dialog selects an older version as the source of a new dr
   const current = await duplicateHubVersion(ui.browser, ui.army, estimate);
   await ui.browser.reload();
   const dialog = await openLaunchDialog(ui);
-  await dialog.getByRole("button", /Vérifier et lancer$/).click();
   const selector = dialog.getByRole("combobox", "Version cible", { exact: true });
   await expect(selector).toBeVisible();
   const labels = await ui.browser.locator("#launch-metre-target-version option").allTextContents();
@@ -125,6 +119,6 @@ armyTest("HUB10 launch dialog selects an older version as the source of a new dr
   await selector.selectOption({ value: estimate.versionId });
   await expect(selector).toHaveValue(estimate.versionId);
   await expect(dialog.getByText("Un nouveau brouillon sera créé depuis V1 avant lancement.", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
+  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
   await recordEvidence(ui.army, "HUB10-version-target", { source: estimate, current, labels, selectedSourceVersionId: estimate.versionId });
 });

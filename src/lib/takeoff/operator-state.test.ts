@@ -164,7 +164,7 @@ describe("describeTakeoffResume", () => {
     expect(describeTakeoffResume({ action: "none", reason: "read_only", availableAt: null }))
       .toBe("Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.");
     expect(describeTakeoffResume({ action: "new_analysis", reason: "launched_by_other", availableAt: null }))
-      .toBe("Seule la personne qui a lancé cette analyse peut la soumettre à nouveau avec son forfait. Préparez une nouvelle analyse avec votre forfait.");
+      .toBe("Seule la personne qui a lancé cette analyse peut la démarrer avec son forfait. Préparez une nouvelle analyse avec votre forfait.");
   });
 
   it("gives the time of a wait in Paris", () => {

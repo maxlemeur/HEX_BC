@@ -364,7 +364,7 @@ export function describeTakeoffResume(decision: TakeoffResumeDecision): string |
     case "read_only":
       return "Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.";
     case "launched_by_other":
-      return "Seule la personne qui a lancé cette analyse peut la soumettre à nouveau avec son forfait. Préparez une nouvelle analyse avec votre forfait.";
+      return "Seule la personne qui a lancé cette analyse peut la démarrer avec son forfait. Préparez une nouvelle analyse avec votre forfait.";
     case "execution_unavailable":
       return "Pour soumettre cette analyse à nouveau, ouvrez MergeOne sur le Mac connecté.";
     case "other_mac":

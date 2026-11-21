@@ -1291,6 +1291,23 @@ function createTakeoffProcessorSupabaseMock(
 }
 
 describe("processLevelA", () => {
+  it("keeps the job's private ChatGPT selection out of the snapshot it stores in the result", async () => {
+    const bytes = toArrayBuffer("designation,quantity,unit\nTube fictif,3,u");
+    const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.sources[0] = {
+      ...snapshot.preparation.sources[0], document_id: `upload:${hash}`, source_version: hash, content_hash: hash, document_name: "niveau-a.csv",
+    };
+    const pinned = { ...snapshot, execution_selection: { profileId: "profil-opaque", model: "modele-fictif", reasoningEffort: null, hostId: "urn:uuid:55555555-5555-4555-8555-555555555555" } };
+    const mock = createTakeoffProcessorSupabaseMock({ job: { preparation_snapshot: pinned }, downloadFile: { bytes, mimeType: "text/csv" } });
+    const callProvider = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([
+      { designation: "Tube fictif", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Ligne 2" },
+    ])));
+    await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
+    expect(mock.state.takeoffResults[0].provider_meta.preparation_snapshot).toEqual(snapshot);
+    expect(mock.state.takeoffResults[0].provider_meta.preparation_snapshot).not.toHaveProperty("execution_selection");
+  });
+
   it("passes confirmed exclusions and conventions to the provider and retains the snapshot in the result", async () => {
     const bytes = toArrayBuffer("designation,quantity,unit\nTube fictif,3,u");
     const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
@@ -2661,7 +2678,49 @@ describe("processLevelB", () => {
 
 describe("processLevelC", () => {
   beforeEach(() => {
+    vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "0");
     vi.clearAllMocks();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ["keeps documentary review warnings when every quantity remains unknown", "Page 1 : Conduite visible, aucune cote lisible.", true],
+    ["refuses a warning-only answer without a usable model-reported page", "Conduite visible, aucune cote lisible.", false],
+    ["refuses a warning-only answer with an out-of-fragment page", "Page 2 : Conduite visible, aucune cote lisible.", false],
+    ["refuses a warning-only answer whose located warning observes nothing", "Page 1 :", false],
+    ["keeps a located warning of a file whose name reads like an undetermined page", "Page 1 : Conduite visible, aucune cote lisible.", true, "Plan · page indéterminée (fragment 1).pdf"],
+  ])("%s", async (_name, message, hasUsablePage, fileName = "plan-fictif.pdf") => {
+    const bytes = await createPdfArrayBuffer(3);
+    const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.objective = "measure_all";
+    snapshot.preparation.provenance = { kind: "dossier", rule_version: 1, converted_from_legacy: false, plan_set_id: "jeu-fictif", brief_context: { buildings: [], lots: [], zones: [] } };
+    snapshot.preparation.conventions = { unit: null, unit_mode: "per_item", measurement_basis: "documentary_evidence", calibration: null, purchase: null, confirmed: false };
+    snapshot.preparation.sources[0] = {
+      ...snapshot.preparation.sources[0], document_id: `upload:${hash}`, source_version: hash, content_hash: hash,
+      kind: "plan", pages: [2], page_count: 3, document_name: fileName,
+    };
+    const mock = createTakeoffProcessorSupabaseMock({ job: {
+      level: "C", preparation_snapshot: snapshot, source_file_name: fileName, source_file_path: DEFAULT_SOURCE_PATH_C, source_file_type: "application/pdf",
+    }, downloadFile: { bytes, mimeType: "application/pdf" } });
+    const warning = { code: "QUANTITE_A_VERIFIER", severity: "warning" as const, message };
+    const callProvider = vi.fn().mockResolvedValue(buildProviderResult({
+      ...buildTakeoffExchange([], [warning], { level: "C", file_type: "application/pdf" }), tables: [], confidence: 0.2,
+    }));
+    const processing = processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
+    if (!hasUsablePage) {
+      await expect(processing).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE });
+      expect(mock.state.job.status).toBe("failed");
+      expect(mock.state.takeoffResults[0].warnings).toEqual([
+        expect.objectContaining({ code: "PROCESSING_FAILED", severity: "error" }),
+      ]);
+      expect(mock.state.takeoffItems).toEqual([]);
+      return;
+    }
+    const result = await processing;
+    expect(result.status).toBe("completed");
+    expect(mock.state.takeoffItems).toEqual([]);
+    expect(mock.state.takeoffResults[0].warnings).toEqual([{ ...warning, message: `${fileName} · page 2 — Conduite visible, aucune cote lisible.` }]);
   });
 
   // TI-704 option B: with Decisions configured too, a job's vector groups are read by its creator's plan, never by
@@ -3196,6 +3255,7 @@ describe("hypothesis preselection", () => {
   });
 
   it("reads no quantity as non observable when the fixed rules are off: the line stays preselected", async () => {
+    vi.stubEnv("MERGEONE_TAKEOFF_RULES", "0");
     const bytes = await createPdfArrayBuffer(1);
     const mock = createTakeoffProcessorSupabaseMock({ job: {
       level: "B", source_file_name: "plan.pdf", source_file_path: DEFAULT_SOURCE_PATH_B, source_file_type: "application/pdf",

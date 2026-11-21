@@ -67,7 +67,9 @@ export async function readPreparationSources(context: Context, projectId: string
   if (intake.error) throw mapSupabaseError(intake.error, "Impossible de charger les pièces de référence du métré.");
   return [
     ...(planFiles.data as PreparationPlanFile[] ?? []).map(toPreparationPlanSource),
-    ...(intake.data as PreparationIntakeDocument[] ?? []).filter((document) => Boolean(document.storage_path) && document.document_kind !== "plan").map(toPreparationIntakeSource),
+    ...(intake.data as PreparationIntakeDocument[] ?? [])
+      .filter((document) => document.document_kind === "dpgf" || document.document_kind === "cctp" || (Boolean(document.storage_path) && document.document_kind !== "plan"))
+      .map(toPreparationIntakeSource),
   ];
 }
 

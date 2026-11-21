@@ -1,4 +1,5 @@
 import "server-only";
+import { readDefaultOnTakeoffFlag } from "@/lib/takeoff/default-on-flags";
 
 import { createHash } from "node:crypto";
 
@@ -46,7 +47,7 @@ import { pageAnchors, type PageAnchors } from "@/lib/takeoff/rules/registration"
 import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 
 // The vector reading in the takeoff worker (TI-662), opt-in with
-// MERGEONE_TAKEOFF_VECTORS=1 and level C only: each retained page of each
+// Enabled by default for level C: each retained page of each
 // original PDF (never the merged copy, which loses its layer names) is
 // extracted in its killable process and read with keywords. The worker runs
 // only local ChatGPT jobs and passes their hook (option B below): the Decisions
@@ -106,7 +107,7 @@ export const TAKEOFF_VECTOR_LOCAL_LIMITS = GROUP_LOCAL_MODEL_LIMITS;
 export const TAKEOFF_VECTOR_DECISIONS_MAX_TOKENS = 400_000;
 
 export function isTakeoffVectorReadingEnabled() {
-  return process.env.MERGEONE_TAKEOFF_VECTORS === "1";
+  return readDefaultOnTakeoffFlag("MERGEONE_TAKEOFF_VECTORS", process.env.MERGEONE_TAKEOFF_VECTORS);
 }
 
 /** The Decisions classification of a job's vector groups (readTakeoffVectorPages `decisions`). */
@@ -124,11 +125,11 @@ export type TakeoffVectorDecisionsHook = {
    * Decisions (group-local-model-server.ts), with the profile the job started with (`selection`); `call` replaces the
    * plan in tests.
    */
-  local?: { call?: () => Promise<LocalGroupsCall>; selection?: LocalGroupsSelection };
+  local?: { call?: () => Promise<LocalGroupsCall>; selection?: LocalGroupsSelection; useProfile?: boolean };
 };
 
 /**
- * The hook of a local ChatGPT job (TI-704 option B) when MERGEONE_TAKEOFF_VECTORS=1, MERGEONE_TAKEOFF_DECISIONS=1 and
+ * The hook of a local ChatGPT job (TI-704 option B) when vector reading is enabled, MERGEONE_TAKEOFF_DECISIONS=1 and
  * the local plan is on (isLocalChatGptEnabled: development, or MERGEONE_CHATGPT_LOCAL=1 outside production, Vercel and
  * CI), for the job's creator, whose plan it uses with the job's profile (`selection`): no Decisions key, no server
  * spending; otherwise none.
@@ -136,14 +137,15 @@ export type TakeoffVectorDecisionsHook = {
 export function takeoffVectorLocalGroupsHook(input: {
   jobId: string; tenantId: string; userId: string | null;
   /** The job's local provider (resolveLocalTakeoffProvider): its pinned selection and the creator's membership check. */
-  provider: { selection: LocalGroupsSelection; assertOwnerActive: () => Promise<void> };
+  provider: { selection: LocalGroupsSelection; assertOwnerActive: () => Promise<void>; useProfileForVectorGroups?: boolean };
   beforeCall?: () => Promise<void>;
 }): TakeoffVectorDecisionsHook | undefined {
   if (!isTakeoffVectorReadingEnabled() || !isTakeoffDecisionsSelected() || !isLocalChatGptEnabled() || !input.userId) return undefined;
   // Before each plan request, as before each level C one: the creator is still a member (their plan receives the
   // images), then the job's own check (tenant, lease).
   const { provider } = input;
-  return { owner: { tenantId: input.tenantId, userId: input.userId }, projectId: `takeoff-job:${input.jobId}`, local: { selection: provider.selection },
+  return { owner: { tenantId: input.tenantId, userId: input.userId }, projectId: `takeoff-job:${input.jobId}`,
+    local: { selection: provider.selection, useProfile: provider.useProfileForVectorGroups },
     beforeCall: async () => {
       await provider.assertOwnerActive();
       await input.beforeCall?.();
@@ -317,7 +319,7 @@ async function decidePage(run: DecisionsRun, input: {
         // The plan is first read with the creator's credential (renewed when due) and model listing: the job's check
         // (the creator's membership, the tenant, the lease) comes before, as before each request.
         await beforeCall?.();
-        run.localCall = (local.call ?? (() => localGroupsCall(run.hook.owner, local.selection)))().catch((error: unknown) => (error instanceof LocalGroupsStop
+        run.localCall = (local.call ?? (() => localGroupsCall(run.hook.owner, local.selection, local.useProfile)))().catch((error: unknown) => (error instanceof LocalGroupsStop
           ? error : new LocalGroupsStop("local_access", "Le forfait ChatGPT n’a pas pu être lu.")));
       }
       const call = await run.localCall;

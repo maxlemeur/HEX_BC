@@ -55,7 +55,7 @@ describe("TakeoffJobActions", () => {
     [{ action: "new_analysis", reason: "analysis_closed" }, "Cette analyse est close. Préparez une nouvelle analyse depuis l’affaire."],
     [{ action: "none", reason: "read_only" }, "Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur."],
     [{ action: "new_analysis", reason: "launched_by_other" },
-      "Seule la personne qui a lancé cette analyse peut la soumettre à nouveau avec son forfait. Préparez une nouvelle analyse avec votre forfait."],
+      "Seule la personne qui a lancé cette analyse peut la démarrer avec son forfait. Préparez une nouvelle analyse avec votre forfait."],
     [{ action: "new_analysis", reason: "legacy_provider" },
       "Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez une nouvelle analyse depuis l’affaire."],
   ] as const)("offers no retry for %o", (decision, text) => {

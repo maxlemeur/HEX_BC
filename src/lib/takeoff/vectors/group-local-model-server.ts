@@ -106,13 +106,13 @@ function planStop(error: unknown): LocalGroupsStop | null {
  * The local plan of `owner` with the measured model and effort, checked once (LocalGroupsStop when it cannot start),
  * pinned to `selection` (the job's profile) or else to the profile selected now.
  */
-export async function localGroupsCall(owner: ChatGptOwner, selection?: LocalGroupsSelection): Promise<LocalGroupsCall> {
+export async function localGroupsCall(owner: ChatGptOwner, selection?: LocalGroupsSelection, useProfile = false): Promise<LocalGroupsCall> {
   const credential = await accountOf(owner, selection);
-  let override: LocalChatGptOverride | null = null;
+  let override: LocalChatGptOverride | undefined;
   // Read once per job, the listing is read again once after a failure that is no answer of the account (a network
   // blip, an unreadable listing): one blip would otherwise leave the whole job to the rules. The account's answers (the
   // model not offered, a quota, a rate limit, a refused access) are final.
-  for (let attempt = 1; override === null; attempt += 1) {
+  for (let attempt = 1; !useProfile && !override; attempt += 1) {
     try {
       override = await assertLocalChatGptOverride(owner, credential, { model: GROUP_LOCAL_MODEL.model, reasoningEffort: GROUP_LOCAL_MODEL.reasoningEffort });
     } catch (error) {

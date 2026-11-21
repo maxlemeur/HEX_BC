@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createAffaireTakeoffJob } from "@/lib/takeoff/job-creation-server";
 import {
-  authenticatedContext, createSupabaseFake, filterValue, M3_ITEM_ID, M3_PLAN_SET_ID, M3_PROJECT_ID, M3_TENANT_ID,
+  authenticatedContext, createSupabaseFake, filterValue, M3_ITEM_ID, M3_PLAN_SET_ID, M3_PROJECT_ID, M3_TENANT_ID, M3_USER_ID,
 } from "@/lib/takeoff/metre-m3.test-utils";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
@@ -20,7 +20,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 }));
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>(),
-  getTakeoffExecutionOwner: vi.fn(),
+  getConfirmedTakeoffExecutionOwner: vi.fn(),
   assertLocalTakeoffResumeReady: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -43,7 +43,8 @@ function fixture(tenantRole: "admin" | "director" = "admin") {
     rpc: {
       admit_prepared_takeoff_job: (args) => {
         const row = (args as { p_job: Record<string, unknown> }).p_job;
-        const job = { ...row, status: "pending", created_at: "2026-11-20T00:00:00Z" };
+        // The function writes the authenticated caller as the creator.
+        const job = { ...row, created_by: M3_USER_ID, status: "pending", created_at: "2026-11-20T00:00:00Z" };
         jobs.set(String(row.id), job);
         return { data: [job], error: null };
       },
@@ -64,7 +65,7 @@ beforeEach(() => {
   preparation.preparation.destination = { kind: "analysis_only", estimate_version_id: null, confirmed: true, reviewer: null };
   preparation.preparation.processing = { level: "C", provider: "chatgpt" };
   vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(preparation);
-  vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({
+  vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({
     execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   });
 });
@@ -91,10 +92,18 @@ describe("admitting a prepared affaire takeoff", () => {
     const { database, audit } = fixture("director");
 
     await expect(createAffaireTakeoffJob(request)).rejects.toMatchObject({ status: 403 });
-    expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
+    expect(getConfirmedTakeoffExecutionOwner).not.toHaveBeenCalled();
     expect(database.rpcCalls).toEqual([]);
     expect(database.writesTo("takeoff_jobs")).toEqual([]);
     expect(audit.writesTo("audit_logs")).toEqual([]);
+  });
+
+  it("refuses to start another member's pending affaire job on a replayed operation", async () => {
+    const { database } = fixture();
+    await createAffaireTakeoffJob(request);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({ ...authenticatedContext(database), userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" } as never);
+    await expect(createAffaireTakeoffJob(request)).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+    expect(database.rpcCalls.map(call => call.fn)).toEqual(["admit_prepared_takeoff_job"]);
   });
 
   it("replays the same operation and admits a distinct operation for the same preparation", async () => {

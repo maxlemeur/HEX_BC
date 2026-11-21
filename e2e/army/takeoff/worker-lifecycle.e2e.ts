@@ -583,7 +583,7 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await expect(rows).toHaveCount(3);
   await expect(localRow).toContainText(
-    "Seule la personne qui a lancé cette analyse peut la soumettre à nouveau avec son forfait. Préparez une nouvelle analyse avec votre forfait.");
+    "Seule la personne qui a lancé cette analyse peut la démarrer avec son forfait. Préparez une nouvelle analyse avec votre forfait.");
   await expect(retry(localRow)).toHaveCount(0);
   const refusedOther = await resubmit(localId);
   expect([refusedOther.status, refusedOther.body.error.code]).toEqual([403, "FORBIDDEN"]);

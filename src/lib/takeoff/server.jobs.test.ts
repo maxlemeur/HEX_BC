@@ -13,7 +13,9 @@ vi.mock("@/lib/supabase/service-role", () => ({
 }));
 
 // The resume check is reduced to its refusal of a former provider's job; chatgpt-takeoff.test.ts covers the real one.
-vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ assertLocalTakeoffResumeReady: vi.fn() }));
+vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>(), assertLocalTakeoffResumeReady: vi.fn(),
+}));
 
 // The request runs on the local Mac that launched the jobs (the resume policy compares the two); CI disables the real one.
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers({ host: "127.0.0.1:3000" })) }));
@@ -923,6 +925,38 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(supabase.__state.jobsById.get(JOB_ID)).toEqual(job);
     expect(supabase.__state.jobUpdates).toBe(0);
     expect(supabase.__state.auditLogs).toEqual([]);
+  });
+
+  it("refuses an administrator's manual retry of another member's job", async () => {
+    const job = baseJob({ status: "failed", created_by: "11111111-1111-4111-8111-111111111111", completed_at: "2026-02-25T08:00:00.000Z" });
+    const supabase = createSupabaseMock({ jobs: [job] });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase, userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin",
+    } as never);
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 403, message: expect.stringContaining("Préparez une nouvelle analyse"),
+    });
+    expect(supabase.__state.jobsById.get(JOB_ID)).toEqual(job);
+    expect(supabase.__state.auditLogs).toEqual([]);
+  });
+
+  // A job runs on its creator's subscription: only they restart it, and the reset keeps them as its creator.
+  it("lets an administrator reset their own legacy failure without changing its creator and audits them", async () => {
+    const supabase = createSupabaseMock({ jobs: [baseJob({
+      status: "failed", completed_at: "2026-02-25T08:00:00.000Z", created_by: USER_ID,
+    })] });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase, userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin",
+    } as never);
+
+    await resubmitTakeoffJob(JOB_ID);
+    expect(supabase.__state.jobsById.get(JOB_ID)).toMatchObject({
+      status: "pending", created_by: USER_ID,
+    });
+    expect(supabase.__state.auditLogs).toContainEqual(expect.objectContaining({
+      action: "takeoff.job.resubmitted", record_id: JOB_ID, user_id: USER_ID,
+    }));
   });
 
   it("refuses to resubmit a job of a former provider without changing it or auditing", async () => {

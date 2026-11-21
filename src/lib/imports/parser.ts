@@ -1,7 +1,7 @@
 import { resolveHeaderRowIndex } from "./header-row";
 import { attachImportRowStructure } from "./payload";
 import { convertPercentFormattedCells } from "./percent-cells";
-import { resolveSheetRowNumber } from "./sheet-row-number";
+import { resolveSheetMatrixOrigin } from "./sheet-matrix-origin";
 import { selectDpgfSheetIndex } from "./sheet-selection";
 // One header normalization for both upload parsers (server and browser worker): the key the
 // upload stores is what the mapping heuristic reads (sub-lot 2.3).
@@ -73,14 +73,14 @@ export function detectImportSourceFormat(
 const PARSE_TIMEOUT_MS = 30_000;
 const DPGF_SHEET_SELECTOR_SOURCE = selectDpgfSheetIndex.toString();
 const PERCENT_CELLS_SOURCE = convertPercentFormattedCells.toString();
-const SHEET_ROW_NUMBER_SOURCE = resolveSheetRowNumber.toString();
+const SHEET_MATRIX_ORIGIN_SOURCE = resolveSheetMatrixOrigin.toString();
 const WORKER_PARSE_SCRIPT = `
 const { parentPort, workerData } = require("node:worker_threads");
 const XLSX = require("xlsx");
 const __name = (target) => target;
 const selectDpgfSheetIndex = (${DPGF_SHEET_SELECTOR_SOURCE});
 const convertPercentFormattedCells = (${PERCENT_CELLS_SOURCE});
-const resolveSheetRowNumber = (${SHEET_ROW_NUMBER_SOURCE});
+const resolveSheetMatrixOrigin = (${SHEET_MATRIX_ORIGIN_SOURCE});
 
 (async () => {
   try {
@@ -128,15 +128,20 @@ const resolveSheetRowNumber = (${SHEET_ROW_NUMBER_SOURCE});
 
         const valueSheet = workbook.Sheets[sheetName];
         if (styleSheet && valueSheet) {
+          const origin = resolveSheetMatrixOrigin(valueSheet);
+          // The matrix's own columns, the only ones a header keeps: ExcelJS creates every cell it is
+          // asked for, so reading further would widen each row the next one reads.
+          const matrixWidth = matrix.reduce(
+            (width, row) => Math.max(width, Array.isArray(row) ? row.length : 0),
+            0
+          );
           for (let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1) {
-            const styleRow = styleSheet.getRow(resolveSheetRowNumber(valueSheet, rowIndex));
-            const matrixRow = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
-            const columnCount = Math.max(matrixRow.length, styleSheet.columnCount);
+            const styleRow = styleSheet.getRow(origin.row + rowIndex);
             const boldColumnIndexes = [];
             const mergedColumnIndexes = [];
 
-            for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
-              const cell = styleRow.getCell(columnIndex + 1);
+            for (let columnIndex = 0; columnIndex < matrixWidth; columnIndex += 1) {
+              const cell = styleRow.getCell(origin.column + columnIndex);
               if (cell.font && cell.font.bold === true) boldColumnIndexes.push(columnIndex);
               if (cell.isMerged === true) mergedColumnIndexes.push(columnIndex);
             }

@@ -371,25 +371,33 @@ export async function callServerAction(browser: Browser, id: string, argument: R
 
 /** Read only the public confirmation envelope from the Server Action's Flight response. */
 export async function confirmTakeoffPreparationViaAction(browser: Browser, input: {
-  actionId: string; projectId: string; expectedRevision: number;
+  actionId: string; projectId: string; expectedRevision: number; previewActionId?: string;
 }) {
   return browser.evaluate(async (request) => {
-    const response = await fetch(location.href, {
-      method: "POST", credentials: "same-origin",
-      headers: { "content-type": "text/plain;charset=UTF-8", "next-action": request.actionId },
-      body: JSON.stringify([{ projectId: request.projectId, expectedRevision: request.expectedRevision }]),
-    });
-    const text = await response.text();
-    const envelopes: Array<{ ok: boolean; data?: { revision?: number }; error?: { code?: string } }> = [];
-    for (const line of text.split(/\r?\n/)) {
-      const separator = line.indexOf(":");
-      if (separator < 0) continue;
-      try {
-        const value = JSON.parse(line.slice(separator + 1));
-        if (value && typeof value === "object" && typeof value.ok === "boolean") envelopes.push(value);
-      } catch { /* Flight also includes non-JSON records that are not the action envelope. */ }
+    async function action(actionId: string, args: unknown[]) {
+      const response = await fetch(location.href, {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "text/plain;charset=UTF-8", "next-action": actionId },
+        body: JSON.stringify(args),
+      });
+      const text = await response.text();
+      const envelopes: Array<{ ok: boolean; data?: { revision?: number; fingerprint?: string }; error?: { code?: string } }> = [];
+      for (const line of text.split(/\r?\n/)) {
+        const separator = line.indexOf(":");
+        if (separator < 0) continue;
+        try {
+          const value = JSON.parse(line.slice(separator + 1));
+          if (value && typeof value === "object" && typeof value.ok === "boolean") envelopes.push(value);
+        } catch { /* Flight also includes non-JSON records that are not the action envelope. */ }
+      }
+      return { response, text, envelope: envelopes.length === 1 ? envelopes[0] : null };
     }
-    const envelope = envelopes.length === 1 ? envelopes[0] : null;
+    const preview = request.previewActionId ? await action(request.previewActionId, []) : null;
+    const expectedExecutionFingerprint = preview?.envelope?.data?.fingerprint;
+    if (request.previewActionId && !expectedExecutionFingerprint) throw new Error("The local execution preview is unavailable.");
+    const { response, text, envelope } = await action(request.actionId, [{
+      projectId: request.projectId, expectedRevision: request.expectedRevision, expectedExecutionFingerprint,
+    }]);
     return { status: response.status, digest: /"digest":"([^"]+)"/.exec(text)?.[1] ?? null,
       ok: envelope?.ok ?? false, revision: envelope?.data?.revision ?? null,
       errorCode: envelope?.error?.code ?? (envelope ? null : "INVALID_ACTION_ENVELOPE") };
