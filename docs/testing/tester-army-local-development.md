@@ -173,7 +173,7 @@ processus actif. Les builds locaux ordinaires prennent une place ; les builds
 CI/Vercel n'en prennent pas, et un build Army réutilise celle de son runner.
 
 [`next-build-env.mjs`](../../scripts/next-build-env.mjs) applique un plancher de
-4096 Mio de heap V8 au build, en conservant les autres `NODE_OPTIONS` et une
+6144 Mio de heap V8 au build, en conservant les autres `NODE_OPTIONS` et une
 limite supérieure existante. Une erreur mémoire demande un diagnostic de la
 charge et du processus, pas des relances simultanées. Le tsconfig de build
 Army exclut les tests Vitest ; le typage racine de `verify:pr` les contrôle.

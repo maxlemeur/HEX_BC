@@ -11,10 +11,20 @@
 // (isolatedMemory). Without a limit V8 sizes the heap from the host's RAM:
 // 2240 MiB in a 12 GB WSL VM, where tsc died near 2035 MB on 16/10/2026; with
 // 4096 in NODE_OPTIONS it peaked at 3.0 GB RSS and the build passed.
+//
+// 4096 ran out on 21/11/2026 (main red from #424 on). The build's cold check
+// covers tsconfig.json plus the 293 files `next build --webpack` writes in
+// .next/types (288 per-route checks): 5463 files, 1.59 M types, 4078 MiB live
+// at its end (--extendedDiagnostics under --expose-gc, Node 26.12.1), against
+// 4058 MiB on the last green commit. No construct jumped: #424 added 0.4 % of
+// the types. Uncapped, tsc peaked at 5.5 GB RSS. 6144 leaves 2 GiB above the
+// live heap and stays under the 8 GB of Vercel's smallest build machines (the
+// CI runner has 16 GB); past it the container, not V8, would run out, so the
+// next answer is a smaller program, not a higher floor.
 import os from "node:os";
 
 /** Minimum V8 old-space limit (MiB) for Next and the children that inherit NODE_OPTIONS, tsc included. */
-export const NEXT_BUILD_HEAP_MB = 4096;
+export const NEXT_BUILD_HEAP_MB = 6144;
 
 // NODE_OPTIONS words as Node splits them: on spaces, double quotes grouping.
 const NODE_OPTION_WORD = /(?:[^ "]+|"(?:\\.|[^"\\])*")+/gu;

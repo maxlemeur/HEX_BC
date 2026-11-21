@@ -22,6 +22,14 @@ l’état d’enregistrement. Le membre peut confirmer le lancement directement.
 message de réussite compte les fichiers de plan réellement mesurés : une version
 écartée ou une copie identique n’y figure pas.
 
+Un lien de lancement qui nomme un jeu de plans (qui a des fichiers) ou une
+version les présélectionne à l’ouverture de la fenêtre, et de nouveau s’il en
+nomme d’autres. Le jeu ou la
+version que le membre choisit ensuite reste choisi tant qu’il est proposé, avec
+des fichiers pour un jeu. Sinon la sélection revient au jeu du lien, au jeu par
+défaut de l’affaire ou au premier jeu qui a des fichiers, et à la version du
+lien ou à la première version proposée.
+
 Le menu **Options du métré** ouvre quatre étapes dans
 [`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx).
 
