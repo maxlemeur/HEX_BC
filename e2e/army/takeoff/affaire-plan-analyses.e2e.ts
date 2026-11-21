@@ -5,6 +5,7 @@ import { expect } from "e2e";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
 import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot, type TakeoffPreparationSource } from "@/lib/takeoff/preparation";
+import { buildPlanFileStoragePath, sanitizePlanPdfFilename } from "@/lib/takeoff/plan-file-display-name";
 import { getPreparationPlanSourceVersion } from "@/lib/takeoff/preparation-sources";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 
@@ -72,7 +73,8 @@ armyTest("TKPA01 plan A is reviewed while plan B is read and C waits, without a 
   const sources: Record<Plan, TakeoffPreparationSource> = {} as Record<Plan, TakeoffPreparationSource>;
   for (const plan of ["a", "b", "c"] as const) {
     const bytes = await buildPlanPdf(NAMES[plan], pageCounts[plan]);
-    const filePath = `${tenantId}/${planSetId}/${ids[plan]}/${NAMES[plan]}`;
+    // The path its identity gives, as the application stores it (the location reader reads no other).
+    const filePath = buildPlanFileStoragePath({ tenantId, setId: planSetId, fileId: ids[plan], fileName: sanitizePlanPdfFilename(NAMES[plan]) });
     expect((await setup.storage.from("plan-files").upload(filePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
     const row = await setup.from("plan_files").insert({ id: ids[plan], tenant_id: tenantId, plan_set_id: planSetId, file_name: NAMES[plan],
       file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length, page_count: pageCounts[plan] })
@@ -186,6 +188,7 @@ commit;`);
   await expect(ui.screen.getByRole("heading", "Premiers plans prêts à revoir", { exact: true })).toBeVisible();
   // lot 2's grouped analysis stays one analysis of three plans in the history.
   await expect(ui.screen.getByTestId("takeoff-request-history")).toContainText("Analyse groupée de 3 plans · lue");
+  await ui.browser.evaluate(() => { document.querySelector("[data-testid='takeoff-request-activity']")?.scrollIntoView({ block: "start" }); return true; });
   const screenshotRunning = await ui.app.screenshot("takeoff-request-a-ready-b-read");
 
   // 2. One poll: the light read is read again within its 5 s while B is read; the list of analyses is not, nothing reads
@@ -232,6 +235,7 @@ commit;`);
   await expect(strip.getByRole("link", `Plan suivant : ${NAMES.b}`, { exact: true }))
     .toHaveAttribute("href", takeoffReviewHref({ projectId, jobId: jobs.b }));
   await expect(ui.screen.getByTestId("takeoff-request-plans-missing")).toContainText(`${NAMES.c} (en attente)`);
+  const screenshotReview = await ui.app.screenshot("takeoff-review-plans-of-request");
   await expect(ui.screen.getByRole("heading", "Revue des exceptions & preuves", { exact: true })).toBeVisible({ timeout: 60_000 });
   await ui.app.open(takeoffReviewHref({ projectId, jobId: jobs.a, targeted: true }));
   await expect(ui.screen.getByRole("heading", "Revue ciblée", { exact: true })).toBeVisible({ timeout: 60_000 });
@@ -269,12 +273,14 @@ commit;`);
   await waitForHydration(ui.browser);
   await expect(coverage).toHaveText("3 plans lus sur 3");
   await expect(ui.screen.getByRole("link", `Revoir ${NAMES.a}`, { exact: true }).first()).toBeVisible();
+  await ui.browser.evaluate(() => { document.querySelector("[data-testid='takeoff-request-activity']")?.scrollIntoView({ block: "start" }); return true; });
+  const screenshotReader = await ui.app.screenshot("takeoff-request-director");
   for (const label of ["Annuler", "Soumettre à nouveau", "Prendre en charge avec mon forfait", "Reprendre avec mon forfait"]) {
     await expect(ui.screen.getByTestId("takeoff-request-activity").getByRole("button", label, { exact: true })).toHaveCount(0);
   }
   expect(detailsOnTheActivity).toBe(0);
 
   await recordEvidence(ui.army, "TKPA01-plan-analyses", { projectId, requestId, olderId, jobs, reads: {
-    light: count("light"), list: count("list"), detail: count("detail") }, screenshot: screenshotRunning,
+    light: count("light"), list: count("list"), detail: count("detail") }, screenshots: [screenshotRunning, screenshotReview, screenshotReader],
   boundary: "Owned stack; the request and its analyses written as fixtures (format 2 and format 1) with triggers off; no AI call, no e-mail, no worker." });
 });
