@@ -87,7 +87,12 @@ async function readSource(supabase: Supabase, projectId: string, planFileId: str
 async function readPlanBytes(supabase: Supabase, file: { file_path: string; file_size_bytes: number }): Promise<Uint8Array | null> {
   if (file.file_size_bytes > PLAN_FILE_MAX_SIZE_BYTES) return null;
   const { data, error } = await supabase.storage.from(PLAN_FILES_BUCKET).download(file.file_path);
-  if (error || !data || data.size === 0 || data.size > PLAN_FILE_MAX_SIZE_BYTES) return null;
+  if (error || !data || data.size === 0 || data.size > PLAN_FILE_MAX_SIZE_BYTES) {
+    const status = (error as { status?: number; statusCode?: string } | null)?.status ?? (error as { statusCode?: string } | null)?.statusCode;
+    console.error("takeoff.plan_location.read_failed", { status: status ?? null, size: data?.size ?? null,
+      message: (error?.message ?? "").slice(0, 200) });
+    return null;
+  }
   return new Uint8Array(await data.arrayBuffer());
 }
 

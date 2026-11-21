@@ -219,6 +219,8 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   // 7. New bytes for A: the earlier correction is only a proposal to check, never carried silently; one validation keeps it.
   const nextA = await buildVectorPlanPdf({ titleBlock: ["PLAN DE PLOMBERIE FICTIF", "BÂTIMENT A", "NIVEAU L00", "INDICE B"] });
   expect((await setup.storage.from("plan-files").update(plans[0].path, nextA, { contentType: "application/pdf" })).error).toBeNull();
+  const replaced = await setup.storage.from("plan-files").download(plans[0].path);
+  expect(replaced.data ? sha256(new Uint8Array(await replaced.data.arrayBuffer())) : replaced.error?.message).toBe(sha256(nextA));
   await ui.app.open(`/dashboard/affaires/${projectId}/plans`);
   await ui.screen.getByRole("heading", "Plans localisés", { exact: true }).click();
   await openLocation(A_NAME);
