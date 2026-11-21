@@ -156,17 +156,18 @@ describe("readTakeoffRequestActivity: one light projection", () => {
     expect(JSON.stringify(answer)).not.toContain(HOST);
   });
 
-  it("makes as many reads for 20 plans and several failures as for one queued plan", async () => {
-    seed({ count: 1 });
+  it("makes as many reads for 20 plans and several failures as for one plan", async () => {
+    seed({ count: 1, states: ["completed"] });
     await readTakeoffRequestActivity({ projectId: PROJECT });
     const one = [...db.statements].sort();
     db.statements = [];
     seed({ count: 20, states: ["failed", "failed", "failed", "completed", "processing"] });
     const many = await readTakeoffRequestActivity({ projectId: PROJECT });
     expect([...db.statements].sort()).toEqual(one);
+    // The lines of the plans read are counted by one statement of the server, never under their per-row rule.
     expect(one).toEqual([
       "member:takeoff_jobs", "member:takeoff_jobs", "member:takeoff_launch_requests",
-      "service:takeoff_jobs", "service:takeoff_launch_requests",
+      "service:takeoff_jobs", "service:takeoff_jobs", "service:takeoff_launch_requests",
     ]);
     expect(many.current?.units?.coverage).toMatchObject({ expected: 20, failed: 3, succeeded: 1, running: 1, queued: 15 });
   });
@@ -181,6 +182,9 @@ describe("readTakeoffRequestActivity: one light projection", () => {
 
   it("gives a director the states and the review, never an action", async () => {
     seed({ count: 2, states: ["completed", "processing"] });
+    // The counterexample: the engineer who owns the affaire may stop the plan being read.
+    expect((await readTakeoffRequestActivity({ projectId: PROJECT })).current?.jobs.find((job) => job.jobId === id("60000000", 2))?.canCancel)
+      .toBe(true);
     db.viewer = { userId: DIRECTOR, tenantRole: "director", ownerId: OWNER };
     const answer = await readTakeoffRequestActivity({ projectId: PROJECT });
     expect(answer.current?.units?.units.map((unit) => unit.reviewable)).toEqual([true, false]);
@@ -213,6 +217,19 @@ describe("readTakeoffRequestActivity: one light projection", () => {
     const ofJob = await readTakeoffRequestActivity({ projectId: PROJECT, view: "job", jobId: id("60000000", 2) });
     expect(ofJob.current?.id).toBe(REQUEST);
     expect(ofJob.current?.units?.units).toHaveLength(2);
+  });
+
+  it("follows the rest of the affaire from a link to an older request", async () => {
+    seed({ count: 2, states: ["completed", "processing"], older: 1 });
+    db.member.takeoff_jobs.push({ id: id("60000000", 97), tenant_id: TENANT, project_id: PROJECT, launch_request_id: null,
+      status: "processing", execution_provider: "chatgpt_local", retry_count: 0, updated_at: "2026-11-21T09:00:00.000Z" });
+    const named = await readTakeoffRequestActivity({ projectId: PROJECT, view: "request", requestId: id("30000000", 2) });
+    expect(named.current?.state).toBe("closed");
+    expect(named.elsewhere).toEqual({ waiting: true });
+    expect(named.standalone.running).toBe(1);
+    expect(named.live).toBe(true);
+    // The latest execution is the one shown: nothing else to follow.
+    expect((await readTakeoffRequestActivity({ projectId: PROJECT, view: "request", requestId: REQUEST })).elsewhere).toEqual({ waiting: false });
   });
 
   it("answers no request for an analysis without one", async () => {

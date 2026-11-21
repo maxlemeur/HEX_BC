@@ -18,7 +18,7 @@ import { useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
  * without a request, for lot 2's grouped analysis or for a request of one plan.
  */
 export function TakeoffRequestPlansNav({ projectId, jobId, viewerKey }: { projectId: string; jobId: string; viewerKey: string }) {
-  const { data } = useTakeoffRequestActivity({ viewerKey, projectId, view: "job", target: jobId, poll: true });
+  const { data } = useTakeoffRequestActivity({ viewerKey, projectId, view: "job", target: jobId, poll: true, ownRequestOnly: true });
   const request = data?.current ?? null;
   const units = request?.units;
   if (!request || !units || units.format !== "per_plan" || units.units.length < 2) return null;

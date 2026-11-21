@@ -197,10 +197,12 @@ groupée : elle reste une seule « analyse groupée de N plans », avec les page
 chaque plan, jamais N analyses ni N lectures réussies. Avec une analyse par plan,
 chaque plan est dans un seul état (en attente, en lecture, lu, en échec, arrêté,
 non démarré) et l’en-tête le résume : « 1 plan lu sur 3 · 1 en lecture · 1 en
-attente ». Les états, la couverture et sa formulation sont ceux du répartiteur
-([`launch-request-coverage.ts`](../../src/lib/takeoff/launch-request-coverage.ts)) ;
-la page les lit, elle ne les recalcule pas. Aucune avancée n’est estimée en
-pourcentage de pages ou de temps.
+attente ». La règle des états, la couverture et sa formulation sont celles du
+répartiteur ([`launch-request-coverage.ts`](../../src/lib/takeoff/launch-request-coverage.ts)
+et sa fonction SQL `private.takeoff_unit_state`) ; en attendant que son lecteur
+des unités soit livré, le serveur dérive les unités du manifeste scellé et des
+jobs selon cette même règle. Aucune avancée n’est estimée en pourcentage de
+pages ou de temps.
 
 - **Revue anticipée.** Dès qu’un plan est lu, « Revoir [plan] » ouvre ses revues
   (complète et ciblée), avec leur propre pagination et leurs preuves, pendant que
@@ -221,22 +223,28 @@ pourcentage de pages ou de temps.
   indice retenu, copie identique, format non lu) sont nommés ; une fois ses plans
   lus, les plans ajoutés, remplacés ou retirés du dossier depuis sont signalés,
   sans rien relancer.
-- **Historique.** Les demandes précédentes sont listées repliées, cinq par page.
-  Le lien du courriel de fin (`?request=`) ouvre sa demande ; « Voir la dernière
-  analyse de l’affaire » revient à la dernière.
+- **Historique et liens.** Les demandes précédentes sont listées repliées, cinq
+  par page. Un lien vers une demande (`?request=`) ouvre cette demande ; un lien
+  vers une analyse (`?job=`, celui de l’avis de fin d’analyse) ouvre aussi la
+  demande dont elle fait partie. La page suit alors aussi la dernière exécution
+  de l’affaire et ses analyses lancées sans demande ; « Voir la dernière analyse
+  de l’affaire » y revient.
 - **Mise à jour.** La page lit une projection légère
   (`GET /api/takeoff/activity-center/requests`, [`request-activity-server.ts`](../../src/lib/takeoff/request-activity-server.ts))
   dont le nombre de lectures ne dépend ni du nombre de plans ni du nombre
   d’échecs, sans octet de PDF. C’est la seule lecture répétée de la page : toutes
   les 5 secondes pendant la lecture d’un plan (ou juste après la fin du
-  précédent), toutes les 30 secondes quand seul le Mac, une nouvelle tentative ou
-  la clôture est attendue et après une lecture en échec (la page indique alors le
-  dernier état connu), plus du tout quand rien ne peut changer de lui-même. Un
+  précédent, ou d’une analyse sans demande mise en file à l’instant), toutes les
+  30 secondes quand seul le Mac, une nouvelle tentative ou la clôture est
+  attendue, plus du tout quand rien ne peut changer de lui-même. Une lecture qui
+  échoue (réseau, serveur) est retentée 30 secondes plus tard, la page indiquant
+  entre-temps le dernier état connu ; un refus ne l’est pas. Un
   onglet masqué ou hors ligne la suspend ; le retour sur l’onglet, la reconnexion
   et chaque geste la relisent aussitôt. La liste des analyses, l’historique des
   demandes et les fins d’analyse ne sont relus que lorsqu’elle signale une
-  transition (jamais au renouvellement du bail d’une lecture). Le cache est propre
-  au membre et à son entreprise. Une arrivée en arrière-plan ne déplace ni le
+  transition (jamais au renouvellement du bail d’une lecture), ou après un geste
+  fait dans la liste. Le cache de cette projection est propre au membre et à son
+  entreprise. Une arrivée en arrière-plan ne déplace ni le
   focus, ni la sélection, ni une saisie en cours.
 - **Étape suivante.** Quand la dernière exécution est une demande, plus récente
   que la dernière analyse lancée sans demande, l’étape suivante suit ses plans,

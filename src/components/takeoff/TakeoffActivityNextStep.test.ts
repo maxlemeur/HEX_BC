@@ -101,6 +101,23 @@ describe("resolveTakeoffRequestStep", () => {
     expect(requestStep(failed({ action: "none", reason: "analysis_closed", availableAt: null }))?.action).toBeNull();
   });
 
+  // Review finding 4: read plans whose analyses the member does not read are not « plans that could not be read ».
+  it("says the plans were read when their reviews are out of this member's reach", () => {
+    const request = fixtureRequest([fixtureUnit("a", 1, { state: "succeeded", reviewable: true })], [],
+      { state: "closed", outcome: "success", closedAt: "2026-11-21T09:10:00.000Z" });
+    expect(requestStep(request)).toMatchObject({ title: "Plans lus", action: null });
+    expect(requestStep(request)?.description).toBe("1 plan lu sur 1. Leur revue n’est pas accessible avec votre profil.");
+  });
+
+  it("words a grouped analysis as one analysis", () => {
+    const grouped = fixtureRequest([fixtureUnit("d", 1, { key: "grouped", state: "succeeded", reviewable: true })], [fixtureActivityJob("d", { itemCount: 2 })]);
+    const view = { ...grouped, units: { ...grouped.units!, format: "grouped" as const }, groupedPlans: [
+      { planFileId: null, name: "A.pdf", pages: [] }, { planFileId: null, name: "B.pdf", pages: [] }] };
+    expect(requestStep(view)).toMatchObject({ title: "Vérifier le métré proposé", action: { label: "Ouvrir la revue" } });
+    const running = { ...view, units: { ...view.units, units: [{ ...view.units.units[0], state: "running" as const, reviewable: false }] } };
+    expect(requestStep(running)?.description).not.toMatch(/un par un|autres plans/);
+  });
+
   it("says the request waits, or did not start, with its reason", () => {
     const blocked = (code: string) => fixtureRequest(null, [], { reason: { code, message: `Motif ${code}` } });
     expect(requestStep(blocked("ANOTHER_ANALYSIS_RUNNING"))).toMatchObject({ title: "Métré en attente", description: "Motif ANOTHER_ANALYSIS_RUNNING" });

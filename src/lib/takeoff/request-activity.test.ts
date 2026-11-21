@@ -107,7 +107,7 @@ function activity(list: TakeoffRequestUnitView[], jobs: TakeoffRequestJobRow[], 
 function response(current: TakeoffRequestActivity | null, extra: Partial<TakeoffRequestActivityResponse> = {}): TakeoffRequestActivityResponse {
   return {
     view: "current", observedAt: NOW.toISOString(), live: true, signature: "s", current, history: [], historyHasOlder: false,
-    historyOffset: 0, standalone: { running: 0, waiting: 0 }, ...extra,
+    historyOffset: 0, standalone: { running: 0, waiting: 0 }, elsewhere: { waiting: false }, ...extra,
   };
 }
 
@@ -288,9 +288,18 @@ describe("takeoffRequestRefreshInterval: one conditional poll per page", () => {
     ["an analysis without a request runs", response(null, { standalone: { running: 1, waiting: 0 } }), false, TAKEOFF_REQUEST_LIVE_REFRESH_MS],
     ["an analysis without a request waits for its retry", response(null, { standalone: { running: 0, waiting: 1 } }), false,
       TAKEOFF_REQUEST_WAITING_REFRESH_MS],
+    ["a linked request is final, the affaire's latest execution still runs", response(null, { view: "request", elsewhere: { waiting: true } }),
+      false, TAKEOFF_REQUEST_WAITING_REFRESH_MS],
     ["nothing can change", response(null), false, 0],
   ])("%s", (_label, data, failedRead, expected) => {
     expect(takeoffRequestRefreshInterval(data, failedRead)).toBe(expected);
+  });
+
+  it("follows its own request alone in the review of a plan", () => {
+    const closed = activity(ended, [], operator, { state: "closed", outcome: "success", closedAt: "2026-11-21T09:10:00.000Z" } as never);
+    const busyElsewhere = response(closed, { view: "job", standalone: { running: 1, waiting: 0 }, elsewhere: { waiting: true } });
+    expect(takeoffRequestRefreshInterval(busyElsewhere)).toBe(TAKEOFF_REQUEST_LIVE_REFRESH_MS);
+    expect(takeoffRequestRefreshInterval(busyElsewhere, false, { ownRequestOnly: true })).toBe(0);
   });
 });
 

@@ -148,8 +148,11 @@ function unitStateOf(job: TakeoffRequestUnitJobRow): TakeoffUnitState {
 
 /**
  * The units of an admitted request in the shape of the dispatcher's reading contract (TakeoffLaunchRequestUnits), from
- * its sealed manifest and its jobs. Null for a manifest this version cannot read. A grouped unit is one analysis: it
- * carries one plan's name only when it holds one plan.
+ * its sealed manifest and its jobs, as its SQL reader builds them (read_takeoff_launch_request_units): the format is per
+ * plan for a manifest of format 2 and grouped otherwise; a plan's identity, name and pages come from its entry in format 2
+ * only. A grouped unit carries no plan (the SQL reader leaves its name null: its reader in TypeScript names it, here
+ * « Analyse groupée de N plans », which the screens do not show; they list the manifest's plans). Null for a manifest
+ * this version cannot read.
  */
 export function deriveTakeoffRequestUnits(input: {
   requestId: string;
@@ -160,17 +163,17 @@ export function deriveTakeoffRequestUnits(input: {
   if (!manifest) return null;
   const jobsByUnit = new Map(input.jobs.filter((job) => job.launch_request_id === input.requestId && job.launch_unit_key)
     .map((job) => [job.launch_unit_key as string, job]));
+  const perPlan = manifest.formatVersion === 2;
   const units: TakeoffRequestUnitView[] = manifest.units.flatMap((unit) => {
     const job = jobsByUnit.get(unit.key);
     if (!job) return [];
     const state = unitStateOf(job);
-    const plans = unit.plans.map((entry) => manifest.plans.get(entry));
-    const plan = plans.length === 1 ? plans[0] : undefined;
+    const plan = perPlan && unit.plans[0] ? manifest.plans.get(unit.plans[0]) : undefined;
     return [{
       key: unit.key, ordinal: unit.ordinal,
       planFileId: plan?.planFileId ?? null, logicalId: plan?.logicalId ?? null,
-      name: plan?.name ?? `Analyse groupée de ${plans.length} plans`,
-      pages: unit.pages ?? plan?.pages ?? [],
+      name: perPlan ? plan?.name ?? "Plan sans nom" : `Analyse groupée de ${unit.plans.length} plans`,
+      pages: plan?.pages ?? [],
       jobId: job.id, state,
       reasonCode: (state === "failed" || state === "not_started") && job.error_code && PUBLIC_CODES.has(job.error_code)
         ? job.error_code : null,
@@ -181,7 +184,7 @@ export function deriveTakeoffRequestUnits(input: {
   });
   return {
     requestId: input.requestId,
-    format: manifest.units.some((unit) => unit.key === TAKEOFF_GROUPED_UNIT_KEY) ? "grouped" : "per_plan",
+    format: perPlan ? "per_plan" : "grouped",
     units,
     coverage: summarizeTakeoffCoverage(units),
   };
@@ -231,10 +234,13 @@ export function buildTakeoffRequestActivity(input: {
     : request.state === "superseded"
       ? { code: "SUPERSEDED", message: describeTakeoffLaunchReason("SUPERSEDED") }
       : null;
-  const grouped = units?.format === "grouped" && manifest
-    ? (manifest.units.find((unit) => unit.key === TAKEOFF_GROUPED_UNIT_KEY)?.plans ?? [])
-      .flatMap((entry) => { const plan = manifest.plans.get(entry); return plan ? [{ planFileId: plan.planFileId, name: plan.name, pages: plan.pages }] : []; })
-    : [];
+  // The plans of a grouped unit, with their pages: the manifest's, never several analyses.
+  const groupedUnit = units?.format === "grouped" && manifest
+    ? manifest.units.find((unit) => unit.key === TAKEOFF_GROUPED_UNIT_KEY) ?? manifest.units[0] : undefined;
+  const grouped = (groupedUnit?.plans ?? []).flatMap((entry) => {
+    const plan = manifest?.plans.get(entry);
+    return plan ? [{ planFileId: plan.planFileId, name: plan.name, pages: plan.pages }] : [];
+  });
   const unitJobs = new Set(units?.units.map((unit) => unit.jobId) ?? []);
 
   return {
@@ -293,15 +299,18 @@ function latest(values: Array<string | null | undefined>) {
 
 /**
  * How often the page reads the activity again, from its last answer: every 5 s while a plan is read or the queue just
- * moved, every 30 s while only the Mac, a retry or a closure is awaited (and after a failed read), not at all when nothing
- * can change by itself. One delay for the page, whatever its number of requests or plans.
+ * moved, every 30 s while only the Mac, a retry or a closure is awaited, not at all when nothing can change by itself.
+ * After a failed read the next one comes 30 s later (useTakeoffRequestActivity retries it). One delay for the page,
+ * whatever its number of requests or plans. `ownRequestOnly`: the review of a plan follows its own request alone.
  */
-export function takeoffRequestRefreshInterval(data: TakeoffRequestActivityResponse | undefined, lastReadFailed = false): number {
+export function takeoffRequestRefreshInterval(data: TakeoffRequestActivityResponse | undefined, lastReadFailed = false,
+  options: { ownRequestOnly?: boolean } = {}): number {
   if (!data) return 0;
   const observedAt = Date.parse(data.observedAt);
-  let fast = data.standalone.running > 0;
-  let slow = data.standalone.waiting > 0;
-  for (const request of [data.current, ...data.history]) {
+  const own = options.ownRequestOnly === true;
+  let fast = !own && data.standalone.running > 0;
+  let slow = !own && (data.standalone.waiting > 0 || data.elsewhere.waiting);
+  for (const request of own ? [data.current] : [data.current, ...data.history]) {
     if (!request) continue;
     const progress = takeoffRequestProgress(request);
     if (progress === "running") fast = true;

@@ -151,9 +151,10 @@ export function resolveTakeoffRequestStep({
   const jobs = new Map(request.jobs.map((job) => [job.jobId, job]));
   const readable = reviewableTakeoffRequestUnits(request);
   const first = readable.find((unit) => !jobs.get(unit.jobId)?.applied);
+  const grouped = request.units?.format === "grouped";
   const review: TakeoffNextStepAction | null = first ? {
     kind: "href",
-    label: request.units?.format === "grouped" ? "Ouvrir la revue" : `Revoir ${first.name}`,
+    label: grouped ? "Ouvrir la revue" : `Revoir ${first.name}`,
     href: takeoffReviewHref({ projectId, jobId: first.jobId, versionId: jobs.get(first.jobId)?.estimateVersionId ?? null }),
   } : null;
 
@@ -172,13 +173,21 @@ export function resolveTakeoffRequestStep({
         action: null,
       };
     case "admitted":
-      return review
-        ? { title: "Premiers plans prêts à revoir", description: `${lead}Les autres plans sont encore lus : cette page se met à jour toute seule.`, action: review }
-        : { title: "Analyse en cours", description: `${lead}L’IA lit vos plans un par un. Cette page se met à jour toute seule : vous pouvez la quitter et revenir plus tard.`, action: null };
+      if (grouped) {
+        return review
+          ? { title: "Vérifier le métré proposé", description: `${lead}Contrôlez-le avant de le reporter au devis.`, action: review }
+          : { title: "Analyse en cours", description: "L’IA lit vos plans. Cette page se met à jour toute seule : vous pouvez la quitter et revenir plus tard.", action: null };
+      }
+      if (review) return { title: "Premiers plans prêts à revoir", description: `${lead}Les autres plans sont encore lus : cette page se met à jour toute seule.`, action: review };
+      return { title: "Analyse en cours", description: `${lead}L’IA lit vos plans un par un. Cette page se met à jour toute seule : vous pouvez la quitter et revenir plus tard.`, action: null };
     case "closed": {
       if (review) return { title: "Vérifier le métré proposé", description: `${lead}Contrôlez chaque plan avant de le reporter au devis.`, action: review };
       if (readable.length > 0) {
         return { title: "Métré reporté au devis", description: "Les plans lus sont dans le devis. Préparez un nouveau métré quand de nouveaux plans arrivent.", action: launchAgain };
+      }
+      // Read plans whose analyses this member does not read: said as such, never as plans that could not be read.
+      if ((request.units?.coverage.succeeded ?? 0) > 0) {
+        return { title: "Plans lus", description: `${lead}Leur revue n’est pas accessible avec votre profil.`, action: null };
       }
       // Nothing read: each plan says why, and a new analysis is offered only when a plan's decision offers it to this member.
       const offersNew = request.jobs.some((job) => job.resume?.action === "new_analysis");

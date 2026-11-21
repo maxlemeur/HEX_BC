@@ -36,7 +36,7 @@ const EMPTY_LIST: TakeoffActivityCenterResponse = {
 function light(waiting: boolean, signature: string): TakeoffRequestActivityResponse {
   return {
     view: "current", observedAt: new Date().toISOString(), live: waiting, signature, current: null, history: [],
-    historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: waiting ? 1 : 0 },
+    historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: waiting ? 1 : 0 }, elsewhere: { waiting: false },
   };
 }
 
@@ -81,6 +81,40 @@ describe("TakeoffActivityCenter polling", () => {
     const settled = [currentReads(), fetchTakeoffActivityCenter.mock.calls.length];
     await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
     expect([currentReads(), fetchTakeoffActivityCenter.mock.calls.length]).toEqual(settled);
+  });
+
+  // Review finding 2: SWR suspends its interval while an error is cached; the failed read is tried again 30 s later.
+  it("reads again 30 s after a failed read while a plan is read", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date("2026-11-21T10:00:00.000Z"));
+    const running = { ...light(true, "running"), standalone: { running: 1, waiting: 0 } };
+    let fail = false;
+    fetchTakeoffRequestActivity.mockImplementation(async () => {
+      if (fail) throw new Error("network");
+      return { ...running, observedAt: new Date().toISOString() };
+    });
+    fetchTakeoffActivityCenter.mockImplementation(async () => EMPTY_LIST);
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <TakeoffActivityCenter projectId="project-1" viewerKey="tenant-1:member-1" versions={[]} planSets={[]} launchContext={null} />
+      </SWRConfig>,
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(currentReads()).toBe(1);
+    fail = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
+    expect(currentReads()).toBe(2);
+    fail = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(currentReads()).toBe(2);
+    // 30 s after the failure the read is tried again (here the suspended interval may read at the same moment: the page's
+    // own deduplication merges them; this test sets none).
+    await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
+    const retried = currentReads();
+    expect(retried).toBeGreaterThanOrEqual(3);
+    // Read again, it follows the plan being read every 5 s.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
+    expect(currentReads()).toBeGreaterThan(retried);
   });
 
   it("keys the reads by member, so that another member's answer is never served", async () => {

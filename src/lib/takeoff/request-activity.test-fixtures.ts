@@ -44,7 +44,8 @@ export function fixtureActivityResponse(current: TakeoffRequestActivity | null,
   overrides: Partial<TakeoffRequestActivityResponse> = {}): TakeoffRequestActivityResponse {
   return {
     view: "current", observedAt: "2026-11-21T09:06:00.000Z", live: true, signature: "s", current, history: [],
-    historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 0 }, ...overrides,
+    historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 0 }, elsewhere: { waiting: false },
+    ...overrides,
   };
 }
 

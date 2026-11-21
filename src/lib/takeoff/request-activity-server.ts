@@ -46,13 +46,14 @@ const REQUEST_COLUMNS = "id, origin, intent, state, reason_code, reason_details,
 const POLICY_COLUMNS = "status, processing_strategy, provider_batch_id, provider_batch_state, provider_reconcile_due_at, "
   + "provider_reconcile_lease_expires_at, error_code, retry_count, execution_provider, execution_host_id, analysis_outcome, "
   + "next_retry_at, completed_at, created_by";
-const MEMBER_JOB_COLUMNS = `id, launch_request_id, plan_set_id, estimate_version_id, ${POLICY_COLUMNS}, `
-  + "items:takeoff_items!takeoff_items_job_id_fkey(count)";
+const MEMBER_JOB_COLUMNS = `id, launch_request_id, plan_set_id, estimate_version_id, ${POLICY_COLUMNS}`;
+/** An analysis without a request just put in its queue is followed as a reading: its Mac takes it within seconds. */
+const JUST_QUEUED_MS = 60_000;
 const UNIT_JOB_COLUMNS = "id, launch_request_id, launch_unit_key, status, started_at, next_retry_at, analysis_outcome, error_code, updated_at";
 
 type Supabase = Awaited<ReturnType<typeof requireAffaireAccess>>["context"]["supabase"];
 type Service = ReturnType<typeof createServiceRoleClient>;
-type MemberJobRead = Omit<TakeoffRequestJobRow, "item_count"> & { items?: Array<{ count?: number | null }> | null };
+type MemberJobRead = Omit<TakeoffRequestJobRow, "item_count">;
 
 function readError(error: { code?: string; message: string }, message: string): never {
   throw toTakeoffError(mapSupabaseError({ ...error, code: error.code ?? "UNKNOWN" }, message),
@@ -64,7 +65,7 @@ export type ReadTakeoffRequestActivityInput = {
   /**
    * current: the affaire's latest execution and whether an analysis without a request runs (what the page reads again
    * while something can change); history: a page of the older ones (read again only when the current one changed);
-   * request: the request a link names (the end-of-analysis e-mail); job: the request of an analysis (its review).
+   * request: the request a link names (?request=); job: the request of an analysis (?job=, and its review).
    */
   view?: TakeoffRequestActivityView;
   requestId?: string | null;
@@ -127,12 +128,17 @@ export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivi
   const listed = [...(current ? [current] : []), ...history];
   const admitted = listed.filter((request) => request.admitted_at !== null).map((request) => request.id);
   const service = createServiceRoleClient();
-  const [unitSources, memberJobs, standalone, execution] = await Promise.all([
+  // A request or an analysis a link names: the rest of the affaire is followed too (its latest execution, the analyses
+  // launched without a request), so that what starts meanwhile is seen.
+  const followsAffaire = view !== "history";
+  const [unitSources, memberJobs, standalone, execution, latestElsewhere] = await Promise.all([
     readUnitSources(service, tenantId, input.projectId, admitted),
-    readMemberJobs(supabase, tenantId, input.projectId, listed.map((request) => request.id)),
-    view === "current" ? readStandaloneJobsInFlight(supabase, tenantId, input.projectId) : Promise.resolve([]),
+    readMemberJobs(supabase, service, tenantId, input.projectId, listed.map((request) => request.id)),
+    followsAffaire ? readStandaloneJobsInFlight(supabase, tenantId, input.projectId) : Promise.resolve([]),
     executionRead,
+    view === "request" || view === "job" ? readLatest() : Promise.resolve(null),
   ]);
+  const elsewhere = latestElsewhere && latestElsewhere.id !== current?.id ? latestElsewhere : null;
   const viewer = toTakeoffResumeViewer(context, project, execution);
   const build = (request: TakeoffRequestRow, extra: { action?: TakeoffRequestActivity["action"]; dossierChanged?: TakeoffRequestActivity["dossierChanged"] } = {}) => {
     const manifest = unitSources.manifests.get(request.id) ?? null;
@@ -157,12 +163,17 @@ export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivi
     view,
     observedAt: now.toISOString(),
     live: false,
-    signature: signatureOf(listed, unitSources.jobs, memberJobs, standalone),
+    signature: signatureOf([...listed, ...(elsewhere ? [elsewhere] : [])], unitSources.jobs, memberJobs, standalone),
     current: currentView,
     history: history.map((request) => build(request)),
     historyHasOlder,
     historyOffset: offset,
     standalone: summarizeStandalone(standalone, viewer, now),
+    elsewhere: {
+      // Admitted (its plans are read or wait), evaluated by its Mac, or held by a passing cause.
+      waiting: elsewhere !== null && (elsewhere.state === "admitted"
+        || viewerLaunchAction(null, false, elsewhere.state, elsewhere.reason_code) === "wait"),
+    },
   };
   return { ...response, live: takeoffRequestRefreshInterval(response) > 0 };
 }
@@ -190,20 +201,37 @@ async function readUnitSources(service: Service, tenantId: string, projectId: st
   return { manifests, jobs: (jobRows.data ?? []) as unknown as TakeoffRequestUnitJobRow[] };
 }
 
-/** The analyses of the listed requests the member reads (their own access rules), each with the count of its lines. */
-async function readMemberJobs(supabase: Supabase, tenantId: string, projectId: string, requestIds: string[]): Promise<TakeoffRequestJobRow[]> {
+/**
+ * The analyses of the listed requests the member reads (their own access rules), and the count of the lines of those
+ * read: counted by the server in one statement for these jobs only, never under the per-row rule of the lines on every
+ * read of the page.
+ */
+async function readMemberJobs(supabase: Supabase, service: Service, tenantId: string, projectId: string,
+  requestIds: string[]): Promise<TakeoffRequestJobRow[]> {
   if (requestIds.length === 0) return [];
   const { data, error } = await supabase.from("takeoff_jobs").select(MEMBER_JOB_COLUMNS as never)
     .eq("tenant_id", tenantId).eq("project_id", projectId).in("launch_request_id", requestIds).order("id").limit(MAX_JOBS_READ);
   if (error) readError(error, "Impossible de lire les analyses du métré.");
-  return ((data ?? []) as unknown as MemberJobRead[]).map(({ items, ...row }) => ({ ...row, item_count: items?.[0]?.count ?? 0 }));
+  const jobs = (data ?? []) as unknown as MemberJobRead[];
+  const read = jobs.filter((job) => job.status === "completed" || job.status === "applied").map((job) => job.id);
+  const counts = new Map<string, number>();
+  if (read.length > 0) {
+    const { data: rows, error: countError } = await service.from("takeoff_jobs")
+      .select("id, items:takeoff_items!takeoff_items_job_id_fkey(count)" as never)
+      .eq("tenant_id", tenantId).eq("project_id", projectId).in("id", read);
+    if (countError) readError(countError, "Impossible de compter les lignes des analyses.");
+    for (const row of (rows ?? []) as unknown as Array<{ id: string; items?: Array<{ count?: number | null }> | null }>) {
+      counts.set(row.id, row.items?.[0]?.count ?? 0);
+    }
+  }
+  return jobs.map((job) => ({ ...job, item_count: counts.get(job.id) ?? 0 }));
 }
 
-type StandaloneJob = TakeoffOperatorStateRow & { id: string };
+type StandaloneJob = TakeoffOperatorStateRow & { id: string; updated_at: string };
 
 /** The affaire's analyses without a request that may still change by themselves: queued, running, or awaiting a retry. */
 async function readStandaloneJobsInFlight(supabase: Supabase, tenantId: string, projectId: string): Promise<StandaloneJob[]> {
-  const { data, error } = await supabase.from("takeoff_jobs").select(`id, ${POLICY_COLUMNS}` as never)
+  const { data, error } = await supabase.from("takeoff_jobs").select(`id, updated_at, ${POLICY_COLUMNS}` as never)
     .eq("tenant_id", tenantId).eq("project_id", projectId).is("launch_request_id", null)
     .in("status", ["pending", "processing", "failed"]).or("status.neq.failed,next_retry_at.not.is.null")
     .order("id").limit(MAX_JOBS_READ);
@@ -211,12 +239,16 @@ async function readStandaloneJobsInFlight(supabase: Supabase, tenantId: string, 
   return (data ?? []) as unknown as StandaloneJob[];
 }
 
-/** Running, or queued or awaiting the retry its policy scheduled (a manual retry's delay is followed by the list's timer). */
+/**
+ * Running (read now, or put in its queue less than a minute ago: a launch or a retry its Mac takes within seconds), or
+ * waiting (queued for longer, or awaiting the retry its policy scheduled). A manual retry's delay is followed by the
+ * list's own timer.
+ */
 function summarizeStandalone(jobs: StandaloneJob[], viewer: TakeoffResumeViewer, now: Date) {
   let running = 0;
   let waiting = 0;
   for (const job of jobs) {
-    if (job.status === "processing") running += 1;
+    if (job.status === "processing" || (job.status === "pending" && now.getTime() - Date.parse(job.updated_at) < JUST_QUEUED_MS)) running += 1;
     else if (job.status === "pending"
       || resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer, now)).resume.reason === "retry_scheduled") waiting += 1;
   }
@@ -245,7 +277,7 @@ function signatureOf(requests: TakeoffRequestRow[], unitJobs: TakeoffRequestUnit
     ...requests.map((request) => ["r", request.id, request.state, request.outcome, request.reason_code, request.mandate_revision,
       request.admitted_at, request.closed_at].join("|")),
     ...unitJobs.map((job) => ["u", job.id, job.status, job.started_at, job.next_retry_at, job.analysis_outcome, job.error_code].join("|")),
-    ...memberJobs.map((job) => ["m", job.id, job.status, job.retry_count, job.estimate_version_id, job.item_count].join("|")),
+    ...memberJobs.map((job) => ["m", job.id, job.status, job.retry_count, job.estimate_version_id].join("|")),
     ...standalone.map((job) => ["s", job.id, job.status, job.next_retry_at, job.retry_count].join("|")),
   ].sort();
   return createHash("sha256").update(parts.join("\n")).digest("hex").slice(0, 32);

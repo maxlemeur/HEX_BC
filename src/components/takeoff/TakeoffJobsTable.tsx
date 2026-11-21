@@ -11,6 +11,7 @@ import {
   takeoffShowsBatchProgress,
   useTakeoffResumeRefresh,
 } from "./takeoff-resume-view";
+import { isTakeoffRequestActivityKey } from "./useTakeoffRequestActivity";
 
 import {
   cancelTakeoffJob,
@@ -77,8 +78,10 @@ export default function TakeoffJobsTable({
         } else {
           await cancelTakeoffJob(jobId);
         }
+        // The list and the page's one poll (the affaire's requests and its analyses in flight) are read again: the poll
+        // then follows the analysis this action queued, the list no longer polls on its own.
         await mutate(
-          (key: unknown) => Array.isArray(key) && key[0] === "activity-center",
+          (key: unknown) => (Array.isArray(key) && key[0] === "activity-center") || isTakeoffRequestActivityKey(key),
           undefined,
           { revalidate: true }
         );
@@ -98,6 +101,7 @@ export default function TakeoffJobsTable({
           ? mutate(isActivityKey, (current?: TakeoffActivityCenterResponse) => current && adoptTakeoffResume(current, jobId, decision),
             { revalidate: true })
           : mutate(isActivityKey));
+        void mutate(isTakeoffRequestActivityKey);
       } finally {
         setPendingActions((current) => {
           const next = { ...current };

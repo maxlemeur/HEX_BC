@@ -85208,7 +85208,20 @@
                   "waiting"
                 ],
                 "additionalProperties": false,
-                "description": "Analyses de l’affaire sans demande en cours (running), en file ou en attente d’une reprise programmée (waiting)."
+                "description": "Analyses de l’affaire sans demande en cours de lecture ou mises en file à l’instant (running), en file depuis plus longtemps ou en attente d’une reprise programmée (waiting)."
+              },
+              "elsewhere": {
+                "type": "object",
+                "properties": {
+                  "waiting": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "waiting"
+                ],
+                "additionalProperties": false,
+                "description": "Vues request et job : la dernière exécution de l’affaire, quand ce n’est pas celle affichée, peut encore changer."
               }
             },
             "required": [
@@ -85220,7 +85233,8 @@
               "history",
               "historyHasOlder",
               "historyOffset",
-              "standalone"
+              "standalone",
+              "elsewhere"
             ],
             "additionalProperties": false
           }

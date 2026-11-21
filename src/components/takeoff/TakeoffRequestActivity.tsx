@@ -233,7 +233,7 @@ function RequestNotes({ projectId, request, onChanged }: { projectId: string; re
  * executions below. Readers see the states and open the reviews; only the member a decision allows sees an action. The
  * latest execution is the page's one poll; the older ones are read again only when it moves.
  */
-export function TakeoffRequestActivity({ projectId, viewerKey, live, linkedRequestId, onShowLatest, onChanged }: {
+export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onShowLatest, onChanged }: {
   projectId: string;
   viewerKey: string;
   /** The page's one poll of the latest execution (or of the request a link names). */
@@ -244,14 +244,15 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linkedReque
     refreshMs: number;
     refresh: () => void;
   };
-  linkedRequestId: string | null;
+  /** The request a link names (?request=), or the analysis whose request it opens (?job=). */
+  linked: { view: "request" | "job"; target: string } | null;
   onShowLatest: () => void;
   /** After a member's action: every list of the page is read again. */
   onChanged: () => void;
 }) {
   const [historyOffset, setHistoryOffset] = useState(0);
   const history = useTakeoffRequestActivity({
-    viewerKey, projectId, view: "history", offset: historyOffset, poll: false, enabled: linkedRequestId === null,
+    viewerKey, projectId, view: "history", offset: historyOffset, poll: false, enabled: linked === null,
   });
   const [locating, setLocating] = useState<LocationTarget | null>(null);
   const [pending, setPending] = useState<Command | null>(null);
@@ -283,7 +284,9 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linkedReque
   };
 
   const current = live.data?.current ?? null;
-  const olders = linkedRequestId ? [] : history.data?.history ?? [];
+  const olders = linked ? [] : history.data?.history ?? [];
+  // A linked analysis without a request is the list's own (?job=): nothing to say here.
+  const linkedRequestId = linked?.view === "request" ? linked.target : null;
   if (!current && olders.length === 0) {
     return live.error && linkedRequestId ? (
       <section className="journey-panel" aria-labelledby="takeoff-request-heading">
@@ -311,7 +314,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linkedReque
   return (
     <section className="journey-panel" aria-labelledby="takeoff-request-heading" data-testid="takeoff-request-activity">
       <header className="journey-panel-heading">
-        <h2 id="takeoff-request-heading">{linkedRequestId ? "Analyse demandée" : "Analyse des plans"}</h2>
+        <h2 id="takeoff-request-heading">{linked ? "Analyse demandée" : "Analyse des plans"}</h2>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-3">
           {observedAt && (failedRead || live.refreshMs > 0) ? (
             <p className={`text-xs ${failedRead ? "text-warning" : "text-muted-foreground"}`} data-testid="takeoff-request-freshness">
@@ -339,7 +342,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linkedReque
           {commandError ? <p className="text-sm text-danger" role="alert">{commandError}</p> : null}
           <RequestUnits projectId={projectId} request={current} onLocate={setLocating} onCommand={(command) => void runCommand(command)}
             pending={pending} />
-          {linkedRequestId ? (
+          {linked ? (
             <button type="button" className="journey-text-action min-h-11 sm:min-h-9" onClick={onShowLatest}>
               Voir la dernière analyse de l’affaire
             </button>

@@ -159,9 +159,12 @@ export default function TakeoffActivityCenter({
   // A failure link names its job: the list shows that job alone, or its shared end to a reader it is hidden from.
   const rawJob = searchParams.get("job");
   const selectedJob = rawJob && JOB_ID_PATTERN.test(rawJob) ? rawJob.toLowerCase() : null;
-  // The end-of-analysis e-mail names its launch request: the page opens that request.
+  // A link names a launch request (?request=) or an analysis (?job=, the end-of-analysis notice): the page opens that
+  // request, the analysis's own when it has one.
   const rawRequest = searchParams.get("request");
   const linkedRequest = rawRequest && JOB_ID_PATTERN.test(rawRequest) ? rawRequest.toLowerCase() : null;
+  const linked = linkedRequest ? { view: "request" as const, target: linkedRequest }
+    : selectedJob ? { view: "job" as const, target: selectedJob } : null;
 
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
   const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(
@@ -204,7 +207,7 @@ export default function TakeoffActivityCenter({
   // after an action, never on their own interval.
   const { mutate: mutateAll } = useSWRConfig();
   const requestActivity = useTakeoffRequestActivity({
-    viewerKey, projectId, view: linkedRequest ? "request" : "current", target: linkedRequest, poll: true,
+    viewerKey, projectId, view: linked?.view ?? "current", target: linked?.target ?? null, poll: true,
   });
   const refreshEverything = useCallback(() => {
     void mutateAll((key: unknown) => (Array.isArray(key) && key[0] === "activity-center") || isTakeoffRequestActivityKey(key));
@@ -374,7 +377,7 @@ export default function TakeoffActivityCenter({
   // The latest execution leads when it is a launch request newer than the latest analysis launched without one: its plans,
   // never the latest job by date, decide the step.
   const latestJob = summaryData?.jobs[0] ?? null;
-  const currentRequest = linkedRequest ? null : requestActivity.data?.current ?? null;
+  const currentRequest = linked ? null : requestActivity.data?.current ?? null;
   const requestLeads = currentRequest !== null && (!latestJob || latestJob.launchRequestId != null
     || Date.parse(latestJob.createdAt) <= Date.parse(currentRequest.createdAt));
   const requestStep = requestLeads ? resolveTakeoffRequestStep({ projectId, request: currentRequest, canLaunch: launchContext !== null }) : null;
@@ -467,8 +470,8 @@ export default function TakeoffActivityCenter({
           data: requestActivity.data, error: requestActivity.error, isLoading: requestActivity.isLoading,
           refreshMs: requestActivity.refreshMs, refresh: refreshEverything,
         }}
-        linkedRequestId={linkedRequest}
-        onShowLatest={() => updateParams({ request: null })}
+        linked={linked}
+        onShowLatest={() => updateParams({ request: null, job: null, offset: null })}
         onChanged={refreshEverything}
       />
 

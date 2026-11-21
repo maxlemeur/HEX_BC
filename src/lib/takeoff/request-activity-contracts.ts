@@ -95,8 +95,12 @@ export const takeoffRequestActivityResponseSchema = z.object({
   history: z.array(takeoffRequestActivitySchema),
   historyHasOlder: z.boolean(),
   historyOffset: count,
-  standalone: z.object({ running: count, waiting: count })
-    .describe("Analyses de l’affaire sans demande en cours (running), en file ou en attente d’une reprise programmée (waiting)."),
+  standalone: z.object({ running: count, waiting: count }).describe(
+    "Analyses de l’affaire sans demande en cours de lecture ou mises en file à l’instant (running), en file depuis plus "
+    + "longtemps ou en attente d’une reprise programmée (waiting).",
+  ),
+  elsewhere: z.object({ waiting: z.boolean() })
+    .describe("Vues request et job : la dernière exécution de l’affaire, quand ce n’est pas celle affichée, peut encore changer."),
 });
 
 export type TakeoffRequestActivity = z.infer<typeof takeoffRequestActivitySchema>;

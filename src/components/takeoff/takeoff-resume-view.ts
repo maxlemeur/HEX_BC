@@ -37,7 +37,7 @@ export function takeoffShowsBatchProgress(job: TakeoffActivityCenterJobRow) {
 /**
  * Reads the list again once the first wait it announced is over: one timer for the whole list, whatever its number of
  * rows. The decision stays the server's, never the clock's. A delay still announced after its end (the browser's clock
- * ahead of the server's) is read again shortly; a scheduled retry is followed by the list's own polling.
+ * ahead of the server's) is read again shortly; a scheduled retry is followed by the page's poll of the analyses in flight.
  */
 export function useTakeoffResumeRefresh(jobs: readonly TakeoffActivityCenterJobRow[], refresh: () => void) {
   useEffect(() => {

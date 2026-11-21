@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 
-import { takeoffRequestRefreshInterval } from "@/lib/takeoff/request-activity";
+import { isTakeoffApiError } from "@/lib/takeoff/client-http";
+import { takeoffRequestRefreshInterval, TAKEOFF_REQUEST_WAITING_REFRESH_MS } from "@/lib/takeoff/request-activity";
 import { fetchTakeoffRequestActivity } from "@/lib/takeoff/request-activity-client";
 import type { TakeoffRequestActivityView } from "@/lib/takeoff/request-activity-contracts";
 
@@ -28,9 +29,11 @@ function fetchActivity([, , projectId, view, target, offset]: TakeoffRequestActi
 
 /**
  * The affaire's request activity, read once and, when `poll`, read again only while something can change by itself: every
- * 5 s while a plan is read, every 30 s while the Mac is awaited or after a failed read, never once all is final. A hidden
- * tab or a lost connection pauses it; the focus and the reconnection read it at once. One poll per page: the other views
- * are read again when this one's signature moves.
+ * 5 s while a plan is read, every 30 s while the Mac is awaited, never once all is final. A read that failed (the network,
+ * the server) is tried again 30 s later, the page showing the last known state meanwhile (SWR suspends its interval
+ * while an error is cached); a refusal is not. A hidden tab or a lost connection pauses it; the focus and the
+ * reconnection read it at once. One poll per page: the other views are read again when this one's signature moves.
+ * `ownRequestOnly`: the review of a plan follows its own request, not the rest of the affaire.
  */
 export function useTakeoffRequestActivity(input: {
   viewerKey: string;
@@ -40,6 +43,7 @@ export function useTakeoffRequestActivity(input: {
   offset?: number;
   poll: boolean;
   enabled?: boolean;
+  ownRequestOnly?: boolean;
 }) {
   // SWR reads a function interval once per key, on the empty cache: the interval is state set from each answer instead.
   const [refreshMs, setRefreshMs] = useState(0);
@@ -52,9 +56,18 @@ export function useTakeoffRequestActivity(input: {
     refreshWhenOffline: false,
     refreshInterval: input.poll ? refreshMs : 0,
     keepPreviousData: true,
-    shouldRetryOnError: false,
+    shouldRetryOnError: input.poll,
+    onErrorRetry: (error, _key, _config, revalidate, { retryCount }) => {
+      const status = isTakeoffApiError(error) ? error.status : 0;
+      if (status >= 400 && status < 500 && status !== 408 && status !== 429) return;
+      // A hidden tab is read again when it is shown (revalidateOnFocus).
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      setTimeout(() => { void revalidate({ retryCount }); }, TAKEOFF_REQUEST_WAITING_REFRESH_MS);
+    },
   });
-  const wantsMs = input.poll ? takeoffRequestRefreshInterval(result.data, Boolean(result.error)) : 0;
+  const wantsMs = input.poll
+    ? takeoffRequestRefreshInterval(result.data, Boolean(result.error), { ownRequestOnly: input.ownRequestOnly })
+    : 0;
   useEffect(() => { setRefreshMs(wantsMs); }, [wantsMs]);
   return { ...result, refreshMs: wantsMs };
 }

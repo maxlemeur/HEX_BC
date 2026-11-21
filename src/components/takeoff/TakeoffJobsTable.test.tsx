@@ -95,6 +95,18 @@ describe("TakeoffJobsTable", () => {
     expect(mutate.mock.calls.some(([filter, data]) => typeof filter === "function" && data === undefined)).toBe(true);
   });
 
+  // Lot 3 PR 4: the list no longer polls; the page's one poll follows the analysis a retry queued, so it is read again.
+  it("reads the page's poll again after a retry, which then follows the queued analysis", async () => {
+    resubmitTakeoffJob.mockResolvedValue({ dispatch: { status: "accepted", correlation_id: "c" } });
+    renderTable(response([job({ canResubmit: true, resume: { action: "retry_now", reason: "retry_available", availableAt: null } })]));
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Soumettre à nouveau" })[0]);
+    await waitFor(() => expect(mutate).toHaveBeenCalled());
+    const filters = mutate.mock.calls.map(([filter]) => filter).filter((filter): filter is (key: unknown) => boolean => typeof filter === "function");
+    expect(filters.some((filter) => filter(["takeoff-request-activity", "tenant:member", "project-1", "current", "", 0]))).toBe(true);
+    expect(filters.some((filter) => filter(["activity-center", "project-1"]))).toBe(true);
+  });
+
   // Fix round 2, point 1: the removed provider's batch badges say nothing about a stopped analysis.
   it("shows no batch progress or reconciliation beside a stopped analysis of the former provider", () => {
     renderTable(response([job({ processingStrategy: "batch", providerBatchState: "running", operatorState: "orphan_to_reconcile",

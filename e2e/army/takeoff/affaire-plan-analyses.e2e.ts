@@ -186,6 +186,9 @@ commit;`);
   await expect(unitOf("a")).toContainText("pages 2, 7");
   await expect(unitOf("b")).toContainText("En lecture");
   await expect(unitOf("c")).toContainText("En attente");
+  // The member who launched the analysis may stop a plan not read yet (the counterexample of the director's view, step 6).
+  await expect(unitOf("b").getByRole("button", "Annuler", { exact: true })).toBeVisible();
+  await expect(unitOf("c").getByRole("button", "Annuler", { exact: true })).toBeVisible();
   const reviewA = takeoffReviewHref({ projectId, jobId: jobs.a });
   await expect(ui.screen.getByRole("link", `Revoir ${NAMES.a}`).first()).toHaveAttribute("href", reviewA);
   await expect(ui.screen.getByRole("heading", "Premiers plans prêts à revoir", { exact: true })).toBeVisible();
@@ -194,11 +197,13 @@ commit;`);
   await ui.browser.evaluate(() => { document.querySelector("[data-testid='takeoff-request-activity']")?.scrollIntoView({ block: "start" }); return true; });
   const screenshotRunning = await ui.app.screenshot("takeoff-request-a-ready-b-read");
 
-  // 2. One poll: the light read is read again within its 5 s while B is read; the list of analyses is not, nothing reads
-  // a job's detail.
+  // 2. One poll: the light read is read again every 5 s while B is read; over more than 20 s (the list's former cadence)
+  // the list of analyses is not read again, and nothing reads a job's detail.
   const lightBefore = count("light");
   const listBefore = count("list");
-  await expect.poll(() => count("light"), { timeout: 12_000 }).toBeGreaterThan(lightBefore);
+  const pollStart = Date.now();
+  await expect.poll(() => count("light"), { timeout: 40_000 }).toBeGreaterThanOrEqual(lightBefore + 5);
+  expect(Date.now() - pollStart).toBeGreaterThan(20_000);
   expect(count("list")).toBe(listBefore);
   expect(count("detail")).toBe(0);
 
@@ -251,7 +256,24 @@ commit;`);
   await ui.screen.getByRole("button", "Voir la dernière analyse de l’affaire", { exact: true }).click();
   await expect(coverage).toHaveText("2 plans lus sur 3 · 1 en attente");
 
-  // 6. Once everything is final, the poll stops.
+  // 6. A director of the tenant sees the same states and opens the reviews, and is offered no action, while C still
+  // waits (the owner could stop it, step 1).
+  const reader = await signUpWorkerOwner(ui, "APR");
+  await querySql(`update public.tenant_memberships set is_default = false where user_id = '${reader.userId}';
+    insert into public.tenant_memberships (tenant_id,user_id,role,is_default) values ('${tenantId}','${reader.userId}','director',true);`);
+  await ui.app.open(`/dashboard/affaires/${projectId}/takeoff`);
+  await waitForHydration(ui.browser);
+  await expect(coverage).toHaveText("2 plans lus sur 3 · 1 en attente");
+  await expect(unitOf("c")).toContainText("En attente");
+  await expect(ui.screen.getByRole("link", `Revoir ${NAMES.a}`, { exact: true }).first()).toBeVisible();
+  await ui.browser.evaluate(() => { document.querySelector("[data-testid='takeoff-request-activity']")?.scrollIntoView({ block: "start" }); return true; });
+  const screenshotReader = await ui.app.screenshot("takeoff-request-director");
+  for (const label of ["Annuler", "Soumettre à nouveau", "Prendre en charge avec mon forfait", "Reprendre avec mon forfait"]) {
+    await expect(ui.screen.getByTestId("takeoff-request-activity").getByRole("button", label, { exact: true })).toHaveCount(0);
+  }
+
+  // 7. Once everything is final, the poll stops: its freshness line goes, and nothing is read again.
+  await expect(ui.screen.getByTestId("takeoff-request-freshness")).toBeVisible();
   await querySql(`begin;
 set local session_replication_role = replica;
 update public.takeoff_jobs set status = 'completed', started_at = clock_timestamp(), completed_at = clock_timestamp(),
@@ -261,27 +283,14 @@ update public.takeoff_launch_requests set state = 'closed', outcome = 'success',
   completion_event_id = gen_random_uuid(), updated_at = clock_timestamp() where id = '${requestId}';
 commit;`);
   await expect(coverage).toHaveText("3 plans lus sur 3", { timeout: 40_000 });
+  await expect(ui.screen.getByTestId("takeoff-request-freshness")).toHaveCount(0);
   const settled = count("light");
   await new Promise((resolve) => setTimeout(resolve, 11_000));
   expect(count("light")).toBe(settled);
   await expect(ui.screen.getByRole("heading", "Vérifier le métré proposé", { exact: true })).toBeVisible();
+  expect(detailsOnTheActivity).toBe(0);
   // Reading never wrote: no audit row since the fixture.
   expect(await auditCount()).toBe(auditsBefore);
-
-  // 7. A director of the tenant sees the same states and opens the reviews, and is offered no action.
-  const reader = await signUpWorkerOwner(ui, "APR");
-  await querySql(`update public.tenant_memberships set is_default = false where user_id = '${reader.userId}';
-    insert into public.tenant_memberships (tenant_id,user_id,role,is_default) values ('${tenantId}','${reader.userId}','director',true);`);
-  await ui.app.open(`/dashboard/affaires/${projectId}/takeoff`);
-  await waitForHydration(ui.browser);
-  await expect(coverage).toHaveText("3 plans lus sur 3");
-  await expect(ui.screen.getByRole("link", `Revoir ${NAMES.a}`, { exact: true }).first()).toBeVisible();
-  await ui.browser.evaluate(() => { document.querySelector("[data-testid='takeoff-request-activity']")?.scrollIntoView({ block: "start" }); return true; });
-  const screenshotReader = await ui.app.screenshot("takeoff-request-director");
-  for (const label of ["Annuler", "Soumettre à nouveau", "Prendre en charge avec mon forfait", "Reprendre avec mon forfait"]) {
-    await expect(ui.screen.getByTestId("takeoff-request-activity").getByRole("button", label, { exact: true })).toHaveCount(0);
-  }
-  expect(detailsOnTheActivity).toBe(0);
 
   await recordEvidence(ui.army, "TKPA01-plan-analyses", { projectId, requestId, olderId, jobs, reads: {
     light: count("light"), list: count("list"), detail: count("detail") }, screenshots: [screenshotRunning, screenshotReview, screenshotReader],

@@ -260,7 +260,7 @@ describe("TakeoffActivityCenter", () => {
     const waiting = { ...EMPTY_RESPONSE, jobs: [{ jobId: "job-1", statusRaw: "action_required", technicalStatusRaw: "failed",
       resume: { action: "wait_retry", reason: "retry_scheduled", availableAt: "2020-01-01T00:00:00.000Z" } }] } as unknown as TakeoffActivityCenterResponse;
     const lightWaiting = { view: "current", observedAt: "2026-11-21T10:00:00.000Z", live: true, signature: "a", current: null,
-      history: [], historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 1 } } satisfies TakeoffRequestActivityResponse;
+      history: [], historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 1 }, elsewhere: { waiting: false } } satisfies TakeoffRequestActivityResponse;
     renderCenter({ response: waiting, requestActivity: lightWaiting });
     const intervals = (scope: string, view?: string) => useSWRMock.mock.calls
       .filter(([key]) => Array.isArray(key) && key[0] === scope && (view === undefined || key[3] === view))
