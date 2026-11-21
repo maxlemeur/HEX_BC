@@ -74,7 +74,7 @@ export function compareReaders(left: JudgedPin[], right: JudgedPin[]) {
     const matchedRight = new Set(pairs.map(([, j]) => j));
     return {
       poste, dn,
-      ...(dn === null && pairs.length > 0 ? { agreement: "poste-only" as const } : {}),
+      ...(poste !== null && dn === null && pairs.length > 0 ? { agreement: "poste-only" as const } : {}),
       matches: pairs.map(([i, j]) => [point(leftGroup[i]), point(rightGroup[j])]),
       leftOnly: leftGroup.filter((_, i) => !matchedLeft.has(i)).map(point),
       rightOnly: rightGroup.filter((_, j) => !matchedRight.has(j)).map(point),

@@ -64,6 +64,10 @@ function combineReaders(vector: JudgedPin[], replay: JudgedPin[]): JudgedPin[] {
   );
 }
 
+const KNOWN_FAMILIES = new Set<string>(FICTION_TARGETS.map(({ organ }) => organ));
+// A mark of a family outside the list is scored on the unattributed row.
+const familyOf = (pin: JudgedPin) => pin.organ !== null && KNOWN_FAMILIES.has(pin.organ) ? pin.organ : null;
+
 const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 async function measurePage(fixture: Awaited<ReturnType<typeof fictionalSheets>>[number], methods: Method[]) {
   const extraction = await extractVectorPage(fixture.bytes, fixture.page);
@@ -97,7 +101,7 @@ async function measurePage(fixture: Awaited<ReturnType<typeof fictionalSheets>>[
     return {
       method, status, tiles: readsReplay ? replay.tiles : null, pins,
       suppliedExamples: supplied,
-      score: status === "partial" ? null : scorePage(pins, truth, supplied.map((example) => example.truthIndex), zones),
+      score: status === "partial" ? null : scorePage(pins, truth, supplied.map((example) => example.truthIndex), zones, familyOf),
     };
   });
   return {
@@ -113,28 +117,29 @@ type MethodResult = MeasuredPage["results"][number];
 type EvaluatedPage = { page: MeasuredPage; result: MethodResult & { score: NonNullable<MethodResult["score"]> } };
 
 function spatialByFamily(pages: EvaluatedPage[]) {
-  const knownFamilies = new Set<string>(FICTION_TARGETS.map(({ organ }) => organ));
   const unattributed: JudgedPin[] = [];
   const indeterminateFamilies = new Set<string>();
   for (const { page, result } of pages) {
     for (const pin of result.score.possiblyUnmatched) {
-      if (pin.organ !== null && knownFamilies.has(pin.organ)) continue;
+      if (familyOf(pin) !== null) continue;
       unattributed.push(pin);
       const nearbyFamilies = page.truth
         .filter((reference) => samePageInRadius(pin, reference, MATCH_RADIUS))
         .map((reference) => reference.organ)
         .filter((organ): organ is NonNullable<typeof organ> => organ !== null);
       // A false positive without a nearby reference has no family evidence.
-      for (const family of nearbyFamilies.length ? nearbyFamilies : knownFamilies) {
+      for (const family of nearbyFamilies.length ? nearbyFamilies : KNOWN_FAMILIES) {
         indeterminateFamilies.add(family);
       }
     }
   }
+  const drawing = ({ result }: EvaluatedPage, family: string | null) =>
+    result.score.drawingByFamily.find((entry) => entry.family === family) ?? { tp: 0, fp: 0 };
   const byFamily = FICTION_TARGETS.map(({ id, organ }) => {
-    const scores = pages.map(({ page, result }) => {
+    const scores = pages.map((evaluated) => {
+      const { page, result } = evaluated;
       const familyTruth = page.truth.filter((pin) => pin.organ === organ);
-      const drawingTp = result.score.alwaysMatchedTruth.filter((j) => page.truth[j].organ === organ).length;
-      const drawingFp = result.score.possiblyUnmatched.filter((pin) => pin.organ === organ).length;
+      const { tp: drawingTp, fp: drawingFp } = drawing(evaluated, organ);
       const postePairs = result.score.forcedPairs.filter(([i, j]) =>
         page.truth[j].organ === organ && result.pins[i].poste === page.truth[j].poste,
       );
@@ -156,7 +161,7 @@ function spatialByFamily(pages: EvaluatedPage[]) {
     poste: null,
     organ: null,
     spatial: pages.length ? {
-      drawing: metrics(0, unattributed.length, 0),
+      drawing: metrics(0, pages.reduce((n, evaluated) => n + drawing(evaluated, null).fp, 0), 0),
       poste: metrics(0, unattributed.filter((pin) => pin.poste !== null).length, 0),
       dn: metrics(0, unattributed.filter((pin) => pin.dn !== null).length, 0),
     } : null,

@@ -67,6 +67,22 @@ it("counts a mark on the legend boundary as a false positive before matching", (
     expect(metrics).toMatchObject({ tp: 0, fp: 1, fn: 1 });
   }
   expect(score.negativeZones).toEqual({ legend: 1 });
+  expect(score.drawingByFamily).toEqual([{ family: "vanne", tp: 0, fp: 1, fn: 1 }]);
+});
+
+it("keeps the shortest optimum ahead of fewer family members by the smallest distance step", () => {
+  const unknown = { ...pin(0), organ: null, poste: null };
+  const pump = { ...pin(-5e-324), organ: "pompe" as const, poste: "pompe-service" };
+  const truth = scorePage([unknown], [pin(0), pump], [], []);
+  expect(truth.pairs).toEqual([[0, 0]]);
+  expect(truth.drawingByFamily).toEqual([
+    { family: "pompe", tp: 0, fp: 0, fn: 1 }, { family: "vanne", tp: 1, fp: 0, fn: 0 }, { family: null, tp: 0, fp: 0, fn: 0 },
+  ]);
+  const marks = scorePage([pin(0), pump], [unknown], [], []);
+  expect(marks.pairs).toEqual([[0, 0]]);
+  expect(marks.drawingByFamily).toEqual([
+    { family: "pompe", tp: 0, fp: 1, fn: 0 }, { family: "vanne", tp: 0, fp: 0, fn: 0 }, { family: null, tp: 1, fp: 0, fn: 0 },
+  ]);
 });
 
 it.each([

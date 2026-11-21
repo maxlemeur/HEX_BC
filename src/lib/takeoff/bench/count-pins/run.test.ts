@@ -77,6 +77,65 @@ it("withholds precision for a family that an optionally unmatched unknown mark c
   }
 });
 
+type Mark = { x: number; organ: "vanne" | "filtre" | null; dn: string | null };
+
+async function familyRows(truthX: number[], marks: Mark[]) {
+  const [fixture] = await fiction.fictionalSheets();
+  const truth = truthX.map((x) => ({ ...fixture.truth[0], x, y: 10, organ: "vanne" as const, poste: "vanne-ef" as const, dn: "DN 20" }));
+  const read = proposers.readDeterministic;
+  const fixtures = vi.spyOn(fiction, "fictionalSheets").mockResolvedValue([{
+    ...fixture, truth, examples: [], negativeZones: {}, replay: [],
+  }]);
+  const reader = vi.spyOn(proposers, "readDeterministic").mockImplementation((sheet) => ({
+    ...read(sheet),
+    cluster: marks.map((mark) => ({
+      ...mark, y: 10, sheet: sheet.id, generation: sheet.generation, page: sheet.extraction.page,
+      method: "test", evidence: [],
+    })),
+  }));
+  try {
+    const [method] = (await runCountBench(["cluster"], FICTION_SEED)).methods;
+    return { method, valve: method.byPoste.find((row) => row.poste === "vanne-ef")!.spatial! };
+  } finally {
+    reader.mockRestore();
+    fixtures.mockRestore();
+  }
+}
+
+it.each([[false], [true]])("credits the one valve every optimum pairs with an unknown mark (reversed truth: %s)", async (reversed) => {
+  const truthX = reversed ? [14, 10] : [10, 14];
+  const { method, valve } = await familyRows(truthX, [{ x: 12, organ: null, dn: null }]);
+  expect(method.evaluatedSpatial?.drawing).toMatchObject({ tp: 1, fp: 0, fn: 1 });
+  expect(valve.drawing).toEqual({ tp: 1, fp: 0, fn: 1, precision: 1, recall: 0.5 });
+  expect(valve.poste.tp).toBe(0);
+  expect(valve.dn.tp).toBe(0);
+});
+
+it.each([[false], [true]])("charges one valve mark that every optimum leaves unpaired (reversed marks: %s)", async (reversed) => {
+  const marks: Mark[] = [{ x: 10, organ: "vanne", dn: "DN 20" }, { x: 14, organ: "vanne", dn: "DN 20" }];
+  const { method, valve } = await familyRows([12], reversed ? marks.toReversed() : marks);
+  expect(method.evaluatedSpatial?.drawing).toMatchObject({ tp: 1, fp: 1, fn: 0 });
+  expect(valve.drawing).toEqual({ tp: 1, fp: 1, fn: 0, precision: 0.5, recall: 1 });
+  expect(valve.poste.tp).toBe(0);
+  expect(valve.dn.tp).toBe(0);
+});
+
+it("charges the unattributed row once for two unknown marks competing for one valve", async () => {
+  const { method, valve } = await familyRows([12], [{ x: 10, organ: null, dn: null }, { x: 14, organ: null, dn: null }]);
+  expect(method.evaluatedSpatial?.drawing).toMatchObject({ tp: 1, fp: 1, fn: 0 });
+  expect(method.byPoste.find((row) => row.poste === null)?.spatial?.drawing).toEqual({ tp: 0, fp: 1, fn: 0, precision: 0, recall: null });
+  expect(valve.drawing).toEqual({ tp: 1, fp: 0, fn: 0, precision: null, recall: 1 });
+});
+
+it("charges marks of a family outside the list on the unattributed row", async () => {
+  const { method, valve } = await familyRows([12], [
+    { x: 12, organ: "vanne", dn: "DN 20" }, { x: 200, organ: "filtre", dn: null }, { x: 13, organ: "filtre", dn: null },
+  ]);
+  expect(method.evaluatedSpatial?.drawing).toMatchObject({ tp: 1, fp: 2, fn: 0 });
+  expect(method.byPoste.find((row) => row.poste === null)?.spatial?.drawing).toEqual({ tp: 0, fp: 2, fn: 0, precision: 0, recall: null });
+  expect(valve.drawing).toEqual({ tp: 1, fp: 0, fn: 0, precision: null, recall: 1 });
+});
+
 it("rejects a replayed legend-boundary mark after CropBox and rotation roundoff", async () => {
   const fixture = (await fiction.fictionalSheets()).find(({ id }) => id === "fiction-4")!;
   expect(fixture.rotation).toBe(180);
