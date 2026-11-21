@@ -237,4 +237,18 @@ describe("local ChatGPT authorization", () => {
     const file = (await readdir(path.join(directory, ".private", "chatgpt-local"))).find((entry) => entry !== "host.json")!;
     expect(await readFile(path.join(directory, ".private", "chatgpt-local", file), "utf8")).not.toContain("fixture-refresh");
   });
+
+  it("gives each connection its own authorization: a reconnection of the same profile never restores a withdrawn one", async () => {
+    const first = await authorize(); await finishLocalChatGptSignIn(owner, first.callback, first.start.state);
+    const connected = (await readChatGptStore(owner)).profiles[0];
+    expect(connected.authorizationId).toEqual(expect.any(String));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    await disconnectLocalChatGpt(owner);
+    expect((await readChatGptStore(owner)).profiles[0].authorizationId).toBeUndefined();
+    const again = await authorize(owner, connected.id); await finishLocalChatGptSignIn(owner, again.callback, again.start.state);
+    const reconnected = (await readChatGptStore(owner)).profiles[0];
+    expect(reconnected).toMatchObject({ id: connected.id, model: connected.model, reasoningEffort: connected.reasoningEffort });
+    expect(reconnected.authorizationId).toEqual(expect.any(String));
+    expect(reconnected.authorizationId).not.toBe(connected.authorizationId);
+  });
 });

@@ -278,6 +278,7 @@ export async function finishLocalChatGptSignIn(owner: ChatGptOwner, url: URL, co
         subject: payload.sub, email: typeof payload.email === "string" ? payload.email : "Compte ChatGPT",
         accessToken: tokens.access_token, refreshToken: tokens.refresh_token, idToken: tokens.id_token,
         expiresAt: Date.now() + tokens.expires_in * 1000, scopes: (tokens.scope ?? "").split(/\s+/).filter(Boolean),
+        authorizationId: randomUUID(),
       });
       store.selectedId = profile.id;
       await saveChatGptStore(owner, store);
@@ -304,6 +305,8 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
       profile.refreshToken = tokens.refresh_token ?? profile.refreshToken;
       profile.expiresAt = Date.now() + tokens.expires_in * 1000;
       if (tokens.scope !== undefined) profile.scopes = tokens.scope.split(/\s+/).filter(Boolean);
+      // A refresh that withdrew the plan's access withdraws the connection's authorization with it.
+      if (!hasLocalChatGptPlanAccess(profile)) delete profile.authorizationId;
       await saveChatGptStore(owner, store);
       if (!hasLocalChatGptPlanAccess(profile)) throw new Error("Le forfait ChatGPT n’est plus autorisé. Reconnectez le compte.");
     }
@@ -317,6 +320,23 @@ export async function selectLocalChatGptProfile(owner: ChatGptOwner, profileId: 
     if (!store.profiles.some((item) => item.id === profileId)) throw new Error("Connexion ChatGPT introuvable.");
     store.selectedId = profileId;
     await saveChatGptStore(owner, store);
+  });
+}
+
+/**
+ * The authorization of the selected connection, given once to a connection made before authorizations existed (its
+ * tokens are the ones it was signed in with). None when no connection with plan access is selected.
+ */
+export async function ensureLocalChatGptAuthorization(owner: ChatGptOwner) {
+  return withChatGptLock(owner, async () => {
+    const store = await readChatGptStore(owner);
+    const profile = store.profiles.find((item) => item.id === store.selectedId);
+    if (!profile || !hasLocalChatGptPlanAccess(profile)) return null;
+    if (!profile.authorizationId) {
+      profile.authorizationId = randomUUID();
+      await saveChatGptStore(owner, store);
+    }
+    return profile.authorizationId;
   });
 }
 
@@ -341,6 +361,7 @@ export async function disconnectLocalChatGpt(owner: ChatGptOwner) {
     }
     if (profile) {
       delete profile.accessToken; delete profile.refreshToken; delete profile.idToken; delete profile.expiresAt;
+      delete profile.authorizationId;
       profile.scopes = [];
     }
     store.selectedId = null;

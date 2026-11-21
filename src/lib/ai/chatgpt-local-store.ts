@@ -22,6 +22,9 @@ const profileSchema = z.object({
   idToken: z.string().optional(),
   expiresAt: z.number().optional(),
   scopes: z.array(z.string()),
+  // The authorization of the current connection: each sign-in gives a new one, a disconnection removes it. A mandate to
+  // spend on this subscription names it, so that a reconnection never revives a withdrawn mandate.
+  authorizationId: z.string().optional(),
 });
 const storeSchema = z.object({
   selectedId: z.string().nullable(),
