@@ -344,21 +344,26 @@ d’aucun. Chaque valeur indique sa source et ses pages et reste « à vérifier
 Un cartouche sans texte et un nom muet donnent « À préciser » ; plusieurs
 valeurs lues donnent « Plusieurs niveaux » (ou « Plusieurs bâtiments ») avec
 chaque page ; un nom qui contredit le cartouche reste affiché comme « Autre
-lecture ». RDC, R+n, R-n et SSn gardent leur écriture ; un libellé libre comme
+lecture ». Un cartouche qui n’a pas été lu (PDF illisible, octets qui ne sont
+plus ceux du plan, limite de lecture d’une revue) est dit « Cartouche non lu » :
+le nom du fichier n’est alors jamais proposé à sa place. RDC, R+n, R-n et SSn gardent leur écriture ; un libellé libre comme
 `L00` est conservé tel qu’écrit, sans équivalence inventée. Le tri des pages par
 IA n’est jamais déclenché pour remplir ces champs.
 
 Un opérateur de l’affaire (administrateur, ou ingénieur propriétaire de
-l’affaire) enregistre une seule fois les deux champs ; un champ vide reste « À
-préciser ». La valeur est « confirmée » quand elle reprend la proposition,
-« corrigée » sinon, avec son auteur et sa date ; elle se retrouve dans les plans,
-la revue et toute relance de la même version. Deux onglets qui enregistrent la
+l’affaire) enregistre une seule fois les deux champs ; un champ laissé vide
+n’est pas corrigé et garde la lecture du plan, toujours à vérifier (vider un
+champ retire sa correction). La valeur est « confirmée » quand elle reprend la
+proposition, « corrigée » sinon, avec l’auteur et la date de chaque champ ; elle
+se retrouve dans les plans, la revue et toute relance de la même version. Deux onglets qui enregistrent la
 même version : le second reçoit un conflit et voit la valeur enregistrée. Un
 lecteur (directeur) consulte sans rien modifier. Pour de nouveaux octets du même
 plan, la correction précédente est présentée préremplie avec sa provenance, à
 vérifier ; une validation la reporte sur la nouvelle version. Il en va de même
-quand la préparation a décidé qu’une pièce en remplace une autre ; deux pièces
-qui ont seulement le même nom ne sont jamais rapprochées.
+pour la pièce que la préparation a retenue à la place d’une autre, depuis la
+pièce écartée ; deux pièces qui ont seulement le même nom ne sont jamais
+rapprochées. La revue d’une analyse dont le plan a changé depuis montre la
+correction de la version qu’elle a lue, sans en proposer d’autre.
 
 La correction est une donnée à côté du plan : elle ne modifie ni le fichier (ni
 sa date, qui entre dans la version d’une analyse en cours), ni la préparation,
@@ -381,10 +386,13 @@ autorisation explicite. Un commit ou un push ne les exécute pas.
 La migration
 [`20261121040445_takeoff_plan_locations.sql`](../../supabase/migrations/20261121040445_takeoff_plan_locations.sql)
 porte la localisation des plans : une ligne par version (source et empreinte),
-sa génération, ses valeurs, son auteur et l’historique de chaque changement. Elle
-se lit comme l’affaire ; seule la commande `set_takeoff_plan_location` l’écrit,
-en comparant la génération que l’écran a vue. Elle ne modifie aucun objet
-existant.
+sa génération, ses valeurs, son auteur et l’historique de chaque changement, et
+la source de chaque fichier de plan, notée à sa création, pour qu’une analyse
+dont la copie de travail a été remplacée retrouve la correction des octets
+qu’elle a lus. Elle se lit comme l’affaire ; seule la commande
+`set_takeoff_plan_location` écrit une correction, en comparant la génération que
+l’écran a vue. Elle ne modifie aucun objet existant ; créer un fichier de plan
+note en plus sa source, sans jamais être refusé pour cela.
 
 Un lancement depuis une version existante crée une copie ordinaire du devis,
 sans la transformer en variante. Un reçu enregistré par le serveur relie cette

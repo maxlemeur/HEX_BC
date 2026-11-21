@@ -37,6 +37,10 @@ select is(has_function_privilege('authenticated', 'public.set_takeoff_plan_locat
   true, 'members call the command, which checks their rights');
 select is(has_function_privilege('authenticated', 'private.resolve_takeoff_plan_location_source(uuid, uuid, uuid)', 'EXECUTE'),
   false, 'the source resolution is internal');
+select has_table('public', 'takeoff_plan_location_sources', 'the source of each plan file is recorded');
+select table_privs_are('public', 'takeoff_plan_location_sources', 'authenticated', array['SELECT'],
+  'members only read the recorded sources');
+select table_privs_are('public', 'takeoff_plan_location_sources', 'anon', array[]::text[], 'anonymous clients see no source');
 
 -- One tenant: an engineer who owns the affaire (1), an engineer who does not (2), a director (3), an admin (5); another
 -- tenant's admin (4). Affaire 20 belongs to 1, affaire 21 to 2.
@@ -84,6 +88,14 @@ create function pg_temp.save(file integer, hash text, expected integer, building
     building, level, 'plan.pdf', carried)
 $$;
 
+-- Each plan file records its source when it is created, the dossier copy included.
+select results_eq($$select plan_file_id, source_kind, source_id, project_id from public.takeoff_plan_location_sources
+  where tenant_id = pg_temp.fixture(10) order by plan_file_id$$,
+  $$values (pg_temp.fixture(50), 'plan_file'::text, pg_temp.fixture(50), pg_temp.fixture(20)),
+    (pg_temp.fixture(51), 'intake_document'::text, pg_temp.fixture(31), pg_temp.fixture(20)),
+    (pg_temp.fixture(52), 'plan_file'::text, pg_temp.fixture(52), pg_temp.fixture(21))$$,
+  'the source of every plan file is recorded at its creation');
+
 -- What the server reads before a lookup: the source of each copy and the caller's rights.
 select pg_temp.sign_in(1);
 set local role authenticated;
@@ -107,7 +119,7 @@ select results_eq($$select source_kind, source_id, content_hash, building, level
 select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 0, 'B', 'L00')$$, '40001', 'TAKEOFF_PLAN_LOCATION_CONFLICT',
   'a save that did not see revision 1 is refused');
 select is((pg_temp.save(50, pg_temp.digest('plan-a'), 1, 'B', null)).revision, 2,
-  'a save that saw revision 1 makes revision 2, and may leave the level « À préciser »');
+  'a save that saw revision 1 makes revision 2, and may remove the level correction (the reading applies again)');
 select is((pg_temp.save(50, pg_temp.digest('plan-a'), 2, 'B', null)).revision, 2, 'the same values again change nothing');
 select results_eq($$select revision, action, building_before, level_before, building, level, actor_id
   from public.takeoff_plan_location_events e
@@ -172,12 +184,22 @@ select results_eq($$select content_hash, revision, level from public.takeoff_pla
 select throws_ok($$select pg_temp.save(53, pg_temp.digest('p-101-b'), 1, 'A', 'R+1',
   (select id from public.takeoff_plan_locations where content_hash = pg_temp.digest('p-101-b')))$$,
   '22023', 'TAKEOFF_PLAN_LOCATION_CARRY_OVER_INVALID', 'a revision is not carried over from itself');
+select is((pg_temp.save(53, pg_temp.digest('p-101-b'), 1, 'A', 'R+3')).carried_from_id,
+  (select id from public.takeoff_plan_locations where content_hash = pg_temp.digest('p-101-a')),
+  'a later correction of a carried-over revision keeps where it came from');
+-- An operator's upload outside the dossier, as the previous application version makes it, still works and is recorded.
+select lives_ok($$insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+  values (pg_temp.fixture(55), pg_temp.fixture(10), pg_temp.fixture(40), 'televerse.pdf',
+    concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(40), pg_temp.fixture(55), 'televerse.pdf'), 'application/pdf', 8, 1)$$,
+  'an operator still uploads a plan file');
+select results_eq($$select source_kind, source_id from public.takeoff_plan_location_sources where plan_file_id = pg_temp.fixture(55)$$,
+  $$values ('plan_file'::text, pg_temp.fixture(55))$$, 'and its source is recorded under the operator''s session');
 
 -- A reader reads and changes nothing; a non-owner engineer neither reads nor writes; another tenant sees nothing.
 select pg_temp.sign_in(3);
 select is((select count(*) from public.takeoff_plan_locations where project_id = pg_temp.fixture(20)), 3::bigint,
   'a director reads the affaire''s annotations');
-select is((select count(*) from public.takeoff_plan_location_events where project_id = pg_temp.fixture(20)), 5::bigint,
+select is((select count(*) from public.takeoff_plan_location_events where project_id = pg_temp.fixture(20)), 6::bigint,
   'and their history');
 select results_eq($$select can_write from public.read_takeoff_plan_location_source(pg_temp.fixture(20), pg_temp.fixture(50))$$,
   $$values (false)$$, 'a director is told he may not correct');
@@ -215,7 +237,15 @@ delete from public.plan_files where id = pg_temp.fixture(51);
 select is((select count(*) from public.takeoff_plan_locations where source_id = pg_temp.fixture(31)), 2::bigint,
   'removing a working copy keeps the piece''s annotations');
 select is((select count(*) from public.takeoff_plan_location_events e join public.takeoff_plan_locations l on l.id = e.location_id
-  where l.source_id = pg_temp.fixture(31)), 3::bigint, 'and their history');
+  where l.source_id = pg_temp.fixture(31)), 4::bigint, 'and their history');
+select pg_temp.sign_in(1);
+set local role authenticated;
+select results_eq($$select source_kind, source_id, current_copy from public.read_takeoff_plan_location_source(pg_temp.fixture(20), pg_temp.fixture(51))$$,
+  $$values ('intake_document'::text, pg_temp.fixture(31), false)$$,
+  'an analysis that read the removed copy still finds its piece, never as a copy to correct through');
+select throws_ok($$select pg_temp.save(51, pg_temp.digest('p-101-a'), 2, 'A', 'R+9')$$, '40001', 'TAKEOFF_PLAN_LOCATION_SOURCE_STALE',
+  'nothing is written through a removed copy');
+reset role;
 -- Deleting an affaire takes its annotations, including one carried over from another.
 select pg_temp.sign_in(1);
 insert into public.estimate_projects(id, tenant_id, user_id, name)

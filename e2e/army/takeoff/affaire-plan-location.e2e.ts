@@ -86,10 +86,11 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   preparation.objective = "measure_length";
   preparation.objective_confirmed = true;
   preparation.scope = { ...preparation.scope, lots: ["Plomberie"], networks: ["EF"], buildings: ["A", "B"], confirmed: true };
-  preparation.sources = plans.filter((plan) => plan.key !== "c").map((plan): TakeoffPreparationSource => ({
+  // Every plan of the set is a known source (M1 attests the whole set); C is set aside.
+  preparation.sources = plans.map((plan): TakeoffPreparationSource => ({
     document_id: plan.id, document_name: plan.name, kind: "plan", revision: "A",
     source_version: getPreparationPlanSourceVersion({ ...stored.get(plan.id)!, id: plan.id, plan_set_id: planSetId, file_path: plan.path, file_name: `${plan.key}.pdf` }),
-    content_hash: sha256(bytes[plan.key]), pages: [], active: true, confirmed: true, plan_set_id: planSetId, file_path: plan.path,
+    content_hash: sha256(bytes[plan.key]), pages: [], active: plan.key !== "c", confirmed: true, plan_set_id: planSetId, file_path: plan.path,
     page_count: plan.pages, logical_document_id: null, source_updated_at: stored.get(plan.id)!.updated_at, mime_type: "application/pdf", page_triage: null }));
   preparation.conventions = { unit: "m", measurement_basis: "dimensioned", calibration: null, purchase: null, confirmed: true };
   preparation.destination = { kind: "analysis_only", estimate_version_id: null, reviewer: null, confirmed: true };
@@ -239,8 +240,10 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await closeLocation();
   // The first analysis read the earlier bytes: its review keeps their correction and says the plan changed.
   const history = await apiRequest<{ data: TakeoffJobPlanLocations }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/plan-locations`);
-  expect(history.body.data.plans.find((plan) => plan.plan_file_id === ids.a)).toMatchObject({ status: "changed", reading: { pages_read: [] },
-    revision: { content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: "L02" } });
+  // Its bytes are no longer the plan's: the title block is not read again and no other revision's correction is offered.
+  expect(history.body.data.plans.find((plan) => plan.plan_file_id === ids.a)).toMatchObject({ status: "changed", reading_issue: "not_current",
+    reading: { pages_read: [], title_block_read: false }, revision: { content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: "L02" },
+    carry_over: null, location: { level: { value: "L02", origin: "operator", title_block_read: false } } });
   // A correction made after the analysis leaves the worker's own reading as it was persisted.
   const unchangedVector = await apiRequest<{ data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
   expect(unchangedVector.body.data.pages.find((page) => page.plan_file_id === ids.a)?.reading).toEqual(rawPage?.reading);
@@ -264,6 +267,8 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await showLocations();
   await expect(reviewRow(A_NAME)).toContainText("L02");
   await expect(reviewRow(A_NAME)).toContainText("Le plan a changé depuis cette analyse");
+  await expect(reviewRow(A_NAME)).toContainText(/Enregistré par .+ le /);
+  await expect(reviewRow(A_NAME)).not.toContainText("Corrigé par");
   await expect(reviewRow(A_NAME).getByRole("button", /Corriger/)).toHaveCount(0);
   expect((await rows()).map((row) => [row.revision, row.level, row.updated_by])).toEqual([[2, "L02", userId], [1, "L02", userId]]);
   expect(await querySql(`select count(*) from public.takeoff_plan_location_events where project_id = '${projectId}';`)).toEqual(["3"]);

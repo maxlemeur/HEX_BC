@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
-import { readAllRows } from "@/lib/supabase/read-all";
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   getAuthenticatedTakeoffContext,
@@ -18,8 +18,11 @@ import {
   normalizePlanLocationValue,
   readPlanLocation,
   resolvePlanLocation,
+  selectPlanLocationCarryOver,
   type PlanLocationAnnotationValues,
+  type PlanLocationField,
   type PlanLocationReading,
+  type PlanLocationRevisionKey,
 } from "@/lib/takeoff/plan-location";
 import {
   takeoffJobPlanLocationsSchema,
@@ -29,7 +32,7 @@ import {
   type TakeoffJobPlanLocations,
   type TakeoffPlanFileLocation,
 } from "@/lib/takeoff/plan-location-contracts";
-import { PLAN_FILE_MAX_SIZE_BYTES } from "@/lib/takeoff/plans";
+import { PLAN_FILE_MAX_SIZE_BYTES, planFileIdSchema, planSetIdSchema } from "@/lib/takeoff/plans";
 import type { PlanRevisionDecision } from "@/lib/takeoff/plan-revision-identity";
 import { parsePreparationSnapshot } from "@/lib/takeoff/preparation-source-loader";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
@@ -44,19 +47,21 @@ import { isRecord } from "@/lib/value-guards";
  * here writes a plan file, a preparation, a job or an estimate.
  */
 
-/** Title blocks read per plan, and per analysis across its plans: a plan centre or review opening, never a poll. */
+/** Title blocks read per plan, and per review across its plans: a plan centre or review opening, never a poll. */
 const MAX_PAGES_READ = 12;
 const MAX_JOB_PAGES_READ = 40;
 
 type Supabase = AuthenticatedTakeoffContext["supabase"];
-type SourceRow = { source_kind: "intake_document" | "plan_file"; source_id: string; plan_file_id: string; current_copy: boolean; can_write: boolean };
-type RevisionKey = { source_kind: SourceRow["source_kind"]; source_id: string; content_hash: string };
-type AnnotationRow = PlanLocationAnnotationValues & RevisionKey & {
+type SourceRow = { source_kind: PlanLocationRevisionKey["source_kind"]; source_id: string; plan_file_id: string; current_copy: boolean; can_write: boolean };
+type AnnotationRow = PlanLocationAnnotationValues & PlanLocationRevisionKey & {
   id: string; revision: number; carried_from_id: string | null; document_name: string;
   updated_by: string; updated_at: string; created_at: string;
 };
-type PlanFileRow = { id: string; plan_set_id: string; file_name: string; file_path: string; file_size_bytes: number; page_count: number | null; metadata: Record<string, unknown> | null };
+type EventRow = { location_id: string; revision: number; action: string; building_before: string | null; level_before: string | null;
+  building: string | null; level: string | null; actor_id: string; created_at: string };
+type PlanFileRow = { id: string; plan_set_id: string; file_name: string; file_path: string; file_size_bytes: number; page_count: number | null };
 type LoadedPlanFile = { projectId: string; file: PlanFileRow; source: SourceRow; documentName: string };
+type Carry = { row: AnnotationRow; same_source: boolean } | null;
 
 const ANNOTATION_SELECT = "id,source_kind,source_id,content_hash,revision,building,level,carried_from_id,document_name,updated_by,updated_at,created_at";
 
@@ -69,24 +74,24 @@ function readFailure(error: unknown, message: string): never {
 }
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-const sameKey = (left: RevisionKey, right: RevisionKey) =>
+const sameKey = (left: PlanLocationRevisionKey, right: PlanLocationRevisionKey) =>
   left.source_kind === right.source_kind && left.source_id === right.source_id && left.content_hash === right.content_hash;
 
 async function readSource(supabase: Supabase, projectId: string, planFileId: string): Promise<SourceRow | null> {
-  const { data, error } = await supabase.rpc("read_takeoff_plan_location_source" as never,
-    { p_project_id: projectId, p_plan_file_id: planFileId } as never);
+  const { data, error } = await supabase.rpc("read_takeoff_plan_location_source", { p_project_id: projectId, p_plan_file_id: planFileId });
   if (error) readFailure(error, "Impossible d’identifier la version du plan.");
   return ((data ?? []) as SourceRow[])[0] ?? null;
 }
 
-/** The bytes under the member's own Storage rights; null when they cannot be read. */
-async function readPlanBytes(supabase: Supabase, filePath: string): Promise<Uint8Array | null> {
-  const { data, error } = await supabase.storage.from(PLAN_FILES_BUCKET).download(filePath);
+/** The bytes under the member's own Storage rights; null when they cannot be read or exceed a plan's size. */
+async function readPlanBytes(supabase: Supabase, file: { file_path: string; file_size_bytes: number }): Promise<Uint8Array | null> {
+  if (file.file_size_bytes > PLAN_FILE_MAX_SIZE_BYTES) return null;
+  const { data, error } = await supabase.storage.from(PLAN_FILES_BUCKET).download(file.file_path);
   if (error || !data || data.size === 0 || data.size > PLAN_FILE_MAX_SIZE_BYTES) return null;
   return new Uint8Array(await data.arrayBuffer());
 }
 
-/** The title block text of the first pages (or of the given ones); null pages could not be read. */
+/** The title block text of the given pages; null pages could not be read. */
 async function readTitleBlocks(bytes: Uint8Array, pages: number[]) {
   if (!pages.length) return { pageCount: null, pages: [], failed: false };
   const result = await renderPdfPages(bytes, {
@@ -101,71 +106,89 @@ async function readTitleBlocks(bytes: Uint8Array, pages: number[]) {
   };
 }
 
+/** The reading of these bytes; a PDF that cannot be read leaves its name only, with the title block marked unread. */
 async function readLocationOfBytes(bytes: Uint8Array, documentName: string, pages: number[], pageCount: number | null) {
-  const titleBlocks = await readTitleBlocks(bytes, pages);
-  return {
-    reading: readPlanLocation({ documentName, pageCount: titleBlocks.pageCount ?? pageCount, pages: titleBlocks.pages }),
-    failed: titleBlocks.failed,
-  };
+  try {
+    const titleBlocks = await readTitleBlocks(bytes, pages);
+    if (titleBlocks.failed) return { reading: readPlanLocation({ documentName, pageCount, pages: [] }), failed: true };
+    return { reading: readPlanLocation({ documentName, pageCount: titleBlocks.pageCount ?? pageCount, pages: titleBlocks.pages }), failed: false };
+  } catch {
+    return { reading: readPlanLocation({ documentName, pageCount, pages: [] }), failed: true };
+  }
 }
 
 async function listAnnotations(supabase: Supabase, tenantId: string, projectId: string): Promise<AnnotationRow[]> {
-  const { data, error } = await readAllRows(() => supabase.from("takeoff_plan_locations" as never)
-    .select(ANNOTATION_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, tenantId as never).eq("project_id" as never, projectId as never)
-    .order("updated_at" as never, { ascending: false }).order("id" as never));
+  const { data, error } = await readAllRows(() => supabase.from("takeoff_plan_locations")
+    .select(ANNOTATION_SELECT, { count: "exact" })
+    .eq("tenant_id", tenantId).eq("project_id", projectId)
+    .order("updated_at", { ascending: false }).order("id"));
   if (error) readFailure(error, "Impossible de charger les localisations des plans.");
   return (data ?? []) as unknown as AnnotationRow[];
 }
 
-async function authorNames(supabase: Supabase, ids: string[]) {
-  const unique = [...new Set(ids)];
-  if (!unique.length) return new Map<string, string>();
-  const { data, error } = await supabase.from("profiles").select("id, full_name").in("id", unique);
-  if (error) readFailure(error, "Impossible de charger les auteurs des localisations.");
-  return new Map((data ?? []).filter((row) => typeof row.full_name === "string" && row.full_name.trim())
-    .map((row) => [row.id, row.full_name!.trim()] as const));
-}
-
-function annotationOut(row: AnnotationRow, names: Map<string, string>) {
-  return {
-    id: row.id, revision: row.revision, building: row.building, level: row.level, carried_from_id: row.carried_from_id,
-    document_name: row.document_name, updated_by: row.updated_by, updated_by_name: names.get(row.updated_by) ?? null,
-    updated_at: row.updated_at, created_at: row.created_at,
+/** For each corrected field of these annotations, the member who set its current value and when. */
+async function fieldAuthors(supabase: Supabase, annotations: readonly AnnotationRow[]) {
+  const ids = [...new Set(annotations.map((row) => row.id))];
+  const events: EventRow[] = [];
+  if (ids.length) {
+    const { data, error } = await readAllRowsInChunks(ids, (chunk) => supabase.from("takeoff_plan_location_events")
+      .select("location_id,revision,action,building_before,level_before,building,level,actor_id,created_at", { count: "exact" })
+      .in("location_id", chunk));
+    if (error) readFailure(error, "Impossible de charger l’historique des localisations.");
+    events.push(...((data ?? []) as unknown as EventRow[]));
+  }
+  const authorOf = (annotation: AnnotationRow, field: PlanLocationField) => {
+    if (annotation[field] === null) return null;
+    const set = events.filter((event) => event.location_id === annotation.id).sort((left, right) => right.revision - left.revision)
+      .find((event) => event[field] === annotation[field] && (event.action === "created" || event[`${field}_before`] !== event[field]));
+    return set ? { by: set.actor_id, at: set.created_at } : { by: annotation.updated_by, at: annotation.updated_at };
+  };
+  const authors = new Map(annotations.map((row) => [row.id, { building: authorOf(row, "building"), level: authorOf(row, "level") }] as const));
+  const people = [...new Set([...annotations.map((row) => row.updated_by),
+    ...[...authors.values()].flatMap((fields) => [fields.building?.by, fields.level?.by])].filter((id): id is string => Boolean(id)))];
+  const names = new Map<string, string>();
+  if (people.length) {
+    const { data, error } = await supabase.from("profiles").select("id, full_name").in("id", people);
+    if (error) readFailure(error, "Impossible de charger les auteurs des localisations.");
+    for (const profile of data ?? []) if (profile.full_name?.trim()) names.set(profile.id, profile.full_name.trim());
+  }
+  return (row: AnnotationRow) => {
+    const fields = authors.get(row.id) ?? { building: null, level: null };
+    const out = (field: PlanLocationField) => {
+      const author = fields[field];
+      return author ? { ...author, by_name: names.get(author.by) ?? null } : null;
+    };
+    return {
+      id: row.id, revision: row.revision, building: row.building, level: row.level,
+      fields: { building: out("building"), level: out("level") },
+      carried_from_id: row.carried_from_id, document_name: row.document_name, updated_by: row.updated_by,
+      updated_by_name: names.get(row.updated_by) ?? null, updated_at: row.updated_at, created_at: row.created_at,
+    };
   };
 }
 
 /**
- * The revisions the member's own decisions tie to these bytes: a pair of plans the preparation settled as one plan
- * (one replaces the other). Two pieces that merely share a name (two buildings' « Plan RDC ») are never linked.
+ * The revisions the member's own decisions say these bytes replace: in a pair the preparation settled as one plan, the
+ * side it set aside for this one. Never the newer side, and never a plan that merely shares a name.
  */
-async function decidedPeers(supabase: Supabase, projectId: string, planFileId: string, contentHash: string,
-  decisions: readonly PlanRevisionDecision[]): Promise<RevisionKey[]> {
-  const peers: RevisionKey[] = [];
+async function replacedRevisions(supabase: Supabase, projectId: string, planFileId: string, contentHash: string,
+  decisions: readonly PlanRevisionDecision[]): Promise<PlanLocationRevisionKey[]> {
+  const replaced: PlanLocationRevisionKey[] = [];
   for (const { left, right, choice } of decisions) {
     if (choice === "distinct") continue;
-    const other = left.document_id === planFileId && left.content_hash === contentHash ? right
-      : right.document_id === planFileId && right.content_hash === contentHash ? left : null;
-    if (!other || other.document_id === planFileId) continue;
-    const source = await readSource(supabase, projectId, other.document_id);
-    if (source) peers.push({ source_kind: source.source_kind, source_id: source.source_id, content_hash: other.content_hash });
+    const [kept, omitted] = choice === "left" ? [left, right] : [right, left];
+    if (kept.document_id !== planFileId || kept.content_hash !== contentHash || omitted.document_id === planFileId) continue;
+    const source = await readSource(supabase, projectId, omitted.document_id);
+    if (source) replaced.push({ source_kind: source.source_kind, source_id: source.source_id, content_hash: omitted.content_hash });
   }
-  return peers;
-}
-
-/** The latest correction of another revision of the same plan: same source with other bytes, or a decided peer. */
-function carryOverFor(rows: readonly AnnotationRow[], key: RevisionKey, peers: readonly RevisionKey[]) {
-  const row = rows.find((candidate) => !sameKey(candidate, key) && (
-    (candidate.source_kind === key.source_kind && candidate.source_id === key.source_id) || peers.some((peer) => sameKey(peer, candidate))));
-  return row ? { row, same_source: row.source_kind === key.source_kind && row.source_id === key.source_id } : null;
+  return replaced;
 }
 
 async function readPreparationDraft(context: AuthenticatedTakeoffContext, projectId: string) {
-  const { data, error } = await context.supabase.from("takeoff_preparations" as never).select("draft" as never)
-    .eq("tenant_id" as never, context.tenantId as never).eq("project_id" as never, projectId as never).maybeSingle();
+  const { data, error } = await context.supabase.from("takeoff_preparations").select("draft")
+    .eq("tenant_id", context.tenantId).eq("project_id", projectId).maybeSingle();
   if (error) readFailure(error, "Impossible de charger la préparation de l’affaire.");
-  const draft = (data as { draft?: unknown } | null)?.draft;
-  return isRecord(draft) ? draft : null;
+  return isRecord(data?.draft) ? data.draft : null;
 }
 
 function revisionDecisions(preparation: Record<string, unknown> | null): PlanRevisionDecision[] {
@@ -199,40 +222,36 @@ async function loadPlanFile(context: AuthenticatedTakeoffContext, setId: string,
   if (!file) notFound("Plan introuvable.");
   const source = await readSource(context.supabase, set.project_id, fileId);
   if (!source) notFound("Plan introuvable.");
-  const row = file as unknown as PlanFileRow;
-  return { projectId: set.project_id, file: row, source, documentName: getPlanFileDisplayName({ file_name: row.file_name, metadata: row.metadata }) };
+  const metadata = isRecord(file.metadata) ? file.metadata : null;
+  return { projectId: set.project_id, file, source, documentName: getPlanFileDisplayName({ file_name: file.file_name, metadata }) };
 }
 
-async function buildPlanFileLocation(context: AuthenticatedTakeoffContext, loaded: LoadedPlanFile, knownBytes?: Uint8Array): Promise<TakeoffPlanFileLocation> {
-  const bytes = knownBytes ?? await readPlanBytes(context.supabase, loaded.file.file_path);
-  if (!bytes) notFound("Le PDF de ce plan est introuvable : sa localisation ne peut pas être lue.");
+/** The annotation of the plan's current bytes, and the correction offered for them when they have none. */
+async function describePlanFile(context: AuthenticatedTakeoffContext, loaded: LoadedPlanFile, bytes: Uint8Array) {
   const contentHash = sha256(bytes);
-  const key: RevisionKey = { source_kind: loaded.source.source_kind, source_id: loaded.source.source_id, content_hash: contentHash };
-  const pageCount = loaded.file.page_count;
-  const pages = Array.from({ length: Math.min(pageCount ?? MAX_PAGES_READ, MAX_PAGES_READ) }, (_, index) => index + 1);
-  let reading: PlanLocationReading;
-  let readingIssue: TakeoffPlanFileLocation["reading_issue"] = null;
-  try {
-    const read = await readLocationOfBytes(bytes, loaded.documentName, pages, pageCount);
-    reading = read.reading;
-    if (read.failed) readingIssue = "unreadable";
-  } catch {
-    reading = readPlanLocation({ documentName: loaded.documentName, pageCount, pages: [] });
-    readingIssue = "unreadable";
-  }
+  const key: PlanLocationRevisionKey = { source_kind: loaded.source.source_kind, source_id: loaded.source.source_id, content_hash: contentHash };
   const [rows, preparation] = await Promise.all([
     listAnnotations(context.supabase, context.tenantId, loaded.projectId),
     readPreparationDraft(context, loaded.projectId),
   ]);
   const exact = rows.find((row) => sameKey(row, key)) ?? null;
-  const carry = exact ? null : carryOverFor(rows, key,
-    await decidedPeers(context.supabase, loaded.projectId, loaded.file.id, contentHash, revisionDecisions(preparation)));
-  const names = await authorNames(context.supabase, [exact?.updated_by, carry?.row.updated_by].filter((id): id is string => Boolean(id)));
+  // These bytes are the plan's current ones: another revision of its source, or one they replace, is earlier.
+  const carry: Carry = exact ? null : selectPlanLocationCarryOver(rows, key,
+    await replacedRevisions(context.supabase, loaded.projectId, loaded.file.id, contentHash, revisionDecisions(preparation)));
+  return { key, exact, carry, preparation };
+}
+
+async function buildPlanFileLocation(context: AuthenticatedTakeoffContext, loaded: LoadedPlanFile, bytes: Uint8Array): Promise<TakeoffPlanFileLocation> {
+  const { key, exact, carry, preparation } = await describePlanFile(context, loaded, bytes);
+  const pageCount = loaded.file.page_count;
+  const pages = Array.from({ length: Math.min(pageCount ?? MAX_PAGES_READ, MAX_PAGES_READ) }, (_, index) => index + 1);
+  const { reading, failed } = await readLocationOfBytes(bytes, loaded.documentName, pages, pageCount);
+  const describe = await fieldAuthors(context.supabase, [exact, carry?.row].filter((row): row is AnnotationRow => Boolean(row)));
   return takeoffPlanFileLocationSchema.parse({
     project_id: loaded.projectId, plan_set_id: loaded.file.plan_set_id, plan_file_id: loaded.file.id, document_name: loaded.documentName,
-    revision: key, current_copy: loaded.source.current_copy, reading, reading_issue: readingIssue,
-    annotation: exact ? annotationOut(exact, names) : null,
-    carry_over: carry ? { ...annotationOut(carry.row, names), content_hash: carry.row.content_hash, same_source: carry.same_source } : null,
+    revision: key, current_copy: loaded.source.current_copy, reading, reading_issue: failed ? "unreadable" : null,
+    annotation: exact ? describe(exact) : null,
+    carry_over: carry ? { ...describe(carry.row), content_hash: carry.row.content_hash, same_source: carry.same_source } : null,
     location: resolvePlanLocation({ reading, annotation: exact, carryOver: carry?.row ?? null }),
     suggestions: suggestions(preparation),
     can_edit: loaded.source.can_write && loaded.source.current_copy,
@@ -241,28 +260,34 @@ async function buildPlanFileLocation(context: AuthenticatedTakeoffContext, loade
 
 function parseIds(setId: string, fileId: string) {
   return {
-    setId: parseWithSchema(takeoffJobIdSchema, setId, "Identifiant du jeu de plans invalide.").toLowerCase(),
-    fileId: parseWithSchema(takeoffJobIdSchema, fileId, "Identifiant du plan invalide.").toLowerCase(),
+    setId: parseWithSchema(planSetIdSchema, setId, "Identifiant du jeu de plans invalide.").toLowerCase(),
+    fileId: parseWithSchema(planFileIdSchema, fileId, "Identifiant du plan invalide.").toLowerCase(),
   };
+}
+
+function bytesOrNotFound(bytes: Uint8Array | null): Uint8Array {
+  if (!bytes) notFound("Le PDF de ce plan est introuvable ou trop volumineux : sa localisation ne peut pas être lue.");
+  return bytes;
 }
 
 export async function readTakeoffPlanFileLocation(input: { setId: string; fileId: string }) {
   const { setId, fileId } = parseIds(input.setId, input.fileId);
   const context = await getAuthenticatedTakeoffContext();
-  return buildPlanFileLocation(context, await loadPlanFile(context, setId, fileId));
+  const loaded = await loadPlanFile(context, setId, fileId);
+  return buildPlanFileLocation(context, loaded, bytesOrNotFound(await readPlanBytes(context.supabase, loaded.file)));
+}
+
+function conflict(reason: string, message: string): never {
+  throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false, message, details: { reason } });
 }
 
 function saveRefused(error: { message?: string; code?: string }): never {
   const message = error.message ?? "";
   if (message.includes("TAKEOFF_PLAN_LOCATION_CONFLICT")) {
-    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
-      message: "La localisation de ce plan a été enregistrée entre-temps, dans un autre onglet ou par un autre membre. La valeur enregistrée est affichée : vérifiez-la avant d’enregistrer à nouveau.",
-      details: { reason: "TAKEOFF_PLAN_LOCATION_CONFLICT" } });
+    conflict("TAKEOFF_PLAN_LOCATION_CONFLICT", "La localisation de ce plan a été enregistrée entre-temps, dans un autre onglet ou par un autre membre. La valeur enregistrée est affichée : vérifiez-la avant d’enregistrer à nouveau.");
   }
   if (message.includes("TAKEOFF_PLAN_LOCATION_SOURCE_STALE")) {
-    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
-      message: "Ce plan vient d’être remplacé dans le dossier. Rechargez la page des plans avant de corriger sa localisation.",
-      details: { reason: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE" } });
+    conflict("TAKEOFF_PLAN_LOCATION_SOURCE_STALE", "Ce plan vient d’être remplacé dans le dossier. Rechargez la page des plans avant de corriger sa localisation.");
   }
   if (message.includes("TAKEOFF_PLAN_LOCATION_FORBIDDEN")) {
     throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false,
@@ -294,25 +319,33 @@ export async function saveTakeoffPlanFileLocation(input: { setId: string; fileId
   if (!loaded.source.can_write) saveRefused({ message: "TAKEOFF_PLAN_LOCATION_FORBIDDEN" });
   if (!loaded.source.current_copy) saveRefused({ message: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE" });
   // The revision is the bytes this server reads now, never the digest a screen sends.
-  const bytes = await readPlanBytes(context.supabase, loaded.file.file_path);
-  if (!bytes) notFound("Le PDF de ce plan est introuvable : sa localisation ne peut pas être enregistrée.");
+  const bytes = bytesOrNotFound(await readPlanBytes(context.supabase, loaded.file));
   if (sha256(bytes) !== body.content_hash) {
-    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
-      message: "Le contenu de ce plan a changé depuis son affichage. Vérifiez sa nouvelle localisation avant de l’enregistrer.",
-      details: { reason: "TAKEOFF_PLAN_LOCATION_REVISION_CHANGED" } });
+    conflict("TAKEOFF_PLAN_LOCATION_REVISION_CHANGED", "Le contenu de ce plan a changé depuis son affichage. Vérifiez sa nouvelle localisation avant de l’enregistrer.");
   }
-  const { error } = await context.supabase.rpc("set_takeoff_plan_location" as never, {
+  // A save names as its origin only the correction the plan centre offers for these bytes now.
+  if (body.carried_from_id !== null) {
+    const { carry } = await describePlanFile(context, loaded, bytes);
+    if (carry?.row.id !== body.carried_from_id) {
+      conflict("TAKEOFF_PLAN_LOCATION_CONFLICT", "La correction proposée pour ce plan a changé depuis son affichage. Vérifiez-la avant de la valider.");
+    }
+  }
+  const { error } = await context.supabase.rpc("set_takeoff_plan_location", {
     p_project_id: loaded.projectId, p_plan_file_id: loaded.file.id, p_content_hash: body.content_hash,
-    p_expected_revision: body.expected_revision, p_building: building, p_level: level,
-    p_document_name: loaded.documentName, p_carried_from_id: body.carried_from_id,
-  } as never);
+    p_expected_revision: body.expected_revision, p_document_name: loaded.documentName,
+    // Null fields carry no correction: the generated signature types them as text only.
+    p_building: building as string, p_level: level as string,
+    ...(body.carried_from_id ? { p_carried_from_id: body.carried_from_id } : {}),
+  });
   if (error) saveRefused(error);
   return buildPlanFileLocation(context, loaded, bytes);
 }
 
 /**
  * The location of each plan an analysis read, at the revision its preparation attested. The reading is made from
- * those bytes only while they are still the plan's; otherwise only the file name and the corrections remain.
+ * those bytes only while they are still the plan's; otherwise its title block is marked unread and only the file name
+ * and that revision's own correction remain. No correction of another revision is offered on an analysis's bytes
+ * unless they are the plan's current ones.
  */
 export async function readTakeoffJobPlanLocations(jobId: string): Promise<TakeoffJobPlanLocations> {
   jobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant du métré invalide.").toLowerCase();
@@ -332,40 +365,44 @@ export async function readTakeoffJobPlanLocations(jobId: string): Promise<Takeof
   const decisions = snapshot.preparation.plan_revision_decisions ?? [];
   let pagesLeft = MAX_JOB_PAGES_READ;
   let canEdit = false;
-  const plans: TakeoffJobPlanLocation[] = [];
-  const authors = new Set<string>();
-  const pending: Array<{ plan: Omit<TakeoffJobPlanLocation, "annotation" | "carry_over">; exact: AnnotationRow | null; carry: ReturnType<typeof carryOverFor> }> = [];
+  const pending: Array<{ plan: Omit<TakeoffJobPlanLocation, "annotation" | "carry_over">; exact: AnnotationRow | null; carry: Carry }> = [];
   for (const source of sources) {
     const planFileId = source.document_id.toLowerCase();
     const sourceRow = await readSource(context.supabase, job.project_id, planFileId);
     canEdit ||= Boolean(sourceRow?.can_write && sourceRow.current_copy);
-    const { data: file, error: fileError } = await context.supabase.from("plan_files").select("file_path,page_count")
+    const { data: file, error: fileError } = await context.supabase.from("plan_files").select("file_path,file_size_bytes")
       .eq("tenant_id", context.tenantId).eq("id", planFileId).maybeSingle();
     if (fileError) readFailure(fileError, "Impossible de charger un plan du métré.");
-    const bytes = sourceRow && file && file.file_path === source.file_path ? await readPlanBytes(context.supabase, file.file_path) : null;
+    const bytes = file && file.file_path === source.file_path ? await readPlanBytes(context.supabase, file) : null;
     const status = !sourceRow || !bytes ? "unavailable" : sha256(bytes) === source.content_hash ? "current" : "changed";
-    let reading = readPlanLocation({ documentName: source.document_name, pageCount: source.page_count, pages: [] });
-    if (status === "current" && bytes && pagesLeft > 0) {
-      const wanted = (source.pages.length ? source.pages : Array.from({ length: source.page_count ?? MAX_PAGES_READ }, (_, index) => index + 1))
-        .slice(0, Math.min(MAX_PAGES_READ, pagesLeft));
-      pagesLeft -= wanted.length;
-      try { reading = (await readLocationOfBytes(bytes, source.document_name, wanted, source.page_count)).reading; } catch { /* the file name reading stays */ }
+    let reading: PlanLocationReading = readPlanLocation({ documentName: source.document_name, pageCount: source.page_count, pages: [] });
+    let readingIssue: TakeoffJobPlanLocation["reading_issue"] = status === "current" ? null : "not_current";
+    if (status === "current" && bytes) {
+      if (pagesLeft <= 0) readingIssue = "budget";
+      else {
+        const wanted = (source.pages.length ? source.pages : Array.from({ length: source.page_count ?? MAX_PAGES_READ }, (_, index) => index + 1))
+          .slice(0, Math.min(MAX_PAGES_READ, pagesLeft));
+        pagesLeft -= wanted.length;
+        const read = await readLocationOfBytes(bytes, source.document_name, wanted, source.page_count);
+        reading = read.reading;
+        if (read.failed) readingIssue = "unreadable";
+      }
     }
     const key = sourceRow && source.content_hash
       ? { source_kind: sourceRow.source_kind, source_id: sourceRow.source_id, content_hash: source.content_hash } : null;
     const exact = key ? rows.find((row) => sameKey(row, key)) ?? null : null;
-    const carry = key && !exact
-      ? carryOverFor(rows, key, await decidedPeers(context.supabase, job.project_id, planFileId, key.content_hash, decisions)) : null;
-    for (const id of [exact?.updated_by, carry?.row.updated_by]) if (id) authors.add(id);
+    const carry: Carry = key && !exact && status === "current"
+      ? selectPlanLocationCarryOver(rows, key, await replacedRevisions(context.supabase, job.project_id, planFileId, key.content_hash, decisions))
+      : null;
     pending.push({ exact, carry, plan: {
       plan_file_id: planFileId, plan_set_id: source.plan_set_id, document_name: source.document_name, pages: source.pages,
-      revision: key, status, reading, location: resolvePlanLocation({ reading, annotation: exact, carryOver: carry?.row ?? null }),
+      revision: key, status, reading, reading_issue: readingIssue,
+      location: resolvePlanLocation({ reading, annotation: exact, carryOver: carry?.row ?? null }),
     } });
   }
-  const names = await authorNames(context.supabase, [...authors]);
-  for (const { plan, exact, carry } of pending) {
-    plans.push({ ...plan, annotation: exact ? annotationOut(exact, names) : null,
-      carry_over: carry ? { ...annotationOut(carry.row, names), content_hash: carry.row.content_hash, same_source: carry.same_source } : null });
-  }
+  const describe = await fieldAuthors(context.supabase, pending.flatMap(({ exact, carry }) => [exact, carry?.row])
+    .filter((row): row is AnnotationRow => Boolean(row)));
+  const plans = pending.map(({ plan, exact, carry }) => ({ ...plan, annotation: exact ? describe(exact) : null,
+    carry_over: carry ? { ...describe(carry.row), content_hash: carry.row.content_hash, same_source: carry.same_source } : null }));
   return takeoffJobPlanLocationsSchema.parse({ job_id: jobId, project_id: job.project_id, plans, without_preparation: false, can_edit: canEdit });
 }

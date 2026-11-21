@@ -21,13 +21,16 @@ export type PlanLocationReading = {
   rule_version: typeof PLAN_LOCATION_RULE_VERSION;
   /** Pages of the document, when known. */
   pages_total: number | null;
-  /** Pages whose title block was read, and those among them where it gave no text. */
+  /** Pages whose title block was asked for, and those among them where it gave no text (or could not be read). */
   pages_read: number[];
   unreadable_pages: number[];
+  /** At least one page's title block was read, with or without text: false when none could be or was. */
+  title_block_read: boolean;
   building: PlanLocationCandidate[];
   level: PlanLocationCandidate[];
 };
 
+/** An operator's correction of a revision: a null field has no correction, the reading of these bytes applies. */
 export type PlanLocationAnnotationValues = { building: string | null; level: string | null };
 
 export type PlanLocationFieldView = {
@@ -42,6 +45,8 @@ export type PlanLocationFieldView = {
   pages: number[];
   /** Every value these bytes show for the field, a contradiction included. */
   candidates: PlanLocationCandidate[];
+  /** False when the title block was not read: no file name value is then proposed in its place. */
+  title_block_read: boolean;
 };
 
 export type PlanLocationView = Record<PlanLocationField, PlanLocationFieldView>;
@@ -143,23 +148,27 @@ export function readPlanLocation(input: {
     pages_total: input.pageCount,
     pages_read: pages.map(({ page }) => page),
     unreadable_pages: pages.filter(({ titleBlockText }) => !titleBlockText?.trim()).map(({ page }) => page),
+    title_block_read: pages.some(({ titleBlockText }) => titleBlockText !== null),
     building: field("building"),
     level: field("level"),
   };
 }
 
-function proposal(candidates: PlanLocationCandidate[]): PlanLocationFieldView {
-  for (const source of ["title_block", "file_name"] as const) {
+function proposal(candidates: PlanLocationCandidate[], titleBlockRead: boolean): PlanLocationFieldView {
+  // The file name stands in for a title block that was read and says nothing, never for one that was not read.
+  for (const source of titleBlockRead ? ["title_block", "file_name"] as const : []) {
     const found = candidates.filter((candidate) => candidate.source === source);
-    if (found.length === 1) return { value: found[0].value, state: "proposed", origin: source, pages: found[0].pages, candidates };
-    if (found.length > 1) return { value: null, state: "multiple", origin: null, pages: [], candidates };
+    if (found.length === 1) {
+      return { value: found[0].value, state: "proposed", origin: source, pages: found[0].pages, candidates, title_block_read: titleBlockRead };
+    }
+    if (found.length > 1) return { value: null, state: "multiple", origin: null, pages: [], candidates, title_block_read: titleBlockRead };
   }
-  return { value: null, state: "unknown", origin: null, pages: [], candidates };
+  return { value: null, state: "unknown", origin: null, pages: [], candidates, title_block_read: titleBlockRead };
 }
 
 /**
- * The location shown for a revision: its own correction, else the correction of an earlier revision of the same plan
- * as a proposal to check (a field it left « À préciser » falls back to the reading), else the reading.
+ * The location shown for a revision, field by field: its own correction, else the correction of an earlier revision of
+ * the same plan as a proposal to check, else the reading of these bytes.
  */
 export function resolvePlanLocation(input: {
   reading: PlanLocationReading | null;
@@ -167,20 +176,36 @@ export function resolvePlanLocation(input: {
   carryOver: PlanLocationAnnotationValues | null;
 }): PlanLocationView {
   const view = (field: PlanLocationField): PlanLocationFieldView => {
-    const read = proposal(input.reading?.[field] ?? []);
-    if (input.annotation) {
-      const value = input.annotation[field];
-      const state = value === null ? "unknown" : read.state === "proposed" && read.value === value ? "confirmed" : "corrected";
-      return { value, state, origin: "operator", pages: [], candidates: read.candidates };
+    const read = proposal(input.reading?.[field] ?? [], input.reading?.title_block_read ?? false);
+    const corrected = input.annotation?.[field] ?? null;
+    if (corrected !== null) {
+      const state = read.state === "proposed" && read.value === corrected ? "confirmed" : "corrected";
+      return { ...read, value: corrected, state, origin: "operator", pages: [] };
     }
-    const earlier = input.carryOver?.[field] ?? null;
-    if (earlier !== null) return { value: earlier, state: "proposed", origin: "previous_revision", pages: [], candidates: read.candidates };
+    const earlier = input.annotation ? null : input.carryOver?.[field] ?? null;
+    if (earlier !== null) return { ...read, value: earlier, state: "proposed", origin: "previous_revision", pages: [] };
     return read;
   };
   return { building: view("building"), level: view("level") };
 }
 
-/** A typed value as stored: trimmed, inner spaces collapsed, empty for « À préciser ». */
+export type PlanLocationRevisionKey = { source_kind: "intake_document" | "plan_file"; source_id: string; content_hash: string };
+
+/**
+ * The correction offered as a proposal for a revision without its own: the latest correction of the same source with
+ * other bytes, or of a revision the preparation retained this one over. `rows` come latest first. A plan that merely
+ * shares a name with another (« Plan RDC » of two buildings) never receives its correction.
+ */
+export function selectPlanLocationCarryOver<Row extends PlanLocationRevisionKey>(rows: readonly Row[], key: PlanLocationRevisionKey,
+  replaced: readonly PlanLocationRevisionKey[]) {
+  const same = (left: PlanLocationRevisionKey, right: PlanLocationRevisionKey) =>
+    left.source_kind === right.source_kind && left.source_id === right.source_id && left.content_hash === right.content_hash;
+  const sameSource = (row: Row) => row.source_kind === key.source_kind && row.source_id === key.source_id;
+  const row = rows.find((candidate) => !same(candidate, key) && (sameSource(candidate) || replaced.some((earlier) => same(earlier, candidate))));
+  return row ? { row, same_source: sameSource(row) } : null;
+}
+
+/** A typed value as stored: trimmed, inner spaces collapsed; empty for no correction (the reading applies). */
 export function normalizePlanLocationValue(raw: string): string | null {
   const value = raw.normalize("NFC").trim().replace(/\s+/gu, " ");
   if (!value) return null;

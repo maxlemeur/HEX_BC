@@ -12,8 +12,13 @@ import type { TakeoffJobPlanLocation } from "@/lib/takeoff/plan-location-contrac
 
 const STATUS_NOTES: Record<TakeoffJobPlanLocation["status"], string | null> = {
   current: null,
-  changed: "Le plan a changé depuis cette analyse : une correction s’appliquera à sa version actuelle, pas à celle lue ici.",
-  unavailable: "Le plan lu par cette analyse n’est plus disponible : sa localisation ne peut plus être corrigée d’ici.",
+  changed: "Le plan a changé depuis cette analyse : son cartouche n’est pas relu ici, et une correction s’appliquera à sa version actuelle, pas à celle lue ici.",
+  unavailable: "Le plan lu par cette analyse n’est plus disponible : son cartouche n’est pas relu, et sa localisation ne peut plus être corrigée d’ici.",
+};
+const READING_NOTES: Record<NonNullable<TakeoffJobPlanLocation["reading_issue"]>, string | null> = {
+  not_current: null,
+  budget: "Cartouche non lu : la limite de lecture de cette revue est atteinte. Ouvrez le plan pour le lire.",
+  unreadable: "Le PDF n’a pas pu être lu : seul son nom l’a été.",
 };
 
 /**
@@ -57,7 +62,7 @@ export function TakeoffPlanLocationsPanel({ jobId }: { jobId: string }) {
       {data?.plans.length ? (
         <ul className="divide-y divide-border">
           {data.plans.map((plan) => {
-            const note = STATUS_NOTES[plan.status];
+            const note = [STATUS_NOTES[plan.status], plan.reading_issue ? READING_NOTES[plan.reading_issue] : null].filter(Boolean).join(" ");
             const editable = data.can_edit && plan.status !== "unavailable" && plan.plan_set_id;
             return (
               <li key={plan.plan_file_id} className="space-y-2 py-3 first:pt-0 last:pb-0" data-testid="takeoff-plan-location">

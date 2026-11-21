@@ -23,6 +23,7 @@ export const planLocationReadingSchema = z.object({
   pages_total: page.nullable(),
   pages_read: z.array(page),
   unreadable_pages: z.array(page),
+  title_block_read: z.boolean(),
   building: z.array(planLocationCandidateSchema),
   level: z.array(planLocationCandidateSchema),
 }).strict();
@@ -33,6 +34,7 @@ export const planLocationFieldViewSchema = z.object({
   origin: z.enum(["title_block", "file_name", "previous_revision", "operator"]).nullable(),
   pages: z.array(page),
   candidates: z.array(planLocationCandidateSchema),
+  title_block_read: z.boolean(),
 }).strict();
 
 export const planLocationViewSchema = z.object({
@@ -46,11 +48,16 @@ export const planRevisionIdentitySchema = z.object({
   content_hash: sha256,
 }).strict();
 
+const fieldAuthorSchema = z.object({ by: uuid, by_name: z.string().nullable(), at: z.string() }).strict();
+
 export const planLocationAnnotationSchema = z.object({
   id: uuid,
   revision: z.number().int().positive(),
+  /** Null: no correction of this field; the reading of these bytes applies. */
   building: z.string().nullable(),
   level: z.string().nullable(),
+  /** Who set each corrected field's current value, and when (from the history of changes). */
+  fields: z.object({ building: fieldAuthorSchema.nullable(), level: fieldAuthorSchema.nullable() }).strict(),
   carried_from_id: uuid.nullable(),
   document_name: z.string(),
   updated_by: uuid,
@@ -75,8 +82,8 @@ export const takeoffPlanFileLocationSchema = z.object({
   /** A correction is written through the current copy of its piece only. */
   current_copy: z.boolean(),
   reading: planLocationReadingSchema.nullable(),
-  /** Why there is no reading: the PDF could not be read, or exceeds the size read here. */
-  reading_issue: z.enum(["unreadable", "too_large"]).nullable(),
+  /** The PDF could not be read: only its name was. */
+  reading_issue: z.enum(["unreadable"]).nullable(),
   annotation: planLocationAnnotationSchema.nullable(),
   carry_over: planLocationCarryOverSchema.nullable(),
   location: planLocationViewSchema,
@@ -109,6 +116,11 @@ export const takeoffJobPlanLocationSchema = z.object({
    */
   status: z.enum(["current", "changed", "unavailable"]),
   reading: planLocationReadingSchema.nullable(),
+  /**
+   * Why the title block of the bytes the analysis read was not read here: they are no longer the plan's (not_current),
+   * the reading limit of one review was reached (budget), or the PDF could not be read (unreadable).
+   */
+  reading_issue: z.enum(["not_current", "budget", "unreadable"]).nullable(),
   annotation: planLocationAnnotationSchema.nullable(),
   carry_over: planLocationCarryOverSchema.nullable(),
   location: planLocationViewSchema,

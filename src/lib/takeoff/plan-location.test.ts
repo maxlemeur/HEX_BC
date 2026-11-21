@@ -4,6 +4,7 @@ import {
   normalizePlanLocationValue,
   readPlanLocation,
   resolvePlanLocation,
+  selectPlanLocationCarryOver,
   type PlanLocationAnnotationValues,
 } from "@/lib/takeoff/plan-location";
 
@@ -53,8 +54,8 @@ describe("reading the building and the level of a plan", () => {
   it("leaves both fields « À préciser » for a plan without text and a neutral name", () => {
     const reading = readPlanLocation({ documentName: "plan-sans-texte.pdf", pageCount: 1, pages: [titleBlock(1, "")] });
     const location = resolvePlanLocation({ reading, annotation: null, carryOver: null });
-    expect(location.building).toEqual({ value: null, state: "unknown", origin: null, pages: [], candidates: [] });
-    expect(location.level).toEqual({ value: null, state: "unknown", origin: null, pages: [], candidates: [] });
+    expect(location.building).toEqual({ value: null, state: "unknown", origin: null, pages: [], candidates: [], title_block_read: true });
+    expect(location.level).toEqual({ value: null, state: "unknown", origin: null, pages: [], candidates: [], title_block_read: true });
     expect(reading.unreadable_pages).toEqual([1]);
   });
 
@@ -69,13 +70,24 @@ describe("reading the building and the level of a plan", () => {
     expect(level("NIVEAU GANTRY")).toBe("GANTRY");
   });
 
-  it("uses an unambiguous file name only when the title block says nothing", () => {
-    const reading = readPlanLocation({ documentName: "P-101_BAT-C_RDC.pdf", pageCount: 1, pages: [titleBlock(1, null)] });
+  it("uses an unambiguous file name only when the title block was read and says nothing", () => {
+    const reading = readPlanLocation({ documentName: "P-101_BAT-C_RDC.pdf", pageCount: 1, pages: [titleBlock(1, "")] });
     const location = resolvePlanLocation({ reading, annotation: null, carryOver: null });
     expect(location.building).toMatchObject({ value: "C", state: "proposed", origin: "file_name" });
     expect(location.level).toMatchObject({ value: "RDC", state: "proposed", origin: "file_name" });
-    const several = readPlanLocation({ documentName: "reseaux_R+1_R+2.pdf", pageCount: 1, pages: [titleBlock(1, null)] });
+    const several = readPlanLocation({ documentName: "reseaux_R+1_R+2.pdf", pageCount: 1, pages: [titleBlock(1, "")] });
     expect(resolvePlanLocation({ reading: several, annotation: null, carryOver: null }).level.state).toBe("multiple");
+  });
+
+  it("never proposes the file name in place of a title block that was not read", () => {
+    for (const pages of [[titleBlock(1, null)], []]) {
+      const reading = readPlanLocation({ documentName: "BAT-B_R+1.pdf", pageCount: 1, pages });
+      const location = resolvePlanLocation({ reading, annotation: null, carryOver: null });
+      expect(reading.title_block_read).toBe(false);
+      expect(location.building).toEqual({ value: null, state: "unknown", origin: null, pages: [], title_block_read: false,
+        candidates: [{ value: "B", source: "file_name", pages: [] }] });
+      expect(location.level).toMatchObject({ value: null, state: "unknown", title_block_read: false });
+    }
   });
 
   it("does not read a building or a level in ordinary words of a name", () => {
@@ -101,9 +113,10 @@ describe("the correction of a revision", () => {
     expect(location.level).toMatchObject({ value: "R+1", state: "corrected", origin: "operator" });
   });
 
-  it("can leave a field « À préciser » on purpose, which the reading no longer fills", () => {
-    const location = resolvePlanLocation({ reading, annotation: annotation({ level: null }), carryOver: null });
-    expect(location.level).toMatchObject({ value: null, state: "unknown", origin: "operator" });
+  it("leaves a field it does not correct to the reading of these bytes, still to check", () => {
+    const location = resolvePlanLocation({ reading, annotation: annotation({ level: null }), carryOver: annotation({ level: "L01" }) });
+    expect(location.level).toMatchObject({ value: "L00", state: "proposed", origin: "title_block" });
+    expect(location.building).toMatchObject({ value: "A", state: "confirmed", origin: "operator" });
   });
 
   it("stands without a reading, for bytes that can no longer be read", () => {
@@ -134,5 +147,27 @@ describe("the values an operator types", () => {
     expect(normalizePlanLocationValue("L00")).toBe("L00");
     expect(() => normalizePlanLocationValue("A".repeat(41))).toThrow();
     expect(() => normalizePlanLocationValue("R+1\u0007")).toThrow();
+  });
+});
+
+describe("the correction offered for a revision without its own", () => {
+  const key = (source_id: string, content_hash: string, source_kind: "intake_document" | "plan_file" = "intake_document") =>
+    ({ source_kind, source_id, content_hash });
+  const rows = [
+    { ...key("homonym", "h9"), id: "homonym-latest" },
+    { ...key("piece", "h1"), id: "same-piece-earlier-bytes" },
+    { ...key("replaced", "h0"), id: "replaced-piece" },
+    { ...key("piece", "h2"), id: "this-revision" },
+  ];
+
+  it("is the latest correction of the same piece with other bytes, never this revision's own", () => {
+    expect(selectPlanLocationCarryOver(rows, key("piece", "h2"), [])).toEqual({ row: rows[1], same_source: true });
+  });
+
+  it("can come from a piece the preparation says this one replaces, never from a homonym", () => {
+    expect(selectPlanLocationCarryOver(rows, key("other", "h5"), [key("replaced", "h0")])).toEqual({ row: rows[2], same_source: false });
+    expect(selectPlanLocationCarryOver(rows, key("other", "h5"), [])).toBeNull();
+    // A decision on other bytes of the replaced piece names another revision: nothing is offered.
+    expect(selectPlanLocationCarryOver(rows, key("other", "h5"), [key("replaced", "h7")])).toBeNull();
   });
 });

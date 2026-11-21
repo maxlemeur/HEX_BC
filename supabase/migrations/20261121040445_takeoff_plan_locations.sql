@@ -4,9 +4,13 @@
 -- of the dossier is its dossier piece, so that a new copy of the same bytes (a reclassification rotates the copy)
 -- keeps its correction; the source of a plan uploaded outside the dossier is its plan file. A value is never attached
 -- to a plan in general: another digest is another revision, whose earlier correction is only shown as a proposal.
+-- Each plan file's source is also recorded when the file is created, so that an analysis whose copy was rotated
+-- away still finds the correction of the bytes it read.
 --
--- The annotation is descriptive. No admission, worker, sending guard or e-mail reads it: the previous application
--- versions never read or write these objects, and none of their tables, policies or triggers changes here.
+-- The annotation is descriptive. No admission, worker, sending guard or e-mail reads it. The previous application
+-- versions never read or write these objects. The one effect on their writes: inserting a plan file also records its
+-- source in takeoff_plan_location_sources (an insert that never refuses), and deleting an affaire also deletes its
+-- annotations. No existing table, policy, grant or check changes.
 -- Requires 20261120204437_takeoff_jobs_by_affaire.sql (private.can_access_takeoff_scope).
 begin;
 
@@ -21,7 +25,7 @@ create table public.takeoff_plan_locations (
   content_hash text not null check (content_hash ~ '^[0-9a-f]{64}$'),
   -- The generation of the annotation: 1 at its creation, one more at each change. A write names the one it saw.
   revision integer not null check (revision >= 1),
-  -- Null: the operator left the field « À préciser » (or removed a wrong value).
+  -- Null: no correction of this field; the reading of these bytes applies (an operator may also remove one this way).
   building text check (building is null or (building = btrim(building) and char_length(building) between 1 and 40
     and building !~ '[[:cntrl:]]')),
   level text check (level is null or (level = btrim(level) and char_length(level) between 1 and 40
@@ -66,6 +70,73 @@ create table public.takeoff_plan_location_events (
   constraint takeoff_plan_location_events_location_fkey foreign key (location_id, tenant_id, project_id)
     references public.takeoff_plan_locations(id, tenant_id, project_id) on delete cascade
 );
+create index takeoff_plan_location_events_project_idx on public.takeoff_plan_location_events(tenant_id, project_id);
+
+-- The source of every plan file, kept after a working copy is deleted: an analysis names its copy, not its piece.
+create table public.takeoff_plan_location_sources (
+  plan_file_id uuid primary key,
+  tenant_id uuid not null,
+  project_id uuid not null,
+  source_kind text not null check (source_kind in ('intake_document', 'plan_file')),
+  source_id uuid not null,
+  recorded_at timestamptz not null default now(),
+  constraint takeoff_plan_location_sources_kind_check check (source_kind = 'intake_document' or source_id = plan_file_id),
+  constraint takeoff_plan_location_sources_project_fkey foreign key (project_id, tenant_id)
+    references public.estimate_projects(id, tenant_id) on delete cascade
+);
+create index takeoff_plan_location_sources_project_idx on public.takeoff_plan_location_sources(tenant_id, project_id);
+
+-- The source of a plan file row: its dossier piece when it is a copy of a piece of the same affaire, itself when it
+-- was uploaded outside the dossier; nothing for a copy whose piece is not of its affaire.
+create function private.takeoff_plan_file_source(p_tenant_id uuid, p_plan_set_id uuid, p_plan_file_id uuid, p_metadata jsonb)
+returns table (project_id uuid, source_kind text, source_id uuid)
+language sql stable set search_path = '' as $$
+  select s.project_id,
+    case when coalesce(p_metadata ->> 'source' = 'affaire-intake', false) then 'intake_document' else 'plan_file' end,
+    case when coalesce(p_metadata ->> 'source' = 'affaire-intake', false) then d.id else p_plan_file_id end
+  from public.plan_sets s
+  left join public.affaire_intake_documents d
+    on coalesce(p_metadata ->> 'source' = 'affaire-intake', false)
+    -- A CASE, so that a malformed identifier is never cast.
+    and d.id = case when p_metadata ->> 'intake_document_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      then (p_metadata ->> 'intake_document_id')::uuid end
+    and d.tenant_id = s.tenant_id and d.project_id = s.project_id
+  where s.id = p_plan_set_id and s.tenant_id = p_tenant_id
+    and (not coalesce(p_metadata ->> 'source' = 'affaire-intake', false) or d.id is not null)
+$$;
+revoke all on function private.takeoff_plan_file_source(uuid, uuid, uuid, jsonb) from public, anon, authenticated, service_role;
+
+create function private.record_takeoff_plan_location_source()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.takeoff_plan_location_sources (plan_file_id, tenant_id, project_id, source_kind, source_id)
+  select new.id, new.tenant_id, source.project_id, source.source_kind, source.source_id
+  from private.takeoff_plan_file_source(new.tenant_id, new.plan_set_id, new.id, new.metadata) source
+  on conflict (plan_file_id) do nothing;
+  return null;
+end;
+$$;
+revoke all on function private.record_takeoff_plan_location_source() from public, anon, authenticated, service_role;
+create trigger record_takeoff_plan_location_source after insert on public.plan_files
+  for each row execute function private.record_takeoff_plan_location_source();
+
+-- The plan files that exist today. A copy whose piece is not of its affaire is not recorded (nothing is repaired):
+-- the pre-check of the pull request counts them, and this notice repeats the count.
+do $$
+declare
+  recorded bigint;
+  skipped bigint;
+begin
+  insert into public.takeoff_plan_location_sources (plan_file_id, tenant_id, project_id, source_kind, source_id)
+  select f.id, f.tenant_id, source.project_id, source.source_kind, source.source_id
+  from public.plan_files f
+  cross join lateral private.takeoff_plan_file_source(f.tenant_id, f.plan_set_id, f.id, f.metadata) source;
+  get diagnostics recorded = row_count;
+  select count(*) into skipped from public.plan_files f
+  where not exists (select 1 from public.takeoff_plan_location_sources l where l.plan_file_id = f.id);
+  raise notice 'TAKEOFF_PLAN_LOCATION_SOURCES recorded %, copies without a piece of their affaire %', recorded, skipped;
+end;
+$$;
 
 -- The key of a revision never changes, even for the command.
 create function private.enforce_takeoff_plan_location_identity()
@@ -97,11 +168,18 @@ create trigger refuse_takeoff_plan_location_event_change before update on public
 
 alter table public.takeoff_plan_locations enable row level security;
 alter table public.takeoff_plan_location_events enable row level security;
+alter table public.takeoff_plan_location_sources enable row level security;
 -- Read as the affaire is read; no client writes a row, its author or its history directly. The server's service role
 -- keeps its usual privileges on public tables; the triggers above still fix a revision's key and the history.
-revoke all on table public.takeoff_plan_locations, public.takeoff_plan_location_events from public, anon, authenticated;
-grant select on table public.takeoff_plan_locations, public.takeoff_plan_location_events to authenticated;
-grant select, insert, update, delete on table public.takeoff_plan_locations, public.takeoff_plan_location_events to service_role;
+revoke all on table public.takeoff_plan_locations, public.takeoff_plan_location_events, public.takeoff_plan_location_sources
+  from public, anon, authenticated;
+grant select on table public.takeoff_plan_locations, public.takeoff_plan_location_events, public.takeoff_plan_location_sources
+  to authenticated;
+grant select, insert, update, delete on table public.takeoff_plan_locations, public.takeoff_plan_location_events,
+  public.takeoff_plan_location_sources to service_role;
+create policy "Affaire readers can select takeoff plan location sources" on public.takeoff_plan_location_sources
+  for select to authenticated
+  using ((select private.can_access_takeoff_scope(tenant_id, project_id, null, false)));
 create policy "Affaire readers can select takeoff plan locations" on public.takeoff_plan_locations
   for select to authenticated
   using ((select private.can_access_takeoff_scope(tenant_id, project_id, null, false)));
@@ -110,33 +188,36 @@ create policy "Affaire readers can select takeoff plan location events" on publi
   using ((select private.can_access_takeoff_scope(tenant_id, project_id, null, false)));
 
 -- The source of a plan file of the affaire, and whether a correction may be written through it now: a dossier copy
--- only while it is the current copy of its piece (same generation, piece neither deleted nor being deleted).
+-- only while it is the current copy of its piece, by the predicate of delete_stale_intake_plan_file. A copy deleted
+-- since is still resolved from takeoff_plan_location_sources, never as current.
 create function private.resolve_takeoff_plan_location_source(p_tenant_id uuid, p_project_id uuid, p_plan_file_id uuid)
 returns table (source_kind text, source_id uuid, plan_file_id uuid, current_copy boolean)
 language sql stable set search_path = '' as $$
   with copy as (
-    select f.id, f.metadata,
-      coalesce(f.metadata ->> 'source' = 'affaire-intake', false) as intake,
-      case when f.metadata ->> 'intake_document_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-        then (f.metadata ->> 'intake_document_id')::uuid end as document_id
+    select f.id, f.metadata, source.source_kind, source.source_id
     from public.plan_files f
     join public.plan_sets s on s.id = f.plan_set_id and s.tenant_id = f.tenant_id
+    cross join lateral private.takeoff_plan_file_source(f.tenant_id, f.plan_set_id, f.id, f.metadata) source
     where f.id = p_plan_file_id and f.tenant_id = p_tenant_id and s.project_id = p_project_id
   )
-  select
-    case when copy.intake and copy.document_id is not null then 'intake_document' else 'plan_file' end,
-    case when copy.intake and copy.document_id is not null then copy.document_id else copy.id end,
-    copy.id,
-    coalesce(copy.metadata ->> 'intake_cleanup_pending', 'false') <> 'true' and (not copy.intake or (
-      copy.document_id is not null and exists (
-        select 1 from public.affaire_intake_documents d
-        where d.id = copy.document_id and d.tenant_id = p_tenant_id and d.project_id = p_project_id
-          and d.deleted_at is null and d.deletion_token is null
-          and (not (copy.metadata ? 'intake_generation')
-            or copy.metadata ->> 'intake_generation' = d.plan_copy_generation::text)
-          and (not (copy.metadata ? 'intake_classified_at')
-            or (copy.metadata ->> 'intake_classified_at')::timestamptz is not distinct from d.classified_at))))
+  select copy.source_kind, copy.source_id, copy.id,
+    coalesce(copy.metadata ->> 'intake_cleanup_pending', 'false') <> 'true' and (copy.source_kind = 'plan_file' or exists (
+      select 1 from public.affaire_intake_documents d
+      where d.id = copy.source_id and d.tenant_id = p_tenant_id and d.project_id = p_project_id
+        and d.deleted_at is null and d.deletion_token is null and d.upload_status = 'uploaded'
+        and d.classification_status = 'classified' and d.document_kind = 'plans'
+        and copy.metadata ->> 'intake_storage_path' is not distinct from d.storage_path
+        and (d.storage_path is not null or copy.metadata ->> 'intake_drive_file_id' is not distinct from d.drive_file_id)
+        and (not (copy.metadata ? 'intake_generation')
+          or copy.metadata ->> 'intake_generation' = d.plan_copy_generation::text)
+        and (not (copy.metadata ? 'intake_classified_at')
+          or (copy.metadata ->> 'intake_classified_at')::timestamptz is not distinct from d.classified_at)))
   from copy
+  union all
+  select recorded.source_kind, recorded.source_id, recorded.plan_file_id, false
+  from public.takeoff_plan_location_sources recorded
+  where recorded.plan_file_id = p_plan_file_id and recorded.tenant_id = p_tenant_id and recorded.project_id = p_project_id
+    and not exists (select 1 from copy)
 $$;
 revoke all on function private.resolve_takeoff_plan_location_source(uuid, uuid, uuid) from public, anon, authenticated, service_role;
 
@@ -152,8 +233,10 @@ $$;
 revoke all on function public.read_takeoff_plan_location_source(uuid, uuid) from public, anon, service_role;
 grant execute on function public.read_takeoff_plan_location_source(uuid, uuid) to authenticated;
 
--- The only writer. The author is the session's member; the revision is compared under the row lock; the digest is
--- the one the server computed from the bytes it read (a caller can only label the bytes that digest names).
+-- The only writer. The author is the session's member; the revision is compared under the row lock. The digest is
+-- the one the application server computed from the bytes it read; a member calling this command directly can name
+-- any digest of a source of an affaire they operate, so a row proves an operator's statement about those bytes, not
+-- that the operator saw them.
 create function public.set_takeoff_plan_location(
   p_project_id uuid,
   p_plan_file_id uuid,
@@ -244,7 +327,8 @@ begin
     return existing;
   end if;
   update public.takeoff_plan_locations l set revision = l.revision + 1, building = p_building, level = p_level,
-    plan_file_id = p_plan_file_id, document_name = p_document_name, carried_from_id = p_carried_from_id,
+    plan_file_id = p_plan_file_id, document_name = p_document_name,
+    carried_from_id = coalesce(p_carried_from_id, l.carried_from_id),
     updated_by = actor, updated_at = now()
   where l.id = existing.id
   returning * into saved;

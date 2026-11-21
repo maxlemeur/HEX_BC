@@ -39,7 +39,7 @@ export function TakeoffPlanLocationSummary({ location, annotation, carryOver, te
               <span className="font-medium text-foreground">{planLocationValueLabel(field, view)}</span>
               {planLocationNeedsCheck(view) ? <Badge variant="warning" size="sm">À vérifier</Badge> : null}
             </dd>
-            <dd className="mt-0.5 text-xs text-muted-foreground">{planLocationProvenanceLabel(view, annotation, carryOver)}</dd>
+            <dd className="mt-0.5 text-xs text-muted-foreground">{planLocationProvenanceLabel(field, view, annotation, carryOver)}</dd>
             {others.length ? <dd className="mt-0.5 text-xs text-muted-foreground">Autre lecture : {others.join(", ")}</dd> : null}
           </div>
         );
@@ -50,7 +50,7 @@ export function TakeoffPlanLocationSummary({ location, annotation, carryOver, te
 
 function readingNote(data: TakeoffPlanFileLocation) {
   const reading = data.reading;
-  if (data.reading_issue === "unreadable" || !reading) return "Le PDF n’a pas pu être lu : seul le nom du fichier est utilisé.";
+  if (data.reading_issue === "unreadable" || !reading) return "Le PDF n’a pas pu être lu : seul son nom l’a été, sans rien proposer à sa place.";
   const read = reading.pages_read.length;
   const total = reading.pages_total;
   const scope = total && total > read ? `les ${read} premières pages sur ${total}` : `${read} page${read > 1 ? "s" : ""}`;
@@ -59,10 +59,10 @@ function readingNote(data: TakeoffPlanFileLocation) {
   return `Cartouche lu sur ${scope}.${blank}`;
 }
 
+/** The value shown for the field when it reads a single value; empty for « À préciser » and « Plusieurs ». */
 function initialValue(field: PlanLocationField, data: TakeoffPlanFileLocation) {
-  if (data.annotation) return data.annotation[field] ?? "";
   const view = data.location[field];
-  return view.state === "proposed" ? view.value ?? "" : "";
+  return view.state === "multiple" || view.state === "unknown" ? "" : view.value ?? "";
 }
 
 function LocationForm({ data, onSaved, onConflict }: {
@@ -97,7 +97,7 @@ function LocationForm({ data, onSaved, onConflict }: {
         building, level, carried_from_id: carrying?.id ?? null,
       }));
     } catch (cause) {
-      const rejected = `Votre saisie (bâtiment ${building ?? "à préciser"}, niveau ${level ?? "à préciser"}) n’a pas été enregistrée.`;
+      const rejected = `Votre saisie (bâtiment ${building ?? "sans correction"}, niveau ${level ?? "sans correction"}) n’a pas été enregistrée.`;
       if (planLocationConflictReason(cause)) await onConflict(`${cause instanceof Error ? cause.message : ""} ${rejected}`.trim());
       else setError(cause instanceof Error ? cause.message : "Impossible d’enregistrer la localisation de ce plan.");
     } finally {
@@ -121,8 +121,8 @@ function LocationForm({ data, onSaved, onConflict }: {
         );
       })}
       <FieldDescription>
-        Un champ vide reste « À préciser ». La valeur est enregistrée pour cette version du plan : elle s’affiche dans les plans, la revue et
-        toute relance sur le même fichier.
+        Enregistrer confirme les valeurs saisies pour cette version du plan : elles s’affichent dans les plans, la revue et toute relance sur
+        le même fichier. Un champ vide n’est pas corrigé : la lecture du plan s’y applique, toujours à vérifier.
       </FieldDescription>
       {error ? <Alert variant="danger"><AlertDescription>{error}</AlertDescription></Alert> : null}
       <DialogFooter>
