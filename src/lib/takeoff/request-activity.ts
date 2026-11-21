@@ -1,0 +1,371 @@
+import { TAKEOFF_PUBLIC_FAILURE_CODES } from "@/lib/takeoff/completion-outcome";
+import {
+  describeTakeoffLaunchReason,
+  isTakeoffLaunchReason,
+  TAKEOFF_GROUPED_UNIT_KEY,
+  type TakeoffLaunchPiece,
+} from "@/lib/takeoff/launch-request";
+import {
+  describeTakeoffCoverage,
+  summarizeTakeoffCoverage,
+  type TakeoffLaunchRequestUnits,
+  type TakeoffRequestUnitView,
+  type TakeoffUnitState,
+} from "@/lib/takeoff/launch-request-coverage";
+import {
+  resolveTakeoffOperatorState,
+  toTakeoffOperatorStateInput,
+  viewerLaunchAction,
+  type TakeoffOperatorStateRow,
+  type TakeoffResumeViewer,
+} from "@/lib/takeoff/operator-state";
+import type {
+  TakeoffRequestActivity,
+  TakeoffRequestActivityJob,
+  TakeoffRequestActivityResponse,
+} from "@/lib/takeoff/request-activity-contracts";
+
+/**
+ * What the affaire's activity shows of its launch requests (migration 20261121170448_takeoff_launch_requests.sql): each
+ * request, the units its manifest recorded in their order, each in one state, and what the member who reads may do with
+ * each analysis. Both formats are read: the grouped unit of lot 2 (one analysis of several plans, never shown as several
+ * analyses) and one analysis per plan. The page decides from this alone how often to read it again.
+ */
+
+/** A request as its readers may read it (the columns granted to members). */
+export type TakeoffRequestRow = {
+  id: string;
+  origin: string;
+  intent: string;
+  state: string;
+  reason_code: string | null;
+  reason_details: unknown;
+  outcome: string | null;
+  mandate_revision: number;
+  units_expected: number | null;
+  created_at: string;
+  admitted_at: string | null;
+  closed_at: string | null;
+};
+
+/** A job of a request as the member reads it: what the resume policy reads, and the count of its lines. */
+export type TakeoffRequestJobRow = TakeoffOperatorStateRow & {
+  id: string;
+  launch_request_id: string | null;
+  plan_set_id: string | null;
+  estimate_version_id: string | null;
+  item_count: number;
+};
+
+/** A job of a request as its unit's state is derived from it (read by the server, whatever the member may read). */
+export type TakeoffRequestUnitJobRow = {
+  id: string;
+  launch_request_id: string | null;
+  launch_unit_key: string | null;
+  status: string;
+  started_at: string | null;
+  next_retry_at: string | null;
+  analysis_outcome: string | null;
+  error_code: string | null;
+  updated_at: string;
+};
+
+type ManifestPlan = { planFileId: string | null; logicalId: string | null; name: string; pages: number[] };
+
+/** The part of a sealed manifest the activity reads: its units in order, the plans they name, the plans set aside. */
+export type TakeoffRequestManifest = {
+  formatVersion: number | null;
+  units: Array<{ key: string; ordinal: number; plans: string[]; pages: number[] | null }>;
+  plans: Map<string, ManifestPlan>;
+  omitted: TakeoffRequestActivity["plansOmitted"];
+};
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format"]);
+const PUBLIC_CODES = new Set<string>(TAKEOFF_PUBLIC_FAILURE_CODES);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const toPages = (value: unknown) => Array.isArray(value)
+  ? value.filter((page): page is number => Number.isSafeInteger(page) && (page as number) > 0).sort((left, right) => left - right)
+  : [];
+
+/**
+ * The manifest's units and plans, in format 1 (one grouped unit) or 2 (one unit per plan, with its ordinal and pages): a
+ * unit names the entry keys of its plans, a plan entry its name, its copy and its original pages. A manifest without
+ * units is unreadable here (null).
+ */
+export function parseTakeoffRequestManifest(raw: unknown): TakeoffRequestManifest | null {
+  if (!isRecord(raw) || !Array.isArray(raw.units) || raw.units.length === 0) return null;
+  const units: TakeoffRequestManifest["units"] = [];
+  for (const [index, unit] of raw.units.entries()) {
+    if (!isRecord(unit) || typeof unit.key !== "string" || !Array.isArray(unit.plans)) return null;
+    units.push({
+      key: unit.key,
+      ordinal: Number.isSafeInteger(unit.ordinal) && (unit.ordinal as number) > 0 ? unit.ordinal as number : index + 1,
+      plans: unit.plans.filter((plan): plan is string => typeof plan === "string"),
+      pages: Array.isArray(unit.pages) ? toPages(unit.pages) : null,
+    });
+  }
+  const plans = new Map<string, ManifestPlan>();
+  for (const plan of Array.isArray(raw.plans) ? raw.plans : []) {
+    if (!isRecord(plan) || typeof plan.entry_key !== "string" || typeof plan.name !== "string") continue;
+    plans.set(plan.entry_key, {
+      planFileId: typeof plan.plan_file_id === "string" && UUID.test(plan.plan_file_id) ? plan.plan_file_id.toLowerCase() : null,
+      logicalId: typeof plan.logical_id === "string" ? plan.logical_id : null,
+      name: plan.name,
+      pages: toPages(plan.pages),
+    });
+  }
+  const coverage = isRecord(raw.coverage) ? raw.coverage : {};
+  const omitted = (Array.isArray(coverage.plans_omitted) ? coverage.plans_omitted : []).flatMap((entry) =>
+    isRecord(entry) && typeof entry.name === "string" && typeof entry.reason === "string" && OMITTED_REASONS.has(entry.reason)
+      ? [{ name: entry.name, reason: entry.reason as TakeoffRequestActivity["plansOmitted"][number]["reason"] }]
+      : []);
+  return {
+    formatVersion: typeof raw.format_version === "number" ? raw.format_version : null,
+    units: [...units].sort((left, right) => left.ordinal - right.ordinal), plans, omitted,
+  };
+}
+
+/**
+ * The state of a unit from its job, until the dispatcher's reading contract (readTakeoffLaunchRequestUnits, one rule in
+ * SQL) is on main: queued (its turn, or a technical retry due later), running, succeeded (sent or not), failed,
+ * canceled after its reading started, or not_started. Never a success from the presence of a result row.
+ */
+function unitStateOf(job: TakeoffRequestUnitJobRow): TakeoffUnitState | null {
+  switch (job.status) {
+    case "pending": return "queued";
+    case "processing": return "running";
+    case "completed":
+    case "applied": return "succeeded";
+    case "failed": return job.next_retry_at && !job.analysis_outcome ? "queued" : "failed";
+    case "canceled": return job.started_at ? "canceled" : "not_started";
+    default: return null;
+  }
+}
+
+/**
+ * The units of an admitted request in the shape of the dispatcher's reading contract (TakeoffLaunchRequestUnits), from
+ * its sealed manifest and its jobs. Null for a manifest this version cannot read. A grouped unit is one analysis: it
+ * carries one plan's name only when it holds one plan.
+ */
+export function deriveTakeoffRequestUnits(input: {
+  requestId: string;
+  manifest: TakeoffRequestManifest | null;
+  jobs: ReadonlyArray<TakeoffRequestUnitJobRow>;
+}): Omit<TakeoffLaunchRequestUnits, "usage"> | null {
+  const { manifest } = input;
+  if (!manifest) return null;
+  const jobsByUnit = new Map(input.jobs.filter((job) => job.launch_request_id === input.requestId && job.launch_unit_key)
+    .map((job) => [job.launch_unit_key as string, job]));
+  const units: TakeoffRequestUnitView[] = manifest.units.flatMap((unit) => {
+    const job = jobsByUnit.get(unit.key);
+    const state = job ? unitStateOf(job) : null;
+    if (!job || !state) return [];
+    const plans = unit.plans.map((entry) => manifest.plans.get(entry));
+    const plan = plans.length === 1 ? plans[0] : undefined;
+    return [{
+      key: unit.key, ordinal: unit.ordinal,
+      planFileId: plan?.planFileId ?? null, logicalId: plan?.logicalId ?? null,
+      name: plan?.name ?? `Analyse groupée de ${plans.length} plans`,
+      pages: unit.pages ?? plan?.pages ?? [],
+      jobId: job.id, state,
+      reasonCode: (state === "failed" || state === "canceled" || state === "not_started") && job.error_code && PUBLIC_CODES.has(job.error_code)
+        ? job.error_code : null,
+      retryAt: state === "queued" ? job.next_retry_at : null,
+      updatedAt: job.updated_at,
+      reviewable: state === "succeeded",
+    }];
+  });
+  return {
+    requestId: input.requestId,
+    format: manifest.units.some((unit) => unit.key === TAKEOFF_GROUPED_UNIT_KEY) ? "grouped" : "per_plan",
+    units,
+    coverage: summarizeTakeoffCoverage(units),
+  };
+}
+
+function toPieces(details: unknown): TakeoffLaunchPiece[] {
+  const pieces = isRecord(details) && Array.isArray(details.pieces) ? details.pieces : [];
+  return pieces.flatMap((piece) => isRecord(piece) && typeof piece.id === "string" && typeof piece.name === "string"
+    ? [{ id: piece.id, name: piece.name }] : []);
+}
+
+/** What this member may do with an analysis, by the same policy as its detail, the list and the retry command. */
+function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, now: Date): TakeoffRequestActivityJob {
+  const decision = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer, now));
+  return {
+    jobId: job.id,
+    planSetId: job.plan_set_id,
+    estimateVersionId: job.estimate_version_id,
+    itemCount: job.item_count,
+    applied: job.status === "applied",
+    errorCode: job.error_code ?? null,
+    retryCount: job.retry_count ?? 0,
+    resume: decision.resume.reason === "not_stopped" ? null : decision.resume,
+    canCancel: decision.canCancel,
+    canResubmit: decision.canResubmit,
+  };
+}
+
+/**
+ * One request as its reader sees it: its state and reason, its units (in the dispatcher's shape) and, for the analyses
+ * this member may read, what they may do with them.
+ */
+export function buildTakeoffRequestActivity(input: {
+  request: TakeoffRequestRow;
+  units: (Omit<TakeoffLaunchRequestUnits, "usage"> & { usage?: TakeoffLaunchRequestUnits["usage"] }) | null;
+  manifest: TakeoffRequestManifest | null;
+  /** The request's jobs the member reads (their own access rules). */
+  jobs: ReadonlyArray<TakeoffRequestJobRow>;
+  viewer: TakeoffResumeViewer;
+  now: Date;
+  action?: TakeoffRequestActivity["action"];
+  dossierChanged?: TakeoffRequestActivity["dossierChanged"];
+}): TakeoffRequestActivity {
+  const { request, units, manifest } = input;
+  const reason = isTakeoffLaunchReason(request.reason_code)
+    ? { code: request.reason_code, message: describeTakeoffLaunchReason(request.reason_code, toPieces(request.reason_details)) }
+    : request.state === "superseded"
+      ? { code: "SUPERSEDED", message: describeTakeoffLaunchReason("SUPERSEDED") }
+      : null;
+  const grouped = units?.format === "grouped" && manifest
+    ? (manifest.units.find((unit) => unit.key === TAKEOFF_GROUPED_UNIT_KEY)?.plans ?? [])
+      .flatMap((entry) => { const plan = manifest.plans.get(entry); return plan ? [{ planFileId: plan.planFileId, name: plan.name, pages: plan.pages }] : []; })
+    : [];
+  const unitJobs = new Set(units?.units.map((unit) => unit.jobId) ?? []);
+
+  return {
+    id: request.id,
+    origin: request.origin === "manual" ? "manual" : "automatic",
+    intent: request.intent === "reread_plans" || request.intent === "remeasure_items" ? request.intent : "initial",
+    state: request.state as TakeoffRequestActivity["state"],
+    outcome: request.outcome === "success" || request.outcome === "failure" || request.outcome === "canceled"
+      || request.outcome === "partial" ? request.outcome : null,
+    reason,
+    createdAt: request.created_at,
+    admittedAt: request.admitted_at,
+    closedAt: request.closed_at,
+    units: units ? {
+      format: units.format, units: units.units, coverage: units.coverage, unknownCalls: units.usage?.unknownCalls ?? null,
+    } : null,
+    groupedPlans: grouped,
+    plansOmitted: request.admitted_at && manifest ? manifest.omitted : [],
+    jobs: input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id))
+      .map((job) => toActivityJob(job, input.viewer, input.now)),
+    action: input.action ?? null,
+    dossierChanged: input.dossierChanged ?? null,
+  };
+}
+
+/** How a request can still change by itself: a plan is read, plans wait their turn, or the request waits for its Mac. */
+export type TakeoffRequestProgress = "running" | "queued" | "waiting" | null;
+
+export function takeoffRequestProgress(request: Pick<TakeoffRequestActivity, "state" | "reason" | "units">): TakeoffRequestProgress {
+  if (request.state === "admitted") {
+    const coverage = request.units?.coverage;
+    if (coverage?.running) return "running";
+    if (coverage?.queued) return "queued";
+    // Every unit ended (or its manifest is unreadable here) and the request is not closed yet: its closure is on its way.
+    return "waiting";
+  }
+  // Evaluated by its Mac, or held by a passing cause: the same rule as the gesture the affaire offers (« wait »).
+  return viewerLaunchAction(null, false, request.state, request.reason?.code ?? null) === "wait" ? "waiting" : null;
+}
+
+/** While a plan is read: the next state shows within this delay plus the read. */
+export const TAKEOFF_REQUEST_LIVE_REFRESH_MS = 5_000;
+/** While nothing is read: the Mac, a retry or a closure is awaited, or the last read failed. */
+export const TAKEOFF_REQUEST_WAITING_REFRESH_MS = 30_000;
+/** A plan waits its turn behind another that ended this recently: the queue moves, it is followed as a reading. */
+const QUEUE_MOVED_MS = 60_000;
+
+function latest(values: Array<string | null | undefined>) {
+  let best = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    const time = value ? Date.parse(value) : Number.NaN;
+    if (Number.isFinite(time) && time > best) best = time;
+  }
+  return best;
+}
+
+/**
+ * How often the page reads the activity again, from its last answer: every 5 s while a plan is read or the queue just
+ * moved, every 30 s while only the Mac, a retry or a closure is awaited (and after a failed read), not at all when nothing
+ * can change by itself. One delay for the page, whatever its number of requests or plans.
+ */
+export function takeoffRequestRefreshInterval(data: TakeoffRequestActivityResponse | undefined, lastReadFailed = false): number {
+  if (!data) return 0;
+  const observedAt = Date.parse(data.observedAt);
+  let fast = data.standalone.running > 0;
+  let slow = data.standalone.waiting > 0;
+  for (const request of [data.current, ...data.history]) {
+    if (!request) continue;
+    const progress = takeoffRequestProgress(request);
+    if (progress === "running") fast = true;
+    else if (progress === "waiting") slow = true;
+    else if (progress === "queued") {
+      const units = request.units?.units ?? [];
+      // A technical retry due later is awaited, not a moving queue.
+      const waitsItsTurn = units.some((unit) => unit.state === "queued" && !unit.retryAt);
+      const moved = latest([request.admittedAt, ...units.filter((unit) => unit.state !== "queued").map((unit) => unit.updatedAt)]);
+      if (waitsItsTurn && Number.isFinite(observedAt) && observedAt - moved < QUEUE_MOVED_MS) fast = true;
+      else slow = true;
+    }
+  }
+  if (!fast && !slow) return 0;
+  return fast && !lastReadFailed ? TAKEOFF_REQUEST_LIVE_REFRESH_MS : TAKEOFF_REQUEST_WAITING_REFRESH_MS;
+}
+
+const GROUPED_STATE: Record<TakeoffUnitState, string> = {
+  queued: "en attente", running: "en lecture", succeeded: "lue", failed: "en échec", canceled: "arrêtée",
+  not_started: "non démarrée",
+};
+
+/**
+ * The coverage of a request in one line: the dispatcher's wording for plans (« 1 plan lu sur 3 · 1 en lecture · 1 en
+ * attente »); a grouped analysis is one analysis of several plans (« Analyse groupée de 3 plans · en lecture »), never
+ * three plans read. Null before admission.
+ */
+export function describeTakeoffRequestActivityCoverage(request: Pick<TakeoffRequestActivity, "units" | "groupedPlans">): string | null {
+  const units = request.units;
+  if (!units || units.units.length === 0) return null;
+  if (units.format === "grouped") {
+    const count = request.groupedPlans.length;
+    const states = units.units.map((unit) => GROUPED_STATE[unit.state]);
+    return `${count > 1 ? `Analyse groupée de ${count} plans` : "Analyse groupée"} · ${states.join(", ")}`;
+  }
+  return describeTakeoffCoverage(units.coverage);
+}
+
+/** A unit's state in French, as its row says it; a read plan says whether it has lines and whether they were sent. */
+export function describeTakeoffRequestUnitState(unit: Pick<TakeoffRequestUnitView, "state" | "retryAt">,
+  job: Pick<TakeoffRequestActivityJob, "applied" | "itemCount"> | null): string {
+  switch (unit.state) {
+    case "queued": return unit.retryAt ? "Nouvelle tentative programmée" : "En attente";
+    case "running": return "En lecture";
+    case "succeeded":
+      if (!job) return "Lu";
+      if (job.applied) return "Reporté au devis";
+      return job.itemCount > 0 ? "Prêt à revoir" : "Lu, aucune ligne retenue";
+    case "failed": return "Échec";
+    case "canceled": return "Arrêté";
+    case "not_started": return "Non démarré";
+  }
+}
+
+/** The original pages a plan was read on. */
+export function describeTakeoffRequestPages(pages: readonly number[]): string {
+  if (pages.length === 0) return "toutes les pages";
+  return `${pages.length > 1 ? "pages" : "page"} ${pages.join(", ")}`;
+}
+
+/**
+ * The units this member may open the review of: read (sent or not, with lines or not) and an analysis the member reads.
+ * Their order is the recorded one: « plan suivant » follows it.
+ */
+export function reviewableTakeoffRequestUnits(request: Pick<TakeoffRequestActivity, "units" | "jobs">) {
+  const readable = new Set(request.jobs.map((job) => job.jobId));
+  return (request.units?.units ?? []).filter((unit) => unit.reviewable && readable.has(unit.jobId));
+}

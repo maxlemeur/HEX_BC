@@ -675,7 +675,7 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
  * The plans of the dossier against the plans the request sealed (read by the server after the access check): its plan
  * set's copies, and every plan classified in the dossier since that has no working copy (it is named, never invisible).
  */
-async function readDossierChangeSinceAnalysis(service: Service, tenantId: string, projectId: string, requestId: string) {
+export async function readDossierChangeSinceAnalysis(service: Service, tenantId: string, projectId: string, requestId: string) {
   const [{ data: request, error }, planSet, documents] = await Promise.all([
     service.from("takeoff_launch_requests").select("manifest").eq("id", requestId).eq("tenant_id", tenantId).maybeSingle(),
     readDossierPlanSet(service, tenantId, projectId),
