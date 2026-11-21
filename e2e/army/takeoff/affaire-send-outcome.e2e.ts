@@ -13,7 +13,7 @@ import { apiRequest, armyTest, recordEvidence, saveLineEditsWithShortcut, setLin
 import { querySql } from "../local/calculation-gate-support";
 import { setTenantCalcPolicy } from "../local/engine-v3-persistence-support";
 import { startOwnedTakeoffAdmission } from "./affaire-admission-support";
-import { ownedWorkerHostId, signUpWorkerOwner, startOwnedWorker, type WorkerOwner, type WorkerUi } from "./worker-support";
+import { ownedWorkerSelection, signUpWorkerOwner, startOwnedWorker, type WorkerOwner, type WorkerUi } from "./worker-support";
 import { ZONE_PLANS, buildZonePlanPdf } from "./zone-plans-fixture";
 
 // Lot 2 M2, fix round 1: what an estimator confirms when sending a takeoff of an affaire is what the estimate holds,
@@ -89,7 +89,7 @@ async function launch(ui: WorkerUi, seed: Affaire, source: Plan, revision: numbe
   const confirmedAt = new Date().toISOString();
   // A confirmation pins the member's ChatGPT selection; the admission script connects this profile on the worker host.
   const snapshot = { ...createTakeoffPreparationSnapshot({ preparation, revision, confirmedAt, confirmedBy: owner.userId }),
-    execution_selection: { profileId: "army", model: "army", reasoningEffort: null, hostId: await ownedWorkerHostId() } };
+    execution_selection: await ownedWorkerSelection() };
   expect((await setup.from("takeoff_preparations").upsert({ tenant_id: owner.tenantId, project_id: projectId, revision, draft: preparation,
     confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: owner.userId, updated_by: owner.userId },
     { onConflict: "tenant_id,project_id" })).error).toBeNull();

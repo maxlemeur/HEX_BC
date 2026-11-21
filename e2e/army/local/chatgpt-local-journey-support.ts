@@ -56,9 +56,10 @@ export async function localChatGptClient(email: string) {
 
 /** `transcriptionModel`: the fixture account also lists Terra, which the transcription at arrival asks for (INTOCR01). */
 export async function writeDecisionsControl(decisionsControl: string,
-  input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean }) {
+  input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean }) {
   const temporary = `${decisionsControl}.tmp`;
-  await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false, transcriptionModel: false, holdTranscription: false, ...input }));
+  await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false, transcriptionModel: false, holdTranscription: false,
+    holdClassification: false, ...input }));
   await rename(temporary, decisionsControl);
 }
 

@@ -251,7 +251,9 @@ async function processTakeoffLevel(
 
     const hostId = await assertLocalTakeoffExecutionHost(job);
     let resolved: { provider: LocalTakeoffProvider } | { error: unknown };
-    try { resolved = { provider: await resolveTakeoffExecutionProvider(context.supabase, job, resolveProvider) }; }
+    // Resolved before the claim (its model is recorded by it); each paid call reads the lease the claim then took.
+    try { resolved = { provider: await resolveTakeoffExecutionProvider(context.supabase, job, resolveProvider,
+      () => job?.processing_lease_token ?? null) }; }
     catch (error) { resolved = { error }; }
     if ("provider" in resolved) model = resolved.provider.model;
 

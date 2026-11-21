@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 // The local plan's credential, model listing and request (TI-704 option B): mocks, never the network. Only the test of
 // the plan's first use reaches them; every other local test injects `local.call`.
@@ -566,6 +567,23 @@ describe("a local ChatGPT job's groups (worker-server.ts, TI-704 option B)", () 
     member = false;
     await expect(read([[page(1, 3)]], { ...built, render: fakeRender().render })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(steps).toEqual(["membership"]);
+    vi.unstubAllEnvs();
+  });
+
+  it("stops the job when a plan request's usage cannot be recorded, never reading the page by the rules instead", async () => {
+    vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "1");
+    vi.stubEnv("MERGEONE_TAKEOFF_DECISIONS", "1");
+    vi.stubEnv("NODE_ENV", "development");
+    const selection = { profileId: "profile-fixture", model: "fixture-profile-model", reasoningEffort: null };
+    vi.mocked(getLocalChatGptCredential).mockResolvedValue({ accessToken: "fixture-token", ...selection } as never);
+    vi.mocked(assertLocalChatGptOverride).mockResolvedValue(Object.freeze({ model: "gpt-6.1-sol", reasoningEffort: "low" as const }));
+    const unrecorded = new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false,
+      message: "La consommation d’un appel n’a pas pu être enregistrée." });
+    vi.mocked(callLocalChatGptStructured).mockRejectedValue(unrecorded);
+    const provider = { selection, assertOwnerActive: async () => undefined };
+    const built = takeoffVectorLocalGroupsHook({ jobId: "job-fixture", tenantId: OWNER.tenantId, userId: OWNER.userId, provider })!;
+    await expect(read([[page(1, 3), page(2, 3)]], { ...built, render: fakeRender().render })).rejects.toBe(unrecorded);
+    expect(callLocalChatGptStructured).toHaveBeenCalledTimes(1);
     vi.unstubAllEnvs();
   });
 

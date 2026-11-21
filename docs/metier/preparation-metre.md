@@ -75,6 +75,118 @@ autre personne est invitée à préparer une nouvelle analyse. Les reprises
 techniques du worker gardent la sélection figée. Les anciens jobs sans sélection
 figée conservent leur comportement d’exécution historique.
 
+## Démarrage automatique et demandes de métré
+
+Le démarrage automatique est inactif tant que le propriétaire n’a pas posé sa
+date d’activation (`private.takeoff_launch_activation`), après le déploiement de
+la page d’affaire qui montre son état et la date des avis de fin d’analyse. Avant
+cette date, rien de ce qui suit n’écrit.
+
+Une **demande** est une exécution sur un manifeste scellé ; un **job** est
+l’analyse d’une unité de ce manifeste. Le lot 2 scelle une seule unité groupée
+qui contient les plans retenus ; une demande peut recevoir plusieurs jobs plus
+tard (une par plan). Les règles sont dans
+[`launch-request.ts`](../../src/lib/takeoff/launch-request.ts) et
+[`launch-request-server.ts`](../../src/lib/takeoff/launch-request-server.ts) ;
+la base en garantit l’unicité et l’admission (migration
+`20261121170448_takeoff_launch_requests.sql`).
+
+- **Une seule fois par affaire.** La confirmation du brief réserve la demande
+  automatique de l’affaire, dans la transaction qui confirme le brief : celle du
+  serveur (qui écrit aussi l’événement du brief et le mandat), ou toute autre
+  confirmation, qui la réserve sans mandat, en attente d’un geste. L’activation
+  demande les deux dates (démarrage automatique et avis de fin d’analyse) : avec
+  une seule, rien de nouveau n’est écrit. Le module du métré coupé, rien n’est
+  réservé, évalué, admis ni payé (la base en décide, avec le réglage par défaut
+  du serveur). Seuls le propriétaire de l’affaire et un administrateur ou un
+  directeur confirment le brief (comme la règle du brief publiée) ; un brief sans
+  pièce déposée, ou rattaché au dépôt d’une autre affaire, se confirme, son
+  événement restant dans sa propre affaire. La même confirmation renvoyée après
+  une réponse perdue retrouve sa demande. L’analyse démarre quand le dossier est « Dossier
+  confirmé » (même règle que le titre du parcours : pièces présentes, aucune à
+  revoir ni en classement, brief confirmé), que le classement finisse avant ou
+  après la confirmation. Il n’y a qu’une demande automatique, pour toute la vie
+  de l’affaire : deux confirmations, un
+  dossier qui sort puis revient à « confirmé », un plan ajouté ensuite ou un
+  échec ne la réarment jamais. Un dossier confirmé avant l’activation n’est pas
+  armé : il garde son dernier métré et les options.
+- **Qui paie.** Le membre enregistré comme ayant confirmé le brief, s’il peut
+  lancer un métré sur l’affaire (administrateur, ou ingénieur propriétaire de
+  l’affaire). Il en est averti dans la confirmation : « Une fois les plans prêts,
+  le métré utilisera votre forfait ChatGPT et les réglages de Mon profil. » Le
+  mandat n’est payable que si la confirmation porte cette mention telle qu’elle a
+  été montrée (ce membre, ce forfait et ces réglages, cette activation) ; un
+  formulaire ouvert avant l’activation ou montré sans la mention confirme le brief
+  et n’engage personne (« Métré non démarré — la confirmation du dossier n’a
+  engagé aucun forfait ChatGPT »). Le mandat porte sur cette demande, cette
+  affaire, ce membre, la sélection de son profil, la connexion ChatGPT en cours et
+  le Mac du geste ; une déconnexion ou une reconnexion le retire (« partage
+  révoqué ») quel que soit l’état du dossier, jusqu’au geste du payeur. Un lecteur qui confirme ne paie pas : « Métré non
+  démarré — prise en charge par un métreur requise » ; un opérateur peut alors
+  la prendre en charge sur son propre forfait par un geste explicite, et reçoit
+  sa fin.
+- **Démarrage.** Le Mac du mandat évalue la demande sans session : le dossier,
+  chaque plan du dossier avec sa copie de travail de la génération courante, le
+  droit du payeur, son forfait et sa sélection sur ce Mac. Il scelle alors la
+  préparation déduite du dossier (avec les options enregistrées, sans écrire sur
+  le brouillon des membres), les empreintes des octets lus et le manifeste, puis
+  admet la demande : son job et les deux traces de création sont écrits dans la
+  même transaction. Lire une page ne dépense rien : seules les transitions du
+  dossier et les gestes le font.
+- **Ce qui empêche de démarrer** est un état visible, avec son motif, jamais un
+  job présenté comme lancé ni un changement de mode de paiement : dossier non
+  confirmé ou sans plan exploitable ; plan sans copie de travail (la pièce est
+  nommée) ; choix d’indice à faire ; forfait non connecté, partage révoqué ou
+  connexion expirée, modèle absent, sélection changée depuis la confirmation,
+  adresse non autorisée ou application hébergée ; payeur qui n’a plus le droit
+  de lancer. Ces blocages du mandat ne se lèvent que par le geste « Reprendre avec
+  mon forfait » du payeur, ou « Prendre en charge » d’un autre opérateur. Le geste
+  porte la révision du mandat et l’action que l’affaire lui proposait : si l’une
+  a changé entre-temps (un autre geste, une nouvelle confirmation), il est refusé.
+  Le rejeu d’une confirmation renvoie la demande telle qu’elle est. Les
+  causes passagères (limite d’admission, lecture d’une pièce, autre analyse en
+  cours sur l’affaire) sont réessayées par le Mac.
+- **Une seule demande admise à la fois par affaire.** Une relance pendant
+  l’exécution renvoie l’analyse en cours. Une relance admise met de côté, pour
+  de bon (un état final), un démarrage automatique qui n’avait pas commencé : ni
+  une nouvelle confirmation ni une prise en charge ne le réarment ; une nouvelle
+  analyse est une relance, et l’affaire montre la relance, jamais le démarrage mis
+  de côté. Le job d’une demande en cours ne peut pas être supprimé.
+- **Une demande qui attend son Mac** (évaluation à faire, dossier modifié depuis,
+  cause passagère à réessayer) depuis plus de quinze minutes peut être reprise
+  par son payeur ou prise en charge par un autre opérateur. Trois vérifications
+  du dossier qui échouent de suite la bloquent avec ce motif jusqu’à un geste.
+- **Budget.** La demande scelle à son admission le budget par job de la lecture
+  détaillée de l’entreprise (jetons et coût). Chaque appel payant de ses jobs
+  (lecture détaillée et groupes vectoriels, réponse illisible comprise) est
+  inscrit par le worker, sous le bail de la tentative, juste après la réponse, dans
+  un registre que lui seul écrit ; une inscription impossible arrête l’analyse.
+  Avant chaque appel payant de tout job, la base vérifie le module, que son
+  créateur peut toujours lancer sur l’affaire et, pour une demande, qu’il reste du
+  budget ; chaque tentative de lecture n’a que ce qui reste. Un dépassement du
+  budget de la lecture ou de la demande la ferme avec ce motif (« Métré arrêté — le
+  budget de cette analyse est épuisé »). Le lot 3 scellera un budget par plan.
+- **Fin.** La fin enregistrée du job ferme la demande et publie un seul avis et
+  un seul courriel à son payeur ; les jobs d’une demande ne publient pas d’avis
+  propre. Un job jamais pris en charge est clos par la reprise des métrés en attente, et la
+  demande avec lui.
+- **Dossier modifié depuis l’analyse.** Un plan ajouté, remplacé ou retiré après
+  l’admission est signalé sur l’affaire ; rien n’est relancé sans un geste.
+- **Relancer** crée une nouvelle demande manuelle, un nouveau job et un lien vers
+  l’analyse qu’elle remplace (obligatoire), sur le forfait du membre qui clique,
+  qui en reçoit la fin. Son reçu (la clé, la commande : membre, intention,
+  analyse remplacée, jeu de plans et révision de la préparation, et sa réponse)
+  est tenu à part des demandes et répondu avant toute autre vérification : un
+  double clic ou un rejeu reçoit la même réponse, même si la préparation a changé
+  depuis ; une relance refusée parce qu’une autre analyse tournait reste refusée,
+  avec l’analyse qu’elle a trouvée, sans job payant ; la même clé pour une autre
+  commande est refusée. Le module du métré désactivé refuse la relance,
+  la prise en charge et la reprise.
+- **Avant chaque appel payant**, le worker vérifie que le payeur peut toujours
+  lancer un métré sur l’affaire. Un membre rétrogradé après avoir mis une analyse
+  en file, ou qui n’est plus propriétaire de l’affaire, ne dépense plus rien :
+  l’analyse échoue avec ce motif.
+
 ## Contenu de la fiche
 
 | Partie | Données conservées |

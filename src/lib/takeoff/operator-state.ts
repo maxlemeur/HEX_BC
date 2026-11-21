@@ -3,6 +3,7 @@ import {
   TAKEOFF_RETRY_BACKOFF_SECONDS,
   TAKEOFF_RETRY_MAX as TAKEOFF_RETRY_MAX_CONSTANT,
 } from "@/lib/takeoff/constants";
+import { TAKEOFF_LAUNCH_TRANSIENT_REASONS } from "@/lib/takeoff/launch-request";
 import type {
   TakeoffJobOperatorState,
   TakeoffJobStatus,
@@ -377,5 +378,35 @@ export function describeTakeoffResume(decision: TakeoffResumeDecision): string |
       return at ? `Vous pourrez soumettre cette analyse à nouveau à partir du ${at}.` : "Vous pourrez bientôt soumettre cette analyse à nouveau.";
     case "retry_available":
       return "Vous pouvez soumettre cette analyse à nouveau ; votre forfait ChatGPT est vérifié au lancement.";
+  }
+}
+
+/** What a member may do with a launch request that has not started (migration 20261121170448_takeoff_launch_requests.sql). */
+export const TAKEOFF_LAUNCH_ACTIONS = ["take_on", "resume", "open_mac", "wait", "none"] as const;
+export type TakeoffLaunchAction = (typeof TAKEOFF_LAUNCH_ACTIONS)[number];
+
+/**
+ * The gesture the affaire's options offer a member for a launch request: what the database allows that member
+ * (public.takeoff_launch_request_action: resume its own, take on another's, or none, which also decides the fifteen
+ * minutes after which a silent Mac is given up on), and what depends on the member's own Mac: away from it (another
+ * address, the hosted application) the gesture is to open MergeOne there. A request its Mac is evaluating, or that a
+ * passing cause holds, is waited for.
+ */
+export function viewerLaunchAction(allowed: unknown, hasLocalRuntime: boolean, state: string, reasonCode: string | null): TakeoffLaunchAction {
+  if (allowed === "take_on" || allowed === "resume") return hasLocalRuntime ? allowed : "open_mac";
+  if (state === "evaluating" || (state === "blocked" && (TAKEOFF_LAUNCH_TRANSIENT_REASONS as readonly string[]).includes(reasonCode ?? ""))) {
+    return "wait";
+  }
+  return "none";
+}
+
+/** The gesture's name, as the affaire's options will show it. */
+export function describeTakeoffLaunchAction(action: TakeoffLaunchAction): string | null {
+  switch (action) {
+    case "take_on": return "Prendre en charge avec mon forfait";
+    case "resume": return "Reprendre avec mon forfait";
+    case "open_mac": return "Ouvrir sur le Mac connecté";
+    case "wait":
+    case "none": return null;
   }
 }

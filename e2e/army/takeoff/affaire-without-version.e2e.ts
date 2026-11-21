@@ -12,7 +12,7 @@ import { apiRequest, armyTest, recordEvidence } from "../critical/fixtures";
 import { querySql } from "../local/calculation-gate-support";
 import { assertOwnedAdmissionRecovery, startOwnedTakeoffAdmission } from "./affaire-admission-support";
 import { buildVectorPlanPdf } from "./vector-plan-fixture";
-import { ownedWorkerHostId, ownedWorkerJobOwner, readVectorViewerDrawing, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
+import { ownedWorkerJobOwner, ownedWorkerSelection, readVectorViewerDrawing, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
 
 armyTest("TKAW01 an affaire without a version reviews the controlled worker's measurements and keeps no estimate", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 180_000,
@@ -82,7 +82,7 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
   const confirmedAt = new Date().toISOString();
   // A confirmation pins the member's ChatGPT selection; the admission script connects this profile on the worker host.
   const snapshot = { ...createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedAt, confirmedBy: userId }),
-    execution_selection: { profileId: "army", model: "army", reasoningEffort: null, hostId: await ownedWorkerHostId() } };
+    execution_selection: await ownedWorkerSelection() };
   expect(snapshot.readiness.can_launch).toBe(true);
   expect((await setup.from("takeoff_preparations").insert({ tenant_id: tenantId, project_id: projectId, revision: 1, draft: preparation,
     confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId })).error).toBeNull();
@@ -270,7 +270,7 @@ armyTest("TKAW02 the takeoff of an affaire without a version creates its first d
   const confirmedAt = new Date().toISOString();
   // A confirmation pins the member's ChatGPT selection; the admission script connects this profile on the worker host.
   const snapshot = { ...createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedAt, confirmedBy: userId }),
-    execution_selection: { profileId: "army", model: "army", reasoningEffort: null, hostId: await ownedWorkerHostId() } };
+    execution_selection: await ownedWorkerSelection() };
   expect((await setup.from("takeoff_preparations").insert({ tenant_id: tenantId, project_id: projectId, revision: 1, draft: preparation,
     confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId })).error).toBeNull();
   const launched = await startOwnedTakeoffAdmission(owner, ui.army.runPrefix, projectId, planSetId, randomUUID()).done;

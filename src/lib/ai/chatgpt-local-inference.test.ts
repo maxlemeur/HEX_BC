@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ getLocalChatGptCredential: vi.fn().mockResolvedValue({ accessToken: "fixture-secret", model: "account-model", profileId: "profile-a" }) }));
+vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ getLocalChatGptCredential: vi.fn().mockResolvedValue({ accessToken: "fixture-secret", model: "account-model", profileId: "profile-a" , authorizationId: null }) }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn(), saveChatGptStore: vi.fn(), withChatGptLock: vi.fn() }));
 import { assertLocalChatGptOverride, callLocalChatGptStructured, readChatGptResponse } from "@/lib/ai/chatgpt-local-inference";
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
@@ -29,6 +29,63 @@ describe("ChatGPT plan inference", () => {
       { profileId: "another-profile", model: "account-model" })).rejects.toThrow("a changé");
     await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
       { profileId: "profile-a", model: "another-model" })).rejects.toThrow("a changé");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  // The job's right to pay (its module, the payer rule, its budget) is checked once the credential is in hand (its lock
+  // and refresh may wait), immediately before the request is sent.
+  it("checks the job's right to pay after the credential's wait, immediately before sending", async () => {
+    const order: string[] = [];
+    let moduleOn = true;
+    vi.mocked(getLocalChatGptCredential).mockImplementation(async () => {
+      order.push("credential");
+      moduleOn = false;
+      return { accessToken: "fixture-secret", model: "account-model", profileId: "profile-a", authorizationId: null } as never;
+    });
+    const fetchMock = vi.fn(async () => { order.push("send"); return stream([completed]); });
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeSend = vi.fn(async () => { order.push("check"); if (!moduleOn) throw new Error("Le module Takeoff est désactivé pour ce tenant."); });
+    const schema = z.object({ amount: z.number() });
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema }, { profileId: "profile-a", model: "account-model", beforeSend }))
+      .rejects.toThrow("désactivé");
+    expect(order).toEqual(["credential", "check"]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.mocked(getLocalChatGptCredential).mockImplementation(async () => {
+      order.push("credential");
+      return { accessToken: "fixture-secret", model: "account-model", profileId: "profile-a", authorizationId: null } as never;
+    });
+    moduleOn = true;
+    order.length = 0;
+    await callLocalChatGptStructured(owner, { prompt: "Extract", schema }, { profileId: "profile-a", model: "account-model", beforeSend });
+    expect(order).toEqual(["credential", "check", "send"]);
+    vi.mocked(getLocalChatGptCredential).mockReset();
+    vi.mocked(getLocalChatGptCredential).mockResolvedValue({ accessToken: "fixture-secret", model: "account-model", profileId: "profile-a", authorizationId: null } as never);
+  });
+  // Every response that carries a usage was paid for: it is recorded, whatever happens to the answer after.
+  it.each([
+    ["a completed answer without any text", [{ type: "response.completed", response: { status: "completed", output: [],
+      usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 } } }]],
+    ["an incomplete answer", [{ type: "response.output_text.delta", delta: '{"amount":' },
+      { type: "response.incomplete", response: { status: "incomplete", usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 } } }]],
+  ])("records the usage of %s before refusing it", async (_case, events) => {
+    vi.stubGlobal("fetch", vi.fn(async () => stream(events)));
+    const onUsage = vi.fn().mockResolvedValue(undefined);
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
+      { profileId: "profile-a", model: "account-model", onUsage })).rejects.toThrow();
+    expect(onUsage).toHaveBeenCalledWith({ totalTokens: 8, costCents: 0 });
+  });
+  it("stops with the recording's own error when a call's usage cannot be recorded, whatever the answer", async () => {
+    const unrecorded = new Error("Le registre de consommation est indisponible.");
+    for (const events of [[completed], [{ type: "response.incomplete", response: { status: "incomplete", usage: { total_tokens: 8 } } }]]) {
+      vi.stubGlobal("fetch", vi.fn(async () => stream(events)));
+      await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
+        { profileId: "profile-a", model: "account-model", onUsage: vi.fn().mockRejectedValue(unrecorded) })).rejects.toBe(unrecorded);
+    }
+  });
+  // A takeoff call names the connection it was pinned to; a call pinned to none is refused, never sent on the current one.
+  it("refuses a takeoff call pinned to no connection before sending it", async () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
+      { profileId: "profile-a", model: "account-model", authorizationId: null })).rejects.toThrow("retirée");
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it("retains streamed output when the completed plan response carries no output items", async () => {
@@ -77,7 +134,7 @@ describe("ChatGPT plan inference", () => {
     await expect(callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.literal(99) }) })).rejects.toThrow();
   });
   it("sends the persisted reasoning effort on the actual Responses request", async () => {
-    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: "gpt-6.1-terra", reasoningEffort: "max" });
+    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: "gpt-6.1-terra", reasoningEffort: "max" , authorizationId: null });
     const fetchMock = vi.fn().mockResolvedValue(stream([completed])); vi.stubGlobal("fetch", fetchMock);
     const result = await callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.number() }) });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: "gpt-6.1-terra", reasoning: { effort: "max" } });
@@ -87,7 +144,7 @@ describe("ChatGPT plan inference", () => {
     const fetchMock = vi.fn().mockResolvedValue(stream([completed])); vi.stubGlobal("fetch", fetchMock);
     await callLocalChatGptStructured(owner, { prompt: "Calculate", schema: z.object({ amount: z.number() }) });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("reasoning");
-    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: "account-model", reasoningEffort: "high" });
+    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: "account-model", reasoningEffort: "high" , authorizationId: null });
     await expect(callLocalChatGptStructured(owner, { prompt: "Chunk", schema: z.object({ amount: z.number() }) }, { profileId: "profile-a", model: "account-model", reasoningEffort: "medium" })).rejects.toThrow("niveau d’effort");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -137,7 +194,7 @@ describe("ChatGPT override of the profile's model and effort", () => {
     expect(saveChatGptStore).not.toHaveBeenCalled();
   });
   it("refuses a profile without model before listing the models, so nothing is written", async () => {
-    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: null, reasoningEffort: null });
+    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId: "profile-a", model: null, reasoningEffort: null , authorizationId: null });
     const fetchMock = routedFetch(); vi.stubGlobal("fetch", fetchMock);
     await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: amount }, undefined, { model: "other-model", reasoningEffort: null })).rejects.toThrow("Choisissez un modèle");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -188,7 +245,7 @@ describe("ChatGPT override of the profile's model and effort", () => {
 //   failure of the answer instead of an unavailable couple.
 function credentialOnce(profileId: string, times = 1, model: string | null = "account-model") {
   for (let index = 0; index < times; index += 1) {
-    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId, model, reasoningEffort: null });
+    vi.mocked(getLocalChatGptCredential).mockResolvedValueOnce({ accessToken: "fixture-secret", profileId, model, reasoningEffort: null , authorizationId: null });
   }
 }
 function paths(fetchMock: { mock: { calls: Array<[string, ...unknown[]]> } }) {
@@ -219,14 +276,14 @@ describe("ChatGPT override check against the account's models", () => {
   it("never writes the store, even when the selected profile has lost its model since the credential was read", async () => {
     credentialOnce("profile-race");
     // Any later read sees the profile without model, as after a new sign-in selected in between.
-    vi.mocked(getLocalChatGptCredential).mockResolvedValue({ accessToken: "fixture-secret", profileId: "profile-race", model: null, reasoningEffort: null });
+    vi.mocked(getLocalChatGptCredential).mockResolvedValue({ accessToken: "fixture-secret", profileId: "profile-race", model: null, reasoningEffort: null , authorizationId: null });
     const withDefault = { models: [...catalog.models, { slug: DEFAULT_CHATGPT_MODEL, display_name: "Default", visibility: "list" }] };
     const fetchMock = vi.fn(async (url: string) => (url.endsWith("/models") ? new Response(JSON.stringify(withDefault), { status: 200 }) : stream([completed])));
     vi.stubGlobal("fetch", fetchMock);
     try {
       await callLocalChatGptStructured(owner, { prompt: "Extract", schema: amount }, undefined, { model: "other-model", reasoningEffort: null });
     } finally {
-      vi.mocked(getLocalChatGptCredential).mockResolvedValue({ accessToken: "fixture-secret", model: "account-model", reasoningEffort: null, profileId: "profile-a" });
+      vi.mocked(getLocalChatGptCredential).mockResolvedValue({ accessToken: "fixture-secret", model: "account-model", reasoningEffort: null, profileId: "profile-a" , authorizationId: null });
     }
     expect(withChatGptLock).not.toHaveBeenCalled();
     expect(saveChatGptStore).not.toHaveBeenCalled();

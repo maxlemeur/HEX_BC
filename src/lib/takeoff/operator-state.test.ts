@@ -7,6 +7,7 @@ import {
   type TakeoffResumeAction,
   type TakeoffResumeReason,
   type TakeoffResumeViewer,
+  viewerLaunchAction,
 } from "@/lib/takeoff/operator-state";
 
 const NOW = new Date("2026-11-21T10:00:00.000Z");
@@ -171,4 +172,20 @@ describe("describeTakeoffResume", () => {
     expect(describeTakeoffResume({ action: "wait_retry", reason: "retry_scheduled", availableAt: "2026-11-21T10:00:15.000Z" }))
       .toContain("11:00:15");
   });
+});
+
+describe("viewerLaunchAction", () => {
+  it.each([
+    ["take_on", true, "blocked", "OPERATOR_REQUIRED", "take_on"],
+    ["resume", true, "blocked", "CHATGPT_NOT_CONNECTED", "resume"],
+    ["take_on", false, "blocked", "MANDATE_REQUIRED", "open_mac"],
+    ["none", true, "evaluating", null, "wait"],
+    ["none", true, "blocked", "ANOTHER_ANALYSIS_RUNNING", "wait"],
+    ["none", true, "not_eligible", "DOSSIER_PROCESSING", "none"],
+    ["none", true, "superseded", null, "none"],
+    ["none", true, "closed", null, "none"],
+  ] as const)("offers what the database allows (%s), on the member's Mac (%s), for a %s request (%s): %s",
+    (allowed, hasLocalRuntime, state, reasonCode, expected) => {
+      expect(viewerLaunchAction(allowed, hasLocalRuntime, state, reasonCode)).toBe(expected);
+    });
 });

@@ -36,6 +36,11 @@ type BriefDraftCardProps = {
   isReadOnly?: boolean;
   hideConfirmAction?: boolean;
   hasPlans?: boolean;
+  /**
+   * Who pays for the automatic takeoff, told at the gesture to the member it will charge; its digest goes back with the
+   * confirmation, which engages that member's subscription only with the notice they were shown.
+   */
+  payerNotice?: { message: string; digest: string } | null;
   onOpenDocuments?: () => void;
   onBackToDossier?: () => void;
 };
@@ -312,6 +317,7 @@ export function BriefDraftCard({
   isReadOnly,
   hideConfirmAction = false,
   hasPlans = false,
+  payerNotice = null,
   onOpenDocuments,
   onBackToDossier,
 }: Readonly<BriefDraftCardProps>) {
@@ -432,9 +438,15 @@ export function BriefDraftCard({
     }
     startTransition(async () => {
       try {
-        await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt! });
-        setAnnouncement("Brief confirmé.");
-        toast.success({ title: "Brief confirmé." });
+        const result = await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, payerNotice: payerNotice?.digest ?? null });
+        // What the confirmation did with the affaire's takeoff: why it waits, and the gesture it now offers this member.
+        const takeoff = result?.takeoff;
+        const takeoffNotice = takeoff?.message
+          ? [takeoff.message, takeoff.actionLabel ? `Action possible dans les options du métré : « ${takeoff.actionLabel} ».` : null]
+            .filter(Boolean).join(" ")
+          : null;
+        setAnnouncement(takeoffNotice ? `Brief confirmé. ${takeoffNotice}` : "Brief confirmé.");
+        toast.success({ title: "Brief confirmé.", ...(takeoffNotice ? { description: takeoffNotice } : {}) });
         router.refresh();
       } catch (err) {
         toast.error({
@@ -443,7 +455,7 @@ export function BriefDraftCard({
         });
       }
     });
-  }, [briefDraft, projectId, router, toast]);
+  }, [briefDraft, payerNotice, projectId, router, toast]);
 
   const handleResolvePlanGap = useCallback((entryIndex: number) => {
     if (!briefDraft?.updatedAt) return;
@@ -613,7 +625,7 @@ export function BriefDraftCard({
 
       <AffaireConfirmDialog open={showConfirmDialog && Boolean(briefDraft) && !isReadOnly && !isEditing}
         title="Confirmer ce brief ?"
-        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.`}
+        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.${payerNotice ? ` ${payerNotice.message}` : ""}`}
         confirmLabel="Oui, confirmer" confirmDisabled={isPending} cancelDisabled={isPending}
         onConfirm={() => { setShowConfirmDialog(false); handleConfirm(); }} onCancel={() => setShowConfirmDialog(false)} />
 

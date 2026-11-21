@@ -107,16 +107,21 @@ function resolvePositiveIntegerFromFlagOrEnv(
   return parsePositiveIntegerOrFallback(flagValue, envFallback);
 }
 
+/**
+ * The server's default for the takeoff module (TAKEOFF_MODULE_FORCE_ENABLED, TAKEOFF_MODULE_ENABLED_BY_DEFAULT), which
+ * the database cannot read: every launch function receives it (p_module_default) and combines it with the tenant's flag.
+ */
+export function takeoffModuleDefault() {
+  // Local/E2E escape hatch to avoid hard dependency on tenant-level flag setup.
+  return parseBooleanEnvFlag(process.env.TAKEOFF_MODULE_FORCE_ENABLED) === true
+    || parseBooleanEnvFlag(process.env.TAKEOFF_MODULE_ENABLED_BY_DEFAULT) === true;
+}
+
 export async function isTakeoffEnabled(
   tenantId: string,
   input?: { supabase?: Supabase }
 ) {
-  // Local/E2E escape hatch to avoid hard dependency on tenant-level flag setup.
-  if (parseBooleanEnvFlag(process.env.TAKEOFF_MODULE_FORCE_ENABLED) === true) {
-    return true;
-  }
-
-  if (parseBooleanEnvFlag(process.env.TAKEOFF_MODULE_ENABLED_BY_DEFAULT) === true) {
+  if (takeoffModuleDefault()) {
     return true;
   }
 

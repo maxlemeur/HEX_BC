@@ -278,6 +278,7 @@ export async function finishLocalChatGptSignIn(owner: ChatGptOwner, url: URL, co
         subject: payload.sub, email: typeof payload.email === "string" ? payload.email : "Compte ChatGPT",
         accessToken: tokens.access_token, refreshToken: tokens.refresh_token, idToken: tokens.id_token,
         expiresAt: Date.now() + tokens.expires_in * 1000, scopes: (tokens.scope ?? "").split(/\s+/).filter(Boolean),
+        authorizationId: randomUUID(),
       });
       store.selectedId = profile.id;
       await saveChatGptStore(owner, store);
@@ -304,10 +305,13 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
       profile.refreshToken = tokens.refresh_token ?? profile.refreshToken;
       profile.expiresAt = Date.now() + tokens.expires_in * 1000;
       if (tokens.scope !== undefined) profile.scopes = tokens.scope.split(/\s+/).filter(Boolean);
+      // A refresh that withdrew the plan's access withdraws the connection's authorization with it.
+      if (!hasLocalChatGptPlanAccess(profile)) delete profile.authorizationId;
       await saveChatGptStore(owner, store);
       if (!hasLocalChatGptPlanAccess(profile)) throw new Error("Le forfait ChatGPT n’est plus autorisé. Reconnectez le compte.");
     }
-    return { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null, profileId: profile.id };
+    return { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null, profileId: profile.id,
+      authorizationId: profile.authorizationId ?? null };
   });
 }
 
@@ -341,6 +345,7 @@ export async function disconnectLocalChatGpt(owner: ChatGptOwner) {
     }
     if (profile) {
       delete profile.accessToken; delete profile.refreshToken; delete profile.idToken; delete profile.expiresAt;
+      delete profile.authorizationId;
       profile.scopes = [];
     }
     store.selectedId = null;

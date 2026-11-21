@@ -98,7 +98,7 @@ export type ChatGptStreamEvent = {
  * The events of a Responses stream, in order. A refused request and a terminal
  * failure throw their fixed message: the provider's payload never leaves here.
  */
-export async function* chatGptStreamEvents(response: Response): AsyncGenerator<ChatGptStreamEvent> {
+export async function* chatGptStreamEvents(response: Response, observe?: (event: ChatGptStreamEvent) => void): AsyncGenerator<ChatGptStreamEvent> {
   if (!response.ok || !response.body) throw providerError(undefined, response.status);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -121,6 +121,8 @@ export async function* chatGptStreamEvents(response: Response): AsyncGenerator<C
           .map((line) => line.slice(5).trimStart()).join("\n");
         if (!data || data === "[DONE]") continue;
         const parsed = JSON.parse(data) as ChatGptStreamEvent;
+        // Seen first, a terminal failure included (it may carry the usage it consumed).
+        observe?.(parsed);
         if (["response.failed", "response.incomplete", "error"].includes(parsed.type ?? "")) {
           const error = parsed.response?.error as { code?: string } | undefined;
           throw providerError(error?.code ?? parsed.code);
@@ -139,11 +141,40 @@ export function chatGptIncompleteError() {
   return providerError();
 }
 
-// Read through the terminal event: partial output is never a successful answer.
-export async function readChatGptResponse(response: Response) {
+const chatGptUsageSchema = z.object({
+  input_tokens: z.number().default(0), output_tokens: z.number().default(0), total_tokens: z.number().default(0),
+  output_tokens_details: z.object({ reasoning_tokens: z.number().default(0) }).optional(),
+});
+type ChatGptUsage = z.infer<typeof chatGptUsageSchema>;
+/** Records a paid call's usage (a launch request's ledger); a failure to record stops the call's caller. */
+export type ChatGptUsageRecorder = (usage: { totalTokens: number; costCents: number }) => Promise<void>;
+
+/**
+ * Read through the terminal event: partial output is never a successful answer. Every response that carries a usage was
+ * paid for: `onUsage` records it first, whatever happens to its answer (no text, incomplete, failed), and its own failure
+ * is the one thrown.
+ */
+export async function readChatGptResponse(response: Response, onUsage?: ChatGptUsageRecorder) {
+  let usage: ChatGptUsage | null = null;
+  let read: { text: string } | { error: unknown };
+  try {
+    read = { text: await readChatGptText(response, (event) => {
+      const seen = chatGptUsageSchema.safeParse(event.response?.usage);
+      if (event.response?.usage !== undefined && seen.success) usage = seen.data;
+    }) };
+  } catch (error) {
+    read = { error };
+  }
+  const paid = usage as ChatGptUsage | null;
+  if (paid && onUsage) await onUsage({ totalTokens: paid.total_tokens, costCents: 0 });
+  if ("error" in read) throw read.error;
+  return { text: read.text, usage: paid ?? chatGptUsageSchema.parse({}) };
+}
+
+async function readChatGptText(response: Response, observe: (event: ChatGptStreamEvent) => void) {
   let completed: Record<string, unknown> | null = null;
   const streamedText = new Map<string, string>();
-  for await (const parsed of chatGptStreamEvents(response)) {
+  for await (const parsed of chatGptStreamEvents(response, observe)) {
     if (parsed.type === "response.completed") completed = parsed.response ?? null;
     const part = `${parsed.output_index ?? 0}:${parsed.content_index ?? 0}`;
     if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") {
@@ -163,11 +194,7 @@ export async function readChatGptResponse(response: Response) {
   // Streamed text becomes usable only after that terminal success is verified.
   const text = finalText || [...streamedText.values()].join("");
   if (!text) throw providerError();
-  const usage = z.object({
-    input_tokens: z.number().default(0), output_tokens: z.number().default(0), total_tokens: z.number().default(0),
-    output_tokens_details: z.object({ reasoning_tokens: z.number().default(0) }).optional(),
-  }).parse(completed.usage ?? {});
-  return { text, usage };
+  return text;
 }
 
 /** A model and effort sent instead of the profile's, which stays unchanged (takeoff bench, TI-660). */
@@ -216,7 +243,22 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
   return checked;
 }
 
-type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
+/**
+ * The selection a paid call runs under: the connection it was pinned to (`authorizationId`, compared with the credential
+ * of this very call; a takeoff call pinned to none is refused), the job's right to pay, checked once the credential is in
+ * hand and immediately before the request is sent (`beforeSend`), and, for a launch request's job, where the usage of
+ * every response that carries one is recorded (`onUsage`). A recording that fails stops the call's caller.
+ */
+type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null;
+  authorizationId?: string | null; beforeSend?: () => Promise<void>; onUsage?: ChatGptUsageRecorder };
+
+/** A takeoff call whose pinned connection was withdrawn, renewed or never recorded: nothing is sent. */
+export class LocalChatGptConnectionWithdrawnError extends Error {
+  constructor() {
+    super("La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation. Reprenez le métré avec votre forfait.");
+    this.name = "LocalChatGptConnectionWithdrawnError";
+  }
+}
 export type LocalChatGptResult<T> = StructuredCallResult<T> & { reasoningEffort: ChatGptReasoningEffort | null };
 /** An answer that is not JSON (SyntaxError) or does not match the schema (ZodError). */
 export type LocalChatGptSchemaError = SyntaxError | z.ZodError;
@@ -244,6 +286,9 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
   if (selection && (credential.profileId !== selection.profileId || credential.model !== selection.model || profileEffort !== (selection.reasoningEffort ?? null))) {
     throw new Error("Le compte, le modèle ou le niveau d’effort ChatGPT a changé. Relancez le métré.");
   }
+  if (selection && "authorizationId" in selection && (!selection.authorizationId || credential.authorizationId !== selection.authorizationId)) {
+    throw new LocalChatGptConnectionWithdrawnError();
+  }
   const sent = !override ? { model: credential.model, reasoningEffort: profileEffort }
     : checkedOverrides.get(override) === overrideScope(owner, credential.profileId) ? override
       : await assertLocalChatGptOverride(owner, credential, override);
@@ -262,6 +307,8 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
       throw new Error("Ce format de document n’est pas pris en charge par la connexion ChatGPT.");
     }
   }
+  // The job's right to pay, with the credential in hand (its lock and refresh may have waited): nothing is sent otherwise.
+  await selection?.beforeSend?.();
   const response = await fetch(`${ROOT}/responses`, {
     method: "POST", headers: { authorization: `Bearer ${credential.accessToken}`, "content-type": "application/json" },
     body: JSON.stringify({
@@ -276,7 +323,7 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
     }),
     signal: AbortSignal.timeout(Math.min(options.timeoutMs ?? 60_000, 180_000)), cache: "no-store",
   });
-  const { text, usage } = await readChatGptResponse(response);
+  const { text, usage } = await readChatGptResponse(response, selection?.onUsage);
   const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
   const tokenUsage = { inputTokens: usage.input_tokens, outputTokens: Math.max(0, usage.output_tokens - reasoningTokens), reasoningTokens, totalTokens: usage.total_tokens };
   const answered = {

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { getConfirmedTakeoffExecutionOwner, requireDetailedTakeoffProcessing } from "@/lib/ai/chatgpt-takeoff";
@@ -12,31 +13,35 @@ import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-ser
 import { runSafeTakeoffAction } from "@/lib/takeoff/action-errors-server";
 import { findTakeoffPreparationCopyReceipt, recordTakeoffPreparationCopy } from "@/lib/takeoff/preparation-copy-provenance-server";
 import type { TakeoffJobCreateResponse } from "@/lib/takeoff/job-creation-input";
+import { assumeTakeoffLaunchRequest, launchTakeoffRelaunch, readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
+
+// Identifiers are compared as text by the replay of a launch (its copy receipt is JSON): one spelling, lower case.
+const uuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
 
 const launchTakeoffFromPlanSetSchema = z.object({
-  projectId: z.string().uuid(),
-  planSetId: z.string().uuid(),
-  versionId: z.string().uuid(),
+  projectId: uuidSchema,
+  planSetId: uuidSchema,
+  versionId: uuidSchema,
   level: z.enum(["B", "C"]).optional(),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
   preparationRevision: z.number().int().positive().optional(),
-  sourceVersionId: z.string().uuid().optional(),
+  sourceVersionId: uuidSchema.optional(),
 });
 
-export type LaunchTakeoffFromPlanSetInput = z.infer<
+export type LaunchTakeoffFromPlanSetInput = z.input<
   typeof launchTakeoffFromPlanSetSchema
 >;
 
 const launchTakeoffFromSourceVersionPlanSetSchema = z.object({
-  projectId: z.string().uuid(),
-  planSetId: z.string().uuid(),
-  sourceVersionId: z.string().uuid(),
+  projectId: uuidSchema,
+  planSetId: uuidSchema,
+  sourceVersionId: uuidSchema,
   level: z.enum(["B", "C"]).optional(),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
   preparationRevision: z.number().int().positive().optional(),
 });
 
-export type LaunchTakeoffFromSourceVersionPlanSetInput = z.infer<
+export type LaunchTakeoffFromSourceVersionPlanSetInput = z.input<
   typeof launchTakeoffFromSourceVersionPlanSetSchema
 >;
 
@@ -141,4 +146,50 @@ export async function launchPreparedTakeoffFromPlanSetAction(input: LaunchTakeof
 export async function launchPreparedTakeoffFromSourceVersionPlanSetAction(input: LaunchTakeoffFromSourceVersionPlanSetInput) {
   return runSafeTakeoffAction(() => launchTakeoffFromSourceVersionPlanSet(input),
     "Impossible de confirmer le lancement. Consultez l'activité du métré avant de réessayer.");
+}
+
+// The automatic start of the takeoff (launch requests). The affaire's page and its dialogues call these; reading the
+// state never spends anything, only these gestures do.
+
+const takeoffLaunchStateSchema = z.object({ projectId: uuidSchema });
+/** The request, the revision of its mandate and the action its options showed: a gesture is refused when either moved. */
+const assumeTakeoffLaunchSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema, seenRevision: z.number().int().nonnegative(),
+  action: z.enum(["take_on", "resume"]) });
+const relaunchTakeoffSchema = z.object({
+  projectId: uuidSchema,
+  planSetId: uuidSchema,
+  preparationRevision: z.number().int().positive(),
+  /** One key per click, kept by the dialogue across a double click, a timeout and a reload of the answer. */
+  intentKey: uuidSchema,
+  /** The analysis it replaces: a relaunch always names it. */
+  predecessorJobId: uuidSchema,
+});
+
+export async function readTakeoffLaunchStateAction(input: z.input<typeof takeoffLaunchStateSchema>) {
+  return runSafeTakeoffAction(async () => {
+    const { projectId } = takeoffLaunchStateSchema.parse(input);
+    return readAffaireTakeoffLaunchState(await getAuthenticatedContext(), projectId);
+  }, "Impossible de lire le métré de l'affaire. Rechargez la page.");
+}
+
+/** « Reprendre avec mon forfait » / « Prendre en charge avec mon forfait », on the Mac where the member is connected. */
+export async function assumeTakeoffLaunchRequestAction(input: z.input<typeof assumeTakeoffLaunchSchema>) {
+  return runSafeTakeoffAction(async () => {
+    const parsed = assumeTakeoffLaunchSchema.parse(input);
+    const result = await assumeTakeoffLaunchRequest({ context: await getAuthenticatedContext(), ...parsed,
+      host: (await headers()).get("host") });
+    revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
+    return result;
+  }, "Impossible de prendre en charge le métré. Rechargez l'affaire avant de réessayer.");
+}
+
+/** A relaunch from the takeoff's options: a new request and a new job, on the subscription of the member who clicks. */
+export async function relaunchTakeoffAction(input: z.input<typeof relaunchTakeoffSchema>) {
+  return runSafeTakeoffAction(async () => {
+    const parsed = relaunchTakeoffSchema.parse(input);
+    const result = await launchTakeoffRelaunch({ context: await getAuthenticatedContext(), ...parsed, host: (await headers()).get("host") });
+    revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
+    revalidatePath(`/dashboard/affaires/${parsed.projectId}/takeoff`);
+    return result;
+  }, "Impossible de relancer le métré. Consultez l'activité du métré avant de réessayer.");
 }

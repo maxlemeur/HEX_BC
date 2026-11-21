@@ -69,6 +69,16 @@ export async function ownedWorkerHostId() {
   return z.string().regex(/^urn:uuid:[0-9a-f-]{36}$/).parse(JSON.parse(await readFile(file, "utf8")));
 }
 
+/**
+ * The ChatGPT subscription a confirmation of these journeys pins: the « army » profile the admission script connects on the
+ * worker host (scripts/tester-army/takeoff-admit.mjs), with that connection's authorization (a job pinned to none is
+ * refused, never run on the current connection).
+ */
+export const OWNED_WORKER_AUTHORIZATION = "army-connexion";
+export async function ownedWorkerSelection() {
+  return { profileId: "army", model: "army", reasoningEffort: null, hostId: await ownedWorkerHostId(), authorizationId: OWNED_WORKER_AUTHORIZATION };
+}
+
 /** The execution owner of a pending job the owned worker runs: the local ChatGPT plan on its host. */
 export async function ownedWorkerJobOwner() {
   return { execution_provider: "chatgpt_local" as const, execution_host_id: await ownedWorkerHostId(), processing_strategy: "sync" as const };

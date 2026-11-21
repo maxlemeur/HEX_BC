@@ -159,6 +159,8 @@ type AffaireHubProps = {
   // False for a page of made-up data (development scenarios): the dossier is not read.
   liveDossier?: boolean;
   viewerProfileId?: string | null;
+  /** The notice of who pays, shown in the brief's confirmation to the member the automatic takeoff will charge. */
+  automaticTakeoffPayerNotice?: { message: string; digest: string } | null;
 };
 
 export function shouldShowAffaireCreatedOnboardingBanner(input: {
@@ -473,6 +475,7 @@ export function AffaireHub({
   cockpitPreferences,
   liveDossier = true,
   viewerProfileId,
+  automaticTakeoffPayerNotice = null,
 }: AffaireHubProps) {
   const router = useRouter();
   const documentSearchParams = useSearchParams();
@@ -1338,6 +1341,7 @@ export function AffaireHub({
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
                     hasPlans={Boolean(intakeWorkspace && !intakeWorkspace.missingPieces.some((piece) => piece.code === "missing_plans"))}
                     isReadOnly={isReadOnlyReview}
+                    payerNotice={automaticTakeoffPayerNotice}
                     onOpenDocuments={openDocuments}
                     onBackToDossier={() => {
                       selectSection("dossier");

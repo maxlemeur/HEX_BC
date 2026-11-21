@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE,
+  getAffaireDossierState,
+  type AffaireIntakeReviewableDocument,
   buildAffaireIntakeReadinessSnapshot,
   buildAffaireIntakeMissingPieces,
   isAffaireIntakeDocumentNeedingReview,
@@ -353,5 +356,25 @@ describe("affaire intake helpers", () => {
       detectedLots: ["Plomberie"],
       detectedVariants: [],
     });
+  });
+});
+
+describe("getAffaireDossierState", () => {
+  const classified = { classificationStatus: "classified" as const, documentKind: "plans" as const, confidence: 0.9 };
+  it.each([
+    ["no piece", [], "confirme", "empty"],
+    ["a piece being classified", [{ ...classified, classificationStatus: "processing" as const }], "confirme", "processing"],
+    ["a queued piece", [{ ...classified, classificationStatus: "queued" as const }], "confirme", "processing"],
+    ["a pending reanalysis", [{ ...classified, issues: [AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE] as string[] }], "confirme", "processing"],
+    ["a former piece without category, confidence or issue", [{ documentKind: "a_classer" as const, confidence: 0 }], "confirme", "processing"],
+    ["an ambiguous piece", [{ ...classified, classificationStatus: "ambiguous" as const }], "confirme", "to_review"],
+    ["a failed piece", [{ ...classified, classificationStatus: "failed" as const }], "confirme", "to_review"],
+    ["a former piece of low confidence", [{ documentKind: "plans" as const, confidence: 0.5 }], "confirme", "to_review"],
+    ["a review and a classification at once", [{ ...classified, classificationStatus: "ambiguous" as const },
+      { ...classified, classificationStatus: "processing" as const }], "confirme", "to_review"],
+    ["classified pieces and a brief to confirm", [classified], "a_confirmer", "brief_to_confirm"],
+    ["classified pieces and a confirmed brief", [classified], "confirme", "confirmed"],
+  ] as const)("reads %s", (_case, documents, briefStatus, expected) => {
+    expect(getAffaireDossierState({ documents: documents as ReadonlyArray<AffaireIntakeReviewableDocument>, briefStatus })).toBe(expected);
   });
 });

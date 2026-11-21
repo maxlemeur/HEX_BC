@@ -717,6 +717,23 @@ export function isAffaireIntakeDocumentNeedingReview(
   );
 }
 
+/**
+ * Where the dossier of an affaire stands: empty, pieces to review, pieces being classified, a brief to confirm, or
+ * « Dossier confirmé ». The presence of plans is not part of it. The automatic start of the takeoff decides by it on the
+ * server; the affaire's journey panel still keeps its own copy (AffaireJourneyPanel.model.ts).
+ */
+export type AffaireDossierState = "empty" | "to_review" | "processing" | "brief_to_confirm" | "confirmed";
+
+export function getAffaireDossierState(input: {
+  documents: ReadonlyArray<AffaireIntakeReviewableDocument>;
+  briefStatus: string | null | undefined;
+}): AffaireDossierState {
+  if (input.documents.length === 0) return "empty";
+  if (input.documents.some(isAffaireIntakeDocumentNeedingReview)) return "to_review";
+  if (input.documents.some(isAffaireIntakeDocumentProcessing)) return "processing";
+  return input.briefStatus === "confirme" ? "confirmed" : "brief_to_confirm";
+}
+
 export function deriveAffaireIntakeUploadStatusFromDocuments(
   documents: AffaireIntakeWorkspaceDocumentSummary[]
 ) {

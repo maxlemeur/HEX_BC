@@ -37,6 +37,10 @@ export enum TakeoffErrorCode {
   TAKEOFF_LEVEL_C_TIMEOUT = "TAKEOFF_LEVEL_C_TIMEOUT",
   TAKEOFF_LEVEL_C_INVALID_SCHEMA = "TAKEOFF_LEVEL_C_INVALID_SCHEMA",
   TAKEOFF_LEVEL_C_BUDGET_EXCEEDED = "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
+  /** A launch request whose budget its earlier attempts spent: its job ends, its request closes with that reason. */
+  TAKEOFF_REQUEST_BUDGET_EXHAUSTED = "TAKEOFF_REQUEST_BUDGET_EXHAUSTED",
+  /** A paid call's usage that its launch request's ledger could not record: the job stops, nothing more is sent. */
+  TAKEOFF_USAGE_UNRECORDED = "TAKEOFF_USAGE_UNRECORDED",
   TAKEOFF_JOB_NOT_RETRIABLE = "TAKEOFF_JOB_NOT_RETRIABLE",
   TAKEOFF_JOB_NOT_CANCELABLE = "TAKEOFF_JOB_NOT_CANCELABLE",
   TAKEOFF_JOB_ADMISSION_LIMIT = "TAKEOFF_JOB_ADMISSION_LIMIT",

@@ -21,12 +21,18 @@ import {
 import { createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
 import { verifyPriceReuseArbitration } from "./engine-v3-price-reuse-support";
 import { querySql } from "./calculation-gate-support";
+import { callServerAction, serverActionId } from "./engine-v3-creators-support";
+import {
+  activateOwnedAutomaticStart, deactivateOwnedAutomaticStart, makeOwnedDirector, readOwnedAffaireJobs, readOwnedAffaireNotices,
+  readOwnedBrief, readOwnedLaunchRequests,
+} from "./automatic-start-support";
 import { LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
 import { labSessionCookies, launchLabRun, rawLabRequest } from "./takeoff-lab-support";
 
 // The assistance of the ChatGPT local journeys, on this file's own development server: the Decisions proposals of
 // the preparation (DEC01, TRI01), the lab's vectors page (VEC01), the price reuse arbitration (PRX02), the intake
-// reanalysis (INTRETRY01, INTWORD01) and the transcriptions of the pieces (INTOCR01, INTOCR02). The takeoff jobs run in
+// reanalysis (INTRETRY01, INTWORD01), the transcriptions of the pieces (INTOCR01, INTOCR02) and the automatic start
+// of the takeoff when the dossier is confirmed (AUTO01 to AUTO05, each with owners of its own). The takeoff jobs run in
 // chatgpt-local-takeoff.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). Each test that needs a ChatGPT profile writes its
 // own and removes it: DEC01 starts without one, and the lab's output holds the runs of VEC01 alone.
@@ -38,6 +44,8 @@ let transportLog: string;
 let decisionsControl: string;
 let fixtureEmail: string;
 let labOutputDir: string;
+let serverWorkspace: { id: string } | undefined;
+const actionManifest = () => `.build/tester-army/next-${serverWorkspace!.id}/dev/server/server-reference-manifest.json`;
 // The intake journeys wait for work of their own development server: a page refresh after a reclassification, an
 // analysis of each piece. A CI runner shares its processors with the second worker and the built application: the
 // same requests that answer in under a second locally took 11 to 15 s there (run 42822760346, both attempts, and
@@ -53,7 +61,7 @@ async function preparePlanFixture(unsetPreferences = false) {
 }
 
 beforeAll(async () => {
-  ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir } = await server.start());
+  ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir, workspace: serverWorkspace } = await server.start());
 });
 // The tests here open the takeoff pages too (ASSIST02 launches a job and reads its review, the intake tests open the
 // affaire): the same waves as the takeoff file, one hook each, so that no first use waits for its compile.
@@ -1208,5 +1216,304 @@ test("INTWORD01 Word analysis reports per-file failures and preserves manual cho
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
+  }
+});
+
+// The automatic start of the takeoff (lot 2, migration 20261121170448_takeoff_launch_requests.sql). Each journey has
+// owners of its own (createLocalChatGptOwner): their analyses count against no other journey's admission budget, and the
+// file's owner keeps no profile for them. The automatic start is activated for the journey only.
+/** Signs `email` in on this file's server, after leaving any session this browser context holds there. */
+async function signInAs(ui: Parameters<typeof signIn>[0], email: string) {
+  await ui.browser.clearCookies({ domain: new URL(localOrigin).hostname });
+  await signIn(ui, localOrigin, email);
+}
+async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: string, name: string, email: string,
+  dossier: "empty" | "opened" = "empty", until: "classified" | "classifying" = "classified") {
+  const { client } = await localChatGptClient(email);
+  const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", projectId);
+  await mkdir(directory, { recursive: true });
+  const file = path.join(directory, name);
+  // Bytes of its own for each plan (a comment after the end of the PDF): the dossier refuses a second identical copy.
+  await writeFile(file, Buffer.concat([await readFile(path.resolve("e2e/fixtures/sample-plan.pdf")), Buffer.from(`\n% ${name}\n`)]));
+  if (dossier === "empty") {
+    // An affaire without a dossier offers its drop surface on the page.
+    await ui.app.open(`/dashboard/affaires/${projectId}`);
+    await ui.browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(file);
+  } else {
+    // A dossier already opened adds its pieces from « Ajouter des pièces ».
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    await ui.screen.getByRole("button", "Ajouter des pièces", { exact: true }).click();
+    await ui.screen.getByRole("dialog", "Ajouter des documents", { exact: true })
+      .getByLabel("Ajouter des pièces à l'affaire", { exact: true }).setInputFiles(file);
+  }
+  await expect.poll(async () => {
+    const { data } = await client.from("affaire_intake_documents").select("file_name,classification_status,document_kind").eq("project_id", projectId);
+    return (data ?? []).some((doc) => doc.file_name === name && (until === "classifying"
+      ? ["queued", "processing"].includes(doc.classification_status)
+      : doc.classification_status === "classified" && doc.document_kind === "plans"));
+  }, DEV_SERVER_WORK).toBe(true);
+}
+/**
+ * Opens the affaire until its brief's button shows. The brief is written once the dossier's analysis ends and the page
+ * does not always show it by itself: it is read again until the button is there. The hub opens the brief's section from
+ * the page's address once hydrated, and `next dev` hydrates only after the `load` a reload waits for: each reload is
+ * read once hydrated (a check before it never sees the section, and a reload after it starts over: CI run 44917281697).
+ * Opening the address of the page already shown only moves to its fragment.
+ */
+async function openBriefConfirmation(ui: ReturnType<typeof hydratedUi>, projectId: string) {
+  const confirm = ui.screen.getByRole("button", "Confirmer le brief", { exact: true });
+  await ui.app.open(`/dashboard/affaires/${projectId}#brief`);
+  await expect.poll(async () => {
+    if (await confirm.isVisible()) return true;
+    await ui.browser.reload();
+    await waitForHydration(ui.browser);
+    return confirm.isVisible();
+  }, DEV_SERVER_WORK).toBe(true);
+  return confirm;
+}
+const PAYER_NOTICE = "Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.";
+const planReads = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
+  .filter(entry => entry.provider === "chatgpt-fixture" && entry.inputKind === "pdf").length;
+const forbiddenRequests = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
+  .filter(entry => entry.provider === "forbidden").length;
+
+if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one detailed analysis on its confirmer's subscription, once", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedAutomaticStart();
+  try {
+    await signInAs({ app, screen, browser }, owner.email);
+    const prefix = `ARMY-auto-start-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Démarrage automatique" }, army);
+    const before = await readEstimate(browser, ids.versionId);
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-rdc.pdf`, owner.email);
+    await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    const briefBefore = (await readOwnedBrief(ids.projectId))!;
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
+    const readsBefore = await planReads();
+
+    // The member who confirms is told who pays, at the gesture.
+    const confirm = await openBriefConfirmation(ui, ids.projectId);
+    await confirm.click();
+    const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
+    await expect(dialog).toContainText("Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.");
+    await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
+
+    // One request, one detailed analysis of the dossier's plan without a version, on the confirmer's subscription.
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.origin, request.state, request.outcome]),
+      { timeout: 180_000 }).toEqual([["automatic", "closed", "success"]]);
+    const [request] = await readOwnedLaunchRequests(ids.projectId);
+    expect(request).toMatchObject({ confirmed_by: owner.userId, payer_id: owner.userId,
+      mandate_kind: "confirmation", units_expected: 1 });
+    const jobs = await readOwnedAffaireJobs(ids.projectId);
+    expect(jobs).toEqual([expect.objectContaining({ launch_request_id: request.id, launch_unit_key: "grouped", estimate_version_id: null,
+      created_by: owner.userId, status: "completed", analysis_outcome: "success", execution_host_id: request.execution_host_id })]);
+    expect(await planReads() - readsBefore).toBe(1);
+    expect(await readOwnedAffaireNotices(ids.projectId)).toEqual([expect.objectContaining({ subject_kind: "request", request_id: request.id,
+      job_id: null, recipient_user_id: owner.userId, outcome: "success" })]);
+    expect((await readEstimate(browser, ids.versionId)).items).toEqual(before.items);
+
+    // The member's identical submission of the revision they confirmed (a second tab, or an answer lost on the way)
+    // gets the first one's answer and starts nothing more; a form of any other revision is refused.
+    const confirmAction = await serverActionId("confirmAffaireBrief", actionManifest());
+    const replay = await callServerAction(browser, confirmAction, { projectId: ids.projectId, expectedUpdatedAt: briefBefore.updated_at });
+    expect(replay).toMatchObject({ ok: true, errorCode: null });
+    const stale = await callServerAction(browser, confirmAction,
+      { projectId: ids.projectId, expectedUpdatedAt: new Date(Date.parse(briefBefore.updated_at) - 1_000).toISOString() });
+    expect(stale.ok).not.toBe(true);
+    expect(await readOwnedLaunchRequests(ids.projectId)).toHaveLength(1);
+
+    // A plan added after the analysis is not in its sealed manifest, and nothing is spent on it without a gesture.
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-etage.pdf`, owner.email, "opened");
+    const [planSet] = await readPlanSets(browser, ids.projectId);
+    await expect.poll(async () => (await readPlanFiles(browser, planSet.id)).length, DEV_SERVER_WORK).toBe(2);
+    const added = (await readPlanFiles(browser, planSet.id)).filter(file => !(request.manifest_plans ?? []).includes(file.id));
+    expect(added.map(file => file.file_name)).toEqual([`${prefix}-plan-etage.pdf`]);
+    // The request is consumed: the database never hands it to the Mac's loop again (takeoff-launch-requests.test.sql).
+    expect(await readOwnedAffaireJobs(ids.projectId)).toHaveLength(1);
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([expect.objectContaining({ id: request.id, state: "closed" })]);
+    expect(await planReads() - readsBefore).toBe(1);
+    expect(await forbiddenRequests()).toBe(0);
+    await recordEvidence(army, "AUTO01-automatic-start", { ids, request, jobs, planReads: 1, replayedConfirmation: replay, staleConfirmation: stale,
+      addedAfterAnalysis: added.map(file => file.id), boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend." });
+  } finally {
+    // The next journey signs its own account in: leave no session of these owners.
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedAutomaticStart();
+    await rm(store, { force: true });
+  }
+});
+
+if (!existsSync(liveProbePath)) test("AUTO02 a director who confirms the dossier pays nothing: the analysis waits for an operator", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const director = await createLocalChatGptOwner();
+  await makeOwnedDirector(owner.userId, director.userId);
+  // Both have a connected subscription on this Mac: the director's is never used.
+  const stores = [await writePlanFixture(owner.email, null, false), await writePlanFixture(director.email, null, false)];
+  await activateOwnedAutomaticStart();
+  try {
+    await signInAs({ app, screen, browser }, owner.email);
+    const prefix = `ARMY-auto-director-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Confirmation par un directeur" }, army);
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
+    await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    const readsBefore = await planReads();
+    // The director's hub shows no confirmation button; the confirmation itself is open to every reader of the affaire.
+    await signInAs({ app, screen, browser }, director.email);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    const confirmed = await callServerAction(browser, await serverActionId("confirmAffaireBrief", actionManifest()),
+      { projectId: ids.projectId, expectedUpdatedAt: (await readOwnedBrief(ids.projectId))!.updated_at });
+    expect(confirmed.status).toBe(200);
+    expect(await readOwnedBrief(ids.projectId)).toMatchObject({ status: "confirme", confirmed_by: director.userId });
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([expect.objectContaining({ origin: "automatic", state: "blocked",
+      reason_code: "OPERATOR_REQUIRED", confirmed_by: director.userId, payer_id: null })]);
+    // A request blocked for an operator is never handed to a Mac's loop (takeoff-launch-requests.test.sql): no job.
+    expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
+    expect(await planReads()).toBe(readsBefore);
+    expect(await forbiddenRequests()).toBe(0);
+    await recordEvidence(army, "AUTO02-director-confirmation", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
+      jobs: 0, planReads: 0, boundary: "Fictional dossier, two owned members, ChatGPT transport fixture on an owned local backend." });
+  } finally {
+    // The next journey signs its own account in: leave no session of these owners.
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedAutomaticStart();
+    for (const store of stores) await rm(store, { force: true });
+  }
+});
+
+if (!existsSync(liveProbePath)) test("AUTO03 a confirmer whose ChatGPT connection goes while the dialog is open engages nobody, sees why, and nothing is spent", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  // The dossier's classification runs on a connected subscription; the connection is gone at the confirmation.
+  const store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedAutomaticStart();
+  try {
+    await signInAs({ app, screen, browser }, owner.email);
+    const prefix = `ARMY-auto-offline-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Sans forfait connecté" }, army);
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
+    await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    const readsBefore = await planReads();
+    // The dialog tells the member who pays, for the subscription connected now; the connection goes while it is open
+    // (the dossier was classified and its brief written while it existed): the notice shown no longer holds.
+    const confirm = await openBriefConfirmation(ui, ids.projectId);
+    await confirm.click();
+    const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
+    await expect(dialog).toContainText(PAYER_NOTICE);
+    await rm(store, { force: true });
+    await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
+    await expect(screen.getByText(/Brief confirmé\. Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT/)).toBeVisible(DEV_SERVER_WORK);
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code]),
+      DEV_SERVER_WORK).toEqual([["blocked", "MANDATE_REQUIRED"]]);
+    expect((await readOwnedLaunchRequests(ids.projectId))[0]).toMatchObject({ payer_id: null, execution_host_id: null });
+    // Without a mandate the request has no Mac: no loop claims it until a gesture (takeoff-launch-requests.test.sql).
+    expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
+    expect(await planReads()).toBe(readsBefore);
+    expect(await forbiddenRequests()).toBe(0);
+    await recordEvidence(army, "AUTO03-stale-notice", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0], jobs: 0,
+      planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
+  } finally {
+    // The next journey signs its own account in: leave no session of these owners.
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedAutomaticStart();
+    await rm(store, { force: true });
+  }
+});
+
+if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown without the payer notice engages nobody, and nothing is spent", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const store = await writePlanFixture(owner.email, null, false);
+  // The notices' cut-off only: the automatic start is off while the member reads the affaire.
+  await activateOwnedAutomaticStart();
+  await deactivateOwnedAutomaticStart();
+  try {
+    await signInAs({ app, screen, browser }, owner.email);
+    const prefix = `ARMY-auto-unnotified-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Confirmation sans mention du forfait" }, army);
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
+    await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    const readsBefore = await planReads();
+    const confirm = await openBriefConfirmation(ui, ids.projectId);
+    await confirm.click();
+    const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).not.toContainText(PAYER_NOTICE);
+    // The owner turns the automatic start on while the dialog is open: its confirmation was never told who pays.
+    await activateOwnedAutomaticStart();
+    await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
+    // The member is told why nothing started, and what may start it.
+    await expect(screen.getByText(/Brief confirmé\. Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT/)).toBeVisible(DEV_SERVER_WORK);
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code, request.payer_id]),
+      DEV_SERVER_WORK).toEqual([["blocked", "MANDATE_REQUIRED", null]]);
+    expect(await readOwnedBrief(ids.projectId)).toMatchObject({ status: "confirme", confirmed_by: owner.userId });
+    expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
+    expect(await planReads()).toBe(readsBefore);
+    expect(await forbiddenRequests()).toBe(0);
+    await recordEvidence(army, "AUTO04-unnotified-confirmation", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
+      jobs: 0, planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
+  } finally {
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedAutomaticStart();
+    await rm(store, { force: true });
+  }
+});
+
+if (!existsSync(liveProbePath)) test("AUTO05 a dossier classified after its confirmation, its subscription reconnected meanwhile, waits for the payer's gesture", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  let store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedAutomaticStart();
+  try {
+    await signInAs({ app, screen, browser }, owner.email);
+    const prefix = `ARMY-auto-reconnected-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Classement après la confirmation" }, army);
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-rdc.pdf`, owner.email);
+    await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    // A second plan is still being classified when the member confirms: the dossier is not ready.
+    await setDecisionsControl({ holdClassification: true });
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-etage.pdf`, owner.email, "opened", "classifying");
+    const readsBefore = await planReads();
+    const confirm = await openBriefConfirmation(ui, ids.projectId);
+    await confirm.click();
+    const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
+    await expect(dialog).toContainText(PAYER_NOTICE);
+    await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code, request.payer_id]),
+      DEV_SERVER_WORK).toEqual([["not_eligible", "DOSSIER_PROCESSING", owner.userId]]);
+    // The payer disconnects and reconnects the subscription before the dossier is ready: a new connection.
+    await rm(store, { force: true });
+    store = await writePlanFixture(owner.email, null, false);
+    await setDecisionsControl({});
+    // The Mac's periodic loop evaluates the dossier once its last plan is classified: the mandate was withdrawn.
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code]),
+      { timeout: 120_000 }).toEqual([["blocked", "CHATGPT_ACCESS_REVOKED"]]);
+    expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
+    expect(await planReads()).toBe(readsBefore);
+    expect(await forbiddenRequests()).toBe(0);
+    await recordEvidence(army, "AUTO05-reconnected-before-ready", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
+      jobs: 0, planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
+  } finally {
+    await setDecisionsControl({});
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedAutomaticStart();
+    await rm(store, { force: true });
   }
 });

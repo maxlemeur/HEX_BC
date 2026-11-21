@@ -56,6 +56,8 @@ export type UpdateAffaireBriefInput = z.infer<
 const confirmAffaireBriefInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   expectedUpdatedAt: z.string().datetime({ offset: true }),
+  /** The digest of the payer notice the confirmation dialog showed, if it showed one. */
+  payerNotice: z.string().regex(/^[0-9a-f]{64}$/, "Mention du forfait invalide.").nullable().optional(),
 });
 
 export type ConfirmAffaireBriefInput = z.infer<

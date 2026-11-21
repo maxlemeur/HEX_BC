@@ -8,6 +8,7 @@ import {
   classifyVectorGroupsLocal, GROUP_LOCAL_MODEL_CONCURRENCY, LocalGroupsRequestError, LocalGroupsStop, type LocalGroupsCall,
 } from "@/lib/takeoff/vectors/group-local-model-server";
 import { GROUP_LOCAL_MODEL_LIMITS } from "@/lib/takeoff/vectors/group-local-model";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { readVectorPage } from "@/lib/takeoff/vectors/pipeline";
 
 // Ways the local-mode classification (TI-704 option B,
@@ -299,6 +300,18 @@ describe("local-mode classification (group-local-model-server.ts, TI-704 option 
     const outcome = await run(page(3, true), null, render);
     expect([outcome.stop, sessions.started, outcome.calls.length]).toEqual([null, 0, 0]);
     expect(decisionsOfOutcome(outcome).get("c:#00a0a0|w:0.6|d:")).toEqual({ class: "EF", confidence: null, source: "rule" });
+  });
+
+  // A request the job itself refused to pay (its module, payer or budget, checked just before sending) or whose usage
+  // its ledger could not record stops the job: no request after it, never a class of the rules in its place.
+  it.each([
+    ["the job refused to pay it", TakeoffErrorCode.FORBIDDEN],
+    ["its usage could not be recorded", TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED],
+  ])("stops the job when a request fails because %s, no request after it", async (_case, code) => {
+    const refusal = new TakeoffError({ code, retryable: false, message: "Refus fictif du métré." });
+    const plan = fakeCall("fond", 0.9, (index) => (index === 0 ? refusal : null));
+    await expect(run(page(40, true), plan.call, fakeRender().render)).rejects.toBe(refusal);
+    expect(plan.requests).toHaveLength(GROUP_LOCAL_MODEL_CONCURRENCY);
   });
 
   it("lets the job's own check stop the job, never a request after it", async () => {

@@ -7,6 +7,7 @@ import { authenticatedContext, createSupabaseFake, filterValue, M3_PLAN_SET_ID, 
 import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
+import { launchTakeoffFromPlanSet } from "@/app/dashboard/affaires/_actions/takeoff";
 
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/auth/tenant-context", () => ({ getAuthenticatedContext: vi.fn() }));
@@ -16,6 +17,11 @@ vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
   return { ...actual, getConfirmedTakeoffExecutionOwner: vi.fn(), assertLocalTakeoffResumeReady: vi.fn() };
 });
 vi.mock("@/lib/takeoff/preparation-server", () => ({ assertConfirmedTakeoffPreparation: vi.fn() }));
+// The launch action, for the replay of a launch whose identifiers arrive in upper case: nothing is dispatched.
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/takeoff/edge-trigger", () => ({ triggerTakeoffJobProcessing: vi.fn() }));
+vi.mock("@/lib/takeoff/dispatch-state", () => ({ persistTakeoffDispatchOutcome: vi.fn() }));
+vi.mock("@/lib/estimates/version-variant-server", () => ({ duplicateEstimateVersion: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
   getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200 }),
@@ -136,6 +142,45 @@ describe("prepared plan launch receipts", () => {
     expect(audit.queries.map(query => filterValue(query, "action"))).toEqual([
       "takeoff.preparation.version_created", "takeoff.job.created",
     ]);
+  });
+
+  it("replays a copied-draft launch whose identifiers arrive in upper case", async () => {
+    // The database compares identifiers as UUIDs, but the copy receipt keeps them as JSON text. Identifiers with letters,
+    // so that their case can differ.
+    const ids = { project: "abcdef01-2345-4abc-8def-0123456789ab", planSet: "bcdef012-3456-4bcd-8ef0-123456789abc",
+      target: "cdef0123-4567-4cde-8f01-23456789abcd", source: "def01234-5678-4def-8012-3456789abcde" };
+    const same = (value: unknown, expected: string) => typeof value === "string" && value.toLowerCase() === expected;
+    const snapshot = confirmedRevision();
+    snapshot.preparation.processing = { level: "C", provider: "chatgpt" };
+    const job = {
+      id: derivePlanSetTakeoffJobId({ tenantId: M3_TENANT_ID, projectId: ids.project, planSetId: ids.planSet,
+        estimateVersionId: ids.target, sourceVersionId: ids.source, preparationRevision: 2, level: "C", provider: "chatgpt" }),
+      project_id: ids.project, plan_set_id: ids.planSet, estimate_version_id: ids.target, status: "completed",
+      level: "C", source_file_name: "Plan fictif.pdf", source_file_path: "tenant/plans/file.pdf", created_by: M3_USER_ID,
+      created_at: "2026-10-29T00:00:00Z", execution_provider: "chatgpt_local", preparation_snapshot: snapshot,
+    };
+    const fake = createSupabaseFake({ tables: {
+      takeoff_jobs: (query) => ({ error: null, data: (filterValue(query, "id") ? same(filterValue(query, "id"), job.id) : (
+        same(filterValue(query, "estimate_version_id"), ids.target) && same(filterValue(query, "project_id"), ids.project)
+        && same(filterValue(query, "plan_set_id"), ids.planSet)
+        && filterValue(query, "preparation_snapshot->>preparation_revision") === "2" && filterValue(query, "level") === "C"
+      )) ? job : null }),
+      estimate_versions: () => ({ data: { id: ids.target, status: "draft", estimate_projects: { tenant_id: M3_TENANT_ID, user_id: M3_USER_ID } }, error: null }),
+    } });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(authenticatedContext(fake) as never);
+    const audit = createSupabaseFake({ tables: {
+      audit_logs: (query) => ({ error: null, data: filterValue(query, "action") === "takeoff.job.created" || (
+        filterValue(query, "action") === "takeoff.preparation.version_created"
+        && filterValue(query, "after_data->>source_version_id") === ids.source
+        && filterValue(query, "after_data->>target_version_id") === ids.target) ? { id: "receipt" } : null }),
+    } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(audit.client as never);
+    const replayed = await launchTakeoffFromPlanSet({
+      projectId: ids.project.toUpperCase(), planSetId: ids.planSet.toUpperCase(), versionId: ids.target.toUpperCase(),
+      sourceVersionId: ids.source.toUpperCase(), level: "C", provider: "chatgpt", preparationRevision: 2,
+    });
+    expect(replayed).toMatchObject({ jobId: job.id, existingStatus: "completed" });
+    expect(fake.writesTo("takeoff_jobs")).toEqual([]);
   });
 
   it("refuses a different target without the source-to-target copy receipt", async () => {

@@ -216,60 +216,25 @@ export async function updateAffaireBrief(input: {
   } as const;
 }
 
-export async function confirmAffaireBrief(input: { projectId: string; expectedUpdatedAt: string }) {
+export async function confirmAffaireBrief(input: { projectId: string; expectedUpdatedAt: string; payerNotice?: string | null }) {
   // The brief is completed by every reader of the affaire, a director included: read access is enough.
   const { context, project } = await requireAffaireAccess(input.projectId, "read");
-  const existing = await fetchAffaireBriefForProject({
-    supabase: context.supabase,
-    projectId: project.id,
-  });
-
-  if (!existing) {
+  // One commit for the brief's compare-and-set, its event and the reservation of the affaire's automatic takeoff, which
+  // engages the member's subscription only with the payer notice they were shown (launch-request-server.ts).
+  const [{ confirmAffaireBriefWithTakeoff }, { headers }] = await Promise.all([
+    import("@/lib/takeoff/launch-request-server"), import("next/headers"),
+  ]);
+  const confirmed = await confirmAffaireBriefWithTakeoff({ context, projectId: project.id, expectedUpdatedAt: input.expectedUpdatedAt,
+    notice: input.payerNotice ?? null, host: (await headers()).get("host") });
+  if (confirmed.outcome === "not_found") {
     throw notFound("Brief affaire introuvable.");
   }
-
-  if (existing.brief.updated_at !== input.expectedUpdatedAt) {
+  if (confirmed.outcome === "conflict") {
     throw conflict("Le brief a changé. Actualisez avant de le confirmer.");
   }
-
-  if (existing.draft.status === "confirme") {
-    return {
-      ok: true,
-      status: "confirme",
-    } as const;
-  }
-
-  const confirmedAt = new Date().toISOString();
-  const { data, error } = await resolveSupabaseQuery<{ data: { id: string } | null; error: unknown }>(
-    context.supabase
-      .from("affaire_briefs")
-      .update({
-        status: "confirme", confirmed_at: confirmedAt, confirmed_by: context.userId, updated_by: context.userId,
-      } as never)
-      .eq("id", existing.brief.id)
-      .eq("updated_at", input.expectedUpdatedAt)
-      .select("id" as never)
-      .maybeSingle()
-  );
-  if (error) throw internalError("Impossible de confirmer le brief affaire.", error);
-  if (!data) throw conflict("Le brief a changé. Actualisez avant de le confirmer.");
-
-  await insertAffaireIntakeEvent({
-    supabase: context.supabase,
-    uploadId: existing.brief.upload_id,
-    actorUserId: context.userId,
-    eventType: "brief.confirmed",
-    beforePayload: {
-      status: existing.draft.status,
-    },
-    afterPayload: {
-      status: "confirme",
-      confirmed_at: confirmedAt,
-    },
-  });
-
   return {
     ok: true,
     status: "confirme",
+    takeoff: confirmed.takeoff,
   } as const;
 }

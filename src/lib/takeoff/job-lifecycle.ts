@@ -18,6 +18,7 @@ export const TAKEOFF_JOB_PROCESSING_SELECT = [
   "processing_lease_expires_at",
   "retry_count",
   "created_by",
+  "launch_request_id",
   "execution_provider",
   "execution_host_id",
   "preparation_snapshot",
@@ -41,6 +42,8 @@ const takeoffJobProcessingSchema = z.object({
   processing_lease_expires_at: z.string().nullable().optional(),
   retry_count: z.number().int().nonnegative().nullable().optional(),
   created_by: z.string().uuid().nullable().optional(),
+  /** The launch request a job belongs to: its usage and budget are the request's. */
+  launch_request_id: z.string().uuid().nullable().optional(),
   execution_provider: z.enum(["gemini", "chatgpt_local"]).optional(),
   execution_host_id: z.string().nullable().optional(),
   preparation_snapshot: z.unknown().nullable().optional(),

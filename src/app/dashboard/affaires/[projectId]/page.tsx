@@ -43,6 +43,7 @@ import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-draft
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { readAffaireAutomaticTakeoffPayerNotice } from "@/lib/takeoff/launch-request-server";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
 
 // A document retry may download and parse a large PDF before proposing its category.
@@ -377,6 +378,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     preferences: effectiveCockpitPreferences,
   });
 
+  // The payer notice only for a brief to confirm, the one dialog that shows it.
+  const automaticTakeoffPayerNotice = devHubScenario || intakeWorkspace?.briefDraft?.status !== "a_confirmer" ? null
+    : await readAffaireAutomaticTakeoffPayerNotice(projectId);
+
   return (
     <AffaireHub
       summary={effectiveSummary}
@@ -406,6 +411,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       cockpitPreferences={effectiveCockpitPreferences}
       liveDossier={devHubScenario === null}
       viewerProfileId={profile?.id ?? null}
+      automaticTakeoffPayerNotice={automaticTakeoffPayerNotice}
     />
   );
 }

@@ -33,7 +33,7 @@ type SyncProject = {
   tenant_id: string;
 };
 
-type SyncDocument = {
+export type SyncDocument = {
   id: string;
   tenant_id?: string;
   upload_id: string;
@@ -65,7 +65,7 @@ type PlanSetRow = {
   file_count: number;
 };
 
-type PlanFileRow = {
+export type PlanFileRow = {
   id: string;
   file_path: string;
   file_size_bytes?: number;
@@ -87,12 +87,12 @@ function isDrivePlanSource(document: SyncDocument) {
   return document.source_provider === "google_drive" && !document.storage_path && Boolean(document.drive_file_id);
 }
 
-function isEligiblePlanDocument(document: SyncDocument) {
+/** A plan of the dossier that the takeoff reads: an uploaded, classified PDF plan, whatever its source. */
+function isClassifiedPdfPlan(document: SyncDocument) {
   if (
     document.upload_status !== "uploaded" ||
     document.classification_status !== "classified" ||
-    document.document_kind !== "plans" ||
-    !(document.storage_path || isDrivePlanSource(document))
+    document.document_kind !== "plans"
   ) {
     return false;
   }
@@ -104,6 +104,11 @@ function isEligiblePlanDocument(document: SyncDocument) {
   return getAffaireIntakeFileExtension(document.file_name) === "pdf";
 }
 
+/** A dossier piece that must have a working copy in the affaire's plan set: an uploaded, classified PDF plan. */
+function isEligiblePlanDocument(document: SyncDocument) {
+  return isClassifiedPdfPlan(document) && Boolean(document.storage_path || isDrivePlanSource(document));
+}
+
 function normalizeMetadata(value: unknown) {
   return isRecord(value) ? value : {};
 }
@@ -113,13 +118,33 @@ function toIntakeDocumentId(planFile: PlanFileRow) {
   return typeof intakeDocumentId === "string" ? intakeDocumentId : null;
 }
 
-function isSameIntakePlanGeneration(file: PlanFileRow, document: SyncDocument) {
+/**
+ * Whether a working copy holds its dossier piece's current generation: its generation marker, or, for a copy made before
+ * generations were recorded, the classification it was made from (also what an analysis's « Dossier modifié » compares).
+ */
+export function isSameIntakePlanGeneration(file: Pick<PlanFileRow, "metadata">, document: SyncDocument) {
   if (file.metadata.intake_storage_path !== document.storage_path) return false;
   if (isDrivePlanSource(document) && file.metadata.intake_drive_file_id !== document.drive_file_id) return false;
   // Older copies predate the generation marker; keep them until a cleanup has
   // actually been reserved, rather than migrating or deleting user files.
   if ("intake_generation" in file.metadata) return file.metadata.intake_generation === (document.plan_copy_generation ?? null);
   return !("intake_classified_at" in file.metadata) || file.metadata.intake_classified_at === (document.classified_at ?? null);
+}
+
+/**
+ * The plans of the dossier that the plan set does not hold as working copies of their current generation: a copy not
+ * made yet, removed, skipped because Google Drive could not be read, or a piece with no usable source at all. Nothing
+ * analyses them until they have one, so an analysis that starts on its own names them instead of reading the other
+ * plans as if they were all.
+ */
+export function findIntakePlansWithoutWorkingCopy(documents: SyncDocument[], files: PlanFileRow[]) {
+  const copies = new Map<string, PlanFileRow[]>();
+  for (const file of files) {
+    const documentId = file.metadata.source === "affaire-intake" ? toIntakeDocumentId(file) : null;
+    if (documentId && file.metadata.intake_cleanup_pending !== true) copies.set(documentId, [...(copies.get(documentId) ?? []), file]);
+  }
+  return documents.filter((document) => isClassifiedPdfPlan(document)
+    && !(copies.get(document.id) ?? []).some((file) => isSameIntakePlanGeneration(file, document)));
 }
 
 async function findProjectPlanSet(input: {

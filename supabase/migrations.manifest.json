@@ -364,6 +364,7 @@
     "20261121040445_takeoff_plan_locations.sql": "a88febeb429035374fb0d6fa869cc668634ec4e39cdc75d6075a0be0367c487b",
     "20261121050138_takeoff_send_receipts.sql": "b740982809201eb4c59b0e6c62d7c312649e4c6703025095716d4f2bdca371af",
     "20261121085058_takeoff_send_grouped_lines_and_parts.sql": "dddbaaf69c7818e310b20f14b7af506fe85e6cb2d81fba4387cc5295c2e33c56",
-    "20261121160259_read_takeoff_risk_alerts.sql": "a42ad6c51b8660c591d710ddbd3b39e860ad6890c860917ab2d067d4b58b7167"
+    "20261121160259_read_takeoff_risk_alerts.sql": "a42ad6c51b8660c591d710ddbd3b39e860ad6890c860917ab2d067d4b58b7167",
+    "20261121170448_takeoff_launch_requests.sql": "6b349bdb73d635acef5044efc7dd1897f8db8672fa07cc1ee5e52bbf2c7fd8f2"
   }
 }

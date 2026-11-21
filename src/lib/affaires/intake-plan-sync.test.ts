@@ -10,7 +10,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 }));
 
 import { DriveError } from "@/lib/affaires/google-drive/errors";
-import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
+import { findIntakePlansWithoutWorkingCopy, syncTakeoffPlanSetFromAffaireIntake, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -390,4 +390,21 @@ describe("syncTakeoffPlanSetFromAffaireIntake", () => {
     });
   });
 
+});
+
+describe("findIntakePlansWithoutWorkingCopy", () => {
+  const plan = (id: string, source: Partial<SyncDocument> = {}) => ({ id, upload_id: "upload-1", created_by: USER_ID,
+    storage_path: `intake/${id}.pdf`, file_name: `${id}.pdf`, mime_type: "application/pdf", size_bytes: 5, upload_status: "uploaded",
+    classification_status: "classified", document_kind: "plans", plan_copy_generation: "generation-1", ...source }) as SyncDocument;
+  const copy = (documentId: string) => ({ id: `copy-${documentId}`, file_path: `plans/${documentId}.pdf`, metadata: {
+    source: "affaire-intake", intake_document_id: documentId, intake_storage_path: `intake/${documentId}.pdf`, intake_generation: "generation-1" } });
+
+  it("names every classified PDF plan without its working copy, whatever the reason it has none", () => {
+    const withCopy = plan("plan-a");
+    const withoutSource = plan("plan-b", { storage_path: null, source_provider: "google_drive", drive_file_id: null });
+    const unreadDrive = plan("plan-c", { storage_path: null, source_provider: "google_drive", drive_file_id: "drive-c" });
+    const annex = plan("annexe", { document_kind: "annexes" });
+    expect(findIntakePlansWithoutWorkingCopy([withCopy, withoutSource, unreadDrive, annex], [copy("plan-a")]).map((document) => document.id))
+      .toEqual(["plan-b", "plan-c"]);
+  });
 });

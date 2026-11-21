@@ -65,9 +65,14 @@ export async function readAttestedTakeoffPlan(jobId: string, fileId: string): Pr
     tenantId, setId: job.plan_set_id, fileId, fileName: sanitizePlanPdfFilename(file.file_name),
   })) throw missing();
 
-  // Return the very bytes we verified. A URL for this key could serve a replacement after the check.
-  const { data: blob, error: storageError } = await createServiceRoleClient().storage.from(PLAN_FILES_BUCKET).download(file.file_path);
-  if (storageError || !blob || blob.size === 0 || blob.size > PLAN_FILE_MAX_SIZE_BYTES) throw missing();
+  // Return the very bytes we verified. A URL for this key could serve a replacement after the check. The stored size is
+  // read first, so that an object larger than a plan may be is never downloaded into memory.
+  const storage = createServiceRoleClient().storage.from(PLAN_FILES_BUCKET);
+  const { data: stored, error: infoError } = await storage.info(file.file_path);
+  const storedSize = stored?.size ?? 0;
+  if (infoError || !(storedSize > 0) || storedSize > PLAN_FILE_MAX_SIZE_BYTES) throw missing();
+  const { data: blob, error: storageError } = await storage.download(file.file_path);
+  if (storageError || !blob || blob.size !== storedSize) throw missing();
   const bytes = await blob.arrayBuffer();
   if (createHash("sha256").update(Buffer.from(bytes)).digest("hex") !== source.content_hash) throw missing();
   return bytes;
