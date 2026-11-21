@@ -314,18 +314,29 @@ export async function loadApplicableMinMarginThresholdBp(input: {
   });
 }
 
-export async function listActiveTakeoffRiskAlerts(input: {
+type TakeoffRiskAlertsScope = {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
   versionId: string;
   jobId: string;
-}) {
-  const { data, error } = await readAllRows(() => input.supabase
-    .from("estimate_risk_alerts" as never)
-    .select(ESTIMATE_RISK_ALERTS_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
-    .eq("takeoff_job_id" as never, input.jobId as never)
+};
+
+/**
+ * The alerts of the job for the version, with one access check per statement: the select policy of the table runs an
+ * EXISTS per alert, twice per page for its exact count, and a page of the 2 937 alerts of V3E20 crossed the 8 s
+ * statement_timeout of the API roles in CI (57014). supabase/migrations/20261121160259_read_takeoff_risk_alerts.sql.
+ */
+function selectTakeoffRiskAlerts(input: TakeoffRiskAlertsScope) {
+  // PostgREST orders a function's rows by the selected columns only: updated_at and id are selected.
+  return input.supabase
+    .rpc("read_takeoff_risk_alerts" as never,
+      { p_tenant_id: input.tenantId, p_version_id: input.versionId, p_job_id: input.jobId } as never,
+      { count: "exact", get: true })
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never);
+}
+
+export async function listActiveTakeoffRiskAlerts(input: TakeoffRiskAlertsScope) {
+  const { data, error } = await readAllRows(() => selectTakeoffRiskAlerts(input)
     .eq("is_active" as never, true as never)
     .order("updated_at" as never, { ascending: false })
     .order("id" as never, { ascending: false }), { concurrency: 4 });
@@ -346,21 +357,11 @@ export async function listActiveTakeoffRiskAlerts(input: {
     .filter((row): row is TakeoffRiskAlert => row !== null);
 }
 
-export async function listExistingRiskAlertRecords(input: {
-  supabase: AuthenticatedTakeoffContext["supabase"];
-  tenantId: string;
-  versionId: string;
-  jobId: string;
-}) {
-  const { data, error } = await readAllRows(() => input.supabase
-    .from("estimate_risk_alerts" as never)
-    .select(ESTIMATE_RISK_ALERTS_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("version_id" as never, input.versionId as never)
-    .eq("takeoff_job_id" as never, input.jobId as never)
+export async function listExistingRiskAlertRecords(input: TakeoffRiskAlertsScope) {
+  // Active and inactive alerts: an inactive one detected again returns with its review. Pages of the API's 1 000-row
+  // cap, with the complete-read guards and the recency ordering.
+  const { data, error } = await readAllRows(() => selectTakeoffRiskAlerts(input)
     .order("updated_at" as never, { ascending: false })
-    // Each exact count evaluates the row policy again. Use the API's 1000-row
-    // cap here, retaining the complete-read guards and the recency ordering.
     .order("id" as never, { ascending: false }), { concurrency: 4, pageSize: 1000 });
 
   if (error) {
