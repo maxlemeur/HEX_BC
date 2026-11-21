@@ -14,10 +14,17 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 
 // The request runs on the local Mac that launched the jobs (the resume policy compares the two); CI disables the real one.
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers({ host: "127.0.0.1:3000" })) }));
-vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ isLocalChatGptEnabled: vi.fn(() => true), assertLocalChatGptHost: vi.fn() }));
-vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn(async () => "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") }));
+vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
+  isLocalChatGptEnabled: vi.fn(() => true), assertLocalChatGptHost: vi.fn(),
+  hasLocalChatGptPlanAccess: vi.fn((profile: { accessToken?: string }) => Boolean(profile.accessToken)),
+}));
+vi.mock("@/lib/ai/chatgpt-local-store", () => ({
+  getChatGptHostId: vi.fn(async () => "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+  readChatGptStore: vi.fn(async () => ({ selectedId: "profile-1", profiles: [{ id: "profile-1", accessToken: "fixture", model: "fixture-model" }] })),
+}));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { listActivityCenterJobs } from "@/lib/takeoff/activity-center";
 import { takeoffActivityCenterResponseSchema } from "@/lib/takeoff/activity-center-contracts";
@@ -159,6 +166,8 @@ function createSupabaseMock(input?: {
   director?: boolean;
   /** Replaces the three default jobs. */
   jobs?: QueryRow[];
+  /** The count of lines each job has in the grouped read, when it differs from the fixture's line rows. */
+  itemCounts?: Record<string, number>;
   projectOwner?: string;
 }) {
   const versions = [
@@ -349,8 +358,10 @@ function createSupabaseMock(input?: {
 
       if (table === "takeoff_jobs") {
         return {
-          select: vi.fn((_columns?: string, options?: SelectOptions) =>
-            createSelectBuilder(input?.director ? [] : jobs, options)
+          select: vi.fn((columns?: string, options?: SelectOptions) => columns?.includes("(count)")
+            ? createSelectBuilder((input?.director ? [] : jobs).map((job) => ({ id: job.id, tenant_id: job.tenant_id,
+              items: [{ count: (input?.itemCounts ?? {})[String(job.id)] ?? takeoffItems.filter((item) => item.job_id === job.id).length }] })))
+            : createSelectBuilder(input?.director ? [] : jobs, options)
           ),
         };
       }
@@ -658,9 +669,10 @@ describe("listActivityCenterJobs: the resume of stopped analyses", () => {
     expect(Object.fromEntries(response.jobs.map((job) => [job.jobId, [job.resume, job.errorCode, job.canResubmit]])))
       .toEqual(Object.fromEntries(cases.map(([, resume, errorCode], index) =>
         [ids[index], [resume, errorCode, resume.action === "retry_now"]])));
+    // The jobs and the grouped count of their lines (fix round 1): two reads, whatever the number of rows.
     const tables = supabase.from.mock.calls.map(([table]) => table);
-    expect(tables.filter((table) => table === "takeoff_jobs")).toHaveLength(1);
-    expect(tables.filter((table) => table === "takeoff_items")).toHaveLength(1);
+    expect(tables.filter((table) => table === "takeoff_jobs")).toHaveLength(2);
+    expect(tables.filter((table) => table === "takeoff_items")).toHaveLength(0);
     expect(tables.filter((table) => table === "estimate_projects")).toHaveLength(1);
     expect(tables).not.toContain("takeoff_results");
   });
@@ -672,7 +684,8 @@ describe("listActivityCenterJobs: the resume of stopped analyses", () => {
     const response = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 20, offset: 0 });
     for (const row of response.jobs) {
       const { job } = await getTakeoffJobDetails(row.jobId, {});
-      expect(job.resume, row.jobId).toEqual({ action: row.resume.action, reason: row.resume.reason, available_at: row.resume.availableAt });
+      expect(row.resume, row.jobId).toBeDefined();
+      expect(job.resume, row.jobId).toEqual({ action: row.resume!.action, reason: row.resume!.reason, available_at: row.resume!.availableAt });
       expect(job.can_resubmit, row.jobId).toBe(row.canResubmit);
       expect(job.can_cancel, row.jobId).toBe(row.canCancel);
     }
@@ -688,21 +701,33 @@ describe("listActivityCenterJobs: the resume of stopped analyses", () => {
     for (const response of [stopped, others]) {
       expect(takeoffActivityCenterResponseSchema.safeParse(response).error?.issues).toBeUndefined();
     }
-    expect(others.jobs.map((job) => job.resume.reason)).toEqual(["not_stopped", "not_stopped", "not_stopped"]);
+    expect(others.jobs.map((job) => job.resume?.reason)).toEqual(["not_stopped", "not_stopped", "not_stopped"]);
   });
 
-  it("counts the lines of each job when the single read of a page sees them change", async () => {
-    const supabase = createSupabaseMock({ jobs: [stoppedJob(0), stoppedJob(1)], projectOwner: MEMBER_ID });
-    const from = supabase.from.getMockImplementation()!;
-    // The single read throws as readAllRowsInChunks does when the count changes between pages; head counts answer 2.
-    const items = { select: vi.fn((_columns: string, options?: { head?: boolean }) => options?.head
-      ? { eq: vi.fn(() => ({ eq: vi.fn(async () => ({ count: 2, error: null })) })) }
-      : { eq: vi.fn(() => ({ in: vi.fn(() => Promise.reject(new Error("Lecture incomplète ou modifiée."))) })) }) };
-    supabase.from.mockImplementation(((table: string) => table === "takeoff_items" ? items : from(table)) as never);
+  // Fix round 1, point 6: two pages of line rows can add up to a count that never existed (a line of A gone, one of B
+  // come between the pages, C read as 0). The counts of a page come from one statement, never from line rows.
+  it("counts the lines of a page with one grouped read, never from line rows", async () => {
+    const supabase = createSupabaseMock({ jobs: [stoppedJob(0), stoppedJob(1), stoppedJob(2)], projectOwner: MEMBER_ID,
+      itemCounts: { [ids[0]]: 500, [ids[1]]: 0, [ids[2]]: 1 } });
     signIn(supabase);
 
     const response = await listActivityCenterJobs({ project_id: PROJECT_ID });
-    expect(response.jobs.map((job) => job.itemCount)).toEqual([2, 2]);
+    expect(Object.fromEntries(response.jobs.map((job) => [job.jobId, job.itemCount])))
+      .toEqual({ [ids[0]]: 500, [ids[1]]: 0, [ids[2]]: 1 });
+    const itemReads = supabase.from.mock.calls.filter(([table]) => table === "takeoff_items");
+    expect(itemReads).toHaveLength(0);
+  });
+
+  it("reads the member's ChatGPT connection once for every row, and tells the launcher to reconnect", async () => {
+    vi.mocked(readChatGptStore).mockResolvedValueOnce({ selectedId: null, profiles: [] } as never);
+    const supabase = createSupabaseMock({ jobs: [stoppedJob(0), stoppedJob(5)], projectOwner: MEMBER_ID });
+    signIn(supabase);
+
+    const response = await listActivityCenterJobs({ project_id: PROJECT_ID });
+    expect(response.jobs.map((job) => job.resume)).toEqual([
+      { action: "none", reason: "plan_disconnected", availableAt: null }, { action: "none", reason: "plan_disconnected", availableAt: null },
+    ]);
+    expect(readChatGptStore).toHaveBeenCalledTimes(1);
   });
 
   it("offers nothing but a new analysis to an operator who did not launch the job", async () => {

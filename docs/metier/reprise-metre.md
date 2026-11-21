@@ -20,7 +20,9 @@ membre sur l'affaire et le Mac de la requête sont lus une fois par requête dan
 - Le fournisseur et le Mac du job, comparés au Mac de la requête.
 - Le nombre de relances (trois au plus) et le code de diagnostic, pour le
   budget de l'analyse détaillée épuisé et le résultat inconnu.
-- La personne qui a lancé le job.
+- La personne qui a lancé le job, et sa connexion ChatGPT sur ce Mac (connectée, avec
+  un modèle choisi), lue une fois par requête : une relance du même job utilise son
+  forfait.
 
 ## Décision
 
@@ -43,6 +45,8 @@ membre lit le même motif sans action.
 | Lancée par un autre membre (ou par un compte disparu) | nouvelle analyse sur son propre forfait | `launched_by_other` |
 | Serveur sans métré local (version hébergée, autre adresse) | rien ici | `execution_unavailable` |
 | Lancée depuis un autre Mac | rien ici | `other_mac` |
+| Forfait ChatGPT déconnecté ou expiré | le reconnecter dans Mon profil | `plan_disconnected` |
+| Aucun modèle ChatGPT choisi | en choisir un dans Mon profil | `plan_model_missing` |
 | Échec de moins de 5, 15 puis 45 s | attendre la fin du délai | `retry_delay` |
 | Résultat de la tentative interrompue inconnu, sans fin enregistrée | soumettre à nouveau | `outcome_unknown` |
 | Sinon | soumettre à nouveau | `retry_available` |
@@ -63,8 +67,18 @@ sans diagnostic dit « Échec sans code disponible », un code inconnu donne un
 motif général. La liste décide de ce qu'elle a lu, sans lire le détail d'aucune
 analyse ; à la fin d'une attente qu'elle a annoncée, elle se relit une fois.
 
+Sur la ligne et dans le bandeau de l'activité, l'échec dit seulement ce qui s'est
+passé ; la décision seule dit quoi faire. Le bandeau suit la décision de la dernière
+analyse : il ne propose un nouveau métré que si elle le propose, et rien à un membre
+qui ne peut pas agir. Un démarrage différé (« Reprise automatique ») n'est annoncé
+que pour une analyse en file, en cours ou dont la reprise est programmée. Tant qu'une
+ligne attend une reprise ou la fin d'un délai, la liste est relue (toutes les
+20 secondes) jusqu'à ce que cela arrive. Une réponse sans décision (serveur d'une
+version antérieure) n'offre aucune action et demande de recharger la page.
+
 Les motifs d'échec ne proposent jamais un autre niveau d'analyse : la nouvelle
-analyse reste détaillée, avec moins de sources ou un fichier corrigé.
+analyse reste détaillée, avec moins de sources ou un fichier corrigé. Les lignes
+d'une page sont comptées par une seule requête groupée.
 
 ## Commande
 
@@ -72,12 +86,18 @@ Au clic, le serveur relit le rôle, le droit d'écrire l'affaire, l'état, la fi
 enregistrée, la reprise programmée, le délai et le Mac, puis applique la même
 règle. Un refus porte la décision dans `error.details.resume` : 403 pour un
 membre qui ne peut pas agir ou qui n'a pas lancé l'analyse, 422 pour un ancien
-fournisseur, un serveur sans métré local ou un autre Mac, 409 sinon. Le forfait ChatGPT, le modèle et le Mac
-de la personne qui a lancé l'analyse sont vérifiés ensuite ; la liste ne les lit
-pas et l'écran dit qu'ils sont vérifiés au lancement. L'écriture est
-conditionnelle (même statut, même nombre de relances, pas de fin ni de reprise
-programmée) : une relance concurrente ou une fin écrite entre la lecture et le
-clic laisse le job intact et demande de recharger le suivi.
+fournisseur, un serveur sans métré local, un autre Mac ou un forfait ChatGPT à
+reconnecter ou sans modèle, 409 sinon. Tout refus porte la décision en vigueur, que
+la ligne adopte avant que la liste soit relue. Le forfait ChatGPT, le modèle et le Mac
+de la personne qui a lancé l'analyse sont vérifiés ensuite au lancement. Le droit
+d'écrire l'affaire est relu juste avant l'écriture, que la base protège par la même
+règle de rôle et de propriété ; l'annulation applique la même relecture. L'écriture est
+conditionnelle (même statut, même nombre de relances, même personne qui l'a lancée,
+pas de fin ni de reprise programmée) : une relance concurrente ou une fin écrite
+entre la lecture et le clic laisse le job intact et répond avec la décision en
+vigueur. La règle « seule la personne qui a lancé l'analyse la relance » est
+appliquée ici par l'application ; la base l'appliquera aussi avec la correction des
+avis de fin d'analyse.
 
 Les tests unitaires de la table sont dans
 [`operator-state.test.ts`](../../src/lib/takeoff/operator-state.test.ts) ; la

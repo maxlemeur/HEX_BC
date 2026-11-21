@@ -5,6 +5,7 @@ import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import {
   applyTakeoffJobsListFilters,
+  countTakeoffItemsByJobId,
   resolveVersionIdsForProject,
   type AuthenticatedTakeoffContext,
 } from "@/lib/takeoff/job-read-server";
@@ -19,7 +20,7 @@ import type {
 } from "@/lib/takeoff/types";
 import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import { resolveTakeoffOperatorState, toTakeoffOperatorStateInput } from "@/lib/takeoff/operator-state";
-import { readTakeoffExecutionHostId, toTakeoffResumeViewer } from "@/lib/takeoff/resume-viewer-server";
+import { readTakeoffExecution, toTakeoffResumeViewer } from "@/lib/takeoff/resume-viewer-server";
 import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
 
@@ -369,67 +370,7 @@ async function listJobsWithBlockingExceptions(
   return jobsWithExceptions;
 }
 
-/** One head count per job: the fallback when the lines of a page change while they are read. */
-async function countItemsOfEachJob(
-  supabase: SupabaseClient,
-  tenantId: string,
-  jobIds: string[]
-): Promise<Map<string, number>> {
-  const entries = await Promise.all(
-    jobIds.map(async (jobId) => {
-      const { count, error } = await supabase
-        .from("takeoff_items" as never)
-        .select("id" as never, { count: "exact", head: true })
-        .eq("tenant_id" as never, tenantId as never)
-        .eq("job_id" as never, jobId as never);
-
-      if (error) {
-        throw toTakeoffError(
-          mapSupabaseError(error, "Impossible de compter les items du job takeoff."),
-          { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId }
-        );
-      }
-
-      return [jobId, count ?? 0] as const;
-    })
-  );
-
-  return new Map(entries);
-}
-
-/**
- * The lines of the given jobs, from one read of their rows rather than one count per analysis. A read that sees the lines
- * change between its pages (a result being stored) falls back to a count per job, never to a wrong count.
- */
-async function countItemsByJobId(
-  supabase: SupabaseClient,
-  tenantId: string,
-  jobIds: string[]
-): Promise<Map<string, number>> {
-  const counts = new Map(jobIds.map((jobId) => [jobId, 0]));
-  if (jobIds.length === 0) return counts;
-
-  let read: Awaited<ReturnType<typeof readAllRowsInChunks>>;
-  try {
-    read = await readAllRowsInChunks(jobIds, (pageIds) => supabase
-      .from("takeoff_items" as never)
-      .select("job_id, id" as never, { count: "exact" })
-      .eq("tenant_id" as never, tenantId as never)
-      .in("job_id" as never, pageIds as never));
-  } catch {
-    return countItemsOfEachJob(supabase, tenantId, jobIds);
-  }
-  if (read.error) return countItemsOfEachJob(supabase, tenantId, jobIds);
-
-  for (const row of (read.data ?? []) as Array<{ job_id: string }>) {
-    counts.set(row.job_id, (counts.get(row.job_id) ?? 0) + 1);
-  }
-  return counts;
-}
-
 type EnrichmentResult = {
-  /** The lines of each enriched job, from the same read as their confidence. */
-  itemCounts: Map<string, number>;
   confidence: Map<string, number | null>;
   exceptions: Map<string, number>;
   coverage: Map<string, number | null>;
@@ -443,7 +384,6 @@ async function batchEnrich(
 ): Promise<EnrichmentResult> {
   if (jobs.length === 0) {
     return {
-      itemCounts: new Map(),
       confidence: new Map(),
       exceptions: new Map(),
       coverage: new Map(),
@@ -540,10 +480,8 @@ async function batchEnrich(
       })(),
     ]);
 
-  const itemCounts = new Map<string, number>(jobIds.map((jobId) => [jobId, 0]));
   const confidenceByJob = new Map<string, number[]>();
   for (const row of confidenceRows) {
-    itemCounts.set(row.job_id, (itemCounts.get(row.job_id) ?? 0) + 1);
     if (row.confidence !== null && Number.isFinite(row.confidence)) {
       const arr = confidenceByJob.get(row.job_id) ?? [];
       arr.push(row.confidence);
@@ -613,7 +551,7 @@ async function batchEnrich(
     }
   }
 
-  return { itemCounts, confidence, exceptions, coverage, carryOver };
+  return { confidence, exceptions, coverage, carryOver };
 }
 
 export async function listActivityCenterJobs(
@@ -623,7 +561,7 @@ export async function listActivityCenterJobs(
   const { supabase, tenantId } = context;
   await assertTakeoffEnabled(tenantId, { supabase });
   // The member's rights on this affaire and the Mac of this request, read once: every row is decided from them.
-  const resumeViewer = readTakeoffExecutionHostId().then((hostId) => toTakeoffResumeViewer(context, project, hostId));
+  const resumeViewer = readTakeoffExecution(context).then((execution) => toTakeoffResumeViewer(context, project, execution));
 
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
@@ -733,21 +671,19 @@ export async function listActivityCenterJobs(
   const total = statusFilteredRows.length;
   const jobIds = pagedRows.map((row) => row.id);
 
-  // 5. Batch-enrich completed/applied jobs for the current page only. The other rows of the page (failed, canceled,
-  // in progress) have their lines counted by one more read: the list makes no request per analysis.
+  // 5. Batch-enrich completed/applied jobs for the current page only. The lines of every row of the page are counted by
+  // one statement: the list makes no request per analysis.
   const enrichableJobs = pagedRows.filter(
     (r) => r.status === "completed" || r.status === "applied"
   );
-  const enrichableIds = new Set(enrichableJobs.map((job) => job.id));
 
   const [
-    { itemCounts: enrichedItemCounts, confidence: confidenceMap, exceptions: exceptionMap, coverage: coverageMap, carryOver: carryOverMap },
-    otherItemCounts,
+    { confidence: confidenceMap, exceptions: exceptionMap, coverage: coverageMap, carryOver: carryOverMap },
+    itemCountMap,
   ] = await Promise.all([
     batchEnrich(supabase, tenantId, enrichableJobs),
-    countItemsByJobId(supabase, tenantId, jobIds.filter((jobId) => !enrichableIds.has(jobId))),
+    countTakeoffItemsByJobId({ supabase, tenantId, jobIds }),
   ]);
-  const itemCountMap = new Map([...otherItemCounts, ...enrichedItemCounts]);
 
   const viewer = await resumeViewer;
   const decidedAt = new Date();

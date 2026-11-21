@@ -55,6 +55,8 @@ export const TAKEOFF_RESUME_REASONS = [
   "launched_by_other",
   "execution_unavailable",
   "other_mac",
+  "plan_disconnected",
+  "plan_model_missing",
   "retry_delay",
   "retry_available",
 ] as const;
@@ -75,7 +77,14 @@ export type TakeoffResumeViewer = {
   canWriteAffaire: boolean;
   /** The Mac this server runs local analyses on for this request; null when it runs none (hosted runtime, another address). */
   executionHostId: string | null;
+  /**
+   * The member's own ChatGPT connection on this Mac, which a retry of their job runs on: connected with a model, connection
+   * missing or expired, or no model chosen. Null when this request runs no local analysis (nothing to read).
+   */
+  planStatus: TakeoffResumePlanStatus | null;
 };
+
+export type TakeoffResumePlanStatus = "ready" | "disconnected" | "no_model";
 
 export type ResolveTakeoffOperatorStateInput = {
   status: TakeoffJobStatus | string;
@@ -285,6 +294,9 @@ function resolveTakeoffResumeDecision(input: ResolveTakeoffOperatorStateInput): 
   if (!input.createdBy || input.createdBy !== input.viewer.userId) return decide("new_analysis", "launched_by_other");
   if (!input.viewer.executionHostId) return decide("none", "execution_unavailable");
   if (input.executionHostId !== input.viewer.executionHostId) return decide("none", "other_mac");
+  // The launcher's connection and model, read before the click; the click reads them again.
+  if (input.viewer.planStatus === "disconnected") return decide("none", "plan_disconnected");
+  if (input.viewer.planStatus === "no_model") return decide("none", "plan_model_missing");
   const completedAtMs = input.status === "failed" ? parseIsoTime(input.completedAt) : null;
   if (completedAtMs !== null) {
     const availableAtMs = completedAtMs + getTakeoffRetryBackoffMs(retryCount);
@@ -354,6 +366,10 @@ export function describeTakeoffResume(decision: TakeoffResumeDecision): string |
       return "Pour soumettre cette analyse à nouveau, ouvrez MergeOne sur le Mac connecté.";
     case "other_mac":
       return "Cette analyse a été lancée depuis un autre Mac. Soumettez-la à nouveau depuis le Mac qui l’a lancée.";
+    case "plan_disconnected":
+      return "Reconnectez votre forfait ChatGPT dans Mon profil pour soumettre cette analyse à nouveau.";
+    case "plan_model_missing":
+      return "Choisissez un modèle ChatGPT dans Mon profil pour soumettre cette analyse à nouveau.";
     case "retry_delay":
       return at ? `Vous pourrez soumettre cette analyse à nouveau à partir du ${at}.` : "Vous pourrez bientôt soumettre cette analyse à nouveau.";
     case "retry_available":

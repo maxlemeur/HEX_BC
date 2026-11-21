@@ -124,4 +124,33 @@ describe("TakeoffJobActions", () => {
     expect(screen.queryByText(/Relances utilisées/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Annuler" })).toBeVisible();
   });
+
+  // Fix round 1, point 1: the failure says what happened; the decision alone says what to do.
+  it("does not tell to relaunch an analysis whose automatic retry is awaited", () => {
+    renderRow(row({ errorCode: "AI_TIMEOUT", resume: { action: "wait_retry", reason: "retry_scheduled", availableAt: "2026-11-21T10:00:15.000Z" } }));
+
+    expect(screen.getByText("Délai dépassé.")).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/Relancez|restreignez/i);
+    expect(screen.getByText(/^Une reprise automatique est programmée/)).toBeVisible();
+  });
+
+  // Fix round 1, point 5: an answer of an older server has no decision; the row offers nothing and asks for a reload.
+  it("offers no action on a row without a decision and asks to reload", () => {
+    const { resume: _resume, ...old } = row({ canResubmit: true, canCancel: true });
+    void _resume;
+    renderRow(old as TakeoffActivityCenterJobRow);
+
+    expect(screen.getByText("Rechargez la page pour voir les actions possibles sur cette analyse.")).toBeVisible();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("follows no wait and does not fail on rows without a decision", () => {
+    vi.useFakeTimers();
+    const refresh = vi.fn();
+    const { resume: _resume, ...old } = row({});
+    void _resume;
+    render(<RefreshHarness refresh={refresh} jobs={[old as TakeoffActivityCenterJobRow]} />);
+    act(() => { vi.advanceTimersByTime(600_000); });
+    expect(refresh).not.toHaveBeenCalled();
+  });
 });

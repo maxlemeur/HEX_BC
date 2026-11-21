@@ -15,7 +15,9 @@ const COLLEAGUE = "22222222-2222-4222-8222-222222222222";
 const THIS_MAC = "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OTHER_MAC = "urn:uuid:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-const launcher: TakeoffResumeViewer = { userId: LAUNCHER, tenantRole: "engineer", canWriteAffaire: true, executionHostId: THIS_MAC };
+const launcher: TakeoffResumeViewer = {
+  userId: LAUNCHER, tenantRole: "engineer", canWriteAffaire: true, executionHostId: THIS_MAC, planStatus: "ready",
+};
 
 /** A local analysis that failed a minute ago without a recorded end, as every job did before the notices were activated. */
 function stopped(overrides: Partial<ResolveTakeoffOperatorStateInput> = {}): ResolveTakeoffOperatorStateInput {
@@ -74,6 +76,15 @@ describe("resolveTakeoffOperatorState: one resume policy", () => {
     ["a server that runs no local analysis cannot resume it", { viewer: { ...launcher, executionHostId: null } }, "none", "execution_unavailable", null],
     ["a job of another Mac is resumed there only", { executionHostId: OTHER_MAC }, "none", "other_mac", null],
     ["a job without its Mac is resumed nowhere", { executionHostId: null }, "none", "other_mac", null],
+    // Fix round 1, point 2: the launcher's own ChatGPT connection and model on this Mac, read before the click.
+    ["a launcher whose ChatGPT plan is disconnected reconnects it first", { viewer: { ...launcher, planStatus: "disconnected" } },
+      "none", "plan_disconnected", null],
+    ["a launcher without a ChatGPT model chooses one first", { viewer: { ...launcher, planStatus: "no_model" } },
+      "none", "plan_model_missing", null],
+    ["another member's plan does not matter", { viewer: { ...launcher, userId: COLLEAGUE, planStatus: "disconnected" } },
+      "new_analysis", "launched_by_other", null],
+    ["a job of another Mac is resumed there, whatever this Mac's plan", { executionHostId: OTHER_MAC, viewer: { ...launcher, planStatus: "no_model" } },
+      "none", "other_mac", null],
     ["the delay after a failure is awaited", { completedAt: "2026-11-21T09:59:58.000Z" }, "wait_retry", "retry_delay", "2026-11-21T10:00:03.000Z"],
     ["the delay grows with the retries", { retryCount: 2, completedAt: "2026-11-21T09:59:30.000Z" }, "wait_retry", "retry_delay", "2026-11-21T10:00:15.000Z"],
     ["a failure without a recorded end keeps its relaunch", {}, "retry_now", "retry_available", null],
@@ -134,6 +145,7 @@ describe("describeTakeoffResume", () => {
       ["retry_now", "retry_available"], ["retry_now", "outcome_unknown"], ["wait_retry", "retry_scheduled"], ["wait_retry", "retry_delay"],
       ...finalReasons.flatMap((reason): Array<[TakeoffResumeAction, TakeoffResumeReason]> => [["new_analysis", reason], ["none", reason]]),
       ["new_analysis", "launched_by_other"], ["none", "read_only"], ["none", "execution_unavailable"], ["none", "other_mac"],
+      ["none", "plan_disconnected"], ["none", "plan_model_missing"],
     ];
     for (const [action, reason] of decisions) {
       const text = describeTakeoffResume({ action, reason, availableAt: action === "wait_retry" ? "2026-11-21T10:00:15.000Z" : null });

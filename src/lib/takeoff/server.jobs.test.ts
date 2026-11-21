@@ -17,10 +17,18 @@ vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ assertLocalTakeoffResumeReady: vi.f
 
 // The request runs on the local Mac that launched the jobs (the resume policy compares the two); CI disables the real one.
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers({ host: "127.0.0.1:3000" })) }));
-vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ isLocalChatGptEnabled: vi.fn(() => true), assertLocalChatGptHost: vi.fn() }));
-vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn(async () => "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") }));
+vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
+  isLocalChatGptEnabled: vi.fn(() => true), assertLocalChatGptHost: vi.fn(),
+  hasLocalChatGptPlanAccess: vi.fn((profile: { accessToken?: string }) => Boolean(profile.accessToken)),
+}));
+// The signed-in member's ChatGPT connection on this Mac: connected, with a model, unless a test says otherwise.
+vi.mock("@/lib/ai/chatgpt-local-store", () => ({
+  getChatGptHostId: vi.fn(async () => "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+  readChatGptStore: vi.fn(async () => ({ selectedId: "profile-1", profiles: [{ id: "profile-1", accessToken: "fixture", model: "fixture-model" }] })),
+}));
 
 import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";
+import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { assertTakeoffJobUsesLocalProvider, TakeoffError } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
@@ -280,6 +288,9 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     auditLogs: [] as Array<Record<string, unknown>>,
     jobUpdates: 0,
     projectReads: 0,
+    /** Reads of takeoff_items: « head » per-job counts, « rows » line rows. */
+    itemSelects: [] as Array<"head" | "rows">,
+    groupedCountReads: 0,
   };
 
   function applyRange<T>(rows: T[], start: number, end: number) {
@@ -411,6 +422,24 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       },
     };
 
+    return builder;
+  }
+
+  /** takeoff_jobs with the legacy count embed of their lines: one statement for a page of jobs. */
+  function createGroupedCountBuilder() {
+    const filters = new Map<string, unknown>();
+    let ids: string[] | null = null;
+    const builder = {
+      eq: vi.fn((column: string, value: unknown) => { filters.set(column, value); return builder; }),
+      in: vi.fn((column: string, values: string[]) => { if (column === "id") ids = values; return builder; }),
+      then: (onFulfilled?: (value: { data: unknown[]; error: null }) => unknown, onRejected?: (reason: unknown) => unknown) => {
+        state.groupedCountReads += 1;
+        const data = [...state.jobsById.values()]
+          .filter((row) => (!ids || ids.includes(row.id)) && (!filters.has("tenant_id") || row.tenant_id === filters.get("tenant_id")))
+          .map((row) => ({ id: row.id, items: [{ count: state.itemsByJobId.get(row.id)?.length ?? 0 }] }));
+        return Promise.resolve({ data, error: null }).then(onFulfilled, onRejected);
+      },
+    };
     return builder;
   }
 
@@ -554,7 +583,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     from: vi.fn((table: string) => {
       if (table === "takeoff_jobs") {
         return {
-          select: vi.fn(() => createTakeoffJobsSelectBuilder()),
+          select: vi.fn((columns?: string) => columns?.includes("(count)") ? createGroupedCountBuilder() : createTakeoffJobsSelectBuilder()),
           update: vi.fn((payload: Partial<TakeoffJobStoredRow>) =>
             createTakeoffJobsUpdateBuilder(payload)
           ),
@@ -569,7 +598,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
 
       if (table === "takeoff_items") {
         return {
-          select: vi.fn(() => createTakeoffItemsSelectBuilder()),
+          select: vi.fn((_columns?: string, options?: { head?: boolean }) => {
+            state.itemSelects.push(options?.head ? "head" : "rows");
+            return createTakeoffItemsSelectBuilder();
+          }),
         };
       }
 
@@ -1154,5 +1186,124 @@ describe("one resume policy for the jobs list, the detail and the retry command"
     const { jobs } = await listTakeoffJobs({ project_id: PROJECT_ID, limit: 20, offset: 0 });
     expect(jobs.map((job) => job.resume?.reason).sort()).toEqual(["analysis_closed", "legacy_provider", "retry_available"]);
     expect(supabase.__state.projectReads).toBe(1);
+  });
+});
+
+describe("fix round 1: every place speaks with the decision", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile-1",
+      profiles: [{ id: "profile-1", accessToken: "fixture", model: "fixture-model" }] } as never);
+    vi.useRealTimers();
+    vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+    vi.mocked(assertLocalTakeoffResumeReady).mockImplementation(async (_supabase, _tenantId, job) => {
+      assertTakeoffJobUsesLocalProvider(job);
+    });
+  });
+
+  function signIn(supabase: ReturnType<typeof createSupabaseMock>, tenantRole: string, userId = USER_ID) {
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({ supabase, userId, tenantId: TENANT_ID, tenantRole } as never);
+  }
+
+  // Point 2: the launcher's own ChatGPT connection and model are read once per request, before the click.
+  it.each([
+    ["disconnected", { selectedId: null, profiles: [] }, "plan_disconnected", /Reconnectez votre forfait ChatGPT dans Mon profil/],
+    ["expired", { selectedId: "p", profiles: [{ id: "p", model: "m" }] }, "plan_disconnected", /Reconnectez votre forfait ChatGPT/],
+    ["without a model", { selectedId: "p", profiles: [{ id: "p", accessToken: "t" }] }, "plan_model_missing",
+      /Choisissez un modèle ChatGPT dans Mon profil/],
+  ] as const)("tells a launcher whose ChatGPT plan is %s what to do before the click, and the click agrees", async (_case, store, reason, text) => {
+    vi.mocked(readChatGptStore).mockResolvedValue(store as never);
+    const job = baseJob({ status: "failed", completed_at: "2026-02-25T10:00:00.000Z" });
+    const supabase = createSupabaseMock({ jobs: [job, baseJob({ id: JOB_ID_2, status: "failed" })] });
+    signIn(supabase, "engineer");
+
+    const listed = await listTakeoffJobs({ project_id: PROJECT_ID, limit: 20, offset: 0 });
+    expect(readChatGptStore).toHaveBeenCalledTimes(1);
+    const detail = (await getTakeoffJobDetails(JOB_ID, {})).job;
+    expect(listed.jobs.find((row) => row.id === JOB_ID)?.resume).toEqual({ action: "none", reason, available_at: null });
+    expect(detail.resume).toEqual({ action: "none", reason, available_at: null });
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 422, code: "AI_PROVIDER", message: expect.stringMatching(text), details: { resume: detail.resume },
+    });
+    expect(assertLocalTakeoffResumeReady).not.toHaveBeenCalled();
+    expect(supabase.__state.jobUpdates).toBe(0);
+  });
+
+  // Point 3: a click that loses the compare-and-set is answered with the decision now in force.
+  it("answers a lost compare-and-set with the current decision", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [baseJob({ status: "failed", completed_at: "2026-02-25T10:00:00.000Z" })],
+      afterJobRead: () => ({ analysis_outcome: "failure" }),
+    });
+    signIn(supabase, "engineer");
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 409, code: "CONFLICT", details: { resume: { action: "new_analysis", reason: "analysis_closed", available_at: null } },
+    });
+  });
+
+  // Point 4: both commands write only while the member may still write the affaire.
+  it("refuses to cancel once the affaire can no longer be written, and writes nothing", async () => {
+    const job = baseJob({ status: "pending", completed_at: null, error_code: null, error_message: null });
+    const supabase = createSupabaseMock({ jobs: [job], projects: [{ id: PROJECT_ID, user_id: USER_ID, is_archived: true }] });
+    signIn(supabase, "engineer");
+
+    await expect(cancelTakeoffJob(JOB_ID)).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+    expect(supabase.__state.jobUpdates).toBe(0);
+    expect(supabase.__state.jobsById.get(JOB_ID)).toEqual(job);
+    expect(supabase.__state.auditLogs).toEqual([]);
+  });
+
+  it("reads the right to write the affaire again after the launch checks, just before the retry writes", async () => {
+    const job = baseJob({ status: "failed", completed_at: "2026-02-25T10:00:00.000Z" });
+    const projects = [{ id: PROJECT_ID, user_id: USER_ID, is_archived: false }];
+    const supabase = createSupabaseMock({ jobs: [job], projects });
+    signIn(supabase, "engineer");
+    vi.mocked(assertLocalTakeoffResumeReady).mockImplementation(async () => { projects[0].is_archived = true; });
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 403, code: "FORBIDDEN", details: { resume: { action: "none", reason: "read_only", available_at: null } },
+    });
+    expect(supabase.__state.jobUpdates).toBe(0);
+    expect(supabase.__state.jobsById.get(JOB_ID)).toEqual(job);
+  });
+
+  it("holds the launcher in the statement that resets the job", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [baseJob({ status: "failed", completed_at: "2026-02-25T10:00:00.000Z" })],
+      afterJobRead: () => ({ created_by: "ab000000-0000-4000-8000-000000000009" }),
+    });
+    signIn(supabase, "engineer");
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({ status: 409, code: "CONFLICT" });
+    expect(supabase.__state.jobsById.get(JOB_ID)).toMatchObject({ status: "failed", retry_count: 0 });
+  });
+
+  // Point 6: a page's line counts come from one statement, never from line rows read in pages.
+  it("counts the lines of a page of jobs with one grouped read", async () => {
+    const supabase = createSupabaseMock({ jobs: [baseJob({ id: JOB_ID, status: "completed" }), baseJob({ id: JOB_ID_2, status: "failed" })] });
+    signIn(supabase, "engineer");
+
+    const listed = await listTakeoffJobs({ project_id: PROJECT_ID, limit: 20, offset: 0 });
+    expect(Object.fromEntries(listed.jobs.map((row) => [row.id, row.items_count]))).toEqual({ [JOB_ID]: 2, [JOB_ID_2]: 0 });
+    expect(supabase.__state.groupedCountReads).toBe(1);
+    expect(supabase.__state.itemSelects).toEqual([]);
+  });
+
+  // Point 7: French status names in the refusals of a cancel.
+  it.each([
+    ["an analysis that already ended", {}, undefined],
+    ["an analysis that ended after the read", { status: "pending" }, { status: "completed" }],
+  ] as const)("refuses to cancel %s in French", async (_case, stored, concurrent) => {
+    const supabase = createSupabaseMock({
+      jobs: [baseJob({ status: "completed", error_code: null, error_message: null, ...stored })],
+      ...(concurrent ? { afterJobRead: () => concurrent } : {}),
+    });
+    signIn(supabase, "engineer");
+
+    const refusal = await cancelTakeoffJob(JOB_ID).then(() => null, (error: unknown) => error as Error);
+    expect(refusal).toMatchObject({ status: 409, code: "CONFLICT" });
+    expect(refusal?.message).toMatch(/analyse/);
+    expect(refusal?.message).not.toMatch(/pending|processing|canceled|failed|\bjob\b/);
   });
 });

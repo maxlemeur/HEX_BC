@@ -9,8 +9,8 @@ const action = z.enum(TAKEOFF_RESUME_ACTIONS).describe(
 );
 const reason = z.enum(TAKEOFF_RESUME_REASONS).describe(
   "La règle qui a décidé, à afficher en français (jamais le code) : not_stopped, legacy_provider, retry_limit, analysis_closed, "
-  + "outcome_unknown, retry_scheduled, budget_exhausted, read_only, launched_by_other, execution_unavailable, other_mac, retry_delay, "
-  + "retry_available.",
+  + "outcome_unknown, retry_scheduled, budget_exhausted, read_only, launched_by_other, execution_unavailable, other_mac, "
+  + "plan_disconnected, plan_model_missing, retry_delay, retry_available.",
 );
 const availableAt = timestamp.nullable().describe("Pour une attente : l’échéance de la reprise programmée ou de la fin du délai.");
 

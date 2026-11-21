@@ -524,13 +524,17 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
     await expect(localRow).toContainText("Le service d’analyse n’a pas pu terminer le métré.");
     await expect(localRow).toContainText("Relances utilisées : 0 sur 3");
     await expect(localRow).toContainText(unavailable);
-    await expect(scheduledRow).toContainText("Délai dépassé. Relancez l'analyse ou restreignez les sources.");
+    // The failure says what happened; only the decision says what to do (fix round 1): no « Relancez » beside a wait.
+    await expect(scheduledRow).toContainText("Délai dépassé.");
+    await expect(scheduledRow).not.toContainText("Relancez");
     await expect(scheduledRow).toContainText(/Une reprise automatique est programmée à partir du \d/);
     await expect(legacyRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez une nouvelle analyse depuis l’affaire.");
     for (const row of [legacyRow, scheduledRow, localRow]) {
       await expect(retry(row)).toHaveCount(0);
       await expect(row).not.toContainText(/AI_PROVIDER|AI_TIMEOUT|\(code /);
     }
+    // The banner follows the newest analysis's decision (a new analysis, for an operator who may write the affaire).
+    await expect(ui.screen.getByRole("button", "Préparer un nouveau métré", { exact: true })).toBeVisible();
     expect(detailReads).toEqual([]);
   } finally {
     await ui.browser.unroute(JOB_DETAIL_READ);
@@ -545,7 +549,7 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
     const row = activity.body.data.jobs.find((job) => job.jobId === jobId);
     expect(row?.resume, jobId).toMatchObject({ action, reason });
     const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
-    expect(detail.body.data.job.resume, jobId).toEqual({ action, reason, available_at: row!.resume.availableAt });
+    expect(detail.body.data.job.resume, jobId).toEqual({ action, reason, available_at: row!.resume?.availableAt });
     expect(detail.body.data.job.can_resubmit, jobId).toBe(false);
   }
   const refusedHere = await resubmit(localId);
@@ -565,8 +569,9 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
     expect(refusedRole.body.error.details.resume).toEqual({ action: "none", reason: "read_only", available_at: null });
     await ui.browser.reload();
     await expect(localRow).toContainText("Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.");
-    // The job's own facts come first, for a reader too.
+    // The job's own facts come first, for a reader too; the banner offers the reader no launch either.
     await expect(legacyRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse. Un ingénieur ou un administrateur peut préparer une nouvelle analyse.");
+    await expect(ui.screen.getByRole("button", "Préparer un nouveau métré", { exact: true })).toHaveCount(0);
   } finally {
     await querySql(`update public.tenant_memberships set role = '${role}' where user_id = '${owner.userId}' and tenant_id = '${tenantId}'`);
   }

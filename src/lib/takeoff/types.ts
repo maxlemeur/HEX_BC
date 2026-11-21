@@ -561,8 +561,11 @@ export type TakeoffActivityCenterJobRow = {
   operatorStateLabel?: string | null;
   canCancel?: boolean;
   canResubmit?: boolean;
-  /** The resume policy's decision for the member who reads the list, the same as the job's detail and the retry command. */
-  resume: TakeoffResumeDecision;
+  /**
+   * The resume policy's decision for the member who reads the list, the same as the job's detail and the retry command.
+   * Every answer of this version carries it; an answer of an older server does not, and its row offers nothing.
+   */
+  resume?: TakeoffResumeDecision;
   /** The job's diagnostic code, worded in French by the screen and never shown as such. */
   errorCode: string | null;
   nextRetryAt: string | null;

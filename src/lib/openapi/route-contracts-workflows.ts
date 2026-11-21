@@ -624,7 +624,7 @@ const takeoffOperationsContracts: RouteContract[] = [
     method: "post",
     path: "/api/takeoff/jobs/{jobId}/resubmit",
     summary: "Resoumettre un job Takeoff",
-    description: "Resoumet un job eligible et declenche son traitement asynchrone. Le serveur relit le rôle, les droits sur l’affaire, l’état, la fin enregistrée, la reprise programmée, le délai et le Mac, applique la même décision de reprise que la liste et le détail, puis écrit sous condition (statut, nombre de relances, fin et reprise inchangés). Un refus porte cette décision dans error.details.resume (action, reason, available_at) : 403 pour un membre qui ne peut pas agir ou qui n’a pas lancé l’analyse, 422 pour un ancien fournisseur, un serveur sans métré local ou un autre Mac, 409 sinon.",
+    description: "Resoumet un job eligible et declenche son traitement asynchrone. Le serveur relit le rôle, les droits sur l’affaire, l’état, la fin enregistrée, la reprise programmée, le délai et le Mac, applique la même décision de reprise que la liste et le détail, puis écrit sous condition (statut, nombre de relances, fin et reprise inchangés). Un refus porte cette décision dans error.details.resume (action, reason, available_at) : 403 pour un membre qui ne peut pas agir ou qui n’a pas lancé l’analyse, 422 pour un ancien fournisseur, un serveur sans métré local, un autre Mac ou un forfait ChatGPT à reconnecter ou sans modèle, 409 sinon. Un refus de la condition d’écriture (job modifié depuis la lecture) porte aussi la décision en vigueur.",
     tags: ["Takeoff"],
     pathParameters: [jobIdParameter],
     success: [{ status: "200", description: "État confirmé du job et résultat de la soumission.", schema: {

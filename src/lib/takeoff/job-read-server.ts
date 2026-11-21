@@ -430,7 +430,7 @@ export function normalizeTakeoffJobSummaryRow(
 ): TakeoffJobSummary {
   const job = parseTakeoffResponse(takeoffJobSummarySchema, row);
   return decorateTakeoffJobSummaryWithOperatorState(job, row as TakeoffOperatorStateRow,
-    viewer ?? { userId: null, tenantRole: tenantRole ?? null, canWriteAffaire: false, executionHostId: null });
+    viewer ?? { userId: null, tenantRole: tenantRole ?? null, canWriteAffaire: false, executionHostId: null, planStatus: null });
 }
 
 
@@ -768,39 +768,36 @@ async function buildTakeoffJobsStatusCounters(input: {
   };
 }
 
-async function listTakeoffItemCountsByJobId(input: {
+/**
+ * The lines of a page of jobs, counted by the database in one statement (the legacy count embed, which works with
+ * aggregates disabled): one consistent read, never one request per job nor line rows read in pages that a concurrent
+ * write could make add up to a count that never existed. The lines are counted under their own read rule.
+ */
+export async function countTakeoffItemsByJobId(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
   jobIds: string[];
 }): Promise<Map<string, number>> {
-  if (input.jobIds.length === 0) {
-    return new Map();
+  const counts = new Map(input.jobIds.map((jobId) => [jobId, 0]));
+  if (input.jobIds.length === 0) return counts;
+
+  const { data, error } = await input.supabase
+    .from("takeoff_jobs" as never)
+    .select("id, items:takeoff_items!takeoff_items_job_id_fkey(count)" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .in("id" as never, input.jobIds as never);
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de compter les items du job takeoff."),
+      { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false }
+    );
   }
 
-  const entries = await Promise.all(
-    input.jobIds.map(async (jobId) => {
-      const { count, error } = await input.supabase
-        .from("takeoff_items" as never)
-        .select("id" as never, { count: "exact", head: true })
-        .eq("tenant_id" as never, input.tenantId as never)
-        .eq("job_id" as never, jobId as never);
-
-      if (error) {
-        throw toTakeoffError(
-          mapSupabaseError(error, "Impossible de compter les items du job takeoff."),
-          {
-            fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-            retryable: false,
-            jobId,
-          }
-        );
-      }
-
-      return [jobId, count ?? 0] as const;
-    })
-  );
-
-  return new Map(entries);
+  for (const row of (data ?? []) as Array<{ id: string; items?: Array<{ count?: number | null }> | null }>) {
+    if (counts.has(row.id)) counts.set(row.id, row.items?.[0]?.count ?? 0);
+  }
+  return counts;
 }
 
 export async function listTakeoffJobs(
@@ -897,7 +894,7 @@ export async function listTakeoffJobs(
   });
   const jobs = rows.map((row) => normalizeTakeoffJobSummaryRow(row, tenantRole, viewerOf(row.project_id)));
   const uniqueJobIds = Array.from(new Set(jobs.map((job) => job.id)));
-  const itemCountByJobId = await listTakeoffItemCountsByJobId({
+  const itemCountByJobId = await countTakeoffItemsByJobId({
     supabase,
     tenantId,
     jobIds: uniqueJobIds,

@@ -12,6 +12,7 @@ import {
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
+import { takeoffListRefreshInterval } from "@/components/takeoff/takeoff-resume-view";
 import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS } from "@/lib/takeoff/completion-outcome";
 import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
 import {
@@ -28,7 +29,6 @@ import {
   JobsTableSkeleton,
   PAGE_SIZE_OPTIONS,
   PERIOD_FILTER_OPTIONS,
-  TAKEOFF_LIST_REFRESH_INTERVAL_MS,
   formatCount,
   resolveErrorTitle,
 } from "@/components/takeoff/takeoff-job-list-shared";
@@ -161,15 +161,9 @@ export default function TakeoffActivityCenter({
     [searchParams, router, pathname]
   );
 
+  // Queued and running analyses, and stopped ones that wait for their retry or their delay, keep the list read.
   const computeRefreshInterval = useCallback(
-    (latestData?: TakeoffActivityCenterResponse) => {
-      if (!latestData) return 0;
-      const hasProcessing = latestData.counters.technicalJobs > 0;
-      const hasPending = latestData.jobs?.some(
-        (job) => job.statusRaw === "queued"
-      );
-      return hasProcessing || hasPending ? TAKEOFF_LIST_REFRESH_INTERVAL_MS : 0;
-    },
+    (latestData?: TakeoffActivityCenterResponse) => takeoffListRefreshInterval(latestData),
     []
   );
 

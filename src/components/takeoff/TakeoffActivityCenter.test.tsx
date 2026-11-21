@@ -154,4 +154,19 @@ describe("TakeoffActivityCenter", () => {
 
     expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-2");
   });
+
+  // Fix round 1, point 3: a row that waits keeps the list read until what it waits for happened.
+  it("keeps reading the list while a stopped analysis waits for its retry, and only then", () => {
+    const waiting = { ...EMPTY_RESPONSE, jobs: [{ jobId: "job-1", statusRaw: "action_required", technicalStatusRaw: "failed",
+      resume: { action: "wait_retry", reason: "retry_scheduled", availableAt: "2020-01-01T00:00:00.000Z" } }] } as unknown as TakeoffActivityCenterResponse;
+    const final = { ...EMPTY_RESPONSE, jobs: [{ jobId: "job-1", statusRaw: "action_required", technicalStatusRaw: "failed",
+      resume: { action: "new_analysis", reason: "analysis_closed", availableAt: null } }] } as unknown as TakeoffActivityCenterResponse;
+    renderCenter({ response: waiting });
+    const intervals = useSWRMock.mock.calls.map(([, , options]) => (options as { refreshInterval: (data?: TakeoffActivityCenterResponse) => number }).refreshInterval);
+    expect(intervals.length).toBeGreaterThan(0);
+    for (const interval of intervals) {
+      expect(interval(waiting)).toBeGreaterThan(0);
+      expect(interval(final)).toBe(0);
+    }
+  });
 });
