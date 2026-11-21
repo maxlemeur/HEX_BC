@@ -1,10 +1,8 @@
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import type {
-  EstimateVersionEvent,
-  EstimateVersionEventType,
-} from "@/lib/estimates/client";
+import type { EstimateVersionEvent } from "@/lib/estimates/schemas";
+import type { EstimateVersionEventType } from "@/lib/estimates/version-events-client";
 import { formatEstimateEditorAuditTimestamp } from "@/lib/estimates/audit-timestamp";
 
 type EstimateEventsTimelineProps = {

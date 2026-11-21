@@ -24,7 +24,7 @@ import { useEstimateCreationResources } from "@/components/estimates/hooks/useEs
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/client";
+import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/templates-client";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { Loader2Icon } from "lucide-react";
 

@@ -8,9 +8,13 @@ import { parseEstimateEditorData } from "@/lib/estimates/editor-read-contracts";
 import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-editor-response";
 
 const mocks = vi.hoisted(() => ({ read: vi.fn(), learnings: vi.fn() }));
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/editor-read-client", () => ({
   fetchEstimateEditorData: mocks.read,
+}));
+vi.mock("@/lib/estimates/suggestion-learning-client", () => ({
   fetchEstimateSuggestionLearnings: mocks.learnings,
+}));
+vi.mock("@/lib/estimates/client-errors", () => ({
   isEstimateApiError: () => false,
 }));
 

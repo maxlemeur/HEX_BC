@@ -3,7 +3,8 @@ import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useEstimateEditorSyncController } from "@/hooks/useEstimateEditorSyncController";
-import { createEstimateItem, type EstimateVersionToken } from "@/lib/estimates/client";
+import { createEstimateItem } from "@/lib/estimates/items-client";
+import type { EstimateVersionToken } from "@/lib/estimates/client-version";
 import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import { parseEstimateEditorData } from "@/lib/estimates/editor-read-contracts";
 import { prepareEstimateEditorRead } from "@/lib/estimates/editor-read-snapshot";

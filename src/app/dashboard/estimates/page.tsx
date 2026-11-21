@@ -6,12 +6,9 @@ import { useActionFeedback, useFeedbackRouter as useRouter } from "@/components/
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
-import {
-  duplicateEstimateVersion,
-  fetchEstimateList,
-  type EstimateListItem,
-  type EstimateStatus,
-} from "@/lib/estimates/client";
+import { duplicateEstimateVersion } from "@/lib/estimates/version-variant-client";
+import { fetchEstimateList, type EstimateListItem } from "@/lib/estimates/version-list-client";
+import type { EstimateStatus } from "@/lib/estimates/status";
 import {
   formatCurrency,
   normalizeEstimateCurrency,

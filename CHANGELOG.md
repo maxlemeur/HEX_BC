@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.8.0](https://github.com/maxlemeur/HEX_BC/compare/v0.7.0...v0.8.0) (2026-11-20)
+
+
+### Features
+
+* **ai:** use a personal OpenAI API key in the takeoff lab ([#384](https://github.com/maxlemeur/HEX_BC/issues/384)) ([1936445](https://github.com/maxlemeur/HEX_BC/commit/19364459fe24492acc0856ff9d7c255e1f76f4ed))
+* **catalogue:** audit reference price withdrawals and history (TI-709) ([#370](https://github.com/maxlemeur/HEX_BC/issues/370)) ([dfbcf7a](https://github.com/maxlemeur/HEX_BC/commit/dfbcf7a9546418ac802df570d72c408d82f5b792))
+* **catalogue:** import workbook supplier references (TI-711) ([#369](https://github.com/maxlemeur/HEX_BC/issues/369)) ([aed97d3](https://github.com/maxlemeur/HEX_BC/commit/aed97d3bfe765e453c444c3770ee3f08a09f3e83))
+* **email:** record and show when an estimate e-mail was redirected to the test mailbox (TI-691) ([#348](https://github.com/maxlemeur/HEX_BC/issues/348)) ([0b129c9](https://github.com/maxlemeur/HEX_BC/commit/0b129c9104fe1b441b40b6300ec5be7dead7268e))
+* **email:** redirect every outgoing email to one test mailbox by default ([#341](https://github.com/maxlemeur/HEX_BC/issues/341)) ([ddd527b](https://github.com/maxlemeur/HEX_BC/commit/ddd527ba70beb76a8ff7a07856f7bae71b02ccdf))
+* **estimates:** reach the estimate page from the affaire and name what blocks its send (TI-691) ([#346](https://github.com/maxlemeur/HEX_BC/issues/346)) ([1b8485f](https://github.com/maxlemeur/HEX_BC/commit/1b8485fa37b78fc5de22378f40b8aa4ddc2ac2ca))
+* **estimates:** simplify the editor toolbar and move totals below the table ([#337](https://github.com/maxlemeur/HEX_BC/issues/337)) ([fcf7ae8](https://github.com/maxlemeur/HEX_BC/commit/fcf7ae89607732f23a387bfa9541c016854a0fbb))
+* **intake:** flag newer Google Drive versions (TI-708) ([#366](https://github.com/maxlemeur/HEX_BC/issues/366)) ([634a499](https://github.com/maxlemeur/HEX_BC/commit/634a499a14b2729873f22e464caa785d1098db4f))
+* **intake:** give stored transcriptions to the assistant and read them again on retry ([#355](https://github.com/maxlemeur/HEX_BC/issues/355)) ([cdc5a96](https://github.com/maxlemeur/HEX_BC/commit/cdc5a96b8b05766e7fc91c17d965c9cdc1118d06))
+* **intake:** transcribe images and scanned PDF pages at arrival ([#353](https://github.com/maxlemeur/HEX_BC/issues/353)) ([5099377](https://github.com/maxlemeur/HEX_BC/commit/509937752ee8709fac3d24131720a33478e639c7))
+* **material-requests:** add line inspector and supplier/order workspaces (TI-691) ([#350](https://github.com/maxlemeur/HEX_BC/issues/350)) ([6762355](https://github.com/maxlemeur/HEX_BC/commit/67623551caa14c8f539dfa93b17ce1eb95625878))
+* **material-requests:** show the purchase one step at a time, the lines as a full-width table (TI-691) ([#343](https://github.com/maxlemeur/HEX_BC/issues/343)) ([fb92449](https://github.com/maxlemeur/HEX_BC/commit/fb92449668e690e66250e2c751abeb626ae86ec4))
+* **purchase-orders:** say what comes next on an affaire's order and lead back to its request (TI-691) ([#347](https://github.com/maxlemeur/HEX_BC/issues/347)) ([81ec8ea](https://github.com/maxlemeur/HEX_BC/commit/81ec8ea982a3769c061fc6b75c6d638f078ab778))
+* **purchase-orders:** send a purchase order to its supplier by e-mail (TI-691) ([#342](https://github.com/maxlemeur/HEX_BC/issues/342)) ([54f6dae](https://github.com/maxlemeur/HEX_BC/commit/54f6dae0e2136224b10126a4b5816b2d53ae8523))
+* **takeoff:** add lab page triage and recover title-block levels (TI-671) ([#368](https://github.com/maxlemeur/HEX_BC/issues/368)) ([0d27e75](https://github.com/maxlemeur/HEX_BC/commit/0d27e7538eae9f115f3cdc594aaec3c0a724b04d))
+* **takeoff:** send a reviewed takeoff to the estimate from one screen ([#382](https://github.com/maxlemeur/HEX_BC/issues/382)) ([695f617](https://github.com/maxlemeur/HEX_BC/commit/695f617cd06656d15aa45e659e07f8418fb0c214))
+
+
+### Bug Fixes
+
+* **affaires:** open the overview after creation ([#406](https://github.com/maxlemeur/HEX_BC/issues/406)) ([aed0a9b](https://github.com/maxlemeur/HEX_BC/commit/aed0a9b0a3124b3284c007ad2271b97477857461))
+* **affaires:** state the affaire access rule once and open the assistant's estimate reads to directors ([#394](https://github.com/maxlemeur/HEX_BC/issues/394)) ([bd9145a](https://github.com/maxlemeur/HEX_BC/commit/bd9145ab451fa19045db0dd9509b25323bc242e0))
+* **ai:** send the rules as a developer message, not top-level instructions ([#377](https://github.com/maxlemeur/HEX_BC/issues/377)) ([431f033](https://github.com/maxlemeur/HEX_BC/commit/431f033a5e33ca99e4740bc2c65b40e2fa29b20c))
+* **cad:** upgrade LibreDWG Web to 0.9.1 ([#400](https://github.com/maxlemeur/HEX_BC/issues/400)) ([4690c7a](https://github.com/maxlemeur/HEX_BC/commit/4690c7a1d5d79c648c57e0c0150fcc72dfef8f8a))
+* **ci:** remove withdrawn picomatch audit exception ([#379](https://github.com/maxlemeur/HEX_BC/issues/379)) ([6d5aa2c](https://github.com/maxlemeur/HEX_BC/commit/6d5aa2c8d1443f5d0cd614c9fcc72f3892d02f42))
+* **deps:** update PostalMime to 4.2.1 ([#390](https://github.com/maxlemeur/HEX_BC/issues/390)) ([c655322](https://github.com/maxlemeur/HEX_BC/commit/c655322644c34d976ad1d3fece32945d21c61757))
+* **drive:** revoke the Google grant when a Drive account is removed ([#393](https://github.com/maxlemeur/HEX_BC/issues/393)) ([13b46e0](https://github.com/maxlemeur/HEX_BC/commit/13b46e01610a6734aec9054bdfe7e697ea64c747))
+* **estimates:** decide frozen or live amounts in one place ([#396](https://github.com/maxlemeur/HEX_BC/issues/396)) ([6846a51](https://github.com/maxlemeur/HEX_BC/commit/6846a5185362079f6521f4cf80285b30b481093b))
+* **estimates:** one access rule for an estimate version ([#395](https://github.com/maxlemeur/HEX_BC/issues/395)) ([af6c836](https://github.com/maxlemeur/HEX_BC/commit/af6c836b35114087f1bb95439f33bbb80e727f0f))
+* **estimates:** show line nature beside the designation (TI-717) ([#365](https://github.com/maxlemeur/HEX_BC/issues/365)) ([992e874](https://github.com/maxlemeur/HEX_BC/commit/992e8746d3864a5836f5a727fa3ba14df231ffe4))
+* **material-requests:** clean up photos after affaire deletion (TI-695) ([#372](https://github.com/maxlemeur/HEX_BC/issues/372)) ([d8d2e41](https://github.com/maxlemeur/HEX_BC/commit/d8d2e412e8f3907d13a8c4303d7353c642869be7))
+* **material-requests:** explain the purchasing journey where the owner got stuck (TI-691) ([#340](https://github.com/maxlemeur/HEX_BC/issues/340)) ([682d5e4](https://github.com/maxlemeur/HEX_BC/commit/682d5e4c00311774ba1f2fc5758e141ce6c13ad6))
+* **procurement:** count estimate orders in affaire supply costs (TI-714) ([#371](https://github.com/maxlemeur/HEX_BC/issues/371)) ([8eeeb09](https://github.com/maxlemeur/HEX_BC/commit/8eeeb09f9b4f39d1d01e6138e4383cacf3033fee))
+* **takeoff:** stack targeted review panels on narrow screens (TI-727) ([#364](https://github.com/maxlemeur/HEX_BC/issues/364)) ([ba08d58](https://github.com/maxlemeur/HEX_BC/commit/ba08d584edb5c859fbde5bbbe58d25671c94f9cf))
+
+
+### Performance Improvements
+
+* **affaires:** qualify the manager queue with portfolio reads instead of a per-affaire fan-out ([#338](https://github.com/maxlemeur/HEX_BC/issues/338)) ([8c5f9eb](https://github.com/maxlemeur/HEX_BC/commit/8c5f9eb74c5482b3a0a6acacbb7964e0a66245c4))
+
 ## [0.7.0](https://github.com/maxlemeur/HEX_BC/compare/v0.6.0...v0.7.0) (2026-11-14)
 
 

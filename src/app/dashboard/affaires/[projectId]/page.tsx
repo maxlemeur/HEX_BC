@@ -4,8 +4,8 @@ import { AffaireHub } from "@/components/affaires/AffaireHub";
 import { AffaireDocumentPage } from "@/components/affaires/AffaireDocumentPage";
 import { getUserContext } from "@/lib/auth/server";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import {
   parseAffaireRegisterCursorSearchParam,
@@ -15,10 +15,8 @@ import {
   parseAffaireRegisterSeveritySearchParam,
   parseAffaireRegisterStatusSearchParam,
 } from "@/lib/affaires/register";
-import {
-  fetchAffaireRegisterPage,
-  fetchAffaireRegisterScopeOptions,
-} from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterPage } from "@/lib/affaires/register-read-server";
+import { fetchAffaireRegisterScopeOptions } from "@/lib/affaires/register-scope-server";
 import {
   applyAffaireHubDevScenario,
   buildAffaireHubDevScenarioRegisterPage,
@@ -39,10 +37,8 @@ import {
   parseApprovalDecisionJournalAuthorSearchParam,
   parseApprovalDecisionJournalStatusSearchParam,
 } from "@/lib/estimates/approval-decision-journal";
-import {
-  getEstimateApprovalSummary,
-  listEstimateApprovalDecisionJournal,
-} from "@/lib/estimates/rules-engine";
+import { listEstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal-server";
+import { getEstimateApprovalSummary } from "@/lib/estimates/approval-summary-server";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";

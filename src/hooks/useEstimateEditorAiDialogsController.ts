@@ -9,10 +9,12 @@ import {
   useState,
 } from "react";
 
-import type { GeneratedOuvrageDialogProps } from "@/components/estimates/GeneratedOuvrageDialog";
-import type { ExistingSection } from "@/components/estimates/generated-ouvrage-types";
-import type { VersionZeroDraftDialogProps } from "@/components/estimates/VersionZeroDraftDialog";
-import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
+import type {
+  GeneratedOuvrageDialogProps,
+  VersionZeroDraftDialogProps,
+} from "@/hooks/estimate-editor-view-props";
+import type { ExistingSection } from "@/lib/estimates/editor-item-tree";
+import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import type {
   EditorEstimateItem,

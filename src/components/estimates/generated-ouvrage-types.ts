@@ -5,6 +5,7 @@ import type {
   GeneratedOuvrageSubdetailComponent,
   GeneratedOuvrageSubdetailResult,
 } from "@/lib/estimates/generated-ouvrages";
+import type { ExistingSection } from "@/lib/estimates/editor-item-tree";
 
 export type { GeneratedOuvrageCandidateSource };
 
@@ -62,14 +63,6 @@ export type GeneratedOuvrageSubdetailUiState = {
   status: "idle" | "loading" | "saving" | "error";
   data: GeneratedOuvrageSubdetailResult | null;
   errorMessage: string | null;
-};
-
-export type ExistingSection = {
-  id: string;
-  path: string;
-  hierarchyLevel: number;
-  parentId: string | null;
-  title: string;
 };
 
 export const GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL = "À classer (par défaut)";

@@ -8,7 +8,7 @@ const clientMocks = vi.hoisted(() => ({
   reorderEstimateItems: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/items-client", () => ({
   moveEstimateItem: clientMocks.moveEstimateItem,
   reorderEstimateItems: clientMocks.reorderEstimateItems,
 }));

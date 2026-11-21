@@ -23,7 +23,7 @@ import {
   readEstimateV3LineMargin,
   resolveEstimateV3TaxRateOptions,
   resolveEstimateV3UnitInput,
-  type EstimateV3LineIndex,
+  type EstimateV3GridModel,
 } from "@/lib/estimates/v3-editor";
 import { parseHoursPerUnit } from "@/lib/numeric-input/parsers";
 import {
@@ -36,7 +36,7 @@ import {
 import { V3StatusReasonDialog } from "@/components/estimates/v3/V3StatusReasonDialog";
 import { V3OfferProvisionalQuantityDialog } from "@/components/estimates/v3/V3OfferProvisionalQuantityDialog";
 import { V3OfferReserveDialog } from "@/components/estimates/v3/V3OfferReserveDialog";
-import { readOfferProvisionalQuantity, readOfferReserve, type EstimateOfferChoiceInput } from "@/lib/estimates/offer-choice";
+import { readOfferProvisionalQuantity, readOfferReserve } from "@/lib/estimates/offer-choice";
 import { readTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 
@@ -48,24 +48,6 @@ import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
  * viennent de l'aperçu du moteur pur ; les cellules n'écrivent que des saisies (`unit_code`,
  * `pricing_status`, `h_mo_per_unit`, `tax_rate_bp`), jamais `h_mo` ni une projection.
  */
-
-export type EstimateV3GridModel = {
-  /** Lignes calculées par le moteur pur pour l'aperçu courant (vide si l'aperçu est refusé). */
-  lines: EstimateV3LineIndex;
-  allowedTaxRatesBp: readonly number[];
-  /**
-   * TI-682, lot C, PR 4: the written reserve of a « Non chiffrée » line. `canDeclare`: a tenant administrator who may
-   * write this draft; `save` writes it through the administration route (null withdraws it). Absent: read only.
-   */
-  offerReserve?: {
-    canDeclare: boolean;
-    save: (itemId: string, choice: EstimateOfferChoiceInput | null) => Promise<void>;
-    /** PR 5: what « Établie sur » of a provisional quantity starts from (the takeoff line's note), or null. */
-    suggestEstablishedOn?: (itemId: string) => Promise<string | null>;
-  };
-  /** Coefficient de vente FO de l'aperçu courant, pour le détail du coût de fourniture d'une ligne (TI-541). */
-  saleCoefficientFo?: string | null;
-};
 
 const EstimateV3GridContext = createContext<EstimateV3GridModel | null>(null);
 const UNIT_OPTIONS_ID = "estimate-v3-unit-options";

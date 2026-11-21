@@ -5,10 +5,8 @@ import { FieldDescription, FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 
-import {
-  GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL,
-  type ExistingSection,
-} from "./generated-ouvrage-types";
+import { GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL } from "./generated-ouvrage-types";
+import type { ExistingSection } from "@/lib/estimates/editor-item-tree";
 
 type SourceKind = "free_text" | "cctp_excerpt" | "internal_note";
 

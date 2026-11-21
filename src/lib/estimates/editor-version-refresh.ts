@@ -1,4 +1,4 @@
-import type { EstimateEditorData } from "@/lib/estimates/client";
+import type { EstimateEditorData } from "@/lib/estimates/editor-read-contracts";
 
 type FetchEstimateEditorData = (versionId: string) => Promise<EstimateEditorData>;
 

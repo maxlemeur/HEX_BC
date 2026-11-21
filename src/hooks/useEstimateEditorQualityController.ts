@@ -25,7 +25,7 @@ import {
 import {
   fetchEstimateOutlierDismissedFlags,
   toggleEstimateOutlierDismissedFlag,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/outlier-dismissals-client";
 import { ESTIMATE_VERSION_CONFLICT_MESSAGE } from "@/lib/estimates/constants";
 import type { EstimateItem } from "@/lib/estimates/editor-items";
 import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";

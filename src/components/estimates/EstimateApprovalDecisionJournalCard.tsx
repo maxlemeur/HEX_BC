@@ -12,7 +12,7 @@ import { useToast } from "@/components/feedback/toast-provider";
 import {
   downloadEstimateApprovalDecisionJournalCsv,
   fetchEstimateApprovalDecisionJournal,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/approval-journal-client";
 import type {
   EstimateApprovalDecisionFilter,
   EstimateApprovalDecisionJournal,

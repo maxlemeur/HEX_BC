@@ -3,7 +3,7 @@ import {
   isAffaireIntakeDocumentProcessing,
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import {
   AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
   buildAffaireRegisterHubHref,

@@ -368,14 +368,19 @@ armyTest("V3C07 « Créer l'affaire » from the onboarding creates the affaire a
       const outcome = await createAffaireFromOnboarding(ui, army, projectName, "v3c07");
       const projects = await ownedProjectIdsNamed(owner, projectName);
       const versions = projects.length === 1 ? await storedVersions(owner, projects[0]!) : [];
-      if (projects.length === 1 && outcome.versionId) ownEstimate(army, { projectId: projects[0]!, versionId: outcome.versionId });
+      if (projects.length === 1 && versions[0]) ownEstimate(army, { projectId: projects[0]!, versionId: versions[0].id });
       const observed = {
         alert: outcome.alert, projects: projects.length, versions: versions.map(v3Settings),
-        editorOpened: outcome.versionId !== null && outcome.versionId === versions[0]?.id,
+        createdAffaireOpened: outcome.projectId !== null && outcome.projectId === projects[0],
         policyUnchanged: samePolicy(await policySnapshot(owner), policy),
       };
       await recordEvidence(army, "v3c07", { owner, projectName, outcome, versions, observed });
-      expect(observed).toEqual({ alert: null, projects: 1, versions: [V3_BLANK], editorOpened: true, policyUnchanged: true });
+      expect(observed).toEqual({ alert: null, projects: 1, versions: [V3_BLANK], createdAffaireOpened: true, policyUnchanged: true });
+      const overview = screen.getByRole("navigation", "Navigation de l'affaire", { exact: true })
+        .getByRole("button", "Vue d’ensemble", { exact: true });
+      await expect(overview).toHaveAttribute("aria-current", "page");
+      await expect(screen.getByRole("link", "Continuer en manuel", { exact: true }))
+        .toHaveAttribute("href", `/dashboard/estimates/${versions[0]!.id}/edit?entry=manual`);
     } finally {
       await closePolicy(owner, army, "V3C07");
     }
@@ -749,8 +754,8 @@ armyTest("V3C11 guard: under an explicit policy 2 the wizard (margin, tiers, qui
 
     const onboarding = await createAffaireFromOnboarding(ui, army, onboardingName, "v3c11");
     const [onboardingProjectId] = await ownedProjectIdsNamed(owner, onboardingName);
-    if (onboardingProjectId && onboarding.versionId) ownEstimate(army, { projectId: onboardingProjectId, versionId: onboarding.versionId });
     const onboardingVersions = onboardingProjectId ? await storedVersions(owner, onboardingProjectId) : [];
+    if (onboardingProjectId && onboardingVersions[0]) ownEstimate(army, { projectId: onboardingProjectId, versionId: onboardingVersions[0].id });
 
     const created = [margin, tiered, quick].map((outcome) => createdOf(versions, outcome));
     const observed = {
@@ -759,7 +764,8 @@ armyTest("V3C11 guard: under an explicit policy 2 the wizard (margin, tiers, qui
       margin: v2Settings(created[0]!),
       tiered: v2Settings(created[1]!),
       quickInheritsTiered: created[2] !== null && samePolicy(v2Settings(created[2]), v2Settings(created[1])),
-      onboarding: v2Settings(onboardingVersions.find((version) => version.id === onboarding.versionId) ?? null),
+      onboarding: onboardingVersions.map(v2Settings),
+      onboardingOpened: onboarding.projectId !== null && onboarding.projectId === onboardingProjectId,
       policyAfter: await policySnapshot(owner),
     };
     await recordEvidence(army, "v3c11", { owner, policyBefore, versions, onboardingVersions, observed });
@@ -771,7 +777,8 @@ armyTest("V3C11 guard: under an explicit policy 2 the wizard (margin, tiers, qui
       // Le pas d'arrondi n'est pas envoyé pour « Aucun » : il est hérité de la version précédente (10 000).
       tiered: { engine: 2, coefficients: [null, null], margin: ["tiered", 1.15, 1500], global: 1, discount: ["simple", []], rounding: ["none", 10000] },
       quickInheritsTiered: true,
-      onboarding: { engine: 2, coefficients: [null, null], margin: ["fixed", 1, 0], global: 1, discount: ["simple", []], rounding: ["none", 1] },
+      onboarding: [{ engine: 2, coefficients: [null, null], margin: ["fixed", 1, 0], global: 1, discount: ["simple", []], rounding: ["none", 1] }],
+      onboardingOpened: true,
       policyAfter: policyBefore,
     });
   });

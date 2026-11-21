@@ -9,7 +9,7 @@ vi.mock("@/lib/affaires/intake-decisions", async (original) => ({
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
-import { retryAffaireDocumentAnalysis } from "@/lib/affaires/intake-server";
+import { retryAffaireDocumentAnalysis } from "@/lib/affaires/intake-analysis-server";
 import { canRetryDossierDocument, type DossierDocument } from "@/lib/affaires/document-triage";
 import { createEmptyAffaireIntakeExtractedMetadata } from "@/lib/affaires/intake";
 

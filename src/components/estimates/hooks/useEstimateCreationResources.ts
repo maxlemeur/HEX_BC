@@ -2,20 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import {
-  fetchAffaireLinkedDpgfSource,
-  fetchEstimateTemplates,
-} from "@/lib/estimates/client";
+import { fetchAffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-client";
+import { fetchEstimateTemplates } from "@/lib/estimates/templates-client";
 import {
   hasImportableLinkedDpgfSource,
   type WizardData,
 } from "@/components/estimates/estimate-creation-wizard/shared";
 
 import type { StepErrors } from "@/components/estimates/estimate-creation-wizard/shared";
-import type {
-  AffaireLinkedDpgfSource,
-  EstimateTemplateSummary,
-} from "@/lib/estimates/client";
+import type { AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
+import type { EstimateTemplateSummary } from "@/lib/estimates/templates-client";
 import type { Dispatch, SetStateAction } from "react";
 
 type UseEstimateCreationResourcesArgs = {

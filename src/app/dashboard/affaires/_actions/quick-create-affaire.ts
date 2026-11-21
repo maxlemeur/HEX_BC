@@ -162,7 +162,7 @@ async function createAndOptionallyLinkEmptyAffaire(input: {
   return {
     projectId,
     versionId,
-    redirectUrl: manualEstimate.editorRedirectUrl,
+    redirectUrl: `/dashboard/affaires/${projectId}?view=overview`,
     manualEstimate,
   };
 }

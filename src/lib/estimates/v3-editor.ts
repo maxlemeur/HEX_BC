@@ -21,6 +21,7 @@ import {
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import type { EstimateLineMargin } from "@/lib/estimates/line-margin";
+import type { EstimateOfferChoiceInput } from "@/lib/estimates/offer-choice";
 import { alternativePriceForLineUnit } from "@/lib/estimates/supplier-offer-purchase-unit";
 import { areSupplierUnitsCompatible } from "@/lib/estimates/supplier-offer-units";
 import { ESTIMATE_V3_STATUS_DOCUMENT_LABELS } from "@/lib/estimates/v3-document-presentation";
@@ -33,6 +34,24 @@ import {
 
 /** Lignes du moteur v3 par identifiant (minuscules, comme le départage D13). */
 export type EstimateV3LineIndex = ReadonlyMap<string, EstimateV3LineResult>;
+
+export type EstimateV3GridModel = {
+  /** Lignes calculées par le moteur pur pour l'aperçu courant (vide si l'aperçu est refusé). */
+  lines: EstimateV3LineIndex;
+  allowedTaxRatesBp: readonly number[];
+  /**
+   * TI-682, lot C, PR 4: the written reserve of a « Non chiffrée » line. `canDeclare`: a tenant administrator who may
+   * write this draft; `save` writes it through the administration route (null withdraws it). Absent: read only.
+   */
+  offerReserve?: {
+    canDeclare: boolean;
+    save: (itemId: string, choice: EstimateOfferChoiceInput | null) => Promise<void>;
+    /** PR 5: what « Établie sur » of a provisional quantity starts from (the takeoff line's note), or null. */
+    suggestEstablishedOn?: (itemId: string) => Promise<string | null>;
+  };
+  /** Coefficient de vente FO de l'aperçu courant, pour le détail du coût de fourniture d'une ligne (TI-541). */
+  saleCoefficientFo?: string | null;
+};
 
 const EMPTY_LINES: EstimateV3LineIndex = new Map();
 

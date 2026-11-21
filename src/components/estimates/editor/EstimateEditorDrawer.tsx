@@ -1,15 +1,13 @@
 "use client";
 
-import { useRef, useState, type ComponentProps } from "react";
+import { useRef, useState } from "react";
 
 import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
-import { EstimateMutationRecoveryAlert, type EstimateMutationRecovery } from "@/components/estimates/editor/EstimateMutationRecoveryAlert";
+import { EstimateMutationRecoveryAlert } from "@/components/estimates/editor/EstimateMutationRecoveryAlert";
 import { EstimateSettingsPanel } from "@/components/estimates/EstimateSettingsPanel";
 import { EstimateSuggestionRulesManager } from "@/components/estimates/EstimateSuggestionRulesManager";
 import { LaborRolesManager } from "@/components/estimates/LaborRolesManager";
 import { MarginTiersManager } from "@/components/estimates/MarginTiersManager";
-import type { EstimateTotals } from "@/lib/estimate-calculations";
-import type { EstimateVersionEvent } from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -24,78 +22,9 @@ import {
 } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
 import { XIcon } from "lucide-react";
-import { type EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
+import type { EstimateEditorDrawerProps } from "@/hooks/estimate-editor-view-props";
 
-type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
-type SuggestionRule = Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
-type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
-type EstimateSettingsPanelProps = ComponentProps<typeof EstimateSettingsPanel>;
-type LaborRolesManagerProps = ComponentProps<typeof LaborRolesManager>;
-type MarginTiersManagerProps = ComponentProps<typeof MarginTiersManager>;
-type SuggestionRulesManagerProps = ComponentProps<typeof EstimateSuggestionRulesManager>;
-type AuditLogEntry = {
-  id: string;
-  action: string;
-  table_name: string;
-  record_id: string;
-  created_at: string;
-};
-
-type EstimateEditorDrawerProps = {
-  isOpen: boolean;
-  onClose: () => void;
-  hasUnsavedSettings: boolean;
-  onDiscardSettings: () => void;
-  onSaveBeforeClose: () => Promise<boolean>;
-  projectName: string;
-  versionNumber: number;
-  settings: EstimateSettingsState;
-  totals: EstimateTotals | null;
-  isSavingSettings: boolean;
-  isSaveBlocked: boolean;
-  recovery?: EstimateMutationRecovery;
-  isFrozen?: boolean;
-  storedMarginMultiplier?: number;
-  /** TI-682, lot C, PR 4 : titres des lignes réservées dans l'offre (insertion dans les précisions). */
-  reservedLineTitles?: readonly string[];
-  /** TI-682, lot C, PR 5 : phrases des quantités provisionnelles, d'après les lignes actuelles. */
-  provisionalQuantityMentions?: readonly string[];
-  onChangeSettings: EstimateSettingsPanelProps["onChange"];
-  onSaveSettings: EstimateSettingsPanelProps["onSave"];
-  /** Lot 2, sous-lot 2.6 : réglages d'une v3 (`useEstimateV3Settings`), nuls en v1/v2. */
-  v3Settings?: EstimateSettingsPanelProps["v3"];
-  /**
-   * Lot 2, sous-lot 2.6 : faux pour une v3, dont le moteur n'applique aucun barème (repère seulement,
-   * F26-12) ; le gestionnaire v1/v2 décrit l'application du barème et son barème par défaut.
-   */
-  showMarginTiers?: boolean;
-  laborRoles: LaborRole[];
-  onCreateRole: LaborRolesManagerProps["onCreate"];
-  onUpdateRole: LaborRolesManagerProps["onUpdate"];
-  isSavingMarginTiers: boolean;
-  marginTiersError: string | null;
-  canEditMarginTiers: boolean;
-  onCreateTier: MarginTiersManagerProps["onCreate"];
-  onUpdateTier: MarginTiersManagerProps["onUpdate"];
-  onDeleteTier: MarginTiersManagerProps["onDelete"];
-  suggestionRules: SuggestionRule[];
-  categories: EstimateCategory[];
-  isSavingRules: boolean;
-  rulesError: string | null;
-  onCreateSuggestionRule: SuggestionRulesManagerProps["onCreate"];
-  onUpdateSuggestionRule: SuggestionRulesManagerProps["onUpdate"];
-  isAdmin: boolean;
-  timelineEvents: EstimateVersionEvent[];
-  isTimelineLoading: boolean;
-  timelineError: string | null;
-  onRefreshTimeline: () => void;
-  isAuditLoading: boolean;
-  auditError: string | null;
-  auditLogs: AuditLogEntry[];
-  onRefreshAuditLogs: () => void;
-  formatAuditTimestamp: (value: string) => string;
-};
 
 export function EstimateEditorDrawer({
   isOpen,

@@ -11,7 +11,7 @@ vi.mock("@/lib/affaires/google-drive/connections", () => ({
 vi.mock("@/lib/affaires/google-drive/store", () => ({
   rearmLotsFailedWithConnection: vi.fn(),
 }));
-vi.mock("@/lib/affaires/intake-server", () => ({
+vi.mock("@/lib/affaires/intake-analysis-server", () => ({
   processAffaireIntakeUpload: vi.fn(),
 }));
 vi.mock("next/server", async (importOriginal) => ({
@@ -26,7 +26,7 @@ import {
   listDriveConnections,
 } from "@/lib/affaires/google-drive/connections";
 import { rearmLotsFailedWithConnection } from "@/lib/affaires/google-drive/store";
-import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 import {
   beginDriveAuthorization,
   DRIVE_OAUTH_COOKIE,
