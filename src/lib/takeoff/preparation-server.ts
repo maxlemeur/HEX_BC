@@ -438,20 +438,25 @@ export async function getTakeoffPreparationSourcePreview(input: { projectId: str
 
 /** Every launch path consumes this gate; the worker retains the returned snapshot. */
 export async function assertConfirmedTakeoffPreparation(input: {
-  context: AuthenticatedTenantContext; estimateVersionId: string; projectId?: string;
+  context: AuthenticatedTenantContext; estimateVersionId: string | null; projectId?: string;
   preparationRevision: number | null; planSetId?: string; upload?: { hash: string; fileName: string };
   sourceVersionId?: string;
 } & TakeoffRequestedProcessing): Promise<TakeoffPreparationSnapshot> {
   revisionSchema.nullable().parse(input.preparationRevision);
-  const { data: version, error } = await input.context.supabase.from("estimate_versions")
-    .select("id,project_id").eq("tenant_id", input.context.tenantId)
-    .eq("id", input.estimateVersionId).single();
-  if (error || !version || (input.projectId && version.project_id !== input.projectId)) {
-    preparationConflict("La version cible n'appartient pas à l'affaire de cette préparation.");
+  let projectId = input.projectId;
+  if (input.estimateVersionId !== null) {
+    const { data: version, error } = await input.context.supabase.from("estimate_versions")
+      .select("id,project_id").eq("tenant_id", input.context.tenantId)
+      .eq("id", input.estimateVersionId).single();
+    if (error || !version || (projectId && version.project_id !== projectId)) {
+      preparationConflict("La version cible n'appartient pas à l'affaire de cette préparation.");
+    }
+    projectId = version.project_id;
   }
-  await assertPreparationProjectAccess(input.context, version.project_id, true);
+  if (!projectId) preparationConflict("L’affaire du métré est introuvable.");
+  await assertPreparationProjectAccess(input.context, projectId, true);
   const [record, sources] = await Promise.all([
-    readPreparationRecord(input.context, version.project_id), readPreparationSources(input.context, version.project_id),
+    readPreparationRecord(input.context, projectId), readPreparationSources(input.context, projectId),
   ]);
   if (!record?.confirmed_at || !record.confirmed_by || !record.confirmed_snapshot || record.revision !== input.preparationRevision) {
     preparationConflict("Vérifiez et confirmez la préparation du métré avant de lancer l'analyse.");
@@ -470,14 +475,17 @@ export async function assertConfirmedTakeoffPreparation(input: {
     preparation, revision: record.revision, confirmedAt: stored.confirmed_at, confirmedBy: stored.confirmed_by,
   });
   const destination = preparation.destination;
+  if (input.estimateVersionId === null && (destination.kind !== "analysis_only" || destination.estimate_version_id !== null)) {
+    preparationConflict("Confirmez une préparation d’analyse seule pour ce métré.");
+  }
   const provenanceSources = new Set([
     ...(input.sourceVersionId ? [input.sourceVersionId] : []),
-    ...(destination.kind === "estimate_review" && destination.estimate_version_id !== version.id && destination.estimate_version_id ? [destination.estimate_version_id] : []),
+    ...(destination.kind === "estimate_review" && destination.estimate_version_id !== input.estimateVersionId && destination.estimate_version_id ? [destination.estimate_version_id] : []),
   ]);
   for (const sourceVersionId of provenanceSources) {
-    if (!await hasTakeoffPreparationCopyReceipt({
-      context: input.context, projectId: version.project_id, sourceVersionId,
-      targetVersionId: version.id, preparationRevision: record.revision,
+    if (!input.estimateVersionId || !await hasTakeoffPreparationCopyReceipt({
+      context: input.context, projectId, sourceVersionId,
+      targetVersionId: input.estimateVersionId, preparationRevision: record.revision,
     })) preparationConflict("Le brouillon ne possède pas de reçu de copie pour cette source et cette préparation. Vérifiez sa destination.");
   }
   const active = preparation.sources.filter((source) => source.active);

@@ -12,7 +12,7 @@ import type { VectorPageDecisions } from "@/lib/takeoff/vectors/persistence";
 import { createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, type ArmyState, type OwnedEstimate } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
 import { signUpDedicatedOwner, type DedicatedOwner } from "../local/dedicated-owner";
-import { localTakeoffWorkerClient } from "./fixtures";
+import { localTakeoffFixture, localTakeoffWorkerClient } from "./fixtures";
 import { localClient } from "./native-ui";
 import { buildVectorPlanPdf } from "./vector-plan-fixture";
 
@@ -74,11 +74,14 @@ export async function ownedWorkerJobOwner() {
   return { execution_provider: "chatgpt_local" as const, execution_host_id: await ownedWorkerHostId(), processing_strategy: "sync" as const };
 }
 
-export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
+export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId: string; versionId: null }, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
   options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner;
     providerItems?: Array<{ designation: string; quantity: number; unit: string; source_page: number; confidence: number; evidence: string }> } = {}) {
-  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId)) {
-    throw new Error("A dedicated worker profile and this invocation's owned estimate are required.");
+  const ownsScope = ids.versionId === null
+    ? ui.army.ownedTakeoffAffaires?.includes(ids.projectId)
+    : ui.army.ownedEstimates.some((entry) => entry.projectId === ids.projectId && entry.versionId === ids.versionId);
+  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !ownsScope) {
+    throw new Error("A dedicated worker profile and this invocation's owned scope are required.");
   }
   const names = ["PATH", "TMPDIR", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
     "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD", "E2E_ALLOWED_SUPABASE_HOST", "E2E_ARMY_LOCAL_DB_URL", "E2E_ARMY_BASE_URL",
@@ -91,7 +94,7 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate, jobId: string
     // The worker child signs in as the job's owner: a journey's dedicated owner, else the campaign account.
     ...(options.owner ? { E2E_LOGIN_EMAIL: options.owner.email, E2E_LOGIN_PASSWORD: options.owner.password } : {}) };
   const child = spawn(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/tester-army/takeoff-worker-attempt.mjs",
-    ids.projectId, ids.versionId, jobId, ui.army.runPrefix, mode], { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
+    ids.projectId, ids.versionId ?? "-", jobId, ui.army.runPrefix, mode], { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
   let resolveProvider!: (value: { event: string; jobId: string; status: string }) => void;
   let rejectProvider!: (error: Error) => void;
   const provider = new Promise<{ event: string; jobId: string; status: string }>((resolve, reject) => { resolveProvider = resolve; rejectProvider = reject; });
@@ -261,21 +264,23 @@ export async function launchWorkerVectorUpload(ui: WorkerUi) {
     draft: preparation, confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId } as never);
   expect(prepared.error).toBeNull();
   const jobId = randomUUID();
-  const sourcePath = `${tenantId}/${jobId}/${fileName}`;
+  const sourcePath = `${tenantId}/${jobId}/${hash}-${randomUUID()}-plan-vectoriel-R-1-Z2.pdf`;
   // The review reads this owned upload through its signed URL: the campaign's network guard allows exactly that path.
   (ui.army.ownedTakeoffUploads ??= []).push({ projectId: ids.projectId, tenantId, jobId });
-  const uploaded = await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" });
+  const { client: authenticated } = await localTakeoffFixture(ui.army, ids, owner.email, owner.password);
+  const uploaded = await authenticated.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "application/pdf" });
   expect(uploaded.error).toBeNull();
-  const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
+  const inserted = await authenticated.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
     created_by: userId, level: "C", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
     source_file_type: "application/pdf", source_file_size_bytes: bytes.length, ...await ownedWorkerJobOwner(),
-    preparation_snapshot: snapshot } as never).select("id").single();
+    preparation_snapshot: snapshot } as never).select("id,project_id").single();
   expect(inserted.error).toBeNull();
+  expect(inserted.data).toEqual({ id: jobId, project_id: ids.projectId });
   const [job] = await ownedTakeoffJobs(ui.browser, ids).list();
   expect(job).toMatchObject({ id: jobId, estimate_version_id: ids.versionId, status: "pending", level: "C", source_file_name: fileName });
   await recordEvidence(ui.army, "TKW09-vector-upload-created", { ids, jobId, tenantId, owner: owner.userId, sha256: hash,
     calibration: preparation.conventions.calibration,
-    boundary: "Fictional vector PDF without printed scale stored as a direct upload by the journey's dedicated owner; its confirmed preparation and pending level C job are seeded on the owned stack." });
+    boundary: "The ordinary member uploads the fictional PDF before inserting the pending Level C job on the version. The insert omits the project ID." });
   return { ids, jobId, fileName, tenantId, sourcePath, sha256: hash, client, owner };
 }
 

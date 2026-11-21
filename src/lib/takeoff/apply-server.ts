@@ -142,6 +142,13 @@ export async function applyTakeoffJob(
       jobId: normalizedJobId,
     });
 
+    if (jobRow.estimate_version_id === null) {
+      throw new TakeoffError({
+        status: 409, code: TakeoffErrorCode.CONFLICT, message: "Aucun devis n’est rattaché à ce métré.",
+        retryable: false, jobId: normalizedJobId,
+      });
+    }
+
     auditContext = {
       supabase,
       tenantId,
@@ -379,7 +386,7 @@ export async function applyTakeoffJob(
       jobId: normalizedJobId,
     });
 
-    if (updatedJobRow.status !== "applied") {
+    if (updatedJobRow.status !== "applied" || updatedJobRow.estimate_version_id !== jobRow.estimate_version_id) {
       throw new TakeoffError({
         status: 500,
         code: TakeoffErrorCode.INTERNAL_ERROR,
@@ -413,7 +420,7 @@ export async function applyTakeoffJob(
     });
 
     return {
-      job: normalizeTakeoffJobSummaryRow(updatedJobRow, tenantRole),
+      job: { ...normalizeTakeoffJobSummaryRow(updatedJobRow, tenantRole), estimate_version_id: updatedJobRow.estimate_version_id },
       summary,
     };
   } catch (error) {

@@ -177,7 +177,10 @@ export async function batchUpdateTakeoffItems(
   let ruleStates: TakeoffItemRuleState[] | null = null;
   let ruleStatesRefresh = false;
   if (saved.length > 0) {
-    const outcome = await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId: jobRow.estimate_version_id, context: "item_patch" });
+    const scope = jobRow.estimate_version_id === null
+      ? { jobId: jobRow.id, projectId: jobRow.project_id }
+      : { estimateVersionId: jobRow.estimate_version_id };
+    const outcome = await recomputeTakeoffRulesQuietly({ tenantId, ...scope, context: "item_patch" });
     if (outcome && outcome.lines > 0) {
       const fresh = await readTakeoffItemsAfterRules({ supabase, tenantId, jobId: normalizedJobId, itemIds: saved });
       for (const [index, result] of results.entries()) {

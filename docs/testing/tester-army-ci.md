@@ -278,8 +278,8 @@ un seul job. Les durées ne choisissent pas la couverture.
 qu'un autre vaille sa pile et son build (environ trois minutes de runner par
 job). Elle vaut ce qu'un shard porte quand la suite entière tourne (715 s en
 critical, à 2 workers) : une sélection partielle remplit donc ses shards comme
-la suite complète, au lieu d'en ouvrir un tous les 300 s. Les parcours du métré
-(environ 320 s à 1 worker) tiennent dans un job, sous le budget de 400 s.
+la suite complète, au lieu d'en ouvrir un tous les 300 s. Pour le métré, le plan
+ouvre un deuxième job quand la charge estimée à 1 worker dépasse 400 s.
 
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
 soient leurs durées : les deux fichiers des

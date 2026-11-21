@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
+import { PosteListPreviewPanel } from "@/components/takeoff/PosteListPreviewPanel";
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
 import { getUserContext } from "@/lib/auth/server";
@@ -16,9 +18,10 @@ import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
 
 type Props = {
   params: Promise<{ projectId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function AffaireTakeoffPage({ params }: Props) {
+export default async function AffaireTakeoffPage({ params, searchParams }: Props) {
   const [{ projectId }, { tenantId }] = await Promise.all([
     params,
     getUserContext(),
@@ -86,19 +89,26 @@ export default async function AffaireTakeoffPage({ params }: Props) {
     <TakeoffActivityCenter
       projectId={projectId}
       header={
-        <JourneyPageHeader
-          breadcrumbs={[
-            { label: "Affaires", href: "/dashboard/affaires" },
-            {
-              label: project.name,
-              href: `/dashboard/affaires/${projectId}`,
-            },
-            { label: "Métrés" },
-          ]}
-          title="Métrés"
-          stage="Étude"
-          context="L’IA lit vos plans et propose les quantités. Vous les vérifiez avant de les reporter au devis."
-        />
+        <>
+          <JourneyPageHeader
+            breadcrumbs={[
+              { label: "Affaires", href: "/dashboard/affaires" },
+              {
+                label: project.name,
+                href: `/dashboard/affaires/${projectId}`,
+              },
+              { label: "Métrés" },
+            ]}
+            title="Métrés"
+            stage="Étude"
+            context="L’IA lit vos plans et propose les quantités. Vous les vérifiez avant de les reporter au devis."
+          />
+          {versionsResult.status === "fulfilled" && versions.length === 0 && (
+            <Suspense>
+              <PosteListPreviewPanel projectId={projectId} query={(await searchParams) ?? {}} />
+            </Suspense>
+          )}
+        </>
       }
       help={<TakeoffFlowHierarchyPanel />}
       versions={versions}

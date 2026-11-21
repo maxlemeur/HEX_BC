@@ -19,6 +19,7 @@ import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRe
 import { VerificationJustificationDialog } from "@/components/takeoff/review/VerificationJustificationDialog";
 import { acceptanceReasonRule, requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { ExclusionReasonDialog } from "@/components/takeoff/review/ExclusionReasonDialog";
+import { TAKEOFF_COMPARISON_DEFERRED, TAKEOFF_CROSS_JOB_COMPARISON_LABEL } from "@/lib/takeoff/apply-readiness";
 import { useTakeoffApplyConfirm, useTakeoffLowConfidenceThreshold } from "@/components/takeoff/review/useTakeoffReviewSupport";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import type { TakeoffApplyWizardSubmitPayload } from "@/components/takeoff/TakeoffApplyWizard";
@@ -130,7 +131,9 @@ function parseQuantity(text: string) {
   return Number.isFinite(value) && value > 0 ? Math.round(value * 1000) / 1000 : null;
 }
 
-export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<{ jobId: string; versionId: string; projectId: string }>) {
+export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = true }: Readonly<{
+  jobId: string; versionId: string | null; projectId: string; canEdit?: boolean;
+}>) {
   const toast = useToast();
   const searchParams = useSearchParams();
   const { profile } = useUserContext();
@@ -194,6 +197,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   }, [jobId]);
 
   useEffect(() => {
+    if (!versionId) return;
     const controller = new AbortController();
     setDpgf((previous) => ({ ...previous, loading: true }));
     // The application refuses DPGF links still to settle: read as the review reads them.
@@ -224,7 +228,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   // TI-701: the amounts and unpriced lines from the review context, the plans and pages from the preparation.
   const pricing = useMemo(() => takeoffPricingIndex(reviewContext.context, items), [items, reviewContext.context]);
   // The amounts and the lots arrive with the review context: their filters wait for it, never shown unapplied.
-  const pricingPending = reviewContext.context === null && reviewContext.error === null
+  const pricingPending = versionId !== null && reviewContext.context === null && reviewContext.error === null
     && (filters.large || filters.unpriced || filters.network.some((value) => value.startsWith(LOT_VALUE_PREFIX)));
   const sources = useMemo(() => {
     const parsed = takeoffPreparationSchema.safeParse(record(record(providerMeta).preparation_snapshot).preparation);
@@ -279,7 +283,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const enteredItem = pendingEntry ? items.find((item) => item.id === pendingEntry.itemId) ?? null : null;
 
   const applied = job?.status === "applied";
-  const readOnly = !job || job.status !== "completed";
+  const readOnly = !canEdit || !job || job.status !== "completed";
   // One decision at a time: a partner's guidance is read from the answer of the decision before it, never guessed.
   const busy = saving.size > 0;
 
@@ -461,7 +465,9 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
   const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
 
   const included = items.filter((item) => !item.is_excluded);
-  const applyBlocker = !job ? "Chargement du métré…"
+  const applyBlocker = !versionId ? TAKEOFF_COMPARISON_DEFERRED
+    : !canEdit ? "Ce métré est accessible en lecture seule."
+    : !job ? "Chargement du métré…"
     : applied ? "Ce métré a déjà été appliqué au chiffrage."
       : job.status !== "completed" ? "Le métré doit être terminé avant l’application."
         : saving.size > 0 ? "Enregistrement en cours…"
@@ -516,7 +522,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
         <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={applied} className="mx-4 mt-2"
           jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
       ) : null}
-      <TakeoffReviewPolicyPanel items={items} providerMeta={providerMeta} context={reviewContext.context} error={reviewContext.error}
+      <TakeoffReviewPolicyPanel items={items} providerMeta={providerMeta} context={reviewContext.context} error={reviewContext.error} hasDestination={versionId !== null}
         onFocusItem={(itemId) => { entryFocus.current = null; setDraft(null); setSelectedId(itemId); setPinnedId(itemId); }} />
       <TakeoffUnmeasuredQuantities messages={unmeasuredQuantities} />
       <TakeoffRulesRecovery jobId={jobId} pending={items.some((item) => item.rules_stale)} disabled={readOnly || busy}
@@ -588,7 +594,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
               <Button className="w-full" size="lg" disabled={applyBlocker !== null} onClick={() => { apply.setError(null); setWizardOpen(true); }}>
                 Envoyer au tableau de chiffrage
               </Button>
-              <p role="status" className="text-xs text-muted-foreground">{applyBlocker ?? "Choisissez la section et vérifiez l’aperçu d’impact ; contrôlez aussi le périmètre attendu."}</p>
+              <p role="status" className="text-xs text-muted-foreground">
+                {!versionId && <><strong>{TAKEOFF_CROSS_JOB_COMPARISON_LABEL}</strong>{" · "}</>}
+                {applyBlocker ?? "Choisissez la section et vérifiez l’aperçu d’impact ; contrôlez aussi le périmètre attendu."}
+              </p>
             </div>
           </aside>
         ) : (
@@ -609,7 +618,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           </div>
           <div className="min-h-0 flex-1">
             {level === "C" ? (
-              <LazyTakeoffVectorViewer jobId={jobId} planSetId={job?.plan_set_id ?? null} focusItemIds={focusIds} fill />
+              <LazyTakeoffVectorViewer jobId={jobId} planSetId={job?.plan_set_id ?? null} focusItemIds={focusIds} attestedPlan={!versionId} fill />
             ) : (
               <p className="flex h-full items-center justify-center px-8 text-center text-sm text-muted-foreground max-xl:py-6">
                 {job ? "Pas de lecture vectorielle pour ce niveau : la preuve se trouve dans le panneau de décision." : null}
@@ -642,7 +651,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
               </div>
               {current ? (
                 <LineDecision key={current.item.id} line={current} level={level} guidance={guidance} acceptance={acceptance}
-                  busy={busy} readOnly={readOnly} error={lineErrors[current.item.id] ?? null} jobId={jobId}
+                  busy={busy} readOnly={readOnly} showSourceEvidence={versionId === null} error={lineErrors[current.item.id] ?? null} jobId={jobId}
                   draft={draft?.itemId === current.item.id ? draft.text : null} quantityRef={quantityRef}
                   onDraft={(text) => setDraft({ itemId: current.item.id, text })}
                   onCancelEntry={() => { entryFocus.current = null; setDraft(null); focusList(); }}
@@ -712,7 +721,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId }: Readonly<
           }} />
       ) : null}
 
-      {wizardOpen && job ? (
+      {wizardOpen && job && versionId ? (
         <TakeoffApplyWizard open={wizardOpen} jobId={jobId} versionId={versionId}
           targetVersionLabel={job.version_number ? `V${job.version_number}` : null}
           includedCount={included.length}
@@ -732,6 +741,7 @@ type LineDecisionProps = {
   acceptance: ReturnType<typeof acceptanceOf> | null;
   busy: boolean;
   readOnly: boolean;
+  showSourceEvidence: boolean;
   error: string | null;
   jobId: string;
   draft: string | null;
@@ -753,7 +763,7 @@ type LineDecisionProps = {
   partnerHref: (jobId: string, itemId: string) => string;
 };
 
-function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
+function LineDecision({ line, level, guidance, acceptance, busy, readOnly, showSourceEvidence, error, jobId, draft, quantityRef, onDraft, onCancelEntry,
   onLeaveEntry, onSaveUnit, onCommit, onStartEntry, onExclude, onAccept, onInclude, onReduce, onSelectPartner, partnerListed, partnerHref }: Readonly<LineDecisionProps>) {
   const { item } = line;
   const toEnter = line.rule_failures.some((failure) => failure.rule === "non_observable") || hasToEnter(item);
@@ -774,6 +784,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
             {item.source_page !== null ? <span>· p. {item.source_page}</span> : null}
             {item.is_verified ? <Badge size="sm" variant="info">Acceptée</Badge> : null}
           </p>
+          {showSourceEvidence && item.evidence ? <p className="text-xs text-foreground-secondary">{item.evidence}</p> : null}
         </div>
 
         <div className="space-y-1">
@@ -956,7 +967,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, error
 
       <div className="shrink-0 space-y-2 border-t border-border bg-surface p-3">
         {error ? <Alert variant="danger" className="px-3 py-2 text-xs">{error}</Alert> : null}
-        {readOnly ? <p className="text-xs text-muted-foreground">Métré appliqué ou non terminé : lecture seule.</p> : null}
+        {readOnly ? <p className="text-xs text-muted-foreground">Ce métré est accessible en lecture seule.</p> : null}
         <div role="toolbar" aria-label="Décisions" className="flex flex-wrap gap-2">
           <Button size="sm" variant="danger" disabled={disabled} onClick={onExclude} aria-keyshortcuts="E">Exclure<Kbd>E</Kbd></Button>
           <Button size="sm" variant="outline" disabled={disabled} onClick={onStartEntry} aria-keyshortcuts="F2">{toEnter ? "Saisir" : "Corriger"}<Kbd>F2</Kbd></Button>

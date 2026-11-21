@@ -13,6 +13,12 @@ const REVIEW = `/dashboard/affaires/${PROJECT_ID}/takeoff/${JOB_ID}/review`;
 const ids = { projectId: PROJECT_ID, jobId: JOB_ID, versionId: VERSION_ID };
 
 describe("takeoffReviewHref", () => {
+  it("uses an affaire-only URL without an empty parameter", () => {
+    expect(takeoffReviewHref({ projectId: PROJECT_ID, jobId: JOB_ID })).toBe(REVIEW);
+    expect(takeoffReviewHref({ ...ids, versionId: null, targeted: true, line: LINE_ID }))
+      .toBe(`${REVIEW}/targeted?line=${LINE_ID}`);
+  });
+
   it("opens the review on the estimate version", () => {
     expect(takeoffReviewHref(ids)).toBe(`${REVIEW}?versionId=${VERSION_ID}`);
   });

@@ -24,6 +24,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { EmptyState } from "@/components/layout/empty-state";
 
 export type TakeoffTableViewProps = {
+  readOnly?: boolean;
   tables: TakeoffTable[];
   items: ReviewItem[];
   onUpdateItem: (itemId: string, field: string, value: unknown) => void;
@@ -126,6 +127,7 @@ function isTableIncluded(tableItems: ReviewItem[]): boolean {
 
 function TableCard({
   card,
+  readOnly,
   collapsed,
   onToggleCollapse,
   onUpdateItem,
@@ -136,6 +138,7 @@ function TableCard({
   card: TableCardData;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  readOnly: boolean;
   onUpdateItem: (itemId: string, field: string, value: unknown) => void;
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
@@ -225,7 +228,7 @@ function TableCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {!readOnly && <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
             size="sm"
@@ -243,7 +246,7 @@ function TableCard({
               Exclure
             </Button>
           )}
-        </div>
+        </div>}
       </div>
 
       {!collapsed && (
@@ -303,7 +306,7 @@ function TableCard({
                               value={item.designation}
                               onChange={(val) => onUpdateItem(item.id, "designation", val)}
                               onCommit={(val) => onUpdateItem(item.id, "designation", val)}
-                              readOnly={isExcluded}
+                              readOnly={readOnly || isExcluded}
                               placeholder="Désignation…"
                               ariaLabel={`${table.headers[ci]} - ${item.designation}`}
                               className="editable-cell"
@@ -338,7 +341,7 @@ function TableCard({
                                   onUpdateItem(item.id, "quantity", num);
                                 }
                               }}
-                              readOnly={isExcluded}
+                              readOnly={readOnly || isExcluded}
                               type="number"
                               step="0.001"
                               min="0.001"
@@ -358,7 +361,7 @@ function TableCard({
                               value={item.unit}
                               onChange={(val) => onUpdateItem(item.id, "unit", val)}
                               onCommit={(val) => onUpdateItem(item.id, "unit", val)}
-                              readOnly={isExcluded}
+                              readOnly={readOnly || isExcluded}
                               placeholder="Unité…"
                               ariaLabel={table.headers[ci]}
                               className="editable-cell"
@@ -380,7 +383,7 @@ function TableCard({
                               onCommit={(val) =>
                                 onUpdateItem(item.id, "evidence", val.trim() || null)
                               }
-                              readOnly={isExcluded}
+                              readOnly={readOnly || isExcluded}
                               placeholder="Preuve…"
                               ariaLabel={table.headers[ci]}
                               className="editable-cell"
@@ -410,6 +413,7 @@ function TableCard({
 
 export function TakeoffTableView({
   tables,
+  readOnly = false,
   items,
   onUpdateItem,
   onExcludeItems,
@@ -738,6 +742,7 @@ export function TakeoffTableView({
                   key={card.tableIndex}
                   card={card}
                   collapsed={collapsedCards.has(card.tableIndex)}
+                  readOnly={readOnly}
                   onToggleCollapse={() => toggleCollapse(card.tableIndex)}
                   onUpdateItem={onUpdateItem}
                   onExcludeItems={onExcludeItems}

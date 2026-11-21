@@ -5,6 +5,35 @@ les valeurs clés (TI-664 et cadrage TI-681 confirmé les 8 et 9 novembre 2026).
 
 Le métré se suit depuis son affaire, y compris pour une analyse créée sur une ancienne version du devis. Depuis sa revue, l’envoi au tableau de chiffrage exige toujours l’aperçu d’impact et une confirmation humaine.
 
+## Aperçu des postes à mesurer avant le devis
+
+La page **Métrés** affiche une liste indicative pour une affaire sans devis. Elle
+lit la DPGF liée et ses correspondances validées, dans l’ordre des lignes importées.
+Les choix de structure faits à la confirmation de l’import ne sont pas encore
+reflétés. Une prestation portant une unité reste visible si sa quantité est
+inconnue. Une ligne sans quantité ni unité ni indice de section reste ambiguë.
+Le prix n’intervient pas dans la lecture. La quantité de la DPGF est
+une référence documentaire. La feuille, la ligne ou la page d’origine apparaissent
+lorsqu’elles sont connues. L’aperçu CSV indique l’ordre des enregistrements
+importés. Pour un classeur, il affiche la ligne du tableau importé. Le
+détail de lecture signale les lignes ambiguës ou sans correspondance. Pour les
+totaux, les pieds de tableau et les désignations uniquement numériques, il indique
+leur emplacement et le motif d’exclusion sans en afficher le contenu.
+
+Une pièce DPGF à préparer ou plusieurs sources liées renvoient au dossier pour
+résolution. Quand les droits du compte permettent de vérifier l’absence de DPGF,
+l’aperçu propose un gabarit indicatif de plomberie couvrant les réseaux, les
+appareils sanitaires, la robinetterie et le calorifuge. Si un DPGF peut échapper
+aux droits de lecture du compte, l’aperçu l’indique et le gabarit n’est pas proposé.
+
+Une ligne brute appartient à un seul poste de l’affaire. Deux lignes homonymes
+restent distinctes. Refaire le mapping d’une ligne brute conserve son identité.
+Une correspondance entre deux imports demande une décision explicite. Elle reste
+valable si le poste disparaît d’une révision puis revient.
+
+La consultation est en lecture seule. Le gabarit et les aperçus ne lancent aucune
+analyse et ne créent aucun devis.
+
 ## Contrat actuel de contrôle ciblé — TI-681
 
 Les avertissements de quantité, y compris une confiance faible, recommandent un
