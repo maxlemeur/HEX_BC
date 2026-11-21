@@ -17,14 +17,15 @@ begin;
 
 -- Every statement takes a short lock: give up instead of queueing the job writers.
 set local lock_timeout = '5s';
--- The tables this migration alters or adds triggers to, locked first and in the order of the paid path's writers (the
--- job, then its request, then its ledger): a worker that ends a job, reserves or settles a call meanwhile waits for this
--- migration, never in a cycle with it (a job's end writes the job before anything else of these tables). A transaction
--- that reads a request before it writes a job (an admission, a member's stop, a dispatch) may still meet it in a cycle:
--- it is rolled back whole, with no call made, and retried; a paid reading's end never is.
+-- The tables this migration alters or adds triggers to, locked first, in the order in which the previous application
+-- version's paid path writes them while this is applied: a job's end writes the job first; the settlement of a call
+-- (M4's record_takeoff_launch_usage) locks the job, writes its ledger, then its request. Either waits for this migration,
+-- never in a cycle with it. A transaction that reads a request before it writes a job (an admission, or a member's
+-- command or cancellation) may still meet it in a cycle: it is rolled back whole, with no call made, and the member or
+-- the evaluation tries again. Drain the takeoff worker anyway (see above): it is what makes this order sufficient.
 lock table public.takeoff_jobs in share row exclusive mode;
-lock table public.takeoff_launch_requests in access exclusive mode;
 lock table private.takeoff_launch_usage in access exclusive mode;
+lock table public.takeoff_launch_requests in access exclusive mode;
 
 -- 1. The activation of one analysis per plan. Empty until the owner sets it.
 create table private.takeoff_plan_dispatch_activation (
@@ -806,8 +807,8 @@ returns boolean language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_host_busy(text, uuid) from public, anon, authenticated, service_role;
 
--- The live jobs of each Mac: its dispatcher's queue and next retry, and whether it reads a job now, without a scan of
--- every job at each pass.
+-- The live jobs of each Mac: its dispatcher's queue and its next retry, without a scan of every job at each pass (whether
+-- it reads a job now is answered by takeoff_jobs_processing_lease_due_idx).
 create index takeoff_jobs_local_host_live_idx on public.takeoff_jobs (execution_host_id, status, next_retry_at)
   where execution_provider = 'chatgpt_local' and analysis_outcome is null and status in ('pending', 'processing', 'failed');
 
@@ -1092,6 +1093,9 @@ declare
   diagnostic public.takeoff_results;
   diagnostic_id uuid;
   caller_lock_timeout text := current_setting('lock_timeout');
+  recorded_code text;
+  recorded_message text;
+  recorded_retry boolean;
 begin
   perform 1 from public.takeoff_jobs j
   where j.id = p_job_id and j.tenant_id = p_tenant_id and j.status = 'processing'
@@ -1159,8 +1163,11 @@ begin
     processing_lease_token = null, processing_lease_expires_at = null
   from (select failure.next_retry_at is not null and exists (select 1 from private.takeoff_launch_usage l
       where l.job_id = p_job_id and l.lease_token = p_lease_token and l.state in ('reserved', 'unknown')) as unknown) held
-  where j.id = p_job_id and j.tenant_id = p_tenant_id;
-  return jsonb_build_object('diagnostic_id', diagnostic_id);
+  where j.id = p_job_id and j.tenant_id = p_tenant_id
+  returning j.error_code, j.error_message, j.next_retry_at is not null into recorded_code, recorded_message, recorded_retry;
+  -- What was recorded, for the worker's audit (the previous application version reads the diagnostic only).
+  return jsonb_build_object('diagnostic_id', diagnostic_id, 'error_code', recorded_code, 'error_message', recorded_message,
+    'retry_scheduled', recorded_retry);
 end;
 $$;
 

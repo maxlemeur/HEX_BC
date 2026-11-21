@@ -415,7 +415,8 @@ select is(pg_temp.dispatch(), null::uuid, 'and the dispatcher hands nothing mean
 select results_eq($$select outcome from pg_temp.reserve(pg_temp.unit(29, 1), 951, 'call:1')$$, $$values ('reserved'::text)$$,
   'a call of its first attempt is reserved');
 select pg_temp.settle(pg_temp.unit(29, 1), 951, 'call:1', 1000);
-select isnt(pg_temp.fail_attempt(pg_temp.unit(29, 1), 951), null, 'the attempt ends on a failure its worker would retry');
+select results_eq($$select f ->> 'error_code', (f ->> 'retry_scheduled')::boolean from pg_temp.fail_attempt(pg_temp.unit(29, 1), 951) f$$,
+  $$values ('AI_PROVIDER'::text, true)$$, 'the attempt ends on a failure its worker would retry, recorded as asked');
 select results_eq($$select status::text, next_retry_at is not null, analysis_outcome::text from public.takeoff_jobs
     where id = pg_temp.unit(29, 1)$$, $$values ('failed'::text, true, null::text)$$, 'every usage known, its retry stays planned');
 -- Six other units of its request wait: one analysis, so its retry may be claimed, as its claim's trigger counts it.
@@ -427,7 +428,8 @@ select results_eq($$select outcome from pg_temp.reserve(pg_temp.unit(29, 1), 953
   'a call of the retry is reserved');
 select is(public.record_takeoff_launch_call_unknown(pg_temp.unit(29, 1), pg_temp.f(953), 'call:1'), true,
   'and ends without a known usage');
-select isnt(pg_temp.fail_attempt(pg_temp.unit(29, 1), 953), null, 'the attempt ends on a failure its worker would retry');
+select results_eq($$select f ->> 'error_code', (f ->> 'retry_scheduled')::boolean from pg_temp.fail_attempt(pg_temp.unit(29, 1), 953) f$$,
+  $$values ('TAKEOFF_USAGE_UNRECORDED'::text, false)$$, 'the attempt ends on a failure its worker would retry: the writer answers what it recorded');
 select results_eq($$select status::text, next_retry_at is null, analysis_outcome::text, error_code from public.takeoff_jobs
     where id = pg_temp.unit(29, 1)$$, $$values ('failed'::text, true, 'failure'::text, 'TAKEOFF_USAGE_UNRECORDED'::text)$$,
   'its unit ends without a retry, the unknown consumption named');

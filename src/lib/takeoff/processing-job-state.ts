@@ -188,7 +188,10 @@ export async function markJobAsProcessing(input: {
   return parseTakeoffJobRow(data);
 }
 
-/** The failure, its retry decision and its diagnostic commit together, under the job's unexpired lease. */
+/**
+ * The failure, its retry decision and its diagnostic commit together, under the job's unexpired lease. Returns the failure
+ * as recorded, for the audit: the worker's own, unless the database ended the job otherwise.
+ */
 export async function recordLocalTakeoffFailure(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
@@ -225,6 +228,12 @@ export async function recordLocalTakeoffFailure(input: {
     });
   }
   if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible pour clore le job.", retryable: false, jobId: input.job.id });
+  // The end the database recorded: it ends without a retry an attempt that holds a paid call of unknown outcome
+  // (migration 20261121181031_takeoff_plan_dispatcher.sql); before it answered only its diagnostic.
+  const recorded = data as { error_code?: unknown; error_message?: unknown; retry_scheduled?: unknown };
+  if (typeof recorded.error_code !== "string" || recorded.error_code === input.error.code) return input.error;
+  return new TakeoffError({ code: recorded.error_code as TakeoffErrorCode, status: input.error.status, retryable: recorded.retry_scheduled === true,
+    message: typeof recorded.error_message === "string" ? recorded.error_message : input.error.message, jobId: input.job.id });
 }
 
 export function annotateAtomicPersistenceRollbackError(error: TakeoffError) {

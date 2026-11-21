@@ -506,7 +506,7 @@ async function processTakeoffLevel(
 
       await renewProcessingLease();
       const retainMetrics = level === TAKEOFF_LEVEL_C && chunkMetricsToPersist.length > 0;
-      await recordLocalTakeoffFailure({
+      const recorded = await recordLocalTakeoffFailure({
         supabase: context.supabase,
         job,
         completedAtIso: completedAt.toISOString(),
@@ -535,7 +535,7 @@ async function processTakeoffLevel(
         supabase: context.supabase,
         userId: context.userId ?? job.created_by,
         job,
-        error: mappedError,
+        error: recorded,
       });
     }
 

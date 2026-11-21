@@ -174,6 +174,11 @@ type AuditLogPayload = {
 
 type SupabaseMockOptions = {
   job?: Partial<TakeoffJobRow>;
+  /**
+   * The attempt holds a paid call of unknown outcome: the failure writer ends the job without the retry the worker
+   * asked and answers what it recorded (record_local_takeoff_failure, migration 20261121181031_takeoff_plan_dispatcher.sql).
+   */
+  heldUnknownCall?: boolean;
   existingResults?: StoredTakeoffResultRow[];
   existingItems?: StoredTakeoffItemRow[];
   existingRunMetrics?: StoredTakeoffRunMetricRow[];
@@ -1148,8 +1153,14 @@ function createTakeoffProcessorSupabaseMock(
           .map(metric => ({ ...deepClone(metric), ...scope, result_id: diagnosticId })));
         state.job = { ...job, ...deepClone(args.p_failure as Partial<TakeoffJobRow>), status: "failed",
           processing_lease_token: null, processing_lease_expires_at: null };
+        if (options.heldUnknownCall && (args.p_failure as { next_retry_at?: unknown }).next_retry_at) {
+          state.job = { ...state.job, error_code: "TAKEOFF_USAGE_UNRECORDED", error_message: "Consommation inconnue (fixture).",
+            analysis_outcome: "failure", next_retry_at: null } as TakeoffJobRow;
+        }
         state.statusTransitions.push("failed");
-        return Promise.resolve({ data: { diagnostic_id: diagnosticId }, error: null });
+        const recorded = state.job as unknown as { error_code: string; error_message: string; next_retry_at: string | null };
+        return Promise.resolve({ data: { diagnostic_id: diagnosticId, error_code: recorded.error_code,
+          error_message: recorded.error_message, retry_scheduled: recorded.next_retry_at !== null }, error: null });
       }
       if (fn === "finalize_local_takeoff_result") {
         const job = state.job;
@@ -3407,5 +3418,28 @@ describe("concurrent local workers", () => {
     expect(mock.state.takeoffResults).toEqual(completed.results);
     expect(mock.state.takeoffItems).toEqual(completed.items);
     expect(mock.state.takeoffItems.map(({ designation }) => designation)).toEqual(["Ligne de la relance"]);
+  });
+});
+
+// Migration A: an attempt that holds a paid call of unknown outcome is not retried on its own; the audit tells the end the
+// database recorded, never the retry the worker asked.
+describe("a failure after a paid call of unknown outcome", () => {
+  it("audits the end the database recorded, not the retry the worker asked", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({ heldUnknownCall: true });
+    const call = vi.fn().mockRejectedValue(new TakeoffError({ code: TakeoffErrorCode.AI_TIMEOUT, message: "fixture timeout", retryable: true }));
+    await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(call) })).rejects.toMatchObject({ code: TakeoffErrorCode.AI_TIMEOUT });
+    expect(mock.state.job).toMatchObject({ status: "failed", next_retry_at: null, error_code: "TAKEOFF_USAGE_UNRECORDED" });
+    expect(getAuditMetadata(mock.state.auditLogs, "takeoff.job.failed")).toMatchObject({
+      error_code: "TAKEOFF_USAGE_UNRECORDED", error_message: "Consommation inconnue (fixture).", retryable: false });
+  });
+
+  it("audits the worker's own failure when the database kept its retry", async () => {
+    const mock = createTakeoffProcessorSupabaseMock();
+    const call = vi.fn().mockRejectedValue(new TakeoffError({ code: TakeoffErrorCode.AI_TIMEOUT, message: "fixture timeout", retryable: true }));
+    await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(call) })).rejects.toMatchObject({ code: TakeoffErrorCode.AI_TIMEOUT });
+    expect(getAuditMetadata(mock.state.auditLogs, "takeoff.job.failed")).toMatchObject({
+      error_code: TakeoffErrorCode.AI_TIMEOUT, retryable: true });
   });
 });
