@@ -47,7 +47,10 @@ function fixture() {
       affaire_intake_documents: () => ({ data: intake, error: null, count: intake.length }),
       takeoff_preparations: () => ({ data: record, error: missingMigration ? { code: "42P01", message: "missing table" } : null }),
     },
-    storage: { "plan-files": ({ paths }) => { onDownload(); return { data: new Blob([contents.get(paths[0]) ?? content]), error: null }; } },
+    storage: {
+      "plan-files": ({ paths }) => { onDownload(); return { data: new Blob([contents.get(paths[0]) ?? content]), error: null }; },
+      "affaire-intake": () => ({ data: new Blob(["CCTP fictif : lot plomberie."]), error: null }),
+    },
   });
   const server = createSupabaseFake({ tables: {
     takeoff_preparations: (query) => {
@@ -130,6 +133,25 @@ describe("persisted preparation server boundary", () => {
     expect(reloaded.confirmedAt).toBeNull();
   });
 
+  it.each(["cctp", "dpgf"])("includes an attachment of an old draft reclassified as %s on its first opening", async (kind) => {
+    const f = fixture();
+    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", storage_path: `${M3_TENANT_ID}/piece.txt`,
+      document_kind: "other", mime_type: "text/plain", size_bytes: 10, updated_at: "2026-11-20T00:00:00Z" };
+    f.intake.push(attachment);
+    // A draft as the previous application saved it: no dossier provenance, the attachment left out.
+    const legacy = { ...f.ready, sources: [...f.ready.sources, { ...toPreparationIntakeSource(attachment), active: false }] };
+    f.seedRecord({ revision: 1, draft: JSON.parse(JSON.stringify(legacy)), confirmed_at: null, confirmed_by: null, confirmed_snapshot: null });
+    attachment.document_kind = kind;
+    const opened = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    expect(opened.draft.sources.find(({ document_id }) => document_id === attachment.id)).toMatchObject({ kind, active: true });
+    expect(opened.changedSourceIds).toContain(attachment.id);
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: opened.draft, expectedRevision: opened.revision });
+    const confirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! });
+    const snapshot = await assertConfirmedTakeoffPreparation({ context: f.context, estimateVersionId: M3_VERSION_ID, planSetId: M3_PLAN_SET_ID,
+      preparationRevision: confirmed.revision, level: "C", provider: "chatgpt" });
+    expect(snapshot.preparation.sources.find(({ document_id }) => document_id === attachment.id)).toMatchObject({ kind, active: true });
+  });
+
   it("reads and admits the historic upload format before adapting it to a dossier", async () => {
     const f = fixture();
     const hash = "a".repeat(64);
@@ -185,11 +207,28 @@ describe("persisted preparation server boundary", () => {
     expect(pending.confirmedAt).toBeNull();
     expect(pending.draft.sources[0]).toMatchObject({ revision: "A", plan_identity: expect.objectContaining({ revision: "B" }) });
     expect(pending.readiness.blockers).toContainEqual(expect.objectContaining({ code: "source_revision_mismatch", source_document_id: f.file.id }));
-    pending.draft.sources[0].revision_reading_kept = "B";
+    pending.draft.sources[0].revision_reading_settled = "B";
     const kept = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: pending.draft, expectedRevision: pending.revision });
     const confirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: kept.revision! });
     expect(confirmed.confirmedAt).not.toBeNull();
     expect(confirmed.draft.sources[0].revision).toBe("A");
+  });
+
+  it("keeps the title block's index once the member chose it, on the next confirmation of the same bytes", async () => {
+    const f = fixture();
+    f.file.metadata = {};
+    f.file.file_name = "P-101 rev A.pdf";
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    expect(draft.sources[0].revision).toBe("A");
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    vi.mocked(renderPdfPages).mockResolvedValue({ pages: [{ regionText: "Indice : B" }] } as never);
+    const pending = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! });
+    expect(pending.readiness.blockers).toContainEqual(expect.objectContaining({ code: "source_revision_mismatch" }));
+    Object.assign(pending.draft.sources[0], { revision: "B", revision_reading_settled: "B" });
+    const chosen = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: pending.draft, expectedRevision: pending.revision });
+    const confirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: chosen.revision! });
+    expect(confirmed.confirmedAt).not.toBeNull();
+    expect(confirmed.draft.sources[0].revision).toBe("B");
   });
 
   it("refuses launch when the discarded revision's bytes change after confirmation", async () => {

@@ -160,7 +160,9 @@ celui des métadonnées ou du nom du fichier, sinon celui que la préparation a
 enregistré pour ce fichier (un indice saisi), sinon celui du cartouche. Un
 cartouche qui en indique un autre est un écart à trancher dans « Mes documents »
 (garder l’indice retenu ou prendre celui du cartouche) avant le lancement ; il
-n’est jamais appliqué en silence. L’identité déduite d’un cartouche nomme chacune
+n’est jamais appliqué en silence. Le choix du membre devient l’indice enregistré
+pour ce fichier : les confirmations suivantes le gardent tant que le fichier et
+son cartouche ne changent pas. L’identité déduite d’un cartouche nomme chacune
 de ses parties (bâtiment, niveau, discipline) : un bâtiment « 1 » et un niveau
 « 1 » restent deux plans. Les indices
 connus et les aperçus sont affichés. Le choix est lié aux empreintes des deux

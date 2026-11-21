@@ -271,7 +271,7 @@ describe("TakeoffPreparationPanel", () => {
     expect(screen.queryByRole("button", { name: `Retirer ${other.document_name} de la préparation` })).not.toBeInTheDocument();
   });
 
-  it.each([["Garder l’indice A", { revision: "A", revision_reading_kept: "B" }], ["Retenir l’indice B", { revision: "B" }]] as const)(
+  it.each([["Garder l’indice A", { revision: "A", revision_reading_settled: "B" }], ["Retenir l’indice B", { revision: "B", revision_reading_settled: "B" }]] as const)(
     "lets the member settle a title-block index that differs from the retained one (%s)", async (choice, expected) => {
       stored = buildDeducedTakeoffPreparation({ sources: [{ ...SOURCE, plan_identity: { number: null, building: null, level: null, discipline: null, revision: "B" } }], planSetId: PLAN_SET_ID });
       render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
@@ -284,7 +284,6 @@ describe("TakeoffPreparationPanel", () => {
       await waitFor(() => expect(actions.save).toHaveBeenCalled());
       const saved = (actions.save.mock.lastCall![0].draft as TakeoffPreparation).sources[0];
       expect(saved).toMatchObject(expected);
-      if (!("revision_reading_kept" in expected)) expect(saved.revision_reading_kept).toBeUndefined();
       fireEvent.click(screen.getByRole("button", { name: /Vérifier et lancer/ }));
       expect(screen.queryByText(/^Le cartouche de/)).not.toBeInTheDocument();
     });

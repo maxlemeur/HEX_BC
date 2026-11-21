@@ -102,7 +102,10 @@ export function reconcilePreparationSources(
     }
     if (current.source_version !== source.source_version) {
       changedSourceIds.push(source.document_id);
-      return [{ ...source, ...current, active: source.active, pages: source.pages, revision: preparation.provenance ? current.revision : source.revision, plan_identity: null, confirmed: false, page_triage: null }];
+      // A new version: the index the member settled for the former bytes no longer applies.
+      const next = { ...source, ...current, active: source.active, pages: source.pages, revision: preparation.provenance ? current.revision : source.revision, plan_identity: null, confirmed: false, page_triage: null };
+      delete next.revision_reading_settled;
+      return [next];
     }
     const triage = source.page_triage;
     const staleTriage = triage && (triage.source_version !== source.source_version || (current.page_count !== null && triage.page_count !== current.page_count));

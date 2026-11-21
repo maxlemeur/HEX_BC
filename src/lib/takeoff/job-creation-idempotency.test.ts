@@ -165,13 +165,18 @@ describe("prepared plan launch receipts", () => {
     expect(getConfirmedTakeoffExecutionOwner).not.toHaveBeenCalled();
   });
 
-  it.each(["chatgpt_local"] as const)("recovers the unique target receipt across different IDs after an atomic %s conflict", async (executionProvider) => {
+  it.each([
+    ["processing", M3_USER_ID, true],
+    ["pending", M3_USER_ID, true],
+    ["pending", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", false],
+  ] as const)("after an atomic chatgpt_local conflict, recovers a %s winner across different IDs only for its creator (%s)", async (status, createdBy, recovered) => {
+    const executionProvider = "chatgpt_local";
     const launch = { ...base, level: "C", provider: "chatgpt" } as const;
     let winnerVisible = false;
     const winningJob = {
       id: derivePlanSetTakeoffJobId({ ...launch, tenantId: M3_TENANT_ID }),
       project_id: M3_PROJECT_ID, plan_set_id: M3_PLAN_SET_ID, preparation_snapshot: confirmedRevision(),
-      estimate_version_id: M3_VERSION_ID, status: "processing", level: "C", source_file_name: "Plan fictif.pdf",
+      estimate_version_id: M3_VERSION_ID, status, level: "C", source_file_name: "Plan fictif.pdf", created_by: createdBy,
       source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z", execution_provider: "chatgpt_local",
     };
     const snapshot = confirmedPreparationFixture();
@@ -196,8 +201,9 @@ describe("prepared plan launch receipts", () => {
       },
     } });
     vi.mocked(getAuthenticatedContext).mockResolvedValue(authenticatedContext(fake) as never);
-    const result = await createTakeoffJobFromPlanSet({ ...launch, sourceVersionId: SOURCE_ID });
-    expect(result.id).toBe(winningJob.id);
+    const creation = createTakeoffJobFromPlanSet({ ...launch, sourceVersionId: SOURCE_ID });
+    if (recovered) expect((await creation).id).toBe(winningJob.id);
+    else await expect(creation).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
     expect(fake.rpcCalls.map(call => call.fn)).toEqual(["admit_prepared_takeoff_job"]);
     expect(fake.writesTo("takeoff_jobs")).toEqual([]);
     expect(fake.writesTo("audit_logs")).toEqual([]);

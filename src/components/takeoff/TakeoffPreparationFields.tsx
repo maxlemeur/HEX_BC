@@ -146,8 +146,8 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
       {draft.provenance && getUnresolvedRevisionReading(source) && <div className="space-y-1 rounded-lg border border-warning p-2 text-sm">
         <p>Le cartouche indique l’indice {source.plan_identity?.revision}, la préparation retient l’indice {source.revision}.</p>
         <div className="flex flex-wrap gap-3">
-          <button type="button" className="font-medium text-primary underline" onClick={() => changeSource(source.document_id, { revision_reading_kept: source.plan_identity?.revision ?? undefined })}>Garder l’indice {source.revision}</button>
-          <button type="button" className="font-medium text-primary underline" onClick={() => changeSource(source.document_id, { revision: source.plan_identity?.revision ?? null, revision_reading_kept: undefined })}>Retenir l’indice {source.plan_identity?.revision}</button>
+          <button type="button" className="font-medium text-primary underline" onClick={() => changeSource(source.document_id, { revision_reading_settled: source.plan_identity?.revision ?? undefined })}>Garder l’indice {source.revision}</button>
+          <button type="button" className="font-medium text-primary underline" onClick={() => changeSource(source.document_id, { revision: source.plan_identity?.revision ?? null, revision_reading_settled: source.plan_identity?.revision ?? undefined })}>Retenir l’indice {source.plan_identity?.revision}</button>
         </div>
       </div>}
       {source.active && <PagesField name={source.document_name} pages={source.pages_before_deduplication ?? source.pages} onChange={(pages) => changeSource(source.document_id, { pages })} />}

@@ -81,10 +81,14 @@ async function loadPreparation(context: AuthenticatedTenantContext, projectId: s
     if (error) throw mapSupabaseError(error, "Impossible de charger le périmètre du dossier.");
     const strings = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).slice(0, 200) : [];
     const scope = strings(data?.scope);
-    const savedIds = new Set(saved.sources.map((source) => source.document_id));
+    // A piece that changed role since the draft was saved (an attachment become CCTP) is a new piece: the defaults of
+    // its new role apply, whether or not the draft already came from the dossier.
+    const savedKinds = new Map(saved.sources.map((source) => [source.document_id, source.kind]));
+    const currentKinds = new Map(availableSources.map((source) => [source.document_id, source.kind]));
+    const kept = (id: string) => savedKinds.has(id) && (!currentKinds.has(id) || currentKinds.get(id) === savedKinds.get(id));
     draft = buildDeducedTakeoffPreparation({
       sources: availableSources, planSetId,
-      saved: record ? { ...reconciled, sources: reconciled.sources.filter((source) => savedIds.has(source.document_id)) } : null,
+      saved: record ? { ...reconciled, sources: reconciled.sources.filter((source) => kept(source.document_id)) } : null,
       lots: strings(data?.lots), buildings: scope.filter((entry) => /\bb[âa]timents?\b/i.test(entry)), zones: scope.filter((entry) => /\bzones?\b/i.test(entry)),
     });
   }
@@ -264,12 +268,15 @@ export async function confirmTakeoffPreparation(input: {
     if (draft.provenance && source.kind === "plan") {
       const document = await renderPdfPages(bytes, { ...TAKEOFF_PAGE_TRIAGE_TEXT, pages: [source.pages[0] ?? 1] });
       source.plan_identity = readPlanTitleBlock(document.pages[0]?.regionText ?? "");
-      // The metadata or file name, then what the preparation recorded for these bytes (an index the operator
-      // entered), then the title block. A differing reading stays a difference the member settles.
+      // The member's settled choice for this reading of these bytes; otherwise the metadata or file name, then what
+      // the preparation recorded for these bytes (an index the operator entered), then the title block. A differing
+      // reading stays a difference the member settles.
       const sameBytes = !previousHash || previousHash === source.content_hash;
-      if (!sameBytes) delete source.revision_reading_kept;
+      if (!sameBytes) delete source.revision_reading_settled;
+      const reading = source.plan_identity?.revision ?? null;
+      const settled = Boolean(reading && source.revision && source.revision_reading_settled === reading);
       const known = sources.find((current) => current.document_id === source.document_id)?.revision;
-      source.revision = known ?? (sameBytes ? source.revision : null) ?? source.plan_identity?.revision ?? null;
+      source.revision = settled ? source.revision : known ?? (sameBytes ? source.revision : null) ?? reading;
     }
   }
   const revision = record.revision + 1;

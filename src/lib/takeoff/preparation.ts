@@ -49,8 +49,9 @@ export const takeoffPreparationSourceSchema = z.object({
   alternate_of: optionalTextSchema.optional(),
   pages_before_deduplication: z.array(z.number().int().positive()).max(2000).optional(),
   selected_in_plan_set: z.boolean().optional(),
-  // The title-block index the member saw and chose not to apply: the retained index stays.
-  revision_reading_kept: z.string().trim().min(1).max(40).optional(),
+  // The title-block index the member settled (kept the retained index or took this one): their choice is the
+  // recorded index for these bytes, and the confirmation keeps it.
+  revision_reading_settled: z.string().trim().min(1).max(40).optional(),
 }).strict();
 
 const scopeSchema = z.object({
@@ -207,9 +208,9 @@ function hasRecordedDecision(unknown: TakeoffPreparationUnknown) {
 
 /** Shared by the UI, confirmation, launch and replay: AI ranking never alters it. */
 /** A title-block index that differs from the retained one and that the member has not settled yet. */
-export function getUnresolvedRevisionReading(source: Pick<TakeoffPreparationSource, "kind" | "revision" | "plan_identity" | "revision_reading_kept">) {
+export function getUnresolvedRevisionReading(source: Pick<TakeoffPreparationSource, "kind" | "revision" | "plan_identity" | "revision_reading_settled">) {
   const reading = source.kind === "plan" ? source.plan_identity?.revision : null;
-  return reading && source.revision && reading !== source.revision && source.revision_reading_kept !== reading ? reading : null;
+  return reading && source.revision && reading !== source.revision && source.revision_reading_settled !== reading ? reading : null;
 }
 
 export function evaluateTakeoffPreparation(

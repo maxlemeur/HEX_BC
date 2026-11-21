@@ -115,15 +115,18 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       const launchFromSource = async () => callServerAction(browser, await serverActionId("launchPreparedTakeoffFromSourceVersionPlanSetAction", actionManifest),
         { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "C", provider: "chatgpt", preparationRevision: confirmation.revision });
       // A confirmed preparation whose plan is no longer connected is refused before any copy of the source version.
+      // Every job of the affaire, with or without a version: none may be created by the refused launch.
+      const affaireJobs = async () => Number((await querySql(`select count(*) from public.takeoff_jobs where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`))[0]);
       const refusal = await provider.unavailable(async () => {
         const versions = await storedVersions(owner, anchor.projectId);
         const inserts = await versionInsertsLogged(owner, anchor.projectId);
+        const jobsBefore = await affaireJobs();
         const result = await launchFromSource();
         return { result, versionsAdded: (await storedVersions(owner, anchor.projectId)).length - versions.length,
-          versionsInserted: (await versionInsertsLogged(owner, anchor.projectId)) - inserts, jobs: (await jobs!.list()).length };
+          versionsInserted: (await versionInsertsLogged(owner, anchor.projectId)) - inserts, jobsAdded: (await affaireJobs()) - jobsBefore };
       });
       expect(refusal).toMatchObject({ result: { status: 200, digest: null, ok: false, errorStatus: 422, errorCode: "AI_PROVIDER" },
-        versionsAdded: 0, versionsInserted: 0, jobs: 0 });
+        versionsAdded: 0, versionsInserted: 0, jobsAdded: 0 });
       const versionsBefore = await storedVersions(owner, anchor.projectId);
       const insertsBefore = await versionInsertsLogged(owner, anchor.projectId);
       const action = await launchFromSource();
