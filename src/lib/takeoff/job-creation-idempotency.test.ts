@@ -173,7 +173,8 @@ describe("prepared plan launch receipts", () => {
         filterValue(query, "action") === "takeoff.preparation.version_created"
         && filterValue(query, "after_data->>source_version_id") === ids.source
         && filterValue(query, "after_data->>target_version_id") === ids.target) ? { id: "receipt" } : null }),
-    } });
+      // Before the automatic start is activated, as when this launch was made: launches on a version are open.
+    }, rpc: { takeoff_launch_is_active: () => ({ data: false, error: null }) } });
     vi.mocked(createServiceRoleClient).mockReturnValue(audit.client as never);
     const replayed = await launchTakeoffFromPlanSet({
       projectId: ids.project.toUpperCase(), planSetId: ids.planSet.toUpperCase(), versionId: ids.target.toUpperCase(),
