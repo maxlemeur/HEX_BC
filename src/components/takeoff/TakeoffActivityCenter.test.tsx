@@ -1,4 +1,4 @@
-import { cleanup,render,screen } from "@testing-library/react";
+import { cleanup,fireEvent,render,screen } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import type { TakeoffActivityCenterResponse } from "@/lib/takeoff/types";
@@ -50,8 +50,11 @@ vi.mock("./TakeoffApplicationHistoryTab", () => ({
 
 import TakeoffActivityCenter from "./TakeoffActivityCenter";
 
+const SUMMARY_KEY = ["activity-center", "project-1", "all", "all", "all", "all", "all", "all", "all", 0, 20];
+
 const EMPTY_RESPONSE: TakeoffActivityCenterResponse = {
   analysisCompletions: [],
+  analysisCompletionsHasOlder: false,
   counters: {
     technicalJobs: 0,
     usableJobs: 0,
@@ -61,17 +64,24 @@ const EMPTY_RESPONSE: TakeoffActivityCenterResponse = {
   pagination: { limit: 20, offset: 0, total: 0 },
 };
 
+const FAILED_JOB_ID = "a1000000-0000-4000-8000-000000000006";
+
 function renderCenter(input?: {
   response?: TakeoffActivityCenterResponse;
+  /** The list request's answer, when it differs from the summary's. */
+  listResponse?: TakeoffActivityCenterResponse;
   withPlanSet?: boolean;
   secondaryPlanFileCount?: number;
   defaultPlanSetId?: string | null;
 }) {
-  useSWRMock.mockReturnValue({
-    data: input?.response ?? EMPTY_RESPONSE,
+  useSWRMock.mockImplementation((key: unknown[] | null) => ({
+    // The summary is the unfiltered first page; the list is the request of the current view.
+    data: key && JSON.stringify(key) !== JSON.stringify(SUMMARY_KEY) && input?.listResponse
+      ? input.listResponse
+      : input?.response ?? EMPTY_RESPONSE,
     error: undefined,
     isLoading: false,
-  });
+  }));
 
   const withPlanSet = input?.withPlanSet ?? false;
 
@@ -135,10 +145,60 @@ describe("TakeoffActivityCenter", () => {
 
   it("shows the shared end when the reader has no access to the underlying job", () => {
     renderCenter({ response: { ...EMPTY_RESPONSE, analysisCompletions: [{
-      eventId: "event-1", outcome: "success", finishedAt: "2026-11-20T08:00:00.000Z",
+      eventId: "event-1", outcome: "success", finishedAt: "2026-11-20T08:00:00.000Z", failureReason: null,
     }] } });
     expect(screen.getByRole("list", { name: "Fins d’analyse de l’affaire" })).toHaveTextContent("Analyse terminée");
     expect(screen.queryByRole("link", { name: "Revue" })).not.toBeInTheDocument();
+  });
+
+  it("shows the end a failure link names, with its French reason, to a reader the job is hidden from", () => {
+    searchParams = new URLSearchParams(`job=${FAILED_JOB_ID}`);
+    const failure = { eventId: "event-2", outcome: "failure" as const, finishedAt: "2026-11-19T08:00:00.000Z",
+      failureReason: "Le service d’analyse n’a pas pu terminer le métré." };
+    renderCenter({
+      response: { ...EMPTY_RESPONSE, analysisCompletions: [{
+        eventId: "event-1", outcome: "success", finishedAt: "2026-11-20T08:00:00.000Z", failureReason: null,
+      }] },
+      listResponse: { ...EMPTY_RESPONSE, analysisCompletions: [failure] },
+    });
+    // The list request names the job: an older failure is never off the first page.
+    expect(useSWRMock.mock.calls.map(([key]) => key)).toContainEqual(
+      ["activity-center", "project-1", "all", "all", "all", "all", "all", "all", FAILED_JOB_ID, 0, 20],
+    );
+    const selected = screen.getByRole("list", { name: "Analyse sélectionnée" });
+    expect(selected).toHaveTextContent("Analyse échouée");
+    expect(selected).toHaveTextContent("Le service d’analyse n’a pas pu terminer le métré.");
+    expect(screen.queryByRole("list", { name: "Fins d’analyse de l’affaire" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Voir toutes les analyses" }));
+    expect(routerPushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1/takeoff", { scroll: false });
+  });
+
+  it("says so when the job a link names is not visible", () => {
+    searchParams = new URLSearchParams(`job=${FAILED_JOB_ID}`);
+    renderCenter({ listResponse: EMPTY_RESPONSE });
+    expect(screen.getByText("Cette analyse n’est pas visible avec votre profil, ou elle n’existe plus.")).toBeInTheDocument();
+  });
+
+  it("pages the shared ends for a reader who sees no job", () => {
+    const page = (ids: string[], hasOlder: boolean): TakeoffActivityCenterResponse => ({
+      ...EMPTY_RESPONSE, analysisCompletionsHasOlder: hasOlder,
+      analysisCompletions: ids.map((eventId) => ({ eventId, outcome: "failure" as const,
+        finishedAt: "2026-11-20T08:00:00.000Z", failureReason: "Le service d’analyse n’a pas pu terminer le métré." })),
+    });
+    renderCenter({ response: page(["event-1"], true), listResponse: page(["event-1"], true) });
+    const shared = screen.getByRole("list", { name: "Fins d’analyse de l’affaire" });
+    expect(shared).toHaveTextContent("Le service d’analyse n’a pas pu terminer le métré.");
+    expect(screen.queryByRole("button", { name: "Plus récentes" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Plus anciennes" }));
+    expect(routerPushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1/takeoff?offset=20", { scroll: false });
+    cleanup();
+
+    searchParams = new URLSearchParams("offset=20");
+    renderCenter({ response: page(["event-1"], true), listResponse: page(["event-21"], false) });
+    expect(screen.getByRole("list", { name: "Fins d’analyse de l’affaire" })).toHaveTextContent("Analyse échouée");
+    expect(screen.queryByRole("button", { name: "Plus anciennes" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Plus récentes" }));
+    expect(routerPushMock).toHaveBeenLastCalledWith("/dashboard/affaires/project-1/takeoff", { scroll: false });
   });
 
   it("opens a usable non-default plan set from a deep link", () => {

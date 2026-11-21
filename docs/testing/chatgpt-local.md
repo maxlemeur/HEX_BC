@@ -94,8 +94,25 @@ Une perte de connexion ou un arrêt brutal n’autorise pas un changement de
 fournisseur. Après expiration de lease, la reprise manuelle reste réservée au
 Mac d’origine. Une déconnexion du forfait ou une membership révoquée bloque
 l’analyse ; aucun autre compte n’est choisi.
-Pour une relance manuelle, le forfait sélectionné pour le créateur sur son Mac
-est utilisé ; changer de connexion entre deux tentatives change donc ce forfait.
+Seul le membre qui a lancé une analyse peut la relancer : la base refuse la remise
+en attente demandée par un autre membre (`TAKEOFF_RELAUNCH_LAUNCHER_ONLY`), même
+administrateur, avant comme après l’activation des avis de fin. Pour une relance manuelle,
+le forfait sélectionné pour le créateur sur son Mac est utilisé ; changer de connexion
+entre deux tentatives change donc ce forfait.
+
+Avec `next dev`, le Mac autorisé signale qu’il est actif une fois par minute, sur une
+minuterie distincte de sa reprise des tâches (toutes les 15 s), si bien qu’une longue
+analyse ne l’interrompt pas. La reprise hébergée (toutes les cinq minutes) ne clôt une
+analyse qui attend ce Mac (en attente, ou reprise automatique échue) qu’une fois les avis
+de fin activés, et seulement dans deux cas. Le Mac est actif depuis au moins le délai de
+prise en charge (15 min par défaut), il n’a rien en cours ni rien commencé ou terminé
+pendant ce délai, et l’analyse attend depuis ce délai : personne ne la prendra
+(`TAKEOFF_WORKER_NOT_STARTED`). Ou l’analyse attend depuis plus que le plafond (24 h par
+défaut) : son avis dit si elle attendait son tour derrière un Mac actif
+(`TAKEOFF_WORKER_QUEUE_EXPIRED`) ou si personne ne l’a prise (`TAKEOFF_WORKER_NOT_STARTED`).
+Un Mac en veille ou une file longue ne clôt donc rien avant le plafond. Les deux durées se
+règlent dans la ligne d’activation (`pickup_grace`, au moins 10 min ; `wait_ceiling`, au
+moins 1 h). Une analyse ainsi close ne peut plus être prise en charge ni relancée.
 Son résultat identifie `provider: chatgpt`, le modèle et les jetons consommés ;
 `cost_cents: 0` signifie usage du forfait, sans prix API calculé.
 

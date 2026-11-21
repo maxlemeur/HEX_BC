@@ -24147,7 +24147,7 @@
           "Takeoff"
         ],
         "summary": "Consulter le centre d'activite Takeoff",
-        "description": "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue et la date de fin, indépendamment des détails réservés de chaque analyse.",
+        "description": "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue, la date de fin et, pour un échec, son motif en français, indépendamment des détails réservés de chaque analyse ; analysisCompletionsHasOlder indique une page plus ancienne. jobId limite la liste et les fins à cette analyse, sans changer les compteurs.",
         "parameters": [
           {
             "name": "project_id",
@@ -24210,6 +24210,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/GetTakeoffActivityCenterPeriodParameter"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "description": "Analyse a afficher seule, avec sa fin.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterJobIdParameter"
             }
           },
           {
@@ -29273,6 +29282,7 @@
               "TAKEOFF_TENANT_INACTIVE",
               "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
               "TAKEOFF_WORKER_NOT_STARTED",
+              "TAKEOFF_WORKER_QUEUE_EXPIRED",
               "AI_RATE_LIMIT",
               "AI_TIMEOUT",
               "AI_SCHEMA",
@@ -29346,6 +29356,7 @@
                   "TAKEOFF_TENANT_INACTIVE",
                   "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
                   "TAKEOFF_WORKER_NOT_STARTED",
+                  "TAKEOFF_WORKER_QUEUE_EXPIRED",
                   "AI_RATE_LIMIT",
                   "AI_TIMEOUT",
                   "AI_SCHEMA",
@@ -82648,6 +82659,11 @@
       },
       "GetTakeoffActivityCenterPeriodParameter": {
         "type": "string"
+      },
+      "GetTakeoffActivityCenterJobIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "GetTakeoffActivityCenterLimitParameter": {
         "type": "number",

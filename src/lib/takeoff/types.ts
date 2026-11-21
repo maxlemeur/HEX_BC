@@ -578,6 +578,10 @@ export type TakeoffActivityCenterJobRow = {
 export type TakeoffActivityCenterResponse = {
   counters: TakeoffActivityCenterCounters;
   jobs: TakeoffActivityCenterJobRow[];
-  analysisCompletions: Array<{ eventId: string; outcome: TakeoffAnalysisOutcome; finishedAt: string }>;
+  /** The affaire's ends, under its read rule: one page, or the end of the job a link names. */
+  analysisCompletions: Array<{
+    eventId: string; outcome: TakeoffAnalysisOutcome; finishedAt: string; failureReason: string | null;
+  }>;
+  analysisCompletionsHasOlder: boolean;
   pagination: { limit: number; offset: number; total: number };
 };

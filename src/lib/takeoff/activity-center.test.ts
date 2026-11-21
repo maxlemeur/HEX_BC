@@ -150,6 +150,8 @@ function createSupabaseMock(input?: {
   planFilePatches?: Record<string, QueryRow>;
   archived?: boolean;
   director?: boolean;
+  /** The affaire's shared ends, newest first, with the job each one ended. */
+  completions?: Array<{ event_id: string; outcome: string; finished_at: string; reason_code: string | null; job_id: string }>;
 }) {
   const versions = [
     {
@@ -318,8 +320,15 @@ function createSupabaseMock(input?: {
   ];
 
   return {
-    rpc: vi.fn(async (name: string) => {
+    rpc: vi.fn(async (name: string, args: { p_limit?: number; p_offset?: number; p_job_id?: string | null } = {}) => {
       if (name !== "list_affaire_takeoff_completions") throw new Error(`Unexpected RPC: ${name}`);
+      if (input?.completions) {
+        const offset = args.p_offset ?? 0;
+        const rows = input.completions.filter((row) => !args.p_job_id || row.job_id === args.p_job_id)
+          .slice(offset, offset + Math.min(args.p_limit ?? 20, 101))
+          .map((row) => ({ event_id: row.event_id, outcome: row.outcome, finished_at: row.finished_at, reason_code: row.reason_code }));
+        return { data: rows, error: null };
+      }
       return { data: input?.director ? [{ event_id: EVENT_ID, outcome: "success", finished_at: FINISHED_AT }] : [], error: null };
     }),
     from: vi.fn((table: string) => {
@@ -423,8 +432,52 @@ describe("listActivityCenterJobs", () => {
     const response = await listActivityCenterJobs({ project_id: PROJECT_ID });
     expect(response.jobs).toEqual([]);
     expect(response).toMatchObject({ analysisCompletions: [
-      { eventId: EVENT_ID, outcome: "success", finishedAt: FINISHED_AT },
+      { eventId: EVENT_ID, outcome: "success", finishedAt: FINISHED_AT, failureReason: null },
     ] });
+  });
+
+  it("lists only the job a failure link names, whatever page it would fall on", async () => {
+    const all = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 1 });
+    const older = all.jobs[0]?.jobId === JOB_C_ID ? JOB_A_ID : JOB_C_ID;
+    const focused = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 1, jobId: older });
+    expect(focused.jobs.map((job) => job.jobId)).toEqual([older]);
+    expect(focused.pagination).toMatchObject({ offset: 0, total: 1 });
+    // The facts of the page keep counting the whole affaire.
+    expect(focused.counters).toEqual(all.counters);
+  });
+
+  it("gives a director who cannot read the job its shared end and French reason", async () => {
+    const completions = [
+      { event_id: EVENT_ID, outcome: "success", finished_at: FINISHED_AT, reason_code: null, job_id: JOB_B_ID },
+      { event_id: "99999999-9999-4999-8999-999999999998", outcome: "failure", finished_at: "2026-11-19T08:00:00.000Z",
+        reason_code: "AI_PROVIDER", job_id: JOB_A_ID },
+    ];
+    const supabase = createSupabaseMock({ director: true, completions });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID, tenantRole: "director", userId: "director", supabase,
+    } as never);
+    const response = await listActivityCenterJobs({ project_id: PROJECT_ID, jobId: JOB_A_ID });
+    expect(supabase.rpc).toHaveBeenCalledWith("list_affaire_takeoff_completions", expect.objectContaining({ p_job_id: JOB_A_ID }));
+    expect(response.jobs).toEqual([]);
+    expect(response.analysisCompletions).toEqual([{ eventId: "99999999-9999-4999-8999-999999999998", outcome: "failure",
+      finishedAt: "2026-11-19T08:00:00.000Z", failureReason: "Le service d’analyse n’a pas pu terminer le métré." }]);
+  });
+
+  it("pages the shared ends for a reader who sees no job", async () => {
+    const completions = ["1", "2", "3"].map((digit, index) => ({
+      event_id: `99999999-9999-4999-8999-99999999999${digit}`, outcome: "success",
+      finished_at: `2026-11-1${9 - index}T08:00:00.000Z`, reason_code: null, job_id: JOB_A_ID,
+    }));
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: TENANT_ID, tenantRole: "director", userId: "director",
+      supabase: createSupabaseMock({ director: true, completions }),
+    } as never);
+    const first = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 2 });
+    expect(first.analysisCompletions.map((event) => event.eventId)).toEqual([completions[0].event_id, completions[1].event_id]);
+    expect(first.analysisCompletionsHasOlder).toBe(true);
+    const next = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 2, offset: 2 });
+    expect(next.analysisCompletions.map((event) => event.eventId)).toEqual([completions[2].event_id]);
+    expect(next.analysisCompletionsHasOlder).toBe(false);
   });
 
   it("refuses to load even the shared end after the affaire is archived", async () => {

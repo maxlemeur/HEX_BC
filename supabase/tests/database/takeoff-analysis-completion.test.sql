@@ -235,13 +235,13 @@ update public.takeoff_jobs set status = 'failed', completed_at = now() - interva
   error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', error_message = 'Fixture recovery',
   processing_lease_token = null, processing_lease_expires_at = null
 where id = '8f400000-0000-4000-8000-000000000093' and status = 'processing';
-select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000001', true);
-set local role authenticated;
+-- Since 20261121020321_takeoff_completion_before_activation.sql only the launcher relaunches through a session; this
+-- job's launcher is the director, who is no operator. The statement is replayed without a session: this block is
+-- about the resumed failure writer, not about who relaunches.
 update public.takeoff_jobs set status = 'pending', retry_count = retry_count + 1, next_retry_at = null, last_error_at = null,
   started_at = null, completed_at = null, token_count = null, cost_cents = null, duration_ms = null,
   error_code = null, error_message = null
 where id = '8f400000-0000-4000-8000-000000000093';
-reset role;
 set local role service_role;
 select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
   '8f400000-0000-4000-8000-000000000093', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
@@ -475,22 +475,33 @@ select is((select n.outcome from public.takeoff_completion_notifications n
   where n.job_id = '8f400000-0000-4000-8000-000000000088'), 'success',
   'the committed extracted line and the success notice are visible together');
 
-select ok(exists (select 1 from public.recover_stale_local_takeoff_jobs(clock_timestamp(), interval '1 minute')
-  where job_id = '8f400000-0000-4000-8000-000000000089' and error_code = 'TAKEOFF_WORKER_NOT_STARTED'),
-  'a pending admission with no worker is closed by recovery after its deadline');
-select is((select outcome from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000089'),
-  'failure', 'a pending admission that cannot be picked up produces a failure notice');
+-- Changed by 20261121020321_takeoff_completion_before_activation.sql: a pending job is no longer closed for its age
+-- alone. This fixture's Mac gave no sign of life and the 24-hour ceiling is far, so the job still waits for it, as a
+-- sleeping laptop's job would. The closures of the waiting rule are in takeoff-completion-before-activation.test.sql.
+select ok(not exists (select 1 from public.recover_stale_local_takeoff_jobs(clock_timestamp(), interval '1 minute')
+  where job_id = '8f400000-0000-4000-8000-000000000089'),
+  'a pending admission that waits for its Mac is not closed for its age alone');
+select is((select count(*) from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000089'),
+  0::bigint, 'and no failure is announced for it');
 
 update public.tenant_memberships set role = 'admin' where tenant_id = (select tenant_id from completion_fixture)
 and user_id = '8f400000-0000-4000-8000-000000000002';
+-- Changed by 20261121020321_takeoff_completion_before_activation.sql: the analysis runs on its launcher's subscription,
+-- so an administrator can no longer send a colleague's job back to pending; its launcher still can.
 select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000002', true);
+set local role authenticated;
+select throws_ok($$update public.takeoff_jobs set status = 'pending', retry_count = retry_count + 1
+  where id = '8f400000-0000-4000-8000-000000000082'$$, '42501', 'TAKEOFF_RELAUNCH_LAUNCHER_ONLY',
+  'the administrator cannot relaunch a colleague''s legacy failure');
+reset role;
+select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000001', true);
 set local role authenticated;
 select lives_ok($$update public.takeoff_jobs set status = 'pending', retry_count = retry_count + 1
   where id = '8f400000-0000-4000-8000-000000000082'$$,
-  'the administrator can use the ordinary reset on a legacy failure');
+  'its launcher can use the ordinary reset on a legacy failure');
 reset role;
 select is((select analysis_requested_by from public.takeoff_jobs where id = '8f400000-0000-4000-8000-000000000082'),
-  '8f400000-0000-4000-8000-000000000002'::uuid, 'the accepted reset freezes the authenticated administrator as requester');
+  '8f400000-0000-4000-8000-000000000001'::uuid, 'the accepted reset freezes the authenticated launcher as requester');
 select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(
   '8f400000-0000-4000-8000-000000000082', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
   now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture');
@@ -498,9 +509,9 @@ update public.takeoff_jobs set status = 'completed' where id = '8f400000-0000-40
 select results_eq($$select n.recipient_user_id, n.recipient_email, j.created_by
   from public.takeoff_completion_notifications n join public.takeoff_jobs j on j.id = n.job_id
   where j.id = '8f400000-0000-4000-8000-000000000082'$$,
-  $$values ('8f400000-0000-4000-8000-000000000002'::uuid, 'takeoff-colleague@example.test'::text,
+  $$values ('8f400000-0000-4000-8000-000000000001'::uuid, 'takeoff-requester@example.test'::text,
     '8f400000-0000-4000-8000-000000000001'::uuid)$$,
-  'an accepted legacy relaunch notifies the administrator, preserving the original creator');
+  'an accepted legacy relaunch notifies the launcher who relaunched it');
 
 -- M1 is applied first: a job admitted through its RPC without a version
 -- carries its own affaire, and its end is published there.

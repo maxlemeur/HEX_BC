@@ -62,6 +62,8 @@ const FAILURE_REASON_LABELS: Record<string, string> = {
   FORBIDDEN: "L’accès nécessaire au traitement n’est plus disponible.",
   TAKEOFF_WORKER_NOT_STARTED:
     "L’analyse n’a pas pu démarrer. Vérifiez le poste autorisé avant de préparer une nouvelle analyse.",
+  TAKEOFF_WORKER_QUEUE_EXPIRED:
+    "L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré. Elle n’a pas démarré : préparez une nouvelle analyse.",
   TAKEOFF_WORKER_OUTCOME_UNKNOWN:
     "Le traitement a été interrompu. Son résultat est inconnu et doit être vérifié avant une nouvelle analyse.",
   TAKEOFF_FILE_TYPE_INVALID: "Document non exploitable. Importez un autre document PDF lisible.",

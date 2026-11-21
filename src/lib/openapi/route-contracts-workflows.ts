@@ -568,7 +568,7 @@ const takeoffOperationsContracts: RouteContract[] = [
     method: "get",
     path: "/api/takeoff/activity-center",
     summary: "Consulter le centre d'activite Takeoff",
-    description: "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue et la date de fin, indépendamment des détails réservés de chaque analyse.",
+    description: "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue, la date de fin et, pour un échec, son motif en français, indépendamment des détails réservés de chaque analyse ; analysisCompletionsHasOlder indique une page plus ancienne. jobId limite la liste et les fins à cette analyse, sans changer les compteurs.",
     tags: ["Takeoff"],
     queryParameters: [
       { name: "project_id", schema: uuidSchema, description: "Affaire cible.", required: true },
@@ -578,6 +578,7 @@ const takeoffOperationsContracts: RouteContract[] = [
       { name: "status", schema: z.string(), description: "Statut a filtrer." },
       { name: "level", schema: z.string(), description: "Niveau a filtrer." },
       { name: "period", schema: z.string(), description: "Periode a filtrer." },
+      { name: "jobId", schema: uuidSchema, description: "Analyse a afficher seule, avec sa fin." },
       { name: "limit", schema: z.number().positive(), description: "Nombre maximal de resultats." },
       { name: "offset", schema: z.number().min(0), description: "Decalage de pagination." },
     ],

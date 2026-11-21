@@ -19,6 +19,8 @@ type Settlement = Pick<Notification["Update"], "delivery_state" | "last_delivery
 
 type DeliveryIO = {
   prepare: (mode: "live" | "redirect", effectiveEmail: string, hash: string) => Promise<boolean>;
+  /** Milliseconds left, on the database's clock, before the lease ends or the provider forgets the first key; null when either is gone. */
+  confirmDispatch: () => Promise<number | null>;
   settle: (result: Settlement) => Promise<void>;
   send: (message: CreateEmailOptions, key: string) => Promise<{
     data: { id: string } | null;
@@ -30,6 +32,9 @@ const RETRY_DELAYS_SECONDS = [30, 120, 600, 1_800, 3_600] as const;
 const MAX_ATTEMPTS = 8;
 // Resend retains the key for 24 hours. Leave time for clock skew and transport.
 const IDEMPOTENCY_WINDOW_MS = 23 * 60 * 60 * 1_000;
+const SEND_TIMEOUT_MS = 15_000;
+// A call starts only if it can end, timeout included, before the lease and the window do.
+const DISPATCH_MARGIN_MS = SEND_TIMEOUT_MS + 5_000;
 
 function affaireEmailUrl(projectId: string, origin: string | undefined) {
   if (!origin) throw new Error("Missing takeoff email origin.");
@@ -61,6 +66,7 @@ export async function deliverTakeoffCompletionEmail(
   io: DeliveryIO,
   env: Readonly<Record<string, string | undefined>>,
   now: Date,
+  clock: () => number = Date.now,
 ) {
   const alreadyAttempted = claim.first_send_at !== null;
   if (claim.first_send_at && now.getTime() - Date.parse(claim.first_send_at) >= IDEMPOTENCY_WINDOW_MS) {
@@ -111,6 +117,12 @@ export async function deliverTakeoffCompletionEmail(
   }
 
   if (!(await io.prepare(routingMode, effectiveEmail, fingerprint))) return;
+  // A sender can stop for any length of time after prepare. At the moment of sending, the database checks again that
+  // it still holds its lease and that the provider still keeps the first attempt's key; the call then starts only
+  // while enough of both remains, by this process's clock read before that check.
+  const checkedAt = clock();
+  const remainingMs = await io.confirmDispatch();
+  if (remainingMs === null || clock() + DISPATCH_MARGIN_MS > checkedAt + remainingMs) return;
   let response: Awaited<ReturnType<DeliveryIO["send"]>>;
   try {
     response = await io.send(request, claim.provider_key);
@@ -159,6 +171,14 @@ export async function drainTakeoffCompletionEmails(options: { id?: string; limit
         if (error) throw new Error("Impossible de vérifier le destinataire du courriel de métré.");
         return data === true;
       },
+      async confirmDispatch() {
+        const { data, error } = await client.rpc("confirm_takeoff_completion_email_dispatch", {
+          p_id: row.id,
+          p_lease_token: row.lease_token!,
+        });
+        if (error) throw new Error("Impossible de vérifier l’envoi du courriel de métré.");
+        return typeof data === "number" ? data : null;
+      },
       async settle(result) {
         const { error } = await client.from("takeoff_completion_notifications")
           .update({ next_attempt_at: null, ...result, lease_token: null, lease_expires_at: null })
@@ -168,9 +188,9 @@ export async function drainTakeoffCompletionEmails(options: { id?: string; limit
       },
       send: (message, key) => new Resend(process.env.RESEND_API_KEY?.trim()).emails.send(message, {
         idempotencyKey: key,
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       }),
-    }, process.env, new Date());
+    }, process.env, new Date(), Date.now);
   }
   return claimed;
 }
