@@ -497,13 +497,36 @@ create function pg_temp.race_read() returns table (proof_current boolean, supers
     'select proof_current, superseded from public.read_dpgf_import_confirmation((select tenant_id from public.dpgf_imports
       where id = %L), %L)', pg_temp.fx(160), pg_temp.fx(160))) as r(proof_current boolean, superseded boolean)
 $$;
+-- An estimate already made from the import, before the confirmation (its lines carry the import).
+select is(extensions.dblink_exec('race_setup', format($earlier$
+begin;
+select public.persist_estimate_creation_atomic((select tenant_id from public.dpgf_imports where id = %1$L), %2$L, %3$L, null,
+  %4$L::jsonb, jsonb_build_array(jsonb_build_object('id', %5$L, 'parent_id', null, 'item_type', 'section', 'position', 1,
+    'title', 'Import DPGF', 'source_provider', 'dpgf', 'source_metadata', jsonb_build_object('import_id', %1$L,
+    'mapping_id', %6$L))), %1$L);
+commit;
+$earlier$, pg_temp.fx(160), pg_temp.fx(6), pg_temp.fx(22), pg_temp.version_payload(186), pg_temp.fx(187),
+  pg_temp.fx(170))), 'COMMIT', 'an estimate made from the import before its confirmation');
+-- The previous application version's transaction starts before B's record and creates its estimate after it.
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the previous version starts its transaction first');
 select is(extensions.dblink_exec('race_b', 'begin; ' || pg_temp.race_confirm(array[171, 172]) || '; commit;'), 'COMMIT',
   'B confirms the rows it read: « ignore the option »');
 select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, false) $$, 'B''s structure is established');
--- The previous application version, with an empty mapping, creates an estimate on the same mapping and rows: it records
--- nothing, its estimate keeps the option (its own choice). B's record no longer establishes the structure.
-select is(extensions.dblink_exec('race_a', format($previous$
+-- A copy of the earlier estimate (« Nouvelle version », or the copy a takeoff preparation makes) carries its lines and
+-- decides nothing about the import: B's structure stays established.
+select is(extensions.dblink_exec('race_setup', format($copy$
 begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', %L, true);
+select public.duplicate_estimate_version(%L, false);
+commit;
+$copy$, pg_temp.fx(6), pg_temp.fx(186))), 'COMMIT', 'a member copies the earlier estimate after B''s record');
+select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, false) $$,
+  'a copy of an estimate is not a confirmation: B''s structure stays established');
+-- The previous application version, with an empty mapping, creates an estimate on the same mapping and rows: it records
+-- nothing, its estimate keeps the option (its own choice). Its transaction began before B's record (its now() is
+-- earlier), its estimate after it: B's record no longer establishes the structure.
+select is(extensions.dblink_exec('race_a', format($previous$
 select public.persist_estimate_creation_atomic((select tenant_id from public.dpgf_imports where id = %1$L), %2$L, %3$L, null,
   %4$L::jsonb, jsonb_build_array(jsonb_build_object('id', %5$L, 'parent_id', null, 'item_type', 'section', 'position', 1,
     'title', 'Import DPGF', 'source_provider', 'dpgf', 'source_metadata', jsonb_build_object('import_id', %1$L,
@@ -602,6 +625,17 @@ select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request()
   'the second order names its list');
 select ok('ITEM_LIST_TO_PREPARE' = any (private.takeoff_launch_transient_reasons()),
   'a list to prepare is retried by the Mac of the mandate');
+
+-- The key of an import's notes digests: one per tenant, kept, never readable by a member (a digest of short notes
+-- cannot be reversed by trying every value without it).
+select matches(public.takeoff_item_list_notes_key(pg_temp.fx(10)), '^[0-9a-f]{64}$', 'a tenant gets a notes key');
+select is(public.takeoff_item_list_notes_key(pg_temp.fx(10)), public.takeoff_item_list_notes_key(pg_temp.fx(10)),
+  'the same key every time');
+select isnt(public.takeoff_item_list_notes_key(pg_temp.fx(11)), public.takeoff_item_list_notes_key(pg_temp.fx(10)),
+  'another tenant gets another key');
+select ok(not has_function_privilege('authenticated', 'public.takeoff_item_list_notes_key(uuid)', 'execute')
+  and not has_table_privilege('authenticated', 'private.takeoff_item_list_keys', 'select'),
+  'a member reads no notes key');
 
 select * from finish();
 rollback;

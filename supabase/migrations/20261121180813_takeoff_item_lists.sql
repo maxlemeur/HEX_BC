@@ -7,8 +7,9 @@
 --
 -- What the previous application version sees while this is applied: nothing changes in its writes.
 --   - Every new relation is read and written only by the new server (service role functions) or read through RLS.
---   - The one trigger on an existing table (dpgf_rows_mapped, after delete, per statement) records the identities of the
---     deleted rows in a private lineage table; it refuses nothing and changes no row of the import.
+--   - Two triggers on existing tables, per statement, refuse nothing and change no row: after delete on dpgf_rows_mapped
+--     (the identities of the deleted rows, in a private lineage table) and after insert on estimate_versions (the
+--     versions a creation made, not a copy, with the clock time of their insert, in a private table).
 --   - The imports gain a nullable column (the worksheet's first row), written only by the new server.
 --   - The launch requests gain a nullable column, set only by the seal of the second measuring order, behind its own
 --     activation (private.takeoff_item_list_order_activation, empty): the seal of the free extraction is unchanged.
@@ -719,6 +720,62 @@ revoke all on function public.record_takeoff_list_revision(uuid, uuid, uuid, int
 grant execute on function public.record_takeoff_list_revision(uuid, uuid, uuid, integer, uuid, text, text, jsonb, jsonb, jsonb)
   to service_role;
 
+-- The key of the digests the list keeps of an import's notes (src/lib/takeoff/poste-list-dpgf.ts): one per tenant, made
+-- on first use, kept, never readable by a member. Without it, a reader of the list who may not see the import could try
+-- likely short notes (« PU négocié 85 € HT ») against a digest until one matches.
+create table private.takeoff_item_list_keys (
+  tenant_id uuid primary key references public.tenants(id) on delete cascade,
+  notes_key text not null check (notes_key ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz not null default pg_catalog.now()
+);
+revoke all on private.takeoff_item_list_keys from public, anon, authenticated, service_role;
+create function public.takeoff_item_list_notes_key(p_tenant_id uuid)
+returns text language plpgsql security definer set search_path = '' as $$
+declare
+  key text;
+begin
+  if p_tenant_id is null then
+    raise exception 'TAKEOFF_ITEM_LIST_INVALID' using errcode = '22023';
+  end if;
+  -- 244 random bits: two version 4 UUIDs, from the server's strong random source.
+  insert into private.takeoff_item_list_keys (tenant_id, notes_key)
+  values (p_tenant_id, pg_catalog.replace(pg_catalog.gen_random_uuid()::text || pg_catalog.gen_random_uuid()::text, '-', ''))
+  on conflict (tenant_id) do nothing;
+  select k.notes_key into key from private.takeoff_item_list_keys k where k.tenant_id = p_tenant_id;
+  return key;
+end;
+$$;
+revoke all on function public.takeoff_item_list_notes_key(uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_item_list_notes_key(uuid) to service_role;
+
+-- The estimate versions a creation made (public.persist_estimate_creation_atomic and every path through it, the previous
+-- application version's included), with the clock time of their insert: the creation locks its import first, so a
+-- creation that waited for a confirmation is recorded after it, whenever its transaction began. A copy (« Nouvelle
+-- version », a variant, the copy a takeoff preparation makes) carries the lines of an earlier version and decides
+-- nothing about an import: its insert contract is another one, and it is not recorded.
+create table private.estimate_version_creations (
+  version_id uuid primary key references public.estimate_versions(id) on delete cascade,
+  tenant_id uuid not null,
+  project_id uuid not null,
+  created_at timestamptz not null
+);
+create index estimate_version_creations_project_idx on private.estimate_version_creations (tenant_id, project_id, created_at);
+revoke all on private.estimate_version_creations from public, anon, authenticated, service_role;
+create function private.record_estimate_version_creation()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if coalesce(pg_catalog.current_setting('miaouffrage.estimate_version_insert_contract', true), '')
+      in ('canonical_v2', 'canonical_v3') then
+    insert into private.estimate_version_creations (version_id, tenant_id, project_id, created_at)
+    select n.id, n.tenant_id, n.project_id, pg_catalog.clock_timestamp() from created_versions n;
+  end if;
+  return null;
+end;
+$$;
+revoke all on function private.record_estimate_version_creation() from public, anon, authenticated, service_role;
+create trigger zz_record_estimate_version_creation after insert on public.estimate_versions
+  referencing new table as created_versions for each statement execute function private.record_estimate_version_creation();
+
 -- 4. The structure of an import as its confirmation established it: the decisions the member took (a row made a
 --    section and its level, a row kept as a line, a row ignored) and the rows the import itself left out with its own
 --    reason (a total and the options after it, a row of workbook parameters, a row the member ignored). A fact of its
@@ -851,9 +908,9 @@ begin
   -- The rows the server read and checked (all of the import's, whatever their status) are exactly its rows now.
   if (select count(distinct x) from unnest(p_mapped_row_ids) x) <> pg_catalog.cardinality(p_mapped_row_ids)
     or exists (select 1 from public.dpgf_rows_mapped m where m.tenant_id = p_tenant_id and m.import_id = p_import_id
-      and not (m.id = any (p_mapped_row_ids)))
-    or (select count(*) from public.dpgf_rows_mapped m where m.tenant_id = p_tenant_id and m.import_id = p_import_id
-      and m.id = any (p_mapped_row_ids)) <> pg_catalog.cardinality(p_mapped_row_ids) then
+      and not exists (select 1 from unnest(p_mapped_row_ids) x(id) where x.id = m.id))
+    or exists (select 1 from unnest(p_mapped_row_ids) x(id) where not exists (select 1 from public.dpgf_rows_mapped m
+      where m.id = x.id and m.tenant_id = p_tenant_id and m.import_id = p_import_id)) then
     raise exception 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED' using errcode = '40001';
   end if;
   select * into proof from private.dpgf_import_confirmation_proof(p_tenant_id, p_import_id, p_mapping_id, p_decisions,
@@ -898,8 +955,9 @@ grant execute on function public.persist_dpgf_import_estimate_atomic(uuid, uuid,
 
 -- The latest confirmation of an import and whether its structure is established: its proof still matches what the
 -- import holds under its latest mapping (proof_current), and no estimate was created from the import after it by a
--- path that recorded nothing (superseded: a version of the affaire created since, not a copy of another, not created by
--- a recorded confirmation, holding lines of this import). No row: the import was never confirmed by this version.
+-- path that recorded nothing (superseded: a version of the affaire a creation made since, by the clock of its insert,
+-- not created by a recorded confirmation, holding lines of this import; a copy of an earlier version is not a creation).
+-- No row: the import was never confirmed by this version.
 create function public.read_dpgf_import_confirmation(p_tenant_id uuid, p_import_id uuid)
 returns table (confirmation_id uuid, mapping_id uuid, estimate_version_id uuid, decisions jsonb, exclusions jsonb,
   row_count integer, confirmed_at timestamptz, proof_current boolean, superseded boolean)
@@ -910,9 +968,9 @@ language sql stable security definer set search_path = '' as $$
         from private.dpgf_import_confirmation_proof(c.tenant_id, c.import_id, c.mapping_id, c.decisions, c.exclusions) p),
     exists (
       select 1 from public.dpgf_imports i
-      join public.estimate_versions v on v.tenant_id = i.tenant_id and v.project_id = i.project_id
-      where i.id = c.import_id and i.tenant_id = c.tenant_id and v.created_at > c.confirmed_at
-        and v.parent_version_id is null
+      join private.estimate_version_creations k on k.tenant_id = i.tenant_id and k.project_id = i.project_id
+      join public.estimate_versions v on v.id = k.version_id
+      where i.id = c.import_id and i.tenant_id = c.tenant_id and k.created_at > c.confirmed_at
         and not exists (select 1 from public.dpgf_import_confirmations o where o.estimate_version_id = v.id)
         and exists (select 1 from public.estimate_items it where it.version_id = v.id
           and it.source_metadata ->> 'import_id' = c.import_id::text)
