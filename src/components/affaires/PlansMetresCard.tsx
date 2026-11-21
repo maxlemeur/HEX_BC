@@ -13,10 +13,7 @@ import {
   type TakeoffContinuitySnapshot,
 } from "@/lib/takeoff/continuity";
 import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
-import {
-  canLaunchNewTakeoffAnalysis,
-  isTakeoffVisibleJobInFlight,
-} from "@/lib/takeoff/visible-status";
+import { isTakeoffVisibleJobInFlight } from "@/lib/takeoff/visible-status";
 import { CircleHelpIcon, PanelsTopLeftIcon, TriangleAlertIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,7 +25,8 @@ type PlansMetresCardProps = {
   plans: AffaireHubPlansSummaryData | null;
   projectId: string;
   errorMessage?: string;
-  onLaunchMetre?: () => void;
+  /** Leads to the takeoff's zone on the affaire, where its options and gestures are: nothing is launched from here. */
+  onOpenTakeoffZone?: () => void;
   hideLaunchAction?: boolean;
 };
 
@@ -107,7 +105,7 @@ export function PlansMetresCard({
   plans,
   projectId,
   errorMessage,
-  onLaunchMetre,
+  onOpenTakeoffZone,
   hideLaunchAction = false,
 }: PlansMetresCardProps) {
   const continuityPlanSetId =
@@ -193,7 +191,6 @@ export function PlansMetresCard({
     (latestJob.status === "completed" || latestJob.status === "review_required");
   const needsAction = latestJob?.status === "action_required";
   const isQueuedOrProcessing = isTakeoffVisibleJobInFlight(latestJob?.status);
-  const canLaunchNewAnalysis = canLaunchNewTakeoffAnalysis(latestJob?.status);
 
   const coverageAvailable =
     plans.coveragePercent !== null && plans.exceptionCount !== null;
@@ -374,30 +371,12 @@ export function PlansMetresCard({
           </Link>
         ) : null}
         {needsAction && !hideLaunchAction ? (
-          <>
-            <button
-              type="button"
-              disabled={!onLaunchMetre}
-              onClick={onLaunchMetre}
-              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-            >
-              Reprendre la préparation
-            </button>
-            <button
-              type="button"
-              disabled={!onLaunchMetre}
-              onClick={onLaunchMetre}
-              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-            >
-              Revoir les options du métré
-            </button>
-            <Link
-              href={`/dashboard/affaires/${projectId}/plans`}
-              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-            >
-              Vérifier les plans
-            </Link>
-          </>
+          <Link
+            href={`/dashboard/affaires/${projectId}/plans`}
+            className={cn(buttonVariants({ variant: "outline", size: "md" }))}
+          >
+            Vérifier les plans
+          </Link>
         ) : null}
         {isQueuedOrProcessing ? (
           <Link
@@ -407,14 +386,14 @@ export function PlansMetresCard({
             Suivre l&apos;analyse
           </Link>
         ) : null}
-        {canLaunchNewAnalysis && !hideLaunchAction ? (
+        {/* A way to the takeoff's zone, never a launch: it stays when the hub's hero holds the next step. */}
+        {onOpenTakeoffZone ? (
           <button
             type="button"
-            disabled={!onLaunchMetre}
-            onClick={onLaunchMetre}
+            onClick={onOpenTakeoffZone}
             className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           >
-            Préparer le métré
+            État du métré
           </button>
         ) : null}
       </div>

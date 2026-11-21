@@ -8,6 +8,7 @@ const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
 const recordCopyMock = vi.hoisted(() => vi.fn());
 const findCopyReceiptMock = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const unexpectedMutationMock = vi.hoisted(() => vi.fn());
+const isTakeoffLaunchActiveMock = vi.hoisted(() => vi.fn().mockResolvedValue(false));
 const persistTakeoffDispatchOutcomeMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(true)
 );
@@ -50,6 +51,11 @@ vi.mock("@/lib/takeoff/edge-trigger", () => ({
 vi.mock("@/lib/takeoff/dispatch-state", () => ({
   persistTakeoffDispatchOutcome: persistTakeoffDispatchOutcomeMock,
 }));
+vi.mock("@/lib/takeoff/launch-request-server", () => ({
+  isTakeoffLaunchActive: isTakeoffLaunchActiveMock, assumeTakeoffLaunchRequest: vi.fn(), launchTakeoffRelaunch: vi.fn(),
+  readAffaireTakeoffLaunchState: vi.fn(),
+}));
+vi.mock("@/lib/takeoff/affaire-takeoff-zone-server", () => ({ readAffaireTakeoffZone: vi.fn() }));
 import {
   launchTakeoffFromPlanSet,
   launchTakeoffFromSourceVersionPlanSet,
@@ -213,5 +219,32 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
     expect(duplicateEstimateVersionMock).not.toHaveBeenCalled();
     expect(recordCopyMock).not.toHaveBeenCalled();
     expect(unexpectedMutationMock).not.toHaveBeenCalled();
+  });
+});
+
+// Once the automatic start is on, an analysis of the affaire is a launch request (launch-request-server.ts): a launch on a
+// version would create a job the « one admitted request per affaire » rule does not count. Its replay still answers.
+describe("a launch on a version once the automatic start is on", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isTakeoffLaunchActiveMock.mockResolvedValue(true);
+  });
+
+  it("is refused before any job, and a lost answer of a launch made before still finds its job", async () => {
+    findTakeoffJobForPlanSetLaunchMock.mockResolvedValueOnce(null);
+    const launch = () => launchTakeoffFromPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID, versionId: VERSION_ID, preparationRevision: 2, level: "C", provider: "chatgpt" });
+    await expect(launch()).rejects.toMatchObject({ status: 409, code: "CONFLICT" });
+    expect(createTakeoffJobFromPlanSetMock).not.toHaveBeenCalled();
+    findTakeoffJobForPlanSetLaunchMock.mockResolvedValueOnce({ id: JOB_ID, estimate_version_id: VERSION_ID, status: "completed" });
+    expect(await launch()).toMatchObject({ jobId: JOB_ID, existingStatus: "completed" });
+    expect(createTakeoffJobFromPlanSetMock).not.toHaveBeenCalled();
+  });
+
+  it("is refused before a draft is copied from a source version", async () => {
+    findTakeoffJobForPlanSetLaunchMock.mockResolvedValueOnce(null);
+    await expect(launchTakeoffFromSourceVersionPlanSet({ projectId: PROJECT_ID, planSetId: PLAN_SET_ID, sourceVersionId: VERSION_ID, preparationRevision: 2, level: "C", provider: "chatgpt" }))
+      .rejects.toMatchObject({ status: 409, code: "CONFLICT" });
+    expect(duplicateEstimateVersionMock).not.toHaveBeenCalled();
+    expect(createTakeoffJobFromPlanSetMock).not.toHaveBeenCalled();
   });
 });

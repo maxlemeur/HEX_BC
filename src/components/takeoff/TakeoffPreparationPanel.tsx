@@ -31,6 +31,10 @@ export type TakeoffPreparationPanelProps = {
   onRegisterSave?: (save: () => Promise<number | null>) => void;
   disabled?: boolean;
   launchDisabled?: boolean;
+  /** Why nothing can be launched from here now, said above the launch button. */
+  launchNotice?: string | null;
+  /** The analysis has no version until its send: the destination is the analysis and its review only. */
+  analysisOnly?: boolean;
 };
 
 export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
@@ -38,7 +42,7 @@ export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
   return <TakeoffPreparationPanelContent key={`${user?.tenantId ?? "unknown"}:${user?.profile?.id ?? "unknown"}:${props.projectId}`} {...props} />;
 }
 
-function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, launchDisabled = false, disabled = false }: TakeoffPreparationPanelProps) {
+function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
   const { record, support, draft, updateDraft, saveState, error, save, saveOptions, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId, planSetId);
   const [triaging, setTriaging] = useState(false);
   const [step, setStep] = useState(3);
@@ -128,7 +132,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {step === 1 && <TakeoffPreparationProfiles draft={draft} onChange={updateDraft} profiles={support.profiles} loadError={support.profilesError} onSaved={addProfile} />}
       {step === 3 && destinationControls}
       {showOptions && step === 3 && draft.destination.kind === "estimate_review" && estimateVersionId && draft.destination.estimate_version_id !== estimateVersionId && <div className="space-y-2 rounded-lg border border-border bg-surface-subtle p-3"><p className="text-sm text-muted-foreground">La destination de la préparation diffère de la version cible sélectionnée.</p><button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} onClick={() => updateDraft({ ...draft, destination: { ...draft.destination, estimate_version_id: estimateVersionId, confirmed: false } })}>Utiliser la version cible sélectionnée</button></div>}
-      <TakeoffPreparationFields showOptions={showOptions} estimateVersionId={estimateVersionId} draft={draft} effectiveSources={effective.sources} onChange={updateDraft} step={step} projectId={projectId} availableSources={availableSources} orderedQuestionIds={orderedQuestionIds} />
+      <TakeoffPreparationFields showOptions={showOptions} estimateVersionId={estimateVersionId} analysisOnly={analysisOnly} draft={draft} effectiveSources={effective.sources} onChange={updateDraft} step={step} projectId={projectId} availableSources={availableSources} orderedQuestionIds={orderedQuestionIds} />
       {step === 0 && <TakeoffPageTriage projectId={projectId} draft={draft} availability={support.pageTriage} onChange={updateDraft} save={saveOptions} adopt={adopt} disabled={locked || saveState === "error"} onBusyChange={(busy) => { setTriaging(busy); onBusyChange?.(busy); }} />}
     </fieldset>
     {/* TI-682 lot D: the chosen plan pages the target version already holds from an earlier takeoff (a notice, the launch stays open). */}
@@ -139,6 +143,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {renewedRevision !== null && persistedRevision === renewedRevision && !preparationConfirmed && <p role="status" className="text-sm text-muted-foreground">Nouvelle préparation enregistrée. Vérifiez le récapitulatif puis confirmez le lancement.</p>}
       {readiness.reservations.length > 0 && <div className="text-sm"><p className="font-medium">Réserves conservées</p><ul className="mt-1 list-disc pl-4">{readiness.reservations.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.message}</li>)}</ul></div>}
     </div>}
+    {launchNotice && <p role="status" className="text-sm text-muted-foreground">{launchNotice}</p>}
     <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
       {showOptions && <button type="button" className={buttonVariants({ variant: "outline", size: "md" })} disabled={locked || step === 0} onClick={() => setStep((value) => value - 1)}>Retour</button>}
       {step < 3 ? <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked} onClick={() => setStep((value) => value + 1)}>Continuer</button> : <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked || launchDisabled || !readiness?.can_launch || saveState === "error"} onClick={() => void launch()}>{renewing ? "Nouvelle préparation…" : confirming ? "Confirmation et lancement…" : "Confirmer et lancer le métré"}</button>}

@@ -12,7 +12,7 @@ droits du tenant actif et de l'affaire.
 
 ## Parcours pris en charge
 
-« Métrés » rouvre les métrés de la dernière affaire consultée. Si elle est archivée, inaccessible ou inconnue, choisissez une affaire dans la liste. Ouvrez ses plans ou ses métrés pour préparer une analyse. Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
+« Métrés » rouvre les métrés de la dernière affaire consultée. Si elle est archivée, inaccessible ou inconnue, choisissez une affaire dans la liste. Sur la page de l’affaire, la zone **Métré de l’affaire** donne l’état du métré et l’accès à ses options (voir [La zone du métré sur l’affaire](#la-zone-du-métré-sur-laffaire)). Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
 
 Le lancement présente une analyse **Détaillée** avec le forfait ChatGPT du
 membre qui la demande, et le modèle et l’effort de son profil. Sur un jeu de
@@ -30,7 +30,7 @@ des fichiers pour un jeu. Sinon la sélection revient au jeu du lien, au jeu par
 défaut de l’affaire ou au premier jeu qui a des fichiers, et à la version du
 lien ou à la première version proposée.
 
-Le menu **Options du métré** ouvre quatre étapes dans
+Dans la fenêtre de préparation, le bouton **Options du métré** ouvre quatre étapes dans
 [`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx).
 
 1. **Mes documents** permet de choisir les pièces et les pages, d’ouvrir leur
@@ -41,7 +41,9 @@ Le menu **Options du métré** ouvre quatre étapes dans
 3. **Points à préciser** permet de compléter les conventions d’un objectif
    spécialisé, de répondre aux inconnues et d’accepter les réserves admissibles.
 4. **Vérifier et lancer** réunit le périmètre, les sources, les conventions,
-   les réserves et la version de devis utilisée par le lancement manuel.
+   les réserves et, tant que le démarrage automatique est inactif, la version de
+   devis utilisée par le lancement manuel. Une fois actif, l’analyse n’a pas de
+   version : celle qui reçoit ses quantités se choisit à leur envoi.
 
 Les choix sont enregistrés avec un contrôle de révision. Une pièce ajoutée au
 dossier (plan du jeu choisi, CCTP ou DPGF) après l’ouverture, ou reclassée (une
@@ -151,12 +153,43 @@ la base en garantit l’unicité et l’admission (migration
   Le rejeu d’une confirmation renvoie la demande telle qu’elle est. Les
   causes passagères (limite d’admission, lecture d’une pièce, autre analyse en
   cours sur l’affaire) sont réessayées par le Mac.
-- **Une seule demande admise à la fois par affaire.** Une relance pendant
-  l’exécution renvoie l’analyse en cours. Une relance admise met de côté, pour
-  de bon (un état final), un démarrage automatique qui n’avait pas commencé : ni
-  une nouvelle confirmation ni une prise en charge ne le réarment ; une nouvelle
-  analyse est une relance, et l’affaire montre la relance, jamais le démarrage mis
-  de côté. Le job d’une demande en cours ne peut pas être supprimé.
+- **Une seule analyse à la fois par affaire.** Une relance pendant
+  l’exécution renvoie l’analyse en cours. Une analyse lancée hors de toute demande
+  (avant l’activation) que quelque chose fera encore avancer compte comme en
+  cours : en attente ou en lecture (sa reprise la clôt, un membre peut l’annuler),
+  ou échouée avec une nouvelle tentative que la reprise locale fera ou clora (ce
+  Mac, sans lot, moins de trois tentatives, dans le délai d’attente maximal). Une
+  relance reçoit alors cette analyse, sans demande, et un démarrage automatique
+  attend sa fin (« autre analyse en cours », réessayé par le Mac). Un échec ancien
+  que rien ne relancera (l’ancien fournisseur, un lot, trois tentatives passées ou
+  le délai dépassé) ne bloque rien. La zone du métré lit cette même règle dans la
+  base (`public.takeoff_running_analysis_outside_request`). Une nouvelle tentative
+  qui a attendu plus que le délai maximal n’est plus jamais lancée, seulement
+  close par sa reprise : le Mac ne la sélectionne plus (le délai lu dans la base,
+  `public.takeoff_local_retry_floor`) et la base refuse de la relancer
+  (`TAKEOFF_JOB_RETRY_EXPIRED`).
+- **Une relance et le démarrage automatique.** Tant que le démarrage automatique
+  de l’affaire peut encore commencer sans nouveau changement du dossier (son
+  payeur peut encore payer et son Mac l’évalue ou a du travail en attente, ou le
+  membre qui relance peut le prendre en charge ou le reprendre), la base refuse la
+  relance : il se prend en charge depuis la zone du métré. Sinon (il attend un
+  changement du dossier, ou personne ne peut le faire démarrer), une relance admise
+  le met de côté pour de bon (un état final), après avoir compté, comme
+  l’admission automatique, un changement du dossier validé entre-temps : s’il permet
+  au démarrage de commencer, la relance est refusée. Ni une nouvelle confirmation ni
+  une prise en charge ne le réarment ; une nouvelle analyse est une relance, et
+  l’affaire montre la relance, jamais le démarrage mis de côté. Le job d’une
+  demande en cours ne peut pas être supprimé.
+- **Une fois le démarrage automatique actif, toute nouvelle analyse est une
+  demande.** La base refuse un nouveau job hors demande, par la fonction
+  d’admission des lancements sur une version ou sans version comme par une
+  écriture directe (`TAKEOFF_JOB_REQUEST_REQUIRED`, dit comme le refus d’un
+  lancement sur une version) ; le rejeu d’un lancement fait avant retrouve son
+  job. Une analyse lancée hors demande ne repart (resoumission d’un membre,
+  nouvelle tentative de son Mac) que sous le verrou de lancement de l’affaire et
+  tant qu’aucune demande de l’affaire ne tourne (`TAKEOFF_LAUNCH_REQUEST_RUNNING`,
+  « Une analyse de l’affaire est en cours »). Avant l’activation, rien ne change
+  (migration `20261121193413_takeoff_launch_exclusion_and_send_requests.sql`).
 - **Une demande qui attend son Mac** (évaluation à faire, dossier modifié depuis,
   cause passagère à réessayer) depuis plus de quinze minutes peut être reprise
   par son payeur ou prise en charge par un autre opérateur. Trois vérifications
@@ -178,19 +211,97 @@ la base en garantit l’unicité et l’admission (migration
 - **Dossier modifié depuis l’analyse.** Un plan ajouté, remplacé ou retiré après
   l’admission est signalé sur l’affaire ; rien n’est relancé sans un geste.
 - **Relancer** crée une nouvelle demande manuelle, un nouveau job et un lien vers
-  l’analyse qu’elle remplace (obligatoire), sur le forfait du membre qui clique,
+  l’analyse qu’elle remplace (aucune pour la première analyse d’une affaire, dont
+  l’intention est alors « initial »), sur le forfait du membre qui clique,
   qui en reçoit la fin. Son reçu (la clé, la commande : membre, intention,
   analyse remplacée, jeu de plans et révision de la préparation, et sa réponse)
   est tenu à part des demandes et répondu avant toute autre vérification : un
   double clic ou un rejeu reçoit la même réponse, même si la préparation a changé
   depuis ; une relance refusée parce qu’une autre analyse tournait reste refusée,
   avec l’analyse qu’elle a trouvée, sans job payant ; la même clé pour une autre
-  commande est refusée. Le module du métré désactivé refuse la relance,
-  la prise en charge et la reprise.
+  commande est refusée. Tant que sa réponse n’est pas arrivée (réponse perdue,
+  erreur du serveur), le navigateur garde cette commande, une par membre et par
+  affaire, même après un rechargement et pour tous ses onglets : le clic suivant
+  du membre sur l’affaire la renvoie telle quelle (sa clé, l’analyse qu’elle
+  remplaçait, son jeu de plans, sa révision) avant toute nouvelle commande, même si
+  son analyse a fini entre-temps, et en montre la réponse ; seul un clic après
+  cette réponse est une nouvelle commande. Une clé répondue dans un onglet n’est
+  plus jamais renvoyée. Une relance qui croise une autre opération de l’affaire
+  dans la base (annulée sans rien enregistrer) répond « Réessayez dans un instant »
+  et garde sa clé ; elle prend l’analyse qu’elle remplace avant le verrou de
+  l’affaire, comme la nouvelle tentative du Mac. La base refuse aussi une première analyse (« initial »)
+  sur une affaire qui en a déjà une. Le module du métré désactivé refuse la
+  relance, la prise en charge et la reprise.
 - **Avant chaque appel payant**, le worker vérifie que le payeur peut toujours
   lancer un métré sur l’affaire. Un membre rétrogradé après avoir mis une analyse
   en file, ou qui n’est plus propriétaire de l’affaire, ne dépense plus rien :
   l’analyse échoue avec ce motif.
+
+## La zone du métré sur l’affaire
+
+La zone **Métré de l’affaire** est la seule place du métré sur la page de
+l’affaire, dans la vue d’ensemble et dans « Chiffrage », y compris sans version
+de devis. Le modèle est dans
+[`affaire-takeoff-zone.ts`](../../src/lib/takeoff/affaire-takeoff-zone.ts), la
+lecture dans
+[`affaire-takeoff-zone-server.ts`](../../src/lib/takeoff/affaire-takeoff-zone-server.ts).
+Lire la zone ne dépense rien et n’écrit rien ; elle se relit seule tant qu’une
+demande s’évalue, tourne ou attend une cause passagère.
+
+- **Ce qu’elle montre.** La dernière demande de l’affaire (jamais un démarrage
+  mis de côté) : son état et son motif, les pièces qu’il nomme, la couverture
+  scellée (plans retenus, pièces non lues et pourquoi), « Dossier modifié depuis
+  l’analyse » avec les plans ajoutés, remplacés ou retirés du jeu que la demande a
+  analysé, et la dernière fin d’analyse de l’affaire, le même événement que la
+  notification des membres. Un plan ou une pièce n’est nommé qu’au membre qui peut
+  lire sa copie ou sa pièce du dossier (le propriétaire de l’affaire et les
+  administrateurs les lisent toutes) ; les autres lisent « Plan N » ou « Pièce N »,
+  sans l’identifiant de sa source, et une analyse sans le nom du plan qu’elle a lu.
+  La zone n’affiche que ce que le serveur a lu pour le membre de la page, dans son
+  tenant actif : une session changée sans rechargement ne montre jamais la zone
+  d’un autre membre.
+  Sans demande, elle montre la dernière analyse de l’affaire, quelle que soit sa
+  version, puis l’état du dossier. Une demande réservée est distinguée d’une
+  analyse prise par le Mac (« En attente du Mac », « En cours »).
+- **Les revues.** Chaque analyse de la demande dont le résultat se lit a son
+  lien de revue ; sinon la dernière analyse lisible de l’affaire reste
+  accessible (« Revoir l’analyse précédente ») : l’échec d’une relance ne cache
+  jamais une revue antérieure. « Ouvrir le métré » mène à l’historique des
+  analyses.
+- **Le geste.** Le membre qui peut payer voit le geste que la base lui permet :
+  « Reprendre avec mon forfait » (le payeur) ou « Prendre en charge avec mon
+  forfait » (un autre opérateur), avec « Mon profil » quand la connexion ChatGPT
+  est en cause ; loin du Mac connecté, il est invité à y ouvrir MergeOne. Un
+  directeur voit l’état et son motif, sans geste ni options.
+- **Les options du métré** (dès qu’il y a des plans, pour un administrateur ou
+  un ingénieur qui peut écrire l’affaire, la règle de la préparation). Tant que le
+  démarrage automatique est inactif, elles lancent comme avant : sur le brouillon
+  courant ou sur un nouveau brouillon d’une version choisie, sans demande (la base
+  n’écrit aucune demande avant l’activation). Une fois actif, elles ne créent
+  jamais de job sans demande, et le serveur refuse tout nouveau lancement sur une
+  version (le rejeu d’un lancement fait avant retrouve son job) : leur lancement
+  est une demande manuelle, sans
+  version, sur le forfait du membre qui clique (la première analyse de l’affaire,
+  ou une relance qui nomme l’analyse de la demande affichée). Elles enregistrent
+  seulement, sans rien lancer, tant que la demande automatique peut encore
+  démarrer (la règle de la base pour le membre qui lit,
+  `public.takeoff_launch_request_can_start` ; sinon elles lancent, et le démarrage
+  est mis de côté), qu’une analyse tourne (y compris une analyse lancée hors demande avant
+  l’activation) ou qu’une affaire sans analyse attend la
+  confirmation de son dossier : le démarrage reprend alors les options
+  enregistrées. Après l’admission, une
+  option ne change jamais le job en cours.
+- **Les accès.** Le menu « Plus » (« État du métré »), le cockpit et sa
+  hiérarchie, l’exception du pilotage et la carte « Plans, preuves & exceptions »
+  mènent à la zone et ne lancent rien. L’étape Plans de l’import lance, tant que
+  le démarrage automatique est inactif, sur le brouillon que l’import vient de
+  créer et le jeu qui a reçu les fichiers, comme avant ; une fois actif, elle mène
+  à la zone ; l’ancre `#metre`
+  y conduit et `metreOptions=1` ouvre ses options. Une fois le démarrage
+  automatique actif, les liens de lancement de la page des métrés
+  (`launch=1`, anciens favoris de version) ouvrent ces options, et cette page ne
+  lance plus rien elle-même. La fin d’une demande ouvre la zone depuis les
+  notifications. Il n’y a plus de proposition masquable ni de rappel à 24 h.
 
 ## Suivi d’une demande dans le centre d’activité
 

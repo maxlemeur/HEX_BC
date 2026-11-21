@@ -1,7 +1,9 @@
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
+import { buttonVariants } from "@/components/ui/button";
 import { PosteListPreviewPanel } from "@/components/takeoff/PosteListPreviewPanel";
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
@@ -14,6 +16,7 @@ import {
 } from "@/lib/affaires/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { buildTakeoffLaunchContext } from "@/lib/takeoff/launch-context";
+import { isTakeoffLaunchActive } from "@/lib/takeoff/launch-request-server";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
 
 type Props = {
@@ -34,6 +37,17 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
   const takeoffEnabled = await isTakeoffEnabled(tenantId);
   if (!takeoffEnabled) {
     notFound();
+  }
+
+  // Once the automatic start is on, an analysis is launched only from the options of the affaire's takeoff zone, as a
+  // launch request: this page's launch links (`launch=1`, old bookmarks) lead there and it launches nothing itself.
+  // A failed read of the activation is taken as « on »: the zone decides from its own read.
+  const query = (await searchParams) ?? {};
+  const launchRequestsActive = await isTakeoffLaunchActive().catch(() => true);
+  const takeoffZoneHref = `/dashboard/affaires/${projectId}?view=overview`;
+  if (launchRequestsActive && query.launch === "1") {
+    const planSet = typeof query.launchPlanSet === "string" ? `&launchPlanSet=${encodeURIComponent(query.launchPlanSet)}` : "";
+    redirect(`${takeoffZoneHref}&metreOptions=1${planSet}#metre`);
   }
 
   const [
@@ -73,7 +87,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
     hubSummaryResult.status === "fulfilled" ? hubSummaryResult.value : null;
   const plansSummary =
     plansSummaryResult.status === "fulfilled" ? plansSummaryResult.value : null;
-  const launchContext = buildTakeoffLaunchContext({
+  const launchContext = launchRequestsActive ? null : buildTakeoffLaunchContext({
     currentVersion: hubSummary?.currentVersion
       ? {
           id: hubSummary.currentVersion.id,
@@ -104,9 +118,15 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
             stage="Étude"
             context="L’IA lit vos plans et propose les quantités. Vous les vérifiez avant de les reporter au devis."
           />
+          {launchRequestsActive ? (
+            <p className="mb-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              Le métré de l’affaire se lance et se relance depuis son état, sur la page de l’affaire.
+              <Link href={`${takeoffZoneHref}#metre`} className={buttonVariants({ variant: "outline", size: "sm" })}>État du métré</Link>
+            </p>
+          ) : null}
           {versionsResult.status === "fulfilled" && versions.length === 0 && (
             <Suspense>
-              <PosteListPreviewPanel projectId={projectId} query={(await searchParams) ?? {}} />
+              <PosteListPreviewPanel projectId={projectId} query={query} />
             </Suspense>
           )}
         </>

@@ -82,11 +82,22 @@ function launchError(error: { code?: string; message: string }, fallback: string
     case "TAKEOFF_LAUNCH_PREDECESSOR_REQUIRED":
     case "TAKEOFF_LAUNCH_PREDECESSOR_INVALID":
       throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR, "L’analyse à relancer n’appartient pas à cette affaire.");
+    case "TAKEOFF_LAUNCH_AUTOMATIC_PENDING":
+      throw refusal(409, TakeoffErrorCode.CONFLICT,
+        "Le métré automatique de l’affaire peut encore démarrer : prenez-le en charge depuis l’état du métré de l’affaire.");
+    case "TAKEOFF_LAUNCH_ANALYSIS_EXISTS":
+      throw refusal(409, TakeoffErrorCode.CONFLICT, "L’affaire a déjà une analyse : rechargez l’affaire pour relancer celle qu’elle montre.");
     case "TAKEOFF_JOB_ADMISSION_LIMIT":
       throw takeoffJobInsertError({ code: "23514", message: error.message }, "");
     case "TAKEOFF_LAUNCH_STOP_GROUPED":
       throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR,
         "Cette analyse lit tous ses plans en une fois : annulez-la depuis son suivi plutôt que d’arrêter ses plans un par un.");
+  }
+  // Two operations of one affaire that crossed in the database and were rolled back (a deadlock, a serialization
+  // failure): nothing was recorded, the same command may be sent again.
+  if (error.code === "40P01" || error.code === "40001") {
+    throw new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: true,
+      message: "Le métré de l’affaire est occupé par une autre opération. Réessayez dans un instant." });
   }
   databaseError(error, fallback);
 }
@@ -225,11 +236,35 @@ async function readDossierPlanSet(service: Service, tenantId: string, projectId:
     metadata: unknown; updated_at: string; plan_files?: Array<{ count: number }> }>)
     .map((set) => ({ ...set, file_count: set.plan_files?.[0]?.count ?? 0 })));
   if (!chosen) return null;
+  return { id: chosen.id, files: await readPlanSetFiles(service, tenantId, chosen.id) };
+}
+
+async function readPlanSetFiles(service: Service, tenantId: string, planSetId: string) {
   const files = await readAllRows(() => service.from("plan_files").select("id, file_path, file_name, file_size_bytes, metadata", { count: "exact" })
-    .eq("tenant_id", tenantId).eq("plan_set_id", chosen.id).order("id"));
+    .eq("tenant_id", tenantId).eq("plan_set_id", planSetId).order("id"));
   if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
-  return { id: chosen.id, files: (files.data ?? []).map((file) => ({ ...file,
-    metadata: (file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata) ? file.metadata : {}) as Record<string, unknown> })) };
+  return (files.data ?? []).map((file) => ({ ...file,
+    metadata: (file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata) ? file.metadata : {}) as Record<string, unknown> }));
+}
+
+/** The plan set a request sealed: that of the plans its sealed preparation reads (kept when its analysis is deleted). */
+function sealedPlanSetId(snapshot: unknown) {
+  const sources = (snapshot as { preparation?: { sources?: unknown } } | null)?.preparation?.sources;
+  const plan = (Array.isArray(sources) ? sources : []).find((source) => {
+    const entry = source as { kind?: unknown; active?: unknown; plan_set_id?: unknown };
+    return entry?.kind === "plan" && entry.active === true && typeof entry.plan_set_id === "string";
+  }) as { plan_set_id: string } | undefined;
+  return plan?.plan_set_id ?? null;
+}
+
+/**
+ * The plan set a request sealed, with its copies; `dossier` when it is the dossier's import set, whose plans without a
+ * working copy count. A request without a sealed preparation reads the dossier's.
+ */
+async function readRequestPlanSet(service: Service, tenantId: string, projectId: string, planSetId: string | null) {
+  const dossier = await readDossierPlanSet(service, tenantId, projectId);
+  if (!planSetId || planSetId === dossier?.id) return dossier ? { ...dossier, dossier: true } : null;
+  return { id: planSetId, files: await readPlanSetFiles(service, tenantId, planSetId), dossier: false };
 }
 
 async function readDossierDocuments(service: Service, tenantId: string, projectId: string) {
@@ -570,11 +605,16 @@ async function dispatchLaunchRequestJobs(input: { jobIds: string[]; host?: strin
   }
 }
 
-export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "already_running"; requestId: string; jobId: string | null };
+/**
+ * `already_running` names the analysis that runs: a request's, or one launched outside any request before the activation
+ * (no `requestId` then).
+ */
+export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "already_running"; requestId: string | null; jobId: string | null };
 
 /**
  * A manual request created, sealed and admitted in one commit from the member's confirmed preparation, naming the
- * analysis it replaces; its end goes to that member. The intent key is answered first: a double click or a replay gets
+ * analysis it replaces (none for the affaire's first analysis: its intent is then « initial »); its end goes to that
+ * member. The intent key is answered first: a double click or a replay gets
  * what the command answered (its job, or the analysis that was running then), whatever changed since; the same key for
  * another command is a conflict. While another request of the affaire runs, the command is recorded as refused.
  * Once the owner activated one analysis per plan, the command reads only the plans it names (`planFileIds`), by default
@@ -583,19 +623,31 @@ export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "alread
  */
 export async function launchTakeoffRelaunch(input: {
   context: Context; projectId: string; planSetId: string; preparationRevision: number; intentKey: string;
-  predecessorJobId?: string | null; planFileIds?: string[] | null; host?: string | null;
+  predecessorJobId: string | null; planFileIds?: string[] | null; host?: string | null;
 }): Promise<TakeoffRelaunchResult> {
   const { context } = input;
   await assertPreparationProjectAccess(context, input.projectId, true);
+  // The address of the gesture first: its job is started on this Mac right after the admission commits, and an address
+  // that cannot use the subscription must not leave an admitted request with an undispatched job.
+  if (input.host !== undefined) {
+    try {
+      assertLocalChatGptHost(input.host);
+    } catch {
+      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+        message: describeTakeoffLaunchReason("HOST_NOT_AUTHORISED") });
+    }
+  }
   const service = createServiceRoleClient();
   if (await isTakeoffPlanDispatchActive(service)) return launchTakeoffPlanCommand(service, input);
-  if (!input.predecessorJobId || input.planFileIds?.length) {
+  // Plans are named one by one only by one analysis per plan.
+  if (input.planFileIds?.length) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
-      message: "Une relance nomme l’analyse qu’elle remplace." });
+      message: "Une analyse groupée lit tous les plans de sa préparation : relancez-la sans choisir de plans." });
   }
+  const intent: TakeoffLaunchManifest["intent"] = input.predecessorJobId ? "reread_plans" : "initial";
   // The command's identity, answered first: a double click or a replay gets its receipt whatever changed since.
   const command = { p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
-    p_intent_key: input.intentKey, p_intent: "reread_plans", p_predecessor_job_id: input.predecessorJobId,
+    p_intent_key: input.intentKey, p_intent: intent, p_predecessor_job_id: input.predecessorJobId as string,
     p_plan_set_id: input.planSetId, p_preparation_revision: input.preparationRevision };
   const { data: replayed, error: replayError } = await service.rpc("replay_manual_takeoff_request", command);
   if (replayError) launchError(replayError, "Impossible de relancer le métré.");
@@ -609,7 +661,7 @@ export async function launchTakeoffRelaunch(input: {
   const plans = snapshot.preparation.sources.filter((source) => source.active && source.kind === "plan");
   const sourceFile = await resolvePlanSetSourceFile({ supabase: context.supabase, tenantId: context.tenantId, planSetId: input.planSetId,
     jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
-  const manifest = await relaunchManifest(context, input.planSetId, snapshot, config, "reread_plans",
+  const manifest = await relaunchManifest(context, input.planSetId, snapshot, config, intent,
     planSetCopiesSetAside(snapshot.preparation.sources, input.planSetId));
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
@@ -699,14 +751,13 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput):
   if (recorded) {
     return { outcome: recorded.outcome as TakeoffRelaunchResult["outcome"], requestId: recorded.request_id, jobId: recorded.job_id };
   }
+  // The database refuses a first analysis on an affaire that has one (TAKEOFF_LAUNCH_ANALYSIS_EXISTS); asked here first,
+  // before the plans are counted, with the same answer.
   if (intent === "initial") {
     const { data: analysed, error: analysedError } = await service.from("takeoff_jobs").select("id")
       .eq("tenant_id", context.tenantId).eq("project_id", input.projectId).limit(1).maybeSingle();
     if (analysedError) databaseError(analysedError, "Impossible de lire les analyses de l’affaire.");
-    if (analysed) {
-      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
-        message: "Ce métré a déjà une analyse : choisissez celle que cette commande complète." });
-    }
+    if (analysed) launchError({ message: "TAKEOFF_LAUNCH_ANALYSIS_EXISTS" }, "Impossible de relancer le métré.");
   }
   // Only the plans named are read: the member's confirmed preparation of the plan set, the other plans set aside.
   const { snapshot: confirmed, owner, config } = await relaunchSeal(service, input);
@@ -881,19 +932,21 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
  * The plans of the dossier against the plans the request sealed (read by the server after the access check): its plan
  * set's copies, and every plan classified in the dossier since that has no working copy (it is listed, never invisible).
  * Each is named only to the member who may read its source, by the plan files' and dossier pieces' own policies
- * evaluated for that member (`member`: their session); anyone else reads « Plan N ».
+ * evaluated for that member (`member`: their session); anyone else reads « Plan N ». The plan set compared is the one
+ * the request sealed: a relaunch on another set than the dossier's is compared with that set alone.
  */
 export async function readDossierChangeSinceAnalysis(member: Pick<Context, "supabase" | "tenantId">, projectId: string,
   requestId: string) {
   const service = createServiceRoleClient();
   const { tenantId } = member;
-  const [{ data: request, error }, planSet, documents] = await Promise.all([
-    service.from("takeoff_launch_requests").select("manifest").eq("id", requestId).eq("tenant_id", tenantId).maybeSingle(),
-    readDossierPlanSet(service, tenantId, projectId),
+  const [{ data: request, error }, documents] = await Promise.all([
+    service.from("takeoff_launch_requests").select("manifest, preparation_snapshot").eq("id", requestId).eq("tenant_id", tenantId).maybeSingle(),
     readDossierDocuments(service, tenantId, projectId),
   ]);
   if (error) databaseError(error, "Impossible de lire le métré de l’affaire.");
-  const change = describeDossierChangeSinceAnalysis(request?.manifest as AnyTakeoffLaunchManifest | null, planSet?.files ?? [], documents);
+  const planSet = await readRequestPlanSet(service, tenantId, projectId, sealedPlanSetId(request?.preparation_snapshot));
+  const change = describeDossierChangeSinceAnalysis(request?.manifest as AnyTakeoffLaunchManifest | null, planSet?.files ?? [],
+    planSet?.dossier === false ? [] : documents);
   if (!change) return null;
   const visible = await readTakeoffVisibleSources({ supabase: member.supabase, tenantId, projectId,
     ids: [...change.added, ...change.replaced, ...change.removed].map((piece) => piece.id) });

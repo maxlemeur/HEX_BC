@@ -25,7 +25,9 @@ async function setup(ui: Ui, caseId: string) {
   const file = await uploadSamplePlan(ui, ui.army, planSet);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await expect(ui.screen.getByRole("heading", "Ajoutez le dossier de consultation", { exact: true })).toHaveCount(0);
-  await expect(ui.screen.getByRole("button", "Préparer le métré", { exact: true })).toHaveCount(1);
+  // One access to the takeoff's options, in its zone; no competing « Préparer le métré » on the affaire.
+  await expect(ui.screen.getByRole("button", "Options du métré", { exact: true })).toHaveCount(1);
+  await expect(ui.screen.getByRole("button", "Préparer le métré", { exact: true })).toHaveCount(0);
   const dialog = await openTakeoffPreparation(ui);
   const { client } = await localClient();
   const read = async () => {

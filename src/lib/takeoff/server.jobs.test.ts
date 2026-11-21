@@ -142,6 +142,8 @@ type SupabaseMockOptions = {
   afterJobRead?: (row: TakeoffJobStoredRow) => Partial<TakeoffJobStoredRow> | void;
   /** Another writer, just before the conditional update is evaluated. */
   beforeJobUpdate?: (row: TakeoffJobStoredRow) => Partial<TakeoffJobStoredRow> | void;
+  /** The database refuses the job's update (a trigger), with this error. */
+  updateError?: { code: string; message: string };
   results?: TakeoffResultStoredRow[];
   items?: TakeoffItemStoredRow[];
   versions?: Array<{ id: string; version_number: number; project_id: string }>;
@@ -493,6 +495,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         if (!candidate) {
           return { data: null, error: null };
         }
+        if (options.updateError) return { data: null, error: options.updateError };
 
         const updated: TakeoffJobStoredRow = {
           ...candidate,
@@ -905,6 +908,19 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(supabase.__state.auditLogs.at(-1)?.action).toBe(
       "takeoff.job.resubmitted"
     );
+  });
+
+  // Once the automatic start is active, the database refuses to restart an analysis outside any request while a request
+  // of the affaire runs (20261121193413): the member reads why, and nothing is audited as resubmitted.
+  it("refuses, in French, a resubmit the database refuses while a request of the affaire runs", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [baseJob({ status: "failed", retry_count: 1, completed_at: "2026-02-25T08:00:00.000Z" })],
+      updateError: { code: "55000", message: "TAKEOFF_LAUNCH_REQUEST_RUNNING" },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({ supabase, userId: USER_ID, tenantId: TENANT_ID, tenantRole: "engineer" } as never);
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({ status: 409, code: "CONFLICT", retryable: false,
+      message: "Une analyse de l’affaire est en cours : relancez celle-ci une fois qu’elle sera terminée." });
+    expect(supabase.__state.auditLogs.map((log) => log.action)).not.toContain("takeoff.job.resubmitted");
   });
 
   // #415 let an administrator reset another member's failure; the retry of an existing job now runs only on the plan of

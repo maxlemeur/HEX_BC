@@ -7,6 +7,7 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { getConfirmedTakeoffExecutionOwner, requireDetailedTakeoffProcessing } from "@/lib/ai/chatgpt-takeoff";
 import { duplicateEstimateVersion } from "@/lib/estimates/version-variant-server";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
+import { takeoffLaunchRequestRequiredError } from "@/lib/takeoff/job-creation-server";
 import { createTakeoffJobFromPlanSet, findTakeoffJobForPlanSetLaunch } from "@/lib/takeoff/server";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
@@ -14,8 +15,10 @@ import { runSafeTakeoffAction } from "@/lib/takeoff/action-errors-server";
 import { findTakeoffPreparationCopyReceipt, recordTakeoffPreparationCopy } from "@/lib/takeoff/preparation-copy-provenance-server";
 import type { TakeoffJobCreateResponse } from "@/lib/takeoff/job-creation-input";
 import {
-  assumeTakeoffLaunchRequest, launchTakeoffRelaunch, readAffaireTakeoffLaunchState, stopTakeoffLaunchRequest,
+  assumeTakeoffLaunchRequest, isTakeoffLaunchActive, launchTakeoffRelaunch, readAffaireTakeoffLaunchState,
+  stopTakeoffLaunchRequest,
 } from "@/lib/takeoff/launch-request-server";
+import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
 
 // Identifiers are compared as text by the replay of a launch (its copy receipt is JSON): one spelling, lower case.
 const uuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
@@ -57,6 +60,15 @@ export async function launchTakeoffFromPlanSet(
   input: LaunchTakeoffFromPlanSetInput,
 ) {
   const parsed = launchTakeoffFromPlanSetSchema.parse(input);
+  // Once the automatic start is on (both cut-offs), an analysis of an affaire is a launch request, without a version: a
+  // launch on a version would create a job that the « one admitted request per affaire » rule does not count. It is
+  // refused (the database refuses its job too), a replay of a launch made before still answers with its job. Off,
+  // nothing changes.
+  if (await isTakeoffLaunchActive()) {
+    const existing = await findTakeoffJobForPlanSetLaunch({ ...parsed, estimateVersionId: parsed.versionId });
+    if (existing) return dispatchCreatedTakeoffJob(existing, parsed.projectId);
+    throw takeoffLaunchRequestRequiredError();
+  }
   const job = await createTakeoffJobFromPlanSet({
     projectId: parsed.projectId,
     planSetId: parsed.planSetId,
@@ -111,6 +123,8 @@ export async function launchTakeoffFromSourceVersionPlanSet(
     ...parsed, estimateVersionId: parsed.sourceVersionId,
   });
   if (existing) return dispatchCreatedTakeoffJob(existing, parsed.projectId);
+  // Before the preparation is read and a draft is copied.
+  if (await isTakeoffLaunchActive()) throw takeoffLaunchRequestRequiredError();
   const processing = requireDetailedTakeoffProcessing(parsed);
   // Reject an incomplete preparation before creating a new business version.
   const context = await getAuthenticatedContext();
@@ -163,9 +177,12 @@ const relaunchTakeoffSchema = z.object({
   preparationRevision: z.number().int().positive(),
   /** One key per click, kept by the dialogue across a double click, a timeout and a reload of the answer. */
   intentKey: uuidSchema,
-  /** The analysis it replaces: a relaunch always names it, but a command that reads a plan added to the dossier since. */
-  predecessorJobId: uuidSchema.nullish(),
-  /** One analysis per plan (lot 3): the plans it reads; by default the plan of the analysis it replaces. */
+  /**
+   * The analysis it replaces: a relaunch, and a command that reads a plan added to the dossier since, always name it;
+   * null for the affaire's first analysis.
+   */
+  predecessorJobId: uuidSchema.nullable(),
+  /** One analysis per plan (lot 3): the plans it reads; by default the plans of the analysis it replaces. */
   planFileIds: z.array(uuidSchema).min(1).max(20).nullish(),
 });
 const stopTakeoffSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema });
@@ -174,6 +191,14 @@ export async function readTakeoffLaunchStateAction(input: z.input<typeof takeoff
   return runSafeTakeoffAction(async () => {
     const { projectId } = takeoffLaunchStateSchema.parse(input);
     return readAffaireTakeoffLaunchState(await getAuthenticatedContext(), projectId);
+  }, "Impossible de lire le métré de l'affaire. Rechargez la page.");
+}
+
+/** The takeoff's zone on the affaire's page, read again while it is shown: reading never spends nor writes. */
+export async function readAffaireTakeoffZoneAction(input: z.input<typeof takeoffLaunchStateSchema>) {
+  return runSafeTakeoffAction(async () => {
+    const { projectId } = takeoffLaunchStateSchema.parse(input);
+    return readAffaireTakeoffZone(await getAuthenticatedContext(), projectId);
   }, "Impossible de lire le métré de l'affaire. Rechargez la page.");
 }
 

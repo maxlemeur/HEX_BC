@@ -213,3 +213,32 @@ it("still runs the dispatcher for the plans already admitted after a withdrawal,
   expect(processAttempt.mock.calls.filter(([id]) => id === plan.id)).toHaveLength(1);
   expect(client.rpc.mock.calls.some(([name]) => name === "dispatch_next_takeoff_host_job")).toBe(true);
 });
+
+// A retry past the wait ceiling is only closed by its recovery: once active, the poll reads that ceiling from the database
+// (public.takeoff_local_retry_floor) and no longer selects such a retry; before the activation it selects as before.
+it.each([
+  ["once the database says retries due before it have expired", "2026-11-20T21:00:00+00:00"],
+  ["before the activation, when nothing expires", null],
+])("selects due retries only within their wait ceiling %s", async (_case, floor) => {
+  vi.useFakeTimers();
+  vi.stubEnv("E2E_ARMY_BLOCK_WORKERS", "0");
+  processAttempt.mockReset();
+  client.rpc.mockImplementation(async (name: string) => ({ data: name === "takeoff_local_retry_floor" ? floor as never : null, error: null }));
+  const filters: string[] = [];
+  client.from.mockImplementation(() => {
+    const query = {
+      select: () => query, eq: () => query, in: () => query, gte: () => query, is: () => query,
+      or: (filter: string) => { filters.push(filter); return query; },
+      gt: () => query, order: () => query, limit: () => query,
+      then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: [] }),
+    };
+    return query;
+  });
+  startLocalTakeoffRetryRecovery();
+  await vi.advanceTimersByTimeAsync(15_000);
+  await vi.waitFor(() => expect(filters).toHaveLength(1));
+  const failed = /and\(status\.eq\.failed,([^)]*)\)/.exec(filters[0]!)?.[1] ?? "";
+  if (floor) expect(failed).toContain(`next_retry_at.gt.${new Date(floor).toISOString()}`);
+  else expect(failed).not.toContain("next_retry_at.gt.");
+  expect(failed).toContain("next_retry_at.lte.");
+});

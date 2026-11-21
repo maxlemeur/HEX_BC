@@ -560,6 +560,60 @@ select is(pg_temp.refusal($$select pg_temp.confirm('a2', pg_temp.unseen())$$), '
   'and so is its confirmation, by name, not by a key violation');
 reset role;
 
+-- Two launch requests may read one preparation revision (20261121170448 narrowed the historical receipt to the jobs
+-- without a request): each of their analyses is sent to one draft, where two jobs of one launch without a request are
+-- refused above (red before 20261121193413: the second answered TAKEOFF_SEND_PREPARATION_ALREADY_SENT).
+set local session_replication_role = replica;
+insert into public.plan_sets(id, tenant_id, project_id, name) values (pg_temp.fixture(171), pg_temp.fixture(10), pg_temp.fixture(20), 'Plan D fictif');
+insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+values (pg_temp.fixture(172), pg_temp.fixture(10), pg_temp.fixture(171), 'plan-d.pdf',
+  concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(171), pg_temp.fixture(172), 'plan-d.pdf'), 'application/pdf', 8, 2);
+insert into public.takeoff_launch_requests (id, tenant_id, project_id, origin, intent, intent_key, command_digest, state, payer_id,
+  mandate_kind, mandated_at, execution_host_id, mandate_selection, manifest, manifest_digest, preparation_snapshot, units_expected,
+  units_succeeded, token_budget, cost_budget_cents, outcome, completion_event_id, admitted_at, closed_at)
+select pg_temp.fixture(n), pg_temp.fixture(10), pg_temp.fixture(20), 'manual', 'reread_plans', gen_random_uuid(), repeat('a', 64), 'closed',
+  pg_temp.fixture(1), 'command', now(), 'urn:uuid:ab230000-0000-4000-8000-000000000090',
+  jsonb_build_object('hostId', 'urn:uuid:ab230000-0000-4000-8000-000000000090'), '{}'::jsonb, repeat('b', 64), '{}'::jsonb, 1, 1,
+  400000, 2500, 'success', gen_random_uuid(), now(), now()
+from unnest(array[173, 174]) as n;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+  execution_host_id, processing_strategy, preparation_snapshot, launch_request_id, launch_unit_key)
+select pg_temp.fixture(n + 2), pg_temp.fixture(10), pg_temp.fixture(20), pg_temp.fixture(171), 'C', 'completed', pg_temp.fixture(1),
+  'chatgpt_local', 'urn:uuid:ab230000-0000-4000-8000-000000000090', 'sync',
+  jsonb_set((select preparation_snapshot from public.takeoff_jobs where id = pg_temp.fixture(61)), '{preparation,sources}',
+    jsonb_build_array(jsonb_build_object('document_id', pg_temp.fixture(172), 'kind', 'plan', 'active', true, 'confirmed', true,
+      'plan_set_id', pg_temp.fixture(171), 'file_path', concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(171), pg_temp.fixture(172), 'plan-d.pdf'),
+      'page_count', 2))),
+  pg_temp.fixture(n), 'grouped'
+from unnest(array[173, 174]) as n;
+set local session_replication_role = origin;
+insert into public.takeoff_results(id, tenant_id, job_id) values
+  (pg_temp.fixture(177), pg_temp.fixture(10), pg_temp.fixture(175)),
+  (pg_temp.fixture(178), pg_temp.fixture(10), pg_temp.fixture(176));
+insert into public.takeoff_items(id, tenant_id, job_id, result_id, designation, quantity, unit, evidence, source_file_name,
+  source_page, confidence, metadata, created_at)
+values
+  (pg_temp.fixture(179), pg_temp.fixture(10), pg_temp.fixture(175), pg_temp.fixture(177), 'Robinet fictif', 1, 'u', 'Repère plan D',
+   'plan-d.pdf', 1, 0.95, jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', pg_temp.fixture(172))),
+   '2026-11-20T10:00:05Z'),
+  (pg_temp.fixture(180), pg_temp.fixture(10), pg_temp.fixture(176), pg_temp.fixture(178), 'Siphon fictif', 1, 'u', 'Repère plan D',
+   'plan-d.pdf', 2, 0.95, jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', pg_temp.fixture(172))),
+   '2026-11-20T10:00:06Z');
+insert into commands values ('r1', pg_temp.command(181, 175, jsonb_build_object('kind', 'existing_draft', 'version_id', pg_temp.fixture(100)),
+  jsonb_build_object('kind', 'existing', 'id', pg_temp.fixture(110))));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select lives_ok($$select pg_temp.send('r1')$$, 'the analysis of a first request of one preparation revision is sent to the draft');
+reset role;
+-- The second command is read after the first send, as its preview would be.
+insert into commands values ('r2', pg_temp.command(182, 176, jsonb_build_object('kind', 'existing_draft', 'version_id', pg_temp.fixture(100)),
+  jsonb_build_object('kind', 'existing', 'id', pg_temp.fixture(110))));
+set local role authenticated;
+select lives_ok($$select pg_temp.send('r2')$$, 'the analysis of a second request of that revision is sent to the same draft');
+reset role;
+select results_eq($$select id, estimate_version_id from public.takeoff_jobs where id in (pg_temp.fixture(175), pg_temp.fixture(176)) order by id$$,
+  $$values (pg_temp.fixture(175), pg_temp.fixture(100)), (pg_temp.fixture(176), pg_temp.fixture(100))$$, 'both are attached to it');
+
 -- 8. A, already applied, cannot lose a duplicate behind the estimate's back: the estimate stays at five.
 select pg_temp.sign_in(1);
 set local role authenticated;

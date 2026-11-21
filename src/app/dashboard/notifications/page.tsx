@@ -42,6 +42,8 @@ export default async function NotificationsPage({
             const activityHref = takeoffEnabled && notice.job_id
               ? `${projectHref}/takeoff?job=${encodeURIComponent(notice.job_id)}`
               : null;
+            // The end of a launch request (no job of its own): the takeoff's zone on the affaire, with its reviews.
+            const zoneHref = takeoffEnabled && notice.subject_kind === "request" ? `${projectHref}?view=overview#metre` : null;
             // A cached activity page may still show the job as pending.
             const NoticeLink = !reviewHref && activityHref ? "a" : Link;
             const deliveryLabel = deliveryLabels[notice.delivery_state];
@@ -61,8 +63,8 @@ export default async function NotificationsPage({
                     </p>
                   )}
                   {deliveryLabel && <p className="mt-1 text-sm text-slate-700">{deliveryLabel}</p>}
-                  <NoticeLink href={reviewHref ?? activityHref ?? projectHref} className="mt-2 inline-block text-sm font-medium text-blue-700 underline">
-                    {reviewHref ? "Ouvrir la revue" : activityHref ? "Ouvrir le suivi du métré" : "Ouvrir l’affaire"}
+                  <NoticeLink href={reviewHref ?? activityHref ?? zoneHref ?? projectHref} className="mt-2 inline-block text-sm font-medium text-blue-700 underline">
+                    {reviewHref ? "Ouvrir la revue" : activityHref ? "Ouvrir le suivi du métré" : zoneHref ? "Ouvrir l’état du métré" : "Ouvrir l’affaire"}
                   </NoticeLink>
                 </div>
                 {!notice.read_at && (
