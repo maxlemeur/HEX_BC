@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Database } from "@/types/database";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
@@ -22,16 +23,28 @@ import { TAKEOFF_PLAN_SET_LEVEL, type TakeoffJobRow } from "@/lib/takeoff/job-cr
 type CreationSupabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 type TakeoffJobInsert = Database["public"]["Tables"]["takeoff_jobs"]["Insert"];
 
-/** Persistence never decides replay or compensation: the creating operation owns them. */
-export async function insertTakeoffJob(input: {
+/** The invoker RPC admits the job and writes its creation record in the same transaction. */
+export async function admitPreparedTakeoffJob(input: {
   supabase: CreationSupabase;
   row: TakeoffJobInsert;
 }) {
-  return input.supabase
-    .from("takeoff_jobs")
-    .insert(input.row)
-    .select("id, status, level, source_file_name, source_file_path, estimate_version_id, created_at")
-    .single();
+  const { data, error } = await input.supabase.rpc("admit_prepared_takeoff_job", { p_job: input.row });
+  return { data: data?.[0] ?? null, error };
+}
+
+/** Call only after the user's session has read and authorized this job. */
+export async function assertTakeoffJobCreationRecorded(tenantId: string, job: TakeoffJobRow) {
+  // Use the existing version and tenant/table/created_at indexes for legacy and RPC receipts.
+  const query = createServiceRoleClient().from("audit_logs").select("id")
+    .eq("tenant_id", tenantId).eq("record_id", job.id).eq("table_name", "takeoff_jobs")
+    .eq("action", "takeoff.job.created");
+  const { data, error } = await (job.estimate_version_id === null
+    ? query.is("estimate_version_id", null)
+    : query.eq("estimate_version_id", job.estimate_version_id))
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw mapSupabaseError(error, "Impossible de vérifier l'audit de création du métré.");
+  if (!data) throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+    message: "Le lancement de cette analyse n’a pas de confirmation enregistrée.", retryable: false, jobId: job.id });
 }
 
 export async function assertPlanSetAccessibleForCreation(input: {
@@ -167,7 +180,6 @@ export async function resolvePlanSetSourceFile(input: {
     sourceFilePath,
     sourceFileType,
     sourceFileSizeBytes,
-    planFiles,
   };
 }
 
@@ -175,16 +187,18 @@ export async function getTakeoffJobById(input: {
   supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
   tenantId: string;
   jobId: string;
+  projectId?: string;
 }) {
-  const { data, error } = await input.supabase
+  const query = input.supabase
     .from("takeoff_jobs" as never)
     .select(
-      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at, preparation_snapshot, execution_provider, execution_host_id, created_by" as never
+      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at, project_id, plan_set_id, preparation_snapshot, execution_provider, execution_host_id, created_by" as never
     )
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("id" as never, input.jobId as never)
-    .abortSignal(new AbortController().signal)
-    .maybeSingle();
+    .abortSignal(new AbortController().signal);
+  if (input.projectId) query.eq("project_id" as never, input.projectId as never);
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     throw toTakeoffError(
@@ -202,15 +216,15 @@ export async function getTakeoffJobById(input: {
 
 /** A reopened hub targets the created fork, while the first receipt used its parent. */
 export async function getTakeoffPlanSetJobByPreparation(input: {
-  supabase: CreationSupabase; tenantId: string; estimateVersionId: string;
+  supabase: CreationSupabase; tenantId: string; projectId: string; estimateVersionId: string;
   planSetId: string; preparationRevision: number | null; level: import("@/lib/takeoff/types").TakeoffLevel;
   provider?: "auto" | "chatgpt" | "gemini";
   executionProvider?: "gemini" | "chatgpt_local";
 }) {
   if (input.preparationRevision === null) return null;
   let query = input.supabase.from("takeoff_jobs")
-    .select("id,status,level,source_file_name,source_file_path,estimate_version_id,created_at,preparation_snapshot,execution_provider,execution_host_id,created_by")
-    .eq("tenant_id", input.tenantId).eq("estimate_version_id", input.estimateVersionId)
+    .select("id,status,level,source_file_name,source_file_path,estimate_version_id,created_at,project_id,plan_set_id,preparation_snapshot,execution_provider,execution_host_id,created_by")
+    .eq("tenant_id", input.tenantId).eq("project_id", input.projectId).eq("estimate_version_id", input.estimateVersionId)
     .eq("plan_set_id", input.planSetId).eq("level", input.level)
     .eq("preparation_snapshot->>preparation_revision", String(input.preparationRevision));
   if (input.executionProvider) query = query.eq("execution_provider", input.executionProvider);
@@ -279,24 +293,4 @@ export async function assertEstimateVersionAccessibleForTakeoff(input: TakeoffTa
   }
 
   return data;
-}
-
-export async function removeCreatedJobIfPresent(input: {
-  supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
-  tenantId: string;
-  jobId: string;
-}) {
-  const { error } = await input.supabase
-    .from("takeoff_jobs" as never)
-    .delete()
-    .eq("tenant_id" as never, input.tenantId as never)
-    .eq("id" as never, input.jobId as never);
-
-  if (error) {
-    console.error("Failed to rollback takeoff job creation", {
-      jobId: input.jobId,
-      tenantId: input.tenantId,
-      error,
-    });
-  }
 }

@@ -31,7 +31,7 @@ import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 
 const PLAN_FILE_ALLOWED_MIME_TYPE = "application/pdf";
 const PLAN_FILE_ALLOWED_EXTENSION = ".pdf";
-const PLAN_FILE_MAX_SIZE_BYTES = 50 * 1024 * 1024;
+export const PLAN_FILE_MAX_SIZE_BYTES = 50 * 1024 * 1024;
 const PLAN_FILE_MAX_SIZE_LABEL = "50 Mo";
 export const PLAN_SET_MAX_FILES = 20;
 export const PLAN_SET_MAX_TOTAL_SIZE_BYTES = 100 * 1024 * 1024;
@@ -872,10 +872,10 @@ export const hasTakeoffAnalysisForProject = cache(async (projectId: string) => {
   );
   const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
   const { data, error } = await supabase
-    .from("takeoff_jobs" as never)
-    .select("id, estimate_versions!inner(project_id)" as never)
-    .eq("tenant_id" as never, tenantId as never)
-    .eq("estimate_versions.project_id" as never, parsedProjectId as never)
+    .from("takeoff_jobs")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("project_id", parsedProjectId)
     .limit(1)
     .maybeSingle();
 

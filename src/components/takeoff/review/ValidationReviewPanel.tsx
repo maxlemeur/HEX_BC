@@ -10,6 +10,7 @@ import {
 } from "@/components/takeoff/TakeoffReviewTable";
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import {
+  TAKEOFF_COMPARISON_DEFERRED,
   TAKEOFF_NO_INCLUDED_LINE_MESSAGE,
   type TakeoffApplyBlocker,
   type TakeoffApplyReadiness,
@@ -336,7 +337,10 @@ export function ValidationReviewPanel({
 
   const isApplyReady = readiness?.state === "ready";
   const adminMayForce = readiness?.state === "admin_may_force";
-  const statusMessage = buildStatusMessage({ blockers: readiness?.blockers ?? [], summary, isApplyReady });
+  const comparisonDeferred = readiness?.blockers.includes("no_destination")
+    || includedItems.some(item => item.rule_results?.some(result => result.details?.cross_job_comparison === "deferred"));
+  const statusMessage = comparisonDeferred ? TAKEOFF_COMPARISON_DEFERRED
+    : buildStatusMessage({ blockers: readiness?.blockers ?? [], summary, isApplyReady });
 
   const positiveTone = adminMayForce ? "neutral" : "success";
   if (items.length === 0) {
@@ -538,7 +542,7 @@ export function ValidationReviewPanel({
           </p>
         ) : adminMayForce ? (
           <p className="mt-3 text-sm text-warning" role="status">Des lignes bloquées demandent une décision.</p>
-        ) : summary.flaggedCount === 0 ? (
+        ) : summary.flaggedCount === 0 ? comparisonDeferred ? null : (
           <p className="mt-3 text-sm font-medium text-success" role="status">
             Tous les items sont conformes. La revue peut passer à l&apos;étape suivante.
           </p>

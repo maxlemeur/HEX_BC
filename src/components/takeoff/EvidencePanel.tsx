@@ -33,6 +33,7 @@ type EvidencePanelProps = {
   onUpdateSourcePage: (itemId: string, sourcePage: number | null) => void;
   onMarkVerified: (itemId: string) => void;
   requiresLocalizedProof?: boolean;
+  readOnly?: boolean;
 };
 
 function getConfidenceLabel(confidence: number | null): {
@@ -149,6 +150,7 @@ export function EvidencePanel({
   onUpdateSourcePage,
   onMarkVerified,
   requiresLocalizedProof = false,
+  readOnly = false,
 }: EvidencePanelProps) {
   // NOTE: Parent must render with key={item.id} to reset state on item change
   const [isEditing, setIsEditing] = useState(false);
@@ -389,7 +391,7 @@ export function EvidencePanel({
 
           <div>
             <div className="flex items-center justify-between gap-2">
-              {isEditing ? (
+              {isEditing && !readOnly ? (
                 <label
                   htmlFor={evidenceInputId}
                   className="text-xs font-medium uppercase text-muted-foreground"
@@ -401,7 +403,7 @@ export function EvidencePanel({
                   Preuve
                 </p>
               )}
-              {!isEditing && (
+              {!readOnly && !isEditing && (
                 <Button variant="link" size="xs" onClick={handleStartEdit}>
                   {requiresLocalizedProof
                     ? "Modifier la preuve et la page"
@@ -532,7 +534,7 @@ export function EvidencePanel({
             <Badge variant={hasInvalidRecordedVerification ? "warning" : "info"} size="sm">
               {hasInvalidRecordedVerification ? "Validation incomplète" : "Validé"}
             </Badge>
-          ) : (
+          ) : readOnly ? null : (
             <Button
               variant="primary"
               size="sm"

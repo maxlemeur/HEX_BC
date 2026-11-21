@@ -16,7 +16,7 @@ import { Card } from "@/components/ui/card";
 
 type TakeoffDiffViewProps = {
   compare: TakeoffJobCompareResponse;
-  onApplySelection: (selectedBaseItemIds: string[]) => void | Promise<void>;
+  onApplySelection?: (selectedBaseItemIds: string[]) => void | Promise<void>;
   isApplyingSelection?: boolean;
   applySelectionError?: string | null;
 };
@@ -496,9 +496,9 @@ export default function TakeoffDiffView({
             type="button"
             className={buttonVariants({ variant: "primary" })}
             onClick={() => {
-              void onApplySelection(selectedIdsArray);
+              void onApplySelection?.(selectedIdsArray);
             }}
-            disabled={isApplyingSelection || selectableIds.length === 0}
+            disabled={!onApplySelection || isApplyingSelection || selectableIds.length === 0}
           >
             {isApplyingSelection ? "Application…" : "Appliquer la sélection"}
           </button>

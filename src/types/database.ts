@@ -138,6 +138,11 @@ type RefineRpc<Rpc, NullableNames> = Rpc extends { Args: infer Args; Returns: in
 // Absence is deliberately distinct from a known automatic coefficient.
 type CompatibleRow<K, Row> = K extends "estimate_items" ? Omit<Row, "k_fo_manual"> & { k_fo_manual?: boolean | null } : K extends "estimate_template_items" ? Omit<Row, "k_fo_manual" | "kit_metier"> & { k_fo_manual?: boolean | null; kit_metier?: boolean } : Row;
 
+// The job scope trigger derives project_id for clients with a version.
+type CompatibleInsert<K, Insert> = K extends "takeoff_jobs"
+  ? Omit<Insert, "project_id"> & { project_id?: string }
+  : Insert;
+
 export type Database = Omit<GeneratedDatabase, "public"> & {
   public: Omit<PublicSchema, "Tables" | "Functions"> & {
     Tables: {
@@ -147,7 +152,10 @@ export type Database = Omit<GeneratedDatabase, "public"> & {
           Insert: RefineColumns<GeneratedTables[K]["Insert"], CheckedColumns[K]>;
           Update: RefineColumns<GeneratedTables[K]["Update"], CheckedColumns[K]>;
         }
-        : Omit<GeneratedTables[K], "Row"> & { Row: JsonReadColumns<GeneratedTables[K]["Row"]> };
+        : Omit<GeneratedTables[K], "Row" | "Insert"> & {
+          Row: JsonReadColumns<GeneratedTables[K]["Row"]>;
+          Insert: CompatibleInsert<K, GeneratedTables[K]["Insert"]>;
+        };
     };
     Functions: {
       [K in keyof GeneratedFunctions]: RefineRpc<GeneratedFunctions[K], K extends keyof NullableArguments ? NullableArguments[K] : never>;

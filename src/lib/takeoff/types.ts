@@ -536,7 +536,7 @@ export type TakeoffActivityCenterJobRow = {
     outcome: TakeoffAnalysisOutcome;
     finishedAt: string;
   } | null;
-  estimateVersionId: string;
+  estimateVersionId: string | null;
   versionLabel: string;
   lotLabel: string | null;
   planSetLabel: string | null;

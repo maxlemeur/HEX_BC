@@ -41,6 +41,7 @@ import { isUndecidedHypothesis } from "@/lib/takeoff/hypothesis";
 import { exclusionReasonText } from "@/lib/takeoff/comparison-selection";
 
 export type TakeoffReviewTableProps = {
+  readOnly?: boolean;
   items: ReviewItem[];
   onUpdateItem: (itemId: string, field: string, value: unknown) => void;
   onExcludeItems: (itemIds: string[]) => void;
@@ -335,6 +336,7 @@ function SortableHeader({
 
 export default function TakeoffReviewTable({
   items,
+  readOnly = false,
   onUpdateItem,
   onExcludeItems,
   onIncludeItems,
@@ -493,6 +495,7 @@ export default function TakeoffReviewTable({
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key !== "e" && key !== "v" && key !== "p") return;
+      if (readOnly && key !== "p") return;
       // Without a proof panel, P is a letter like any other.
       if (key === "p" && !onOpenEvidencePanel) return;
       const target = e.target as HTMLElement;
@@ -516,7 +519,7 @@ export default function TakeoffReviewTable({
         onOpenEvidencePanel?.(activeItem.id);
       }
     },
-    [items, onIncludeItems, onExcludeItems, onUpdateItem, onOpenEvidencePanel]
+    [items, onIncludeItems, onExcludeItems, onUpdateItem, onOpenEvidencePanel, readOnly]
   );
 
   const sortHeaderProps = { sortField, sortDirection, onSort: handleSortChange };
@@ -538,13 +541,13 @@ export default function TakeoffReviewTable({
         totalCount={items.length}
       />
 
-      <p className="text-xs text-muted-foreground">
+      {!readOnly && <p className="text-xs text-muted-foreground">
         Raccourcis : <kbd className="rounded border border-border px-1">E</kbd> exclure/inclure,{" "}
         <kbd className="rounded border border-border px-1">V</kbd> vérifier,{" "}
         <kbd className="rounded border border-border px-1">P</kbd> preuve
-      </p>
+      </p>}
 
-      {selectedCount > 0 && (
+      {!readOnly && selectedCount > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-info-border bg-info-subtle px-4 py-2 text-sm">
           <span className="font-medium text-foreground">
             {filteredSelectedCount} sélectionné{filteredSelectedCount > 1 ? "s" : ""}
@@ -579,6 +582,7 @@ export default function TakeoffReviewTable({
                   }
                   onChange={toggleSelectAll}
                   aria-label="Tout sélectionner"
+                  disabled={readOnly}
                 />
               </th>
               <SortableHeader field="designation" label="Désignation" {...sortHeaderProps} />
@@ -620,6 +624,7 @@ export default function TakeoffReviewTable({
                       <input
                         type="checkbox"
                         checked={selectedIds.has(item.id)}
+                        disabled={readOnly}
                         onChange={() => toggleSelection(item.id)}
                         aria-label={`Sélectionner ${item.designation}`}
                       />
@@ -637,7 +642,7 @@ export default function TakeoffReviewTable({
                         onCommit={(val) =>
                           onUpdateItem(item.id, "designation", val)
                         }
-                        readOnly={isExcluded}
+                        readOnly={readOnly || isExcluded}
                         placeholder="Désignation…"
                         ariaLabel="Désignation"
                         className="editable-cell"
@@ -668,7 +673,7 @@ export default function TakeoffReviewTable({
                             onUpdateItem(item.id, "quantity", num);
                           }
                         }}
-                        readOnly={isExcluded && !quantityToEnter}
+                        readOnly={readOnly || (isExcluded && !quantityToEnter)}
                         type="number"
                         step="0.001"
                         min="0.001"
@@ -688,7 +693,7 @@ export default function TakeoffReviewTable({
                         onCommit={(val) =>
                           onUpdateItem(item.id, "unit", val)
                         }
-                        readOnly={isExcluded}
+                        readOnly={readOnly || isExcluded}
                         placeholder="Unité"
                         ariaLabel="Unité"
                         className="editable-cell"
@@ -748,7 +753,7 @@ export default function TakeoffReviewTable({
                     </td>
 
                     <td>
-                      {isExcluded ? (
+                      {!readOnly && (isExcluded ? (
                         <Button
                           variant="link"
                           size="xs"
@@ -767,7 +772,7 @@ export default function TakeoffReviewTable({
                         >
                           Exclure
                         </Button>
-                      )}
+                      ))}
                     </td>
                   </tr>
                 );

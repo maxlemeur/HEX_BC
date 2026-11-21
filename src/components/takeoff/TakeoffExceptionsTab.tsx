@@ -51,12 +51,20 @@ const STATUS_VARIANTS = {
   false_positive: "neutral",
 } as const;
 
-function findLatestReviewableJob(
-  jobs: Awaited<ReturnType<typeof listTakeoffJobs>>["jobs"] | undefined
-) {
-  return (
-    jobs?.find((job) => job.status === "completed" || job.status === "applied") ?? null
-  );
+async function findLatestComparableJob(projectId: string, versionId?: string | null) {
+  let hasVersionlessJob = false;
+  const limit = 20;
+  for (let offset = 0; ; offset += limit) {
+    const { jobs, pagination } = await listTakeoffJobs({
+      project_id: projectId, estimate_version_id: versionId ?? undefined, limit, offset,
+    });
+    const job = jobs.find((entry) => entry.estimate_version_id !== null
+      && (entry.status === "completed" || entry.status === "applied"));
+    hasVersionlessJob ||= jobs.some((entry) => entry.estimate_version_id === null);
+    if (job || jobs.length === 0 || offset + limit >= pagination.total) {
+      return { job, hasVersionlessJob };
+    }
+  }
 }
 
 export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
@@ -114,31 +122,26 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
 
   const { data: jobsData } = useSWR(
     ["exceptions-latest-job", projectId, versionId ?? "latest"],
-    () =>
-      listTakeoffJobs({
-        ...(versionId
-          ? { estimate_version_id: versionId }
-          : { project_id: projectId }),
-        limit: 20,
-      })
+    () => findLatestComparableJob(projectId, versionId)
   );
 
-  const latestJob = findLatestReviewableJob(jobsData?.jobs);
+  const latestJob = jobsData?.job;
+  const comparisonVersionId = latestJob?.estimate_version_id;
 
   const { data: radarData, isLoading } = useSWR(
-    latestJob
+    latestJob && comparisonVersionId
       ? [
           "exceptions-risk-radar",
           latestJob.id,
-          latestJob.estimate_version_id,
+          comparisonVersionId,
           severityFilter,
           statusFilter,
         ]
       : null,
     () =>
-      latestJob
+      latestJob && comparisonVersionId
         ? fetchTakeoffRiskRadar(latestJob.id, {
-            version_id: latestJob.estimate_version_id,
+            version_id: comparisonVersionId,
             severity: severityFilter !== "all" ? severityFilter : null,
             status: statusFilter !== "all" ? statusFilter : null,
           })
@@ -147,6 +150,10 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
 
   if (isLoading || (!jobsData && !latestJob)) {
     return <JobsTableSkeleton />;
+  }
+
+  if (!latestJob && jobsData?.hasVersionlessJob) {
+    return <EmptyState title="Comparaison au devis disponible à l’envoi." />;
   }
 
   if (!latestJob || !radarData || radarData.items.length === 0) {

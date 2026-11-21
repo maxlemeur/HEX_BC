@@ -160,10 +160,16 @@ export async function loadPreparationReferenceFiles(input: Input): Promise<{ fil
   if (!sources.length) return { files: [], sourceHints: [] };
   if (sources.length > MAX_REFERENCE_FILES) rejectSize(input.job);
   if (new Set(sources.map((source) => source.document_id)).size !== sources.length) rejectSource(input.job, "Une pièce de référence est sélectionnée plusieurs fois.");
-  const { data: version, error } = await input.supabase.from("estimate_versions").select("id,project_id")
-    .eq("tenant_id", input.job.tenant_id).eq("id", input.job.estimate_version_id).single();
-  if (error || !version?.project_id) rejectSource(input.job, "L'affaire de l'analyse confirmée n'est plus accessible.");
-  const documents = await readReferenceDocuments(input, version.project_id, sources);
+  let projectId = input.job.project_id;
+  // Previously serialized historical jobs can still carry only their version.
+  if (!projectId && input.job.estimate_version_id) {
+    const { data: version, error } = await input.supabase.from("estimate_versions").select("project_id")
+      .eq("tenant_id", input.job.tenant_id).eq("id", input.job.estimate_version_id).single();
+    if (error) rejectSource(input.job, "L'affaire de l'analyse confirmée n'est plus accessible.");
+    projectId = version?.project_id;
+  }
+  if (!projectId) rejectSource(input.job, "L'affaire de l'analyse confirmée n'est plus accessible.");
+  const documents = await readReferenceDocuments(input, projectId, sources);
   let originalSize = 0;
   for (const document of documents.values()) {
     if (!Number.isSafeInteger(document.size_bytes) || document.size_bytes <= 0) rejectSource(input.job, "La taille d'une pièce de référence confirmée est invalide.");
@@ -229,6 +235,6 @@ export async function loadPreparationReferenceFiles(input: Input): Promise<{ fil
     sourceHints.push(`Pièce de référence jointe ${files.length} : ${JSON.stringify({ document_id: source.document_id, document_name: document.file_name, kind: source.kind, revision: source.revision })}. ${provenance}`);
   }
   // A reference deleted or revised during its download must be confirmed again.
-  await readReferenceDocuments(input, version.project_id, sources);
+  await readReferenceDocuments(input, projectId, sources);
   return { files, sourceHints };
 }

@@ -75,14 +75,15 @@ export function parseTakeoffJobDetailResponse(payload: unknown, identity: { jobI
 }
 
 export function parseTakeoffJobListResponse(payload: unknown, query: {
-  versionId?: string; status?: z.infer<typeof status>; level?: z.infer<typeof level>; limit?: number; offset?: number;
+  versionId?: string; projectId?: string; status?: z.infer<typeof status>; level?: z.infer<typeof level>; limit?: number; offset?: number;
 } = {}) {
   const response = parseTakeoffResponse(takeoffJobListResponseSchema, payload);
   // Status counters ignore the selected status and omit pending/applied buckets.
-  // Project/period filters have no identifying receipt fields; do not invent them.
+  // Older versioned responses did not carry an affaire ID.
   assertTakeoffResponseIdentity(response.pagination.limit === (query.limit ?? 20) && response.pagination.offset === (query.offset ?? 0)
     && (query.status !== undefined || response.pagination.total === response.counters.total)
-    && response.jobs.every((job) => (!query.versionId || sameTakeoffResponseId(job.estimate_version_id, query.versionId))
+    && response.jobs.every((job) => (!query.versionId || (job.estimate_version_id !== null && sameTakeoffResponseId(job.estimate_version_id, query.versionId)))
+      && (!query.projectId || job.project_id === undefined || sameTakeoffResponseId(job.project_id, query.projectId))
       && (!query.status || job.status === query.status) && (!query.level || job.level === query.level)));
   return response;
 }

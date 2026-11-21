@@ -7,8 +7,8 @@ import {
   takeoffResponseCountSchema as count, takeoffResponseTimestampSchema as timestamp, takeoffResponseUuidSchema as uuid,
 } from "@/lib/takeoff/response-contracts";
 
-export const takeoffJobSummaryResponseSchema = z.object({
-  id: uuid, estimate_version_id: uuid, status: z.enum(TAKEOFF_JOB_STATUSES), level: z.enum(TAKEOFF_LEVELS),
+const takeoffJobSummaryBase = z.object({
+  id: uuid, project_id: uuid.optional(), estimate_version_id: uuid.nullable(), status: z.enum(TAKEOFF_JOB_STATUSES), level: z.enum(TAKEOFF_LEVELS),
   processing_strategy: z.enum(["sync", "batch"]).nullable(), provider_batch_id: z.string().nullable(),
   provider_batch_state: z.enum(["submitted", "pending", "running", "succeeded", "failed", "cancelled", "expired", "unknown"]).nullable(),
   provider_batch_updated_at: timestamp.nullable(), source_file_name: z.string().nullable(), source_file_type: z.string().nullable(),
@@ -29,6 +29,11 @@ export const takeoffJobSummaryResponseSchema = z.object({
   metrics: z.object({ token_count: count.nullable(), cost_cents: count.nullable(), duration_ms: count.nullable() }),
 });
 
+export const takeoffJobSummaryResponseSchema = z.union([
+  takeoffJobSummaryBase.extend({ estimate_version_id: uuid }),
+  takeoffJobSummaryBase.extend({ estimate_version_id: z.null(), project_id: uuid }),
+]);
+
 export const takeoffApplySummarySchema = z.object({
   scope: z.enum(["section", "version"]), created_count: count, updated_count: count, ignored_count: count,
   created_ids: z.array(uuid), item_links: z.array(z.object({ takeoff_item_id: uuid, estimate_item_id: uuid })),
@@ -42,7 +47,7 @@ export const takeoffApplySummarySchema = z.object({
     context.addIssue({ code: "custom", message: "Compteurs ou identifiants d'application incohérents." });
   }
 });
-export const takeoffApplyResponseSchema = z.object({ job: takeoffJobSummaryResponseSchema, summary: takeoffApplySummarySchema })
+export const takeoffApplyResponseSchema = z.object({ job: takeoffJobSummaryBase.extend({ estimate_version_id: uuid }), summary: takeoffApplySummarySchema })
   .refine((response) => response.job.status === "applied", "L'application doit confirmer le statut applied.");
 
 export const takeoffPreviewConversionResultSchema = takeoffPreviewConversionResponseSchema.superRefine((response, context) => {

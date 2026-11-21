@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   try {
     const query = parseListTakeoffJobsQuery(searchParamsObject(request));
     const data = await listTakeoffJobs(query);
-    return ok(parseTakeoffJobListResponse(data, { versionId: query.estimate_version_id, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
+    return ok(parseTakeoffJobListResponse(data, { versionId: query.estimate_version_id, projectId: query.project_id, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
   } catch (error) {
     return toTakeoffRouteErrorResponse(error);
   }

@@ -61,7 +61,7 @@ export function useTakeoffLowConfidenceThreshold() {
  */
 export function useTakeoffApplyConfirm(input: {
   jobId: string;
-  versionId: string;
+  versionId: string | null;
   /** The review's own state once sent, before the landing; only while the review that asked is still shown. */
   onApplied: (response: TakeoffApplyResponse, payload: TakeoffApplyWizardSubmitPayload) => void;
 }) {
@@ -87,7 +87,7 @@ export function useTakeoffApplyConfirm(input: {
     setShown((view) => ({ ...view, call: view.call ? { ...view.call, error, errorGuard: null } : null }));
   }, []);
   const confirm = useCallback(async (payload: TakeoffApplyWizardSubmitPayload) => {
-    if (pending.current) return;
+    if (!versionId || pending.current) return;
     pending.current = true;
     const call = ++current.current;
     setShown({ scope, call: { id: call, submitting: true, error: null, errorGuard: null } });

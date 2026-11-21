@@ -24392,8 +24392,17 @@
           "Takeoff"
         ],
         "summary": "Lister les jobs Takeoff",
-        "description": "Retourne les jobs takeoff du tenant courant avec filtres (version, statut, niveau, periode), compteurs par statut et pagination.",
+        "description": "Retourne les jobs takeoff du tenant courant avec filtres, compteurs par statut et pagination. Les filtres d’affaire et de version peuvent être combinés.",
         "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "description": "Filtrer les métrés par affaire.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobProjectIdQueryParameter"
+            }
+          },
           {
             "name": "estimate_version_id",
             "in": "query",
@@ -26919,6 +26928,118 @@
           },
           "413": {
             "description": "Lecture vectorielle trop volumineuse pour etre affichee (pages, geometries ou segments).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/takeoff/jobs/{jobId}/vector-plans/{fileId}": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire le PDF attesté par un métré sans devis",
+        "description": "Renvoie le PDF complet si le métré est lisible, si sa préparation atteste le plan et si les octets actuels correspondent au SHA-256 attesté.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Identifiant UUID du job takeoff.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "description": "Identifiant UUID du plan dans le set.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffPlanFileIdPathParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Octets PDF vérifiés.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
             "content": {
               "application/json": {
                 "schema": {
@@ -82536,6 +82657,11 @@
         "type": "number",
         "minimum": 0
       },
+      "TakeoffJobProjectIdQueryParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
       "TakeoffJobEstimateVersionIdQueryParameter": {
         "type": "string",
         "format": "uuid",
@@ -82591,348 +82717,103 @@
               "jobs": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "estimate_version_id": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "pending",
-                        "processing",
-                        "completed",
-                        "failed",
-                        "canceled",
-                        "applied"
-                      ]
-                    },
-                    "level": {
-                      "type": "string",
-                      "enum": [
-                        "A",
-                        "B",
-                        "C"
-                      ]
-                    },
-                    "processing_strategy": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "sync",
-                            "batch"
-                          ]
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "provider_batch_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "provider_batch_state": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "submitted",
-                            "pending",
-                            "running",
-                            "succeeded",
-                            "failed",
-                            "cancelled",
-                            "expired",
-                            "unknown"
-                          ]
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "provider_batch_updated_at": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "source_file_name": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "source_file_type": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "source_file_size_bytes": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "plan_set_id": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "prompt_version": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "schema_version": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "model": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "thinking_level": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "media_resolution": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "retry_count": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "error_code": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error_message": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "next_retry_at": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "last_error_at": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "dispatch_status": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "started",
-                            "queued",
-                            "trigger_failed"
-                          ]
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "dispatch_outcome": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "accepted",
-                            "configuration_missing",
-                            "http_error",
-                            "timeout",
-                            "network_error"
-                          ]
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "dispatch_trigger": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "create",
-                            "retry",
-                            "manual",
-                            "reconcile"
-                          ]
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "dispatch_correlation_id": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "dispatch_status_code": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 100,
-                          "maximum": 599
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "dispatch_updated_at": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "provider_reconcile_due_at": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "provider_reconcile_attempt_count": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "provider_reconcile_lease_expires_at": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "operator_state": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "enum": [
-                            "none",
-                            "submitted_to_provider",
-                            "awaiting_provider_result",
-                            "provider_failed",
-                            "orphan_to_reconcile"
-                          ]
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "operator_state_label": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "can_cancel": {
-                      "type": "boolean"
-                    },
-                    "can_resubmit": {
-                      "type": "boolean"
-                    },
-                    "started_at": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "completed_at": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "created_at": {
-                      "type": "string"
-                    },
-                    "updated_at": {
-                      "type": "string"
-                    },
-                    "items_count": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "version_number": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
-                    "metrics": {
+                  "anyOf": [
+                    {
                       "type": "object",
                       "properties": {
-                        "token_count": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "estimate_version_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending",
+                            "processing",
+                            "completed",
+                            "failed",
+                            "canceled",
+                            "applied"
+                          ]
+                        },
+                        "level": {
+                          "type": "string",
+                          "enum": [
+                            "A",
+                            "B",
+                            "C"
+                          ]
+                        },
+                        "processing_strategy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "sync",
+                                "batch"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "provider_batch_id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "provider_batch_state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "submitted",
+                                "pending",
+                                "running",
+                                "succeeded",
+                                "failed",
+                                "cancelled",
+                                "expired",
+                                "unknown"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "provider_batch_updated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "source_file_name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "source_file_type": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "source_file_size_bytes": {
                           "anyOf": [
                             {
                               "type": "integer",
@@ -82944,7 +82825,220 @@
                             }
                           ]
                         },
-                        "cost_cents": {
+                        "plan_set_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "prompt_version": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "schema_version": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "model": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "thinking_level": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "media_resolution": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "retry_count": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "error_code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "error_message": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "next_retry_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "last_error_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dispatch_status": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "started",
+                                "queued",
+                                "trigger_failed"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_outcome": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "accepted",
+                                "configuration_missing",
+                                "http_error",
+                                "timeout",
+                                "network_error"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_trigger": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "create",
+                                "retry",
+                                "manual",
+                                "reconcile"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_correlation_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_status_code": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 100,
+                              "maximum": 599
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_updated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "provider_reconcile_due_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "provider_reconcile_attempt_count": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "provider_reconcile_lease_expires_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "operator_state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "none",
+                                "submitted_to_provider",
+                                "awaiting_provider_result",
+                                "provider_failed",
+                                "orphan_to_reconcile"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "operator_state_label": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "can_cancel": {
+                          "type": "boolean"
+                        },
+                        "can_resubmit": {
+                          "type": "boolean"
+                        },
+                        "started_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "completed_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "updated_at": {
+                          "type": "string"
+                        },
+                        "items_count": {
                           "anyOf": [
                             {
                               "type": "integer",
@@ -82956,56 +83050,518 @@
                             }
                           ]
                         },
-                        "duration_ms": {
+                        "version_number": {
                           "anyOf": [
                             {
                               "type": "integer",
-                              "minimum": 0,
+                              "exclusiveMinimum": 0,
                               "maximum": 9007199254740991
                             },
                             {
                               "type": "null"
                             }
                           ]
+                        },
+                        "metrics": {
+                          "type": "object",
+                          "properties": {
+                            "token_count": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "cost_cents": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "duration_ms": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "token_count",
+                            "cost_cents",
+                            "duration_ms"
+                          ],
+                          "additionalProperties": false
                         }
                       },
                       "required": [
-                        "token_count",
-                        "cost_cents",
-                        "duration_ms"
+                        "id",
+                        "estimate_version_id",
+                        "status",
+                        "level",
+                        "processing_strategy",
+                        "provider_batch_id",
+                        "provider_batch_state",
+                        "provider_batch_updated_at",
+                        "source_file_name",
+                        "source_file_type",
+                        "source_file_size_bytes",
+                        "prompt_version",
+                        "schema_version",
+                        "model",
+                        "thinking_level",
+                        "media_resolution",
+                        "retry_count",
+                        "error_code",
+                        "error_message",
+                        "next_retry_at",
+                        "last_error_at",
+                        "started_at",
+                        "completed_at",
+                        "created_at",
+                        "updated_at",
+                        "metrics"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "estimate_version_id": {
+                          "type": "null"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending",
+                            "processing",
+                            "completed",
+                            "failed",
+                            "canceled",
+                            "applied"
+                          ]
+                        },
+                        "level": {
+                          "type": "string",
+                          "enum": [
+                            "A",
+                            "B",
+                            "C"
+                          ]
+                        },
+                        "processing_strategy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "sync",
+                                "batch"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "provider_batch_id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "provider_batch_state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "submitted",
+                                "pending",
+                                "running",
+                                "succeeded",
+                                "failed",
+                                "cancelled",
+                                "expired",
+                                "unknown"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "provider_batch_updated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "source_file_name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "source_file_type": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "source_file_size_bytes": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "plan_set_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "prompt_version": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "schema_version": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "model": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "thinking_level": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "media_resolution": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "retry_count": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "error_code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "error_message": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "next_retry_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "last_error_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dispatch_status": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "started",
+                                "queued",
+                                "trigger_failed"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_outcome": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "accepted",
+                                "configuration_missing",
+                                "http_error",
+                                "timeout",
+                                "network_error"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_trigger": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "create",
+                                "retry",
+                                "manual",
+                                "reconcile"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_correlation_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_status_code": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 100,
+                              "maximum": 599
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dispatch_updated_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "provider_reconcile_due_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "provider_reconcile_attempt_count": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "provider_reconcile_lease_expires_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "operator_state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "none",
+                                "submitted_to_provider",
+                                "awaiting_provider_result",
+                                "provider_failed",
+                                "orphan_to_reconcile"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "operator_state_label": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "can_cancel": {
+                          "type": "boolean"
+                        },
+                        "can_resubmit": {
+                          "type": "boolean"
+                        },
+                        "started_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "completed_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "created_at": {
+                          "type": "string"
+                        },
+                        "updated_at": {
+                          "type": "string"
+                        },
+                        "items_count": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "version_number": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "metrics": {
+                          "type": "object",
+                          "properties": {
+                            "token_count": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "cost_cents": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "duration_ms": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "token_count",
+                            "cost_cents",
+                            "duration_ms"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "project_id",
+                        "estimate_version_id",
+                        "status",
+                        "level",
+                        "processing_strategy",
+                        "provider_batch_id",
+                        "provider_batch_state",
+                        "provider_batch_updated_at",
+                        "source_file_name",
+                        "source_file_type",
+                        "source_file_size_bytes",
+                        "prompt_version",
+                        "schema_version",
+                        "model",
+                        "thinking_level",
+                        "media_resolution",
+                        "retry_count",
+                        "error_code",
+                        "error_message",
+                        "next_retry_at",
+                        "last_error_at",
+                        "started_at",
+                        "completed_at",
+                        "created_at",
+                        "updated_at",
+                        "metrics"
                       ],
                       "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "id",
-                    "estimate_version_id",
-                    "status",
-                    "level",
-                    "processing_strategy",
-                    "provider_batch_id",
-                    "provider_batch_state",
-                    "provider_batch_updated_at",
-                    "source_file_name",
-                    "source_file_type",
-                    "source_file_size_bytes",
-                    "prompt_version",
-                    "schema_version",
-                    "model",
-                    "thinking_level",
-                    "media_resolution",
-                    "retry_count",
-                    "error_code",
-                    "error_message",
-                    "next_retry_at",
-                    "last_error_at",
-                    "started_at",
-                    "completed_at",
-                    "created_at",
-                    "updated_at",
-                    "metrics"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               },
               "counters": {
@@ -83113,348 +83669,103 @@
             "type": "object",
             "properties": {
               "job": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "estimate_version_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "processing",
-                      "completed",
-                      "failed",
-                      "canceled",
-                      "applied"
-                    ]
-                  },
-                  "level": {
-                    "type": "string",
-                    "enum": [
-                      "A",
-                      "B",
-                      "C"
-                    ]
-                  },
-                  "processing_strategy": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "sync",
-                          "batch"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider_batch_id": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_batch_state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "submitted",
-                          "pending",
-                          "running",
-                          "succeeded",
-                          "failed",
-                          "cancelled",
-                          "expired",
-                          "unknown"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider_batch_updated_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_type": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_size_bytes": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "plan_set_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "prompt_version": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "schema_version": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "model": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "thinking_level": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "media_resolution": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "retry_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "error_code": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "error_message": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "next_retry_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "last_error_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "dispatch_status": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "started",
-                          "queued",
-                          "trigger_failed"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_outcome": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "accepted",
-                          "configuration_missing",
-                          "http_error",
-                          "timeout",
-                          "network_error"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_trigger": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "create",
-                          "retry",
-                          "manual",
-                          "reconcile"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_correlation_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_status_code": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 100,
-                        "maximum": 599
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_updated_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_reconcile_due_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_reconcile_attempt_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "provider_reconcile_lease_expires_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "operator_state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "none",
-                          "submitted_to_provider",
-                          "awaiting_provider_result",
-                          "provider_failed",
-                          "orphan_to_reconcile"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "operator_state_label": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "can_cancel": {
-                    "type": "boolean"
-                  },
-                  "can_resubmit": {
-                    "type": "boolean"
-                  },
-                  "started_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "completed_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "created_at": {
-                    "type": "string"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  },
-                  "items_count": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "version_number": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "metrics": {
+                "anyOf": [
+                  {
                     "type": "object",
                     "properties": {
-                      "token_count": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "estimate_version_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "processing",
+                          "completed",
+                          "failed",
+                          "canceled",
+                          "applied"
+                        ]
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "A",
+                          "B",
+                          "C"
+                        ]
+                      },
+                      "processing_strategy": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "sync",
+                              "batch"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_batch_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "submitted",
+                              "pending",
+                              "running",
+                              "succeeded",
+                              "failed",
+                              "cancelled",
+                              "expired",
+                              "unknown"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_type": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_size_bytes": {
                         "anyOf": [
                           {
                             "type": "integer",
@@ -83466,7 +83777,220 @@
                           }
                         ]
                       },
-                      "cost_cents": {
+                      "plan_set_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "prompt_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "schema_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "model": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "thinking_level": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "media_resolution": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "retry_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "error_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "error_message": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "next_retry_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "last_error_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatch_status": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "started",
+                              "queued",
+                              "trigger_failed"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_outcome": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "configuration_missing",
+                              "http_error",
+                              "timeout",
+                              "network_error"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_trigger": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "create",
+                              "retry",
+                              "manual",
+                              "reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_correlation_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_status_code": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 599
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_due_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_attempt_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "provider_reconcile_lease_expires_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "operator_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "submitted_to_provider",
+                              "awaiting_provider_result",
+                              "provider_failed",
+                              "orphan_to_reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "operator_state_label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "can_cancel": {
+                        "type": "boolean"
+                      },
+                      "can_resubmit": {
+                        "type": "boolean"
+                      },
+                      "started_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "completed_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "items_count": {
                         "anyOf": [
                           {
                             "type": "integer",
@@ -83478,56 +84002,518 @@
                           }
                         ]
                       },
-                      "duration_ms": {
+                      "version_number": {
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": 0,
+                            "exclusiveMinimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
                             "type": "null"
                           }
                         ]
+                      },
+                      "metrics": {
+                        "type": "object",
+                        "properties": {
+                          "token_count": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "cost_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "duration_ms": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "token_count",
+                          "cost_cents",
+                          "duration_ms"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [
-                      "token_count",
-                      "cost_cents",
-                      "duration_ms"
+                      "id",
+                      "estimate_version_id",
+                      "status",
+                      "level",
+                      "processing_strategy",
+                      "provider_batch_id",
+                      "provider_batch_state",
+                      "provider_batch_updated_at",
+                      "source_file_name",
+                      "source_file_type",
+                      "source_file_size_bytes",
+                      "prompt_version",
+                      "schema_version",
+                      "model",
+                      "thinking_level",
+                      "media_resolution",
+                      "retry_count",
+                      "error_code",
+                      "error_message",
+                      "next_retry_at",
+                      "last_error_at",
+                      "started_at",
+                      "completed_at",
+                      "created_at",
+                      "updated_at",
+                      "metrics"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "estimate_version_id": {
+                        "type": "null"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "processing",
+                          "completed",
+                          "failed",
+                          "canceled",
+                          "applied"
+                        ]
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "A",
+                          "B",
+                          "C"
+                        ]
+                      },
+                      "processing_strategy": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "sync",
+                              "batch"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_batch_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "submitted",
+                              "pending",
+                              "running",
+                              "succeeded",
+                              "failed",
+                              "cancelled",
+                              "expired",
+                              "unknown"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_type": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_size_bytes": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "plan_set_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "prompt_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "schema_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "model": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "thinking_level": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "media_resolution": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "retry_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "error_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "error_message": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "next_retry_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "last_error_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatch_status": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "started",
+                              "queued",
+                              "trigger_failed"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_outcome": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "configuration_missing",
+                              "http_error",
+                              "timeout",
+                              "network_error"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_trigger": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "create",
+                              "retry",
+                              "manual",
+                              "reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_correlation_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_status_code": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 599
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_due_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_attempt_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "provider_reconcile_lease_expires_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "operator_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "submitted_to_provider",
+                              "awaiting_provider_result",
+                              "provider_failed",
+                              "orphan_to_reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "operator_state_label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "can_cancel": {
+                        "type": "boolean"
+                      },
+                      "can_resubmit": {
+                        "type": "boolean"
+                      },
+                      "started_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "completed_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "items_count": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "version_number": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "metrics": {
+                        "type": "object",
+                        "properties": {
+                          "token_count": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "cost_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "duration_ms": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "token_count",
+                          "cost_cents",
+                          "duration_ms"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "project_id",
+                      "estimate_version_id",
+                      "status",
+                      "level",
+                      "processing_strategy",
+                      "provider_batch_id",
+                      "provider_batch_state",
+                      "provider_batch_updated_at",
+                      "source_file_name",
+                      "source_file_type",
+                      "source_file_size_bytes",
+                      "prompt_version",
+                      "schema_version",
+                      "model",
+                      "thinking_level",
+                      "media_resolution",
+                      "retry_count",
+                      "error_code",
+                      "error_message",
+                      "next_retry_at",
+                      "last_error_at",
+                      "started_at",
+                      "completed_at",
+                      "created_at",
+                      "updated_at",
+                      "metrics"
                     ],
                     "additionalProperties": false
                   }
-                },
-                "required": [
-                  "id",
-                  "estimate_version_id",
-                  "status",
-                  "level",
-                  "processing_strategy",
-                  "provider_batch_id",
-                  "provider_batch_state",
-                  "provider_batch_updated_at",
-                  "source_file_name",
-                  "source_file_type",
-                  "source_file_size_bytes",
-                  "prompt_version",
-                  "schema_version",
-                  "model",
-                  "thinking_level",
-                  "media_resolution",
-                  "retry_count",
-                  "error_code",
-                  "error_message",
-                  "next_retry_at",
-                  "last_error_at",
-                  "started_at",
-                  "completed_at",
-                  "created_at",
-                  "updated_at",
-                  "metrics"
-                ],
-                "additionalProperties": false
+                ]
               },
               "result": {
                 "anyOf": [
@@ -83889,6 +84875,14 @@
                                       ],
                                       "additionalProperties": false
                                     }
+                                  },
+                                  "evaluation_scope": {
+                                    "type": "string",
+                                    "const": "job"
+                                  },
+                                  "cross_job_comparison": {
+                                    "type": "string",
+                                    "const": "deferred"
                                   }
                                 },
                                 "additionalProperties": {}
@@ -84299,6 +85293,11 @@
                 "type": "object",
                 "properties": {
                   "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "project_id": {
                     "type": "string",
                     "format": "uuid",
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
@@ -84804,348 +85803,103 @@
             "type": "object",
             "properties": {
               "job": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "estimate_version_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "processing",
-                      "completed",
-                      "failed",
-                      "canceled",
-                      "applied"
-                    ]
-                  },
-                  "level": {
-                    "type": "string",
-                    "enum": [
-                      "A",
-                      "B",
-                      "C"
-                    ]
-                  },
-                  "processing_strategy": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "sync",
-                          "batch"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider_batch_id": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_batch_state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "submitted",
-                          "pending",
-                          "running",
-                          "succeeded",
-                          "failed",
-                          "cancelled",
-                          "expired",
-                          "unknown"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider_batch_updated_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_type": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_size_bytes": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "plan_set_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "prompt_version": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "schema_version": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "model": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "thinking_level": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "media_resolution": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "retry_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "error_code": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "error_message": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "next_retry_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "last_error_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "dispatch_status": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "started",
-                          "queued",
-                          "trigger_failed"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_outcome": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "accepted",
-                          "configuration_missing",
-                          "http_error",
-                          "timeout",
-                          "network_error"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_trigger": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "create",
-                          "retry",
-                          "manual",
-                          "reconcile"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_correlation_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_status_code": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 100,
-                        "maximum": 599
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_updated_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_reconcile_due_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_reconcile_attempt_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "provider_reconcile_lease_expires_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "operator_state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "none",
-                          "submitted_to_provider",
-                          "awaiting_provider_result",
-                          "provider_failed",
-                          "orphan_to_reconcile"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "operator_state_label": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "can_cancel": {
-                    "type": "boolean"
-                  },
-                  "can_resubmit": {
-                    "type": "boolean"
-                  },
-                  "started_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "completed_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "created_at": {
-                    "type": "string"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  },
-                  "items_count": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "version_number": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "metrics": {
+                "anyOf": [
+                  {
                     "type": "object",
                     "properties": {
-                      "token_count": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "estimate_version_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "processing",
+                          "completed",
+                          "failed",
+                          "canceled",
+                          "applied"
+                        ]
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "A",
+                          "B",
+                          "C"
+                        ]
+                      },
+                      "processing_strategy": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "sync",
+                              "batch"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_batch_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "submitted",
+                              "pending",
+                              "running",
+                              "succeeded",
+                              "failed",
+                              "cancelled",
+                              "expired",
+                              "unknown"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_type": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_size_bytes": {
                         "anyOf": [
                           {
                             "type": "integer",
@@ -85157,7 +85911,220 @@
                           }
                         ]
                       },
-                      "cost_cents": {
+                      "plan_set_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "prompt_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "schema_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "model": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "thinking_level": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "media_resolution": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "retry_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "error_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "error_message": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "next_retry_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "last_error_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatch_status": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "started",
+                              "queued",
+                              "trigger_failed"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_outcome": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "configuration_missing",
+                              "http_error",
+                              "timeout",
+                              "network_error"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_trigger": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "create",
+                              "retry",
+                              "manual",
+                              "reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_correlation_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_status_code": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 599
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_due_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_attempt_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "provider_reconcile_lease_expires_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "operator_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "submitted_to_provider",
+                              "awaiting_provider_result",
+                              "provider_failed",
+                              "orphan_to_reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "operator_state_label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "can_cancel": {
+                        "type": "boolean"
+                      },
+                      "can_resubmit": {
+                        "type": "boolean"
+                      },
+                      "started_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "completed_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "items_count": {
                         "anyOf": [
                           {
                             "type": "integer",
@@ -85169,56 +86136,518 @@
                           }
                         ]
                       },
-                      "duration_ms": {
+                      "version_number": {
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": 0,
+                            "exclusiveMinimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
                             "type": "null"
                           }
                         ]
+                      },
+                      "metrics": {
+                        "type": "object",
+                        "properties": {
+                          "token_count": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "cost_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "duration_ms": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "token_count",
+                          "cost_cents",
+                          "duration_ms"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [
-                      "token_count",
-                      "cost_cents",
-                      "duration_ms"
+                      "id",
+                      "estimate_version_id",
+                      "status",
+                      "level",
+                      "processing_strategy",
+                      "provider_batch_id",
+                      "provider_batch_state",
+                      "provider_batch_updated_at",
+                      "source_file_name",
+                      "source_file_type",
+                      "source_file_size_bytes",
+                      "prompt_version",
+                      "schema_version",
+                      "model",
+                      "thinking_level",
+                      "media_resolution",
+                      "retry_count",
+                      "error_code",
+                      "error_message",
+                      "next_retry_at",
+                      "last_error_at",
+                      "started_at",
+                      "completed_at",
+                      "created_at",
+                      "updated_at",
+                      "metrics"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "estimate_version_id": {
+                        "type": "null"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "processing",
+                          "completed",
+                          "failed",
+                          "canceled",
+                          "applied"
+                        ]
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "A",
+                          "B",
+                          "C"
+                        ]
+                      },
+                      "processing_strategy": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "sync",
+                              "batch"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_batch_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "submitted",
+                              "pending",
+                              "running",
+                              "succeeded",
+                              "failed",
+                              "cancelled",
+                              "expired",
+                              "unknown"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_type": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_size_bytes": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "plan_set_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "prompt_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "schema_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "model": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "thinking_level": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "media_resolution": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "retry_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "error_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "error_message": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "next_retry_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "last_error_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatch_status": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "started",
+                              "queued",
+                              "trigger_failed"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_outcome": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "configuration_missing",
+                              "http_error",
+                              "timeout",
+                              "network_error"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_trigger": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "create",
+                              "retry",
+                              "manual",
+                              "reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_correlation_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_status_code": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 599
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_due_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_attempt_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "provider_reconcile_lease_expires_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "operator_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "submitted_to_provider",
+                              "awaiting_provider_result",
+                              "provider_failed",
+                              "orphan_to_reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "operator_state_label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "can_cancel": {
+                        "type": "boolean"
+                      },
+                      "can_resubmit": {
+                        "type": "boolean"
+                      },
+                      "started_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "completed_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "items_count": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "version_number": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "metrics": {
+                        "type": "object",
+                        "properties": {
+                          "token_count": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "cost_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "duration_ms": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "token_count",
+                          "cost_cents",
+                          "duration_ms"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "project_id",
+                      "estimate_version_id",
+                      "status",
+                      "level",
+                      "processing_strategy",
+                      "provider_batch_id",
+                      "provider_batch_state",
+                      "provider_batch_updated_at",
+                      "source_file_name",
+                      "source_file_type",
+                      "source_file_size_bytes",
+                      "prompt_version",
+                      "schema_version",
+                      "model",
+                      "thinking_level",
+                      "media_resolution",
+                      "retry_count",
+                      "error_code",
+                      "error_message",
+                      "next_retry_at",
+                      "last_error_at",
+                      "started_at",
+                      "completed_at",
+                      "created_at",
+                      "updated_at",
+                      "metrics"
                     ],
                     "additionalProperties": false
                   }
-                },
-                "required": [
-                  "id",
-                  "estimate_version_id",
-                  "status",
-                  "level",
-                  "processing_strategy",
-                  "provider_batch_id",
-                  "provider_batch_state",
-                  "provider_batch_updated_at",
-                  "source_file_name",
-                  "source_file_type",
-                  "source_file_size_bytes",
-                  "prompt_version",
-                  "schema_version",
-                  "model",
-                  "thinking_level",
-                  "media_resolution",
-                  "retry_count",
-                  "error_code",
-                  "error_message",
-                  "next_retry_at",
-                  "last_error_at",
-                  "started_at",
-                  "completed_at",
-                  "created_at",
-                  "updated_at",
-                  "metrics"
-                ],
-                "additionalProperties": false
+                ]
               },
               "command": {
                 "type": "string",
@@ -85618,6 +87047,14 @@
                                       ],
                                       "additionalProperties": false
                                     }
+                                  },
+                                  "evaluation_scope": {
+                                    "type": "string",
+                                    "const": "job"
+                                  },
+                                  "cross_job_comparison": {
+                                    "type": "string",
+                                    "const": "deferred"
                                   }
                                 },
                                 "additionalProperties": {}
@@ -85968,6 +87405,14 @@
                                       ],
                                       "additionalProperties": false
                                     }
+                                  },
+                                  "evaluation_scope": {
+                                    "type": "string",
+                                    "const": "job"
+                                  },
+                                  "cross_job_comparison": {
+                                    "type": "string",
+                                    "const": "deferred"
                                   }
                                 },
                                 "additionalProperties": {}
@@ -86314,6 +87759,14 @@
                                       ],
                                       "additionalProperties": false
                                     }
+                                  },
+                                  "evaluation_scope": {
+                                    "type": "string",
+                                    "const": "job"
+                                  },
+                                  "cross_job_comparison": {
+                                    "type": "string",
+                                    "const": "deferred"
                                   }
                                 },
                                 "additionalProperties": {}
@@ -86642,6 +88095,14 @@
                                       ],
                                       "additionalProperties": false
                                     }
+                                  },
+                                  "evaluation_scope": {
+                                    "type": "string",
+                                    "const": "job"
+                                  },
+                                  "cross_job_comparison": {
+                                    "type": "string",
+                                    "const": "deferred"
                                   }
                                 },
                                 "additionalProperties": {}
@@ -87060,6 +88521,14 @@
                                       ],
                                       "additionalProperties": false
                                     }
+                                  },
+                                  "evaluation_scope": {
+                                    "type": "string",
+                                    "const": "job"
+                                  },
+                                  "cross_job_comparison": {
+                                    "type": "string",
+                                    "const": "deferred"
                                   }
                                 },
                                 "additionalProperties": {}
@@ -87388,6 +88857,14 @@
                                       ],
                                       "additionalProperties": false
                                     }
+                                  },
+                                  "evaluation_scope": {
+                                    "type": "string",
+                                    "const": "job"
+                                  },
+                                  "cross_job_comparison": {
+                                    "type": "string",
+                                    "const": "deferred"
                                   }
                                 },
                                 "additionalProperties": {}
@@ -89166,6 +90643,14 @@
                                           ],
                                           "additionalProperties": false
                                         }
+                                      },
+                                      "evaluation_scope": {
+                                        "type": "string",
+                                        "const": "job"
+                                      },
+                                      "cross_job_comparison": {
+                                        "type": "string",
+                                        "const": "deferred"
                                       }
                                     },
                                     "additionalProperties": {}
@@ -89550,6 +91035,14 @@
                                   ],
                                   "additionalProperties": false
                                 }
+                              },
+                              "evaluation_scope": {
+                                "type": "string",
+                                "const": "job"
+                              },
+                              "cross_job_comparison": {
+                                "type": "string",
+                                "const": "deferred"
                               }
                             },
                             "additionalProperties": {}
@@ -92219,348 +93712,103 @@
             "type": "object",
             "properties": {
               "job": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "estimate_version_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "processing",
-                      "completed",
-                      "failed",
-                      "canceled",
-                      "applied"
-                    ]
-                  },
-                  "level": {
-                    "type": "string",
-                    "enum": [
-                      "A",
-                      "B",
-                      "C"
-                    ]
-                  },
-                  "processing_strategy": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "sync",
-                          "batch"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider_batch_id": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_batch_state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "submitted",
-                          "pending",
-                          "running",
-                          "succeeded",
-                          "failed",
-                          "cancelled",
-                          "expired",
-                          "unknown"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "provider_batch_updated_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_name": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_type": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "source_file_size_bytes": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "plan_set_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "prompt_version": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "schema_version": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "model": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "thinking_level": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "media_resolution": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "retry_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "error_code": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "error_message": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "next_retry_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "last_error_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "dispatch_status": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "started",
-                          "queued",
-                          "trigger_failed"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_outcome": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "accepted",
-                          "configuration_missing",
-                          "http_error",
-                          "timeout",
-                          "network_error"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_trigger": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "create",
-                          "retry",
-                          "manual",
-                          "reconcile"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_correlation_id": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_status_code": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 100,
-                        "maximum": 599
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "dispatch_updated_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_reconcile_due_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "provider_reconcile_attempt_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "provider_reconcile_lease_expires_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "operator_state": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": [
-                          "none",
-                          "submitted_to_provider",
-                          "awaiting_provider_result",
-                          "provider_failed",
-                          "orphan_to_reconcile"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "operator_state_label": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "can_cancel": {
-                    "type": "boolean"
-                  },
-                  "can_resubmit": {
-                    "type": "boolean"
-                  },
-                  "started_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "completed_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "created_at": {
-                    "type": "string"
-                  },
-                  "updated_at": {
-                    "type": "string"
-                  },
-                  "items_count": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "version_number": {
-                    "anyOf": [
-                      {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "metrics": {
+                "anyOf": [
+                  {
                     "type": "object",
                     "properties": {
-                      "token_count": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "estimate_version_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "processing",
+                          "completed",
+                          "failed",
+                          "canceled",
+                          "applied"
+                        ]
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "A",
+                          "B",
+                          "C"
+                        ]
+                      },
+                      "processing_strategy": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "sync",
+                              "batch"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_batch_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "submitted",
+                              "pending",
+                              "running",
+                              "succeeded",
+                              "failed",
+                              "cancelled",
+                              "expired",
+                              "unknown"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_type": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_size_bytes": {
                         "anyOf": [
                           {
                             "type": "integer",
@@ -92572,7 +93820,220 @@
                           }
                         ]
                       },
-                      "cost_cents": {
+                      "plan_set_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "prompt_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "schema_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "model": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "thinking_level": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "media_resolution": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "retry_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "error_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "error_message": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "next_retry_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "last_error_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatch_status": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "started",
+                              "queued",
+                              "trigger_failed"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_outcome": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "configuration_missing",
+                              "http_error",
+                              "timeout",
+                              "network_error"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_trigger": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "create",
+                              "retry",
+                              "manual",
+                              "reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_correlation_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_status_code": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 599
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_due_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_attempt_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "provider_reconcile_lease_expires_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "operator_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "submitted_to_provider",
+                              "awaiting_provider_result",
+                              "provider_failed",
+                              "orphan_to_reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "operator_state_label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "can_cancel": {
+                        "type": "boolean"
+                      },
+                      "can_resubmit": {
+                        "type": "boolean"
+                      },
+                      "started_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "completed_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "items_count": {
                         "anyOf": [
                           {
                             "type": "integer",
@@ -92584,56 +94045,518 @@
                           }
                         ]
                       },
-                      "duration_ms": {
+                      "version_number": {
                         "anyOf": [
                           {
                             "type": "integer",
-                            "minimum": 0,
+                            "exclusiveMinimum": 0,
                             "maximum": 9007199254740991
                           },
                           {
                             "type": "null"
                           }
                         ]
+                      },
+                      "metrics": {
+                        "type": "object",
+                        "properties": {
+                          "token_count": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "cost_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "duration_ms": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "token_count",
+                          "cost_cents",
+                          "duration_ms"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [
-                      "token_count",
-                      "cost_cents",
-                      "duration_ms"
+                      "id",
+                      "estimate_version_id",
+                      "status",
+                      "level",
+                      "processing_strategy",
+                      "provider_batch_id",
+                      "provider_batch_state",
+                      "provider_batch_updated_at",
+                      "source_file_name",
+                      "source_file_type",
+                      "source_file_size_bytes",
+                      "prompt_version",
+                      "schema_version",
+                      "model",
+                      "thinking_level",
+                      "media_resolution",
+                      "retry_count",
+                      "error_code",
+                      "error_message",
+                      "next_retry_at",
+                      "last_error_at",
+                      "started_at",
+                      "completed_at",
+                      "created_at",
+                      "updated_at",
+                      "metrics"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "estimate_version_id": {
+                        "type": "null"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "processing",
+                          "completed",
+                          "failed",
+                          "canceled",
+                          "applied"
+                        ]
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "A",
+                          "B",
+                          "C"
+                        ]
+                      },
+                      "processing_strategy": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "sync",
+                              "batch"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_batch_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "submitted",
+                              "pending",
+                              "running",
+                              "succeeded",
+                              "failed",
+                              "cancelled",
+                              "expired",
+                              "unknown"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "provider_batch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_type": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_file_size_bytes": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "plan_set_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "prompt_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "schema_version": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "model": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "thinking_level": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "media_resolution": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "retry_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "error_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "error_message": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "next_retry_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "last_error_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dispatch_status": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "started",
+                              "queued",
+                              "trigger_failed"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_outcome": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "configuration_missing",
+                              "http_error",
+                              "timeout",
+                              "network_error"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_trigger": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "create",
+                              "retry",
+                              "manual",
+                              "reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_correlation_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_status_code": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 599
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "dispatch_updated_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_due_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "provider_reconcile_attempt_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "provider_reconcile_lease_expires_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "operator_state": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "submitted_to_provider",
+                              "awaiting_provider_result",
+                              "provider_failed",
+                              "orphan_to_reconcile"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "operator_state_label": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "can_cancel": {
+                        "type": "boolean"
+                      },
+                      "can_resubmit": {
+                        "type": "boolean"
+                      },
+                      "started_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "completed_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "items_count": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "version_number": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "metrics": {
+                        "type": "object",
+                        "properties": {
+                          "token_count": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "cost_cents": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "duration_ms": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "token_count",
+                          "cost_cents",
+                          "duration_ms"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "project_id",
+                      "estimate_version_id",
+                      "status",
+                      "level",
+                      "processing_strategy",
+                      "provider_batch_id",
+                      "provider_batch_state",
+                      "provider_batch_updated_at",
+                      "source_file_name",
+                      "source_file_type",
+                      "source_file_size_bytes",
+                      "prompt_version",
+                      "schema_version",
+                      "model",
+                      "thinking_level",
+                      "media_resolution",
+                      "retry_count",
+                      "error_code",
+                      "error_message",
+                      "next_retry_at",
+                      "last_error_at",
+                      "started_at",
+                      "completed_at",
+                      "created_at",
+                      "updated_at",
+                      "metrics"
                     ],
                     "additionalProperties": false
                   }
-                },
-                "required": [
-                  "id",
-                  "estimate_version_id",
-                  "status",
-                  "level",
-                  "processing_strategy",
-                  "provider_batch_id",
-                  "provider_batch_state",
-                  "provider_batch_updated_at",
-                  "source_file_name",
-                  "source_file_type",
-                  "source_file_size_bytes",
-                  "prompt_version",
-                  "schema_version",
-                  "model",
-                  "thinking_level",
-                  "media_resolution",
-                  "retry_count",
-                  "error_code",
-                  "error_message",
-                  "next_retry_at",
-                  "last_error_at",
-                  "started_at",
-                  "completed_at",
-                  "created_at",
-                  "updated_at",
-                  "metrics"
-                ],
-                "additionalProperties": false
+                ]
               },
               "command": {
                 "type": "string",
@@ -92700,9 +94623,16 @@
             "type": "object",
             "properties": {
               "version_id": {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "unlinked_item_ids": {
                 "type": "array",
@@ -95026,6 +96956,11 @@
           "data"
         ],
         "additionalProperties": false
+      },
+      "TakeoffPlanFileIdPathParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "ApiTakeoffMappingRulesResponse": {
         "type": "object",
@@ -97379,11 +99314,6 @@
           "data"
         ],
         "additionalProperties": false
-      },
-      "TakeoffPlanFileIdPathParameter": {
-        "type": "string",
-        "format": "uuid",
-        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "ApiTakeoffPlanFileResponse": {
         "type": "object",

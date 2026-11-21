@@ -6,9 +6,11 @@ import { createClient } from "@supabase/supabase-js";
 
 // Test-only worker entrypoint. The application keeps its Edge dispatch guard.
 // Invoke exactly one newly owned job; never scan a queue or seed its outcome.
-const [projectId, versionId, jobId, prefix, mode = "success"] = process.argv.slice(2);
+const [projectId, rawVersionId, jobId, prefix, mode = "success"] = process.argv.slice(2);
+const versionId = rawVersionId === "-" ? null : rawVersionId;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-assert([projectId, versionId, jobId].every((value) => uuid.test(value ?? "")));
+assert([projectId, jobId].every((value) => uuid.test(value ?? "")));
+assert(versionId === null || uuid.test(versionId ?? ""));
 assert(/^ARMY-[A-Za-z0-9-]+$/.test(prefix ?? ""));
 assert(["success", "transient", "terminal", "hold", "crash-after-result"].includes(mode));
 assert.equal(process.env.E2E_ARMY_TAKEOFF_WORKER, "1", "Dedicated owned-worker profile required.");
@@ -42,21 +44,29 @@ const clientOptions = { auth: { persistSession: false, autoRefreshToken: false, 
 const user = createClient(backend.origin, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, clientOptions);
 const login = await user.auth.signInWithPassword({ email: process.env.E2E_LOGIN_EMAIL, password: process.env.E2E_LOGIN_PASSWORD });
 assert.equal(login.error, null, "Ordinary fixture authentication failed.");
-const version = await user.from("estimate_versions").select("id, project_id, tenant_id, calc_engine_version").eq("id", versionId).single();
-assert.equal(version.error, null);
-assert.equal(version.data.project_id, projectId);
-assert.equal(version.data.calc_engine_version, 2, "Positive worker journeys require an actual compatible v2.");
-const project = await user.from("estimate_projects").select("id, name, user_id").eq("id", projectId).single();
+const project = await user.from("estimate_projects").select("id, name, user_id, tenant_id").eq("id", projectId).single();
 assert.equal(project.error, null);
 assert(project.data.name.startsWith(prefix));
 assert.equal(project.data.user_id, login.data.user.id);
-const tenant = await user.from("tenants").select("name").eq("id", version.data.tenant_id).single();
+const tenantId = project.data.tenant_id;
+if (versionId !== null) {
+  const version = await user.from("estimate_versions").select("id, project_id, tenant_id, calc_engine_version").eq("id", versionId).single();
+  assert.equal(version.error, null);
+  assert.equal(version.data.project_id, projectId);
+  assert.equal(version.data.tenant_id, tenantId);
+  assert.equal(version.data.calc_engine_version, 2, "Positive worker journeys require an actual compatible v2.");
+} else {
+  const versions = await user.from("estimate_versions").select("id", { count: "exact", head: true }).eq("project_id", projectId);
+  assert.equal(versions.error, null);
+  assert.equal(versions.count, 0, "An affaire-only test must begin without any estimate version.");
+}
+const tenant = await user.from("tenants").select("name").eq("id", tenantId).single();
 assert.equal(tenant.error, null);
 assert(/^ARMY\b/.test(tenant.data.name));
-const visibleJob = await user.from("takeoff_jobs").select("id, tenant_id, estimate_version_id, created_by").eq("id", jobId).single();
+const visibleJob = await user.from("takeoff_jobs").select("id, tenant_id, project_id, estimate_version_id, created_by").eq("project_id", projectId).eq("id", jobId).single();
 assert.equal(visibleJob.error, null);
 assert.equal(visibleJob.data.estimate_version_id, versionId);
-assert.equal(visibleJob.data.tenant_id, version.data.tenant_id);
+assert.equal(visibleJob.data.tenant_id, tenantId);
 assert.equal(visibleJob.data.created_by, login.data.user.id);
 
 const worker = createClient(backend.origin, process.env.SUPABASE_SERVICE_ROLE_KEY, clientOptions);
@@ -64,7 +74,7 @@ const readJob = async () => {
   const { data, error } = await worker.from("takeoff_jobs").select("id, status, level, estimate_version_id, tenant_id, source_file_name, source_file_path, retry_count, error_code, next_retry_at, processing_lease_token").eq("id", jobId).single();
   assert.equal(error, null);
   assert.equal(data.estimate_version_id, versionId);
-  assert.equal(data.tenant_id, version.data.tenant_id);
+  assert.equal(data.tenant_id, tenantId);
   return data;
 };
 // One module graph preserves TakeoffError identity across provider, processor
@@ -88,7 +98,7 @@ const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new
 const providerSelection = { profileId: "army-worker-profile", model: "army-worker-model", reasoningEffort: null };
 const call = async (options) => {
   assert.equal(options.context.jobId, jobId);
-  assert.equal(options.context.tenantId, version.data.tenant_id);
+  assert.equal(options.context.tenantId, tenantId);
   const current = await readJob();
   assert.equal(current.status, "processing");
   assert(current.processing_lease_token, "Real processing lease required before provider.");

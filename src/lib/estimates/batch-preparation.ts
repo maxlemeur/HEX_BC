@@ -228,7 +228,7 @@ export async function prepareEstimateBatch(input: {
           const { data: job, error } = await supabase.from("takeoff_jobs").select("id, estimate_version_id")
             .eq("tenant_id", tenantId).eq("id", jobId).maybeSingle();
           if (error) throw unavailable();
-          if (!job) throw badRequest("source_job_id invalide.");
+          if (!job?.estimate_version_id) throw badRequest("source_job_id invalide.");
           if (job.estimate_version_id === versionId) return;
           const { data: link, error: linkError } = await supabase.from("takeoff_version_links").select("id")
             .eq("tenant_id", tenantId).eq("takeoff_job_id", jobId)

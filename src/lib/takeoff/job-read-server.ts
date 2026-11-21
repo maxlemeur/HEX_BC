@@ -55,6 +55,7 @@ const TAKEOFF_JOB_LIST_PERIOD_DAYS: Record<string, number> = {
 const TAKEOFF_JOB_LIST_SELECT = [
   "id",
   "estimate_version_id",
+  "project_id",
   "status",
   "level",
   "execution_provider",
@@ -149,7 +150,8 @@ export const jsonRecordSchema = z.record(z.string(), z.unknown());
 const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
   .object({
     id: z.string().uuid(),
-    estimate_version_id: z.string().uuid(),
+    estimate_version_id: z.string().uuid().nullable(),
+    project_id: z.string().uuid().optional(),
     status: z.enum(TAKEOFF_JOB_STATUSES),
     level: z.enum(TAKEOFF_RESPONSE_LEVELS),
     processing_strategy: z.enum(["sync", "batch"]).nullable().optional(),
@@ -215,50 +217,59 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     cost_cents: z.number().int().nonnegative().nullable(),
     duration_ms: z.number().int().nonnegative().nullable(),
   })
-  .transform((row) => ({
-    id: row.id,
-    estimate_version_id: row.estimate_version_id,
-    status: row.status,
-    level: row.level,
-    processing_strategy: row.processing_strategy ?? null,
-    provider_batch_id: row.provider_batch_id ?? null,
-    provider_batch_state: row.provider_batch_state ?? null,
-    provider_batch_updated_at: row.provider_batch_updated_at ?? null,
-    source_file_name: row.source_file_name,
-    source_file_type: row.source_file_type,
-    source_file_size_bytes: row.source_file_size_bytes,
-    plan_set_id: row.plan_set_id ?? null,
-    prompt_version: row.prompt_version,
-    schema_version: row.schema_version,
-    model: row.model,
-    thinking_level: row.thinking_level,
-    media_resolution: row.media_resolution,
-    retry_count: row.retry_count,
-    error_code: row.error_code,
-    error_message: row.error_message,
-    next_retry_at: row.next_retry_at ?? null,
-    last_error_at: row.last_error_at ?? null,
-    dispatch_status: row.dispatch_status ?? null,
-    dispatch_outcome: row.dispatch_outcome ?? null,
-    dispatch_trigger: row.dispatch_trigger ?? null,
-    dispatch_correlation_id: row.dispatch_correlation_id ?? null,
-    dispatch_status_code: row.dispatch_status_code ?? null,
-    dispatch_updated_at: row.dispatch_updated_at ?? null,
-    provider_reconcile_due_at: row.provider_reconcile_due_at ?? null,
-    provider_reconcile_attempt_count: row.provider_reconcile_attempt_count ?? 0,
-    provider_reconcile_lease_expires_at:
-      row.provider_reconcile_lease_expires_at ?? null,
-    started_at: row.started_at,
-    completed_at: row.completed_at,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    items_count: row.items_count ?? null,
-    metrics: {
-      token_count: row.token_count,
-      cost_cents: row.cost_cents,
-      duration_ms: row.duration_ms,
-    },
-  }));
+  .transform((row, context) => {
+    const summary = {
+      id: row.id,
+      status: row.status,
+      level: row.level,
+      processing_strategy: row.processing_strategy ?? null,
+      provider_batch_id: row.provider_batch_id ?? null,
+      provider_batch_state: row.provider_batch_state ?? null,
+      provider_batch_updated_at: row.provider_batch_updated_at ?? null,
+      source_file_name: row.source_file_name,
+      source_file_type: row.source_file_type,
+      source_file_size_bytes: row.source_file_size_bytes,
+      plan_set_id: row.plan_set_id ?? null,
+      prompt_version: row.prompt_version,
+      schema_version: row.schema_version,
+      model: row.model,
+      thinking_level: row.thinking_level,
+      media_resolution: row.media_resolution,
+      retry_count: row.retry_count,
+      error_code: row.error_code,
+      error_message: row.error_message,
+      next_retry_at: row.next_retry_at ?? null,
+      last_error_at: row.last_error_at ?? null,
+      dispatch_status: row.dispatch_status ?? null,
+      dispatch_outcome: row.dispatch_outcome ?? null,
+      dispatch_trigger: row.dispatch_trigger ?? null,
+      dispatch_correlation_id: row.dispatch_correlation_id ?? null,
+      dispatch_status_code: row.dispatch_status_code ?? null,
+      dispatch_updated_at: row.dispatch_updated_at ?? null,
+      provider_reconcile_due_at: row.provider_reconcile_due_at ?? null,
+      provider_reconcile_attempt_count: row.provider_reconcile_attempt_count ?? 0,
+      provider_reconcile_lease_expires_at:
+        row.provider_reconcile_lease_expires_at ?? null,
+      started_at: row.started_at,
+      completed_at: row.completed_at,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      items_count: row.items_count ?? null,
+      metrics: {
+        token_count: row.token_count,
+        cost_cents: row.cost_cents,
+        duration_ms: row.duration_ms,
+      },
+    };
+    if (row.estimate_version_id !== null) {
+      return { ...summary, estimate_version_id: row.estimate_version_id, project_id: row.project_id };
+    }
+    if (!row.project_id) {
+      context.addIssue({ code: "custom", path: ["project_id"], message: "L’affaire est requise pour un métré sans devis." });
+      return z.NEVER;
+    }
+    return { ...summary, estimate_version_id: null, project_id: row.project_id };
+  });
 
 const takeoffJobResultSchema: z.ZodType<TakeoffJobResult> = z.object({
   id: z.string().uuid(),
@@ -307,7 +318,8 @@ export type TakeoffJobDetailRow = {
   execution_provider?: "gemini" | "chatgpt_local";
   execution_host_id?: string | null;
   analysis_outcome?: string | null;
-  estimate_version_id: string;
+  estimate_version_id: string | null;
+  project_id: string;
   status: string;
   level: string;
   processing_strategy: TakeoffProcessingStrategy | null;
@@ -458,13 +470,15 @@ async function getTakeoffJobDetailById(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
   jobId: string;
+  projectId?: string;
 }): Promise<TakeoffJobDetailRow | null> {
-  const { data, error } = await input.supabase
+  const query = input.supabase
     .from("takeoff_jobs" as never)
     .select(TAKEOFF_JOB_DETAIL_SELECT as never)
     .eq("tenant_id" as never, input.tenantId as never)
-    .eq("id" as never, input.jobId as never)
-    .maybeSingle();
+    .eq("id" as never, input.jobId as never);
+  if (input.projectId) query.eq("project_id" as never, input.projectId as never);
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     throw toTakeoffError(
@@ -484,6 +498,7 @@ export async function getTakeoffJobDetailByIdOrThrow(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
   jobId: string;
+  projectId?: string;
 }): Promise<TakeoffJobDetailRow> {
   const row = await getTakeoffJobDetailById(input);
 
@@ -628,6 +643,7 @@ type TakeoffJobsListFilterQuery = {
 };
 
 type TakeoffJobsListFilterInput = {
+  project_id?: string | null;
   estimate_version_id?: string | null;
   status?: string | null;
   level?: string | null;
@@ -639,7 +655,7 @@ export function applyTakeoffJobsListFilters<TQuery extends TakeoffJobsListFilter
   query: TQuery,
   input: TakeoffJobsListFilterInput
 ): TQuery {
-  let scopedQuery = query;
+  let scopedQuery = input.project_id ? query.eq("project_id", input.project_id) as TQuery : query;
 
   if (input.version_ids && input.version_ids.length > 0) {
     scopedQuery = scopedQuery.in(
@@ -674,7 +690,7 @@ type TakeoffJobsCounterStatus = Exclude<keyof TakeoffJobStatusCounters, "total">
 async function countTakeoffJobs(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
-  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "level" | "period"> & {
+  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "project_id" | "level" | "period"> & {
     version_ids?: string[];
   };
   status?: TakeoffJobsCounterStatus;
@@ -685,6 +701,7 @@ async function countTakeoffJobs(input: {
       .select("id" as never, { count: "exact", head: true })
       .eq("tenant_id" as never, input.tenantId as never),
     {
+      project_id: input.filters.project_id,
       estimate_version_id: input.filters.estimate_version_id,
       version_ids: input.filters.version_ids,
       level: input.filters.level,
@@ -711,7 +728,7 @@ async function countTakeoffJobs(input: {
 async function buildTakeoffJobsStatusCounters(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
-  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "level" | "period"> & {
+  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "project_id" | "level" | "period"> & {
     version_ids?: string[];
   };
 }): Promise<TakeoffJobStatusCounters> {
@@ -799,7 +816,6 @@ export async function listTakeoffJobs(
   const offset = input.offset ?? 0;
   const rangeEnd = offset + limit - 1;
 
-  let versionIds: string[] | undefined;
   let versionNumberMap: Map<string, number> | undefined;
 
   if (input.project_id) {
@@ -808,14 +824,6 @@ export async function listTakeoffJobs(
       tenantId,
       projectId: input.project_id,
     });
-    if (versions.length === 0) {
-      return {
-        jobs: [],
-        counters: { total: 0, processing: 0, completed: 0, failed: 0, canceled: 0 },
-        pagination: { limit, offset, total: 0 },
-      };
-    }
-    versionIds = versions.map((v) => v.id);
     versionNumberMap = new Map(versions.map((v) => [v.id, v.version_number]));
   } else if (input.estimate_version_id) {
     const { data: singleVersion, error: versionError } = await supabase
@@ -845,7 +853,7 @@ export async function listTakeoffJobs(
 
   const filterInput: TakeoffJobsListFilterInput = {
     estimate_version_id: input.estimate_version_id,
-    version_ids: versionIds,
+    project_id: input.project_id,
     status: input.status,
     level: input.level,
     period: input.period,
@@ -856,7 +864,7 @@ export async function listTakeoffJobs(
     tenantId,
     filters: {
       estimate_version_id: input.estimate_version_id,
-      version_ids: versionIds,
+      project_id: input.project_id,
       level: input.level,
       period: input.period,
     },
@@ -870,6 +878,7 @@ export async function listTakeoffJobs(
     filterInput
   )
     .order("created_at" as never, { ascending: false })
+    .order("id" as never, { ascending: false })
     .range(offset as never, rangeEnd as never);
 
   const [{ data, count, error }, counters] = await Promise.all([
@@ -902,7 +911,7 @@ export async function listTakeoffJobs(
     jobs: jobs.map((job) => ({
       ...job,
       items_count: itemCountByJobId.get(job.id) ?? 0,
-      version_number: versionNumberMap?.get(job.estimate_version_id) ?? null,
+      version_number: job.estimate_version_id ? versionNumberMap?.get(job.estimate_version_id) ?? null : null,
     })),
     counters,
     pagination: {

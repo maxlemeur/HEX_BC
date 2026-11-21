@@ -61,6 +61,7 @@ import { buildTakeoffVectorPersistence } from "@/lib/takeoff/vectors/worker-pers
 import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import { hypothesisPreselection } from "@/lib/takeoff/hypothesis";
+import { resolveTakeoffExecutionProvider } from "@/lib/takeoff/execution-scope-server";
 import { isTakeoffRulesEnabled, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import {
   isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorLocalGroupsHook, type VectorPageOutcome,
@@ -968,11 +969,15 @@ async function finalizeTakeoffResult(input: {
     });
   }
 
-  // The result and its notice have committed. Rule refresh is best effort.
+  // The result and its notice have committed. Rule refresh is best effort; a
+  // job without a version refreshes the rules of its own affaire's job.
   if (input.level !== TAKEOFF_LEVEL_A) {
-    await recomputeTakeoffRulesQuietly({
-      tenantId: input.job.tenant_id, estimateVersionId: input.job.estimate_version_id,
-      context: "worker", supabase: input.supabase,
+    const { estimate_version_id, project_id, id } = input.job;
+    const scope = estimate_version_id !== null
+      ? { estimateVersionId: estimate_version_id }
+      : project_id ? { projectId: project_id, jobId: id } : null;
+    if (scope) await recomputeTakeoffRulesQuietly({
+      tenantId: input.job.tenant_id, ...scope, context: "worker", supabase: input.supabase,
     });
   }
   return { resultId: data, itemsCount: input.itemsForInsert.length, warningsCount: input.exchange.warnings.length };
@@ -2223,7 +2228,7 @@ async function processTakeoffLevel(
 
     const hostId = await assertLocalTakeoffExecutionHost(job);
     let resolved: { provider: LocalTakeoffProvider } | { error: unknown };
-    try { resolved = { provider: await resolveProvider(context.supabase, job) }; }
+    try { resolved = { provider: await resolveTakeoffExecutionProvider(context.supabase, job, resolveProvider) }; }
     catch (error) { resolved = { error }; }
     if ("provider" in resolved) model = resolved.provider.model;
 

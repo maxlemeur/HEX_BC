@@ -39,7 +39,6 @@ import {
   authenticatedContext,
   createSupabaseFake,
   estimateVersionRow,
-  filterValue,
   M3_ITEM_ID,
   M3_JOB_ID,
   M3_PLAN_SET_ID,
@@ -73,39 +72,18 @@ function createFixture(options: { admissionRejected?: boolean } = {}) {
         error: null,
         count: 1,
       }),
-      takeoff_jobs: (query) => {
-        if (query.operation === "select") return { data: null, error: null };
-        effects.push(`job:${query.operation}`);
-        if (query.operation === "insert") {
-          if (options.admissionRejected) {
-            return {
-              data: null,
-              error: { code: "23514", message: "TAKEOFF_JOB_ADMISSION_LIMIT" },
-            };
-          }
-          const row = query.payload as Record<string, unknown>;
-          jobs.add(String(row.id));
-          return {
-            data: { ...row, created_at: "2026-10-28T00:00:00.000Z" },
-            error: null,
-          };
-        }
-        if (query.operation === "delete") {
-          jobs.delete(String(filterValue(query, "id")));
-          return { data: null, error: null };
-        }
-        throw new Error(`Unexpected takeoff job operation: ${query.operation}`);
+      takeoff_jobs: () => ({ data: null, error: null }),
+    },
+    rpc: {
+      admit_prepared_takeoff_job: () => {
+        effects.push("admission");
+        return { data: null, error: options.admissionRejected
+          ? { code: "23514", message: "TAKEOFF_JOB_ADMISSION_LIMIT" }
+          : { code: "P0001", message: "TAKEOFF_JOB_CREATION_AUDIT_FAILED" } };
       },
     },
   });
-  const admin = createSupabaseFake({
-    tables: {
-      audit_logs: () => {
-        effects.push("audit:failure");
-        return { data: null, error: { code: "XX000", message: "Audit unavailable" } };
-      },
-    },
-  });
+  const admin = createSupabaseFake({});
   vi.mocked(getAuthenticatedContext).mockResolvedValue(authenticatedContext(fake) as never);
   vi.mocked(createServiceRoleClient).mockReturnValue(admin.client as never);
   return { fake, admin, effects, files, jobs };
@@ -120,7 +98,7 @@ beforeEach(() => {
   vi.mocked(getTakeoffLevelCProcessingConfigForTenant).mockResolvedValue({ maxPdfPages: 50 } as never);
 });
 
-describe("takeoff creation compensation", () => {
+describe("prepared takeoff admission", () => {
   it("rejects an unconfirmed preparation before any plan-set side effect", async () => {
     const { fake, admin, effects } = createFixture();
     vi.mocked(assertConfirmedTakeoffPreparation).mockRejectedValueOnce(new TakeoffError({
@@ -156,14 +134,14 @@ describe("takeoff creation compensation", () => {
       retryable: true,
     });
 
-    expect(effects).toEqual(["job:insert"]);
+    expect(effects).toEqual(["admission"]);
     expect(fake.storageCalls).toEqual([]);
     expect(admin.storageCalls).toEqual([]);
     expect(files).toEqual(new Set([OTHER_UPLOAD, SHARED_PLAN]));
     expect(jobs).toEqual(new Set([M3_JOB_ID]));
   });
 
-  it("removes its plan-set job on audit failure and preserves all shared plan storage", async () => {
+  it("reports audit failure from the atomic admission and preserves all shared plan storage", async () => {
     const { fake, admin, effects, files, jobs } = createFixture();
 
     await expect(createTakeoffJobFromPlanSet({
@@ -174,16 +152,12 @@ describe("takeoff creation compensation", () => {
       message: "Impossible d'enregistrer l'audit takeoff.",
     });
 
-    const inserted = fake.writesTo("takeoff_jobs")[0].payload as Record<string, unknown>;
-    expect(inserted.source_file_path).toBe(SHARED_PLAN);
-    expect(fake.writesTo("takeoff_jobs")[1]).toMatchObject({
-      operation: "delete",
-      filters: [
-        { kind: "eq", column: "tenant_id", value: M3_TENANT_ID },
-        { kind: "eq", column: "id", value: inserted.id },
-      ],
-    });
-    expect(effects).toEqual(["job:insert", "audit:failure", "job:delete"]);
+    expect(fake.rpcCalls).toEqual([{
+      fn: "admit_prepared_takeoff_job",
+      args: expect.objectContaining({ p_job: expect.objectContaining({ tenant_id: M3_TENANT_ID, source_file_path: SHARED_PLAN }) }),
+    }]);
+    expect(fake.writesTo("takeoff_jobs")).toEqual([]);
+    expect(effects).toEqual(["admission"]);
     expect(fake.storageCalls).toEqual([]);
     expect(admin.storageCalls).toEqual([]);
     expect(files).toEqual(new Set([OTHER_UPLOAD, SHARED_PLAN]));

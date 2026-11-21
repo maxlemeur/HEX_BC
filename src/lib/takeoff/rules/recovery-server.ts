@@ -16,7 +16,10 @@ export async function recoverTakeoffRules(jobId: string) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
       message: "Le métré doit être terminé pour recalculer ses règles.", retryable: false });
   }
-  const result = await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId: job.estimate_version_id, context: "manual" });
+  const scope = job.estimate_version_id === null
+    ? { jobId: job.id, projectId: job.project_id }
+    : { estimateVersionId: job.estimate_version_id };
+  const result = await recomputeTakeoffRulesQuietly({ tenantId, ...scope, context: "manual" });
   // Read persisted pending state, not just the number of attempted writes (an unbounded/skipped line stays blocked).
   const { count, error } = await supabase.from("takeoff_items" as never).select("id" as never, { count: "exact", head: true })
     .eq("tenant_id" as never, tenantId as never).eq("job_id" as never, id as never).eq("rules_stale" as never, true as never);

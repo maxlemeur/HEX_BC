@@ -14,6 +14,7 @@ export type ArmyState = {
   runPrefix: string;
   projectName: string;
   ownedEstimates: OwnedEstimate[];
+  ownedTakeoffAffaires?: string[];
   ownedPlanSets?: Array<{ projectId: string; planSetId: string; tenantId: string }>;
   /** Takeoff jobs whose source PDF a journey stored as a direct upload (TI-662): `takeoff-files/<tenant>/<job>/`. */
   ownedTakeoffUploads?: Array<{ projectId: string; tenantId: string; jobId: string }>;
@@ -110,7 +111,8 @@ export async function restrictCriticalBrowser(browser: Browser, app: App, army?:
     // The takeoff review's plan viewer (TI-662) reads an owned plan file through its signed URL (pdfjs may use range requests).
     const ownedPlanRead = localBackend && readOnly &&
       (army?.ownedPlanSets ?? []).some((set) =>
-        army?.ownedEstimates.some((estimate) => estimate.projectId === set.projectId) &&
+        (army?.ownedEstimates.some((estimate) => estimate.projectId === set.projectId) ||
+          army?.ownedTakeoffAffaires?.includes(set.projectId)) &&
         url.pathname.startsWith(`/storage/v1/object/sign/plan-files/${set.tenantId}/${set.planSetId}/`));
     // Its direct-upload variant reads the job's own source PDF, signed by the vector-pages read.
     const ownedTakeoffUploadRead = localBackend && readOnly &&
