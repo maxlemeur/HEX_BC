@@ -538,13 +538,18 @@ describe("readDossierChangeSinceAnalysis", () => {
     entry_key: plan.id, name: plan.file_name, logical_id: intake?.id ?? plan.id, intake_document_id: intake?.id ?? null,
     plan_file_id: plan.id, generation: intake?.generation ?? null, content_sha256: "c".repeat(64), pages: [], page_count: 1 });
 
-  function read(input: { analysed: "dossier" | "b"; files: Array<typeof planB | typeof dossierCopy>; owner?: boolean; readable?: readonly string[] }) {
+  function read(input: { analysed: "dossier" | "b"; files: Array<typeof planB | typeof dossierCopy>; owner?: boolean; readable?: readonly string[];
+    /** The request's analysis no longer exists (its draft was deleted). */
+    jobGone?: boolean }) {
     const manifest = { format_version: 1, intent: "reread_plans", units: [{ key: "grouped", plans: [] }], references: [],
       plans: input.analysed === "b" ? [sealedPlan(planB, null)] : [sealedPlan(dossierCopy, { id: DOCUMENT, generation: "generation-2" })],
       coverage: { plans_retained: 1, plans_omitted: [], references_omitted: [] } };
     const service = createSupabaseFake({ tables: {
-      takeoff_launch_requests: () => ({ data: { manifest }, error: null }),
-      takeoff_jobs: (query: FakeQuery) => ({ data: filterValue(query, "launch_request_id") === REQUEST
+      // The preparation the request sealed names the plan set of each source it read.
+      takeoff_launch_requests: () => ({ data: { manifest, preparation_snapshot: { preparation: { sources: [
+        { document_id: manifest.plans[0]!.plan_file_id, kind: "plan", active: true, plan_set_id: input.analysed === "b" ? SET_B : PLAN_SET },
+      ] } } }, error: null }),
+      takeoff_jobs: (query: FakeQuery) => ({ data: filterValue(query, "launch_request_id") === REQUEST && !input.jobGone
         ? { plan_set_id: input.analysed === "b" ? SET_B : PLAN_SET } : null, error: null }),
       plan_sets: () => ({ data: [
         { id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
@@ -571,6 +576,10 @@ describe("readDossierChangeSinceAnalysis", () => {
 
   it("reports no change right after a relaunch on another plan set than the dossier's", async () => {
     await expect(read({ analysed: "b", files: [dossierCopy, planB], owner: true })).resolves.toBeNull();
+  });
+
+  it("compares the plan set the request sealed once its analysis is gone", async () => {
+    await expect(read({ analysed: "b", files: [dossierCopy, planB], owner: true, jobGone: true })).resolves.toBeNull();
   });
 
   it("reports a plan added to the analysed set since, and nothing of the dossier's own set", async () => {

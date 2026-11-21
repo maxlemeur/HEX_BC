@@ -233,20 +233,23 @@ async function readPlanSetFiles(service: Service, tenantId: string, planSetId: s
     metadata: (file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata) ? file.metadata : {}) as Record<string, unknown> }));
 }
 
+/** The plan set a request sealed: that of the plans its sealed preparation reads (kept when its analysis is deleted). */
+function sealedPlanSetId(snapshot: unknown) {
+  const sources = (snapshot as { preparation?: { sources?: unknown } } | null)?.preparation?.sources;
+  const plan = (Array.isArray(sources) ? sources : []).find((source) => {
+    const entry = source as { kind?: unknown; active?: unknown; plan_set_id?: unknown };
+    return entry?.kind === "plan" && entry.active === true && typeof entry.plan_set_id === "string";
+  }) as { plan_set_id: string } | undefined;
+  return plan?.plan_set_id ?? null;
+}
+
 /**
- * The plan set a request analysed (its analysis's), with its copies; `dossier` when it is the dossier's import set, whose
- * plans without a working copy count. A request without an analysis yet reads the dossier's.
+ * The plan set a request sealed, with its copies; `dossier` when it is the dossier's import set, whose plans without a
+ * working copy count. A request without a sealed preparation reads the dossier's.
  */
-async function readRequestPlanSet(service: Service, tenantId: string, projectId: string, requestId: string) {
-  const [dossier, analysed] = await Promise.all([
-    readDossierPlanSet(service, tenantId, projectId),
-    service.from("takeoff_jobs").select("plan_set_id").eq("tenant_id", tenantId).eq("project_id", projectId)
-      .eq("launch_request_id", requestId).order("launch_unit_key").order("id").limit(1).maybeSingle(),
-  ]);
-  if (analysed.error) databaseError(analysed.error, "Impossible de lire l’analyse du métré.");
-  const planSetId = analysed.data?.plan_set_id ?? dossier?.id ?? null;
-  if (!planSetId) return null;
-  if (planSetId === dossier?.id) return { ...dossier, dossier: true };
+async function readRequestPlanSet(service: Service, tenantId: string, projectId: string, planSetId: string | null) {
+  const dossier = await readDossierPlanSet(service, tenantId, projectId);
+  if (!planSetId || planSetId === dossier?.id) return dossier ? { ...dossier, dossier: true } : null;
   return { id: planSetId, files: await readPlanSetFiles(service, tenantId, planSetId), dossier: false };
 }
 
@@ -682,18 +685,18 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
  * set's copies, and every plan classified in the dossier since that has no working copy (it is listed, never invisible).
  * Each is named only to the member who may read its source, by the plan files' and dossier pieces' own policies
  * evaluated for that member (`member`: their session); anyone else reads « Plan N ». The plan set compared is the one
- * the request analysed: a relaunch on another set than the dossier's is compared with that set alone.
+ * the request sealed: a relaunch on another set than the dossier's is compared with that set alone.
  */
 export async function readDossierChangeSinceAnalysis(member: Pick<Context, "supabase" | "tenantId">, projectId: string,
   requestId: string) {
   const service = createServiceRoleClient();
   const { tenantId } = member;
-  const [{ data: request, error }, planSet, documents] = await Promise.all([
-    service.from("takeoff_launch_requests").select("manifest").eq("id", requestId).eq("tenant_id", tenantId).maybeSingle(),
-    readRequestPlanSet(service, tenantId, projectId, requestId),
+  const [{ data: request, error }, documents] = await Promise.all([
+    service.from("takeoff_launch_requests").select("manifest, preparation_snapshot").eq("id", requestId).eq("tenant_id", tenantId).maybeSingle(),
     readDossierDocuments(service, tenantId, projectId),
   ]);
   if (error) databaseError(error, "Impossible de lire le métré de l’affaire.");
+  const planSet = await readRequestPlanSet(service, tenantId, projectId, sealedPlanSetId(request?.preparation_snapshot));
   const change = describeDossierChangeSinceAnalysis(request?.manifest as TakeoffLaunchManifest | null, planSet?.files ?? [],
     planSet?.dossier === false ? [] : documents);
   if (!change) return null;
