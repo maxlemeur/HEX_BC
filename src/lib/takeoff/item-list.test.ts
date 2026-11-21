@@ -246,7 +246,8 @@ describe("what a revision keeps of the decisions it relied on", () => {
       projection, drafts: projection.items,
     });
     expect(summary).toEqual({
-      kind: "dpgf", importId: "import", mappingId: "mapping", decisions: "applied", confirmationId: "confirmation",
+      kind: "dpgf", importId: "import", mappingId: "mapping", sourceFormat: "xlsx", decisions: "applied",
+      confirmationId: "confirmation",
       confirmedAt: "2026-11-21T10:00:00.000Z",
       structure: {
         decisions: [{ rowIndex: 0, kind: "section", level: 1 }],

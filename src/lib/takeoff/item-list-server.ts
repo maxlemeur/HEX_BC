@@ -102,7 +102,7 @@ export function sourcesSummary(sources: ItemListSourceState): Json {
   switch (sources.kind) {
     case "dpgf": {
       const applied = sources.decisions.status === "applied" ? sources.decisions : null;
-      return { kind: "dpgf", importId: sources.importId, mappingId: sources.mappingId,
+      return { kind: "dpgf", importId: sources.importId, mappingId: sources.mappingId, sourceFormat: sources.sourceFormat,
         decisions: sources.decisions.status,
         ...(applied ? { confirmationId: applied.confirmationId, confirmedAt: applied.confirmedAt } : {}),
         structure: {
@@ -151,6 +151,8 @@ function forReaders(item: Poste): ItemListViewPoste {
 
 /** Why a revision left rows of its DPGF out: its own facts, which remain once the import or its mapping is gone. */
 export type ItemListRevisionOmissions = {
+  /** The format of the import the revision was made from (its rows are worded by it, whatever the source is today). */
+  sourceFormat: string | null;
   decisions: number;
   exclusions: Array<{ rowIndex: number; reason: string; sourceRowNumber: number | null; sheetRowNumber: number | null;
     sourcePage: number | null }>;
@@ -165,6 +167,7 @@ function revisionOmissions(sources: Json): ItemListRevisionOmissions | null {
   const structure = asRecord(record?.structure);
   if (record?.kind !== "dpgf" || !structure) return null;
   return {
+    sourceFormat: typeof record.sourceFormat === "string" ? record.sourceFormat : null,
     decisions: Array.isArray(structure.decisions) ? structure.decisions.length : 0,
     exclusions: (Array.isArray(structure.exclusions) ? structure.exclusions : []).flatMap((entry) => {
       const exclusion = asRecord(entry);

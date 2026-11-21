@@ -148,7 +148,7 @@ function Omissions({ omissions, sourceFormat, label }: {
       <ul className="list-disc space-y-1 pl-6 pt-2 text-sm">
         {omissions.exclusions.map((exclusion) => (
           <li key={exclusion.rowIndex}>
-            {sourceLocation(exclusion, sourceFormat)} · {ISSUE_LABELS[exclusion.reason as keyof typeof ISSUE_LABELS]
+            {sourceLocation(exclusion, omissions.sourceFormat ?? sourceFormat)} · {ISSUE_LABELS[exclusion.reason as keyof typeof ISSUE_LABELS]
               ?? "Écartée"}
           </li>
         ))}

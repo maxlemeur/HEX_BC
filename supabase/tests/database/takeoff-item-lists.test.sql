@@ -276,7 +276,8 @@ insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format
 values (pg_temp.fx(190), pg_temp.fx(10), pg_temp.fx(2), 'empreinte-fictive.csv', 'csv', 'completed', 3, 'server');
 insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload)
 select x.id::uuid, pg_temp.fx(10), pg_temp.fx(190), x.n, '{}' from (values ('a1900000-0000-4000-8000-000000000001', 0),
-  ('a1900000-0000-4000-8000-000000000002', 1), ('a1900000-0000-4000-8000-000000000003', 2)) as x(id, n);
+  ('a1900000-0000-4000-8000-000000000002', 1), ('a1900000-0000-4000-8000-000000000003', 2),
+  ('a1900000-0000-4000-8000-000000000004', 3)) as x(id, n);
 insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status) values
   (pg_temp.fx(191), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000002',
     '{"row_index":1,"designation":"Évier inox","quantity":"1,5","hex_code":"H-2"}', 'mapped'),
@@ -284,9 +285,11 @@ insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, paylo
     '{"row_index":0,"reference":"R-1","mapped_row":{"designation":"Lavabo céramique","quantity":2,"unit":"u","notes":null}}',
     'mapped'),
   (pg_temp.fx(193), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000003', '{"designation":"Ignorée"}',
-    'rejected');
+    'rejected'),
+  (pg_temp.fx(194), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000004',
+    '{"mapped_row":{"designation":"Résidu de formule","quantity":1e-7,"hex_code":1e21,"notes":{"cell":"B4"}}}', 'mapped');
 select is(private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(190)),
-  '654bc190a206940c4ebf7d208d5e749af5aa735c655312cebb04e15421fee19b',
+  '89396fa5fba15556b91b215baef9cadc6233ffb9384e8480f1548dcf6bd93484',
   'the database digests the reviewed rows as the server does');
 select has_index('public', 'dpgf_import_confirmations', 'dpgf_import_confirmations_mapping_idx', array['mapping_id'],
   'a mapping''s deletion finds its confirmations by an index');
@@ -387,6 +390,17 @@ insert into public.estimate_items (id, tenant_id, version_id, item_type, positio
   (pg_temp.fx(85), pg_temp.fx(10), pg_temp.fx(80), 'section', 1, 'Lavabo', 1,
     jsonb_build_object('import_id', pg_temp.fx(60), 'mapped_row_id', pg_temp.fx(75), 'row_index', 1));
 set local session_replication_role = origin;
+-- An import of an affaire that holds an estimate (made before this migration, so without any record of it): its remap
+-- keeps the lineage those estimates' lines may need.
+insert into public.dpgf_imports (id, tenant_id, user_id, project_id, filename, source_format, status, row_count, parse_mode)
+values (pg_temp.fx(200), pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(20), 'avant-migration.csv', 'csv', 'completed', 1, 'server');
+insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload)
+values (pg_temp.fx(201), pg_temp.fx(10), pg_temp.fx(200), 0, '{"Designation":"Lavabo"}');
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status)
+values (pg_temp.fx(202), pg_temp.fx(10), pg_temp.fx(200), pg_temp.fx(201), '{"mapped_row":{"designation":"Lavabo"}}', 'mapped');
+delete from public.dpgf_rows_mapped where import_id = pg_temp.fx(200);
+select results_eq($$ select mapped_row_id, raw_row_id from private.dpgf_mapped_row_lineage where import_id = pg_temp.fx(200) $$,
+  $$ values (pg_temp.fx(202), pg_temp.fx(201)) $$, 'the remap of an import of an affaire with an estimate is journaled');
 select results_eq($$ select estimate_item_id, raw_row_id from public.read_estimate_dpgf_raw_rows(pg_temp.fx(10), pg_temp.fx(80))
   order by estimate_item_id $$, $$ values (pg_temp.fx(81), pg_temp.fx(62)), (pg_temp.fx(85), pg_temp.fx(62)) $$,
   'a line reaches its raw row, through its live mapped row or the record of a deleted one');

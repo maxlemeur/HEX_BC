@@ -82,12 +82,12 @@ describe("the item list of an affaire", () => {
   });
 
   it("shows why a revision omitted rows from its own facts, once its import is gone", async () => {
-    const omissions = { decisions: 1, exclusions: [
+    const omissions = { sourceFormat: "xlsx", decisions: 1, exclusions: [
       { rowIndex: 3, reason: "footer", sourceRowNumber: 4, sheetRowNumber: 6, sourcePage: null },
     ] };
     const revision = { id: "rev-1", revision: 1, cause: "initial", item_count: 0, content_sha256: "c".repeat(64),
       created_by: "engineer", created_at: stamped, intent_key: "8f7c1d9e-0000-4000-8000-000000000002",
-      sources: { kind: "dpgf", importId: "gone", mappingId: "gone", decisions: "applied", confirmationId: "c1",
+      sources: { kind: "dpgf", importId: "gone", mappingId: "gone", sourceFormat: "xlsx", decisions: "applied", confirmationId: "c1",
         confirmedAt: stamped, structure: { decisions: [{ rowIndex: 0, kind: "section", level: 1 }],
           exclusions: omissions.exclusions } } };
     // The import is deleted: the live sources are the shipped template; the revision still says what it left out.

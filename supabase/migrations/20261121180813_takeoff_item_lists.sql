@@ -46,7 +46,8 @@ create table private.dpgf_mapped_row_lineage (
 revoke all on private.dpgf_mapped_row_lineage from public, anon, authenticated, service_role;
 
 -- Only for an import still there that something depends on: a confirmation, an estimate a creation made from it, a
--- list revision. The remap of any other import, and an import's own deletion, journal nothing.
+-- list revision, an estimate of its affaire. The remap of any other import, and an import's own deletion, journal
+-- nothing.
 create function private.record_dpgf_mapped_row_lineage()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
@@ -60,7 +61,10 @@ begin
         or exists (select 1 from private.estimate_version_creations k
           where k.tenant_id = i.tenant_id and k.import_ids @> array[i.import_id])
         or exists (select 1 from public.takeoff_list_revisions v where v.tenant_id = i.tenant_id
-          and v.sources ->> 'kind' = 'dpgf' and v.sources ->> 'importId' = i.import_id::text))
+          and v.sources ->> 'kind' = 'dpgf' and v.sources ->> 'importId' = i.import_id::text)
+        -- an estimate of its affaire, whenever it was made (one made before this migration has no record)
+        or exists (select 1 from public.dpgf_imports x join public.estimate_versions e on e.project_id = x.project_id
+          where x.id = i.import_id))
   ) used on used.tenant_id = d.tenant_id and used.import_id = d.import_id
   where d.raw_row_id is not null
   on conflict (mapped_row_id) do nothing;
@@ -883,29 +887,28 @@ create trigger dpgf_import_confirmations_writer before insert or delete on publi
 
 -- The digest of what a member reviews of an import's rows (src/lib/imports/rows-digest.ts, the same computation): for
 -- each mapped row, by its raw row, the facts the proof covers, read from the mapped row, else from the payload's top
--- level (older writers), each typed and prefixed by its length in bytes. The preview computes it where it presents the
+-- level (older writers), each typed and prefixed by its length in bytes (a number as numeric text, an object or an
+-- array as its type alone). The preview computes it where it presents the
 -- rows; the confirmation is refused when the rows it is recorded with are no longer those (a value changed under the
 -- same identifier included).
-create function private.dpgf_row_fact_text(p_value jsonb)
-returns text language sql immutable set search_path = '' as $$
-  select pg_catalog.octet_length(t)::text || ':' || t
-  from (select case when p_value is null or pg_catalog.jsonb_typeof(p_value) = 'null' then 'z'
-    when pg_catalog.jsonb_typeof(p_value) = 'string' then 's' || (p_value #>> '{}')
-    when pg_catalog.jsonb_typeof(p_value) = 'number' then 'n' || (p_value #>> '{}')
-    when pg_catalog.jsonb_typeof(p_value) = 'boolean' then 'b' || (p_value #>> '{}')
-    else 'j' || p_value::text end as t) fact
-$$;
-revoke all on function private.dpgf_row_fact_text(jsonb) from public, anon, authenticated, service_role;
 create function private.dpgf_import_rows_sha256(p_tenant_id uuid, p_import_id uuid)
 returns text language sql stable security definer set search_path = '' as $$
   with lines as (
-    select coalesce(m.raw_row_id::text, '') as key, coalesce(m.raw_row_id::text, '')
-      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,designation}', m.payload -> 'designation'))
-      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,reference}', m.payload -> 'reference'))
-      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,hex_code}', m.payload -> 'hex_code'))
-      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,unit}', m.payload -> 'unit'))
-      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,quantity}', m.payload -> 'quantity'))
-      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,notes}', m.payload -> 'notes')) as line
+    select coalesce(m.raw_row_id::text, '') as key, coalesce(m.raw_row_id::text, '') || (
+      select pg_catalog.string_agg(pg_catalog.octet_length(t.fact)::text || ':' || t.fact, '' order by f.n)
+      from (values
+        (1, coalesce(m.payload #> '{mapped_row,designation}', m.payload -> 'designation')),
+        (2, coalesce(m.payload #> '{mapped_row,reference}', m.payload -> 'reference')),
+        (3, coalesce(m.payload #> '{mapped_row,hex_code}', m.payload -> 'hex_code')),
+        (4, coalesce(m.payload #> '{mapped_row,unit}', m.payload -> 'unit')),
+        (5, coalesce(m.payload #> '{mapped_row,quantity}', m.payload -> 'quantity')),
+        (6, coalesce(m.payload #> '{mapped_row,notes}', m.payload -> 'notes'))) as f(n, value)
+      cross join lateral (select case when f.value is null or pg_catalog.jsonb_typeof(f.value) = 'null' then 'z'
+        when pg_catalog.jsonb_typeof(f.value) = 'string' then 's' || (f.value #>> '{}')
+        when pg_catalog.jsonb_typeof(f.value) = 'number' then 'n' || (f.value #>> '{}')
+        when pg_catalog.jsonb_typeof(f.value) = 'boolean' then 'b' || (f.value #>> '{}')
+        else 'j' end as fact) t
+    ) as line
     from public.dpgf_rows_mapped m
     where m.tenant_id = p_tenant_id and m.import_id = p_import_id and m.status = 'mapped'
   )

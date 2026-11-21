@@ -11,13 +11,16 @@ const rows = [
     payload: { row_index: 0, reference: "R-1",
       mapped_row: { designation: "Lavabo céramique", quantity: 2, unit: "u", notes: null } } },
   { raw_row_id: "a1900000-0000-4000-8000-000000000003", status: "rejected", payload: { designation: "Ignorée" } },
+  // A formula residue and a huge code as numbers, written by the database without an exponent; an object as its type.
+  { raw_row_id: "a1900000-0000-4000-8000-000000000004", status: "mapped",
+    payload: { mapped_row: { designation: "Résidu de formule", quantity: 1e-7, hex_code: 1e21, notes: { cell: "B4" } } } },
 ];
 
 describe("the digest of the rows a member reviews", () => {
   it("is the digest the database computes for the same rows (one value, pinned on both sides)", () => {
     // By raw row; designation, reference, HEX code, unit, quantity, notes; typed, length in UTF-8 bytes; the mapped
     // row first, else the payload's top level. Hashed independently of this code.
-    expect(dpgfImportRowsDigest(rows)).toBe("654bc190a206940c4ebf7d208d5e749af5aa735c655312cebb04e15421fee19b");
+    expect(dpgfImportRowsDigest(rows)).toBe("89396fa5fba15556b91b215baef9cadc6233ffb9384e8480f1548dcf6bd93484");
   });
 
   it("changes with any reviewed value, not with the order the rows are read in", () => {
