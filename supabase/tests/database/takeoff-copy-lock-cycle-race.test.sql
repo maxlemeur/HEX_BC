@@ -12,6 +12,10 @@ create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 select no_plan();
+-- M4 patched exactly the definition main left (its guard stops on any other source): only its affaire lock changed.
+select is((select md5(p.prosrc) from pg_catalog.pg_proc p
+  where p.oid = 'public.duplicate_estimate_version_without_product_id(uuid,boolean)'::regprocedure),
+  'f8fdd1470e774fe76e6d020fa989bac8', 'the copy is main''s definition with its affaire held FOR NO KEY UPDATE');
 
 create function pg_temp.fx(n integer) returns uuid language sql immutable as $$
   select ('d4800000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
