@@ -1,5 +1,5 @@
 /**
- * The item templates an administrator publishes (migration 20261121180813_takeoff_item_lists.sql): the definition's
+ * The item templates an administrator publishes (migration 20261121230719_takeoff_item_lists.sql): the definition's
  * contract (the database checks the same bounds), its conversion from and to the template the lists read, and what a
  * correction adds, removes and changes, by line identifier. A line keeps its identifier from version to version: an
  * item instantiated from it keeps its identity in every affaire.

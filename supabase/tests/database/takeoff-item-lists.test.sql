@@ -1,4 +1,4 @@
--- Lot 4, migration A (20261121180813_takeoff_item_lists.sql): the list of items of an affaire and the item templates.
+-- Lot 4, migration A (20261121230719_takeoff_item_lists.sql): the list of items of an affaire and the item templates.
 -- 1. Who may read and write: the takeoff operator of the affaire writes its list, its readers read it; an administrator
 --    of the tenant publishes a template; nobody writes a table directly.
 -- 2. The identity rule: an origin key keeps its item across revisions, retirement and return; a new key takes an existing

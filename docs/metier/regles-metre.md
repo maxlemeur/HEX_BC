@@ -9,7 +9,7 @@ Le métré se suit depuis son affaire, y compris pour une analyse créée sur un
 
 Un **poste** est une prestation demandée à l’affaire. La liste des postes est un
 fait enregistré de l’affaire, en révisions immuables
-(`supabase/migrations/20261121180813_takeoff_item_lists.sql`). La page **Métrés**
+(`supabase/migrations/20261121230719_takeoff_item_lists.sql`). La page **Métrés**
 la montre en entier tant que l’affaire n’a pas de devis, puis sur une ligne avec un
 lien « Voir la liste des postes ». Tous les lecteurs de l’affaire la lisent, avec son
 historique et ses sources. L’opérateur du métré de l’affaire la complète :

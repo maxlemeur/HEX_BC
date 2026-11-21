@@ -8,7 +8,7 @@ import {
 
 // The reasons a launch request waits on are decided in SQL (the claim, the allowed gesture) and shown by the server:
 // the TypeScript lists are the latest migration's definition (20261121170448_takeoff_launch_requests.sql, replaced by
-// later ones such as 20261121180813_takeoff_item_lists.sql), in the same order, so that a reason added to one is added
+// later ones such as 20261121230719_takeoff_item_lists.sql), in the same order, so that a reason added to one is added
 // to the other.
 const directory = path.resolve("supabase/migrations");
 const migrations = readdirSync(directory).filter((file) => file.endsWith(".sql")).sort()

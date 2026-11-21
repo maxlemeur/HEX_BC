@@ -97,7 +97,7 @@ export const TAKEOFF_GROUPED_UNIT_KEY = "grouped";
 /**
  * The measuring order of a manifest: the free extraction (version 1), or the affaire's list of items sealed at admission
  * (version 2, lot 4: its stored revision, its number, the database's digest of its entries and its size), behind its own
- * activation (migration 20261121180813_takeoff_item_lists.sql).
+ * activation (migration 20261121230719_takeoff_item_lists.sql).
  */
 export type TakeoffLaunchOrder =
   | { kind: "free_extraction"; version: 1; list: null }

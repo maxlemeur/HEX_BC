@@ -1,5 +1,5 @@
 /**
- * The list of items (« postes ») of an affaire as a stored fact (migration 20261121180813_takeoff_item_lists.sql): the
+ * The list of items (« postes ») of an affaire as a stored fact (migration 20261121230719_takeoff_item_lists.sql): the
  * conversion between an immutable revision and its stored entries, the revision proposed when the affaire's sources
  * change, and an item added by hand. The identity rule is the core's (`poste-list.ts`): an origin keeps its item.
  */
