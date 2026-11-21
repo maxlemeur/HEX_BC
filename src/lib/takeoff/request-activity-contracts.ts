@@ -45,9 +45,12 @@ const jobSchema = z.object({
   jobId: uuid,
   planSetId: uuid.nullable(),
   estimateVersionId: uuid.nullable().describe("La version sur laquelle s’ouvre sa revue, une fois envoyée."),
-  itemCount: count,
+  lastTransitionAt: timestamp.nullable().describe("Dernière transition de l’analyse (création, début, fin), jamais un renouvellement de bail."),
+  itemCount: count.describe("Lignes retenues, c’est-à-dire non exclues."),
   applied: z.boolean().describe("Ses lignes sont envoyées au devis ; la lecture reste réussie."),
-  errorCode: z.string().nullable().describe("Code de diagnostic ; l’écran affiche son motif en français, jamais le code."),
+  errorCode: z.string().nullable().describe(
+    "Code de diagnostic s’il a un motif public en français, sinon OTHER ; l’écran affiche le motif, jamais le code.",
+  ),
   retryCount: count,
   resume: takeoffActivityResumeSchema.nullable().describe("Décision de reprise d’une analyse arrêtée, la même que son détail."),
   canCancel: z.boolean(),
@@ -99,8 +102,21 @@ export const takeoffRequestActivityResponseSchema = z.object({
     "Analyses de l’affaire sans demande en cours de lecture ou mises en file à l’instant (running), en file depuis plus "
     + "longtemps ou en attente d’une reprise programmée (waiting).",
   ),
-  elsewhere: z.object({ waiting: z.boolean() })
-    .describe("Vues request et job : la dernière exécution de l’affaire, quand ce n’est pas celle affichée, peut encore changer."),
+  elsewhere: z.object({ running: z.boolean(), waiting: z.boolean() }).describe(
+    "Vues request et job : la dernière exécution de l’affaire, quand ce n’est pas celle affichée, lit un plan (running) ou "
+    + "peut encore changer (waiting).",
+  ),
+  currentIsLatest: z.boolean().describe("La demande affichée est la dernière exécution de l’affaire."),
+  inFlightJobIds: z.array(uuid).describe(
+    "Analyses de l’affaire que cette lecture voit encore en file, en cours ou en attente de reprise : une analyse que la liste "
+    + "montre ainsi et qui n’y figure pas a changé depuis la liste.",
+  ),
+  reused: z.object({
+    dossierPosition: z.string().nullable().describe("Position du dossier de la demande affichée ; à renvoyer en dossierSeen."),
+    dossier: z.boolean().describe("Le dossier n’a pas bougé depuis dossierSeen : son écart n’a pas été recalculé (dossierChanged nul)."),
+    actionKey: z.string().nullable().describe("Clé du geste lu ; à renvoyer en actionSeen avec observedAt en actionSeenAt."),
+    action: z.boolean().describe("Le geste n’a pas été relu (lu il y a moins de 30 s pour la même demande) : action nulle."),
+  }),
 });
 
 export type TakeoffRequestActivity = z.infer<typeof takeoffRequestActivitySchema>;

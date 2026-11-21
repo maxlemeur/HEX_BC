@@ -2,6 +2,7 @@ import { cleanup,fireEvent,render,screen } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import type { TakeoffRequestActivityResponse } from "@/lib/takeoff/request-activity-contracts";
+import { fixtureActivityResponse, fixtureJob, fixtureThreePlans } from "@/lib/takeoff/request-activity.test-fixtures";
 import type { TakeoffActivityCenterResponse } from "@/lib/takeoff/types";
 
 const useSWRMock = vi.hoisted(() => vi.fn());
@@ -57,7 +58,8 @@ vi.mock("./TakeoffJobsTable", () => ({
 
 import TakeoffActivityCenter from "./TakeoffActivityCenter";
 
-const SUMMARY_KEY = ["activity-center", "project-1", "all", "all", "all", "all", "all", "all", "all", 0, 0, 20];
+// The lists are keyed by the member (here none): another member never gets this answer (fix round 1, point 1).
+const SUMMARY_KEY = ["activity-center", "", "project-1", "all", "all", "all", "all", "all", "all", "all", 0, 0, 20];
 
 const EMPTY_RESPONSE: TakeoffActivityCenterResponse = {
   analysisCompletions: [],
@@ -174,7 +176,7 @@ describe("TakeoffActivityCenter", () => {
     });
     // The list request names the job: an older failure is never off the first page.
     expect(useSWRMock.mock.calls.map(([key]) => key)).toContainEqual(
-      ["activity-center", "project-1", "all", "all", "all", "all", "all", "all", FAILED_JOB_ID, 0, 0, 20],
+      ["activity-center", "", "project-1", "all", "all", "all", "all", "all", "all", FAILED_JOB_ID, 0, 0, 20],
     );
     const selected = screen.getByRole("list", { name: "Analyse sélectionnée" });
     expect(selected).toHaveTextContent("Analyse échouée");
@@ -253,6 +255,17 @@ describe("TakeoffActivityCenter", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-2");
   });
 
+  // Fix round 1, point 4: a link to a job of the latest request keeps the step on that request's plans.
+  it("follows the request of the job a link names when it is the latest execution", () => {
+    searchParams = new URLSearchParams(`job=${fixtureJob("c")}`);
+    renderCenter({ requestActivity: fixtureActivityResponse(fixtureThreePlans(), { view: "job", currentIsLatest: true }) });
+    expect(screen.getByRole("heading", { name: "Premiers plans prêts à revoir" })).toBeVisible();
+    cleanup();
+    // An older request named by a link leaves the step to the affaire's own latest state.
+    renderCenter({ requestActivity: fixtureActivityResponse(fixtureThreePlans(), { view: "job", currentIsLatest: false }) });
+    expect(screen.queryByRole("heading", { name: "Premiers plans prêts à revoir" })).toBeNull();
+  });
+
   // Lot 3 PR 4 changes this on purpose: the list of analyses no longer polls on its own (it was read every 20 s while a row
   // waited). The page's one poll is the light read of the launch requests, whose interval comes from its own answer; the
   // list is read again when that answer reports a transition (TakeoffActivityCenter.polling.test.tsx runs the real hook).
@@ -260,7 +273,8 @@ describe("TakeoffActivityCenter", () => {
     const waiting = { ...EMPTY_RESPONSE, jobs: [{ jobId: "job-1", statusRaw: "action_required", technicalStatusRaw: "failed",
       resume: { action: "wait_retry", reason: "retry_scheduled", availableAt: "2020-01-01T00:00:00.000Z" } }] } as unknown as TakeoffActivityCenterResponse;
     const lightWaiting = { view: "current", observedAt: "2026-11-21T10:00:00.000Z", live: true, signature: "a", current: null,
-      history: [], historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 1 }, elsewhere: { waiting: false } } satisfies TakeoffRequestActivityResponse;
+      history: [], historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 1 }, elsewhere: { running: false, waiting: false }, currentIsLatest: false,
+      inFlightJobIds: [], reused: { dossierPosition: null, dossier: false, actionKey: null, action: false } } satisfies TakeoffRequestActivityResponse;
     renderCenter({ response: waiting, requestActivity: lightWaiting });
     const intervals = (scope: string, view?: string) => useSWRMock.mock.calls
       .filter(([key]) => Array.isArray(key) && key[0] === scope && (view === undefined || key[3] === view))

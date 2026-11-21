@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { ok } from "@/lib/http/api-response";
 import { toTakeoffRouteErrorResponse } from "@/lib/takeoff/errors";
 import { TAKEOFF_REQUEST_ACTIVITY_VIEWS, type TakeoffRequestActivityView } from "@/lib/takeoff/request-activity-contracts";
-import { readTakeoffRequestActivity } from "@/lib/takeoff/request-activity-server";
+import { readTakeoffRequestActivity, toRequestActivityReadError } from "@/lib/takeoff/request-activity-server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -29,12 +29,18 @@ export async function GET(request: Request) {
     if (!Number.isSafeInteger(rawOffset) || rawOffset < 0) return badRequest("Décalage invalide.");
     if (rawLimit !== undefined && (!Number.isSafeInteger(rawLimit) || rawLimit < 1)) return badRequest("Nombre de résultats invalide.");
 
+    const seen = (name: string) => {
+      const value = searchParams.get(name);
+      return value && value.length <= 200 ? value : null;
+    };
     return ok(await readTakeoffRequestActivity({
       projectId: projectId.toLowerCase(), view,
       requestId: requestId?.toLowerCase() ?? null, jobId: jobId?.toLowerCase() ?? null,
       offset: rawOffset, limit: rawLimit,
+      dossierSeen: seen("dossierSeen"), actionSeen: seen("actionSeen"), actionSeenAt: seen("actionSeenAt"),
     }));
   } catch (error) {
-    return toTakeoffRouteErrorResponse(error);
+    // A timeout or a lost connection is a read to try again; only a refusal stops the page's reads.
+    return toTakeoffRouteErrorResponse(toRequestActivityReadError(error));
   }
 }

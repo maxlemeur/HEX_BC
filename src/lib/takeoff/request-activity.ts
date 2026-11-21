@@ -15,7 +15,6 @@ import {
 import {
   resolveTakeoffOperatorState,
   toTakeoffOperatorStateInput,
-  viewerLaunchAction,
   type TakeoffOperatorStateRow,
   type TakeoffResumeViewer,
 } from "@/lib/takeoff/operator-state";
@@ -54,8 +53,27 @@ export type TakeoffRequestJobRow = TakeoffOperatorStateRow & {
   launch_request_id: string | null;
   plan_set_id: string | null;
   estimate_version_id: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  analysis_finished_at?: string | null;
+  /** Its lines that are not excluded: a reading that kept only excluded hypotheses retains none. */
   item_count: number;
 };
+
+/**
+ * The sources (plan copies, dossier pieces) the member may read, by the same rules as their own policies: a plan's or a
+ * piece's name and pages are shown only for those; otherwise a neutral « Plan N ». `all`: the member reads every plan
+ * file of the affaire (its owner or an administrator).
+ */
+export type TakeoffVisibleSources = "all" | { planFiles: ReadonlySet<string>; documents: ReadonlySet<string> };
+
+export function isTakeoffSourceVisible(visible: TakeoffVisibleSources, ...ids: Array<string | null | undefined>) {
+  if (visible === "all") return true;
+  return ids.some((id) => Boolean(id) && (visible.planFiles.has(id!.toLowerCase()) || visible.documents.has(id!.toLowerCase())));
+}
+
+/** The error codes this activity carries: those with a public French reason; any other is the generic one. */
+export const TAKEOFF_GENERIC_FAILURE_CODE = "OTHER";
 
 /** A job of a request as its unit's state is derived from it (read by the server, whatever the member may read). */
 export type TakeoffRequestUnitJobRow = {
@@ -70,14 +88,14 @@ export type TakeoffRequestUnitJobRow = {
   updated_at: string;
 };
 
-type ManifestPlan = { planFileId: string | null; logicalId: string | null; name: string; pages: number[] };
+type ManifestPlan = { planFileId: string | null; logicalId: string | null; documentId: string | null; name: string; pages: number[] };
 
 /** The part of a sealed manifest the activity reads: its units in order, the plans they name, the plans set aside. */
 export type TakeoffRequestManifest = {
   formatVersion: number | null;
   units: Array<{ key: string; ordinal: number; plans: string[]; pages: number[] | null }>;
   plans: Map<string, ManifestPlan>;
-  omitted: TakeoffRequestActivity["plansOmitted"];
+  omitted: Array<TakeoffRequestActivity["plansOmitted"][number] & { id: string | null }>;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -113,6 +131,7 @@ export function parseTakeoffRequestManifest(raw: unknown): TakeoffRequestManifes
     plans.set(plan.entry_key, {
       planFileId: typeof plan.plan_file_id === "string" && UUID.test(plan.plan_file_id) ? plan.plan_file_id.toLowerCase() : null,
       logicalId: typeof plan.logical_id === "string" ? plan.logical_id : null,
+      documentId: typeof plan.intake_document_id === "string" ? plan.intake_document_id : null,
       name: plan.name,
       pages: toPages(plan.pages),
     });
@@ -120,7 +139,8 @@ export function parseTakeoffRequestManifest(raw: unknown): TakeoffRequestManifes
   const coverage = isRecord(raw.coverage) ? raw.coverage : {};
   const omitted = (Array.isArray(coverage.plans_omitted) ? coverage.plans_omitted : []).flatMap((entry) =>
     isRecord(entry) && typeof entry.name === "string" && typeof entry.reason === "string" && OMITTED_REASONS.has(entry.reason)
-      ? [{ name: entry.name, reason: entry.reason as TakeoffRequestActivity["plansOmitted"][number]["reason"] }]
+      ? [{ id: typeof entry.id === "string" ? entry.id : null, name: entry.name,
+        reason: entry.reason as TakeoffRequestActivity["plansOmitted"][number]["reason"] }]
       : []);
   return {
     formatVersion: typeof raw.format_version === "number" ? raw.format_version : null,
@@ -190,6 +210,33 @@ export function deriveTakeoffRequestUnits(input: {
   };
 }
 
+/** A code with a public French reason as is; any other code the generic one; none stays none. */
+export function toPublicFailureCode(code: string | null | undefined) {
+  if (!code) return null;
+  return PUBLIC_CODES.has(code) ? code : TAKEOFF_GENERIC_FAILURE_CODE;
+}
+
+function latestOf(values: Array<string | null | undefined>) {
+  let best: string | null = null;
+  for (const value of values) {
+    if (value && Number.isFinite(Date.parse(value)) && (!best || Date.parse(value) > Date.parse(best))) best = value;
+  }
+  return best;
+}
+
+/** A list of named pieces with the names the member may not read replaced by « Plan N » (its rank in the list). */
+export function maskTakeoffPieces<T extends { id: string; name: string }>(pieces: ReadonlyArray<T>, visible: TakeoffVisibleSources): T[] {
+  return pieces.map((piece, index) => isTakeoffSourceVisible(visible, piece.id) ? piece : { ...piece, name: `Plan ${index + 1}` });
+}
+
+/** The dossier's changes since a seal, each name shown only to a member who may read its source. */
+export function maskTakeoffDossierChange<T extends { added: Array<{ id: string; name: string }>; replaced: Array<{ id: string; name: string }>;
+  removed: Array<{ id: string; name: string }> }>(change: T | null, visible: TakeoffVisibleSources): T | null {
+  if (!change) return null;
+  return { ...change, added: maskTakeoffPieces(change.added, visible), replaced: maskTakeoffPieces(change.replaced, visible),
+    removed: maskTakeoffPieces(change.removed, visible) };
+}
+
 function toPieces(details: unknown): TakeoffLaunchPiece[] {
   const pieces = isRecord(details) && Array.isArray(details.pieces) ? details.pieces : [];
   return pieces.flatMap((piece) => isRecord(piece) && typeof piece.id === "string" && typeof piece.name === "string"
@@ -199,13 +246,15 @@ function toPieces(details: unknown): TakeoffLaunchPiece[] {
 /** What this member may do with an analysis, by the same policy as its detail, the list and the retry command. */
 function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, now: Date): TakeoffRequestActivityJob {
   const decision = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer, now));
+  const transition = latestOf([job.created_at, job.started_at, job.completed_at, job.analysis_finished_at]);
   return {
     jobId: job.id,
     planSetId: job.plan_set_id,
     estimateVersionId: job.estimate_version_id,
+    lastTransitionAt: transition,
     itemCount: job.item_count,
     applied: job.status === "applied",
-    errorCode: job.error_code ?? null,
+    errorCode: toPublicFailureCode(job.error_code),
     retryCount: job.retry_count ?? 0,
     resume: decision.resume.reason === "not_stopped" ? null : decision.resume,
     canCancel: decision.canCancel,
@@ -225,21 +274,33 @@ export function buildTakeoffRequestActivity(input: {
   jobs: ReadonlyArray<TakeoffRequestJobRow>;
   viewer: TakeoffResumeViewer;
   now: Date;
+  /** The sources the member may read: the names and pages of the others are not shown. */
+  visible: TakeoffVisibleSources;
   action?: TakeoffRequestActivity["action"];
   dossierChanged?: TakeoffRequestActivity["dossierChanged"];
 }): TakeoffRequestActivity {
-  const { request, units, manifest } = input;
+  const { request, manifest, visible } = input;
   const reason = isTakeoffLaunchReason(request.reason_code)
-    ? { code: request.reason_code, message: describeTakeoffLaunchReason(request.reason_code, toPieces(request.reason_details)) }
+    ? { code: request.reason_code,
+      message: describeTakeoffLaunchReason(request.reason_code, maskTakeoffPieces(toPieces(request.reason_details), visible)) }
     : request.state === "superseded"
       ? { code: "SUPERSEDED", message: describeTakeoffLaunchReason("SUPERSEDED") }
       : null;
+  // A plan's name and pages only where the member may read its copy or its dossier piece.
+  const units = input.units ? {
+    ...input.units,
+    units: input.units.units.map((unit) => unit.key === TAKEOFF_GROUPED_UNIT_KEY || isTakeoffSourceVisible(visible, unit.planFileId, unit.logicalId)
+      ? unit : { ...unit, name: `Plan ${unit.ordinal}`, pages: [], planFileId: null, logicalId: null }),
+  } : null;
   // The plans of a grouped unit, with their pages: the manifest's, never several analyses.
   const groupedUnit = units?.format === "grouped" && manifest
     ? manifest.units.find((unit) => unit.key === TAKEOFF_GROUPED_UNIT_KEY) ?? manifest.units[0] : undefined;
-  const grouped = (groupedUnit?.plans ?? []).flatMap((entry) => {
+  const grouped = (groupedUnit?.plans ?? []).flatMap((entry, index) => {
     const plan = manifest?.plans.get(entry);
-    return plan ? [{ planFileId: plan.planFileId, name: plan.name, pages: plan.pages }] : [];
+    if (!plan) return [];
+    return isTakeoffSourceVisible(visible, plan.planFileId, plan.documentId, plan.logicalId)
+      ? [{ planFileId: plan.planFileId, name: plan.name, pages: plan.pages }]
+      : [{ planFileId: null, name: `Plan ${index + 1}`, pages: [] }];
   });
   const unitJobs = new Set(units?.units.map((unit) => unit.jobId) ?? []);
 
@@ -258,11 +319,13 @@ export function buildTakeoffRequestActivity(input: {
       format: units.format, units: units.units, coverage: units.coverage, unknownCalls: units.usage?.unknownCalls ?? null,
     } : null,
     groupedPlans: grouped,
-    plansOmitted: request.admitted_at && manifest ? manifest.omitted : [],
+    plansOmitted: request.admitted_at && manifest ? manifest.omitted.map((entry, index) => ({
+      name: isTakeoffSourceVisible(visible, entry.id) ? entry.name : `Plan ${index + 1}`, reason: entry.reason,
+    })) : [],
     jobs: input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id))
       .map((job) => toActivityJob(job, input.viewer, input.now)),
     action: input.action ?? null,
-    dossierChanged: input.dossierChanged ?? null,
+    dossierChanged: maskTakeoffDossierChange(input.dossierChanged ?? null, visible),
   };
 }
 
@@ -277,8 +340,9 @@ export function takeoffRequestProgress(request: Pick<TakeoffRequestActivity, "st
     // Every unit ended (or its manifest is unreadable here) and the request is not closed yet: its closure is on its way.
     return "waiting";
   }
-  // Evaluated by its Mac, or held by a passing cause: the same rule as the gesture the affaire offers (« wait »).
-  return viewerLaunchAction(null, false, request.state, request.reason?.code ?? null) === "wait" ? "waiting" : null;
+  // Closed and set aside are final. Any other state can still move without this page: its Mac evaluates it, a change of
+  // the dossier marks it for a new evaluation, or another member takes it on.
+  return request.state === "closed" || request.state === "superseded" ? null : "waiting";
 }
 
 /** While a plan is read: the next state shows within this delay plus the read. */
@@ -308,7 +372,7 @@ export function takeoffRequestRefreshInterval(data: TakeoffRequestActivityRespon
   if (!data) return 0;
   const observedAt = Date.parse(data.observedAt);
   const own = options.ownRequestOnly === true;
-  let fast = !own && data.standalone.running > 0;
+  let fast = !own && (data.standalone.running > 0 || data.elsewhere.running);
   let slow = !own && (data.standalone.waiting > 0 || data.elsewhere.waiting);
   for (const request of own ? [data.current] : [data.current, ...data.history]) {
     if (!request) continue;

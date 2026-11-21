@@ -14,10 +14,14 @@ export const TAKEOFF_PUBLIC_FAILURE_CODES = [
   "TAKEOFF_WORKER_NOT_STARTED", "TAKEOFF_WORKER_OUTCOME_UNKNOWN", "TAKEOFF_WORKER_QUEUE_EXPIRED",
 ] as const;
 
-export const TAKEOFF_COMPLETION_LABELS: Readonly<Record<TakeoffAnalysisOutcome, string>> = {
+/** The end a notice tells: an analysis's, or a launch request's, which may have read some of its plans only. */
+export type TakeoffNoticeOutcome = TakeoffAnalysisOutcome | "partial";
+
+export const TAKEOFF_COMPLETION_LABELS: Readonly<Record<TakeoffNoticeOutcome, string>> = {
   success: "Analyse terminée",
   failure: "Analyse échouée",
   canceled: "Analyse annulée",
+  partial: "Analyse terminée en partie",
 };
 
 const completionDate = new Intl.DateTimeFormat("fr-FR", {
@@ -30,6 +34,11 @@ export function formatTakeoffCompletionDate(timestamp: string) {
 
 export function toTakeoffAnalysisOutcome(value: unknown): TakeoffAnalysisOutcome | null {
   return value === "success" || value === "failure" || value === "canceled" ? value : null;
+}
+
+/** A notice's end, a launch request's partial end included. */
+export function toTakeoffNoticeOutcome(value: unknown): TakeoffNoticeOutcome | null {
+  return value === "partial" ? value : toTakeoffAnalysisOutcome(value);
 }
 
 /** Commit the retry decision together with the failure under the processing lease. */

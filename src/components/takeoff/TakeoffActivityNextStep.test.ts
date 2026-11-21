@@ -109,6 +109,17 @@ describe("resolveTakeoffRequestStep", () => {
     expect(requestStep(request)?.description).toBe("1 plan lu sur 1. Leur revue n’est pas accessible avec votre profil.");
   });
 
+  // Fix round 1: A sent and B read but out of this member's reach: never « the plans read are in the estimate ».
+  it("says only that the plans this member reviews are sent when another read plan is out of their reach", () => {
+    const request = fixtureRequest([fixtureUnit("a", 1, { state: "succeeded", reviewable: true }),
+      fixtureUnit("b", 2, { state: "succeeded", reviewable: true })], [fixtureActivityJob("a", { applied: true, itemCount: 2 })],
+    { state: "closed", outcome: "success", closedAt: "2026-11-21T09:10:00.000Z" });
+    const next = requestStep(request);
+    expect(next?.title).toBe("Plans lus");
+    expect(next?.description).not.toContain("Les plans lus sont dans le devis");
+    expect(next?.description).toContain("les autres ne sont pas accessibles avec votre profil");
+  });
+
   it("words a grouped analysis as one analysis", () => {
     const grouped = fixtureRequest([fixtureUnit("d", 1, { key: "grouped", state: "succeeded", reviewable: true })], [fixtureActivityJob("d", { itemCount: 2 })]);
     const view = { ...grouped, units: { ...grouped.units!, format: "grouped" as const }, groupedPlans: [

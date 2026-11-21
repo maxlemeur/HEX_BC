@@ -34,7 +34,7 @@ import {
 
 import TakeoffJobsTable from "./TakeoffJobsTable";
 import { TakeoffRequestActivity } from "./TakeoffRequestActivity";
-import { isTakeoffRequestActivityKey, useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
+import { isTakeoffReadRefusal, isTakeoffRequestActivityKey, useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
 import TakeoffExceptionsTab from "./TakeoffExceptionsTab";
 import TakeoffApplicationHistoryTab from "./TakeoffApplicationHistoryTab";
 import {
@@ -100,6 +100,8 @@ function AnalysisCompletionList({ label, completions }: { label: string; complet
 
 type ActivityKey = readonly [
   scope: "activity-center",
+  /** The member and their tenant: another member's answer is never served. */
+  viewerKey: string,
   projectId: string,
   version: string,
   lot: string,
@@ -113,7 +115,7 @@ type ActivityKey = readonly [
   limit: number,
 ];
 
-function fetchActivityPage([, projectId, version, lot, planSet, status, level, period, job, offset, completionsOffset, limit]: ActivityKey) {
+function fetchActivityPage([, , projectId, version, lot, planSet, status, level, period, job, offset, completionsOffset, limit]: ActivityKey) {
   const filter = (value: string) => (value !== "all" ? value : null);
   return fetchTakeoffActivityCenter(projectId, {
     versionId: filter(version),
@@ -129,7 +131,15 @@ function fetchActivityPage([, projectId, version, lot, planSet, status, level, p
   });
 }
 
-export default function TakeoffActivityCenter({
+/**
+ * Another member (or another tenant of the same member) starts the page again: nothing of this member's answers is
+ * shown while theirs load, not even the previous page of a list.
+ */
+export default function TakeoffActivityCenter(props: Props) {
+  return <TakeoffActivityCenterView key={props.viewerKey ?? ""} {...props} />;
+}
+
+function TakeoffActivityCenterView({
   projectId,
   viewerKey = "",
   versions,
@@ -223,9 +233,9 @@ export default function TakeoffActivityCenter({
 
   // The next step and the « Repères » read the affaire's newest analyses on every view,
   // whatever the filters; the unfiltered first page of the list is this same request.
-  const summaryKey: ActivityKey = ["activity-center", projectId, "all", "all", "all", "all", "all", "all", "all", 0, 0, PAGE_SIZE_OPTIONS[0]];
+  const summaryKey: ActivityKey = ["activity-center", viewerKey, projectId, "all", "all", "all", "all", "all", "all", "all", 0, 0, PAGE_SIZE_OPTIONS[0]];
   const {
-    data: summaryData,
+    data: summaryAnswer,
     error: summaryError,
     isLoading: isSummaryLoading,
     mutate: mutateSummary,
@@ -234,10 +244,11 @@ export default function TakeoffActivityCenter({
     revalidateOnReconnect: true,
     shouldRetryOnError: false,
   });
-  const { data: listData, error: listError, mutate: mutateList } = useSWR(
+  const { data: listAnswer, error: listError, mutate: mutateList } = useSWR(
     activeTab === "jobs"
       ? ([
           "activity-center",
+          viewerKey,
           projectId,
           selectedVersion,
           selectedLot,
@@ -259,7 +270,28 @@ export default function TakeoffActivityCenter({
       shouldRetryOnError: false,
     }
   );
+  // A refusal (no right on the affaire any more) withdraws what was shown, never leaves the earlier state on screen.
+  const summaryData = isTakeoffReadRefusal(summaryError) ? undefined : summaryAnswer;
+  const listData = isTakeoffReadRefusal(listError) ? undefined : listAnswer;
   const isSlowLoading = useDelayedLoadingIndicator(isSummaryLoading);
+
+  // The page's first light answer may be older or newer than the list read beside it: an analysis the list shows queued,
+  // running or awaiting its retry that the light answer does not is a transition, and both are read again (once per
+  // light answer and list, so that a lasting difference never loops). A waiting row is then followed by the poll.
+  const lightAnswer = requestActivity.data;
+  const comparedLists = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lightAnswer) return;
+    const inFlight = new Set(lightAnswer.inFlightJobIds);
+    const listed = [...(summaryData?.jobs ?? []), ...(listData?.jobs ?? [])].filter((job) =>
+      job.technicalStatusRaw === "pending" || job.technicalStatusRaw === "processing" || job.resume?.reason === "retry_scheduled");
+    const moved = [...new Set(listed.filter((job) => !inFlight.has(job.jobId)).map((job) => job.jobId))].sort();
+    if (moved.length === 0) return;
+    const mark = `${lightAnswer.signature}|${moved.join(",")}`;
+    if (comparedLists.current === mark) return;
+    comparedLists.current = mark;
+    void mutateAll((key: unknown) => (Array.isArray(key) && key[0] === "activity-center") || isTakeoffRequestActivityKey(key));
+  }, [lightAnswer, summaryData, listData, mutateAll]);
 
   // Derive lot options from project-scoped plan-set metadata so filtering is stable across pages.
   const lotOptions = (() => {
@@ -377,7 +409,8 @@ export default function TakeoffActivityCenter({
   // The latest execution leads when it is a launch request newer than the latest analysis launched without one: its plans,
   // never the latest job by date, decide the step.
   const latestJob = summaryData?.jobs[0] ?? null;
-  const currentRequest = linked ? null : requestActivity.data?.current ?? null;
+  // A link to a request or an analysis of the latest execution keeps the step on that execution.
+  const currentRequest = !linked || requestActivity.data?.currentIsLatest ? requestActivity.data?.current ?? null : null;
   const requestLeads = currentRequest !== null && (!latestJob || latestJob.launchRequestId != null
     || Date.parse(latestJob.createdAt) <= Date.parse(currentRequest.createdAt));
   const requestStep = requestLeads ? resolveTakeoffRequestStep({ projectId, request: currentRequest, canLaunch: launchContext !== null }) : null;
@@ -468,7 +501,7 @@ export default function TakeoffActivityCenter({
         viewerKey={viewerKey}
         live={{
           data: requestActivity.data, error: requestActivity.error, isLoading: requestActivity.isLoading,
-          refreshMs: requestActivity.refreshMs, refresh: refreshEverything,
+          refused: requestActivity.refused, refreshMs: requestActivity.refreshMs, refresh: refreshEverything,
         }}
         linked={linked}
         onShowLatest={() => updateParams({ request: null, job: null, offset: null })}

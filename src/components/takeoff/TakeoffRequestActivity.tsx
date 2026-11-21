@@ -106,9 +106,12 @@ function RequestUnits({ projectId, request, onLocate, onCommand, pending }: {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={STATE_TONE[unit.state]} size="sm">{describeTakeoffRequestUnitState(unit, job)}</Badge>
-                <time dateTime={unit.updatedAt} className="text-xs text-muted-foreground">
-                  {formatTakeoffCompletionDate(unit.updatedAt)}
-                </time>
+                {/* The analysis's own last transition (created, started, ended), never a renewal of its lease. */}
+                {job?.lastTransitionAt ? (
+                  <time dateTime={job.lastTransitionAt} className="text-xs text-muted-foreground">
+                    {formatTakeoffCompletionDate(job.lastTransitionAt)}
+                  </time>
+                ) : null}
               </div>
             </div>
             {grouped && request.groupedPlans.length > 0 ? (
@@ -241,6 +244,8 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
     data: TakeoffRequestActivityResponse | undefined;
     error: unknown;
     isLoading: boolean;
+    /** The member may not read this affaire's takeoff any more: nothing earlier is shown. */
+    refused: boolean;
     refreshMs: number;
     refresh: () => void;
   };
@@ -283,8 +288,20 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
     }
   };
 
+  if (live.refused) {
+    return (
+      <section className="journey-panel" aria-labelledby="takeoff-request-heading" data-testid="takeoff-request-refused">
+        <header className="journey-panel-heading"><h2 id="takeoff-request-heading">Analyse des plans</h2></header>
+        <div className="journey-panel-body">
+          <p className="text-sm text-muted-foreground" role="alert">
+            {isTakeoffApiError(live.error) && live.error.message ? live.error.message : "Vous n’avez plus accès au métré de cette affaire."}
+          </p>
+        </div>
+      </section>
+    );
+  }
   const current = live.data?.current ?? null;
-  const olders = linked ? [] : history.data?.history ?? [];
+  const olders = linked || history.refused ? [] : history.data?.history ?? [];
   // A linked analysis without a request is the list's own (?job=): nothing to say here.
   const linkedRequestId = linked?.view === "request" ? linked.target : null;
   if (!current && olders.length === 0) {

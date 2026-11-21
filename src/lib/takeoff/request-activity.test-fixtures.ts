@@ -23,7 +23,8 @@ export function fixtureUnit(letter: string, ordinal: number, overrides: Partial<
 
 export function fixtureActivityJob(letter: string, overrides: Partial<TakeoffRequestActivityJob> = {}): TakeoffRequestActivityJob {
   return {
-    jobId: fixtureJob(letter), planSetId: FIXTURE_PLAN_SET, estimateVersionId: null, itemCount: 0, applied: false, errorCode: null,
+    jobId: fixtureJob(letter), planSetId: FIXTURE_PLAN_SET, estimateVersionId: null, lastTransitionAt: "2026-11-21T09:05:00.000Z",
+    itemCount: 0, applied: false, errorCode: null,
     retryCount: 0, resume: null, canCancel: false, canResubmit: false, ...overrides,
   };
 }
@@ -44,7 +45,8 @@ export function fixtureActivityResponse(current: TakeoffRequestActivity | null,
   overrides: Partial<TakeoffRequestActivityResponse> = {}): TakeoffRequestActivityResponse {
   return {
     view: "current", observedAt: "2026-11-21T09:06:00.000Z", live: true, signature: "s", current, history: [],
-    historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 0 }, elsewhere: { waiting: false },
+    historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 0 }, elsewhere: { running: false, waiting: false },
+    currentIsLatest: current !== null, inFlightJobIds: [], reused: { dossierPosition: null, dossier: false, actionKey: null, action: false },
     ...overrides,
   };
 }

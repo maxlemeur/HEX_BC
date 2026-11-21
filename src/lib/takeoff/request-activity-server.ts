@@ -3,9 +3,10 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
+import { ApiError } from "@/lib/http/api-error";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { readDossierChangeSinceAnalysis } from "@/lib/takeoff/launch-request-server";
 import {
@@ -33,11 +34,14 @@ import type {
   TakeoffRequestActivityView,
 } from "@/lib/takeoff/request-activity-contracts";
 import { readTakeoffExecution, toTakeoffResumeViewer } from "@/lib/takeoff/resume-viewer-server";
+import { readTakeoffVisibleSources } from "@/lib/takeoff/source-visibility-server";
 
 export const TAKEOFF_REQUEST_HISTORY_DEFAULT_LIMIT = 5;
 export const TAKEOFF_REQUEST_HISTORY_MAX_LIMIT = 20;
 /** Bounds a read whose size the manifests already bound (20 plans a request, one page of requests); never reached. */
 const MAX_JOBS_READ = 1_000;
+/** The gesture before an admission is read again at the slow pace of the page, never on each fast read. */
+const ACTION_REREAD_MS = 30_000;
 
 /** The columns of a request its readers may read (migration 20261121170448: the grant to authenticated). */
 const REQUEST_COLUMNS = "id, origin, intent, state, reason_code, reason_details, outcome, mandate_revision, units_expected, "
@@ -46,7 +50,7 @@ const REQUEST_COLUMNS = "id, origin, intent, state, reason_code, reason_details,
 const POLICY_COLUMNS = "status, processing_strategy, provider_batch_id, provider_batch_state, provider_reconcile_due_at, "
   + "provider_reconcile_lease_expires_at, error_code, retry_count, execution_provider, execution_host_id, analysis_outcome, "
   + "next_retry_at, completed_at, created_by";
-const MEMBER_JOB_COLUMNS = `id, launch_request_id, plan_set_id, estimate_version_id, ${POLICY_COLUMNS}`;
+const MEMBER_JOB_COLUMNS = `id, launch_request_id, plan_set_id, estimate_version_id, created_at, started_at, analysis_finished_at, ${POLICY_COLUMNS}`;
 /** An analysis without a request just put in its queue is followed as a reading: its Mac takes it within seconds. */
 const JUST_QUEUED_MS = 60_000;
 const UNIT_JOB_COLUMNS = "id, launch_request_id, launch_unit_key, status, started_at, next_retry_at, analysis_outcome, error_code, updated_at";
@@ -54,10 +58,40 @@ const UNIT_JOB_COLUMNS = "id, launch_request_id, launch_unit_key, status, starte
 type Supabase = Awaited<ReturnType<typeof requireAffaireAccess>>["context"]["supabase"];
 type Service = ReturnType<typeof createServiceRoleClient>;
 type MemberJobRead = Omit<TakeoffRequestJobRow, "item_count">;
+type DatabaseError = { code?: string; message: string };
 
-function readError(error: { code?: string; message: string }, message: string): never {
+/**
+ * A database error that says nothing about the member's rights and may not happen again: a statement or lock timeout,
+ * a serialization failure or a deadlock, a lost connection or a server short of resources.
+ */
+export function isTransientDatabaseError(code: string | null | undefined) {
+  if (!code) return false;
+  return ["57014", "55P03", "40001", "40P01", "57P01", "57P02", "57P03", "53300", "53400", "53200"].includes(code)
+    || code.startsWith("08") || code === "PGRST000" || code === "PGRST001" || code === "PGRST002" || code === "PGRST003";
+}
+
+/** A read the page may try again: never a refusal, never a database text. */
+export function transientReadError() {
+  return new TakeoffError({ status: 503, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: true,
+    message: "La lecture du métré est momentanément indisponible. Nouvelle tentative automatique." });
+}
+
+function readError(error: DatabaseError, message: string): never {
+  if (isTransientDatabaseError(error.code)) throw transientReadError();
   throw toTakeoffError(mapSupabaseError({ ...error, code: error.code ?? "UNKNOWN" }, message),
     { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false });
+}
+
+/**
+ * The same for an error the access, the membership or the module check mapped already: a mapped transient code (its
+ * public details carry the code) becomes a read to try again; anything else stays as it was (a refusal, a missing affaire).
+ */
+export function toRequestActivityReadError(error: unknown) {
+  if (error instanceof ApiError && !(error instanceof TakeoffError) && error.status === 400) {
+    const code = error.details && typeof error.details === "object" ? (error.details as { code?: unknown }).code : undefined;
+    if (typeof code === "string" && isTransientDatabaseError(code)) return transientReadError();
+  }
+  return error;
 }
 
 export type ReadTakeoffRequestActivityInput = {
@@ -72,27 +106,33 @@ export type ReadTakeoffRequestActivityInput = {
   jobId?: string | null;
   offset?: number;
   limit?: number;
+  /** The dossier position of the shown request at the page's last read: its difference is computed again only when it moved. */
+  dossierSeen?: string | null;
+  /** The gesture's key and when it was read (the server's time): read again only for another key or after 30 s. */
+  actionSeen?: string | null;
+  actionSeenAt?: string | null;
 };
 
 /**
  * The affaire's launch requests as its activity shows them, with a constant number of reads whatever the number of
  * plans or failures. Reading never writes and never spends. Requests and the member's actions are read under the
  * member's own access rules; the manifests and unit states of the requests the member read, by the server after the
- * affaire's read access, as the dispatcher's reading contract does. Never a Mac, an account, a lease or a provider's text.
+ * affaire's read access, as the dispatcher's reading contract does. A plan's name and pages are shown only for a source
+ * the member may read. Never a Mac, an account, a lease or a provider's text.
  */
 export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivityInput): Promise<TakeoffRequestActivityResponse> {
   const view = input.view ?? "current";
   const { context, project } = await requireAffaireAccess(input.projectId, "read");
   const { supabase, tenantId } = context;
   await assertTakeoffEnabled(tenantId, { supabase });
-  // The member's Mac and connection, read once for every row (no SQL).
+  // The member's Mac and connection, read once for every row (no SQL, nothing written).
   const executionRead = readTakeoffExecution(context);
   const now = new Date();
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? TAKEOFF_REQUEST_HISTORY_DEFAULT_LIMIT), 1), TAKEOFF_REQUEST_HISTORY_MAX_LIMIT);
   const offset = view === "history" ? Math.min(Math.max(Math.trunc(input.offset ?? 0), 0), 100_000) : 0;
   const requests = () => supabase.from("takeoff_launch_requests").select(REQUEST_COLUMNS as never)
     .eq("tenant_id", tenantId).eq("project_id", input.projectId);
-  const rowsOf = ({ data, error }: { data: unknown; error: { code?: string; message: string } | null }) => {
+  const rowsOf = ({ data, error }: { data: unknown; error: DatabaseError | null }) => {
     if (error) readError(error, "Impossible de lire le métré de l’affaire.");
     return (Array.isArray(data) ? data : data ? [data] : []) as TakeoffRequestRow[];
   };
@@ -125,57 +165,123 @@ export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivi
     current = await readLatest();
   }
 
+  // A request or an analysis a link names: the affaire's latest execution is followed too, with its plans, and the
+  // analyses launched without a request, so that what changes meanwhile is seen.
+  const latestRead = view === "request" || view === "job" ? await readLatest() : null;
+  const elsewhere = latestRead && latestRead.id !== current?.id ? latestRead : null;
   const listed = [...(current ? [current] : []), ...history];
-  const admitted = listed.filter((request) => request.admitted_at !== null).map((request) => request.id);
+  const admitted = [...listed, ...(elsewhere ? [elsewhere] : [])].filter((request) => request.admitted_at !== null)
+    .map((request) => request.id);
   const service = createServiceRoleClient();
-  // A request or an analysis a link names: the rest of the affaire is followed too (its latest execution, the analyses
-  // launched without a request), so that what starts meanwhile is seen.
-  const followsAffaire = view !== "history";
-  const [unitSources, memberJobs, standalone, execution, latestElsewhere] = await Promise.all([
+  const [unitSources, memberJobs, standalone, execution] = await Promise.all([
     readUnitSources(service, tenantId, input.projectId, admitted),
     readMemberJobs(supabase, service, tenantId, input.projectId, listed.map((request) => request.id)),
-    followsAffaire ? readStandaloneJobsInFlight(supabase, tenantId, input.projectId) : Promise.resolve([]),
+    view !== "history" ? readStandaloneJobsInFlight(supabase, tenantId, input.projectId) : Promise.resolve([]),
     executionRead,
-    view === "request" || view === "job" ? readLatest() : Promise.resolve(null),
   ]);
-  const elsewhere = latestElsewhere && latestElsewhere.id !== current?.id ? latestElsewhere : null;
   const viewer = toTakeoffResumeViewer(context, project, execution);
-  const build = (request: TakeoffRequestRow, extra: { action?: TakeoffRequestActivity["action"]; dossierChanged?: TakeoffRequestActivity["dossierChanged"] } = {}) => {
-    const manifest = unitSources.manifests.get(request.id) ?? null;
+  const unitsOf = (request: TakeoffRequestRow) =>
     // Until the dispatcher's reading contract is on main: the same shape, from the manifest and the jobs.
-    const units = deriveTakeoffRequestUnits({ requestId: request.id, manifest, jobs: unitSources.jobs });
-    return buildTakeoffRequestActivity({ request, units, manifest, jobs: memberJobs, viewer, now, ...extra });
-  };
+    deriveTakeoffRequestUnits({ requestId: request.id, manifest: unitSources.manifests.get(request.id) ?? null, jobs: unitSources.jobs });
 
-  let currentView = current ? build(current) : null;
-  if (current && currentView && view !== "job") {
-    const [action, dossierChanged] = await Promise.all([
-      readLaunchAction(service, current, context.userId, viewer),
-      // What was added, replaced or removed since its seal, once its plans are no longer read (the poll is then slow or over).
-      current.admitted_at && !["running", "queued"].includes(takeoffRequestProgress(currentView) ?? "")
-        ? readDossierChangeSinceAnalysis(service, tenantId, input.projectId, current.id)
-        : Promise.resolve(null),
-    ]);
-    currentView = build(current, { action, dossierChanged });
+  // The shown request's gesture before its admission (read again at the page's slow pace), and its dossier's changes
+  // since its seal once its plans are no longer read (computed again only when the dossier moved).
+  let action: TakeoffRequestActivity["action"] = null;
+  let actionKey: string | null = null;
+  let actionReused = false;
+  let dossierChanged: TakeoffRequestActivity["dossierChanged"] = null;
+  let dossierPosition: string | null = null;
+  let dossierReused = false;
+  if (current && view !== "job") {
+    if (!current.admitted_at && current.state !== "closed" && current.state !== "superseded") {
+      actionKey = `${current.id}:${current.mandate_revision}:${current.state}:${current.reason_code ?? ""}`;
+      const seenAt = input.actionSeenAt ? Date.parse(input.actionSeenAt) : Number.NaN;
+      actionReused = input.actionSeen === actionKey && Number.isFinite(seenAt) && now.getTime() - seenAt < ACTION_REREAD_MS;
+      if (!actionReused) action = await readLaunchAction(service, current, context.userId, viewer);
+    }
+    const currentUnits = unitsOf(current);
+    const progress = takeoffRequestProgress({ state: current.state as TakeoffRequestActivity["state"], reason: null,
+      units: currentUnits ? { ...currentUnits, unknownCalls: null } : null });
+    if (current.admitted_at && progress !== "running" && progress !== "queued") {
+      dossierPosition = `${current.id}:${await readDossierPosition(service, tenantId, input.projectId)}`;
+      dossierReused = input.dossierSeen === dossierPosition;
+      if (!dossierReused) dossierChanged = await readDossierChangeSinceAnalysis(context, input.projectId, current.id);
+    }
   }
 
+  // The sources the member may read, for every plan and piece this answer would name.
+  const visible = await readTakeoffVisibleSources({ supabase, tenantId, projectId: input.projectId, ids: [
+    ...listed.flatMap((request) => sourceIdsOf(unitSources.manifests.get(request.id) ?? null, request.reason_details)),
+  ] });
+  const build = (request: TakeoffRequestRow, extra: { action?: TakeoffRequestActivity["action"]; dossierChanged?: TakeoffRequestActivity["dossierChanged"] } = {}) =>
+    buildTakeoffRequestActivity({ request, units: unitsOf(request), manifest: unitSources.manifests.get(request.id) ?? null,
+      jobs: memberJobs, viewer, now, visible, ...extra });
+
+  const currentView = current ? build(current, { action, dossierChanged }) : null;
+  const elsewhereView = elsewhere ? build(elsewhere) : null;
+  const elsewhereProgress = elsewhereView ? takeoffRequestProgress(elsewhereView) : null;
+  const historyViews = history.map((request) => build(request));
   const response: TakeoffRequestActivityResponse = {
     view,
     observedAt: now.toISOString(),
     live: false,
     signature: signatureOf([...listed, ...(elsewhere ? [elsewhere] : [])], unitSources.jobs, memberJobs, standalone),
     current: currentView,
-    history: history.map((request) => build(request)),
+    history: historyViews,
     historyHasOlder,
     historyOffset: offset,
     standalone: summarizeStandalone(standalone, viewer, now),
     elsewhere: {
-      // Admitted (its plans are read or wait), evaluated by its Mac, or held by a passing cause.
-      waiting: elsewhere !== null && (elsewhere.state === "admitted"
-        || viewerLaunchAction(null, false, elsewhere.state, elsewhere.reason_code) === "wait"),
+      running: elsewhereProgress === "running",
+      waiting: elsewhereProgress === "queued" || elsewhereProgress === "waiting",
     },
+    currentIsLatest: current !== null && (view === "current" || latestRead?.id === current.id),
+    inFlightJobIds: [
+      ...standalone.filter((job) => isStandaloneInFlight(job, viewer, now)).map((job) => job.id),
+      ...[currentView, elsewhereView, ...historyViews].flatMap((request) => (request?.units?.units ?? [])
+        .filter((unit) => unit.state === "queued" || unit.state === "running").map((unit) => unit.jobId)),
+    ],
+    reused: { dossierPosition, dossier: dossierReused, actionKey, action: actionReused },
   };
   return { ...response, live: takeoffRequestRefreshInterval(response) > 0 };
+}
+
+/** Every plan copy and dossier piece a request names: its plans, the plans its seal set aside, the pieces its reason names. */
+function sourceIdsOf(manifest: TakeoffRequestManifest | null, reasonDetails: unknown) {
+  const ids: Array<string | null> = [];
+  for (const plan of manifest?.plans.values() ?? []) ids.push(plan.planFileId, plan.documentId, plan.logicalId);
+  for (const entry of manifest?.omitted ?? []) ids.push(entry.id);
+  const pieces = reasonDetails && typeof reasonDetails === "object" ? (reasonDetails as { pieces?: unknown }).pieces : null;
+  for (const piece of Array.isArray(pieces) ? pieces : []) {
+    if (piece && typeof piece === "object" && typeof (piece as { id?: unknown }).id === "string") ids.push((piece as { id: string }).id);
+  }
+  return ids;
+}
+
+/**
+ * Where the dossier of the affaire stands: its plan sets, the count and latest change of their plan files and of its
+ * dossier pieces. Three small reads, compared with the page's last answer before the dossier's difference (which pages
+ * through all of them) is computed again.
+ */
+async function readDossierPosition(service: Service, tenantId: string, projectId: string) {
+  const [sets, documents] = await Promise.all([
+    service.from("plan_sets").select("id, updated_at").eq("tenant_id", tenantId).eq("project_id", projectId).order("id"),
+    service.from("affaire_intake_documents").select("updated_at", { count: "exact" }).eq("tenant_id", tenantId)
+      .eq("project_id", projectId).order("updated_at", { ascending: false }).limit(1),
+  ]);
+  if (sets.error) readError(sets.error, "Impossible de lire le dossier de l’affaire.");
+  if (documents.error) readError(documents.error, "Impossible de lire le dossier de l’affaire.");
+  const setRows = (sets.data ?? []) as Array<{ id: string; updated_at: string }>;
+  const files = setRows.length === 0 ? { data: [], count: 0, error: null } : await service.from("plan_files")
+    .select("updated_at", { count: "exact" }).eq("tenant_id", tenantId).in("plan_set_id", setRows.map((set) => set.id))
+    .order("updated_at", { ascending: false }).limit(1);
+  if (files.error) readError(files.error, "Impossible de lire le dossier de l’affaire.");
+  const parts = [
+    setRows.map((set) => `${set.id}@${set.updated_at}`).join(","),
+    `${files.count ?? 0}@${(files.data as Array<{ updated_at: string }> | null)?.[0]?.updated_at ?? ""}`,
+    `${documents.count ?? 0}@${(documents.data as Array<{ updated_at: string }> | null)?.[0]?.updated_at ?? ""}`,
+  ];
+  return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 32);
 }
 
 /**
@@ -203,8 +309,8 @@ async function readUnitSources(service: Service, tenantId: string, projectId: st
 
 /**
  * The analyses of the listed requests the member reads (their own access rules), and the count of the lines of those
- * read: counted by the server in one statement for these jobs only, never under the per-row rule of the lines on every
- * read of the page.
+ * read that are retained (not excluded): counted by the server in one statement for these jobs only, never under the
+ * per-row rule of the lines on every read of the page.
  */
 async function readMemberJobs(supabase: Supabase, service: Service, tenantId: string, projectId: string,
   requestIds: string[]): Promise<TakeoffRequestJobRow[]> {
@@ -218,7 +324,7 @@ async function readMemberJobs(supabase: Supabase, service: Service, tenantId: st
   if (read.length > 0) {
     const { data: rows, error: countError } = await service.from("takeoff_jobs")
       .select("id, items:takeoff_items!takeoff_items_job_id_fkey(count)" as never)
-      .eq("tenant_id", tenantId).eq("project_id", projectId).in("id", read);
+      .eq("tenant_id", tenantId).eq("project_id", projectId).in("id", read).eq("items.is_excluded" as never, false as never);
     if (countError) readError(countError, "Impossible de compter les lignes des analyses.");
     for (const row of (rows ?? []) as unknown as Array<{ id: string; items?: Array<{ count?: number | null }> | null }>) {
       counts.set(row.id, row.items?.[0]?.count ?? 0);
@@ -239,6 +345,11 @@ async function readStandaloneJobsInFlight(supabase: Supabase, tenantId: string, 
   return (data ?? []) as unknown as StandaloneJob[];
 }
 
+function isStandaloneInFlight(job: StandaloneJob, viewer: TakeoffResumeViewer, now: Date) {
+  return job.status === "processing" || job.status === "pending"
+    || resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer, now)).resume.reason === "retry_scheduled";
+}
+
 /**
  * Running (read now, or put in its queue less than a minute ago: a launch or a retry its Mac takes within seconds), or
  * waiting (queued for longer, or awaiting the retry its policy scheduled). A manual retry's delay is followed by the
@@ -249,8 +360,7 @@ function summarizeStandalone(jobs: StandaloneJob[], viewer: TakeoffResumeViewer,
   let waiting = 0;
   for (const job of jobs) {
     if (job.status === "processing" || (job.status === "pending" && now.getTime() - Date.parse(job.updated_at) < JUST_QUEUED_MS)) running += 1;
-    else if (job.status === "pending"
-      || resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer, now)).resume.reason === "retry_scheduled") waiting += 1;
+    else if (isStandaloneInFlight(job, viewer, now)) waiting += 1;
   }
   return { running, waiting };
 }
@@ -260,7 +370,6 @@ function summarizeStandalone(jobs: StandaloneJob[], viewer: TakeoffResumeViewer,
  * shown by the same rule as the affaire's options. None once admitted, closed or set aside.
  */
 async function readLaunchAction(service: Service, request: TakeoffRequestRow, actorId: string, viewer: TakeoffResumeViewer) {
-  if (request.admitted_at || request.state === "closed" || request.state === "superseded") return null;
   const { data, error } = await service.rpc("takeoff_launch_request_action", { p_request_id: request.id, p_actor: actorId });
   if (error) readError(error, "Impossible de lire le métré de l’affaire.");
   const kind = viewerLaunchAction(data, Boolean(viewer.executionHostId), request.state, request.reason_code);
@@ -268,7 +377,7 @@ async function readLaunchAction(service: Service, request: TakeoffRequestRow, ac
 }
 
 /**
- * Changes with every transition of a listed request or of an analysis of the affaire (a state, an end, a retry, a send),
+ * Changes with every transition of a shown request or of an analysis of the affaire (a state, an end, a retry, a send),
  * never with the lease an analysis renews while it runs: the page reads its other lists again only then.
  */
 function signatureOf(requests: TakeoffRequestRow[], unitJobs: TakeoffRequestUnitJobRow[], memberJobs: TakeoffRequestJobRow[],

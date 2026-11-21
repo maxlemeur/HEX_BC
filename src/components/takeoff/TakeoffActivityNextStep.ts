@@ -183,7 +183,10 @@ export function resolveTakeoffRequestStep({
     case "closed": {
       if (review) return { title: "Vérifier le métré proposé", description: `${lead}Contrôlez chaque plan avant de le reporter au devis.`, action: review };
       if (readable.length > 0) {
-        return { title: "Métré reporté au devis", description: "Les plans lus sont dans le devis. Préparez un nouveau métré quand de nouveaux plans arrivent.", action: launchAgain };
+        // Only what this member can establish: the plans they review are sent; the others are out of their reach.
+        return readable.length === (request.units?.coverage.succeeded ?? 0)
+          ? { title: "Métré reporté au devis", description: "Les plans lus sont dans le devis. Préparez un nouveau métré quand de nouveaux plans arrivent.", action: launchAgain }
+          : { title: "Plans lus", description: `${lead}Les plans que vous pouvez revoir sont reportés au devis ; les autres ne sont pas accessibles avec votre profil.`, action: launchAgain };
       }
       // Read plans whose analyses this member does not read: said as such, never as plans that could not be read.
       if ((request.units?.coverage.succeeded ?? 0) > 0) {

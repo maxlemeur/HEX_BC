@@ -101,13 +101,14 @@ function units(list: TakeoffRequestUnitView[], format: "grouped" | "per_plan" = 
 const success = { state: "succeeded" as const, reviewable: true, updatedAt: "2026-11-21T09:05:00.000Z" };
 
 function activity(list: TakeoffRequestUnitView[], jobs: TakeoffRequestJobRow[], viewer = operator, overrides: Partial<TakeoffRequestRow> = {}) {
-  return buildTakeoffRequestActivity({ request: request(overrides), units: units(list), manifest: null, jobs, viewer, now: NOW });
+  return buildTakeoffRequestActivity({ request: request(overrides), units: units(list), manifest: null, jobs, viewer, now: NOW, visible: "all" });
 }
 
 function response(current: TakeoffRequestActivity | null, extra: Partial<TakeoffRequestActivityResponse> = {}): TakeoffRequestActivityResponse {
   return {
     view: "current", observedAt: NOW.toISOString(), live: true, signature: "s", current, history: [], historyHasOlder: false,
-    historyOffset: 0, standalone: { running: 0, waiting: 0 }, elsewhere: { waiting: false }, ...extra,
+    historyOffset: 0, standalone: { running: 0, waiting: 0 }, elsewhere: { running: false, waiting: false },
+    currentIsLatest: current !== null, inFlightJobIds: [], reused: { dossierPosition: null, dossier: false, actionKey: null, action: false }, ...extra,
   };
 }
 
@@ -172,7 +173,7 @@ describe("deriveTakeoffRequestUnits: the dispatcher's shape from a sealed manife
     expect(derived.units[0]).toMatchObject({ key: "grouped", name: "Analyse groupée de 3 plans", planFileId: null, state: "succeeded" });
     expect(derived.coverage).toMatchObject({ expected: 1, succeeded: 1 });
     const view = buildTakeoffRequestActivity({ request: request({ units_expected: 1 }), units: derived, manifest,
-      jobs: [memberJob("d", { status: "completed", item_count: 5 })], viewer: reader, now: NOW });
+      jobs: [memberJob("d", { status: "completed", item_count: 5 })], viewer: reader, now: NOW, visible: "all" });
     expect(view.groupedPlans.map((plan) => [plan.name, plan.pages])).toEqual([
       ["A — Rez-de-chaussée.pdf", [2, 7]], ["B — Étage 1.pdf", []], ["C — Sous-sol.pdf", [1]],
     ]);
@@ -246,7 +247,7 @@ describe("buildTakeoffRequestActivity: what each member sees and may do", () => 
     const view = buildTakeoffRequestActivity({
       request: request({ state: "blocked", admitted_at: null, units_expected: null, reason_code: "PLAN_COPY_MISSING",
         reason_details: { pieces: [{ id: PLAN_B, name: "B — Étage 1.pdf" }] } }),
-      units: null, manifest: null, jobs: [], viewer: reader, now: NOW,
+      units: null, manifest: null, jobs: [], viewer: reader, now: NOW, visible: "all",
     });
     expect(view).toMatchObject({ units: null, groupedPlans: [], jobs: [] });
     expect(view.reason?.message).toContain("« B — Étage 1.pdf »");
@@ -255,7 +256,7 @@ describe("buildTakeoffRequestActivity: what each member sees and may do", () => 
 
   it("names the relaunch that set an automatic start aside", () => {
     const view = buildTakeoffRequestActivity({ request: request({ state: "superseded", admitted_at: null }), units: null,
-      manifest: null, jobs: [], viewer: reader, now: NOW });
+      manifest: null, jobs: [], viewer: reader, now: NOW, visible: "all" });
     expect(view.reason?.code).toBe("SUPERSEDED");
   });
 });
@@ -263,6 +264,7 @@ describe("buildTakeoffRequestActivity: what each member sees and may do", () => 
 describe("takeoffRequestRefreshInterval: one conditional poll per page", () => {
   const blocked = (reason: string, state = "blocked") => buildTakeoffRequestActivity({
     request: request({ state, admitted_at: null, reason_code: reason }), units: null, manifest: null, jobs: [], viewer: reader, now: NOW,
+    visible: "all",
   });
   const ended = [unit("a", 1, success), unit("b", 2, success)];
 
@@ -281,14 +283,19 @@ describe("takeoffRequestRefreshInterval: one conditional poll per page", () => {
       false, 0],
     ["the request is evaluated by its Mac", response(blocked("", "evaluating")), false, TAKEOFF_REQUEST_WAITING_REFRESH_MS],
     ["a passing cause holds the request", response(blocked("ANOTHER_ANALYSIS_RUNNING")), false, TAKEOFF_REQUEST_WAITING_REFRESH_MS],
-    ["only a gesture can start the request", response(blocked("MANDATE_REQUIRED")), false, 0],
-    ["the dossier is not confirmed", response(blocked("BRIEF_NOT_CONFIRMED", "not_eligible")), false, 0],
+    // Fix round 1, point 5: a request no gesture of this page can move still moves (another member takes it on, a change of
+    // the dossier marks it for a new evaluation): it is read at the slow pace. Before, these two stopped the reads.
+    ["only a gesture can start the request", response(blocked("MANDATE_REQUIRED")), false, TAKEOFF_REQUEST_WAITING_REFRESH_MS],
+    ["the dossier is being classified", response(blocked("DOSSIER_PROCESSING", "not_eligible")), false, TAKEOFF_REQUEST_WAITING_REFRESH_MS],
+    ["an automatic start set aside is final", response(blocked("", "superseded")), false, 0],
+    ["the latest execution elsewhere reads a plan", response(null, { view: "request", elsewhere: { running: true, waiting: false } }),
+      false, TAKEOFF_REQUEST_LIVE_REFRESH_MS],
     ["the last read failed while a plan is read", response(activity([unit("a", 1, { state: "running" })], [])), true,
       TAKEOFF_REQUEST_WAITING_REFRESH_MS],
     ["an analysis without a request runs", response(null, { standalone: { running: 1, waiting: 0 } }), false, TAKEOFF_REQUEST_LIVE_REFRESH_MS],
     ["an analysis without a request waits for its retry", response(null, { standalone: { running: 0, waiting: 1 } }), false,
       TAKEOFF_REQUEST_WAITING_REFRESH_MS],
-    ["a linked request is final, the affaire's latest execution still runs", response(null, { view: "request", elsewhere: { waiting: true } }),
+    ["a linked request is final, the affaire's latest execution still runs", response(null, { view: "request", elsewhere: { running: false, waiting: true } }),
       false, TAKEOFF_REQUEST_WAITING_REFRESH_MS],
     ["nothing can change", response(null), false, 0],
   ])("%s", (_label, data, failedRead, expected) => {
@@ -297,7 +304,7 @@ describe("takeoffRequestRefreshInterval: one conditional poll per page", () => {
 
   it("follows its own request alone in the review of a plan", () => {
     const closed = activity(ended, [], operator, { state: "closed", outcome: "success", closedAt: "2026-11-21T09:10:00.000Z" } as never);
-    const busyElsewhere = response(closed, { view: "job", standalone: { running: 1, waiting: 0 }, elsewhere: { waiting: true } });
+    const busyElsewhere = response(closed, { view: "job", standalone: { running: 1, waiting: 0 }, elsewhere: { running: false, waiting: true } });
     expect(takeoffRequestRefreshInterval(busyElsewhere)).toBe(TAKEOFF_REQUEST_LIVE_REFRESH_MS);
     expect(takeoffRequestRefreshInterval(busyElsewhere, false, { ownRequestOnly: true })).toBe(0);
   });
@@ -307,7 +314,7 @@ describe("request activity contract", () => {
   it("accepts the projection of both formats and the dispatcher's units", () => {
     const manifest = parseTakeoffRequestManifest(groupedManifest);
     const grouped = buildTakeoffRequestActivity({
-      request: request({ units_expected: 1 }), manifest, viewer: reader, now: NOW, jobs: [memberJob("d", { status: "completed" })],
+      request: request({ units_expected: 1 }), manifest, viewer: reader, now: NOW, visible: "all", jobs: [memberJob("d", { status: "completed" })],
       units: deriveTakeoffRequestUnits({ requestId: REQUEST, manifest, jobs: [unitJob("d", "grouped", { status: "completed" })] }),
     });
     const current = activity([unit("a", 1, success)], [memberJob("a", { status: "completed" })]);
@@ -317,5 +324,50 @@ describe("request activity contract", () => {
   it("words the pages of a plan", () => {
     expect([describeTakeoffRequestPages([]), describeTakeoffRequestPages([2]), describeTakeoffRequestPages([2, 7])])
       .toEqual(["toutes les pages", "page 2", "pages 2, 7"]);
+  });
+});
+
+// Fix round 1, point 2: reading the affaire is not reading its plans. A name and pages only for a source the member reads.
+describe("buildTakeoffRequestActivity: names only for the sources the member may read", () => {
+  const visibleA = { planFiles: new Set([PLAN_A]), documents: new Set<string>() };
+
+  it("names a plan the member reads and calls the others « Plan N », without their pages or identities", () => {
+    const derived = deriveTakeoffRequestUnits({ requestId: REQUEST, manifest: parseTakeoffRequestManifest(perPlanManifest), jobs: [
+      unitJob("a", `plan:${PLAN_A}`, { status: "completed", analysis_outcome: "success" }), unitJob("c", `plan:${PLAN_C}`),
+    ] })!;
+    const view = buildTakeoffRequestActivity({ request: request(), units: derived, manifest: parseTakeoffRequestManifest(perPlanManifest),
+      jobs: [], viewer: reader, now: NOW, visible: visibleA });
+    expect(view.units!.units.map((unit) => [unit.name, unit.pages, unit.planFileId])).toEqual([
+      ["Plan 1", [], null], ["A — Rez-de-chaussée.pdf", [2, 7], PLAN_A],
+    ]);
+    expect(JSON.stringify(view)).not.toContain("C — Sous-sol.pdf");
+  });
+
+  it("does the same for a grouped analysis, the plans its seal set aside, the pieces of a reason and the dossier's changes", () => {
+    const manifest = parseTakeoffRequestManifest({ ...groupedManifest, coverage: { ...groupedManifest.coverage,
+      plans_omitted: [{ id: PLAN_B, name: "B — ancien indice.pdf", reason: "alternate" }] } });
+    const grouped = buildTakeoffRequestActivity({ request: request({ units_expected: 1 }), manifest, jobs: [], viewer: reader, now: NOW,
+      visible: visibleA, units: deriveTakeoffRequestUnits({ requestId: REQUEST, manifest, jobs: [unitJob("d", "grouped", { status: "completed" })] }),
+      dossierChanged: { added: [{ id: PLAN_C, name: "C — ajouté.pdf" }, { id: PLAN_A, name: "A — Rez-de-chaussée.pdf" }], replaced: [], removed: [] } });
+    expect(grouped.groupedPlans.map((plan) => plan.name)).toEqual(["A — Rez-de-chaussée.pdf", "Plan 2", "Plan 3"]);
+    expect(grouped.plansOmitted).toEqual([{ name: "Plan 1", reason: "alternate" }]);
+    expect(grouped.dossierChanged?.added.map((plan) => plan.name)).toEqual(["Plan 1", "A — Rez-de-chaussée.pdf"]);
+    const blocked = buildTakeoffRequestActivity({ request: request({ state: "blocked", admitted_at: null, reason_code: "PLAN_COPY_MISSING",
+      reason_details: { pieces: [{ id: PLAN_C, name: "C — Sous-sol.pdf" }] } }), units: null, manifest: null, jobs: [], viewer: reader,
+    now: NOW, visible: visibleA });
+    expect(blocked.reason?.message).toContain("« Plan 1 »");
+    expect(blocked.reason?.message).not.toContain("Sous-sol");
+  });
+});
+
+// Fix round 1, point 9: every code the answer carries is one with a public reason, or the generic one.
+describe("buildTakeoffRequestActivity: public codes only", () => {
+  it("replaces a code without a public reason by the generic one", () => {
+    const view = activity([unit("a", 1, { state: "failed" })], [memberJob("a", { status: "failed", analysis_outcome: "failure",
+      error_code: "PROVIDER said: secret detail" })]);
+    expect(view.jobs[0].errorCode).toBe("OTHER");
+    expect(JSON.stringify(view)).not.toContain("secret detail");
+    expect(activity([unit("a", 1, { state: "failed" })], [memberJob("a", { status: "failed", error_code: "AI_TIMEOUT" })]).jobs[0].errorCode)
+      .toBe("AI_TIMEOUT");
   });
 });

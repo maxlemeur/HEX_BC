@@ -1,9 +1,11 @@
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { TakeoffApiError } from "@/lib/takeoff/client-http";
 import type { TakeoffRequestActivityResponse } from "@/lib/takeoff/request-activity-contracts";
-import type { TakeoffActivityCenterResponse } from "@/lib/takeoff/types";
+import { fixtureActivityResponse, fixtureThreePlans } from "@/lib/takeoff/request-activity.test-fixtures";
+import type { TakeoffActivityCenterJobRow, TakeoffActivityCenterResponse } from "@/lib/takeoff/types";
 
 // The real SWR hook: only the transports and the page's neighbours are replaced.
 const fetchTakeoffActivityCenter = vi.hoisted(() => vi.fn());
@@ -36,9 +38,26 @@ const EMPTY_LIST: TakeoffActivityCenterResponse = {
 function light(waiting: boolean, signature: string): TakeoffRequestActivityResponse {
   return {
     view: "current", observedAt: new Date().toISOString(), live: waiting, signature, current: null, history: [],
-    historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: waiting ? 1 : 0 }, elsewhere: { waiting: false },
+    historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: waiting ? 1 : 0 },
+    elsewhere: { running: false, waiting: false }, currentIsLatest: false, inFlightJobIds: [],
+    reused: { dossierPosition: null, dossier: false, actionKey: null, action: false },
   };
 }
+
+/** A row of the list of analyses: a job without a request, running when `technicalStatusRaw` says so. */
+function row(jobId: string, technicalStatusRaw: string, planSetLabel = "Plans du membre 1"): TakeoffActivityCenterJobRow {
+  return {
+    jobId, launchRequestId: null, analysisCompletion: null, estimateVersionId: null, versionLabel: "Sans devis", lotLabel: null,
+    planSetLabel, levelLabel: "Détaillé", processingStrategy: "sync", providerBatchState: null, providerBatchUpdatedAt: null,
+    statusLabel: "En traitement", statusRaw: "processing", technicalStatusRaw, canCancel: false, canResubmit: false,
+    resume: { action: "none", reason: "not_stopped", availableAt: null }, errorCode: null, nextRetryAt: null, itemCount: 0,
+    coveragePercent: null, exceptionCount: 0, confidenceLabel: "Faible", appliedCount: 0, createdAt: "2026-11-21T09:00:00.000Z",
+    carriedOverFrom: null, neverApplied: false, retryCount: 0,
+  };
+}
+const listOf = (jobs: TakeoffActivityCenterJobRow[]): TakeoffActivityCenterResponse => ({ ...EMPTY_LIST, jobs,
+  counters: { technicalJobs: jobs.length, usableJobs: 0, blockingExceptionsJobs: 0 }, pagination: { limit: 20, offset: 0, total: jobs.length } });
+const JOB = "70000000-0000-4000-8000-000000000001";
 
 const currentReads = () => fetchTakeoffRequestActivity.mock.calls.filter(([, query]) => query.view === "current").length;
 
@@ -132,5 +151,100 @@ describe("TakeoffActivityCenter polling", () => {
     await act(async () => { await Promise.resolve(); });
     expect([...cache.keys()].filter((key) => String(key).includes("takeoff-request-activity") && String(key).includes("current")))
       .toHaveLength(2);
+  });
+
+  // Fix round 1, point 1: while another member's answers load, nothing of the first member's is on screen.
+  it("never shows a member's answers to the next member while theirs load", async () => {
+    fetchTakeoffRequestActivity.mockImplementation(async () => fixtureActivityResponse(fixtureThreePlans()));
+    fetchTakeoffActivityCenter.mockImplementation(async () => listOf([row(JOB, "processing")]));
+    const page = (viewerKey: string) => (
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <TakeoffActivityCenter projectId="project-1" viewerKey={viewerKey} versions={[]} planSets={[]} launchContext={null} />
+      </SWRConfig>
+    );
+    const { rerender } = render(page("tenant-1:member-1"));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.getAllByText("Plan A — niveau 1.pdf").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Plans du membre 1").length).toBeGreaterThan(0);
+    // The second member's reads never answer during this test.
+    fetchTakeoffRequestActivity.mockImplementation(() => new Promise(() => undefined));
+    fetchTakeoffActivityCenter.mockImplementation(() => new Promise(() => undefined));
+    rerender(page("tenant-1:member-2"));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText("Plan A — niveau 1.pdf")).toBeNull();
+    expect(screen.queryByText("Plans du membre 1")).toBeNull();
+  });
+
+  it("withdraws what was shown when the reads are refused, and reads nothing more", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date("2026-11-21T09:06:00.000Z"));
+    let refused = false;
+    const refusal = () => new TakeoffApiError("Accès refusé à cette affaire.", 403, null, "FORBIDDEN");
+    fetchTakeoffRequestActivity.mockImplementation(async () => {
+      if (refused) throw refusal();
+      return { ...fixtureActivityResponse(fixtureThreePlans()), observedAt: new Date().toISOString() };
+    });
+    fetchTakeoffActivityCenter.mockImplementation(async () => { if (refused) throw refusal(); return EMPTY_LIST; });
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <TakeoffActivityCenter projectId="project-1" viewerKey="tenant-1:member-1" versions={[]} planSets={[]} launchContext={null} />
+      </SWRConfig>,
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(screen.getAllByText("Plan A — niveau 1.pdf").length).toBeGreaterThan(0);
+    refused = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
+    expect(screen.queryByText("Plan A — niveau 1.pdf")).toBeNull();
+    expect(screen.queryByText(/Dernier état connu/)).toBeNull();
+    expect(screen.getByTestId("takeoff-request-refused")).toBeTruthy();
+    const settled = currentReads();
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect(currentReads()).toBe(settled);
+  });
+
+  // Fix round 1, point 3: the list shows an analysis running that the light answer no longer sees in flight (another tab
+  // stopped it between the two reads): both are read again, once, and the page settles.
+  it("reads the list again when its first answer shows in flight an analysis the light answer does not", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date("2026-11-21T10:00:00.000Z"));
+    let listJobs = [row(JOB, "processing")];
+    fetchTakeoffActivityCenter.mockImplementation(async () => listOf(listJobs));
+    fetchTakeoffRequestActivity.mockImplementation(async () => light(false, "stopped"));
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <TakeoffActivityCenter projectId="project-1" viewerKey="tenant-1:member-1" versions={[]} planSets={[]} launchContext={null} />
+      </SWRConfig>,
+    );
+    const listReads = () => fetchTakeoffActivityCenter.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    // The light answer has nothing in flight and no interval: the list is read again because of the difference alone.
+    listJobs = [row(JOB, "canceled")];
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(listReads()).toBeGreaterThanOrEqual(2);
+    expect(currentReads()).toBeGreaterThanOrEqual(2);
+    const settled = [listReads(), currentReads()];
+    await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+    expect([listReads(), currentReads()]).toEqual(settled);
+  });
+
+  it("does not try a failed read again in a tab hidden meanwhile", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date("2026-11-21T10:00:00.000Z"));
+    fetchTakeoffActivityCenter.mockImplementation(async () => EMPTY_LIST);
+    fetchTakeoffRequestActivity.mockImplementation(async () => { throw new TakeoffApiError("Indisponible.", 503, null, "INTERNAL_ERROR"); });
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <TakeoffActivityCenter projectId="project-1" viewerKey="tenant-1:member-1" versions={[]} planSets={[]} launchContext={null} />
+      </SWRConfig>,
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    const first = currentReads();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(31_000); });
+      expect(currentReads()).toBe(first);
+    } finally {
+      visibility.mockRestore();
+    }
   });
 });

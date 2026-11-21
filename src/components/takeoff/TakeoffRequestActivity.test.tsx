@@ -34,7 +34,7 @@ function renderActivity(data: TakeoffRequestActivityResponse | undefined, extra:
   const view = (next: TakeoffRequestActivityResponse | undefined) => (
     <TakeoffRequestActivity projectId={FIXTURE_PROJECT} viewerKey="tenant:member"
       linked={extra.linked ? { view: "request", target: extra.linked } : null}
-      live={{ data: next, error: extra.error, isLoading: false, refreshMs: next?.live ? 5_000 : 0, refresh: vi.fn() }}
+      live={{ data: next, error: extra.error, isLoading: false, refused: false, refreshMs: next?.live ? 5_000 : 0, refresh: vi.fn() }}
       onShowLatest={onShowLatest} onChanged={onChanged} />
   );
   const result = render(view(data));
