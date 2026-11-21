@@ -176,7 +176,11 @@ de ses parties (bâtiment, niveau, discipline) : un bâtiment « 1 » et un nive
 connus et les aperçus sont affichés. Le choix est lié aux empreintes des deux
 fichiers : à l’admission, la version écartée est relue et doit être inchangée,
 comme une copie identique mise de côté, et la version retenue l’est par le
-traitement avant tout appel. Des choix qui
+traitement avant tout appel. Seul le jeu de plans lancé compte : ce qu’un autre
+jeu de l’affaire avait mis de côté y reste pour un retour et ne bloque pas le
+lancement. Revenir à ce jeu remet ses fichiers dans la sélection : une copie
+identique est de nouveau mise de côté et relue, et après une confirmation sur un
+autre jeu, le choix entre deux versions est demandé de nouveau. Des choix qui
 écarteraient toutes les versions d’un plan sont refusés : retenir une version
 rouvre les choix qui l’écartaient. Un scan sans texte lisible reste utilisable et
 son indice peut rester inconnu.

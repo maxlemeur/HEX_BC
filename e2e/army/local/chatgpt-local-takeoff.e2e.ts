@@ -25,12 +25,13 @@ import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 import { activateOwnedTakeoffNotices, readOwnedTakeoffNotice } from "../takeoff/completion-support";
 
 // The takeoff jobs of the ChatGPT local journeys, on this file's own development server: the local-only provider
-// rules (LOCAL01 to LOCAL06), the plan set picked in the launch dialogue (LOCAL08), the profile's OAuth start, the PDF
-// takeoff on the plan, and V3C08.
+// rules (LOCAL01 to LOCAL06), the launch of a second plan set (LOCAL07), the plan set picked in the launch dialogue
+// (LOCAL08), the profile's OAuth start, the PDF takeoff on the plan, and V3C08.
 // The Decisions, lab, price reuse and intake journeys run in chatgpt-local-decisions.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). The order matters: LOCAL01 and the OAuth start
 // need an owner without a ChatGPT profile, and the PDF takeoff leaves the profile that the private business witness
-// and V3C08 reuse, which V3C08 removes.
+// and V3C08 reuse, which V3C08 removes. The owner is admitted ten analyses in 24 hours (enforce_takeoff_job_admission):
+// these journeys start nine, ten with the private business witness, so another launching journey needs its own owner.
 const server = chatGptLocalServer();
 let localOrigin: string;
 let diagnostics: readonly string[] = [];
@@ -156,6 +157,92 @@ if (!existsSync(liveProbePath)) test("LOCAL02 a legacy drafting choice converts 
     await recordEvidence(army, "local-only-legacy-draft", { estimate, jobId: job.id, convertedLegacyChoice: true, providerCalls: calls,
       chosenProvider: "chatgpt", resultProvider: result.result?.provider_meta, forbiddenRequests: 0,
       boundary: "Fictional plan and ChatGPT transport fixture on an owned local backend." });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+// Regression: the plan set the member left keeps the identical copy it set aside, which must not refuse the launch of
+// the plan set chosen next.
+if (!existsSync(liveProbePath)) test("LOCAL07 another plan set launches after the first one set an identical copy aside", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("LOCAL07 requires a separate temporary ChatGPT profile.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-local-plan-sets-${Date.now()}`;
+    const army: ArmyState = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Deux jeux de plans" }, army);
+    const first = await createPlanSet(ui, army, estimate, `${prefix} plans A`);
+    await screen.getByRole("heading", first.name, { exact: true }).click();
+    const identical = await uploadPlansUnderNames(ui, army, first, ["Réseau RDC.pdf", "Réseau RDC copie.pdf"]);
+    const created = await apiRequest<{ data: { plan_set: { id: string; tenant_id: string } } }>(browser, "POST", "/api/takeoff/plan-sets",
+      { project_id: estimate.projectId, name: `${prefix} plans B` });
+    expect(created.status).toBe(201);
+    const second = { ...first, ...created.body.data.plan_set, name: `${prefix} plans B` };
+    (army.ownedPlanSets ??= []).push({ projectId: estimate.projectId, planSetId: second.id, tenantId: second.tenant_id });
+    await browser.reload();
+    await waitForHydration(browser);
+    await screen.getByRole("heading", second.name, { exact: true }).click();
+    const [other] = await uploadPlansUnderNames(ui, army, second, ["Réseau R+1.pdf"]);
+    const jobs = ownedTakeoffJobs(browser, estimate);
+    const { client } = await localClient();
+    const launchedJobs = async () => {
+      const result = await client.from("takeoff_jobs").select("id,plan_set_id,status,error_code,preparation_snapshot")
+        .eq("estimate_version_id", estimate.versionId).order("created_at");
+      expect(result.error).toBeNull();
+      return result.data!;
+    };
+    // Once an analysis exists, the hub no longer offers a launch: another plan set is analysed from its launch link in
+    // the activity center (« Pour analyser un autre jeu, ouvrez-le ci-dessous » in the plans center).
+    const openLaunch = async (planSetId: string) => {
+      await ui.app.open(`/dashboard/affaires/${estimate.projectId}/takeoff?launch=1&launchPlanSet=${planSetId}`);
+      const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+      await expect(dialog.getByLabel("Jeu de plans à analyser", { exact: true })).toHaveValue(planSetId);
+      return dialog;
+    };
+    const plans = (job: { preparation_snapshot: unknown }) => (job.preparation_snapshot as unknown as { preparation: TakeoffPreparation })
+      .preparation.sources.filter((source) => source.kind === "plan");
+
+    const firstDialog = await openLaunch(first.id);
+    await firstDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect(firstDialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible({ timeout: 45_000 });
+    await expect.poll(async () => (await launchedJobs()).length, { timeout: 45_000 }).toBe(1);
+    const [firstJob] = await launchedJobs();
+    expect(firstJob.plan_set_id).toBe(first.id);
+    // Either identical file may be the one retained: the other is set aside as its copy.
+    const firstSetPlans = plans(firstJob).filter((source) => source.plan_set_id === first.id);
+    const retained = firstSetPlans.filter((source) => source.active);
+    expect(retained).toHaveLength(1);
+    const setAside = firstSetPlans.find((source) => !source.active)!;
+    expect(setAside).toMatchObject({ alternate_of: retained[0].document_id });
+    expect([retained[0].document_id, setAside.document_id].sort()).toEqual(identical.map(({ id }) => id).sort());
+
+    const secondDialog = await openLaunch(second.id);
+    await secondDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    // The launch either succeeds or shows the refusal this journey guards against; the refusal is named if it appears.
+    await expect(secondDialog.getByText(/— 1 fichier de plan[.]|Une version de plan a changé/).first()).toBeVisible({ timeout: 45_000 });
+    await expect(secondDialog.getByText(/Une version de plan a changé/)).toHaveCount(0);
+    await expect(secondDialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible();
+    await expect.poll(async () => (await launchedJobs()).length, { timeout: 45_000 }).toBe(2);
+    const secondJob = (await launchedJobs())[1];
+    expect(secondJob.plan_set_id).toBe(second.id);
+    expect(plans(secondJob).filter((source) => source.active).map((source) => source.document_id)).toEqual([other.id]);
+    // The first plan set keeps the copy it set aside, for a return to it.
+    expect(plans(secondJob).find((source) => source.document_id === setAside.document_id))
+      .toMatchObject({ active: false, alternate_of: retained[0].document_id });
+    // Both analyses end before the next journey counts its provider calls.
+    await expect.poll(async () => {
+      const current = await launchedJobs();
+      const failed = current.find((job) => job.status === "failed");
+      if (failed) throw new Error(`Local plan-set fixture failed: ${failed.error_code ?? "unknown"}`);
+      return current.map((job) => job.status);
+    }, { timeout: 150_000 }).toEqual(["completed", "completed"]);
+    await recordEvidence(army, "local-plan-set-switch", { estimate, firstPlanSetId: first.id, secondPlanSetId: second.id,
+      retainedCopy: retained[0].document_id, setAsideCopy: setAside.document_id, jobs: (await jobs.list()).map(({ id, status }) => ({ id, status })),
+      boundary: "Fictional plans and ChatGPT transport fixture on an owned local backend." });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;

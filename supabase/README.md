@@ -195,6 +195,14 @@ chaque bucket pour éviter qu'une rafale de photos retarde les documents des bon
 Appliquer la migration TI-695
 avant de déployer le worker qui réclame les deux buckets.
 
+Pour les métrés du forfait ChatGPT local, la reprise clôt une analyse dont le bail a
+expiré (résultat inconnu). Une fois les avis de fin activés, elle ne clôt une analyse qui
+attend son Mac que selon la règle d’attente de
+[`chatgpt-local.md`](../docs/testing/chatgpt-local.md) : Mac actif, inoccupé et
+capable de la prendre pendant le délai de prise en charge, ou plafond d’attente dépassé. Les deux durées se règlent dans
+`private.takeoff_completion_activation` (`pickup_grace`, 15 min ; `wait_ceiling`, 24 h).
+Avant l’activation, elle répond comme avant ces avis.
+
 Le script vérifie le contenu de la réponse, au-delà de HTTP 200 :
 
 - Échecs individuels : avertissement, reprise partielle à examiner ; leur

@@ -34,7 +34,7 @@ function job(patch: Partial<TakeoffActivityCenterJobRow>): TakeoffActivityCenter
 }
 
 function response(jobs: TakeoffActivityCenterJobRow[]): TakeoffActivityCenterResponse {
-  return { counters: { technicalJobs: 0, usableJobs: 0, blockingExceptionsJobs: 0 }, jobs, analysisCompletions: [],
+  return { counters: { technicalJobs: 0, usableJobs: 0, blockingExceptionsJobs: 0 }, jobs, analysisCompletions: [], analysisCompletionsHasOlder: false,
     pagination: { limit: 10, offset: 0, total: jobs.length } };
 }
 

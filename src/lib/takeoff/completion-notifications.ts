@@ -11,7 +11,7 @@ export async function listTakeoffCompletionNotifications(page: number) {
   const { supabase, tenantId } = await getAuthenticatedTenantContext();
   const { data, error } = await supabase.from("takeoff_completion_notifications")
     .select(`id, outcome, finished_at, read_at, delivery_state, project_id,
-      job_id, subject_kind, request_id,
+      job_id, subject_kind, request_id, reason_code,
       project:estimate_projects!takeoff_completion_project_fkey(name),
       job:takeoff_jobs!takeoff_completion_job_fkey(estimate_version_id, error_code)`)
     .eq("tenant_id", tenantId)

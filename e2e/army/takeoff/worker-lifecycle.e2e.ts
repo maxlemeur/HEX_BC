@@ -175,7 +175,7 @@ armyTest("TKW01 a stored CSV publishes one success and applies exact quantities 
   const shared = await apiRequest<typeof activity.body>(ui.browser, "GET", `/api/takeoff/activity-center?project_id=${ids.projectId}`);
   expect(shared.status).toBe(200);
   expect(shared.body.data.analysisCompletions.find((event) => event.eventId === savedNotice.id)).toEqual({ eventId: savedNotice.id, outcome: "success",
-    finishedAt: expect.any(String) });
+    finishedAt: expect.any(String), failureReason: null });
   const colleagueNotice = await openWorkerNotice(ui, savedNotice.id);
   await expect(colleagueNotice).toHaveCount(0);
   await querySql(`update public.estimate_projects set is_archived = true where id = '${ids.projectId}'`);
@@ -305,7 +305,7 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
     expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "failure", deliveryState: "sent", isRead: false });
     const [receipt] = [...collector.receipts.values()];
     expect(collector.requests).toBe(1);
-    expect(receipt.message.text).toContain(`/dashboard/affaires/${ids.projectId}`);
+    expect(receipt.message.text).toContain(`/dashboard/affaires/${ids.projectId}/takeoff?job=${jobId}`);
     expect(receipt.message.text).not.toContain("ARMY controlled terminal provider failure");
   } finally {
     await collector.close();
@@ -322,7 +322,12 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   const failureNotice = await openWorkerNotice(ui, savedFailure.id);
   const reason = "Le service d’analyse n’a pas pu terminer le métré.";
   await expect(failureNotice).toContainText(reason);
-  await failureNotice.getByRole("link", "Ouvrir le suivi du métré", { exact: true }).click();
+  // The link names its job, so an older failure is never beyond the first page of the activity.
+  const failureLink = failureNotice.getByRole("link", "Ouvrir le suivi du métré", { exact: true });
+  const failureHref = `/dashboard/affaires/${ids.projectId}/takeoff?job=${jobId}`;
+  await expect(failureLink).toHaveAttribute("href", failureHref);
+  await failureLink.click();
+  await expect(ui.browser).toHaveURL(failureHref);
   const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
   expect(detail.body.data.job.error_message).toBe("ARMY controlled terminal provider failure");
   await expect(ui.screen.getByRole("heading", "Analyse à reprendre", { exact: true })).toBeVisible();
@@ -338,6 +343,12 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   try {
     await ui.browser.reload();
     await expect(failedRow).toContainText(reason);
+    // The newer analysis seeded above is not listed beside the job the link names; « Voir toutes les analyses » lists both.
+    const listedRows = ui.screen.getByRole("tabpanel").getByRole("row");
+    await expect(listedRows).toHaveCount(2);
+    await ui.screen.getByRole("button", "Voir toutes les analyses", { exact: true }).click();
+    await expect(listedRows).toHaveCount(3);
+    await ui.app.open(failureHref);
     await expect(failedRow).toContainText(`Relances utilisées : ${detail.body.data.job.retry_count} sur 3`);
     expect(detail.body.data.job.can_resubmit).toBe(false);
     expect(detail.body.data.job.resume).toEqual({ action: "new_analysis", reason: "analysis_closed", available_at: null });
@@ -363,6 +374,18 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   if (!savedNotice) throw new Error("The failure notice is missing.");
   const notice = await openWorkerNotice(ui, savedNotice.id);
   await expect(notice.getByRole("heading")).toContainText("Analyse échouée");
+
+  // A director reads the affaire but not this job: the same link shows its end and the reason it ended with.
+  const director = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "FAIL" });
+  await querySql(`update public.tenant_memberships set is_default = false where user_id = '${director.userId}';
+    insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
+    select tenant_id, '${director.userId}', 'director', true from public.estimate_projects where id = '${ids.projectId}'`);
+  const hidden = await apiRequest<unknown>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(hidden.status).toBe(404);
+  await ui.app.open(failureHref);
+  const selected = ui.screen.getByRole("list", "Analyse sélectionnée", { exact: true });
+  await expect(selected).toContainText("Analyse échouée");
+  await expect(selected).toContainText(reason);
 });
 
 type ActionEnvelope = {
