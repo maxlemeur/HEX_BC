@@ -73,11 +73,14 @@ armyTest("TKPA01 plan A is reviewed while plan B is read and C waits, without a 
   const sources: Record<Plan, TakeoffPreparationSource> = {} as Record<Plan, TakeoffPreparationSource>;
   for (const plan of ["a", "b", "c"] as const) {
     const bytes = await buildPlanPdf(NAMES[plan], pageCounts[plan]);
-    // The path its identity gives, as the application stores it (the location reader reads no other).
-    const filePath = buildPlanFileStoragePath({ tenantId, setId: planSetId, fileId: ids[plan], fileName: sanitizePlanPdfFilename(NAMES[plan]) });
+    // Stored as the application stores an upload: a sanitized name at the path its identity gives (the location reader
+    // reads no other), the name the member gave in its metadata.
+    const storedName = sanitizePlanPdfFilename(NAMES[plan]);
+    const filePath = buildPlanFileStoragePath({ tenantId, setId: planSetId, fileId: ids[plan], fileName: storedName });
     expect((await setup.storage.from("plan-files").upload(filePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
-    const row = await setup.from("plan_files").insert({ id: ids[plan], tenant_id: tenantId, plan_set_id: planSetId, file_name: NAMES[plan],
-      file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length, page_count: pageCounts[plan] })
+    const row = await setup.from("plan_files").insert({ id: ids[plan], tenant_id: tenantId, plan_set_id: planSetId, file_name: storedName,
+      file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length, page_count: pageCounts[plan],
+      metadata: { original_file_name: NAMES[plan] } })
       .select("id,plan_set_id,file_path,file_name,file_size_bytes,file_hash,page_count,updated_at").single();
     expect(row.error).toBeNull();
     sources[plan] = { document_id: ids[plan], document_name: NAMES[plan], kind: "plan", revision: "A",
