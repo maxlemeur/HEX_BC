@@ -153,6 +153,11 @@ export const takeoffJobPlanLocationSchema = z.object({
    * unavailable: the plan file or its bytes can no longer be read.
    */
   status: z.enum(["current", "changed", "unavailable"]),
+  /**
+   * What this analysis did with the plan: read (its reading ended with a result), selected (retained for it but not read
+   * by it: it waits, runs, failed or was stopped), unavailable (its plan file or bytes can no longer be read).
+   */
+  read_state: z.enum(["read", "selected", "unavailable"]),
   /** The dossier replaced the copy the analysis read: the current copy of its piece, where it is corrected now. */
   replacement: planLocationReplacementSchema.nullable(),
   reading: planLocationReadingSchema.nullable(),
@@ -172,6 +177,11 @@ export const takeoffJobPlanLocationsSchema = z.object({
   plans: z.array(takeoffJobPlanLocationSchema),
   /** A historical analysis without a confirmed preparation names no plan revision. */
   without_preparation: z.boolean(),
+  /**
+   * The preparation the analysis attested: attested; none (a historical analysis); unreadable (a stored preparation this
+   * version cannot read): neither names a plan revision.
+   */
+  preparation: z.enum(["attested", "none", "unreadable"]),
   can_edit: z.boolean(),
 }).strict();
 export type TakeoffJobPlanLocations = z.infer<typeof takeoffJobPlanLocationsSchema>;

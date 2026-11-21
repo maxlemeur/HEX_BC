@@ -93821,6 +93821,14 @@
                         "unavailable"
                       ]
                     },
+                    "read_state": {
+                      "type": "string",
+                      "enum": [
+                        "read",
+                        "selected",
+                        "unavailable"
+                      ]
+                    },
                     "replacement": {
                       "anyOf": [
                         {
@@ -94460,6 +94468,7 @@
                     "pages",
                     "revision",
                     "status",
+                    "read_state",
                     "replacement",
                     "reading",
                     "reading_issue",
@@ -94473,6 +94482,14 @@
               "without_preparation": {
                 "type": "boolean"
               },
+              "preparation": {
+                "type": "string",
+                "enum": [
+                  "attested",
+                  "none",
+                  "unreadable"
+                ]
+              },
               "can_edit": {
                 "type": "boolean"
               }
@@ -94482,6 +94499,7 @@
               "project_id",
               "plans",
               "without_preparation",
+              "preparation",
               "can_edit"
             ],
             "additionalProperties": false

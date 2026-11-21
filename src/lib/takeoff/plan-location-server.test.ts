@@ -170,6 +170,48 @@ describe("the bytes read for a plan's location", () => {
   });
 });
 
+describe("the plans of an analysis, with one analysis per plan (lot 3)", () => {
+  function analysisOf(status: string, snapshot: unknown = analysisSnapshot()) {
+    vi.mocked(getTakeoffJobDetailByIdOrThrow).mockResolvedValue({ id: M3_JOB_ID, project_id: M3_PROJECT_ID, status } as never);
+    const fake = createSupabaseFake({ tables: {
+      takeoff_jobs: () => ({ data: { preparation_snapshot: snapshot }, error: null }),
+      takeoff_plan_locations: () => ({ data: [], error: null, count: 0 }),
+      plan_files: () => ({ data: { id: FILE_ID, plan_set_id: M3_PLAN_SET_ID, file_name: "plan.pdf", file_path: canonical(FILE_ID),
+        file_size_bytes: BYTES.length, page_count: 1, metadata: {} }, error: null }),
+      profiles: () => ({ data: [], error: null }),
+    }, rpc: { read_takeoff_plan_location_source: () => ({ data: [{ source_kind: "plan_file", source_id: FILE_ID, plan_file_id: FILE_ID,
+      current_copy: true, can_write: true }], error: null }) } });
+    vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue(authenticatedContext(fake, "engineer") as never);
+    harnessService();
+  }
+  function harnessService() {
+    vi.mocked(createServiceRoleClient).mockReturnValue(createSupabaseFake({
+      storage: { "plan-files": () => ({ data: new Blob([BYTES]), error: null }) } }).client as never);
+  }
+
+  it("tells a plan this analysis read from a plan it retained but has not read yet", async () => {
+    analysisOf("completed");
+    expect((await readTakeoffJobPlanLocations(M3_JOB_ID)).plans).toMatchObject([{ plan_file_id: FILE_ID, status: "current", read_state: "read" }]);
+    analysisOf("pending");
+    expect((await readTakeoffJobPlanLocations(M3_JOB_ID)).plans).toMatchObject([{ plan_file_id: FILE_ID, status: "current", read_state: "selected" }]);
+  });
+
+  it("tells a preparation it cannot read apart from an analysis that has none", async () => {
+    analysisOf("completed", { schema_version: 99 });
+    expect(await readTakeoffJobPlanLocations(M3_JOB_ID)).toMatchObject({ plans: [], preparation: "unreadable", without_preparation: true });
+    analysisOf("completed", null);
+    expect(await readTakeoffJobPlanLocations(M3_JOB_ID)).toMatchObject({ plans: [], preparation: "none", without_preparation: true });
+  });
+
+  it("says in French that an analysis is not found", async () => {
+    harness();
+    const { TakeoffError, TakeoffErrorCode } = await import("@/lib/takeoff/errors");
+    vi.mocked(getTakeoffJobDetailByIdOrThrow).mockRejectedValue(new TakeoffError({ status: 404, code: TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND,
+      retryable: false, message: "Job takeoff introuvable." }));
+    await expect(readTakeoffJobPlanLocations(M3_JOB_ID)).rejects.toMatchObject({ status: 404, message: "Cette analyse est introuvable." });
+  });
+});
+
 function analysisSnapshot() {
   const preparation = createEmptyTakeoffPreparation({ estimateVersionId: null });
   preparation.objective = "measure_length";
@@ -302,6 +344,15 @@ describe("a copy the dossier replaces during a read or a save", () => {
   it("whose bytes are gone by the download says the plan was replaced and names its current copy", async () => {
     harness({ files: [pieceCopy(FILE_ID), pieceCopy(NEW_COPY_ID)], source: rotatingPiece(),
       download: () => ({ data: null, error: { message: "Object not found", status: 404 } }) });
+    await expect(readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID })).rejects.toMatchObject(replaced);
+  });
+
+  // From the automated review of #429: a copy the dossier replaced whose bytes are not cleaned up yet was shown read-only
+  // with « rechargez la page des plans »; it is followed to its replacement, as once its bytes are gone.
+  it("still downloadable is followed to its replacement", async () => {
+    harness({ files: [pieceCopy(FILE_ID), pieceCopy(NEW_COPY_ID)],
+      source: (fileId) => fileId === FILE_ID ? { source_kind: "intake_document", source_id: PIECE_ID, plan_file_id: FILE_ID, current_copy: false,
+        can_write: true } : { source_kind: "intake_document", source_id: PIECE_ID, plan_file_id: fileId, current_copy: true, can_write: true } });
     await expect(readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID })).rejects.toMatchObject(replaced);
   });
 

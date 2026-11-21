@@ -367,6 +367,8 @@ export async function readTakeoffPlanFileLocation(input: { setId: string; fileId
   const { setId, fileId } = parseIds(input.setId, input.fileId);
   const context = await getAuthenticatedTakeoffContext();
   const loaded = await loadPlanFile(context, setId, fileId);
+  // A copy the dossier replaced whose bytes are not cleaned up yet is followed to its replacement, as once it is gone.
+  if (!loaded.source.current_copy) return replacedConflict(context, loaded.projectId, loaded.source);
   return buildPlanFileLocation(context, loaded, await currentBytes(context, loaded));
 }
 
@@ -458,16 +460,25 @@ export async function saveTakeoffPlanFileLocation(input: { setId: string; fileId
 export async function readTakeoffJobPlanLocations(jobId: string): Promise<TakeoffJobPlanLocations> {
   jobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant du métré invalide.").toLowerCase();
   const context = await getAuthenticatedTakeoffContext();
-  const job = await getTakeoffJobDetailByIdOrThrow({ supabase: context.supabase, tenantId: context.tenantId, jobId });
+  const job = await getTakeoffJobDetailByIdOrThrow({ supabase: context.supabase, tenantId: context.tenantId, jobId })
+    .catch((error: unknown) => {
+      if (error instanceof TakeoffError && error.code === TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND) notFound("Cette analyse est introuvable.");
+      throw error;
+    });
+  // A plan of this analysis is read by it once its reading ended with a result; until then it is only selected.
+  const readByJob = job.status === "completed" || job.status === "applied";
   const { data, error } = await context.supabase.from("takeoff_jobs").select("preparation_snapshot")
     .eq("tenant_id", context.tenantId).eq("id", jobId).maybeSingle();
   if (error) readFailure(error, "Impossible de charger la préparation du métré.");
   let snapshot: ReturnType<typeof parsePreparationSnapshot> = null;
-  try { snapshot = parsePreparationSnapshot(data?.preparation_snapshot); } catch { snapshot = null; }
+  let unreadable = false;
+  try { snapshot = parsePreparationSnapshot(data?.preparation_snapshot); } catch { snapshot = null; unreadable = true; }
+  const preparation = snapshot ? "attested" : unreadable ? "unreadable" : "none";
   const sources = (snapshot?.preparation.sources ?? []).filter((source) => source.kind === "plan" && source.active && source.confirmed
     && !source.document_id.startsWith("upload:") && takeoffJobIdSchema.safeParse(source.document_id).success);
   if (!snapshot || !sources.length) {
-    return takeoffJobPlanLocationsSchema.parse({ job_id: jobId, project_id: job.project_id, plans: [], without_preparation: !snapshot, can_edit: false });
+    return takeoffJobPlanLocationsSchema.parse({ job_id: jobId, project_id: job.project_id, plans: [], without_preparation: !snapshot,
+      preparation, can_edit: false });
   }
   const rows = await listAnnotations(context.supabase, context.tenantId, job.project_id);
   let pagesLeft = MAX_JOB_PAGES_READ;
@@ -512,7 +523,8 @@ export async function readTakeoffJobPlanLocations(jobId: string): Promise<Takeof
       : null;
     pending.push({ exact, carry, plan: {
       plan_file_id: planFileId, plan_set_id: source.plan_set_id, document_name: source.document_name, pages: source.pages,
-      revision: key, status, replacement, reading, reading_issue: readingIssue,
+      revision: key, status, read_state: status === "unavailable" ? "unavailable" : readByJob ? "read" : "selected",
+      replacement, reading, reading_issue: readingIssue,
       location: resolvePlanLocation({ reading, annotation: choicesOf(exact), carryOver: carryValuesOf(carry?.row) }),
     } });
   }
@@ -520,5 +532,6 @@ export async function readTakeoffJobPlanLocations(jobId: string): Promise<Takeof
     .filter((row): row is AnnotationRow => Boolean(row)));
   const plans = pending.map(({ plan, exact, carry }) => ({ ...plan, annotation: exact ? describe.annotation(exact) : null,
     carry_over: carry ? describe.carry(carry) : null }));
-  return takeoffJobPlanLocationsSchema.parse({ job_id: jobId, project_id: job.project_id, plans, without_preparation: false, can_edit: canEdit });
+  return takeoffJobPlanLocationsSchema.parse({ job_id: jobId, project_id: job.project_id, plans, without_preparation: false,
+    preparation, can_edit: canEdit });
 }
