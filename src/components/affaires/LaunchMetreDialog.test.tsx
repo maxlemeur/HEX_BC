@@ -6,17 +6,19 @@ import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
 const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
+const relaunchTakeoffMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchPreparedTakeoffFromPlanSetAction: launchTakeoffFromPlanSetMock,
   launchPreparedTakeoffFromSourceVersionPlanSetAction: launchTakeoffFromSourceVersionPlanSetMock,
+  relaunchTakeoffAction: relaunchTakeoffMock,
 }));
 
 vi.mock("@/components/takeoff/TakeoffPreparationPanel", () => ({
   TakeoffPreparationPanel: (props: import("@/components/takeoff/TakeoffPreparationPanel").TakeoffPreparationPanelProps) =>
-    <div>{props.documentControls}{props.destinationControls}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7, 1)}>Confirmer et lancer le métré</button></div>,
+    <div data-estimate-version={props.estimateVersionId ?? "none"} data-analysis-only={String(Boolean(props.analysisOnly))}>{props.documentControls}{props.destinationControls}{props.launchNotice ? <p>{props.launchNotice}</p> : null}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7, 1)}>Confirmer et lancer le métré</button></div>,
 }));
 
 vi.mock("@/components/feedback/toast-provider", () => ({
@@ -128,6 +130,52 @@ describe("LaunchMetreDialog", () => {
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(screen.queryByText("Analyse transmise au traitement")).not.toBeInTheDocument();
+  });
+
+  describe("once the automatic start is on", () => {
+    const predecessor = "44444444-4444-4444-8444-444444444444";
+    const request = (overrides: Partial<Parameters<typeof LaunchMetreDialog>[0]> = {}) =>
+      <LaunchMetreDialog {...defaultProps} launchMode={{ kind: "request", predecessorJobId: predecessor }} {...overrides} />;
+
+    it("launches a request on the clicker's subscription without any version and without creating a draft", async () => {
+      relaunchTakeoffMock.mockResolvedValue({ ok: true, data: { outcome: "admitted", requestId: "r1", jobId: "j1" } });
+      render(request());
+      const launch = await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
+      expect(screen.queryByLabelText("Version cible")).not.toBeInTheDocument();
+      // The dialogue is rendered in a portal, outside the render's container.
+      expect(document.querySelector("[data-estimate-version]")).toHaveAttribute("data-estimate-version", "none");
+      expect(document.querySelector("[data-analysis-only]")).toHaveAttribute("data-analysis-only", "true");
+      await userEvent.setup().click(launch);
+      expect(relaunchTakeoffMock).toHaveBeenCalledWith({ projectId: defaultProps.projectId, planSetId: defaultProps.availablePlanSets[0]!.id,
+        preparationRevision: 7, intentKey: expect.stringMatching(/^[0-9a-f-]{36}$/), predecessorJobId: predecessor });
+      expect(launchTakeoffFromPlanSetMock).not.toHaveBeenCalled();
+      expect(launchTakeoffFromSourceVersionPlanSetMock).not.toHaveBeenCalled();
+      expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
+    });
+
+    it("replays a click whose answer was lost with the same key, and gives a new click after an answer a new one", async () => {
+      const user = userEvent.setup();
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValueOnce({ ok: false, error: { status: 409, code: "CONFLICT", message: "Refus nommé.", retryable: false } })
+        .mockResolvedValueOnce({ ok: true, data: { outcome: "already_running", requestId: "r0", jobId: "j0" } });
+      render(request());
+      const launch = await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
+      await user.click(launch);
+      await user.click(launch);
+      expect(await screen.findByText("Refus nommé.")).toBeInTheDocument();
+      await user.click(launch);
+      const keys = relaunchTakeoffMock.mock.calls.map(([input]) => (input as { intentKey: string }).intentKey);
+      expect(keys[1]).toBe(keys[0]);
+      expect(keys[2]).not.toBe(keys[1]);
+      expect(await screen.findByText("Une analyse de l’affaire est déjà en cours")).toBeInTheDocument();
+    });
+
+    it("launches nothing from options shown while another analysis waits or runs, and says why", async () => {
+      render(<LaunchMetreDialog {...defaultProps} launchMode={{ kind: "save_only", reason: "Une analyse de l’affaire est en cours." }} />);
+      expect(await screen.findByText("Une analyse de l’affaire est en cours.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeDisabled();
+      expect(screen.queryByLabelText("Version cible")).not.toBeInTheDocument();
+    });
   });
 
   describe("the member's choice against a caller that renders again", () => {
