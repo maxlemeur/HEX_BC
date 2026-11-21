@@ -150,23 +150,42 @@ type ChatGptUsage = z.infer<typeof chatGptUsageSchema>;
 export type ChatGptUsageRecorder = (usage: { totalTokens: number; costCents: number }) => Promise<void>;
 
 /**
+ * The total a response's usage states, when it can settle a paid call: `total_tokens` given as a whole number above zero,
+ * and not below `input_tokens` plus `output_tokens` when both are given. Anything else (a usage without its total, a total
+ * of zero or below its parts) leaves the call's consumption unknown.
+ */
+export function trustedChatGptUsageTotal(raw: unknown): number | null {
+  const usage = raw as { total_tokens?: unknown; input_tokens?: unknown; output_tokens?: unknown } | null | undefined;
+  const total = usage?.total_tokens;
+  if (typeof total !== "number" || !Number.isSafeInteger(total) || total <= 0) return null;
+  const { input_tokens: input, output_tokens: output } = usage!;
+  if (typeof input === "number" && typeof output === "number" && total < input + output) return null;
+  return total;
+}
+
+/**
  * Read through the terminal event: partial output is never a successful answer. Every response that carries a usage was
- * paid for: `onUsage` records it first, whatever happens to its answer (no text, incomplete, failed), and its own failure
- * is the one thrown.
+ * paid for: `onUsage` records it first when its total can be trusted (trustedChatGptUsageTotal), whatever happens to its
+ * answer (no text, incomplete, failed), and its own failure is the one thrown; otherwise the call's usage stays unknown.
  */
 export async function readChatGptResponse(response: Response, onUsage?: ChatGptUsageRecorder) {
   let usage: ChatGptUsage | null = null;
+  let trusted: number | null = null;
   let read: { text: string } | { error: unknown };
   try {
     read = { text: await readChatGptText(response, (event) => {
       const seen = chatGptUsageSchema.safeParse(event.response?.usage);
-      if (event.response?.usage !== undefined && seen.success) usage = seen.data;
+      if (event.response?.usage !== undefined && seen.success) {
+        usage = seen.data;
+        trusted = trustedChatGptUsageTotal(event.response?.usage);
+      }
     }) };
   } catch (error) {
     read = { error };
   }
   const paid = usage as ChatGptUsage | null;
-  if (paid && onUsage) await onUsage({ totalTokens: paid.total_tokens, costCents: 0 });
+  const total = trusted as number | null;
+  if (paid && total !== null && onUsage) await onUsage({ totalTokens: total, costCents: 0 });
   if ("error" in read) throw read.error;
   return { text: read.text, usage: paid ?? chatGptUsageSchema.parse({}) };
 }

@@ -1,4 +1,4 @@
-import { TAKEOFF_PUBLIC_FAILURE_CODES } from "@/lib/takeoff/completion-outcome";
+import { TAKEOFF_PLAN_PUBLIC_FAILURE_CODES, TAKEOFF_PUBLIC_FAILURE_CODES } from "@/lib/takeoff/completion-outcome";
 import {
   describeTakeoffLaunchReason,
   isTakeoffLaunchReason,
@@ -103,6 +103,7 @@ export type TakeoffRequestManifest = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format"]);
 const PUBLIC_CODES = new Set<string>(TAKEOFF_PUBLIC_FAILURE_CODES);
+const PLAN_PUBLIC_CODES = new Set<string>(TAKEOFF_PLAN_PUBLIC_FAILURE_CODES);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -197,7 +198,7 @@ export function deriveTakeoffRequestUnits(input: {
       name: perPlan ? plan?.name ?? "Plan sans nom" : `Analyse groupée de ${unit.plans.length} plans`,
       pages: plan?.pages ?? [],
       jobId: job.id, state,
-      reasonCode: state === "failed" || state === "not_started" ? toPublicFailureCode(job.error_code) : null,
+      reasonCode: state === "failed" || state === "not_started" ? toPublicFailureCode(job.error_code, perPlan) : null,
       retryAt: job.status === "failed" && !job.analysis_outcome ? job.next_retry_at : null,
       updatedAt: job.updated_at,
       reviewable: state === "succeeded",
@@ -211,10 +212,13 @@ export function deriveTakeoffRequestUnits(input: {
   };
 }
 
-/** A code with a public French reason as is; any other code the generic one; none stays none. */
-export function toPublicFailureCode(code: string | null | undefined) {
+/**
+ * A code with a public French reason as is; any other code the generic one; none stays none. A plan of one analysis per
+ * plan (`perPlan`) also publishes its own reasons (TAKEOFF_PLAN_PUBLIC_FAILURE_CODES).
+ */
+export function toPublicFailureCode(code: string | null | undefined, perPlan = false) {
   if (!code) return null;
-  return PUBLIC_CODES.has(code) ? code : TAKEOFF_GENERIC_FAILURE_CODE;
+  return (perPlan ? PLAN_PUBLIC_CODES : PUBLIC_CODES).has(code) ? code : TAKEOFF_GENERIC_FAILURE_CODE;
 }
 
 function latestOf(values: Array<string | null | undefined>) {
@@ -275,6 +279,8 @@ function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, n
 export function buildTakeoffRequestActivity(input: {
   request: TakeoffRequestRow;
   units: (Omit<TakeoffLaunchRequestUnits, "usage"> & { usage?: TakeoffLaunchRequestUnits["usage"] }) | null;
+  /** The request's calls whose consumption stayed unknown, read for the page's requests at once; null when not read. */
+  unknownCalls?: number | null;
   manifest: TakeoffRequestManifest | null;
   /** The request's jobs the member reads (their own access rules). */
   jobs: ReadonlyArray<TakeoffRequestJobRow>;
@@ -324,7 +330,8 @@ export function buildTakeoffRequestActivity(input: {
     admittedAt: request.admitted_at,
     closedAt: request.closed_at,
     units: units ? {
-      format: units.format, units: units.units, coverage: units.coverage, unknownCalls: units.usage?.unknownCalls ?? null,
+      format: units.format, units: units.units, coverage: units.coverage,
+      unknownCalls: units.usage?.unknownCalls ?? input.unknownCalls ?? null,
     } : null,
     groupedPlans: grouped,
     plansOmitted: request.admitted_at && manifest ? manifest.omitted.map((entry, index) => ({

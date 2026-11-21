@@ -45,6 +45,9 @@ export function takeoffPaymentRefusal(jobId: string, reason: string | null): Tak
     case "BUDGET_EXHAUSTED":
       return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_REQUEST_BUDGET_EXHAUSTED, retryable: false, jobId,
         message: "Le budget de cette analyse est épuisé par ses tentatives précédentes. Relancez l’analyse depuis les options du métré." });
+    case "USAGE_UNKNOWN":
+      return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false, jobId,
+        message: "La consommation d’un appel de cette analyse est restée inconnue : plus aucun appel payant n’est fait pour elle. Relancez les plans à lire." });
     case "TAKEOFF_DISABLED":
       return forbidden(jobId, "Le module Takeoff est désactivé pour ce tenant.");
     default:

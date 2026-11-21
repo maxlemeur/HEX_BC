@@ -60,6 +60,13 @@ describe("createTakeoffCallLedger", () => {
       ["reserve_takeoff_launch_call", "call:1"], ["record_takeoff_launch_usage", "call:1"]]);
   });
 
+  // A call of unknown outcome freezes every further paid call of its request: the refusal names it, nothing is sent.
+  it("stops on a request frozen by a call of unknown outcome, with that reason", async () => {
+    answers.push({ data: [{ outcome: "refused", reason: "USAGE_UNKNOWN" }], error: null });
+    const ledger = createTakeoffCallLedger({ id: "job", launch_request_id: "request" }, () => "lease");
+    await expect(ledger.beforePaidCall("vector_group")).rejects.toMatchObject({ code: "TAKEOFF_USAGE_UNRECORDED", retryable: false });
+  });
+
   it("waits for a call of its attempt in flight when only that call holds the balance, then reserves", async () => {
     const ledger = createTakeoffCallLedger({ id: "job", launch_request_id: "request" }, () => "lease");
     // The database's answers in turn: the first call reserved, the second waits, the first is settled, the second reserved.
