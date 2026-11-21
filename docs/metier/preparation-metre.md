@@ -219,11 +219,14 @@ demande s’évalue, tourne ou attend une cause passagère.
   forfait » (un autre opérateur), avec « Mon profil » quand la connexion ChatGPT
   est en cause ; loin du Mac connecté, il est invité à y ouvrir MergeOne. Un
   directeur voit l’état et son motif, sans geste ni options.
-- **Les options du métré** (opérateurs, dès qu’il y a des plans). Tant que le
+- **Les options du métré** (dès qu’il y a des plans, pour un administrateur ou
+  un ingénieur qui peut écrire l’affaire, la règle de la préparation). Tant que le
   démarrage automatique est inactif, elles lancent comme avant : sur le brouillon
   courant ou sur un nouveau brouillon d’une version choisie, sans demande (la base
   n’écrit aucune demande avant l’activation). Une fois actif, elles ne créent
-  jamais de job sans demande : leur lancement est une demande manuelle, sans
+  jamais de job sans demande, et le serveur refuse tout nouveau lancement sur une
+  version (le rejeu d’un lancement fait avant retrouve son job) : leur lancement
+  est une demande manuelle, sans
   version, sur le forfait du membre qui clique (la première analyse de l’affaire,
   ou une relance qui nomme l’analyse de la demande affichée). Elles enregistrent
   seulement, sans rien lancer, tant que la demande automatique peut encore

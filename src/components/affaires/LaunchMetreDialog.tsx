@@ -366,8 +366,9 @@ function LaunchMetreDialogContent({
       setLaunchSuccess(true);
       if (result.jobId) onLaunched?.(result.jobId, null);
     } catch (error) {
-      // The server answered: the command is decided, a new click is a new one. Otherwise its answer may be lost.
-      if (error instanceof TakeoffActionError) intentKeyRef.current = null;
+      // A refusal the server named decides the command: a new click is a new one. After a server error or a lost answer
+      // the command may have been recorded: the next click replays it with the same key.
+      if (error instanceof TakeoffActionError && error.status < 500) intentKeyRef.current = null;
       setErrorMessage(error instanceof TakeoffActionError ? error.message : "Impossible de lancer l'analyse.");
     } finally {
       setIsSubmitting(false);

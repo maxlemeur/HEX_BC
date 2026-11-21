@@ -9,6 +9,7 @@ import {
 } from "../critical/fixtures";
 import { createPlanSet, ownedTakeoffJobs, requireLocalPlansBackend, uploadSamplePlan } from "../critical/plans-support";
 import { fillTakeoffPreparation, openTakeoffPreparation, saveTakeoffPreparation, takeoffZone } from "../critical/preparation-support";
+import { waitForHydration } from "../critical/hydration-support";
 import { querySql } from "./calculation-gate-support";
 import {
   ENGINE_UNAVAILABLE, TAKEOFF_V3_REASON,
@@ -421,6 +422,7 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       const zone = takeoffZone({ screen });
       await expect(zone).toBeVisible({ timeout: 60_000 });
       const prepare = zone.getByRole("button", "Options du métré", { exact: true });
+      await waitForHydration(browser);
       const preparationEnabled = await prepare.isEnabled();
       await prepare.click();
       let dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });

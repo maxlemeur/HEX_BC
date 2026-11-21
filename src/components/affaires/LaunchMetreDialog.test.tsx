@@ -156,17 +156,22 @@ describe("LaunchMetreDialog", () => {
     it("replays a click whose answer was lost with the same key, and gives a new click after an answer a new one", async () => {
       const user = userEvent.setup();
       relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValueOnce({ ok: false, error: { status: 500, code: "INTERNAL_ERROR", message: "Erreur serveur.", retryable: true } })
         .mockResolvedValueOnce({ ok: false, error: { status: 409, code: "CONFLICT", message: "Refus nommé.", retryable: false } })
         .mockResolvedValueOnce({ ok: true, data: { outcome: "already_running", requestId: "r0", jobId: "j0" } });
       render(request());
       const launch = await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
       await user.click(launch);
       await user.click(launch);
+      expect(await screen.findByText("Erreur serveur.")).toBeInTheDocument();
+      await user.click(launch);
       expect(await screen.findByText("Refus nommé.")).toBeInTheDocument();
       await user.click(launch);
       const keys = relaunchTakeoffMock.mock.calls.map(([input]) => (input as { intentKey: string }).intentKey);
+      // A lost answer and a server error keep the key; a named refusal ends it.
       expect(keys[1]).toBe(keys[0]);
-      expect(keys[2]).not.toBe(keys[1]);
+      expect(keys[2]).toBe(keys[0]);
+      expect(keys[3]).not.toBe(keys[2]);
       expect(await screen.findByText("Une analyse de l’affaire est déjà en cours")).toBeInTheDocument();
     });
 

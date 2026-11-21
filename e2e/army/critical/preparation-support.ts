@@ -1,6 +1,7 @@
 import { expect } from "e2e";
 
 import { type ArmyState, type createEstimateViaWizard } from "./fixtures";
+import { waitForHydration } from "./hydration-support";
 
 type Ui = Parameters<typeof createEstimateViaWizard>[0] & { army: ArmyState };
 
@@ -11,6 +12,8 @@ export function takeoffZone(ui: Pick<Ui, "screen">) {
 
 /** Opens the takeoff's options from its zone, the affaire's only access to them, on their summary. */
 export async function openTakeoffOptionsDialog(ui: Ui) {
+  // The zone's button is in the server's HTML: a click before hydration is lost.
+  await waitForHydration(ui.browser);
   await takeoffZone(ui).getByRole("button", "Options du métré", { exact: true }).click();
   const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await expect(dialog).toBeVisible();
@@ -19,6 +22,7 @@ export async function openTakeoffOptionsDialog(ui: Ui) {
 
 /** Opens the takeoff's options from its zone and unfolds their four steps. */
 export async function openTakeoffPreparation(ui: Ui) {
+  await waitForHydration(ui.browser);
   await takeoffZone(ui).getByRole("button", "Options du métré", { exact: true }).click();
   const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await expect(dialog).toBeVisible();

@@ -7,6 +7,7 @@ import type { AffaireTakeoffZoneData, AffaireTakeoffZoneJob, AffaireTakeoffZoneR
 import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import type { TakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
+import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import {
   describeTakeoffJobFailure, resolveTakeoffVisibleJobStatus, takeoffCompletionFailureReason,
@@ -39,7 +40,7 @@ function toZoneJob(projectId: string, row: JobRow): AffaireTakeoffZoneJob {
 }
 
 /** What the request sealed, by name only: the manifest itself (digests, files, budget) never reaches a member. */
-function toCoverage(manifest: unknown): AffaireTakeoffZoneRequest["coverage"] {
+export function toAffaireTakeoffCoverage(manifest: unknown): AffaireTakeoffZoneRequest["coverage"] {
   const coverage = (manifest as Partial<TakeoffLaunchManifest> | null)?.coverage;
   if (!coverage || typeof coverage.plans_retained !== "number") return null;
   const named = <T extends string>(entries: unknown, reasons: readonly T[]) => (Array.isArray(entries) ? entries : []).flatMap((entry) => {
@@ -65,7 +66,9 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
   const requestId = launch.request?.id ?? null;
   const jobs = () => context.supabase.from("takeoff_jobs").select(JOB_SELECT)
     .eq("tenant_id", context.tenantId).eq("project_id", projectId);
-  const [requestRow, sealed, requestJobs, latest, latestReadable, ends] = await Promise.all([
+  const [canOperate, requestRow, sealed, requestJobs, latest, latestReadable, ends] = await Promise.all([
+    // The preparation's write rule (an administrator, or an engineer who may write the affaire): who sees its options.
+    assertPreparationProjectAccess(context, projectId, true).then(() => true, () => false),
     requestId ? context.supabase.from("takeoff_launch_requests").select("completion_event_id")
       .eq("tenant_id", context.tenantId).eq("id", requestId).maybeSingle() : Promise.resolve({ data: null, error: null }),
     // The manifest is not a member's column: read by the server after the access check, projected by name.
@@ -92,6 +95,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
   const { request } = launch;
   return {
     active: launch.active,
+    canOperate,
     confirmedBeforeActivation: launch.confirmedBeforeActivation,
     request: request ? {
       id: request.id, origin: request.origin, state: request.state, mandateRevision: request.mandateRevision,
@@ -99,7 +103,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
       createdAt: request.createdAt, admittedAt: request.admittedAt, closedAt: request.closedAt, outcome: request.outcome,
       units: request.units, action: request.action,
       jobs: ((requestJobs.data ?? []) as unknown[]).map(toJob),
-      coverage: toCoverage((sealed.data as { manifest?: unknown } | null)?.manifest ?? null),
+      coverage: toAffaireTakeoffCoverage((sealed.data as { manifest?: unknown } | null)?.manifest ?? null),
       completionEventId,
     } : null,
     dossierChangedSinceAnalysis: launch.dossierChangedSinceAnalysis,

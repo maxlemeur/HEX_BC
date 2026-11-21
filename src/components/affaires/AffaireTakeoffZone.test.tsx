@@ -27,7 +27,7 @@ const requestId = "33333333-3333-4333-8333-333333333333";
 
 function blocked(overrides: Partial<NonNullable<AffaireTakeoffZoneData["request"]>> = {}): AffaireTakeoffZoneData {
   return {
-    active: true, confirmedBeforeActivation: false, dossierChangedSinceAnalysis: null, latestJob: null, latestReview: null, latestEnd: null,
+    active: true, canOperate: true, confirmedBeforeActivation: false, dossierChangedSinceAnalysis: null, latestJob: null, latestReview: null, latestEnd: null,
     request: { id: requestId, origin: "automatic", state: "blocked", mandateRevision: 4, reason: "MANDATE_REQUIRED", pieces: [],
       hasPayer: false, payerIsViewer: false, createdAt: "2026-11-21T08:00:00.000Z", admittedAt: null, closedAt: null, outcome: null,
       units: { expected: null, succeeded: 0, failed: 0, canceled: 0 }, action: "take_on", jobs: [], coverage: null,

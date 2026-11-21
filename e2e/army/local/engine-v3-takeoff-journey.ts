@@ -51,6 +51,7 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       const zone = takeoffZone({ screen });
       await expect(zone).toBeVisible({ timeout: 60_000 });
       const prepare = zone.getByRole("button", "Options du métré", { exact: true });
+      await waitForHydration(browser);
       const preparationEnabled = await prepare.isEnabled();
       await prepare.click();
       let dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });

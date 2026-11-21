@@ -13,7 +13,10 @@ import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-ser
 import { runSafeTakeoffAction } from "@/lib/takeoff/action-errors-server";
 import { findTakeoffPreparationCopyReceipt, recordTakeoffPreparationCopy } from "@/lib/takeoff/preparation-copy-provenance-server";
 import type { TakeoffJobCreateResponse } from "@/lib/takeoff/job-creation-input";
-import { assumeTakeoffLaunchRequest, launchTakeoffRelaunch, readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
+import {
+  assumeTakeoffLaunchRequest, isTakeoffLaunchActive, launchTakeoffRelaunch, readAffaireTakeoffLaunchState,
+} from "@/lib/takeoff/launch-request-server";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
 
 // Identifiers are compared as text by the replay of a launch (its copy receipt is JSON): one spelling, lower case.
@@ -52,10 +55,25 @@ export type TakeoffLaunchDispatch = {
   persisted: boolean;
 };
 
+/**
+ * Once the automatic start is on (both cut-offs), an analysis of an affaire is a launch request, without a version: a
+ * launch on a version would create a job that the « one admitted request per affaire » rule does not count. It is
+ * refused, a replay of a launch made before still answers with its job. Off, nothing changes.
+ */
+function launchOnVersionRefused() {
+  return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+    message: "Le métré de l’affaire se lance désormais depuis ses options, sans version : rechargez l’affaire et ouvrez « Options du métré »." });
+}
+
 export async function launchTakeoffFromPlanSet(
   input: LaunchTakeoffFromPlanSetInput,
 ) {
   const parsed = launchTakeoffFromPlanSetSchema.parse(input);
+  if (await isTakeoffLaunchActive()) {
+    const existing = await findTakeoffJobForPlanSetLaunch({ ...parsed, estimateVersionId: parsed.versionId });
+    if (existing) return dispatchCreatedTakeoffJob(existing, parsed.projectId);
+    throw launchOnVersionRefused();
+  }
   const job = await createTakeoffJobFromPlanSet({
     projectId: parsed.projectId,
     planSetId: parsed.planSetId,
@@ -110,6 +128,8 @@ export async function launchTakeoffFromSourceVersionPlanSet(
     ...parsed, estimateVersionId: parsed.sourceVersionId,
   });
   if (existing) return dispatchCreatedTakeoffJob(existing, parsed.projectId);
+  // Before the preparation is read and a draft is copied.
+  if (await isTakeoffLaunchActive()) throw launchOnVersionRefused();
   const processing = requireDetailedTakeoffProcessing(parsed);
   // Reject an incomplete preparation before creating a new business version.
   const context = await getAuthenticatedContext();

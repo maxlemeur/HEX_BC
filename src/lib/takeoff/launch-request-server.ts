@@ -529,6 +529,16 @@ export async function launchTakeoffRelaunch(input: {
 }): Promise<TakeoffRelaunchResult> {
   const { context } = input;
   await assertPreparationProjectAccess(context, input.projectId, true);
+  // The address of the gesture first: its job is started on this Mac right after the admission commits, and an address
+  // that cannot use the subscription must not leave an admitted request with an undispatched job.
+  if (input.host !== undefined) {
+    try {
+      assertLocalChatGptHost(input.host);
+    } catch {
+      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+        message: describeTakeoffLaunchReason("HOST_NOT_AUTHORISED") });
+    }
+  }
   const service = createServiceRoleClient();
   const intent: TakeoffLaunchManifest["intent"] = input.predecessorJobId ? "reread_plans" : "initial";
   // The command's identity, answered first: a double click or a replay gets its receipt whatever changed since.

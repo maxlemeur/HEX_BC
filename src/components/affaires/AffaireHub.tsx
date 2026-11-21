@@ -541,8 +541,11 @@ export function AffaireHub({
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
   // Every former « Préparer le métré » of the affaire (the « Plus » menu, the cockpit and its hierarchy, the plans card)
   // leads to the takeoff's zone and focuses it once its section is shown; none of them launches anything.
+  const [showImportFlow, setShowImportFlow] = useState(false);
   const [takeoffZoneFocusRequest, setTakeoffZoneFocusRequest] = useState(0);
   const revealTakeoffZone = useCallback(() => {
+    // The import flow takes the place of the sections: leaving it shows the zone (its plans step links here).
+    setShowImportFlow(false);
     setDetailsOpen(false);
     setActiveSection((section) => (section === "overview" || section === "estimate" ? section : "overview"));
     setTakeoffZoneFocusRequest((request) => request + 1);
@@ -700,6 +703,7 @@ export function AffaireHub({
       const params = new URLSearchParams(window.location.search);
       setActiveSection(affaireSectionFromLocation(params, hash));
       if (hash === `#${AFFAIRE_TAKEOFF_ZONE_ID}`) {
+        setShowImportFlow(false);
         setDetailsOpen(false);
         setTakeoffZoneFocusRequest((request) => request + 1);
         return;
@@ -908,7 +912,6 @@ export function AffaireHub({
   }) : null;
 
 
-  const [showImportFlow, setShowImportFlow] = useState(false);
   const [intakeDpgfCandidates, setIntakeDpgfCandidates] = useState<IntakeDpgfCandidate[]>([]);
   const [importResult, setImportResult] =
     useState<ConfirmUnifiedImportFlowResult | null>(null);

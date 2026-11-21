@@ -63,6 +63,8 @@ export type AffaireTakeoffZoneRequest = {
 export type AffaireTakeoffZoneData = {
   /** Both cut-offs are set: the automatic start and the requests are on. */
   active: boolean;
+  /** The member may prepare and launch a takeoff on this affaire (the preparation's write rule, read by the server). */
+  canOperate: boolean;
   /** Active, and a dossier confirmed before it with no request. */
   confirmedBeforeActivation: boolean;
   /** The affaire's latest execution, never hidden by an automatic start set aside for it. */
@@ -84,7 +86,7 @@ export type AffaireTakeoffZoneInput = {
   dossier: AffaireDossierState | null;
   /** Plans in the affaire's plan sets. */
   planFileCount: number;
-  /** The member may change the takeoff's options (an operator, not a reader). The server checks every gesture again. */
+  /** The page lets the member act (not a director's review). Combined with the server's own rule; every gesture is checked again. */
   canOperate: boolean;
 };
 
@@ -241,8 +243,9 @@ function decideOptions(input: AffaireTakeoffZoneInput, data: AffaireTakeoffZoneD
   return { mode: "request", predecessorJobId: request?.jobs[0]?.id ?? data.latestJob?.id ?? null };
 }
 
-export function buildAffaireTakeoffZone(input: AffaireTakeoffZoneInput): AffaireTakeoffZoneModel | null {
-  const { data, projectId } = input;
+export function buildAffaireTakeoffZone(zoneInput: AffaireTakeoffZoneInput): AffaireTakeoffZoneModel | null {
+  const { data, projectId } = zoneInput;
+  const input = { ...zoneInput, canOperate: zoneInput.canOperate && (data?.canOperate ?? false) };
   const activityHref = `/dashboard/affaires/${projectId}/takeoff`;
   if (!data) {
     return { tone: "neutral", status: "Indisponible", message: "L’état du métré n’a pas pu être lu. Réessayez dans un instant.",
@@ -263,7 +266,9 @@ export function buildAffaireTakeoffZone(input: AffaireTakeoffZoneInput): Affaire
   } else if (latestJob) {
     state = { ...jobState(latestJob), message: jobMessage(latestJob), facts: [] };
   } else if (data.active && data.confirmedBeforeActivation) {
-    state = { tone: "warning", status: "Non démarré", message: "Dossier confirmé avant l’activation — options disponibles", facts: [] };
+    state = { tone: "warning", status: "Non démarré", facts: [], message: input.canOperate
+      ? "Dossier confirmé avant l’activation — options disponibles"
+      : "Dossier confirmé avant l’activation du démarrage automatique : aucune analyse n’a démarré." };
   } else if (data.active && input.dossier && DOSSIER_WAIT[input.dossier]) {
     const reason = DOSSIER_WAIT[input.dossier]!;
     state = { tone: "info", status: "En attente du dossier", message: describeTakeoffLaunchReason(reason), facts: [] };

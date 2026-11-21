@@ -32,7 +32,7 @@ function request(overrides: Partial<AffaireTakeoffZoneRequest> = {}): AffaireTak
 }
 
 function data(overrides: Partial<AffaireTakeoffZoneData> = {}): AffaireTakeoffZoneData {
-  return { active: true, confirmedBeforeActivation: false, request: null, dossierChangedSinceAnalysis: null,
+  return { active: true, canOperate: true, confirmedBeforeActivation: false, request: null, dossierChangedSinceAnalysis: null,
     latestJob: null, latestReview: null, latestEnd: null, ...overrides };
 }
 
@@ -60,6 +60,12 @@ describe("buildAffaireTakeoffZone", () => {
       expect(operator!.message).not.toMatch(/démarrera/);
       expect(zone({ data: data({ active: false }), canOperate: false })).toMatchObject({
         options: null, message: "Aucune analyse des plans pour le moment." });
+    });
+
+    it("offers nothing to a member the takeoff's write rule refuses, even outside a director's review", () => {
+      const model = zone({ data: data({ active: false, canOperate: false }) });
+      expect(model).toMatchObject({ options: null, gesture: null, message: "Aucune analyse des plans pour le moment." });
+      expect(zone({ data: data({ canOperate: false, request: request({ action: "take_on" }) }) })).toMatchObject({ gesture: null, options: null });
     });
 
     it("never offers a take-over a request could still show once the activation was withdrawn", () => {

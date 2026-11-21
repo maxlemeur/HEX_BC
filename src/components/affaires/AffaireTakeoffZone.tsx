@@ -88,12 +88,15 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
   const zoneOf = useCallback((zoneData: AffaireTakeoffZoneData | null) => buildAffaireTakeoffZone({
     projectId, data: zoneData, dossier: props.dossier, planFileCount: props.planFileCount, canOperate,
   }), [canOperate, projectId, props.dossier, props.planFileCount]);
+  // Stable while its inputs are: SWR restarts its polling timer whenever this function changes.
+  const refreshInterval = useCallback((latest: AffaireTakeoffZoneData | undefined) =>
+    (zoneOf(latest ?? initialData)?.live ? LIVE_REFRESH_MS : 0), [initialData, zoneOf]);
   const { data, error, mutate } = useSWR(["affaire-takeoff-zone", projectId], () => readZone(projectId), {
     fallbackData: initialData ?? undefined,
     // The server read failed: try again once the zone is shown, then on focus.
     revalidateOnMount: initialData === null,
     revalidateOnFocus: true,
-    refreshInterval: (latest) => (zoneOf(latest ?? initialData)?.live ? LIVE_REFRESH_MS : 0),
+    refreshInterval,
     keepPreviousData: true,
   });
   const model: AffaireTakeoffZoneModel | null = useMemo(() => zoneOf(data ?? (error ? null : initialData)),
