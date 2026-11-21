@@ -1319,9 +1319,13 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
       job_id: null, recipient_user_id: owner.userId, outcome: "success" })]);
     expect((await readEstimate(browser, ids.versionId)).items).toEqual(before.items);
 
-    // A second confirmation from a page read before the first (the loser of the brief's CAS) starts nothing.
-    const stale = await callServerAction(browser, await serverActionId("confirmAffaireBrief", actionManifest()),
-      { projectId: ids.projectId, expectedUpdatedAt: briefBefore.updated_at });
+    // The member's identical submission of the revision they confirmed (a second tab, or an answer lost on the way)
+    // gets the first one's answer and starts nothing more; a form of any other revision is refused.
+    const confirmAction = await serverActionId("confirmAffaireBrief", actionManifest());
+    const replay = await callServerAction(browser, confirmAction, { projectId: ids.projectId, expectedUpdatedAt: briefBefore.updated_at });
+    expect(replay).toMatchObject({ ok: true, errorCode: null });
+    const stale = await callServerAction(browser, confirmAction,
+      { projectId: ids.projectId, expectedUpdatedAt: new Date(Date.parse(briefBefore.updated_at) - 1_000).toISOString() });
     expect(stale.ok).not.toBe(true);
     expect(await readOwnedLaunchRequests(ids.projectId)).toHaveLength(1);
 
@@ -1336,7 +1340,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([expect.objectContaining({ id: request.id, state: "closed" })]);
     expect(await planReads() - readsBefore).toBe(1);
     expect(await forbiddenRequests()).toBe(0);
-    await recordEvidence(army, "AUTO01-automatic-start", { ids, request, jobs, planReads: 1, staleConfirmation: stale,
+    await recordEvidence(army, "AUTO01-automatic-start", { ids, request, jobs, planReads: 1, replayedConfirmation: replay, staleConfirmation: stale,
       addedAfterAnalysis: added.map(file => file.id), boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend." });
   } finally {
     // The next journey signs its own account in: leave no session of these owners.
