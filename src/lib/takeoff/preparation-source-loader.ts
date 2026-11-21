@@ -38,6 +38,12 @@ export class PreparedPlanRefusal extends Error {
   }
 }
 
+/** The pages the worker reads of a plan of `pageCount` pages: its selection, or every page; null when one lies outside. */
+export function preparedPlanPages(selectedPages: readonly number[], pageCount: number): number[] | null {
+  const pages = selectedPages.length ? [...selectedPages] : Array.from({ length: pageCount }, (_, i) => i + 1);
+  return pages.some((page) => page < 1 || page > pageCount) ? null : pages;
+}
+
 /**
  * The worker's opening of a plan from its verified bytes, with the pages it reads (every page without a selection).
  * Throws a `PreparedPlanRefusal` when the worker would not read it; the sealing of a preparation checks a plan with it.
@@ -52,8 +58,8 @@ export async function openPreparedPlan(bytes: ArrayBuffer | Uint8Array, selected
   } catch {
     throw new PreparedPlanRefusal("invalid_content");
   }
-  const pages = selectedPages.length ? [...selectedPages] : Array.from({ length: pageCount }, (_, i) => i + 1);
-  if (pages.some((page) => page < 1 || page > pageCount)) throw new PreparedPlanRefusal("invalid_pages");
+  const pages = preparedPlanPages(selectedPages, pageCount);
+  if (!pages) throw new PreparedPlanRefusal("invalid_pages");
   return { pdf, pages };
 }
 

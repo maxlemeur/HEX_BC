@@ -680,6 +680,23 @@ describe("the sealing of a member's confirmation", () => {
       message: expect.stringContaining("« Distribution rev B.pdf »") });
   });
 
+  // Written after the third reading: an identical copy set aside gives its pages to the plan kept, which the worker reads
+  // with every page so merged.
+  it("tells the member a page an identical copy set aside gives to the plan kept, when the file lacks it", async () => {
+    const f = fixture();
+    f.file.page_count = null;
+    const copy = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan fictif copie.pdf", file_path: `${M3_TENANT_ID}/plan-copie.pdf` };
+    f.files.push(copy);
+    f.contents.set(copy.file_path, f.content);
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    draft.sources = draft.sources.map((source) => source.kind !== "plan" ? source
+      : { ...source, pages: source.document_id === f.file.id ? [1] : [2] });
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    await expect(confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! })).rejects.toMatchObject({
+      status: 422, message: expect.stringContaining("« Plan fictif.pdf »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
   // A page count the dossier does not know leaves the readiness unable to see it; the worker refuses the page.
   it("tells the member a plan page selection the file does not have, and confirms nothing", async () => {
     const f = fixture();

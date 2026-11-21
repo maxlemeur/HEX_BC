@@ -30,7 +30,7 @@ import {
   PREPARATION_REFERENCE_LIMITS, PreparationReferenceRefusal, readPreparationReference, type PreparationReferenceFormat,
 } from "@/lib/takeoff/preparation-reference-loader";
 import { PLAN_FILE_MAX_SIZE_BYTES } from "@/lib/takeoff/plans";
-import { openPreparedPlan, PreparedPlanRefusal } from "@/lib/takeoff/preparation-source-loader";
+import { openPreparedPlan, preparedPlanPages, PreparedPlanRefusal } from "@/lib/takeoff/preparation-source-loader";
 import { sha256Hex } from "@/lib/takeoff/sha256";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { hasTakeoffPreparationCopyReceipt } from "@/lib/takeoff/preparation-copy-provenance-server";
@@ -235,8 +235,8 @@ function referenceIssue(source: TakeoffPreparationSource, issue: PreparationRefe
  * file must fit what a plan may be. A reference is then read as the worker reads it (`readPreparationReference`), within
  * the same bounds: one the worker would refuse stops a confirmation, told to the member (`throw`), or is left out of an
  * automatic start, named with its reason (`omit`). A plan that cannot be read stops both (`PreparationPlanSealError`);
- * a plan is opened as the worker opens it (`openPreparedPlan`), and one it would not open stops both once the caller,
- * its revision choices applied, finds it still read (`assertReadPlansOpen`). The title block of a dossier plan gives its
+ * a plan is opened as the worker opens it (`openPreparedPlan`), and one it would not open, or pages it lacks, stop both
+ * once the caller, its revision choices applied, finds them still read (`assertReadPlansOpen`). The title block of a dossier plan gives its
  * index; a page the renderer cannot draw leaves it unread, as the worker reads a plan without it. `sources` and `recordedSizes` are the dossier as the caller read it; the draft is changed in
  * place.
  */
@@ -250,7 +250,8 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
 }): Promise<{ omittedReferences: PreparationSealOmission[]; assertReadPlansOpen: (read: TakeoffPreparation) => void }> {
   const available = new Map(options.sources.map((source) => [source.document_id, source]));
   const omittedReferences: PreparationSealOmission[] = [];
-  const unopenedPlans: PreparationPlanSealError[] = [];
+  const unopenedPlans = new Map<string, PreparationPlanSealError>();
+  const planPageCounts = new Map<string, number>();
   const leaveOut = (source: TakeoffPreparationSource, issue: Parameters<typeof referenceIssue>[1]) => {
     const { reason, error } = referenceIssue(source, issue);
     if (options.onReferenceIssue === "throw") throw error;
@@ -306,13 +307,14 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
         continue;
       }
     } else {
-      // Opened as the worker opens it. The worker never opens a version the revision choices set aside (it only
-      // compares its bytes): such a plan stops the sealing only once the choices retain it (`assertReadPlansOpen`).
+      // Opened as the worker opens it, its pages counted. The worker never opens a version the revision choices set
+      // aside (it only compares its bytes), and an identical copy set aside gives its pages to the plan kept: what it
+      // reads is checked once the choices apply (`assertReadPlansOpen`).
       try {
-        await openPreparedPlan(bytes, source.pages);
+        planPageCounts.set(source.document_id, (await openPreparedPlan(bytes, [])).pdf.getPageCount());
       } catch (refusal) {
         if (!(refusal instanceof PreparedPlanRefusal)) throw refusal;
-        unopenedPlans.push(new PreparationPlanSealError(piece, refusal.reason === "invalid_pages" ? "invalid_pages" : "invalid"));
+        unopenedPlans.set(source.document_id, new PreparationPlanSealError(piece, "invalid"));
       }
     }
     if (plan && draft.provenance) {
@@ -335,13 +337,18 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
   return {
     omittedReferences,
     /**
-     * Throws, naming it, for a plan the worker would not open that `read` (the preparation as the analysis reads it,
-     * once the revision choices apply) still retains.
+     * Throws, naming it, for a plan of `read` (the preparation as the analysis reads it, once the revision choices
+     * apply) that the worker would not open, or whose pages to read lie outside the file it sealed.
      */
     assertReadPlansOpen: (read) => {
-      const active = new Set(read.sources.filter((source) => source.active).map((source) => source.document_id));
-      const refused = unopenedPlans.find((error) => active.has(error.piece.id));
-      if (refused) throw refused;
+      for (const source of read.sources.filter((entry) => entry.active && entry.kind === "plan")) {
+        const refused = unopenedPlans.get(source.document_id);
+        if (refused) throw refused;
+        const pageCount = planPageCounts.get(source.document_id);
+        if (pageCount !== undefined && !preparedPlanPages(source.pages, pageCount)) {
+          throw new PreparationPlanSealError({ id: source.document_id, name: source.document_name }, "invalid_pages");
+        }
+      }
     },
   };
 }
