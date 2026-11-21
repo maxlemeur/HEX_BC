@@ -28,7 +28,7 @@ beforeEach(() => {
   select.mockReturnValue(query); eq.mockReturnValue(query);
   maybeSingle.mockResolvedValue({ data: { user_id: "creator", role: "engineer" }, error: null });
   projectSingle.mockResolvedValue({ data: { user_id: "creator", is_archived: false }, error: null });
-  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "chosen-model" }] } as never);
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: "chosen-model" }] } as never);
   vi.mocked(callLocalChatGptStructured).mockResolvedValue({ data: { quantity: 12 } } as never);
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -40,16 +40,16 @@ it("binds the plan to the persisted creator and active job tenant, rechecking ac
   expect(readChatGptStore).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" });
   expect(eq.mock.calls).toEqual(expect.arrayContaining([["user_id", "creator"], ["tenant_id", "tenant"], ["tenants.is_active", true]]));
   expect(maybeSingle).toHaveBeenCalledTimes(2);
-  expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options, { profileId: "profile", model: "chosen-model", reasoningEffort: null });
+  expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options, { profileId: "profile", model: "chosen-model", reasoningEffort: null, authorizationId: "connexion", onUsage: undefined });
 });
 it("pins selected reasoning effort with the model on every takeoff chunk", async () => {
-  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
   const provider = await resolveLocalTakeoffProvider(client as never, job);
   await provider!.call(options);
   await provider!.call(options);
   expect(provider?.reasoningEffort).toBe("high");
   for (const call of vi.mocked(callLocalChatGptStructured).mock.calls) {
-    expect(call[2]).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" });
+    expect(call[2]).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high", authorizationId: "connexion", onUsage: undefined });
   }
 });
 it("reads the attested selection after admission and refuses changed settings on a later attempt", async () => {
@@ -60,8 +60,8 @@ it("reads the attested selection after admission and refuses changed settings on
   expect(provider?.useProfileForVectorGroups).toBe(true);
   await provider!.call(options);
   expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options,
-    { profileId: "profile", model: "chosen-model", reasoningEffort: null });
-  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "chosen-model", reasoningEffort: "high" }] } as never);
+    { profileId: "profile", model: "chosen-model", reasoningEffort: null, authorizationId: "connexion", onUsage: undefined });
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: "chosen-model", reasoningEffort: "high" }] } as never);
   await expect(resolveLocalTakeoffProvider(client as never, pinned)).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
   expect(callLocalChatGptStructured).toHaveBeenCalledTimes(1);
 });
@@ -76,30 +76,13 @@ it("stops a running job when creator membership is revoked", async () => {
   await expect(provider!.call(options)).rejects.toMatchObject({ code: "FORBIDDEN" });
   expect(callLocalChatGptStructured).not.toHaveBeenCalled();
 });
-// A member who queued an analysis and was then demoted, or lost the affaire, spends nothing more: the check before each
-// paid call reads the right to launch on the affaire, as the admission did.
-it.each([
-  ["demoted to director", { user_id: "creator", role: "director" }, { user_id: "creator", is_archived: false }],
-  ["no longer the owner", { user_id: "creator", role: "engineer" }, { user_id: "other", is_archived: false }],
-  ["on an archived affaire", { user_id: "creator", role: "engineer" }, { user_id: "creator", is_archived: true }],
-])("stops before the next paid call when the creator is %s", async (_case, membership, project) => {
-  const provider = await resolveLocalTakeoffProvider(client as never, job);
-  maybeSingle.mockResolvedValue({ data: membership, error: null });
-  projectSingle.mockResolvedValue({ data: project, error: null });
-  await expect(provider!.call(options)).rejects.toMatchObject({ code: "FORBIDDEN", retryable: false,
-    message: expect.stringContaining("n’a plus le droit de lancer une analyse sur cette affaire") });
-  expect(callLocalChatGptStructured).not.toHaveBeenCalled();
-});
-it("lets an administrator's analysis run on an affaire another member owns", async () => {
-  maybeSingle.mockResolvedValue({ data: { user_id: "creator", role: "admin" }, error: null });
-  projectSingle.mockResolvedValue({ data: { user_id: "other", is_archived: false }, error: null });
-  const provider = await resolveLocalTakeoffProvider(client as never, job);
-  await expect(provider!.call(options)).resolves.toMatchObject({ data: { quantity: 12 } });
-});
+// Who may still pay on the affaire, before each paid call of every job, is the execution scope's database check
+// (execution-scope-server.test.ts, and private.takeoff_launch_payer_eligible in takeoff-launch-round-two.test.sql).
 it("gives the vector requests the creator's membership check and the job's pinned selection (TI-704 option B)", async () => {
-  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
   const provider = await resolveLocalTakeoffProvider(client as never, job);
-  expect(provider?.selection).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" });
+  expect(provider?.selection).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high", authorizationId: "connexion",
+    onUsage: undefined });
   await expect(provider!.assertOwnerActive()).resolves.toBeUndefined();
   maybeSingle.mockResolvedValue({ data: null, error: null });
   await expect(provider!.assertOwnerActive()).rejects.toMatchObject({ code: "FORBIDDEN", retryable: false });
@@ -111,7 +94,7 @@ it("stops on a selected plan failure without raw provider details or automatic r
   await expect(provider!.call(options)).rejects.not.toThrow("private-provider-payload");
 });
 it("requires a chosen model without switching billing paths", async () => {
-  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: null }] } as never);
+  vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: null }] } as never);
   await expect(resolveLocalTakeoffProvider(client as never, job)).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
 });
 it("refuses a legacy Gemini job before reading its creator's access or plan, even with a connected plan", async () => {

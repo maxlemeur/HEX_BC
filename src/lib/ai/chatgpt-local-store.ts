@@ -55,20 +55,38 @@ export async function localChatGptDirectory() {
   return directory;
 }
 
+// The Mac's identifier never changes once written: read once per directory, then kept.
+const hostIds = new Map<string, Promise<string>>();
 export async function getChatGptHostId() {
   const file = path.join(await localChatGptDirectory(), "host.json");
-  try {
-    await writeFile(file, JSON.stringify(`urn:uuid:${randomUUID()}`), { flag: "wx", mode: 0o600 });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  let hostId = hostIds.get(file);
+  if (!hostId) {
+    hostId = (async () => {
+      try {
+        await writeFile(file, JSON.stringify(`urn:uuid:${randomUUID()}`), { flag: "wx", mode: 0o600 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      return z.string().startsWith("urn:uuid:").parse(JSON.parse(await readFile(file, "utf8")));
+    })();
+    hostIds.set(file, hostId);
+    hostId.catch(() => hostIds.delete(file));
   }
-  return z.string().startsWith("urn:uuid:").parse(JSON.parse(await readFile(file, "utf8")));
+  return hostId;
 }
 
 export async function readChatGptStore(owner: ChatGptOwner): Promise<ChatGptStore> {
   try {
     const content = await readFile(path.join(root(), `${ownerKey(owner)}.json`), "utf8");
-    return storeSchema.parse(JSON.parse(content));
+    const store = storeSchema.parse(JSON.parse(content));
+    // A connection made before authorizations existed gets one when the store loads, from the identity token it was
+    // signed in with (a refresh keeps it, a new sign-in replaces it, a disconnection removes it).
+    for (const profile of store.profiles) {
+      if (!profile.authorizationId && profile.idToken) {
+        profile.authorizationId = `legacy:${createHash("sha256").update(`${profile.id}:${profile.idToken}`).digest("hex")}`;
+      }
+    }
+    return store;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { selectedId: null, profiles: [] };
     throw new Error("La connexion ChatGPT locale ne peut pas être lue. Reconnectez le compte.");

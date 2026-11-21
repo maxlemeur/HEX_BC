@@ -310,7 +310,8 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
       await saveChatGptStore(owner, store);
       if (!hasLocalChatGptPlanAccess(profile)) throw new Error("Le forfait ChatGPT n’est plus autorisé. Reconnectez le compte.");
     }
-    return { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null, profileId: profile.id };
+    return { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null, profileId: profile.id,
+      authorizationId: profile.authorizationId ?? null };
   });
 }
 
@@ -320,23 +321,6 @@ export async function selectLocalChatGptProfile(owner: ChatGptOwner, profileId: 
     if (!store.profiles.some((item) => item.id === profileId)) throw new Error("Connexion ChatGPT introuvable.");
     store.selectedId = profileId;
     await saveChatGptStore(owner, store);
-  });
-}
-
-/**
- * The authorization of the selected connection, given once to a connection made before authorizations existed (its
- * tokens are the ones it was signed in with). None when no connection with plan access is selected.
- */
-export async function ensureLocalChatGptAuthorization(owner: ChatGptOwner) {
-  return withChatGptLock(owner, async () => {
-    const store = await readChatGptStore(owner);
-    const profile = store.profiles.find((item) => item.id === store.selectedId);
-    if (!profile || !hasLocalChatGptPlanAccess(profile)) return null;
-    if (!profile.authorizationId) {
-      profile.authorizationId = randomUUID();
-      await saveChatGptStore(owner, store);
-    }
-    return profile.authorizationId;
   });
 }
 

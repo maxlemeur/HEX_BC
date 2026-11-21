@@ -81,7 +81,7 @@ function fixture() {
   };
 }
 
-const selection = { profileId: "alice", model: "gpt-5.4", reasoningEffort: "medium", hostId: "mac" } as const;
+const selection = { profileId: "alice", model: "gpt-5.4", reasoningEffort: "medium", hostId: "mac", authorizationId: "connexion-alice" } as const;
 const observedFingerprint = createHash("sha256").update(JSON.stringify([selection.profileId, selection.hostId, selection.model, selection.reasoningEffort])).digest("hex");
 const confirmation = { projectId: M3_PROJECT_ID, expectedRevision: 1, expectedExecutionFingerprint: observedFingerprint };
 const OTHER_PLAN_SET_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

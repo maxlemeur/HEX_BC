@@ -38,43 +38,86 @@ export function requireDetailedTakeoffProcessing({ level, provider }: { level?: 
   return DETAILED_TAKEOFF_PROCESSING;
 }
 
-export async function getTakeoffExecutionSelection(supabase: ServerSupabaseClient, owner: ChatGptOwner, requestedProvider: TakeoffProvider = "auto"): Promise<TakeoffExecutionSelection> {
+/** Why the member's ChatGPT subscription on this Mac cannot pay: what a launch request names when it waits. */
+export type LocalChatGptSubscriptionIssue =
+  | "LOCAL_RUNTIME_REQUIRED" | "HOST_NOT_AUTHORISED" | "CHATGPT_NOT_CONNECTED" | "CHATGPT_ACCESS_REVOKED" | "CHATGPT_MODEL_MISSING";
+export type LocalChatGptSubscription =
+  | { issue: LocalChatGptSubscriptionIssue; selection: null }
+  | { issue: null; selection: TakeoffExecutionSelection & { authorizationId: string } };
+
+/**
+ * The member's ChatGPT subscription on this Mac, the one reader: the selection a paid call pins (opaque profile, model,
+ * effort, Mac and the authorization of the current connection), or why it cannot pay. It never throws and never writes.
+ * `host` is the address of the member's request at a gesture; the Mac's own loop has none.
+ */
+export async function readLocalChatGptSubscription(owner: ChatGptOwner, host?: string | null): Promise<LocalChatGptSubscription> {
+  if (!isLocalChatGptEnabled()) return { issue: "LOCAL_RUNTIME_REQUIRED", selection: null };
+  if (host !== undefined) {
+    try {
+      assertLocalChatGptHost(host);
+    } catch {
+      return { issue: "HOST_NOT_AUTHORISED", selection: null };
+    }
+  }
+  let store: Awaited<ReturnType<typeof readChatGptStore>>;
+  try {
+    store = await readChatGptStore(owner);
+  } catch {
+    return { issue: "CHATGPT_ACCESS_REVOKED", selection: null };
+  }
+  if (!store.selectedId) return { issue: "CHATGPT_NOT_CONNECTED", selection: null };
+  const profile = store.profiles.find((entry) => entry.id === store.selectedId);
+  if (!profile || !hasLocalChatGptPlanAccess(profile) || !profile.authorizationId) return { issue: "CHATGPT_ACCESS_REVOKED", selection: null };
+  if (!profile.model) return { issue: "CHATGPT_MODEL_MISSING", selection: null };
+  return { issue: null, selection: { profileId: profile.id, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null,
+    hostId: await getChatGptHostId(), authorizationId: profile.authorizationId } };
+}
+
+/**
+ * The one comparison of a pinned selection with the subscription in use: unchanged, changed (another profile, model,
+ * effort or Mac) or withdrawn (disconnected, access lost, or another connection: a reconnection never revives a pin).
+ * A pin written before authorizations existed (a job queued by an earlier version) compares the rest.
+ */
+export function compareTakeoffSelection(pinned: unknown, actual: TakeoffExecutionSelection | null): "unchanged" | "changed" | "withdrawn" {
+  if (!actual?.authorizationId) return "withdrawn";
+  const parsed = takeoffExecutionSelectionSchema.safeParse(pinned);
+  if (!parsed.success) return "changed";
+  if (parsed.data.authorizationId !== undefined && parsed.data.authorizationId !== actual.authorizationId) return "withdrawn";
+  return parsed.data.hostId === actual.hostId && parsed.data.profileId === actual.profileId && parsed.data.model === actual.model
+    && (parsed.data.reasoningEffort ?? null) === (actual.reasoningEffort ?? null) ? "unchanged" : "changed";
+}
+
+const SUBSCRIPTION_MESSAGES: Record<LocalChatGptSubscriptionIssue, string> = {
+  LOCAL_RUNTIME_REQUIRED: "Le forfait ChatGPT est disponible dans MergeOne local sur le Mac connecté.",
+  HOST_NOT_AUTHORISED: "Cette adresse ne peut pas utiliser le forfait ChatGPT. Ouvrez MergeOne sur le Mac connecté.",
+  CHATGPT_NOT_CONNECTED: "Connectez votre forfait ChatGPT dans Mon profil avant de lancer ce métré.",
+  CHATGPT_ACCESS_REVOKED: "Reconnectez votre forfait ChatGPT dans Mon profil avant de lancer ce métré.",
+  CHATGPT_MODEL_MISSING: "Choisissez un modèle ChatGPT dans Mon profil avant de lancer le métré.",
+};
+
+/** The subscription a launch pins, or a refusal in French: the throwing form of readLocalChatGptSubscription. */
+export async function getTakeoffExecutionSelection(supabase: ServerSupabaseClient, owner: ChatGptOwner, requestedProvider: TakeoffProvider = "auto"): Promise<TakeoffExecutionSelection & { authorizationId: string }> {
   assertTakeoffProviderAvailable(parseTakeoffProvider(requestedProvider));
   if (!isLocalChatGptEnabled()) {
-    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
-      message: "Le forfait ChatGPT est disponible dans MergeOne local sur le Mac connecté." });
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false, message: SUBSCRIPTION_MESSAGES.LOCAL_RUNTIME_REQUIRED });
   }
   assertLocalChatGptHost((await headers()).get("host"));
-  const store = await readChatGptStore(owner);
-  if (!store.selectedId) {
-    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
-      message: "Connectez votre forfait ChatGPT dans Mon profil avant de lancer ce métré." });
-  }
-  const profile = store.profiles.find((entry) => entry.id === store.selectedId);
-  if (!profile || !hasLocalChatGptPlanAccess(profile)) {
-    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
-      message: "Reconnectez votre forfait ChatGPT dans Mon profil avant de lancer ce métré." });
-  }
-  if (!profile.model) {
-    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
-      message: "Choisissez un modèle ChatGPT dans Mon profil avant de lancer le métré." });
+  const subscription = await readLocalChatGptSubscription(owner);
+  if (subscription.issue) {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false, message: SUBSCRIPTION_MESSAGES[subscription.issue] });
   }
   // Refuse admission before uploading anything if the shared schema is old.
   const { error } = await supabase.from("takeoff_jobs")
     .select("execution_provider, execution_host_id").limit(0);
   if (error) throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
     message: "La mise à jour de la base pour les métrés ChatGPT doit être appliquée avant de lancer ce métré." });
-  return { profileId: profile.id, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null, hostId: await getChatGptHostId() };
+  return subscription.selection;
 }
 
 export function assertPinnedTakeoffSelection(snapshot: unknown, userId: string, actual: TakeoffExecutionSelection) {
   if (!snapshot || typeof snapshot !== "object" || !("execution_selection" in snapshot)) return false;
-  const parsed = takeoffExecutionSelectionSchema.safeParse(snapshot.execution_selection);
-  if (!parsed.success || !("confirmed_by" in snapshot) || snapshot.confirmed_by !== userId ||
-    parsed.data.hostId !== actual.hostId || parsed.data.profileId !== actual.profileId ||
-    parsed.data.model !== actual.model || parsed.data.reasoningEffort !== actual.reasoningEffort ||
-    // A launch request's mandate names its connection: a disconnection or a reconnection since withdrew it.
-    (parsed.data.authorizationId !== undefined && parsed.data.authorizationId !== actual.authorizationId)) {
+  if (!("confirmed_by" in snapshot) || snapshot.confirmed_by !== userId
+    || compareTakeoffSelection(snapshot.execution_selection, actual) !== "unchanged") {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Le compte, le modèle ou l’effort ChatGPT a changé depuis la confirmation. Préparez une nouvelle analyse avec votre forfait." });
   }
@@ -141,7 +184,8 @@ export type LocalTakeoffProvider = {
   model: string;
   reasoningEffort?: ChatGptReasoningEffort | null;
   /** The profile, model and effort the job runs with: every request pins them (the vector reading's too, TI-704). */
-  selection: { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null };
+  selection: { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null; authorizationId?: string | null;
+    onUsage?: (usage: { totalTokens: number; costCents: number }) => Promise<void> };
   useProfileForVectorGroups?: boolean;
   call: StructuredCall;
   /** The creator's active membership of the job's tenant, checked before each plan request (FORBIDDEN otherwise). */
@@ -153,37 +197,37 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
   assertTakeoffWorkerConfiguration();
   // The persisted job supplies ownership, never the triggering HTTP session.
   const owner: ChatGptOwner = { userId: job.created_by ?? "", tenantId: job.tenant_id };
-  // Before each paid call: the member whose subscription pays may still launch an analysis on this affaire (an
-  // administrator of the tenant, or the engineer who owns the affaire, which is not archived), as at its admission.
-  // A member demoted after queuing an analysis, or an analysis that starts without a click, spends nothing more.
+  // The creator's active membership of the job's tenant; who may pay on the affaire is checked before each paid call by
+  // the execution scope (execution-scope-server.ts), for every job.
   async function assertOwnerActive() {
-    const forbidden = (message: string) => new TakeoffError({ code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId: job.id, message });
     const { data, error } = owner.userId ? await supabase.from("tenant_memberships")
-      .select("user_id, role, tenants!inner(is_active)").eq("user_id", owner.userId)
+      .select("user_id, tenants!inner(is_active)").eq("user_id", owner.userId)
       .eq("tenant_id", owner.tenantId).eq("tenants.is_active", true).maybeSingle()
       : { data: null, error: null };
-    if (error || !data) throw forbidden("Le créateur du métré n’a plus d’accès actif au tenant.");
-    const role = (data as { role?: string }).role;
-    const affaire = job.project_id && (role === "admin" || role === "engineer") ? await supabase.from("estimate_projects")
-      .select("user_id, is_archived").eq("id", job.project_id).eq("tenant_id", owner.tenantId).maybeSingle()
-      : { data: null, error: null };
-    const project = affaire.data as { user_id?: string; is_archived?: boolean } | null;
-    if (affaire.error || !project || project.is_archived || (role !== "admin" && project.user_id !== owner.userId)) {
-      throw forbidden("Le créateur du métré n’a plus le droit de lancer une analyse sur cette affaire.");
-    }
+    if (error || !data) throw new TakeoffError({ code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId: job.id,
+      message: "Le créateur du métré n’a plus d’accès actif au tenant." });
   }
   await assertOwnerActive();
-  const store = await readChatGptStore(owner);
-  if (!store.selectedId) throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
+  const subscription = await readLocalChatGptSubscription(owner);
+  if (subscription.issue === "CHATGPT_MODEL_MISSING") throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+    jobId: job.id, message: "Choisissez un modèle ChatGPT dans Mon profil avant de lancer le métré." });
+  if (subscription.issue) throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
     message: "Reconnectez le forfait ChatGPT du créateur de ce métré dans Mon profil." });
-  const profile = store.profiles.find((entry) => entry.id === store.selectedId);
-  if (!profile?.model) throw new TakeoffError({
-    code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
-    message: "Choisissez un modèle ChatGPT dans Mon profil avant de lancer le métré.",
-  });
-  const selection = { profileId: profile.id, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null };
-  const useProfileForVectorGroups = assertPinnedTakeoffSelection(job.preparation_snapshot, owner.userId,
-    { ...selection, hostId, authorizationId: profile.authorizationId });
+  const current = subscription.selection;
+  const useProfileForVectorGroups = assertPinnedTakeoffSelection(job.preparation_snapshot, owner.userId, { ...current, hostId });
+  // Every paid call (a chunk, a vector group) runs under the connection the job pinned, compared with the credential of
+  // that call; a launch request's job records each call's usage under its lease right after the answer.
+  const pinned = takeoffExecutionSelectionSchema.safeParse((job.preparation_snapshot as { execution_selection?: unknown } | null)?.execution_selection);
+  let calls = 0;
+  const selection = { profileId: current.profileId, model: current.model, reasoningEffort: current.reasoningEffort ?? null,
+    authorizationId: (pinned.success ? pinned.data.authorizationId : undefined) ?? current.authorizationId,
+    onUsage: job.launch_request_id ? async (usage: { totalTokens: number; costCents: number }) => {
+      const { error } = await createServiceRoleClient().rpc("record_takeoff_launch_usage", {
+        p_job_id: job.id, p_lease_token: job.processing_lease_token ?? "", p_call_key: `call:${++calls}`,
+        p_tokens: usage.totalTokens, p_cost_cents: usage.costCents });
+      if (error) throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
+        message: "La consommation de cet appel n’a pas pu être enregistrée : l’analyse s’arrête avant tout autre appel." });
+    } : undefined };
   return {
     model: selection.model,
     reasoningEffort: selection.reasoningEffort,

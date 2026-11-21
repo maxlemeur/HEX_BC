@@ -216,7 +216,13 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
   return checked;
 }
 
-type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
+/**
+ * The selection a paid call runs under: the connection it was pinned to (its authorization, compared with the credential
+ * of this very call) and, for a launch request's job, where its usage is recorded right after the answer, before it is
+ * read (an unreadable answer was paid for too). A recording that fails stops the call's caller: nothing more is payable.
+ */
+type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null;
+  authorizationId?: string | null; onUsage?: (usage: { totalTokens: number; costCents: number }) => Promise<void> };
 export type LocalChatGptResult<T> = StructuredCallResult<T> & { reasoningEffort: ChatGptReasoningEffort | null };
 /** An answer that is not JSON (SyntaxError) or does not match the schema (ZodError). */
 export type LocalChatGptSchemaError = SyntaxError | z.ZodError;
@@ -243,6 +249,9 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
   const profileEffort = credential.reasoningEffort ?? null;
   if (selection && (credential.profileId !== selection.profileId || credential.model !== selection.model || profileEffort !== (selection.reasoningEffort ?? null))) {
     throw new Error("Le compte, le modèle ou le niveau d’effort ChatGPT a changé. Relancez le métré.");
+  }
+  if (selection?.authorizationId && credential.authorizationId !== selection.authorizationId) {
+    throw new Error("La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation. Reprenez le métré avec votre forfait.");
   }
   const sent = !override ? { model: credential.model, reasoningEffort: profileEffort }
     : checkedOverrides.get(override) === overrideScope(owner, credential.profileId) ? override
@@ -277,6 +286,7 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
     signal: AbortSignal.timeout(Math.min(options.timeoutMs ?? 60_000, 180_000)), cache: "no-store",
   });
   const { text, usage } = await readChatGptResponse(response);
+  await selection?.onUsage?.({ totalTokens: usage.total_tokens, costCents: 0 });
   const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
   const tokenUsage = { inputTokens: usage.input_tokens, outputTokens: Math.max(0, usage.output_tokens - reasoningTokens), reasoningTokens, totalTokens: usage.total_tokens };
   const answered = {

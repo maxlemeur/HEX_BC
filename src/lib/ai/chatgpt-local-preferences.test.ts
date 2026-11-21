@@ -25,7 +25,8 @@ beforeEach(async () => {
   vi.mocked(getLocalChatGptCredential).mockImplementation(async (target) => {
     const store = await readChatGptStore(target);
     const profile = store.profiles.find((entry) => entry.id === store.selectedId);
-    return profile ? { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort, profileId: profile.id } : null;
+    return profile ? { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort, profileId: profile.id,
+      authorizationId: profile.authorizationId ?? null } : null;
   });
   fetchMock = vi.fn().mockImplementation(async () => Response.json({ models: [terra, sol] }));
   vi.stubGlobal("fetch", fetchMock);
