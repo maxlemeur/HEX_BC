@@ -30,6 +30,8 @@ type Props = {
   orderedQuestionIds?: string[];
   showOptions?: boolean;
   estimateVersionId?: string | null;
+  /** No version before the send: only « Analyse et revue uniquement » can be chosen. */
+  analysisOnly?: boolean;
 };
 
 function ListField({ label, values, onChange, multiline = false }: { label: string; values: string[]; onChange: (values: string[]) => void; multiline?: boolean }) {
@@ -69,7 +71,7 @@ function OptionalNumber({ label, value, onChange, min = 0 }: { label: string; va
   </label>;
 }
 
-export function TakeoffPreparationFields({ draft, onChange, step, projectId, availableSources, effectiveSources = draft.sources, orderedQuestionIds = [], showOptions = true, estimateVersionId = null }: Props) {
+export function TakeoffPreparationFields({ draft, onChange, step, projectId, availableSources, effectiveSources = draft.sources, orderedQuestionIds = [], showOptions = true, estimateVersionId = null, analysisOnly = false }: Props) {
   const id = useId();
   const changeSource = (documentId: string, patch: Partial<TakeoffPreparation["sources"][number]>) => {
     onChange({ ...draft, sources: draft.sources.map((source) => source.document_id === documentId ? reconcileTakeoffPageTriageStatuses({
@@ -233,7 +235,8 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
   </div>;
 
   return <div className="space-y-4">
-    {showOptions && <label htmlFor={`${id}-destination`} className="block space-y-1 text-sm font-medium"><span>Destination des résultats</span><NativeSelect id={`${id}-destination`} value={draft.destination.kind} onChange={(event) => onChange({ ...draft, destination: { ...draft.destination, kind: event.target.value as TakeoffPreparation["destination"]["kind"], estimate_version_id: event.target.value === "estimate_review" ? estimateVersionId : null, confirmed: false } })}><option value="analysis_only">Analyse et revue uniquement</option><option value="estimate_review">Propositions pour le devis après revue</option></NativeSelect></label>}
+    {showOptions && <label htmlFor={`${id}-destination`} className="block space-y-1 text-sm font-medium"><span>Destination des résultats</span><NativeSelect id={`${id}-destination`} value={draft.destination.kind} onChange={(event) => onChange({ ...draft, destination: { ...draft.destination, kind: event.target.value as TakeoffPreparation["destination"]["kind"], estimate_version_id: event.target.value === "estimate_review" ? estimateVersionId : null, confirmed: false } })}><option value="analysis_only">Analyse et revue uniquement</option>{(!analysisOnly || draft.destination.kind === "estimate_review") && <option value="estimate_review" disabled={analysisOnly}>Propositions pour le devis après revue</option>}</NativeSelect></label>}
+    {analysisOnly && draft.destination.kind === "estimate_review" && <div className="space-y-2 rounded-lg border border-warning-border bg-warning-subtle p-3 text-sm"><p>Cette préparation visait une version de devis. L’analyse se fait désormais sans devis : la version qui reçoit les quantités se choisit à leur envoi.</p><button type="button" className="font-medium underline" onClick={() => onChange({ ...draft, destination: { ...draft.destination, kind: "analysis_only", estimate_version_id: null, confirmed: false } })}>Analyser sans devis</button></div>}
     {draft.provenance && <p className="text-sm text-muted-foreground">Préparation déduite du dossier.</p>}
     <dl className="grid gap-3 rounded-lg border border-border bg-surface-subtle p-3 text-sm sm:grid-cols-2">
       <div><dt className="text-muted-foreground">Résultat attendu</dt><dd className="mt-1 font-medium">{draft.objective ? TAKEOFF_PREPARATION_OBJECTIVES[draft.objective] : "À préciser"}</dd></div>

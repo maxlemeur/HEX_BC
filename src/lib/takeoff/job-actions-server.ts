@@ -188,6 +188,12 @@ export async function resubmitTakeoffJob(
     .maybeSingle();
 
   if (error) {
+    // Once the automatic start is active, the database restarts no analysis outside any request while a request of the
+    // affaire runs (20261121193413): two analyses would run.
+    if (error.message === "TAKEOFF_LAUNCH_REQUEST_RUNNING") {
+      throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false, jobId: normalizedJobId,
+        message: "Une analyse de l’affaire est en cours : relancez celle-ci une fois qu’elle sera terminée." });
+    }
     throw toTakeoffError(
       mapSupabaseError(error, "Impossible de resoumettre le job takeoff."),
       {

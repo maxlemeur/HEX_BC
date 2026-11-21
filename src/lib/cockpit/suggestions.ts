@@ -402,10 +402,11 @@ export function computeCockpitSuggestions(
     suggestions.push(
       createSuggestion({
         actionId: "analyze-plans",
-        label: "Analyser les plans",
+        label: "État du métré",
         intent: "analyze_plans",
+        // The takeoff's zone on the affaire: its state, its options and its review; nothing is launched from here.
         preview:
-          "Lancer une analyse automatique des plans pour extraire les métrés.",
+          "Voir où en est l’analyse des plans, ses options et sa revue.",
         target: { kind: "open_surface", surfaceId: "launch-metre" },
         requiresConfirmation: false,
         confirmTone: "info",

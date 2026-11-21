@@ -781,13 +781,13 @@ export function buildPilotageExceptions(input: {
   ) {
     exceptions.push({
       id: "takeoff-launch",
-      title: "Lancer l'analyse des plans",
+      title: "Analyse des plans",
       summary:
-        "Les plans sont déjà presents dans l'affaire. Il reste à démarrer le métré pour comparer les quantités.",
+        "Les plans sont présents dans l'affaire : l'état du métré dit où en est leur analyse.",
       severity: "info",
       action: {
         kind: "surface",
-        label: "Démarrer l'analyse",
+        label: "Voir l'état du métré",
         surfaceId: "launch-metre",
       },
     });

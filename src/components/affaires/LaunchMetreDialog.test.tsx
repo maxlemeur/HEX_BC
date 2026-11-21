@@ -2,21 +2,25 @@ import { cleanup,render,screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
+import { UserProvider, type UserProfile } from "@/lib/auth/user-context";
+
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
 const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
+const relaunchTakeoffMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchPreparedTakeoffFromPlanSetAction: launchTakeoffFromPlanSetMock,
   launchPreparedTakeoffFromSourceVersionPlanSetAction: launchTakeoffFromSourceVersionPlanSetMock,
+  relaunchTakeoffAction: relaunchTakeoffMock,
 }));
 
 vi.mock("@/components/takeoff/TakeoffPreparationPanel", () => ({
   TakeoffPreparationPanel: (props: import("@/components/takeoff/TakeoffPreparationPanel").TakeoffPreparationPanelProps) =>
-    <div>{props.documentControls}{props.destinationControls}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7, 1)}>Confirmer et lancer le métré</button></div>,
+    <div data-estimate-version={props.estimateVersionId ?? "none"} data-analysis-only={String(Boolean(props.analysisOnly))}>{props.documentControls}{props.destinationControls}{props.launchNotice ? <p>{props.launchNotice}</p> : null}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7, 1)}>Confirmer et lancer le métré</button></div>,
 }));
 
 vi.mock("@/components/feedback/toast-provider", () => ({
@@ -78,9 +82,21 @@ const defaultProps = {
   },
 };
 
+const TENANT = "66666666-6666-4666-8666-666666666666";
+const MEMBER = "77777777-7777-4777-8777-777777777771";
+const OTHER_MEMBER = "77777777-7777-4777-8777-777777777772";
+
+/** The dialogue as a member of the tenant opens it (the page's user context). */
+function as(userId: string, element: React.ReactElement) {
+  const profile = { id: userId, full_name: "Membre fictif", phone: null, job_title: null, work_email: null, role: "admin",
+    ui_mode: "expert", tenant_id: TENANT, tenant_role: "engineer" } as unknown as UserProfile;
+  return <UserProvider initialUserEmail="membre@example.test" initialProfile={profile}>{element}</UserProvider>;
+}
+
 describe("LaunchMetreDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -128,6 +144,117 @@ describe("LaunchMetreDialog", () => {
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(screen.queryByText("Analyse transmise au traitement")).not.toBeInTheDocument();
+  });
+
+  describe("once the automatic start is on", () => {
+    const predecessor = "44444444-4444-4444-8444-444444444444";
+    const request = (overrides: Partial<Parameters<typeof LaunchMetreDialog>[0]> = {}) =>
+      <LaunchMetreDialog {...defaultProps} launchMode={{ kind: "request", predecessorJobId: predecessor }} {...overrides} />;
+
+    it("launches a request on the clicker's subscription without any version and without creating a draft", async () => {
+      relaunchTakeoffMock.mockResolvedValue({ ok: true, data: { outcome: "admitted", requestId: "r1", jobId: "j1" } });
+      render(request());
+      const launch = await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
+      expect(screen.queryByLabelText("Version cible")).not.toBeInTheDocument();
+      // The dialogue is rendered in a portal, outside the render's container.
+      expect(document.querySelector("[data-estimate-version]")).toHaveAttribute("data-estimate-version", "none");
+      expect(document.querySelector("[data-analysis-only]")).toHaveAttribute("data-analysis-only", "true");
+      await userEvent.setup().click(launch);
+      expect(relaunchTakeoffMock).toHaveBeenCalledWith({ projectId: defaultProps.projectId, planSetId: defaultProps.availablePlanSets[0]!.id,
+        preparationRevision: 7, intentKey: expect.stringMatching(/^[0-9a-f-]{36}$/), predecessorJobId: predecessor });
+      expect(launchTakeoffFromPlanSetMock).not.toHaveBeenCalled();
+      expect(launchTakeoffFromSourceVersionPlanSetMock).not.toHaveBeenCalled();
+      expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
+    });
+
+    it("replays a click whose answer was lost with the same key, and gives a new click after an answer a new one", async () => {
+      const user = userEvent.setup();
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValueOnce({ ok: false, error: { status: 500, code: "INTERNAL_ERROR", message: "Erreur serveur.", retryable: true } })
+        .mockResolvedValueOnce({ ok: false, error: { status: 409, code: "CONFLICT", message: "Refus nommé.", retryable: false } })
+        .mockResolvedValueOnce({ ok: true, data: { outcome: "already_running", requestId: "r0", jobId: "j0" } });
+      render(request());
+      const launch = await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
+      await user.click(launch);
+      await user.click(launch);
+      expect(await screen.findByText("Erreur serveur.")).toBeInTheDocument();
+      await user.click(launch);
+      expect(await screen.findByText("Refus nommé.")).toBeInTheDocument();
+      await user.click(launch);
+      const keys = relaunchTakeoffMock.mock.calls.map(([input]) => (input as { intentKey: string }).intentKey);
+      // A lost answer and a server error keep the key; a named refusal ends it.
+      expect(keys[1]).toBe(keys[0]);
+      expect(keys[2]).toBe(keys[0]);
+      expect(keys[3]).not.toBe(keys[2]);
+      expect(await screen.findByText("Une analyse de l’affaire est déjà en cours")).toBeInTheDocument();
+    });
+
+    // A lost answer is settled before anything new: whatever the dialogue shows after a reload (its analysis may have
+    // finished meanwhile, and the zone then names it as the one to replace), the member's next click on the affaire sends
+    // the unanswered command again, with its key and its own content, and shows its answer; only a click after that answer
+    // is a new command. Another member of the same browser never sends it.
+    const clickOnce = async (element: React.ReactElement) => {
+      const view = render(element);
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+      await screen.findByText(/Impossible de lancer|Analyse existante retrouvée|Analyse transmise|déjà en cours/);
+      view.unmount();
+    };
+    const sent = () => relaunchTakeoffMock.mock.calls.map(([input]) => input as { intentKey: string; predecessorJobId: string | null });
+    const FINISHED = "55555555-5555-4555-8555-555555555555";
+
+    it("settles a command whose answer was lost before any new one, after its analysis finished and a reload", async () => {
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValueOnce({ ok: true, data: { outcome: "replayed", requestId: "r1", jobId: FINISHED } })
+        .mockResolvedValue({ ok: true, data: { outcome: "admitted", requestId: "r2", jobId: "j2" } });
+      await clickOnce(as(MEMBER, request()));
+      // The analysis that click launched finished; the reloaded affaire offers to relaunch it.
+      const afterReload = request({ launchMode: { kind: "request", predecessorJobId: FINISHED } });
+      render(as(MEMBER, afterReload));
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+      expect(await screen.findByText("Analyse existante retrouvée")).toBeInTheDocument();
+      expect(sent()).toHaveLength(2);
+      expect(sent()[1]).toEqual({ ...sent()[0] });
+      expect(sent()[1]!.predecessorJobId).toBe(predecessor);
+      cleanup();
+      // Its answer shown, a new click is a new command, naming the finished analysis.
+      await clickOnce(as(MEMBER, afterReload));
+      expect(sent()[2]).toMatchObject({ predecessorJobId: FINISHED });
+      expect(sent()[2]!.intentKey).not.toBe(sent()[0]!.intentKey);
+      // Another member of the same browser never sends the first member's command.
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"));
+      await clickOnce(as(MEMBER, request()));
+      await clickOnce(as(OTHER_MEMBER, request()));
+      expect(sent()[4]!.intentKey).not.toBe(sent()[3]!.intentKey);
+    });
+
+    // Two tabs of one member: an answer received in one ends the command for both; the other never sends its key again.
+    it("never sends again a key settled in another tab", async () => {
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValue({ ok: true, data: { outcome: "admitted", requestId: "r2", jobId: "j2" } });
+      await clickOnce(as(MEMBER, request()));
+      // The other tab's answer cleared the browser's entry.
+      window.localStorage.clear();
+      await clickOnce(as(MEMBER, request()));
+      expect(sent()[1]!.intentKey).not.toBe(sent()[0]!.intentKey);
+    });
+
+    it("keeps no identifier of the member, the affaire or the command in the browser entry's name", async () => {
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"));
+      await clickOnce(as(MEMBER, request()));
+      const names = Object.keys(window.localStorage);
+      expect(names).toHaveLength(1);
+      for (const id of [TENANT, MEMBER, defaultProps.projectId, predecessor, defaultProps.availablePlanSets[0]!.id]) {
+        expect(names[0]).not.toContain(id);
+      }
+      expect(names[0]).toMatch(/^mergeone:takeoff-launch-command:v2:[0-9a-f]{64}$/);
+    });
+
+    it("launches nothing from options shown while another analysis waits or runs, and says why", async () => {
+      render(<LaunchMetreDialog {...defaultProps} launchMode={{ kind: "save_only", reason: "Une analyse de l’affaire est en cours." }} />);
+      expect(await screen.findByText("Une analyse de l’affaire est en cours.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Confirmer et lancer le métré" })).toBeDisabled();
+      expect(screen.queryByLabelText("Version cible")).not.toBeInTheDocument();
+    });
   });
 
   describe("the member's choice against a caller that renders again", () => {

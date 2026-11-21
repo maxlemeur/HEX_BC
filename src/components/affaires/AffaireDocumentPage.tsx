@@ -22,12 +22,15 @@ export function AffaireDocumentPage({
   workspace: serverWorkspace,
   canManage,
   takeoffEnabled,
+  takeoffLaunchActive = null,
 }: {
   projectId: string;
   projectName: string;
   workspace: AffaireIntakeWorkspace;
   canManage: boolean;
   takeoffEnabled: boolean;
+  /** Whether the takeoff's automatic start is active (null when unknown): the import's plans step. */
+  takeoffLaunchActive?: boolean | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -65,6 +68,7 @@ export function AffaireDocumentPage({
         projectId={projectId}
         intakeDpgfCandidates={candidates}
         takeoffEnabled={takeoffEnabled}
+        takeoffLaunchActive={takeoffLaunchActive}
         onCancel={() => setCandidates(null)}
         onComplete={(result) => {
           toast.success({

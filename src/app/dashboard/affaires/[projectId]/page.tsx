@@ -43,7 +43,9 @@ import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-draft
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import { readAffaireAutomaticTakeoffPayerNotice } from "@/lib/takeoff/launch-request-server";
+import { isTakeoffLaunchActive, readAffaireAutomaticTakeoffPayerNotice } from "@/lib/takeoff/launch-request-server";
+import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
 
 // A document retry may download and parse a large PDF before proposing its category.
@@ -75,11 +77,14 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const hasOverviewQuery = search.view !== "documents" || devHubScenario !== null;
   if (!hasOverviewQuery) {
     // Document triage does not need approval projections, estimate calculations or the register.
-    const [workspace, access, takeoffEnabled] = await Promise.all([
+    const [workspace, access, takeoffEnabled, takeoffLaunchActive] = await Promise.all([
       fetchAffaireIntakeWorkspace(projectId), requireAffaireAccess(projectId, "read"), isTakeoffEnabled(tenantId).catch(() => false),
+      // The import's plans step launches on its own draft only before the automatic start is active (null: unknown).
+      isTakeoffLaunchActive().catch(() => null),
     ]).catch((error: unknown) => { if (error && typeof error === "object" && "code" in error && error.code === "NOT_FOUND") notFound(); throw error; });
     if (workspace.documents.length > 0) return <AffaireDocumentPage projectId={projectId} projectName={access.project.name} workspace={workspace}
-      canManage={Boolean(workspace.canManageDocuments && profile?.tenant_role !== "director")} takeoffEnabled={takeoffEnabled} />;
+      canManage={Boolean(workspace.canManageDocuments && profile?.tenant_role !== "director")} takeoffEnabled={takeoffEnabled}
+      takeoffLaunchActive={takeoffLaunchActive} />;
   }
 
   const timelinePageRaw =
@@ -125,6 +130,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
         : null,
     () => null
   );
+  // The takeoff's zone for this member (lot 2): read in parallel; its failure leaves the zone saying so, never the page.
+  const takeoffZonePromise = devHubScenario ? Promise.resolve(null) : takeoffEnabledPromise.then((enabled) => enabled
+    ? getAuthenticatedContext().then((context) => readAffaireTakeoffZone(context, projectId)) : null).catch(() => null);
   const intakeWorkspacePromise = fetchAffaireIntakeWorkspace(projectId);
   const cockpitPreferencesPromise = fetchCockpitCommandPreferences(projectId);
   const supportingDataPromise = fetchAffaireHubCurrentVersion(projectId).then((currentVersion) => {
@@ -381,6 +389,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   // The payer notice only for a brief to confirm, the one dialog that shows it.
   const automaticTakeoffPayerNotice = devHubScenario || intakeWorkspace?.briefDraft?.status !== "a_confirmer" ? null
     : await readAffaireAutomaticTakeoffPayerNotice(projectId);
+  const takeoffZone = await takeoffZonePromise;
+  // Former launch links (`/takeoff?launch=1`, an old bookmark) open the options of the takeoff's zone: opening launches nothing.
+  const takeoffOptionsPlanSetId = typeof search.launchPlanSet === "string" && /^[0-9a-f-]{36}$/i.test(search.launchPlanSet)
+    ? search.launchPlanSet.toLowerCase() : null;
 
   return (
     <AffaireHub
@@ -412,6 +424,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       liveDossier={devHubScenario === null}
       viewerProfileId={profile?.id ?? null}
       automaticTakeoffPayerNotice={automaticTakeoffPayerNotice}
+      takeoffZone={takeoffZone}
+      takeoffOptionsRequested={search.metreOptions === "1"}
+      takeoffOptionsPlanSetId={takeoffOptionsPlanSetId}
     />
   );
 }

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AffaireDossierOverview } from "@/components/affaires/AffaireWorkbench";
+import { AffaireDossierOverview, affaireSectionFromLocation } from "@/components/affaires/AffaireWorkbench";
 import type { DossierDocument } from "@/lib/affaires/document-triage";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 
@@ -78,5 +78,14 @@ describe("dossier selection validation", () => {
     show([document("plan")], true);
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Valider la sélection" })).not.toBeInTheDocument();
+  });
+});
+
+describe("affaireSectionFromLocation", () => {
+  // The takeoff's zone sits in « Vue d’ensemble » and « Chiffrage »: its anchor lands on one of them, never on the dossier.
+  it("opens the takeoff's zone from its anchor, in the overview unless the link names « Chiffrage »", () => {
+    expect(affaireSectionFromLocation(new URLSearchParams(), "#metre")).toBe("overview");
+    expect(affaireSectionFromLocation(new URLSearchParams("view=estimate"), "#metre")).toBe("estimate");
+    expect(affaireSectionFromLocation(new URLSearchParams("view=dossier"), "#metre")).toBe("overview");
   });
 });

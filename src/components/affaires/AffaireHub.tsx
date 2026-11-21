@@ -47,7 +47,7 @@ import { AffaireFlowHierarchyPanel } from "./AffaireFlowHierarchyPanel";
 import { AffaireEmptyDossierStep } from "./AffaireEmptyDossierStep";
 import { BriefDraftCard } from "./BriefDraftCard";
 import { IntakeWorkspace } from "./IntakeWorkspace";
-import { LaunchMetreDialog } from "./LaunchMetreDialog";
+import { AffaireTakeoffZone, AFFAIRE_TAKEOFF_ZONE_ID } from "./AffaireTakeoffZone";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { AffairePersistedProjectDetails } from "./AffairePersistedProjectDetails";
 import { PlansMetresCard } from "./PlansMetresCard";
@@ -61,11 +61,8 @@ import {
   FinancialSummaryCard,
   VersionTimelineCard,
 } from "./AffaireHubSections";
-import {
-  TakeoffLaunchPrompt,
-  shouldShowTakeoffPrompt,
-} from "@/components/takeoff/TakeoffLaunchPrompt";
-import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
+import { getAffaireDossierState } from "@/lib/affaires/intake";
+import type { AffaireTakeoffZoneData } from "@/lib/takeoff/affaire-takeoff-zone";
 import type { CockpitCommandPreference, CockpitIntent, CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
@@ -158,9 +155,15 @@ type AffaireHubProps = {
   cockpitPreferences?: CockpitCommandPreference[];
   // False for a page of made-up data (development scenarios): the dossier is not read.
   liveDossier?: boolean;
+  /** Kept for the page's callers; the hub no longer keys anything per member in the browser. */
   viewerProfileId?: string | null;
   /** The notice of who pays, shown in the brief's confirmation to the member the automatic takeoff will charge. */
   automaticTakeoffPayerNotice?: { message: string; digest: string } | null;
+  /** The takeoff's zone as the server read it for this member; null when that read failed. */
+  takeoffZone?: AffaireTakeoffZoneData | null;
+  /** A link asked for the takeoff's options (`metreOptions=1`, former launch links), and the plan set it named. */
+  takeoffOptionsRequested?: boolean;
+  takeoffOptionsPlanSetId?: string | null;
 };
 
 export function shouldShowAffaireCreatedOnboardingBanner(input: {
@@ -474,8 +477,10 @@ export function AffaireHub({
   cockpitSuggestions: serverCockpitSuggestions,
   cockpitPreferences,
   liveDossier = true,
-  viewerProfileId,
   automaticTakeoffPayerNotice = null,
+  takeoffZone = null,
+  takeoffOptionsRequested = false,
+  takeoffOptionsPlanSetId = null,
 }: AffaireHubProps) {
   const router = useRouter();
   const documentSearchParams = useSearchParams();
@@ -534,22 +539,23 @@ export function AffaireHub({
   const { isExpert } = useUiMode();
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
-  const {
-    dismissed: promptPermanentlyDismissed,
-    temporarilyDismissed: promptTemporarilyDismissed,
-    dismissPermanently: dismissPromptPermanently,
-    dismissTemporarily: dismissPromptTemporarily,
-  } = useTakeoffAutoProposeDismissed(summary.project.id, {
-    context: "hub",
-    profileId: viewerProfileId ?? null,
-    scopeKey: [
-      plansSummary?.defaultPlanSetId ?? "none",
-      summary.currentVersion?.status === "draft"
-        ? summary.currentVersion.id
-        : `current:${summary.currentVersion?.id ?? "none"}`,
-      plansSummary?.defaultPlanSetUpdatedAt ?? "none",
-    ].join(":"),
-  });
+  // Every former « Préparer le métré » of the affaire (the « Plus » menu, the cockpit and its hierarchy, the plans card)
+  // leads to the takeoff's zone and focuses it once its section is shown; none of them launches anything.
+  const [showImportFlow, setShowImportFlow] = useState(false);
+  const [takeoffZoneFocusRequest, setTakeoffZoneFocusRequest] = useState(0);
+  const revealTakeoffZone = useCallback(() => {
+    // The import flow takes the place of the sections: leaving it shows the zone (its plans step links here).
+    setShowImportFlow(false);
+    setDetailsOpen(false);
+    setActiveSection((section) => (section === "overview" || section === "estimate" ? section : "overview"));
+    setTakeoffZoneFocusRequest((request) => request + 1);
+  }, []);
+  useEffect(() => {
+    if (takeoffZoneFocusRequest === 0) return;
+    const zone = document.getElementById(AFFAIRE_TAKEOFF_ZONE_ID);
+    zone?.scrollIntoView({ block: "start", behavior: "smooth" });
+    zone?.focus({ preventScroll: true });
+  }, [takeoffZoneFocusRequest]);
 
   const [showOnboardingBanner, setShowOnboardingBanner] = useState(false);
 
@@ -629,7 +635,6 @@ export function AffaireHub({
     });
   }, [justCreated, router, summary.project.id, toast, dpgfSource, intakeWorkspace]);
 
-  const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
   const [cockpitState, setCockpitState] = useState<CockpitSuggestion[]>(
     cockpitSuggestions ?? [],
   );
@@ -697,6 +702,12 @@ export function AffaireHub({
       const hash = window.location.hash;
       const params = new URLSearchParams(window.location.search);
       setActiveSection(affaireSectionFromLocation(params, hash));
+      if (hash === `#${AFFAIRE_TAKEOFF_ZONE_ID}`) {
+        setShowImportFlow(false);
+        setDetailsOpen(false);
+        setTakeoffZoneFocusRequest((request) => request + 1);
+        return;
+      }
       const isDetailsLink = ["#brief", "#register", "#approval", "#timeline", "#plans", "#financial", "#finish-line-output", "#finish-line-orders"].includes(hash);
       const isDocumentLink = !isFreshStartState && !isDetailsLink && (hash === "#intake" || params.has("intakeDocument") || params.has("intakeFilter"));
       if (isDocumentLink) {
@@ -736,7 +747,7 @@ export function AffaireHub({
       const sectionBySurface = {
         "intake-upload": "intake",
         "brief-confirm": "brief",
-        "launch-metre": "plans",
+        "launch-metre": AFFAIRE_TAKEOFF_ZONE_ID,
         "approval-submit": "approval",
       } as const;
 
@@ -744,18 +755,17 @@ export function AffaireHub({
         openDocuments();
         return;
       }
+      if (surfaceId === "launch-metre") {
+        revealTakeoffZone();
+        return;
+      }
       setDetailsOpen(true);
-      setActiveSection(surfaceId === "approval-submit" ? "submission" : surfaceId === "launch-metre" ? "estimate" : "dossier");
+      setActiveSection(surfaceId === "approval-submit" ? "submission" : "dossier");
       const sectionId = sectionBySurface[surfaceId];
       requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({
         block: "start",
         behavior: "smooth",
       }));
-
-      if (surfaceId === "launch-metre") {
-        setShowLaunchMetreDialog(true);
-        return;
-      }
 
       dispatchCockpitOpenSurface({
         projectId: summary.project.id,
@@ -763,7 +773,7 @@ export function AffaireHub({
         surfaceId,
       });
     },
-    [summary.project.id, openDocuments],
+    [summary.project.id, openDocuments, revealTakeoffZone],
   );
 
   const handleOpenCockpitSurface = useCallback(
@@ -895,45 +905,13 @@ export function AffaireHub({
     document.addEventListener(COCKPIT_EXECUTE_ACTION_EVENT, handler);
     return () => document.removeEventListener(COCKPIT_EXECUTE_ACTION_EVENT, handler);
   }, [handleExecuteCockpitSuggestion, summary.project.id]);
-  const draftVersionId =
-    summary.currentVersion?.status === "draft" ? summary.currentVersion.id : null;
-  const takeoffPromptComparisonVersionId = summary.currentVersion?.id ?? null;
-  const hasLaunchableVersionTarget = summary.currentVersion !== null;
-
-  const showTakeoffPrompt =
-    dominantFlowIntent === "analyze_plans" &&
-    !isReadOnlyReview &&
-    shouldShowTakeoffPrompt({
-      takeoffEnabled,
-      planFileCount: plansSummary?.defaultPlanSetFileCount ?? plansSummary?.planFileCount ?? 0,
-      defaultPlanSetId: plansSummary?.defaultPlanSetId ?? null,
-      defaultPlanSetUpdatedAt: plansSummary?.defaultPlanSetUpdatedAt ?? null,
-      latestJob: plansSummary?.defaultPlanSetId
-        ? plansSummary.defaultPlanSetLatestJob
-          ? {
-              status: plansSummary.defaultPlanSetLatestJob.status,
-              planSetId: plansSummary.defaultPlanSetLatestJob.planSetId ?? null,
-              estimateVersionId:
-                plansSummary.defaultPlanSetLatestJob.estimateVersionId ?? null,
-              createdAt: plansSummary.defaultPlanSetLatestJob.createdAt ?? "",
-            }
-          : null
-        : plansSummary?.latestJob
-          ? {
-              status: plansSummary.latestJob.status,
-              planSetId: plansSummary.latestJob.planSetId ?? null,
-              estimateVersionId: plansSummary.latestJob.estimateVersionId ?? null,
-              createdAt: plansSummary.latestJob.createdAt ?? "",
-            }
-          : null,
-      targetVersionId: takeoffPromptComparisonVersionId,
-      hasLaunchableVersionTarget,
-      permanentlyDismissed: promptPermanentlyDismissed,
-      temporarilyDismissed: promptTemporarilyDismissed,
-    });
+  // The dossier as its title reads it: the takeoff's zone says what its confirmation will start.
+  const takeoffDossierState = intakeWorkspace ? getAffaireDossierState({
+    documents: intakeWorkspace.documents.filter((document) => !document.isBeingDeleted),
+    briefStatus: intakeWorkspace.briefDraft?.status ?? null,
+  }) : null;
 
 
-  const [showImportFlow, setShowImportFlow] = useState(false);
   const [intakeDpgfCandidates, setIntakeDpgfCandidates] = useState<IntakeDpgfCandidate[]>([]);
   const [importResult, setImportResult] =
     useState<ConfirmUnifiedImportFlowResult | null>(null);
@@ -982,7 +960,7 @@ export function AffaireHub({
                         pendingAction={pendingAction}
                         onDuplicate={() => runWithFeedback(handleDuplicate)}
                         onCreateVariant={() => runWithFeedback(handleCreateVariant)}
-                        onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+                        onOpenTakeoffZone={revealTakeoffZone}
                       />
                     ) : null}
                     {commandBarSuggestions.length > 0 && (
@@ -1054,6 +1032,11 @@ export function AffaireHub({
         return;
       }
       if (url.search !== window.location.search) return;
+      if (url.hash === `#${AFFAIRE_TAKEOFF_ZONE_ID}`) {
+        event.preventDefault();
+        revealTakeoffZone();
+        return;
+      }
       if (["#brief", "#register", "#approval", "#timeline", "#plans", "#financial", "#finish-line-output", "#finish-line-orders"].includes(url.hash)) {
         setDetailsOpen(true);
         setActiveSection(affaireSectionFromLocation(url.searchParams, url.hash));
@@ -1205,45 +1188,36 @@ export function AffaireHub({
           projectId={summary.project.id}
           intakeDpgfCandidates={intakeDpgfCandidates}
           takeoffEnabled={takeoffEnabled}
+          takeoffLaunchActive={takeoffZone ? takeoffZone.active : null}
           onCancel={() => setShowImportFlow(false)}
           onComplete={handleImportComplete}
         />
       ) : (
         <>
           <div hidden={activeSection !== "estimate" && activeSection !== "overview"}>
-          {showTakeoffPrompt &&
-            plansSummary?.defaultPlanSetId &&
-            plansSummary.launchRecommendation && (
-            <div className="mb-4 animate-fade-in">
-              <TakeoffLaunchPrompt
+          {/* The takeoff's one place on the affaire, also without any estimate version (lot 2). */}
+          {takeoffEnabled && liveDossier ? (
+            <div className="mb-4">
+              <AffaireTakeoffZone
                 projectId={summary.project.id}
-                versionId={draftVersionId}
-                versionLabel={
-                  summary.currentVersion?.status === "draft"
-                    ? `V${summary.currentVersion.versionNumber} (brouillon)`
-                    : undefined
-                }
-                sourceVersionId={
-                  summary.currentVersion?.status === "draft"
-                    ? null
-                    : summary.currentVersion?.id ?? null
-                }
-                sourceVersionLabel={
-                  summary.currentVersion
-                    ? `V${summary.currentVersion.versionNumber}`
-                    : undefined
-                }
-                planSetId={plansSummary.defaultPlanSetId}
-                planSetName={plansSummary.defaultPlanSetName ?? null}
-                planFileCount={plansSummary.defaultPlanSetFileCount ?? plansSummary.planFileCount}
-                launchRecommendation={plansSummary.launchRecommendation}
-                onLaunched={() => router.refresh()}
-                onDismissTemporary={dismissPromptTemporarily}
-                onDismissPermanent={dismissPromptPermanently}
+                initialData={takeoffZone}
+                dossier={takeoffDossierState}
+                planFileCount={plansSummary?.planFileCount ?? 0}
+                canOperate={!isReadOnlyReview}
+                currentVersion={summary.currentVersion
+                  ? { id: summary.currentVersion.id, status: summary.currentVersion.status, versionNumber: summary.currentVersion.versionNumber }
+                  : null}
+                availableVersions={projectVersions}
+                plansContext={plansSummary ?? null}
+                initialOptionsOpen={takeoffOptionsRequested}
+                initialPlanSetId={takeoffOptionsPlanSetId}
+                onReviewBrief={reviewBrief}
+                onOpenDocuments={openDocuments}
+                onAddDocuments={() => { openDocuments(); setAddingDocuments(true); setDocumentUploadRequest((request) => request + 1); }}
+                onChanged={() => { router.refresh(); void dossier.reload(); }}
               />
             </div>
-          )}
-
+          ) : null}
           </div>
           <div hidden={isFreshStartState ? activeSection !== "overview" && activeSection !== "dossier" : activeSection !== "overview" && activeSection !== "submission"}>
           {isFreshStartState ? (
@@ -1293,7 +1267,6 @@ export function AffaireHub({
               structureMode={summary.structureMode ?? null}
               cockpitSuggestions={visibleCockpitSuggestions}
               preparationIsNextStep={dominantFlowIntent === "analyze_plans"}
-              hidePreparationAction={showTakeoffPrompt}
               onExecuteSuggestion={handleExecuteCockpitSuggestion}
               onImportDpgf={isReadOnlyReview || !intakeWorkspace?.canManageDocuments ? undefined : startIntakeDpgfImport}
             />
@@ -1454,9 +1427,7 @@ export function AffaireHub({
                         hasDominantRevalidationSuggestion,
                       })
                     }
-                    onLaunchMetre={
-                      isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)
-                    }
+                    onOpenTakeoffZone={revealTakeoffZone}
                   />
                 </div>
               ) : null}
@@ -1508,24 +1479,6 @@ export function AffaireHub({
         />
       ) : null}
 
-      {!isReadOnlyReview ? (
-        <LaunchMetreDialog
-          open={showLaunchMetreDialog}
-          onOpenChange={setShowLaunchMetreDialog}
-          projectId={summary.project.id}
-          currentVersion={
-            summary.currentVersion
-              ? {
-                  id: summary.currentVersion.id,
-                  status: summary.currentVersion.status,
-                  versionNumber: summary.currentVersion.versionNumber,
-                }
-              : null
-          }
-          plansContext={plansSummary ?? null}
-          availableVersions={projectVersions}
-        />
-      ) : null}
     </div>
   );
 }

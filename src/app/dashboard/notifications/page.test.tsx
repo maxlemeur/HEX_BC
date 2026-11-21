@@ -70,3 +70,11 @@ it("says which of the two happened when nobody took the analysis or it waited pa
   expect(markup).toContain("L’analyse n’a pas pu démarrer sur le poste autorisé.");
   expect(markup).toContain("L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré : elle n’a pas démarré.");
 });
+
+// The end of a launch request has no job of its own (one request may read several plans): its link opens the takeoff's
+// zone on the affaire, which offers each of its reviews.
+it("opens the end of a launch request on the takeoff's zone of its affaire", async () => {
+  const markup = await render({ ...success, id: "a1000000-0000-4000-8000-000000000008", subject_kind: "request",
+    request_id: "a1000000-0000-4000-8000-000000000009", job_id: null, job: null });
+  expect(markup).toMatch(/<a [^>]*href="\/dashboard\/affaires\/a1000000-0000-4000-8000-000000000002\?view=overview#metre"[^>]*>Ouvrir l’état du métré<\/a>/);
+});
