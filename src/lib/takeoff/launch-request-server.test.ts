@@ -804,6 +804,15 @@ describe("launchTakeoffRelaunch", () => {
     expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
   });
 
+  // Two commands of one affaire crossing in the database (a deadlock or a serialization failure, rolled back): the member is
+  // told to try again, and the command's key is kept for that (a server-side answer, never a refusal).
+  it.each([["a deadlock", "40P01", "deadlock detected"], ["a serialization failure", "40001", "could not serialize access"]] as const)(
+    "answers %s with a retryable French message", async (_case, code, message) => {
+      const { launch } = command({ error: { code, message } });
+      await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).rejects.toMatchObject({ status: 503, retryable: true,
+        message: "Le métré de l’affaire est occupé par une autre opération. Réessayez dans un instant." });
+    });
+
   // An analysis launched outside any request that has not ended: the command is answered with it, without a request.
   it("answers with the analysis outside any request that still runs, and starts nothing", async () => {
     const legacy = "aaaaaaaa-0000-4000-8000-0000000000dd";

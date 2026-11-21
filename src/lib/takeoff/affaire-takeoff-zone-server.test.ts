@@ -5,6 +5,7 @@ vi.mock("@/lib/takeoff/launch-request-server", () => ({ readAffaireTakeoffLaunch
 vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjectAccess: vi.fn() }));
 
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { buildAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone";
 import { readAffaireTakeoffZone, toAffaireTakeoffCoverage } from "@/lib/takeoff/affaire-takeoff-zone-server";
 import { readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
@@ -63,16 +64,26 @@ describe("readAffaireTakeoffZone", () => {
         units: { expected: 1, succeeded: 1, failed: 0, canceled: 0 }, action: "none", actionLabel: null },
       dossierChangedSinceAnalysis: null } as never);
     const service = createSupabaseFake({ tables: { takeoff_launch_requests: () => ({ data: { manifest }, error: null }) },
-      rpc: { takeoff_launch_request_can_start: (args) => {
-        canStartAsked.push(args);
-        return { data: canStart, error: null };
-      } } });
+      rpc: {
+        takeoff_launch_request_can_start: (args) => {
+          canStartAsked.push(args);
+          return { data: canStart, error: null };
+        },
+        takeoff_running_analysis_outside_request: (args) => {
+          runningAsked.push(args);
+          return { data: running, error: null };
+        },
+      } });
     vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
     canStart = false;
     canStartAsked.length = 0;
+    running = null;
+    runningAsked.length = 0;
   });
   let canStart = false;
   const canStartAsked: unknown[] = [];
+  let running: string | null = null;
+  const runningAsked: unknown[] = [];
 
   function zone(rights: { owner?: boolean; readable?: string[] }, jobs: (query: FakeQuery) => unknown[] = () => []) {
     return read(rights, jobs).then((data) => data.request?.coverage);
@@ -96,19 +107,28 @@ describe("readAffaireTakeoffZone", () => {
     return readAffaireTakeoffZone({ supabase: session.client, tenantId: TENANT, userId: VIEWER } as never, PROJECT);
   }
 
-  // An analysis launched outside any request (before the activation) that has not ended: the database answers a launch
-  // with it, and the zone only saves the options while it runs.
-  it.each([
-    ["waiting for its Mac", "pending"],
-    ["read now", "processing"],
-    ["failed with a retry due", "failed"],
-  ] as const)("counts an analysis outside any request %s as running", async (_case, status) => {
-    const legacy = { id: "bbbbbbbb-0000-4000-8000-000000000070", status };
-    const data = await read({ owner: true }, (query) => {
-      const statuses = filterValue(query, "status");
-      return (Array.isArray(statuses) ? statuses.includes(status) && !statuses.includes("completed") : statuses === status) ? [legacy] : [];
-    });
-    expect(data.unrequestedRunning).toBe(true);
+  // An analysis launched outside any request (before the activation) that something will still move: the database answers a
+  // launch with it, and the zone only saves the options while it runs. The zone reads that rule from the database
+  // (public.takeoff_running_analysis_outside_request, whose cases its pgTAP holds), never a copy of it.
+  it("counts as running the analysis outside any request the database counts", async () => {
+    running = JOB;
+    expect((await read({ owner: true })).unrequestedRunning).toBe(true);
+    expect(runningAsked).toEqual([{ p_tenant_id: TENANT, p_project_id: PROJECT }]);
+  });
+
+  // The former provider's failed analysis, with a retry recorded and no end: nothing will ever retry it (and a failed job
+  // cannot be cancelled), the database admits a launch beside it, so the zone offers that launch.
+  it("offers the launch beside a historical failure the database no longer counts as running", async () => {
+    const historical = { id: JOB, status: "failed", estimate_version_id: null, plan_set_id: PLAN_SET, source_file_name: "plan.pdf",
+      source_file_path: null, processing_strategy: "batch", provider_batch_state: null, error_code: "AI_TIMEOUT",
+      created_at: "2026-10-01T08:00:00Z", completed_at: null, analysis_finished_at: null, execution_provider: "gemini",
+      next_retry_at: "2026-10-01T09:00:00Z", analysis_outcome: null };
+    const data = await read({ owner: true }, (query) => (filterValue(query, "status") === "failed"
+      || filterValue(query, "launch_request_id") === undefined ? [historical] : []));
+    expect(data.unrequestedRunning).toBe(false);
+    const model = buildAffaireTakeoffZone({ projectId: PROJECT, data: { ...data, request: null }, dossier: "confirmed", planFileCount: 1,
+      canOperate: true });
+    expect(model?.options).toMatchObject({ mode: "request", predecessorJobId: JOB });
   });
 
   // A plan removed from the dossier since the analysis, which a director may not read: the shared reader masks it under

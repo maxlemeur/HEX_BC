@@ -85,8 +85,8 @@ export type AffaireTakeoffZoneData = {
   /** The affaire's latest end of analysis, as its readers' activity and the members' notifications show it. */
   latestEnd: null | { eventId: string; outcome: TakeoffAnalysisOutcome; finishedAt: string; reason: string | null };
   /**
-   * An analysis of the affaire launched outside any request (before the activation) has not ended: waiting, read, or
-   * failed with a retry due, as the database counts it (private.takeoff_unrequested_analysis_running). A launch is answered
+   * An analysis of the affaire launched outside any request (before the activation) that something will still move, as
+   * the database counts it (public.takeoff_running_analysis_outside_request, read by the server). A launch is answered
    * with it and an automatic start waits for it.
    */
   unrequestedRunning: boolean;

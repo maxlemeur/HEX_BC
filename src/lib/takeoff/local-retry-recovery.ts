@@ -61,13 +61,18 @@ export function startLocalTakeoffRetryRecovery() {
     running = true;
     try {
       const due = new Date().toISOString();
+      // Once active, a retry that has waited past the wait ceiling is only closed by its recovery, never run (the
+      // database's floor, public.takeoff_local_retry_floor; null before the activation, when nothing expires).
+      const { data: floor, error: floorError } = await client.rpc("takeoff_local_retry_floor");
+      if (floorError) throw floorError;
+      const unexpired = floor ? `,next_retry_at.gt.${new Date(floor).toISOString()}` : "";
       let query = client.from("takeoff_jobs")
         .select("id, tenant_id, status, created_at, tenants!inner(is_active)")
         .eq("tenants.is_active", true)
         .eq("execution_provider", "chatgpt_local")
         .eq("execution_host_id", await getChatGptHostId())
         .is("analysis_outcome", null)
-        .or(`status.eq.pending,and(status.eq.failed,retry_count.lt.${TAKEOFF_RETRY_MAX},next_retry_at.lte.${due})`)
+        .or(`status.eq.pending,and(status.eq.failed,retry_count.lt.${TAKEOFF_RETRY_MAX},next_retry_at.lte.${due}${unexpired})`)
         .order("id")
         .limit(BATCH_SIZE);
       if (afterId) query = query.gt("id", afterId);

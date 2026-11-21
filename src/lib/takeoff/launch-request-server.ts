@@ -85,6 +85,12 @@ function launchError(error: { code?: string; message: string }, fallback: string
     case "TAKEOFF_JOB_ADMISSION_LIMIT":
       throw takeoffJobInsertError({ code: "23514", message: error.message }, "");
   }
+  // Two operations of one affaire that crossed in the database and were rolled back (a deadlock, a serialization
+  // failure): nothing was recorded, the same command may be sent again.
+  if (error.code === "40P01" || error.code === "40001") {
+    throw new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: true,
+      message: "Le métré de l’affaire est occupé par une autre opération. Réessayez dans un instant." });
+  }
   databaseError(error, fallback);
 }
 

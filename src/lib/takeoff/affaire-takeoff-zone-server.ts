@@ -102,9 +102,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
   const requestId = launch.request?.id ?? null;
   const jobs = () => context.supabase.from("takeoff_jobs").select(JOB_SELECT)
     .eq("tenant_id", context.tenantId).eq("project_id", projectId);
-  const unrequested = () => context.supabase.from("takeoff_jobs").select("id")
-    .eq("tenant_id", context.tenantId).eq("project_id", projectId).is("launch_request_id", null);
-  const [canOperate, requestRow, sealed, requestJobs, latest, latestReadable, ends, waitingOrRead, retryDue] = await Promise.all([
+  const [canOperate, requestRow, sealed, requestJobs, latest, latestReadable, ends, unrequested] = await Promise.all([
     // The preparation's write rule (an administrator, or an engineer who may write the affaire): who sees its options.
     assertPreparationProjectAccess(context, projectId, true).then(() => true, () => false),
     requestId ? context.supabase.from("takeoff_launch_requests").select("completion_event_id")
@@ -119,11 +117,11 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
     jobs().in("status", ["completed", "applied"]).order("completed_at", { ascending: false, nullsFirst: false })
       .order("id", { ascending: false }).limit(1),
     context.supabase.rpc("list_affaire_takeoff_completions", { p_project_id: projectId, p_limit: 5, p_offset: 0 }),
-    // An analysis outside any request that has not ended, as the database counts it before admitting a launch.
-    unrequested().in("status", ["pending", "processing"]).limit(1),
-    unrequested().eq("status", "failed").not("next_retry_at", "is", null).is("analysis_outcome", null).limit(1),
+    // An analysis outside any request that something will still move: the database's own rule, the one it applies before
+    // admitting a launch (read by the server after the access check; only whether one runs reaches the member).
+    createServiceRoleClient().rpc("takeoff_running_analysis_outside_request", { p_tenant_id: context.tenantId, p_project_id: projectId }),
   ]);
-  for (const result of [requestRow, sealed, requestJobs, latest, latestReadable, ends, waitingOrRead, retryDue]) {
+  for (const result of [requestRow, sealed, requestJobs, latest, latestReadable, ends, unrequested]) {
     if (result.error) readError(result.error);
   }
 
@@ -167,7 +165,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
     latestReview: latestReadable.data?.[0] ? toJob(latestReadable.data[0]) : null,
     // The request's own end when it has one, else the affaire's latest.
     latestEnd: events.find((event) => event.eventId === completionEventId) ?? events[0] ?? null,
-    unrequestedRunning: Boolean(waitingOrRead.data?.length || retryDue.data?.length),
+    unrequestedRunning: Boolean(unrequested.data),
     viewer: { tenantId: context.tenantId, userId: context.userId },
   };
 }
