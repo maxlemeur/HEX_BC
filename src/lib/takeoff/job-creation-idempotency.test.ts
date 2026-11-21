@@ -24,9 +24,14 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 const SOURCE_ID = "99999999-9999-4999-8999-999999999999";
 const base = { projectId: M3_PROJECT_ID, planSetId: M3_PLAN_SET_ID, estimateVersionId: M3_VERSION_ID, preparationRevision: 2, level: "B" as const };
 
-function fixture(preparationSnapshot?: unknown) {
+function confirmedRevision(revision = 2) {
+  return { ...confirmedPreparationFixture(), preparation_revision: revision };
+}
+
+function fixture(preparationSnapshot: unknown = confirmedRevision()) {
   const job = {
     id: derivePlanSetTakeoffJobId({ ...base, tenantId: M3_TENANT_ID, sourceVersionId: SOURCE_ID }),
+    project_id: M3_PROJECT_ID, plan_set_id: M3_PLAN_SET_ID,
     estimate_version_id: M3_VERSION_ID, status: "pending", level: "B", source_file_name: "Plan fictif.pdf",
     source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z", execution_provider: "chatgpt_local",
     preparation_snapshot: preparationSnapshot,
@@ -36,6 +41,7 @@ function fixture(preparationSnapshot?: unknown) {
       const id = filterValue(query, "id");
       const matches = id ? id === job.id :
         filterValue(query, "estimate_version_id") === M3_VERSION_ID &&
+        filterValue(query, "project_id") === M3_PROJECT_ID &&
         filterValue(query, "plan_set_id") === M3_PLAN_SET_ID &&
         filterValue(query, "preparation_snapshot->>preparation_revision") === "2" &&
         filterValue(query, "level") === "B" &&
@@ -77,8 +83,56 @@ describe("prepared plan launch receipts", () => {
     expect(fake.queries.filter((query) => query.table === "takeoff_jobs")).toHaveLength(1);
   });
 
+  it.each([
+    ["plan set", { plan_set_id: SOURCE_ID }],
+    ["affaire", { project_id: SOURCE_ID }],
+    ["preparation revision", { preparation_snapshot: confirmedRevision(3) }],
+  ])("refuses a deterministic receipt whose %s does not match the request", async (_field, mismatch) => {
+    const { job } = fixture();
+    Object.assign(job, { plan_set_id: M3_PLAN_SET_ID, project_id: M3_PROJECT_ID,
+      preparation_snapshot: confirmedRevision() }, mismatch);
+    await expect(findTakeoffJobForPlanSetLaunch({ ...base, sourceVersionId: SOURCE_ID })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("recovers a copied draft from its source using the scoped copy receipt", async () => {
+    const { job } = fixture();
+    const audit = createSupabaseFake({ tables: {
+      audit_logs: (query) => ({
+        data: filterValue(query, "action") === "takeoff.job.created" ||
+          (filterValue(query, "action") === "takeoff.preparation.version_created" &&
+            filterValue(query, "tenant_id") === M3_TENANT_ID &&
+            filterValue(query, "after_data->>project_id") === M3_PROJECT_ID &&
+            filterValue(query, "after_data->>source_version_id") === SOURCE_ID &&
+            filterValue(query, "after_data->>target_version_id") === M3_VERSION_ID &&
+            filterValue(query, "after_data->>preparation_revision") === "2") ? { id: "receipt" } : null,
+        error: null,
+      }),
+    } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(audit.client as never);
+    const receipt = await findTakeoffJobForPlanSetLaunch({ ...base, estimateVersionId: SOURCE_ID, sourceVersionId: SOURCE_ID });
+    expect(receipt).toMatchObject({ id: job.id, estimate_version_id: M3_VERSION_ID });
+    expect(audit.queries.map(query => filterValue(query, "action"))).toEqual([
+      "takeoff.preparation.version_created", "takeoff.job.created",
+    ]);
+  });
+
+  it("refuses a different target without the source-to-target copy receipt", async () => {
+    const { job } = fixture();
+    Object.assign(job, { plan_set_id: M3_PLAN_SET_ID, project_id: M3_PROJECT_ID,
+      preparation_snapshot: confirmedRevision() });
+    const audit = createSupabaseFake({ tables: {
+      audit_logs: (query) => ({
+        data: filterValue(query, "action") === "takeoff.job.created" ? { id: "creation-record" } : null,
+        error: null,
+      }),
+    } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(audit.client as never);
+    await expect(findTakeoffJobForPlanSetLaunch({ ...base, estimateVersionId: SOURCE_ID, sourceVersionId: SOURCE_ID }))
+      .rejects.toMatchObject({ status: 409 });
+  });
+
   it("rejects contradictory confirmed choices before returning even a matching receipt", async () => {
-    const snapshot = confirmedPreparationFixture();
+    const snapshot = confirmedRevision();
     snapshot.preparation.processing = { level: "B", provider: "auto" };
     fixture(snapshot);
     // Explicit Gemini could use the same effective provider as auto; changing
@@ -93,6 +147,7 @@ describe("prepared plan launch receipts", () => {
     let winnerVisible = false;
     const winningJob = {
       id: derivePlanSetTakeoffJobId({ ...base, tenantId: M3_TENANT_ID }),
+      project_id: M3_PROJECT_ID, plan_set_id: M3_PLAN_SET_ID, preparation_snapshot: confirmedRevision(),
       estimate_version_id: M3_VERSION_ID, status: "pending", level: "B", source_file_name: "Plan fictif.pdf",
       source_file_path: "tenant/plans/file.pdf", created_at: "2026-10-29T00:00:00Z", execution_provider: "chatgpt_local",
     };

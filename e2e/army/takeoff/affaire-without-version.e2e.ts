@@ -12,7 +12,7 @@ import { apiRequest, armyTest, recordEvidence } from "../critical/fixtures";
 import { querySql } from "../local/calculation-gate-support";
 import { assertOwnedAdmissionRecovery, startOwnedTakeoffAdmission } from "./affaire-admission-support";
 import { buildVectorPlanPdf } from "./vector-plan-fixture";
-import { readVectorViewerDrawing, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
+import { ownedWorkerJobOwner, readVectorViewerDrawing, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
 
 armyTest("TKAW01 an affaire without a version reviews the controlled worker's measurements and keeps no estimate", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 180_000,
@@ -91,6 +91,11 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
   expect(launched).toMatchObject({ receipt: { project_id: projectId, estimate_version_id: null, status: "pending" } });
   const jobId = launched.receipt!.id;
   expect(await admit(operationId).done).toEqual(launched);
+  const direct = await user.from("takeoff_jobs").insert({ id: randomUUID(), tenant_id: tenantId, project_id: projectId,
+    plan_set_id: planSetId, created_by: userId, level: "C", preparation_snapshot: snapshot, ...await ownedWorkerJobOwner() });
+  expect(direct.error).toMatchObject({ code: "42501", message: "TAKEOFF_JOB_ADMISSION_RPC_REQUIRED" });
+  const deleteReferenced = await apiRequest<{ error: { code: string } }>(ui.browser, "DELETE", `/api/takeoff/plan-sets/${planSetId}`);
+  expect([deleteReferenced.status, deleteReferenced.body.error.code]).toEqual([400, "BAD_REQUEST"]);
   const completed = await startOwnedWorker(ui, { projectId, versionId: null }, jobId, "success", {
     owner, vectors: true, rules: true, providerItems: [
       { designation: "ARMY worker pipe", quantity: 12.5, unit: "m", source_page: 1, confidence: 0.72, evidence: "Pipe row, page 1" },

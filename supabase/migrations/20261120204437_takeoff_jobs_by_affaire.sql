@@ -44,7 +44,7 @@ alter table public.takeoff_jobs
   alter column estimate_version_id drop not null,
   drop constraint takeoff_jobs_plan_set_id_fkey,
   add constraint takeoff_jobs_plan_set_id_fkey foreign key (plan_set_id, project_id, tenant_id)
-    references public.plan_sets(id, project_id, tenant_id) on delete set null (plan_set_id),
+    references public.plan_sets(id, project_id, tenant_id) on delete no action,
   add constraint takeoff_jobs_project_tenant_fkey foreign key (project_id, tenant_id)
     references public.estimate_projects(id, tenant_id) on delete cascade;
 
@@ -90,7 +90,7 @@ create trigger aac_assign_takeoff_job_scope before insert on public.takeoff_jobs
 
 drop trigger aaa_enforce_takeoff_job_identity_immutable on public.takeoff_jobs;
 create trigger aaa_enforce_takeoff_job_identity_immutable
-  before update of project_id, tenant_id, estimate_version_id, level,
+  before update of id, project_id, tenant_id, estimate_version_id, level,
     source_file_name, source_file_path, source_file_type, source_file_size_bytes,
     schema_version, created_by, plan_set_id
   on public.takeoff_jobs for each row execute function public.enforce_takeoff_job_identity_immutable();
@@ -110,7 +110,8 @@ language plpgsql
 set search_path = pg_catalog
 as $$
 begin
-  if new.project_id is distinct from old.project_id
+  if new.id is distinct from old.id
+    or new.project_id is distinct from old.project_id
     or new.tenant_id is distinct from old.tenant_id
     or new.level is distinct from old.level
     or new.source_file_name is distinct from old.source_file_name
@@ -602,40 +603,30 @@ create trigger zz_guard_referenced_takeoff_plan_set_scope before update on publi
   for each row when (old.project_id is distinct from new.project_id or old.tenant_id is distinct from new.tenant_id)
   execute function private.guard_referenced_takeoff_plan_set_scope();
 
-create index audit_logs_takeoff_job_creation_receipt_idx on public.audit_logs (tenant_id, record_id)
-  where table_name = 'takeoff_jobs' and action = 'takeoff.job.created';
-
 -- The new admission RPC stays an invoker so existing authenticated RLS and
 -- INSERT guards still run. This trigger grants only the fixed creation event
 -- for the job just inserted by that RPC. Older direct INSERTs keep their
 -- original audit protocol while the application is being deployed.
 create function private.record_prepared_takeoff_job_creation()
 returns trigger language plpgsql security definer set search_path = '' as $$
-declare
-  guidance jsonb;
-  metadata jsonb;
 begin
   if nullif(current_setting('mergeone.takeoff_admission_job', true), '') is distinct from new.id::text
-    or current_setting('role', true) <> 'authenticated'
+    or current_setting('role', true) is distinct from 'authenticated'
     or auth.uid() is null or new.created_by is distinct from auth.uid()
     or new.plan_set_id is null or new.status <> 'pending' then
+    if new.estimate_version_id is null then
+      raise exception 'TAKEOFF_JOB_ADMISSION_RPC_REQUIRED' using errcode = '42501';
+    end if;
     return new;
-  end if;
-  guidance := current_setting('mergeone.takeoff_admission_guidance')::jsonb;
-  metadata := jsonb_build_object(
-    'level', new.level, 'estimate_version_id', new.estimate_version_id, 'source_file_name', new.source_file_name,
-    'idempotency_key', null, 'plan_set_id', new.plan_set_id,
-    'classification', guidance->'classification', 'selection', guidance->'selection'
-  );
-  if new.estimate_version_id is null then
-    metadata := metadata || jsonb_build_object('project_id', new.project_id);
   end if;
 
   begin
     insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
     values (new.tenant_id, new.created_by, 'takeoff_jobs', new.id, new.estimate_version_id, 'takeoff.job.created',
       jsonb_build_object('schema_version', 1, 'action', 'takeoff.job.created', 'job_id', new.id,
-        'tenant_id', new.tenant_id, 'user_id', new.created_by, 'metadata', metadata));
+        'tenant_id', new.tenant_id, 'user_id', new.created_by, 'metadata', jsonb_build_object(
+          'level', new.level, 'estimate_version_id', new.estimate_version_id, 'project_id', new.project_id,
+          'plan_set_id', new.plan_set_id, 'preparation_revision', new.preparation_snapshot -> 'preparation_revision')));
   exception when others then
     raise exception 'TAKEOFF_JOB_CREATION_AUDIT_FAILED' using errcode = 'P0001';
   end;
@@ -646,19 +637,16 @@ revoke all on function private.record_prepared_takeoff_job_creation() from publi
 create trigger record_prepared_takeoff_job_creation after insert on public.takeoff_jobs
   for each row execute function private.record_prepared_takeoff_job_creation();
 
-create function public.admit_prepared_takeoff_job(p_job jsonb, p_guidance jsonb)
+create function public.admit_prepared_takeoff_job(p_job jsonb)
 returns setof public.takeoff_jobs
 language plpgsql security invoker set search_path = '' as $$
 declare
   requested public.takeoff_jobs := jsonb_populate_record(null::public.takeoff_jobs, p_job);
 begin
-  if current_user <> 'authenticated' or auth.uid() is null or requested.id is null or requested.plan_set_id is null
-    or jsonb_typeof(p_guidance) is distinct from 'object'
-    or octet_length(p_guidance::text) > 16384 then
+  if current_user <> 'authenticated' or auth.uid() is null or requested.id is null or requested.plan_set_id is null then
     raise exception 'TAKEOFF_JOB_ADMISSION_INVALID' using errcode = '22023';
   end if;
   perform set_config('mergeone.takeoff_admission_job', requested.id::text, true);
-  perform set_config('mergeone.takeoff_admission_guidance', p_guidance::text, true);
   return query
     insert into public.takeoff_jobs (id, tenant_id, project_id, estimate_version_id, plan_set_id, level, status,
       processing_strategy, source_file_name, source_file_path, source_file_type, source_file_size_bytes, prompt_version,
@@ -669,11 +657,10 @@ begin
       requested.execution_provider, requested.execution_host_id)
     returning *;
   perform set_config('mergeone.takeoff_admission_job', '', true);
-  perform set_config('mergeone.takeoff_admission_guidance', '', true);
 end;
 $$;
-revoke all on function public.admit_prepared_takeoff_job(jsonb, jsonb) from public, anon, service_role;
-grant execute on function public.admit_prepared_takeoff_job(jsonb, jsonb) to authenticated;
+revoke all on function public.admit_prepared_takeoff_job(jsonb) from public, anon, service_role;
+grant execute on function public.admit_prepared_takeoff_job(jsonb) to authenticated;
 
 -- Row scope for RLS on the jobs themselves. Preserve the historical version
 -- access check; versionless jobs follow the affaire's reader/operator rules.
@@ -770,7 +757,9 @@ language sql stable security definer set search_path = '' as $$
   select exists (
     select 1 from public.takeoff_jobs j
     where j.id = case
-      when (storage.foldername(p_path))[2] ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      when (storage.foldername(p_path))[2] ~ case when p_write
+        then '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        else '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' end
       then (storage.foldername(p_path))[2]::uuid end
       and j.tenant_id::text = (storage.foldername(p_path))[1]
       and j.source_file_path = p_path

@@ -19,7 +19,9 @@ const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
   created_at: z.string(),
 });
 
-export type TakeoffJobRow = TakeoffJobResponse & {
+export type TakeoffJobRow = Omit<TakeoffJobResponse, "estimate_version_id"> & {
+  estimate_version_id: string | null;
+  project_id: string;
   execution_provider?: "gemini" | "chatgpt_local";
   execution_host_id?: string | null;
   created_by?: string | null;

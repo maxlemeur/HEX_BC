@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Database, Json } from "@/types/database";
+import type { Database } from "@/types/database";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { readAllRows } from "@/lib/supabase/read-all";
@@ -27,20 +27,24 @@ type TakeoffJobInsert = Database["public"]["Tables"]["takeoff_jobs"]["Insert"];
 export async function admitPreparedTakeoffJob(input: {
   supabase: CreationSupabase;
   row: TakeoffJobInsert;
-  guidance: Json;
 }) {
-  const { data, error } = await input.supabase.rpc("admit_prepared_takeoff_job", { p_job: input.row, p_guidance: input.guidance });
+  const { data, error } = await input.supabase.rpc("admit_prepared_takeoff_job", { p_job: input.row });
   return { data: data?.[0] ?? null, error };
 }
 
 /** Call only after the user's session has read and authorized this job. */
-export async function assertTakeoffJobCreationRecorded(tenantId: string, jobId: string) {
-  const { data, error } = await createServiceRoleClient().from("audit_logs").select("id")
-    .eq("tenant_id", tenantId).eq("record_id", jobId).eq("table_name", "takeoff_jobs")
-    .eq("action", "takeoff.job.created").limit(1).maybeSingle();
+export async function assertTakeoffJobCreationRecorded(tenantId: string, job: TakeoffJobRow) {
+  // Use the existing version and tenant/table/created_at indexes for legacy and RPC receipts.
+  const query = createServiceRoleClient().from("audit_logs").select("id")
+    .eq("tenant_id", tenantId).eq("record_id", job.id).eq("table_name", "takeoff_jobs")
+    .eq("action", "takeoff.job.created");
+  const { data, error } = await (job.estimate_version_id === null
+    ? query.is("estimate_version_id", null)
+    : query.eq("estimate_version_id", job.estimate_version_id))
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw mapSupabaseError(error, "Impossible de vérifier l'audit de création du métré.");
   if (!data) throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
-    message: "Le lancement de cette analyse n’a pas de confirmation enregistrée.", retryable: false, jobId });
+    message: "Le lancement de cette analyse n’a pas de confirmation enregistrée.", retryable: false, jobId: job.id });
 }
 
 export async function assertPlanSetAccessibleForCreation(input: {
@@ -176,7 +180,6 @@ export async function resolvePlanSetSourceFile(input: {
     sourceFilePath,
     sourceFileType,
     sourceFileSizeBytes,
-    planFiles,
   };
 }
 
@@ -189,7 +192,7 @@ export async function getTakeoffJobById(input: {
   const query = input.supabase
     .from("takeoff_jobs" as never)
     .select(
-      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at, plan_set_id, preparation_snapshot, execution_provider, execution_host_id, created_by" as never
+      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at, project_id, plan_set_id, preparation_snapshot, execution_provider, execution_host_id, created_by" as never
     )
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("id" as never, input.jobId as never)
@@ -213,15 +216,15 @@ export async function getTakeoffJobById(input: {
 
 /** A reopened hub targets the created fork, while the first receipt used its parent. */
 export async function getTakeoffPlanSetJobByPreparation(input: {
-  supabase: CreationSupabase; tenantId: string; estimateVersionId: string;
+  supabase: CreationSupabase; tenantId: string; projectId: string; estimateVersionId: string;
   planSetId: string; preparationRevision: number | null; level: import("@/lib/takeoff/types").TakeoffLevel;
   provider?: "auto" | "chatgpt" | "gemini";
   executionProvider?: "gemini" | "chatgpt_local";
 }) {
   if (input.preparationRevision === null) return null;
   let query = input.supabase.from("takeoff_jobs")
-    .select("id,status,level,source_file_name,source_file_path,estimate_version_id,created_at,preparation_snapshot,execution_provider,execution_host_id,created_by")
-    .eq("tenant_id", input.tenantId).eq("estimate_version_id", input.estimateVersionId)
+    .select("id,status,level,source_file_name,source_file_path,estimate_version_id,created_at,project_id,plan_set_id,preparation_snapshot,execution_provider,execution_host_id,created_by")
+    .eq("tenant_id", input.tenantId).eq("project_id", input.projectId).eq("estimate_version_id", input.estimateVersionId)
     .eq("plan_set_id", input.planSetId).eq("level", input.level)
     .eq("preparation_snapshot->>preparation_revision", String(input.preparationRevision));
   if (input.executionProvider) query = query.eq("execution_provider", input.executionProvider);

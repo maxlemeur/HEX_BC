@@ -8,8 +8,6 @@ import {
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
-import { takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
-import { classifyTakeoffPlanSetSource } from "@/lib/takeoff/document-classifier";
 import {
   assertTakeoffEnabled,
   getTakeoffChunkingConfigForTenant,
@@ -20,6 +18,7 @@ import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 import { parseWithSchema } from "@/lib/takeoff/server-helpers";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { type TakeoffLevel } from "@/lib/takeoff/types";
+import { hasTakeoffPreparationCopyReceipt } from "@/lib/takeoff/preparation-copy-provenance-server";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import type { Json } from "@/types/database";
 import { assertReplayedTakeoffProcessing } from "@/lib/takeoff/preparation-processing-server";
@@ -85,11 +84,25 @@ export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSe
     executionProvider,
   });
   if (!existing) return null;
+
+  const conflict = () => new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+    message: "Ce lancement est déjà associé à une autre préparation ou version.", retryable: false, jobId: existing.id });
+  const revision = input.preparationRevision ?? null;
+  const snapshot = existing.preparation_snapshot as { preparation_revision?: number } | null | undefined;
+  const sourceVersionId = input.sourceVersionId ?? input.estimateVersionId;
+  const targetVersionId = existing.estimate_version_id;
+  if (targetVersionId === null || existing.project_id !== input.projectId || existing.plan_set_id !== input.planSetId
+    || (snapshot?.preparation_revision ?? null) !== revision
+    || (targetVersionId !== input.estimateVersionId && sourceVersionId !== input.estimateVersionId)) throw conflict();
+
   await assertEstimateVersionAccessibleForTakeoff({
-    ...context, estimateVersionId: existing.estimate_version_id,
+    ...context, estimateVersionId: targetVersionId,
   });
+  if (targetVersionId !== sourceVersionId && (revision === null || !await hasTakeoffPreparationCopyReceipt({
+    context, projectId: input.projectId, sourceVersionId, targetVersionId, preparationRevision: revision,
+  }))) throw conflict();
   assertReplayedTakeoffProcessing(existing, { level: input.level ?? TAKEOFF_PLAN_SET_LEVEL, provider: input.provider ?? "auto" });
-  await assertTakeoffJobCreationRecorded(context.tenantId, existing.id);
+  await assertTakeoffJobCreationRecorded(context.tenantId, existing);
   if (existing.status === "pending") await assertLocalTakeoffResumeReady(context.supabase, context.tenantId, existing);
   return normalizeTakeoffJobRow(existing);
 }
@@ -152,7 +165,7 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
         message: "Cette opération est déjà associée à une autre préparation.", retryable: false, jobId });
     }
     assertReplayedTakeoffProcessing(row, { level: "C", provider: "chatgpt" });
-    await assertTakeoffJobCreationRecorded(tenantId, row.id);
+    await assertTakeoffJobCreationRecorded(tenantId, row);
     if (row.status === "pending") await assertLocalTakeoffResumeReady(supabase, tenantId, row);
     return affaireJobReceipt(row, projectId);
   }
@@ -194,31 +207,8 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
     maxPages: planSetPageConfig.maxPdfPages,
     selectedFileIds: preparationSnapshot.preparation.sources.filter((source) => source.active && source.kind === "plan").map((source) => source.document_id),
   });
-  const planSetClassification = classifyTakeoffPlanSetSource({
-    files: sourceFile.planFiles.map((planFile) => ({
-      file_name: planFile.source_label ?? `plan-set-${input.planSetId}.pdf`,
-      file_type: planFile.file_type ?? "application/pdf",
-      page_count:
-        typeof planFile.page_count === "number" ? planFile.page_count : null,
-    })),
-  });
-
-  const guidance = takeoffAuditMetadataBuilders["takeoff.job.created"]({
-    level,
-    estimate_version_id: estimateVersionId,
-    ...(estimateVersionId === null ? { project_id: projectId } : {}),
-    source_file_name: sourceFile.sourceFileName,
-    plan_set_id: input.planSetId,
-    classification: planSetClassification,
-    selection: {
-      selected_level: level,
-      override_applied: planSetClassification.recommendedLevel !== level,
-      source_kind: "plan_set",
-    },
-  });
   const { data: insertedJob, error: insertError } = await admitPreparedTakeoffJob({
     supabase,
-    guidance: { classification: guidance.classification, selection: guidance.selection },
     row: {
       id: jobId,
       tenant_id: tenantId,
