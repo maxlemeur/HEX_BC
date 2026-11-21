@@ -1,39 +1,76 @@
 -- Lot 2, PR 6 (the affaire's takeoff zone), fix round: the rules of the takeoff's launches hold in the database, not only
--- in the affaire's dialogue. Functions are replaced; no table, index, policy or row changes.
+-- in the affaire's dialogue. Functions are replaced or added and two triggers added; no table, index, policy or row changes.
 --
 -- 1. A manual launch request (public.launch_manual_takeoff_request) is refused while the affaire's automatic start can
---    still begin (it is taken on from its zone), and a first analysis (intent initial) is refused on an affaire that has
---    any analysis (a relaunch names the one it replaces).
--- 2. An analysis of the affaire launched outside any request that has not ended counts as running: a command is answered
---    with it (« already_running ») and an automatic admission waits (ANOTHER_ANALYSIS_RUNNING, retried by its Mac).
+--    still begin without a new dossier change: an eligible payer whose Mac evaluates it or has work waiting for it, or a
+--    take-over (or the payer's resumption) that the command's member may make; it is taken on from the zone
+--    (public.takeoff_launch_request_can_start says which for the zone). Any other automatic start waiting is set aside by
+--    the command, as 20261121170448 did. A first analysis (intent initial) is refused on an affaire that has any analysis
+--    (a relaunch names the one it replaces).
+-- 2. An analysis of the affaire launched outside any request that something will still move counts as running: waiting or
+--    read, or failed with a retry the local recovery will make or close (this Mac's provider, no batch, under three
+--    attempts, within the wait ceiling). A command is answered with it (« already_running ») and an automatic admission
+--    waits (ANOTHER_ANALYSIS_RUNNING, retried by its Mac). A historical failure nothing moves blocks nothing.
 -- 3. Once the automatic start is active, a member registers no new job outside a request (the admission RPC of jobs on a
 --    version or without one, and direct inserts): every new analysis is a launch request, with its exclusion, its mandate
---    and its budget. An insert of a job that already exists still reaches its unique key, as a replay did.
+--    and its budget. An insert of a job that already exists still reaches its unique key, as a replay did. A job outside
+--    any request restarts (a member's resubmit, its Mac's retry) only under the affaire's launch lock and while no request
+--    of the affaire runs.
 -- 4. The send's refusal of a second analysis of one preparation revision to one draft (private.takeoff_send_execute) only
 --    compares jobs without a request, as the historical receipt index does since 20261121170448.
 --
 -- What the previous application version sees while this is applied and until the owner sets both cut-offs: nothing
 -- changes. Points 1 and 2 are reached only after the activation check of the functions they change; point 3 only once
--- both cut-offs are set; point 4 compares exactly the same jobs while no request exists (every job is without one).
+-- both cut-offs are set (its triggers return at once before); point 4 compares exactly the same jobs while no request
+-- exists (every job is without one).
 begin;
 
 -- Every statement takes a short lock: give up instead of queueing the job and send writers.
 set local lock_timeout = '5s';
 
--- The analysis of an affaire launched outside any request that has not ended: waiting, read now, or failed with a
--- technical retry due. The most recent one.
+-- The analysis of an affaire launched outside any request that something will still move: waiting or read now (its
+-- recovery closes it, a member may cancel it), or failed with a technical retry that the local recovery
+-- (public.recover_stale_local_takeoff_jobs) will make or close: this Mac's provider without a batch, under three attempts,
+-- waiting since less than the wait ceiling. A failure that nothing retries (the former provider's, a batch, past its
+-- attempts or its ceiling) is not running. The most recent one.
 create function private.takeoff_unrequested_analysis_running(p_tenant_id uuid, p_project_id uuid)
 returns uuid language sql stable security definer set search_path = '' as $$
   select j.id from public.takeoff_jobs j
+  left join private.takeoff_completion_activation activation on true
   where j.tenant_id = p_tenant_id and j.project_id = p_project_id and j.launch_request_id is null
     and (j.status in ('pending', 'processing')
-      or (j.status = 'failed' and j.next_retry_at is not null and j.analysis_outcome is null))
+      or (j.status = 'failed' and j.next_retry_at is not null and j.analysis_outcome is null
+        and j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.retry_count < 3
+        and greatest(activation.active_from, j.next_retry_at) > pg_catalog.clock_timestamp() - activation.wait_ceiling))
   order by j.created_at desc, j.id desc
   limit 1
 $$;
 revoke all on function private.takeoff_unrequested_analysis_running(uuid, uuid) from public, anon, authenticated, service_role;
 
--- 1, 2. The command of a manual launch request, as 20261121170448 wrote it, with the refusals of the automatic start that
+-- An automatic request that can still start without a new dossier change: its payer may still pay and its Mac evaluates it
+-- or has work waiting for it (a dossier change already marked, a passing cause), or a gesture lifts it that `p_actor`, a
+-- member who may pay, can make (public.takeoff_launch_request_action's rule). Anything else waits for a dossier change or
+-- for nobody.
+create function private.takeoff_automatic_request_can_start(p_request public.takeoff_launch_requests, p_actor uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select p_request.origin = 'automatic' and private.takeoff_launch_request_open(p_request) and (
+    (private.takeoff_launch_payer_eligible(p_request.tenant_id, p_request.project_id, p_request.payer_id)
+      and (p_request.state = 'evaluating' or public.takeoff_launch_request_awaits_mac(p_request.id)))
+    or (private.takeoff_launch_payer_eligible(p_request.tenant_id, p_request.project_id, p_actor)
+      and private.takeoff_launch_allowed_action(p_request, p_actor) <> 'none'))
+$$;
+revoke all on function private.takeoff_automatic_request_can_start(public.takeoff_launch_requests, uuid)
+  from public, anon, authenticated, service_role;
+-- For the affaire's zone: whether its options only save (the start can still begin) or launch, setting it aside.
+create function public.takeoff_launch_request_can_start(p_request_id uuid, p_actor uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select coalesce((select private.takeoff_automatic_request_can_start(r, p_actor)
+    from public.takeoff_launch_requests r where r.id = p_request_id), false)
+$$;
+revoke all on function public.takeoff_launch_request_can_start(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_launch_request_can_start(uuid, uuid) to service_role;
+
+-- 1, 2. The command of a manual launch request, as 20261121170448 wrote it, with the refusals of an automatic start that
 -- can still begin and of a second first analysis, and the running analysis outside any request.
 create or replace function public.launch_manual_takeoff_request(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
@@ -87,10 +124,11 @@ begin
   -- (it runs, the command is refused) or waits for this command, which then sets it aside.
   perform 1 from public.takeoff_launch_requests r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic' for update;
-  -- An automatic start that can still begin (its dossier, its Mac or a gesture is awaited) is taken on from the affaire's
-  -- takeoff zone, on its own receipt: a command never sets it aside. Refused, nothing is recorded.
+  -- An automatic start that can still begin without a new dossier change (its eligible payer's Mac, or a gesture this
+  -- member may make) is taken on from the affaire's takeoff zone: refused, nothing is recorded. One that waits for a
+  -- dossier change or for nobody is set aside below by this explicit analysis.
   if exists (select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
-      and r.origin = 'automatic' and private.takeoff_launch_request_open(r)) then
+      and private.takeoff_automatic_request_can_start(r, p_actor)) then
     raise exception 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING' using errcode = '55000';
   end if;
   -- The first analysis only on an affaire that has none, whatever launched it: any other command names the analysis it
@@ -275,6 +313,33 @@ $$;
 revoke all on function private.guard_takeoff_job_outside_request() from public, anon, authenticated, service_role;
 create trigger aac_guard_takeoff_job_outside_request before insert on public.takeoff_jobs
   for each row when (new.launch_request_id is null) execute function private.guard_takeoff_job_outside_request();
+
+-- 3. Once both cut-offs are set, a job outside any request restarts (a member's resubmit sends it back to pending, its
+-- Mac's claim of a due retry takes it) only under the affaire's launch lock and only while no request of the affaire runs:
+-- otherwise two analyses would run. The lock is the one its commands take, then its automatic request's row, which that
+-- request's admission holds, in a command's order: a command or an admission in flight commits first (and this restart is
+-- refused), or waits for it (and finds this analysis running). Before the cut-offs it returns at once.
+create function private.guard_takeoff_job_restart_outside_request()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if not private.takeoff_launch_active() then
+    return new;
+  end if;
+  perform private.lock_takeoff_launch_commands(new.project_id);
+  perform 1 from public.takeoff_launch_requests r
+  where r.tenant_id = new.tenant_id and r.project_id = new.project_id and r.origin = 'automatic' for update;
+  if exists (select 1 from public.takeoff_launch_requests r
+      where r.tenant_id = new.tenant_id and r.project_id = new.project_id and r.state = 'admitted') then
+    raise exception 'TAKEOFF_LAUNCH_REQUEST_RUNNING' using errcode = '55000';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function private.guard_takeoff_job_restart_outside_request() from public, anon, authenticated, service_role;
+create trigger aad_guard_takeoff_job_restart_outside_request before update of status on public.takeoff_jobs
+  for each row when (new.launch_request_id is null and new.status in ('pending', 'processing')
+    and old.status not in ('pending', 'processing'))
+  execute function private.guard_takeoff_job_restart_outside_request();
 
 -- 4. The send of a reviewed takeoff, as 20261121085058 wrote it, with the receipt's comparison between jobs without a
 -- request only.

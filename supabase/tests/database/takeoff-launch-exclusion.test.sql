@@ -1,10 +1,13 @@
--- Lot 2, PR 6 fix round (20261121193413_takeoff_launch_exclusion_and_send_requests.sql): the rules of the takeoff's
--- launches hold in the database. A manual request is refused while the affaire's automatic start can still begin, and a
--- first analysis on an affaire that has one; an analysis launched outside any request that has not ended runs (a command is
--- answered with it, an automatic admission waits); once both cut-offs are set a member registers no job outside a request,
--- while before them the previous application's admission is unchanged. Isolation justified: every rule is a refusal of a
--- database function that the affaire's screen never reaches once it obeys the same rule; races between two sessions are in
--- takeoff-launch-request-race.test.sql. Written before the migration: red on 64a0e1c2a. All values are fictional.
+-- Lot 2, PR 6 fix rounds (20261121193413_takeoff_launch_exclusion_and_send_requests.sql): the rules of the takeoff's
+-- launches hold in the database. A manual request is refused while the affaire's automatic start can still begin (an
+-- eligible payer and no new dossier change needed, or a take-over an eligible member can make); otherwise it sets that start
+-- aside, as M4 did. A first analysis is refused on an affaire that has one. An analysis launched outside any request that
+-- something will still move runs (a command is answered with it, an automatic admission waits); a historical one nothing
+-- moves blocks nothing. Once both cut-offs are set a member registers no job outside a request and restarts none while a
+-- request of the affaire runs, while before them the previous application's statements are unchanged. Isolation
+-- justified: every rule is a refusal of a database function or write that the affaire's screen never reaches once it obeys
+-- the same rule; races between two sessions are in takeoff-launch-request-race.test.sql. Written before each round's
+-- migration change: red on 64a0e1c2a, then on 5298da6a3. All values are fictional.
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
@@ -45,19 +48,21 @@ insert into public.tenant_memberships (tenant_id, user_id, role, is_default, cre
   (pg_temp.f(10), pg_temp.f(1), 'engineer', true, '2020-01-01'),
   (pg_temp.f(10), pg_temp.f(3), 'director', true, '2020-01-01');
 -- A: its automatic start waits for an operator. B: a finished analysis launched on a version. C: an analysis launched on a
--- version that still runs. D: no analysis at all. E: the previous application's admission of a job.
+-- version that still runs. D: no analysis at all. E: the previous application's admission of a job. F: an automatic start
+-- that waits for a dossier change. G: one whose payer may no longer pay. H: one its eligible payer's Mac evaluates. I: a
+-- historical failed analysis of the former provider. J: a failed analysis launched on a version, which its member resubmits.
 insert into public.estimate_projects (id, tenant_id, user_id, name)
-select pg_temp.f(20 + n), pg_temp.f(10), pg_temp.f(1), 'Affaire fictive ' || n from generate_series(0, 4) as n;
+select pg_temp.f(20 + n), pg_temp.f(10), pg_temp.f(1), 'Affaire fictive ' || n from generate_series(0, 9) as n;
 insert into public.affaire_intake_uploads (id, project_id, created_by, status)
 select pg_temp.f(30 + n), pg_temp.f(20 + n), pg_temp.f(1), 'ready' from unnest(array[0, 2]) as n;
 insert into public.affaire_briefs (id, project_id, upload_id, status, summary, project_object)
 select pg_temp.f(35 + n), pg_temp.f(20 + n), pg_temp.f(30 + n), 'a_confirmer', 'Résumé fictif', 'Objet fictif' from unnest(array[0, 2]) as n;
 insert into public.plan_sets (id, tenant_id, project_id, name)
-select pg_temp.f(40 + n), pg_temp.f(10), pg_temp.f(20 + n), 'Plans fictifs ' || n from generate_series(0, 4) as n;
+select pg_temp.f(40 + n), pg_temp.f(10), pg_temp.f(20 + n), 'Plans fictifs ' || n from generate_series(0, 9) as n;
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 select pg_temp.f(50 + n), pg_temp.f(10), pg_temp.f(40 + n), 'plan-' || n || '.pdf',
   concat_ws('/', pg_temp.f(10), pg_temp.f(40 + n), pg_temp.f(50 + n), 'plan-' || n || '.pdf'), 'application/pdf', 8, 1
-from generate_series(0, 4) as n;
+from generate_series(0, 9) as n;
 
 create function pg_temp.snapshot(n integer) returns jsonb language sql as $$
   select jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 'confirmed_by', pg_temp.f(1),
@@ -88,6 +93,15 @@ returns table (outcome text, request_id uuid, job_id uuid) language sql as $$
   select r.outcome, r.request_id, r.job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20 + n), pg_temp.f(1),
     pg_temp.f(key), intent, predecessor, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(n), pg_temp.snapshot(n),
     pg_temp.job(job, n), pg_temp.f(40 + n), 1) r
+$$;
+-- The same command, answering a refusal with its message instead of raising: each case reports what the database answered.
+create function pg_temp.attempt(n integer, key integer, intent text, predecessor uuid, job integer)
+returns table (outcome text, job_id uuid) language plpgsql as $$
+begin
+  return query select l.outcome, l.job_id from pg_temp.launch(n, key, intent, predecessor, job) l;
+exception when others then
+  return query select sqlerrm::text, null::uuid;
+end;
 $$;
 create function pg_temp.request(n integer) returns uuid language sql as $$
   select id from public.takeoff_launch_requests where project_id = pg_temp.f(20 + n) and origin = 'automatic'
@@ -159,6 +173,73 @@ select is((select count(*)::integer from private.takeoff_launch_commands where p
   'and the refused command recorded nothing');
 select is((select count(*)::integer from public.takeoff_jobs where id = pg_temp.f(63)), 0, 'no job either');
 
+-- 3b. An automatic start that cannot start without a new dossier change, or without an eligible payer, waits for nothing
+-- a gesture or its Mac can do: a relaunch sets it aside, as M4 did (red on 5298da6a3: refused, the affaire had no way to
+-- start). H's start, evaluated for its eligible payer, can start: refused.
+set local session_replication_role = replica;
+insert into public.takeoff_launch_requests (id, tenant_id, project_id, origin, intent, intent_key, state, reason_code, payer_id,
+  mandate_kind, mandated_at, execution_host_id, mandate_selection, mandate_revision, evaluated_mark, evaluated_at, confirmed_by,
+  updated_at) values
+  (pg_temp.f(125), pg_temp.f(10), pg_temp.f(25), 'automatic', 'initial', pg_temp.f(125), 'not_eligible', 'NO_EXPLOITABLE_PLAN',
+    pg_temp.f(1), 'confirmation', now(), pg_temp.host(), pg_temp.selection(), 1,
+    private.takeoff_launch_mark_position(pg_temp.f(10), pg_temp.f(25)), now(), pg_temp.f(1), now()),
+  (pg_temp.f(126), pg_temp.f(10), pg_temp.f(26), 'automatic', 'initial', pg_temp.f(126), 'evaluating', null,
+    pg_temp.f(3), 'confirmation', now(), pg_temp.host(), pg_temp.selection(), 1, null, null, pg_temp.f(3), now()),
+  (pg_temp.f(127), pg_temp.f(10), pg_temp.f(27), 'automatic', 'initial', pg_temp.f(127), 'evaluating', null,
+    pg_temp.f(1), 'confirmation', now(), pg_temp.host(), pg_temp.selection(), 1, null, null, pg_temp.f(1), now());
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by)
+select pg_temp.f(160 + n), pg_temp.f(10), pg_temp.f(20 + n), pg_temp.f(40 + n), 'C', 'completed', pg_temp.f(1) from generate_series(5, 7) as n;
+set local session_replication_role = origin;
+select results_eq($$select outcome, job_id from pg_temp.attempt(5, 76, 'reread_plans', pg_temp.f(165), 155)$$,
+  $$values ('admitted'::text, pg_temp.f(155))$$, 'a relaunch while the automatic start waits for a dossier change runs');
+select results_eq($$select state, reason_details ->> 'request_id' from public.takeoff_launch_requests where id = pg_temp.f(125)$$,
+  $$select 'superseded'::text, r.id::text from public.takeoff_launch_requests r where r.project_id = pg_temp.f(25) and r.origin = 'manual'$$,
+  'and sets that start aside for good, naming the relaunch');
+select results_eq($$select outcome, job_id from pg_temp.attempt(6, 77, 'reread_plans', pg_temp.f(166), 156)$$,
+  $$values ('admitted'::text, pg_temp.f(156))$$, 'a relaunch while the automatic start has no payer who may pay runs');
+select is((select state from public.takeoff_launch_requests where id = pg_temp.f(126)), 'superseded', 'and sets that start aside');
+select throws_ok($$select * from pg_temp.launch(7, 78, 'reread_plans', pg_temp.f(167), 157)$$, '55000', 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING',
+  'a relaunch while the automatic start is evaluated for its eligible payer is refused');
+select is((select state from public.takeoff_launch_requests where id = pg_temp.f(127)), 'evaluating', 'that start is untouched');
+
+-- 4b. Once active, a member's resubmit of an analysis launched outside any request takes the affaire's lock and is refused
+-- while a request of the affaire runs (red on 5298da6a3: the row went back to pending, two analyses ran); without a running
+-- request it is written as before. The server's statement, under the member's session.
+set local session_replication_role = replica;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, error_code)
+values (pg_temp.f(168), pg_temp.f(10), pg_temp.f(25), pg_temp.f(45), 'C', 'failed', pg_temp.f(1), 'AI_TIMEOUT'),
+  (pg_temp.f(169), pg_temp.f(10), pg_temp.f(29), pg_temp.f(49), 'C', 'failed', pg_temp.f(1), 'AI_TIMEOUT'),
+  (pg_temp.f(171), pg_temp.f(10), pg_temp.f(25), pg_temp.f(45), 'C', 'failed', pg_temp.f(1), 'AI_TIMEOUT');
+set local session_replication_role = origin;
+create function pg_temp.resubmit(p_job integer) returns integer language sql as $$
+  with reset as (update public.takeoff_jobs set status = 'pending', retry_count = 1, next_retry_at = null, last_error_at = null,
+    started_at = null, completed_at = null, token_count = null, cost_cents = null, duration_ms = null, error_code = null,
+    error_message = null
+    where tenant_id = pg_temp.f(10) and id = pg_temp.f(p_job) and status = 'failed' and created_by = pg_temp.f(1)
+      and analysis_outcome is null and next_retry_at is null and retry_count = 0 returning 1)
+  select count(*)::integer from reset
+$$;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select throws_ok($$select pg_temp.resubmit(168)$$, '55000', 'TAKEOFF_LAUNCH_REQUEST_RUNNING',
+  'a resubmit while the affaire''s relaunch runs is refused');
+select is(pg_temp.resubmit(169), 1, 'a resubmit on an affaire where no request runs is written');
+reset role;
+select pg_temp.sign_out();
+select is((select status from public.takeoff_jobs where id = pg_temp.f(168)), 'failed', 'the refused job stays failed');
+-- The Mac's claim of a due retry of such an analysis is a restart too.
+set local session_replication_role = replica;
+update public.takeoff_jobs set execution_provider = 'chatgpt_local', execution_host_id = pg_temp.host(),
+  next_retry_at = now() - interval '1 minute' where id = pg_temp.f(168);
+set local session_replication_role = origin;
+select throws_ok($$select id from public.claim_local_takeoff_job(pg_temp.f(168), pg_temp.f(10), pg_temp.host(), now(), pg_temp.f(98),
+  now() + interval '5 minutes', 'modele-fictif', 'fixture')$$, '55000', 'TAKEOFF_LAUNCH_REQUEST_RUNNING',
+  'its Mac''s retry while that relaunch runs is refused');
+-- The analyses 3b admitted and J's resubmitted one end, as their worker would end them: a member has at most six in flight.
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'completed' where id in (pg_temp.f(155), pg_temp.f(156), pg_temp.f(169));
+set local session_replication_role = origin;
+
 -- 4. A first analysis only on an affaire that has none: a relaunch names the analysis it replaces.
 select throws_ok($$select * from pg_temp.launch(1, 71, 'initial', null, 64)$$, '22023', 'TAKEOFF_LAUNCH_ANALYSIS_EXISTS',
   'a first analysis of an affaire that already has one is refused');
@@ -178,12 +259,45 @@ select results_eq($$select outcome, request_id, job_id from public.replay_manual
   $$values ('already_running'::text, null::uuid, pg_temp.f(62))$$, 'its replay is that answer');
 select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.f(22)), 0, 'no request is created');
 select is((select count(*)::integer from public.takeoff_jobs where id = pg_temp.f(66)), 0, 'nor a second paid job');
--- A technical retry due counts as running too.
+-- A technical retry that the local recovery will make or close (on this Mac, no batch, under three attempts, within the
+-- wait ceiling) counts as running too.
 set local session_replication_role = replica;
-update public.takeoff_jobs set status = 'failed', next_retry_at = now() + interval '1 minute', analysis_outcome = null where id = pg_temp.f(62);
+update public.takeoff_jobs set status = 'failed', next_retry_at = now() + interval '1 minute', analysis_outcome = null,
+  execution_provider = 'chatgpt_local', execution_host_id = pg_temp.host() where id = pg_temp.f(62);
 set local session_replication_role = origin;
 select results_eq($$select outcome, job_id from pg_temp.launch(2, 75, 'reread_plans', pg_temp.f(62), 66)$$,
   $$values ('already_running'::text, pg_temp.f(62))$$, 'an analysis whose retry is due is still running');
+
+-- 5b. A historical failed analysis that nothing will move blocks nothing (red on 5298da6a3: every launch of the affaire was
+-- answered with it, for ever): the former provider's (no recovery retries it, cancel refuses it), one past three attempts,
+-- one waiting longer than the wait ceiling.
+set local session_replication_role = replica;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, next_retry_at, error_code)
+values (pg_temp.f(170), pg_temp.f(10), pg_temp.f(28), pg_temp.f(48), 'C', 'failed', pg_temp.f(1), now() - interval '30 days', 'AI_TIMEOUT');
+set local session_replication_role = origin;
+select is(private.takeoff_unrequested_analysis_running(pg_temp.f(10), pg_temp.f(28)), null::uuid,
+  'a failed analysis of the former provider with a retry recorded does not run');
+set local session_replication_role = replica;
+update public.takeoff_jobs set execution_provider = 'chatgpt_local', execution_host_id = pg_temp.host(), retry_count = 3
+where id = pg_temp.f(170);
+set local session_replication_role = origin;
+select is(private.takeoff_unrequested_analysis_running(pg_temp.f(10), pg_temp.f(28)), null::uuid,
+  'nor one of this Mac past its three attempts');
+set local session_replication_role = replica;
+update public.takeoff_jobs set retry_count = 0 where id = pg_temp.f(170);
+update private.takeoff_completion_activation set active_from = now() - interval '3 days';
+set local session_replication_role = origin;
+select is(private.takeoff_unrequested_analysis_running(pg_temp.f(10), pg_temp.f(28)), null::uuid,
+  'nor one waiting longer than the wait ceiling');
+set local session_replication_role = replica;
+update private.takeoff_completion_activation set active_from = now() - interval '1 minute';
+update public.takeoff_jobs set execution_provider = 'gemini', execution_host_id = null where id = pg_temp.f(170);
+set local session_replication_role = origin;
+select results_eq($$select outcome, job_id from pg_temp.attempt(8, 79, 'reread_plans', pg_temp.f(170), 158)$$,
+  $$values ('admitted'::text, pg_temp.f(158))$$, 'a relaunch of the affaire of a historical failed analysis runs');
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'completed' where id = pg_temp.f(158);
+set local session_replication_role = origin;
 
 -- The automatic start of that affaire waits for it too, and its Mac tries again.
 select results_eq($$select state from pg_temp.confirm(22, 1)$$, $$values ('evaluating'::text)$$, 'C''s confirmer mandates its start');
@@ -212,8 +326,13 @@ delete from private.takeoff_launch_activation;
 select pg_temp.sign_in(1);
 set local role authenticated;
 select lives_ok($$select pg_temp.admit_unrequested(83)$$, 'without the automatic start a member''s admission runs as before');
+select is(pg_temp.resubmit(171), 1, 'and a member''s resubmit while a request runs is written as before');
 reset role;
 select pg_temp.sign_out();
+
+-- What the affaire's zone reads of 3b's starts, to offer the options' launch or only their saving.
+select ok(public.takeoff_launch_request_can_start(pg_temp.f(127), pg_temp.f(1)), 'the zone reads that H''s start can still begin');
+select ok(not public.takeoff_launch_request_can_start(pg_temp.f(125), pg_temp.f(1)), 'and that F''s, set aside, cannot');
 
 select * from finish();
 rollback;

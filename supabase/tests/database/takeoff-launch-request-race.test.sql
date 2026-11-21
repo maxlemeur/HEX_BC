@@ -12,6 +12,9 @@
 -- 7. A dossier change that commits after the admission's count: the admission waits for it and admits nothing.
 -- 8. A relaunch refused while the automatic analysis runs, against the worker that holds that analysis's job and ends
 --    it: the refusal's receipt waits for nothing the worker holds, and both complete.
+-- 9. An analysis launched outside any request, restarted by its member while a request of its affaire is admitted, in
+--    three orders (20261121193413): after a relaunch or an automatic admission in flight, the restart waits and is
+--    refused; before a relaunch, the relaunch waits and is answered with that analysis.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -72,33 +75,39 @@ from public.tenant_memberships m where m.user_id = 'd4900000-0000-4000-8000-0000
 -- relaunched affaires had a first analysis from the existing dialog (a job without a request).
 insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
 select ('d4900000-0000-4000-8000-0000000001' || n || '0')::uuid, m.tenant_id, m.user_id, 'Affaire concurrente ' || n || ' (fictive)', false
-from public.tenant_memberships m cross join generate_series(1, 4) as n
+from public.tenant_memberships m cross join generate_series(1, 7) as n
 where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default;
 insert into public.affaire_intake_uploads (id, project_id, created_by, status)
 select ('d4900000-0000-4000-8000-0000000001' || n || '1')::uuid, ('d4900000-0000-4000-8000-0000000001' || n || '0')::uuid,
-  'd4900000-0000-4000-8000-000000000001', 'ready' from generate_series(1, 4) as n;
+  'd4900000-0000-4000-8000-000000000001', 'ready' from generate_series(1, 7) as n;
 insert into public.affaire_briefs (id, project_id, upload_id, status, summary, project_object)
 select ('d4900000-0000-4000-8000-0000000001' || n || '2')::uuid, ('d4900000-0000-4000-8000-0000000001' || n || '0')::uuid,
-  ('d4900000-0000-4000-8000-0000000001' || n || '1')::uuid, 'a_confirmer', 'Résumé fictif', 'Objet fictif' from generate_series(1, 4) as n;
+  ('d4900000-0000-4000-8000-0000000001' || n || '1')::uuid, 'a_confirmer', 'Résumé fictif', 'Objet fictif' from generate_series(1, 7) as n;
 insert into public.affaire_intake_documents (id, upload_id, file_name, upload_status, storage_path, classification_status, document_kind)
 select ('d4900000-0000-4000-8000-0000000001' || n || '3')::uuid, ('d4900000-0000-4000-8000-0000000001' || n || '1')::uuid,
-  'annexe.pdf', 'uploaded', 'fixture/annexe-' || n, 'classified', 'annexes' from generate_series(1, 4) as n;
+  'annexe.pdf', 'uploaded', 'fixture/annexe-' || n, 'classified', 'annexes' from generate_series(1, 7) as n;
 insert into public.plan_sets (id, tenant_id, project_id, name)
 select ('d4900000-0000-4000-8000-0000000001' || n || '4')::uuid, m.tenant_id, ('d4900000-0000-4000-8000-0000000001' || n || '0')::uuid,
   'Plans du dossier ' || n
-from public.tenant_memberships m cross join generate_series(1, 4) as n
+from public.tenant_memberships m cross join generate_series(1, 7) as n
 where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default;
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 select ('d4900000-0000-4000-8000-0000000001' || n || '5')::uuid, m.tenant_id, ('d4900000-0000-4000-8000-0000000001' || n || '4')::uuid,
   'plan-' || n || '.pdf', concat_ws('/', m.tenant_id, 'd4900000-0000-4000-8000-0000000001' || n || '4',
     'd4900000-0000-4000-8000-0000000001' || n || '5', 'plan-' || n || '.pdf'), 'application/pdf', 8, 1
-from public.tenant_memberships m cross join generate_series(1, 4) as n
+from public.tenant_memberships m cross join generate_series(1, 7) as n
 where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default;
 set local session_replication_role = replica;
 insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by)
 select ('d4900000-0000-4000-8000-0000000001' || n || '6')::uuid, m.tenant_id, ('d4900000-0000-4000-8000-0000000001' || n || '0')::uuid,
   ('d4900000-0000-4000-8000-0000000001' || n || '4')::uuid, 'C', 'completed', m.user_id
 from public.tenant_memberships m cross join generate_series(1, 2) as n
+where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default;
+-- The fifth to seventh affaires had a first analysis launched on a version that failed, which its member may resubmit.
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, error_code)
+select ('d4900000-0000-4000-8000-0000000001' || n || '6')::uuid, m.tenant_id, ('d4900000-0000-4000-8000-0000000001' || n || '0')::uuid,
+  ('d4900000-0000-4000-8000-0000000001' || n || '4')::uuid, 'C', 'failed', m.user_id, 'AI_TIMEOUT'
+from public.tenant_memberships m cross join generate_series(5, 7) as n
 where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default;
 set local session_replication_role = origin;
 commit;
@@ -414,6 +423,71 @@ select is(extensions.dblink_exec('race_writer', format($end$update public.takeof
   pg_temp.fx(149))), 'UPDATE 1', 'the worker records the job''s end, which closes its request');
 select is(extensions.dblink_exec('race_writer', 'commit'), 'COMMIT', 'and commits: nothing deadlocked');
 select is((pg_temp.automatic(140)).state, 'closed', 'the automatic request is closed');
+
+-- 9. A member resubmits an analysis launched outside any request (the server's statement, here by the owner) while a request
+-- of its affaire is admitted (red on 5298da6a3: the row went back to pending with no lock, and two analyses ran).
+create function pg_temp.resubmit_sql(p_job uuid) returns text language sql immutable as $$
+  select format($resubmit$update public.takeoff_jobs set status = 'pending', retry_count = 1, next_retry_at = null, error_code = null,
+    error_message = null, completed_at = null where id = %L and status = 'failed' and analysis_outcome is null and next_retry_at is null$resubmit$,
+    p_job)
+$$;
+-- First order: a relaunch of the sixth affaire is admitted, not yet committed, when the resubmit arrives.
+select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'a relaunch of the sixth affaire starts');
+select is((select x.outcome from extensions.dblink('race_b', pg_temp.relaunch_sql(150, 157, 158))
+  as x(outcome text, request_id text, job_id text)), 'admitted', 'it is admitted, not yet committed');
+select is(extensions.dblink_send_query('race_writer', pg_temp.resubmit_sql(pg_temp.fx(156))), 1,
+  'its member resubmits the affaire''s failed analysis meanwhile');
+select ok(pg_temp.waits_for('race_writer', 'race_b'), 'the resubmit waits for the relaunch');
+select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'the relaunch commits');
+select ok(pg_temp.answered('race_writer'), 'the resubmit answers');
+create temp table resubmitted as select x.status from extensions.dblink_get_result('race_writer', false) as x(status text);
+select diag(concat('resubmit after a relaunch: ', extensions.dblink_error_message('race_writer')));
+select ok(extensions.dblink_error_message('race_writer') ~ 'TAKEOFF_LAUNCH_REQUEST_RUNNING', 'it is refused by name');
+select is((select count(*)::integer from extensions.dblink_get_result('race_writer', false) as x(status text)), 0, 'and is done');
+select is((select status from public.takeoff_jobs where id = pg_temp.fx(156)), 'failed', 'the failed analysis is not restarted');
+select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(150) and status in ('pending', 'processing')),
+  1, 'one analysis of the affaire is in flight: the relaunch''s');
+
+-- Second order: the resubmit of the seventh affaire's failed analysis is written, not yet committed, when a relaunch arrives.
+select is(extensions.dblink_exec('race_writer', 'begin'), 'BEGIN', 'a member resubmits the seventh affaire''s failed analysis');
+select is(extensions.dblink_exec('race_writer', pg_temp.resubmit_sql(pg_temp.fx(166))), 'UPDATE 1', 'it is written, not yet committed');
+select is(extensions.dblink_send_query('race_b', pg_temp.relaunch_sql(160, 167, 168)), 1, 'a relaunch of the affaire arrives meanwhile');
+select ok(pg_temp.waits_for('race_b', 'race_writer'), 'the relaunch waits for the resubmit');
+select is(extensions.dblink_exec('race_writer', 'commit'), 'COMMIT', 'the resubmit commits');
+select ok(pg_temp.answered('race_b'), 'the relaunch answers');
+create temp table relaunched_after_resubmit as select x.outcome, x.request_id, x.job_id
+  from extensions.dblink_get_result('race_b', false) as x(outcome text, request_id text, job_id text);
+select diag(concat('relaunch after a resubmit: ', extensions.dblink_error_message('race_b')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text, request_id text, job_id text)),
+  0, 'and is done');
+select results_eq($$select outcome, request_id, job_id from relaunched_after_resubmit$$,
+  $$values ('already_running'::text, ''::text, pg_temp.fx(166)::text)$$, 'it is answered with the resubmitted analysis, without a request');
+select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(160) and launch_request_id is not null), 0,
+  'and pays nothing');
+
+-- Third order: the eighth affaire's automatic analysis is admitted, not yet committed, when the resubmit arrives.
+select is((select x.outcome || ':' || x.state from extensions.dblink('race_setup', pg_temp.confirm_sql(pg_temp.fx(170), 1))
+  as x(outcome text, request_id text, state text, reason_code text)), 'confirmed:evaluating', 'the eighth affaire''s start is mandated');
+delete from race_claim;
+insert into race_claim select x.request_id::uuid, x.mark from extensions.dblink('race_a', format(
+  'select request_id::text, mark from public.claim_takeoff_launch_evaluations(%L, %L, 20)', pg_temp.host(), pg_temp.fx(98)))
+  as x(request_id text, mark bigint) where x.request_id::uuid = (pg_temp.automatic(170)).id;
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'its Mac starts admitting it');
+select is((select x.answer from pg_temp.seal(pg_temp.fx(175), pg_temp.fx(174), pg_temp.fx(179), 1) s
+  cross join lateral extensions.dblink('race_a', format($admit$select outcome || ':' || coalesce(job_id::text, '')
+  from public.admit_takeoff_launch_request(%1$L, %2$L, %3$s, %4$L::jsonb, %5$L::jsonb, %6$L::jsonb)$admit$,
+  (select request_id from race_claim), pg_temp.fx(98), (select mark from race_claim), s.manifest, s.snapshot, s.job))
+  as x(answer text)), 'admitted:' || pg_temp.fx(179), 'the automatic analysis is admitted, not yet committed');
+select is(extensions.dblink_send_query('race_writer', pg_temp.resubmit_sql(pg_temp.fx(176))), 1,
+  'its member resubmits the affaire''s failed analysis meanwhile');
+select ok(pg_temp.waits_for('race_writer', 'race_a'), 'the resubmit waits for the admission');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the admission commits');
+select ok(pg_temp.answered('race_writer'), 'the resubmit answers');
+create temp table resubmitted_after_admission as select x.status from extensions.dblink_get_result('race_writer', false) as x(status text);
+select diag(concat('resubmit after an admission: ', extensions.dblink_error_message('race_writer')));
+select ok(extensions.dblink_error_message('race_writer') ~ 'TAKEOFF_LAUNCH_REQUEST_RUNNING', 'it is refused by name');
+select is((select count(*)::integer from extensions.dblink_get_result('race_writer', false) as x(status text)), 0, 'and is done');
+select is((select status from public.takeoff_jobs where id = pg_temp.fx(176)), 'failed', 'the failed analysis is not restarted');
 
 -- Clean the committed synthetic fixtures and the cut-offs.
 select is(extensions.dblink_exec('race_setup', $cleanup$
