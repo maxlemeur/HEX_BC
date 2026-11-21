@@ -10,11 +10,11 @@ vi.mock("@/lib/feature-flags", () => ({
   getStalePriceDaysForTenant: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/rules-engine", () => ({
+vi.mock("@/lib/estimates/rule-evaluation-server", () => ({
   evaluateRules: vi.fn(),
 }));
 
-vi.mock("@/lib/affaires/register-server", () => ({
+vi.mock("@/lib/affaires/register-gate-server", () => ({
   fetchAffaireRegisterGateSummary: vi.fn(),
 }));
 
@@ -31,12 +31,12 @@ vi.mock("@/lib/estimates/fixed-discount-evidence-server", async (importOriginal)
 import {
   evaluateEstimateSendGating,
 } from "@/lib/estimates/gating";
-import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-gate-server";
 import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
-import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { evaluateRules } from "@/lib/estimates/rule-evaluation-server";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { loadCanonicalFixedDiscountEvidence } from "@/lib/estimates/fixed-discount-evidence-server";
 import { resolveEstimateSendOverride } from "@/lib/estimates/version-lifecycle-plan";

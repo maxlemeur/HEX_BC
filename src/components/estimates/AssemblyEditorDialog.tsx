@@ -20,7 +20,7 @@ import type {
   EstimateAssemblyLaborRole,
   EstimateAssemblySummary,
   EstimateAssemblySupplyType,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/assemblies-client";
 
 export type AssemblyEditorInput = {
   name: string;

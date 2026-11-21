@@ -12,29 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type {
-  BulkSuggestPreviewItem,
-} from "@/lib/estimates/bulk-suggest";
-
-type BulkSuggestProgress = {
-  processed: number;
-  total: number;
-  percentage: number;
-};
-
-type BulkSuggestDialogProps = {
-  isOpen: boolean;
-  rows: BulkSuggestPreviewItem[];
-  selectedItemIds: string[];
-  isApplying: boolean;
-  progress: BulkSuggestProgress | null;
-  showProgress: boolean;
-  error: string | null;
-  onClose: () => void;
-  onConfirm: () => void;
-  onToggleItem: (itemId: string, checked: boolean) => void;
-  onToggleAll: (checked: boolean) => void;
-};
+import type { BulkSuggestDialogProps } from "@/hooks/estimate-editor-view-props";
 
 export function BulkSuggestDialog({
   isOpen,

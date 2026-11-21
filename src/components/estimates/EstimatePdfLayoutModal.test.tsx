@@ -8,9 +8,9 @@ const { fetchConfigurationMock } = vi.hoisted(() => ({
   fetchConfigurationMock: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/estimates/client")>(
-    "@/lib/estimates/client"
+vi.mock("@/lib/estimates/pdf-client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/estimates/pdf-client")>(
+    "@/lib/estimates/pdf-client"
   );
 
   return {

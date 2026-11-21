@@ -1,3 +1,5 @@
+import type { ComputeAllSectionTotalsInput } from "@/lib/estimate-calculations";
+
 export type SuggestionLearningRuleBoost = {
   rule_id: string;
   learning_boost: number;
@@ -65,6 +67,17 @@ export type EstimateVirtualizationConfig = {
   maxHeight?: number;
   containerHeight?: number;
 };
+
+export type EstimateSectionCalculation = Pick<
+  ComputeAllSectionTotalsInput,
+  | "marginMode"
+  | "marginTiers"
+  | "globalCoefficient"
+  | "discountMode"
+  | "discountStepsBp"
+  | "calcEngineVersion"
+  | "preserveStoredSnapshot"
+>;
 
 export type LaborSplitItemFields = {
   h_mo_atelier?: number | null;

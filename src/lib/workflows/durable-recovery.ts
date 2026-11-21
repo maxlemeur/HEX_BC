@@ -1,4 +1,4 @@
-import { processAffaireIntakeUpload } from "@/lib/affaires/intake-server";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 import {
   drainEstimateEmailOutbox,
   type EmailOutboxDrainResult,

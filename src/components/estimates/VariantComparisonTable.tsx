@@ -8,7 +8,7 @@ import { Alert } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { promoteEstimateVariant } from "@/lib/estimates/client";
+import { promoteEstimateVariant } from "@/lib/estimates/version-variant-client";
 import { formatEUR } from "@/lib/money";
 
 type EstimateVariantComparisonItem = {

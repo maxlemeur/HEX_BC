@@ -29,10 +29,11 @@ const mocks = vi.hoisted(() => ({
   acquireDraftLock: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/batch-operations-client", () => ({
   batchEstimateOperations: mocks.batchEstimateOperations,
+}));
+vi.mock("@/lib/estimates/items-client", () => ({
   bulkUpdateEstimateItems: mocks.bulkUpdateEstimateItems,
-  isEstimateApiError: mocks.isEstimateApiError,
 }));
 
 // The API error guard now belongs to the transport boundary.

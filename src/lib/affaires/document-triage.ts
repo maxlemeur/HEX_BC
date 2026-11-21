@@ -5,7 +5,7 @@ import {
   isAffaireIntakeReanalysisPending,
   isAffaireIntakeCadDocument,
 } from "@/lib/affaires/intake";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 
 export type DossierDocument = AffaireIntakeWorkspace["documents"][number];
 // Eligibility for document tools does not require a human validation.

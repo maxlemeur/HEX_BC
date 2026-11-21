@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/affaires/intake-server", () => ({
+vi.mock("@/lib/affaires/intake-dpgf-server", () => ({
   getAffaireIntakeDpgfDownload: vi.fn(),
   readAffaireIntakeDpgfFile: vi.fn(),
 }));
@@ -13,7 +13,7 @@ vi.mock("@/lib/imports/server", () => ({
   validateTabularPdfReviewFile: vi.fn(),
 }));
 
-import { readAffaireIntakeDpgfFile } from "@/lib/affaires/intake-server";
+import { readAffaireIntakeDpgfFile } from "@/lib/affaires/intake-dpgf-server";
 import { createImportFromMultipartFormData } from "@/lib/imports/server";
 import { POST } from "./route";
 

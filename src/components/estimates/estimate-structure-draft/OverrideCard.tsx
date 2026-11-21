@@ -8,7 +8,7 @@ import type {
   NodeOverrideState,
   FlatStructureDraftNode,
 } from "@/lib/estimates/estimate-structure-draft";
-import type { EstimateStructureDraftNodeAction } from "@/lib/estimates/client";
+import type { EstimateStructureDraftNodeAction } from "@/lib/estimates/structure-drafts-client";
 import { confidenceText } from "@/lib/estimates/estimate-structure-draft";
 
 type OverrideCardProps = {

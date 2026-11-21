@@ -1,9 +1,9 @@
+import { createEstimate } from "@/lib/estimates/version-creation-client";
+import { importLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-client";
 import {
-  createEstimate,
-  importLinkedDpgfSource,
   instantiateEstimateFromTemplate,
   type InstantiateEstimateTemplateConversion,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/templates-client";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import {
   DEFAULT_VALIDITE_JOURS,

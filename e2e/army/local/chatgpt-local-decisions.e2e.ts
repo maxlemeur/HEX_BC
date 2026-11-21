@@ -22,7 +22,7 @@ import { createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server
 import { verifyPriceReuseArbitration } from "./engine-v3-price-reuse-support";
 import { querySql } from "./calculation-gate-support";
 import { LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
-import { labSessionCookies, rawLabRequest } from "./takeoff-lab-support";
+import { labSessionCookies, launchLabRun, rawLabRequest } from "./takeoff-lab-support";
 
 // The assistance of the ChatGPT local journeys, on this file's own development server: the Decisions proposals of
 // the preparation (DEC01, TRI01), the lab's vectors page (VEC01), the price reuse arbitration (PRX02), the intake
@@ -301,7 +301,7 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   // « Classer avec Decisions »: one call for the one group the keywords leave, its image drawn by the server.
   const launch = screen.getByRole("button", "Classer avec Decisions", { exact: true });
   await expect(launch).toBeEnabled();
-  const [launched] = await Promise.all([browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 }), launch.click()]);
+  const launched = await launchLabRun(browser, () => launch.click());
   expect(launched.status).toBe(201);
   await expect(row(decisions.layer)).toContainText(/EU\s80\s%\s·\sDecisions/);
   await expect(row(keyword.layer)).toContainText("EF · mots-clés");
@@ -389,19 +389,19 @@ if (!existsSync(liveProbePath)) test("VEC01 the lab's vectors page reads layers 
   await expect(rows).toHaveCount(3);
   const heldStart = (await readTransport()).length;
   await setDecisionsControl({ hold: true });
-  let relaunched: Awaited<ReturnType<typeof browser.waitForResponse>>;
+  let relaunched: Awaited<ReturnType<typeof launchLabRun>>;
   try {
-    const answered = browser.waitForResponse("**/api/admin/takeoff/lab/runs", { timeout: 120_000 });
-    await launch.click();
-    await expect.poll(async () => (await readTransport()).slice(heldStart).filter((entry) => entry.provider === "decisions-fixture").length).toBe(1);
-    await screen.getByLabel("Document", { exact: true }).selectOption({ value: otherDocument });
-    await setDecisionsControl({});
-    relaunched = await answered;
+    relaunched = await launchLabRun(browser, async () => {
+      await launch.click();
+      await expect.poll(async () => (await readTransport()).slice(heldStart).filter((entry) => entry.provider === "decisions-fixture").length).toBe(1);
+      await screen.getByLabel("Document", { exact: true }).selectOption({ value: otherDocument });
+      await setDecisionsControl({});
+    });
   } finally {
     await setDecisionsControl({});
   }
   expect(relaunched.status).toBe(201);
-  const staleRunId = ((await relaunched.json()) as { data: { id: string } }).data.id;
+  const staleRunId = (relaunched.body as { data: { id: string } }).data.id;
   await expect(screen.getByText(/Ce classement porte sur une autre sélection/)).toBeVisible();
   await expect(screen.getByLabel("Document", { exact: true })).toHaveValue(otherDocument);
   await expect(panel).toContainText("« Classer avec Decisions » demande une classe");

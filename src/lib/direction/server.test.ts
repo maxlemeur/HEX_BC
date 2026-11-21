@@ -13,7 +13,7 @@ vi.mock("@/lib/affaires/server", () => ({
   fetchAffaireHubPlansSummary: vi.fn(async () => null),
 }));
 
-vi.mock("@/lib/affaires/intake-server", () => ({
+vi.mock("@/lib/affaires/intake-workspace-server", () => ({
   fetchAffaireIntakeWorkspace: vi.fn(async () => null),
 }));
 

@@ -4,7 +4,7 @@ import {
   type AffaireIntakeDocumentPriority,
   isAffaireIntakePrimaryEligibleKind,
 } from "@/lib/affaires/intake";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import type {
   AffaireRegisterEntry,
   AffaireRegisterEntryKind,

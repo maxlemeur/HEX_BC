@@ -1,4 +1,4 @@
-import { nativeTest as test, describe, expect, extractProjectId, getTenantIdForVersion, buildEstimateName, createEstimateViaWizard, loginWithUi, localClient, outputPath, ensureMapping, fixtureFile, expectSummaryValue, type NativeUi as Page } from "./native-ui";
+import { nativeTest as test, describe, expect, extractProjectId, getTenantIdForVersion, buildEstimateName, loginWithUi, localClient, outputPath, ensureMapping, fixtureFile, expectSummaryValue, type NativeUi as Page } from "./native-ui";
 
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -8,11 +8,23 @@ import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
 import type { AffaireSupplyCost } from "@/lib/material-requests/supply-cost-contracts";
 
-import { createLineViaApi, ownEstimate, recordEvidence } from "../critical/fixtures";
+import { createEstimateViaWizard as createWizard, createLineViaApi, ownEstimate, recordEvidence } from "../critical/fixtures";
+import { hydratedUi, waitForHydration } from "../critical/hydration-support";
 import { localTakeoffFixture, seedOwnedSupplyType } from "./fixtures";
 import { duplicateEstimateViaApi } from "./native-ui";
 import { seedPlanSetWithFile, seedTakeoffJob, seedVersionLink } from "./recovery-support";
 async function getAuthenticatedSupabaseClient() { return (await localClient()).client; }
+
+async function gotoHydrated(page: Page, pathname: string) {
+  await page.goto(pathname);
+  await waitForHydration(page.browser);
+}
+
+function createEstimateViaWizard(page: Page, options: Parameters<typeof createWizard>[1]) {
+  const origin = page.app.baseUrl;
+  if (!origin) throw new Error("Team B journeys require an application URL.");
+  return createWizard(hydratedUi(page, origin), options, page.army);
+}
 
 async function createPendingRecoveryFixture(page: Page) {
   const source = await createEstimateViaWizard(page, {
@@ -185,7 +197,7 @@ async function uploadAndClassifyIntakeDpgf(page: Page, input: {
 
 /** A hub with documents keeps them in the « Documents du dossier » drawer (f63d9cd6); the piece's link opens it on the DPGF. */
 async function openDossierDpgfImport(page: Page, projectId: string, documentId: string) {
-  await page.goto(`/dashboard/affaires/${projectId}?intakeDocument=${documentId}#intake`);
+  await gotoHydrated(page, `/dashboard/affaires/${projectId}?intakeDocument=${documentId}#intake`);
   await page.getByRole("dialog", { name: "Documents du dossier", exact: true })
     .getByRole("button", { name: "Importer cette DPGF", exact: true }).click();
 }
@@ -474,7 +486,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     const fixturePath = outputPath(page, "us21-mapping-stats.xlsx");
     createDuplicateAwareDpgfWorkbook(fixturePath);
 
-    await page.goto("/dashboard/imports");
+    await gotoHydrated(page, "/dashboard/imports");
     await expect(page.getByRole("heading", { name: /Import DPGF/i })).toBeVisible();
 
     const uploadInput = page.getByLabel("Fichier DPGF à importer", { exact: true, visible: true });
@@ -512,7 +524,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
   test("US-2.2 reviews tabular PDF imports before entering the canonical flow", async ({ ui: page }) => {
     const pdfFixturePath = path.join(process.cwd(), "e2e/fixtures/us22_live_tabular.pdf");
 
-    await page.goto("/dashboard/imports");
+    await gotoHydrated(page, "/dashboard/imports");
     await expect(page.getByRole("heading", { name: /Import DPGF/i })).toBeVisible();
 
     const uploadInput = page.getByLabel("Fichier DPGF à importer", { exact: true, visible: true });
@@ -1061,7 +1073,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     await recordEvidence(page.army, "us44-mode-before", { userId, initialMode });
     let modeChangeAttempted = false;
     try {
-      await page.goto(`/dashboard/estimates/${versionId}/edit`);
+      await gotoHydrated(page, `/dashboard/estimates/${versionId}/edit`);
       if (initialMode !== "expert") {
         modeChangeAttempted = true;
         await selectModeViaUi("expert");
@@ -1114,7 +1126,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
       expect(preparationPayload.data?.blocked_lines ?? []).toHaveLength(0);
 
       expect(preparedGroup?.lines?.map((line) => line.item_id)).toEqual([lineId]);
-      await page.goto(`/dashboard/affaires/${projectId}#finish-line-orders`);
+      await gotoHydrated(page, `/dashboard/affaires/${projectId}#finish-line-orders`);
       const purchasePanel = page.locator("#finish-line-orders");
       await expect(purchasePanel.getByText("Brouillons proposés", { exact: true })).toBeVisible();
       await purchasePanel.getByRole("combobox", { name: "Chantier de livraison" }).selectOption({ value: siteId });
@@ -1197,6 +1209,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
         if (status === "canceled") {
           await expect(costSection.getByText("Aucun budget ni aucune commande pour l’instant.", { exact: true })).toBeVisible();
         } else {
+          await waitForHydration(page.browser);
           await expect(detail).toBeVisible();
           await detail.click();
           await expect(table.getByRole("row", {
@@ -1218,7 +1231,7 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
     } finally {
       if (modeChangeAttempted) {
         // A fresh page also closes any supplier dialog left open by a failure.
-        await page.goto("/dashboard/affaires");
+        await gotoHydrated(page, "/dashboard/affaires");
         await selectModeViaUi(initialMode);
       }
       const restoredMode = await readMode();
@@ -1250,9 +1263,11 @@ describe("VNEXT Team B - user stories e2e", { session: "army", tags: ["critical"
   test("US-6.3 keeps takeoff actions in the affaire", async ({ ui: page }) => {
     const ids = await createHierarchyFixture(page);
     // The journey and its study tools are shown in « Vue d’ensemble ».
-    await page.goto(`/dashboard/affaires/${ids.projectId}?view=overview`);
+    await gotoHydrated(page, `/dashboard/affaires/${ids.projectId}?view=overview`);
 
-    if (await page.getByRole("button", { name: /Étude/ }).getAttribute("aria-expanded") !== "true") await page.getByRole("button", { name: /Étude/ }).click();
+    const study = page.getByRole("button", { name: /Étude/ });
+    if (await study.getAttribute("aria-expanded") !== "true") await study.click();
+    await expect(study).toHaveAttribute("aria-expanded", "true");
     await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
     const flowHierarchy = page
       .locator("section")

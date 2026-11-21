@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/ai/structured-ai", () => ({ callStructuredAi: vi.fn() }));
 
 import { callStructuredAi } from "@/lib/ai/structured-ai";
-import { __securityTesting__ } from "@/lib/affaires/intake-server";
+import { generateAffaireBriefDraft } from "@/lib/affaires/intake-brief-generation";
+import { classifyAffaireIntakeDocument } from "@/lib/affaires/intake-classification";
 import { TakeoffError } from "@/lib/takeoff/errors";
 
 describe("affaire brief provider failure", () => {
@@ -23,7 +24,7 @@ describe("affaire brief provider failure", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const renewLease = vi.fn().mockResolvedValue(undefined);
 
-    const draft = await __securityTesting__.generateAffaireBriefDraft({
+    const draft = await generateAffaireBriefDraft({
       project: {
         id: projectId,
         tenant_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
@@ -75,7 +76,7 @@ describe("affaire document classification failure", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const beforeProviderCall = vi.fn().mockResolvedValue(undefined);
 
-    const classification = await __securityTesting__.classifyAffaireIntakeDocument({
+    const classification = await classifyAffaireIntakeDocument({
       fileName: `DPGF ${privateFile}.pdf`,
       mimeType: "application/pdf",
       bytes: new Uint8Array([1, 2, 3]).buffer,
@@ -96,7 +97,7 @@ describe("affaire document classification failure", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const beforeProviderCall = vi.fn().mockResolvedValue(undefined);
 
-    const classification = await __securityTesting__.classifyAffaireIntakeDocument({
+    const classification = await classifyAffaireIntakeDocument({
       fileName: `DPGF ${privateFile}.xlsx`,
       mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       bytes: new Uint8Array([1, 2, 3]).buffer,
@@ -119,7 +120,7 @@ describe("affaire document classification failure", () => {
     vi.mocked(callStructuredAi).mockRejectedValueOnce(Object.assign(new Error(privateMarker), { code: privateMarker }));
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    const classification = await __securityTesting__.classifyAffaireIntakeDocument({
+    const classification = await classifyAffaireIntakeDocument({
       fileName: "DPGF_exemple.pdf",
       mimeType: "application/pdf",
       bytes: new Uint8Array([1, 2, 3]).buffer,

@@ -9,7 +9,7 @@ import {
 import type { EstimateCreationEngine } from "@/components/estimates/estimate-creation-wizard/shared";
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import { useToast } from "@/components/feedback/toast-provider";
-import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/client";
+import type { InstantiateEstimateTemplateConversion } from "@/lib/estimates/templates-client";
 
 const HOURS_FORMAT = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 const LISTED_CONVERTED_LINES = 5;

@@ -1,6 +1,6 @@
 import { CheckIcon } from "lucide-react";
 
-import type { ApplyEstimateStructureDraftResult } from "@/lib/estimates/client";
+import type { ApplyEstimateStructureDraftResult } from "@/lib/estimates/structure-drafts-client";
 import type {
   FlatStructureDraftNode,
   NodeOverrideState,

@@ -19,13 +19,12 @@ import { FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import {
   arbitrateEstimatePriceReuse,
-  fetchEstimateImportSources,
   previewEstimatePriceReuse,
-  type EstimateImportSourceVersion,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/price-reuse-client";
+import { fetchEstimateImportSources } from "@/lib/estimates/section-copy-client";
+import type { EstimateImportSourceVersion } from "@/lib/estimates/section-copy-contracts";
 import {
   PRICE_REUSE_ARBITRATION_MAX_LINES,
-  type PriceReuseApplyInput,
   type PriceReusePreview,
   type PriceReusePreviewLine,
   type PriceReuseProvider,
@@ -33,18 +32,10 @@ import {
 } from "@/lib/estimates/price-reuse-contracts";
 import { formatEUR } from "@/lib/money";
 import { plural } from "@/lib/text/plural";
+import type { PriceReuseDialogProps } from "@/hooks/estimate-editor-view-props";
 
 // Reprise des prix d'un devis de référence (docs/metier/reprise-des-prix.md) : le rapprochement propose, l'IA
 // départage sur demande, l'utilisateur retient ; rien n'est écrit avant « Appliquer ».
-
-type PriceReuseDialogProps = {
-  isOpen: boolean;
-  targetVersionId: string;
-  onClose: () => void;
-  /** Saves the editor's pending edits first, so the comparison reads what the user sees. */
-  prepareComparison: () => Promise<boolean>;
-  onConfirm: (input: PriceReuseApplyInput) => Promise<void>;
-};
 
 type Origin = "identical" | "pending" | "manual" | PriceReuseProvider;
 type RowState = { referenceId: string | null; checked: boolean; origin: Origin | null; confidence: number | null };

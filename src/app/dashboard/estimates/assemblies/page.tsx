@@ -28,7 +28,7 @@ import {
   updateEstimateAssembly,
   type EstimateAssemblyDetail,
   type EstimateAssemblySummary,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/assemblies-client";
 
 export default function EstimateAssembliesPage() {
   const confirm = useConfirm();

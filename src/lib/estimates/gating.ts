@@ -11,7 +11,7 @@ import {
   computeEstimateQualityFlagsByItemId,
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
-import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-gate-server";
 import type { Database } from "@/types/database";
 import {
   resolveEstimateReadinessCategoryFromGatingFlagKey,
@@ -45,7 +45,7 @@ import { readTakeoffProvision } from "@/lib/estimates/takeoff-provision";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { loadCanonicalFixedDiscountEvidence } from "./fixed-discount-evidence-server";
 import { readAllEstimateItems } from "./read-all-items-server";
-import { evaluateRules } from "./rules-engine";
+import { evaluateRules } from "./rule-evaluation-server";
 import type { EstimateRuleUnavailableSignal, EstimateRuleViolation } from "./approval-types";
 import { fetchVersionZeroDraftSummary } from "./version-zero-drafts";
 

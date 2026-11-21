@@ -5,11 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { GeneratedOuvrageCandidateCard } from "./GeneratedOuvrageCandidateCard";
 import type {
   CandidateEdits,
-  ExistingSection,
   GeneratedOuvrageSubdetailEditorComponent,
   GeneratedOuvrageSubdetailUiState,
   UiGeneratedOuvrageCandidate,
 } from "./generated-ouvrage-types";
+import type { ExistingSection } from "@/lib/estimates/editor-item-tree";
 
 type DraftSummary = {
   totalCandidates: number;

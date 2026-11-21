@@ -68,7 +68,10 @@ rôles de l'approbation sont déclarés dans
 Les décisions de revue (`approved`, `approved_with_reservations`,
 `changes_requested`) ne sont pas les statuts du devis.
 
-Sources : [rules-engine.ts](../../src/lib/estimates/rules-engine.ts),
+Sources : [rule-evaluation.ts](../../src/lib/estimates/rule-evaluation.ts),
+[rule-evaluation-server.ts](../../src/lib/estimates/rule-evaluation-server.ts),
+[approval-workflow-server.ts](../../src/lib/estimates/approval-workflow-server.ts),
+[approval-decision-journal-server.ts](../../src/lib/estimates/approval-decision-journal-server.ts),
 [approval-v2-snapshot.ts](../../src/lib/estimates/approval-v2-snapshot.ts)
 (aiguille aussi la v3),
 [review-cycle-submission.ts](../../src/lib/estimates/review-cycle-submission.ts),

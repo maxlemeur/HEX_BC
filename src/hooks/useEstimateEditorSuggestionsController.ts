@@ -23,16 +23,18 @@ import {
   createBulkSuggestionRanker,
   type BulkSuggestPreviewItem,
 } from "@/lib/estimates/bulk-suggest";
+import { bulkUpdateEstimateItems } from "@/lib/estimates/items-client";
 import {
-  bulkUpdateEstimateItems,
   createEstimateSuggestionRule,
-  fetchEstimateSuggestionLearnings,
   sendEstimateSuggestionRuleFeedback,
-  trackEstimateSuggestionCorrections,
   updateEstimateSuggestionRule,
+} from "@/lib/estimates/reference-data-client";
+import {
+  fetchEstimateSuggestionLearnings,
+  trackEstimateSuggestionCorrections,
   type SuggestionLearningState as SuggestionLearningClientState,
   type TrackEstimateSuggestionCorrection,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/suggestion-learning-client";
 import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,

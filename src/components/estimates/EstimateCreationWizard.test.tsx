@@ -19,9 +19,16 @@ vi.mock("next/link", () => ({
   },
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/version-creation-client", () => ({
   createEstimate: vi.fn().mockResolvedValue("version-abc-123"),
+}));
+vi.mock("@/lib/estimates/templates-client", () => ({
   fetchEstimateTemplates: vi.fn().mockResolvedValue([]),
+  instantiateEstimateFromTemplate: vi
+    .fn()
+    .mockResolvedValue({ versionId: "version-tpl-123" }),
+}));
+vi.mock("@/lib/estimates/linked-dpgf-client", () => ({
   fetchAffaireLinkedDpgfSource: vi.fn().mockResolvedValue(null),
   importLinkedDpgfSource: vi.fn().mockResolvedValue({
     sourceImportId: "11111111-1111-4111-8111-111111111111",
@@ -37,9 +44,6 @@ vi.mock("@/lib/estimates/client", () => ({
     },
     versionToken: null,
   }),
-  instantiateEstimateFromTemplate: vi
-    .fn()
-    .mockResolvedValue({ versionId: "version-tpl-123" }),
 }));
 
 vi.mock("@/lib/estimates/margin-tiers", () => ({
@@ -57,13 +61,15 @@ vi.mock("@/lib/money", () => ({
 
 // Lazy-import after mocks are wired
 import { EstimateCreationWizard } from "@/components/estimates/EstimateCreationWizard";
+import { createEstimate } from "@/lib/estimates/version-creation-client";
 import {
-  createEstimate,
   fetchAffaireLinkedDpgfSource,
-  fetchEstimateTemplates,
   importLinkedDpgfSource,
+} from "@/lib/estimates/linked-dpgf-client";
+import {
+  fetchEstimateTemplates,
   instantiateEstimateFromTemplate,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/templates-client";
 
 function setup(
   onCreated = vi.fn(),

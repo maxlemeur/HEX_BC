@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   acquireEstimateDraftLock,
-  isEstimateApiError,
   releaseEstimateDraftLock,
   renewEstimateDraftLock,
   takeoverEstimateDraftLock,
   type EstimateDraftLock,
   type ReleaseEstimateDraftLockOptions,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/client-locks";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { isOrphanedTabEstimateDraftLockSession } from "@/lib/estimates/draft-lock-session-client";
 
 /**

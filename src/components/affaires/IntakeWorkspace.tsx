@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
-import type { AffaireIntakeWorkspace as WorkspaceData } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace as WorkspaceData } from "@/lib/affaires/intake-workspace-server";
 import type {
   AffaireIntakeBriefBlockKey,
   AffaireIntakeDocumentKind,
