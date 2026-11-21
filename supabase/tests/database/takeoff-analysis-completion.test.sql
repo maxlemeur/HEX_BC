@@ -355,7 +355,9 @@ select throws_ok($$
     '8f400000-0000-4000-8000-000000000099', 'partial', now(), 2, 1, 0, 'unavailable',
     'takeoff-completion/' || tenant_id::text || '/request/8f400000-0000-4000-8000-000000000099/unavailable'
   from completion_fixture
-$$, '23514', 'new row for relation "takeoff_completion_notifications" violates check constraint "takeoff_completion_autonomous_only_check"',
+-- M4 (20261121083011_takeoff_launch_requests.sql) replaced the autonomous-only gate by the request's foreign key, in one
+-- transaction: a request subject still needs a request.
+$$, '23503', 'insert or update on table "takeoff_completion_notifications" violates foreign key constraint "takeoff_completion_request_fkey"',
   'an unbacked launch-request subject cannot be inserted');
 
 select set_config('app.completion_test_other_event_id', (
@@ -450,28 +452,9 @@ select ok(not (select public.prepare_takeoff_completion_email(
 select is((select delivery_state from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000022'),
   'unavailable', 'loss of access records delivery unavailable');
 
--- Simulate the future link on an owned transaction that rolls back with this
--- test. M4 will validate the foreign key and the request's own finalizer.
-alter table public.takeoff_jobs add column if not exists launch_request_id uuid;
+-- A request's child records its end and leaves the notice to its request: M4's takeoff-launch-requests.test.sql admits a
+-- real request and checks it, in place of the simulated link this file used before the requests existed.
 update public.estimate_projects set is_archived = false where id = '8f400000-0000-4000-8000-000000000010';
-insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, created_by,
-  execution_provider, execution_host_id, launch_request_id)
-select '8f400000-0000-4000-8000-000000000026', tenant_id, '8f400000-0000-4000-8000-000000000011',
-  'A', '8f400000-0000-4000-8000-000000000001', 'chatgpt_local', 'urn:uuid:8f400000-0000-4000-8000-000000000099',
-  '8f400000-0000-4000-8000-000000000099'
-from completion_fixture;
-select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(
-  '8f400000-0000-4000-8000-000000000026', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
-  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture');
-update public.takeoff_jobs set status = 'completed'
-where id = '8f400000-0000-4000-8000-000000000026' and status = 'processing';
-select ok((select analysis_outcome = 'success' and analysis_finished_at is not null
-    and analysis_completion_event_id is null
-  from public.takeoff_jobs where id = '8f400000-0000-4000-8000-000000000026'),
-  'a request child records its result and leaves event allocation to the request');
-select is((select count(*) from public.takeoff_completion_notifications
-  where job_id = '8f400000-0000-4000-8000-000000000026'), 0::bigint,
-  'a request child cannot publish an autonomous notice');
 
 update public.takeoff_jobs set status = 'pending' where id = '8f400000-0000-4000-8000-000000000088';
 select count(*) from completion_fixture f cross join lateral public.claim_local_takeoff_job(

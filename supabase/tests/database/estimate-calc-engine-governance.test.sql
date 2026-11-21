@@ -716,18 +716,22 @@ with duplicate_definition as (
     'public.duplicate_estimate_version_without_product_id(uuid,boolean)'::regprocedure
   )) as source
 )
+-- Since M4 (20261121083011_takeoff_launch_requests.sql) the project is held FOR NO KEY UPDATE, which still excludes every
+-- copy and creator that locks it, but no longer the foreign-key check of an analysis's notice
+-- (takeoff-copy-lock-cycle-race.test.sql); the source version stays FOR UPDATE.
 select ok(
-  position('for update of p, v' in source) > 0
+  position('for no key update of p for update of v' in source) > 0
+  and position('for update of p, v' in source) = 0
   and position('and not p.is_archived' in source) > 0
   and position('and not p.is_archived' in source) <
-    position('for update of p, v' in source)
-  and position('for update of p, v' in source) <
+    position('for no key update of p for update of v' in source)
+  and position('for no key update of p for update of v' in source) <
     position('select coalesce(max(version_number)' in source)
-  and position('for update of p, v' in source) <
+  and position('for no key update of p for update of v' in source) <
     position(
       'next_variant_label := public.estimate_variant_label_from_index' in source
     )
-  and position('for update of p, v' in source) <
+  and position('for no key update of p for update of v' in source) <
     position('jsonb_object_agg(item.id::text' in source),
   'duplication locks the target project and source version before allocating or copying its snapshot'
 )
