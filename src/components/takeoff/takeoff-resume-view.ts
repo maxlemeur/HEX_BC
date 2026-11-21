@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 
-import { TAKEOFF_LIST_REFRESH_INTERVAL_MS } from "@/components/takeoff/takeoff-job-list-shared";
 import {
   TAKEOFF_RESUME_ACTIONS,
   TAKEOFF_RESUME_REASONS,
@@ -36,21 +35,9 @@ export function takeoffShowsBatchProgress(job: TakeoffActivityCenterJobRow) {
 }
 
 /**
- * How often the list is read again: while an analysis is queued or running, and while a stopped analysis waits for its
- * retry or for the end of its delay (until that happened). Otherwise not at all.
- */
-export function takeoffListRefreshInterval(data?: TakeoffActivityCenterResponse) {
-  if (!data) return 0;
-  const jobs = data.jobs ?? [];
-  const running = data.counters.technicalJobs > 0 || jobs.some((job) => job.statusRaw === "queued");
-  const waiting = jobs.some((job) => job.resume?.action === "wait_retry");
-  return running || waiting ? TAKEOFF_LIST_REFRESH_INTERVAL_MS : 0;
-}
-
-/**
  * Reads the list again once the first wait it announced is over: one timer for the whole list, whatever its number of
  * rows. The decision stays the server's, never the clock's. A delay still announced after its end (the browser's clock
- * ahead of the server's) is read again shortly; a scheduled retry is followed by the list's own polling.
+ * ahead of the server's) is read again shortly; a scheduled retry is followed by the page's poll of the analyses in flight.
  */
 export function useTakeoffResumeRefresh(jobs: readonly TakeoffActivityCenterJobRow[], refresh: () => void) {
   useEffect(() => {

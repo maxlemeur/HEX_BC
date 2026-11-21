@@ -75,10 +75,14 @@ qui ne la connaît pas, ne donne pas de consigne et renvoie au suivi du métré.
 du lot de l'ancien fournisseur ne s'affichent plus à côté d'une analyse arrêtée. Le bandeau suit la décision de la dernière
 analyse : il ne propose un nouveau métré que si elle le propose, et rien à un membre
 qui ne peut pas agir. Un démarrage différé (« Reprise automatique ») n'est annoncé
-que pour une analyse en file, en cours ou dont la reprise est programmée. Tant qu'une
-ligne attend une reprise ou la fin d'un délai, la liste est relue (toutes les
-20 secondes, dès la première réponse) jusqu'à ce que cela arrive. Une réponse sans décision (serveur d'une
-version antérieure) n'offre aucune action et demande de recharger la page.
+que pour une analyse en file, en cours ou dont la reprise est programmée. La liste
+n'est plus relue à intervalle : la page suit une projection légère des demandes et
+des analyses en cours (section « Suivi d'une demande dans le centre d'activité » de
+[`preparation-metre.md`](preparation-metre.md)), relue toutes les 30 secondes tant
+qu'une reprise programmée est attendue, et la liste est relue dès que celle-ci
+signale la transition ; la fin d'un délai est relue une fois à son échéance. Une
+réponse sans décision (serveur d'une version antérieure) n'offre aucune action et
+demande de recharger la page.
 
 Les motifs d'échec ne proposent jamais un autre niveau d'analyse : la nouvelle
 analyse reste détaillée, avec moins de sources ou un fichier corrigé. Les lignes
@@ -108,7 +112,8 @@ Les tests unitaires de la table sont dans
 [`operator-state.test.ts`](../../src/lib/takeoff/operator-state.test.ts) ; la
 cohérence des trois surfaces dans
 [`server.jobs.test.ts`](../../src/lib/takeoff/server.jobs.test.ts) et
-[`activity-center.test.ts`](../../src/lib/takeoff/activity-center.test.ts) ; le
+[`activity-center.test.ts`](../../src/lib/takeoff/activity-center.test.ts) et
+[`request-activity.test.ts`](../../src/lib/takeoff/request-activity.test.ts) (les plans d'une demande) ; le
 parcours TKW13 de
 [`worker-lifecycle.e2e.ts`](../../e2e/army/takeoff/worker-lifecycle.e2e.ts) les
 rejoue dans le navigateur.

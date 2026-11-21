@@ -532,6 +532,8 @@ export type TakeoffActivityCenterCounters = {
 
 export type TakeoffActivityCenterJobRow = {
   jobId: string;
+  /** The launch request this analysis is a unit of; null for an analysis launched without one. */
+  launchRequestId?: string | null;
   analysisCompletion?: {
     eventId: string | null;
     outcome: TakeoffAnalysisOutcome;
