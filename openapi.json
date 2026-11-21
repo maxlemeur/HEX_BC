@@ -23,6 +23,9 @@
       "name": "Demandes de matériel"
     },
     {
+      "name": "Takeoff"
+    },
+    {
       "name": "Catalogue"
     },
     {
@@ -66,9 +69,6 @@
     },
     {
       "name": "Portail"
-    },
-    {
-      "name": "Takeoff"
     }
   ],
   "paths": {
@@ -5317,6 +5317,304 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/takeoff/item-list": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire la liste des postes d'une affaire",
+        "description": "Lecteurs de l'affaire. La révision enregistrée de la liste (immuable), son historique, ses sources (l'import DPGF de l'affaire et les décisions de structure de sa confirmation, ou la version du gabarit) résolues par le serveur sous la règle de l'affaire, les continuités acceptées, et la révision que les sources proposent maintenant, jamais appliquée seule. Aucun prix n'est lu.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemListProjectIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/takeoff/item-list/items": {
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Ajouter un poste à la liste d'une affaire",
+        "description": "Opérateur du métré de l'affaire, à toute date (avant, pendant ou après une analyse, après un premier envoi). Désignation, unité ou « à préciser », base de mesure, discriminants et section ; ni quantité ni prix. L'auteur est le membre de la session. Sans liste enregistrée, la première liste des sources est enregistrée d'abord. Un double clic (même clé d'intention) rend la même révision ; 409 si la liste a changé depuis la lecture.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AddAffaireTakeoffItemListItemProjectIdParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision lue, clé d'intention et définition du poste.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddAffaireTakeoffItemListItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Révision enregistrée ou rejouée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TakeoffItemListAddedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/takeoff/item-list/revisions": {
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Accepter la révision proposée de la liste des postes",
+        "description": "Opérateur du métré de l'affaire (administrateur, ou ingénieur propriétaire). Le serveur recalcule la proposition depuis les sources : 409 si la liste ou la proposition a changé depuis la lecture (révision attendue, empreinte de la proposition) ou si une continuité n'est plus proposée. Les postes gardent leur identité ; une continuité acceptée enregistre la nouvelle origine sur le poste existant. La même clé d'intention rend la même révision.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AcceptAffaireTakeoffItemListRevisionProjectIdParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision lue (0 avant la première), empreinte de la proposition affichée, clé d'intention et continuités confirmées.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptAffaireTakeoffItemListRevisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Révision enregistrée ou rejouée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TakeoffItemListRecordedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
                 }
               }
             }
@@ -24404,6 +24702,405 @@
         }
       }
     },
+    "/api/takeoff/item-templates/{templateKey}": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire le gabarit de postes et son brouillon",
+        "description": "Administrateurs de l'entreprise. La dernière version publiée (ou celle livrée avec l'application), le brouillon en cours et ce que sa publication ajouterait, retirerait et modifierait, par identifiant de poste.",
+        "parameters": [
+          {
+            "name": "templateKey",
+            "in": "path",
+            "description": "Clé du gabarit.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffItemTemplateTemplateKeyParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/takeoff/item-templates/{templateKey}/draft": {
+      "put": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Enregistrer le brouillon du gabarit",
+        "description": "Administrateurs de l'entreprise. Enregistre le brouillon sur la révision et la version publiée lues ; 409 si un autre enregistrement ou une publication est intervenu entre-temps. Les identifiants de familles et de postes sont uniques et conservés de version en version.",
+        "parameters": [
+          {
+            "name": "templateKey",
+            "in": "path",
+            "description": "Clé du gabarit.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SaveTakeoffItemTemplateDraftTemplateKeyParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision du brouillon lue (0 sans brouillon), version publiée de départ et définition.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveTakeoffItemTemplateDraftRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Abandonner le brouillon du gabarit",
+        "description": "Administrateurs de l'entreprise. Retire le brouillon lu ; la version publiée reste inchangée.",
+        "parameters": [
+          {
+            "name": "templateKey",
+            "in": "path",
+            "description": "Clé du gabarit.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DiscardTakeoffItemTemplateDraftTemplateKeyParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision du brouillon lue.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscardTakeoffItemTemplateDraftRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/takeoff/item-templates/{templateKey}/publish": {
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Publier le brouillon du gabarit",
+        "description": "Administrateurs de l'entreprise. Publie le brouillon lu comme nouvelle version : les prochaines affaires la lisent, une affaire existante se voit proposer l'écart sur sa liste. Aucun effet sur les devis, analyses ou demandes déjà scellées. La même clé d'intention rend la même version.",
+        "parameters": [
+          {
+            "name": "templateKey",
+            "in": "path",
+            "description": "Clé du gabarit.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PublishTakeoffItemTemplateTemplateKeyParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Révision du brouillon lue et clé d'intention.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishTakeoffItemTemplateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation executee avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/takeoff/jobs": {
       "get": {
         "tags": [
@@ -40248,6 +40945,249 @@
               "rows",
               "totals",
               "not_counted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "GetAffaireTakeoffItemListProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "AddAffaireTakeoffItemListItemProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "AddAffaireTakeoffItemListItemRequest": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "intent_key": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "expected_unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "measurement_basis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "qualifiers": {
+            "default": {},
+            "type": "object",
+            "properties": {
+              "network": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "material": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "diameter": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "convention": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "scope": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              }
+            },
+            "additionalProperties": false
+          },
+          "section_of_item_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "expected_revision",
+          "intent_key",
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "TakeoffItemListAddedResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "revisionId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "revision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "contentSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "replayed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "revisionId",
+              "revision",
+              "contentSha256",
+              "replayed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "AcceptAffaireTakeoffItemListRevisionProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "AcceptAffaireTakeoffItemListRevisionRequest": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "proposal_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "intent_key": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "continuities": {
+            "maxItems": 10000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "previous_item_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "next_item_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "required": [
+                "previous_item_id",
+                "next_item_id"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "expected_revision",
+          "proposal_digest",
+          "intent_key",
+          "continuities"
+        ],
+        "additionalProperties": false
+      },
+      "TakeoffItemListRecordedResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "revisionId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "revision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "contentSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "replayed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "revisionId",
+              "revision",
+              "contentSha256",
+              "replayed"
             ],
             "additionalProperties": false
           }
@@ -83712,6 +84652,218 @@
         "required": [
           "ok",
           "data"
+        ],
+        "additionalProperties": false
+      },
+      "GetTakeoffItemTemplateTemplateKeyParameter": {
+        "type": "string",
+        "enum": [
+          "plomberie"
+        ]
+      },
+      "SaveTakeoffItemTemplateDraftTemplateKeyParameter": {
+        "type": "string",
+        "enum": [
+          "plomberie"
+        ]
+      },
+      "SaveTakeoffItemTemplateDraftRequest": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "base_version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "definition": {
+            "type": "object",
+            "properties": {
+              "contract": {
+                "type": "number",
+                "const": 1
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "families": {
+                "minItems": 1,
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300
+                          },
+                          "expectedUnit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 16
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "measurementBasis": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 300
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "qualifiers": {
+                            "type": "object",
+                            "properties": {
+                              "network": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
+                              "material": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
+                              "diameter": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
+                              "convention": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
+                              "scope": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "synonyms": {
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 120
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label",
+                          "expectedUnit",
+                          "measurementBasis",
+                          "qualifiers",
+                          "synonyms"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "contract",
+              "title",
+              "families"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "expected_revision",
+          "base_version",
+          "definition"
+        ],
+        "additionalProperties": false
+      },
+      "DiscardTakeoffItemTemplateDraftTemplateKeyParameter": {
+        "type": "string",
+        "enum": [
+          "plomberie"
+        ]
+      },
+      "DiscardTakeoffItemTemplateDraftRequest": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "additionalProperties": false
+      },
+      "PublishTakeoffItemTemplateTemplateKeyParameter": {
+        "type": "string",
+        "enum": [
+          "plomberie"
+        ]
+      },
+      "PublishTakeoffItemTemplateRequest": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "intent_key": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "intent_key"
         ],
         "additionalProperties": false
       },

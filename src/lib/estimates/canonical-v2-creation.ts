@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import type { RpcImportItemPayload } from "@/lib/affaires/import-flow-server";
+import type { ImportStructureDecision } from "@/lib/imports/structure";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import {
   calcPolicyContextChanged,
@@ -198,6 +199,12 @@ export type PersistCanonicalEstimateV2Input = {
    * tout écart avec la politique de l'entreprise lève `CONTEXT_CHANGED` sans rien écrire.
    */
   expectedCalcEngineVersion?: number | null;
+  /**
+   * Lot 4 (migration A) : une création depuis un import enregistre, dans la même transaction, les décisions de structure
+   * de sa confirmation et la correspondance qu'elles visent (`persist_dpgf_import_estimate_atomic`). Sans elle, la
+   * création est celle d'avant, inchangée.
+   */
+  importConfirmation?: { mappingId: string; decisions: readonly ImportStructureDecision[] };
 };
 
 /** Sous-lot 2.10a (P-12, D-h) : rapport d'un modèle entré dans une v3, même forme que son insertion (M6). */
@@ -1106,23 +1113,32 @@ export async function persistCanonicalEstimateV2(
         }
       : null;
   const persistenceClient = createServiceRoleClient();
-  const { data, error } = await persistenceClient.rpc(
-    "persist_estimate_creation_atomic",
-    {
-      p_tenant_id: input.tenantId,
-      p_actor_user_id: input.actorUserId,
-      p_project_id: input.project.kind === "existing" ? projectId : null,
-      p_project_payload: projectPayload,
-      p_version_payload: versionPayload as Json,
-      p_items: persistedItems,
-      p_import_id:
-        input.source.kind === "import"
-          ? input.source.importId
-          : input.source.kind === "blank"
-            ? input.source.importId ?? null
-            : null,
-    }
-  );
+  const creation = {
+    p_tenant_id: input.tenantId,
+    p_actor_user_id: input.actorUserId,
+    p_project_id: input.project.kind === "existing" ? projectId : null,
+    p_project_payload: projectPayload,
+    p_version_payload: versionPayload as Json,
+    p_items: persistedItems,
+    p_import_id:
+      input.source.kind === "import"
+        ? input.source.importId
+        : input.source.kind === "blank"
+          ? input.source.importId ?? null
+          : null,
+  };
+  const { data, error } = input.importConfirmation && input.source.kind === "import"
+    ? await persistenceClient.rpc("persist_dpgf_import_estimate_atomic", {
+      ...creation,
+      // Nullable as in the creation itself (a new project has no identifier yet); the generated signature says string.
+      p_project_id: creation.p_project_id as string,
+      p_project_payload: creation.p_project_payload as Json,
+      p_items: creation.p_items as unknown as Json,
+      p_import_id: input.source.importId,
+      p_mapping_id: input.importConfirmation.mappingId,
+      p_decisions: input.importConfirmation.decisions as unknown as Json,
+    })
+    : await persistenceClient.rpc("persist_estimate_creation_atomic", creation);
   if (isCalcPolicyContextChangedError(error)) throw calcPolicyContextChanged();
   if (error || !data) {
     throw new Error("ESTIMATE_CANONICAL_V2_PERSIST_FAILED", {

@@ -153,9 +153,9 @@ export function proposeItemListRevision(input: {
   const { scope, current } = input;
   const drafts = withCarriedAdditions(input.sourceDrafts, current);
   const base = createPosteRevision(scope, drafts, current ?? undefined);
-  const comparison = current
+  const comparison: ItemListProposal["comparison"] = current
     ? comparePosteRevisions(current, base)
-    : { added: base.items, removed: [], changes: [], continuities: [] };
+    : { added: [...base.items], removed: [], changes: [], continuities: [] };
   const carried = current ? base.items.filter(({ origin }) => origin.kind === "manual") : [];
   const added = comparison.added.filter(({ origin }) => origin.kind !== "manual");
   const candidates = current ? findPosteContinuities([...comparison.removed, ...carried], added) : [];

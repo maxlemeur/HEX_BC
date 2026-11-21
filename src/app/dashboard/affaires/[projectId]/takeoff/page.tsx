@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
-import { PosteListPreviewPanel } from "@/components/takeoff/PosteListPreviewPanel";
+import { TakeoffItemListPanel } from "@/components/takeoff/TakeoffItemListPanel";
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
 import { getUserContext } from "@/lib/auth/server";
@@ -103,9 +103,11 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
             stage="Étude"
             context="L’IA lit vos plans et propose les quantités. Vous les vérifiez avant de les reporter au devis."
           />
-          {versionsResult.status === "fulfilled" && versions.length === 0 && (
+          {versionsResult.status === "fulfilled" && (
             <Suspense>
-              <PosteListPreviewPanel projectId={projectId} query={(await searchParams) ?? {}} />
+              {/* The affaire's list of items, with or without an estimate: whole before the first estimate, one line
+                  with a link to it after. */}
+              <TakeoffItemListPanel projectId={projectId} query={(await searchParams) ?? {}} compact={versions.length > 0} />
             </Suspense>
           )}
         </>

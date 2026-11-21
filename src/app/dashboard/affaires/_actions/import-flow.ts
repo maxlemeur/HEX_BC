@@ -42,6 +42,9 @@ import {
 } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import type { ImportStructureDecision } from "@/lib/imports/structure";
+import type { Json } from "@/types/database";
 import type { ConfirmUnifiedImportFlowResult, ImportFlowLinesPreview } from "@/lib/affaires/import-flow-results";
 import type {
   TakeoffCarryOverStatus,
@@ -259,6 +262,33 @@ export async function getUnifiedImportFlowTakeoffCarryOverPreview(
   });
 }
 
+/**
+ * The structure decisions of a confirmation that keeps the mapping alone, recorded right after the mapping it
+ * created, bound to it and to what the import holds. The confirmation's work has committed: a failure here leaves the
+ * affaire's item list saying that the decisions were not recorded, and never fails the confirmation.
+ */
+async function recordMappingOnlyConfirmation(input: {
+  tenantId: string;
+  actorUserId: string;
+  importId: string;
+  mappingId: string;
+  projectId: string | null;
+  decisions: readonly ImportStructureDecision[];
+}) {
+  const { error } = await createServiceRoleClient().rpc("record_dpgf_import_confirmation", {
+    p_tenant_id: input.tenantId,
+    p_actor: input.actorUserId,
+    p_import_id: input.importId,
+    p_mapping_id: input.mappingId,
+    p_project_id: input.projectId as string,
+    p_estimate_version_id: null as unknown as string,
+    p_decisions: input.decisions as unknown as Json,
+  });
+  if (error) {
+    console.warn("dpgf import confirmation decisions not recorded", { importId: input.importId, code: error.code ?? null });
+  }
+}
+
 export async function confirmUnifiedImportFlow(
   input: ConfirmUnifiedImportFlowInput
 ): Promise<ConfirmUnifiedImportFlowResult> {
@@ -427,6 +457,16 @@ export async function confirmUnifiedImportFlow(
 
   if (!parsed.data.createEstimate) {
     const stats = buildImportFlowStats(normalizedRows, 0);
+    if (mappingId) {
+      await recordMappingOnlyConfirmation({
+        tenantId: membership.tenant_id,
+        actorUserId: user.id,
+        importId: parsed.data.importId,
+        mappingId,
+        projectId: effectiveProjectId,
+        decisions: normalizationOptions.structureDecisions,
+      });
+    }
     revalidateImportFlowPaths(effectiveProjectId, null);
 
     return {
@@ -482,6 +522,8 @@ export async function confirmUnifiedImportFlow(
         ...(saleCoefficients ? { engine: 3 } : {}),
       },
       ...(saleCoefficients ? { expectedCalcEngineVersion: 3 } : {}),
+      // The structure decisions applied to this estimate, recorded in its transaction (lot 4, the affaire's item list).
+      ...(mappingId ? { importConfirmation: { mappingId, decisions: normalizationOptions.structureDecisions } } : {}),
     });
   } catch (error) {
     throw new Error("Impossible de créer la version depuis l'import.", {
