@@ -187,91 +187,6 @@ la base en garantit l’unicité et l’admission (migration
   en file, ou qui n’est plus propriétaire de l’affaire, ne dépense plus rien :
   l’analyse échoue avec ce motif.
 
-## Une analyse par plan (lot 3)
-
-Une analyse par plan est inactive tant que le propriétaire n’a pas posé sa date
-d’activation (`private.takeoff_plan_dispatch_activation`), après les deux dates du
-démarrage automatique et une fois le Mac autorisé passé à cette version. Avant,
-une demande scelle son unité groupée comme ci-dessus. La base en décide (migration
-`20261121181031_takeoff_plan_dispatcher.sql`) ; le serveur suit
-[`launch-request.ts`](../../src/lib/takeoff/launch-request.ts),
-[`launch-call-ledger.ts`](../../src/lib/takeoff/launch-call-ledger.ts) et
-[`local-dispatcher.ts`](../../src/lib/takeoff/local-dispatcher.ts).
-
-- **Une demande, un job par plan.** Le même scellement (préparation, empreintes,
-  manifeste) est admis comme une unité par plan retenu, chacune avec son job,
-  dans la transaction qui scelle la demande. Un PDF de plusieurs feuilles ou
-  niveaux reste une unité. Chaque job atteste la projection de son unité : son
-  plan, ses pages d’origine retenues (les pages 2 et 7 restent 2 et 7 dans le
-  résultat), les références communes (DPGF, CCTP), et un renvoi à sa demande ;
-  le PDF n’est pas recopié et la préparation commune n’est pas réécrite. Une
-  référence n’est jamais une unité. Un dossier d’un seul plan donne un seul job.
-- **Un ordre enregistré.** Les plans sont rangés une fois, au scellement, par
-  nom affiché (sans casse, accents ni espaces répétés, « Plan 2 » avant
-  « Plan 10 »), puis par identifiant de la copie ; cet ordre est lu avant la
-  première lecture et ne change plus, même si un plan est renommé.
-- **Un plan à la fois sur le Mac.** Le Mac autorisé tient un créneau : le job
-  qu’il lit, détenu par le jeton du bail de ce job, avec une génération qui
-  augmente à chaque prise. Le créneau est pris avec le job, sous le verrou du
-  Mac, dans la même transaction ; renouvelé avec le bail ; rendu par la fin du
-  job avec le même jeton. Un second processus, un autre onglet, une reprise ou
-  une relance du même Mac ne démarre pas un second plan : il attend son tour. Le
-  Mac sert la demande admise la plus ancienne, ses unités dans l’ordre
-  enregistré ; un plan qui attend une nouvelle tentative technique ne retient
-  pas les autres. Un bail expiré libère le créneau ; la reprise des métrés en
-  attente clôt la tentative abandonnée comme « résultat inconnu ».
-- **Les limites d’admission** comptent une demande de plusieurs plans comme une
-  seule analyse (première unité inscrite et première prise en charge) ; ses
-  nouvelles tentatives comptent chacune. Une demande sans plan multiple, ou un
-  job sans demande, est compté comme avant.
-- **Un budget par plan.** L’enveloppe de la demande reste celle d’une analyse
-  groupée (le budget par job de l’entreprise) ; elle n’est pas multipliée par le
-  nombre de plans. Chaque unité en scelle sa part, au prorata des pages qu’elle
-  lit (un plan dont le nombre de pages n’est pas connu au scellement pèse la
-  moyenne des autres), arrondie au-dessus pour qu’une enveloppe positive ne
-  laisse aucune unité sans rien ; les soixante pages de lecture vectorielle du
-  dossier sont réparties de même, dans l’ordre enregistré.
-- **Chaque appel payant est réservé avant d’être envoyé**, identifiant en main,
-  sous le verrou du job puis de la demande : il faut un solde positif de l’unité
-  et de la demande, ce qui est réservé ou inconnu compris ; un appel n’est pas
-  plafonné au solde (le forfait n’a pas de limite de sortie). Il réserve sa
-  borne (le plus gros appel observé de sa branche dans la demande, sinon une
-  estimation de départ de 30 000 jetons) et est réglé une seule fois avec
-  l’usage de sa réponse. Un appel qui finit sans usage connu (pas de réponse, ou
-  une réponse sans son usage), ou encore réservé quand sa tentative finit, reste
-  retenu comme « consommation indéterminée » : rien n’est recrédité, aucun appel
-  n’est rejoué sur son compte. Une nouvelle tentative ne repart jamais de zéro.
-  Une question des groupes vectoriels attend la fin d’une autre question de sa
-  tentative quand seules elles retiennent le solde.
-- **Un plan qui échoue échoue seul** (PDF corrompu, source modifiée après
-  l’admission), avec son motif ; les autres continuent si le mandat et le budget
-  le permettent. Quand l’enveloppe de la demande est épuisée avant le tour d’un
-  plan, ce plan est clos sans avoir démarré, avec ce motif.
-- **Arrêter le reste** : un opérateur qui peut lancer sur l’affaire arrête les
-  plans pas encore lus de la demande en cours ; une lecture en cours ne peut plus
-  rien écrire ni dépenser ; les plans lus restent.
-- **Couverture.** Chaque unité est dans un seul état : en attente, en lecture,
-  lue, en échec, arrêtée, non démarrée (ses jobs le disent ; une ligne de
-  résultat ne fait jamais un succès). « 1 plan lu sur 3 · 1 en lecture · 1 en
-  attente ». Le centre d’activité lit cet état, les plans dans leur ordre et la
-  consommation de la demande (`readTakeoffLaunchRequestUnits`).
-- **Fin.** La fin du dernier plan ferme la demande et publie un seul avis et un
-  seul courriel à son demandeur, qui pointe vers son suivi : réussie si tous les
-  plans sont lus, partielle si certains le sont (« 2 plans lus sur 3 » ;
-  « 1 plan disponible, 2 arrêtés à votre demande » après un arrêt), en échec si
-  aucun ne l’est et qu’un plan a échoué ou n’a pas démarré, annulée si tout a été
-  arrêté avant toute lecture (sans courriel). Un plan seul ne publie rien. Une
-  demande dont toutes les unités ont fini sans être fermée est fermée par la
-  reprise hébergée, à partir de ce qui est enregistré, sans appel.
-- **Relancer un plan** lit seulement les plans demandés : par défaut le plan de
-  l’analyse qu’elle remplace (ou les plans d’une analyse groupée) ; un plan
-  ajouté au dossier après l’analyse se lit par une commande qui le nomme, sans
-  analyse remplacée. Son identité nomme ses plans ; le rejeu de la même clé ne
-  dépense rien de plus et est répondu avant toute lecture de la préparation.
-- **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à
-  l’envoi partiel : la revue dit qu’il arrive plus tard, et la base refuse de la
-  rattacher à une version. Une analyse groupée s’envoie comme avant.
-
 ## Contenu de la fiche
 
 | Partie | Données conservées |
@@ -621,6 +536,91 @@ sa date, qui entre dans la version d’une analyse en cours), ni la préparation
 ni les lectures du worker, ni un devis. Les pages gardent leur propre
 localisation dans la revue. À ce stade la localisation est descriptive : ni la
 revue des lignes, ni les contrôles d’envoi ne l’utilisent encore.
+
+## Une analyse par plan (lot 3)
+
+Une analyse par plan est inactive tant que le propriétaire n’a pas posé sa date
+d’activation (`private.takeoff_plan_dispatch_activation`), après les deux dates du
+démarrage automatique et une fois le Mac autorisé passé à cette version. Avant,
+une demande scelle son unité groupée comme ci-dessus. La base en décide (migration
+`20261121181031_takeoff_plan_dispatcher.sql`) ; le serveur suit
+[`launch-request.ts`](../../src/lib/takeoff/launch-request.ts),
+[`launch-call-ledger.ts`](../../src/lib/takeoff/launch-call-ledger.ts) et
+[`local-dispatcher.ts`](../../src/lib/takeoff/local-dispatcher.ts).
+
+- **Une demande, un job par plan.** Le même scellement (préparation, empreintes,
+  manifeste) est admis comme une unité par plan retenu, chacune avec son job,
+  dans la transaction qui scelle la demande. Un PDF de plusieurs feuilles ou
+  niveaux reste une unité. Chaque job atteste la projection de son unité : son
+  plan, ses pages d’origine retenues (les pages 2 et 7 restent 2 et 7 dans le
+  résultat), les références communes (DPGF, CCTP), et un renvoi à sa demande ;
+  le PDF n’est pas recopié et la préparation commune n’est pas réécrite. Une
+  référence n’est jamais une unité. Un dossier d’un seul plan donne un seul job.
+- **Un ordre enregistré.** Les plans sont rangés une fois, au scellement, par
+  nom affiché (sans casse, accents ni espaces répétés, « Plan 2 » avant
+  « Plan 10 »), puis par identifiant de la copie ; cet ordre est lu avant la
+  première lecture et ne change plus, même si un plan est renommé.
+- **Un plan à la fois sur le Mac.** Le Mac autorisé tient un créneau : le job
+  qu’il lit, détenu par le jeton du bail de ce job, avec une génération qui
+  augmente à chaque prise. Le créneau est pris avec le job, sous le verrou du
+  Mac, dans la même transaction ; renouvelé avec le bail ; rendu par la fin du
+  job avec le même jeton. Un second processus, un autre onglet, une reprise ou
+  une relance du même Mac ne démarre pas un second plan : il attend son tour. Le
+  Mac sert la demande admise la plus ancienne, ses unités dans l’ordre
+  enregistré ; un plan qui attend une nouvelle tentative technique ne retient
+  pas les autres. Un bail expiré libère le créneau ; la reprise des métrés en
+  attente clôt la tentative abandonnée comme « résultat inconnu ».
+- **Les limites d’admission** comptent une demande de plusieurs plans comme une
+  seule analyse (première unité inscrite et première prise en charge) ; ses
+  nouvelles tentatives comptent chacune. Une demande sans plan multiple, ou un
+  job sans demande, est compté comme avant.
+- **Un budget par plan.** L’enveloppe de la demande reste celle d’une analyse
+  groupée (le budget par job de l’entreprise) ; elle n’est pas multipliée par le
+  nombre de plans. Chaque unité en scelle sa part, au prorata des pages qu’elle
+  lit (un plan dont le nombre de pages n’est pas connu au scellement pèse la
+  moyenne des autres), arrondie au-dessus pour qu’une enveloppe positive ne
+  laisse aucune unité sans rien ; les soixante pages de lecture vectorielle du
+  dossier sont réparties de même, dans l’ordre enregistré.
+- **Chaque appel payant est réservé avant d’être envoyé**, identifiant en main,
+  sous le verrou du job puis de la demande : il faut un solde positif de l’unité
+  et de la demande, ce qui est réservé ou inconnu compris ; un appel n’est pas
+  plafonné au solde (le forfait n’a pas de limite de sortie). Il réserve sa
+  borne (le plus gros appel observé de sa branche dans la demande, sinon une
+  estimation de départ de 30 000 jetons) et est réglé une seule fois avec
+  l’usage de sa réponse. Un appel qui finit sans usage connu (pas de réponse, ou
+  une réponse sans son usage), ou encore réservé quand sa tentative finit, reste
+  retenu comme « consommation indéterminée » : rien n’est recrédité, aucun appel
+  n’est rejoué sur son compte. Une nouvelle tentative ne repart jamais de zéro.
+  Une question des groupes vectoriels attend la fin d’une autre question de sa
+  tentative quand seules elles retiennent le solde.
+- **Un plan qui échoue échoue seul** (PDF corrompu, source modifiée après
+  l’admission), avec son motif ; les autres continuent si le mandat et le budget
+  le permettent. Quand l’enveloppe de la demande est épuisée avant le tour d’un
+  plan, ce plan est clos sans avoir démarré, avec ce motif.
+- **Arrêter le reste** : un opérateur qui peut lancer sur l’affaire arrête les
+  plans pas encore lus de la demande en cours ; une lecture en cours ne peut plus
+  rien écrire ni dépenser ; les plans lus restent.
+- **Couverture.** Chaque unité est dans un seul état : en attente, en lecture,
+  lue, en échec, arrêtée, non démarrée (ses jobs le disent ; une ligne de
+  résultat ne fait jamais un succès). « 1 plan lu sur 3 · 1 en lecture · 1 en
+  attente ». Le centre d’activité lit cet état, les plans dans leur ordre et la
+  consommation de la demande (`readTakeoffLaunchRequestUnits`).
+- **Fin.** La fin du dernier plan ferme la demande et publie un seul avis et un
+  seul courriel à son demandeur, qui pointe vers son suivi : réussie si tous les
+  plans sont lus, partielle si certains le sont (« 2 plans lus sur 3 » ;
+  « 1 plan disponible, 2 arrêtés à votre demande » après un arrêt), en échec si
+  aucun ne l’est et qu’un plan a échoué ou n’a pas démarré, annulée si tout a été
+  arrêté avant toute lecture (sans courriel). Un plan seul ne publie rien. Une
+  demande dont toutes les unités ont fini sans être fermée est fermée par la
+  reprise hébergée, à partir de ce qui est enregistré, sans appel.
+- **Relancer un plan** lit seulement les plans demandés : par défaut le plan de
+  l’analyse qu’elle remplace (ou les plans d’une analyse groupée) ; un plan
+  ajouté au dossier après l’analyse se lit par une commande qui le nomme, sans
+  analyse remplacée. Son identité nomme ses plans ; le rejeu de la même clé ne
+  dépense rien de plus et est répondu avant toute lecture de la préparation.
+- **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à
+  l’envoi partiel : la revue dit qu’il arrive plus tard, et la base refuse de la
+  rattacher à une version. Une analyse groupée s’envoie comme avant.
 
 ## Base de données et validation
 
