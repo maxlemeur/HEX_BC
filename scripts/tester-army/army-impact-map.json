@@ -640,6 +640,7 @@
         "@plans",
         "e2e/army/local/chatgpt-local-decisions.e2e.ts",
         "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
+        "e2e/army/takeoff/affaire-plan-dispatch.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
         "e2e/army/takeoff/page-once.e2e.ts",
