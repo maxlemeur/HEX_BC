@@ -53,11 +53,14 @@ export async function readPreparationRecord(context: ReadContext, projectId: str
   return data as PreparationRecordRow | null;
 }
 
+/** What a dossier document's row records of its stored file: its size and the upload its Storage key names. */
+export type PreparationDocumentRow = { size_bytes: number; upload_id: string | null };
+
 /**
- * The dossier's pieces as a preparation names them, with the size each row records for its stored file (a plan file's,
- * a dossier document's): what the sealing of a preparation reads before any download.
+ * The dossier's pieces as a preparation names them, with what each document's row records of its stored file: what
+ * the sealing of a preparation checks before any download.
  */
-export type PreparationSourceRows = { sources: TakeoffPreparationSource[]; recordedSizes: ReadonlyMap<string, number> };
+export type PreparationSourceRows = { sources: TakeoffPreparationSource[]; documents: ReadonlyMap<string, PreparationDocumentRow> };
 
 export async function readPreparationSources(context: ReadContext, projectId: string): Promise<TakeoffPreparationSource[]> {
   return (await readPreparationSourceRows(context, projectId)).sources;
@@ -72,7 +75,7 @@ export async function readPreparationSourceRows(context: ReadContext, projectId:
     .eq("tenant_id", context.tenantId).in("plan_set_id", sets.map((set) => set.id)).order("id").abortSignal(new AbortController().signal)) : { data: [], error: null };
   if (planFiles.error) throw mapSupabaseError(planFiles.error, "Impossible de charger les sources du métré.");
   const intake = await readAllRows(() => context.supabase.from("affaire_intake_documents" as never)
-    .select("id,file_name,storage_path,size_bytes,mime_type,document_kind,updated_at,extracted_metadata" as never, { count: "exact" })
+    .select("id,upload_id,file_name,storage_path,size_bytes,mime_type,document_kind,updated_at,extracted_metadata" as never, { count: "exact" })
     .eq("tenant_id" as never, context.tenantId as never).eq("project_id" as never, projectId as never)
     .eq("upload_status" as never, "uploaded" as never).is("deleted_at" as never, null).is("deletion_token" as never, null)
     .neq("document_kind" as never, "plans" as never).order("id" as never).abortSignal(new AbortController().signal));
@@ -82,8 +85,7 @@ export async function readPreparationSourceRows(context: ReadContext, projectId:
     .filter((document) => document.document_kind === "dpgf" || document.document_kind === "cctp" || (Boolean(document.storage_path) && document.document_kind !== "plan"));
   return {
     sources: [...plans.map(toPreparationPlanSource), ...documents.map(toPreparationIntakeSource)],
-    recordedSizes: new Map([...plans.map((file) => [file.id, file.file_size_bytes] as const),
-      ...documents.map((document) => [document.id, document.size_bytes] as const)]),
+    documents: new Map(documents.map((document) => [document.id, { size_bytes: document.size_bytes, upload_id: document.upload_id ?? null }])),
   };
 }
 

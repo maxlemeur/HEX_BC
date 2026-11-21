@@ -4,7 +4,7 @@ import { inflateRawSync } from "node:zlib";
 import { PDFDocument } from "pdf-lib";
 import * as XLSX from "xlsx";
 
-import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
+import { AFFAIRE_INTAKE_BUCKET, isAffaireIntakeStorageKey } from "@/lib/affaires/intake";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -24,7 +24,7 @@ export const PREPARATION_REFERENCE_LIMITS = {
 } as const;
 const MAX_WORKSHEET_CELLS = 1_000_000;
 const MAX_WORKBOOK_EXPANDED_BYTES = 32 * 1024 * 1024;
-const REFERENCE_SELECT = "id,tenant_id,project_id,file_name,storage_path,size_bytes,mime_type,document_kind,updated_at,extracted_metadata";
+const REFERENCE_SELECT = "id,tenant_id,project_id,upload_id,file_name,storage_path,size_bytes,mime_type,document_kind,updated_at,extracted_metadata";
 
 type Input = {
   supabase: AuthenticatedTenantContext["supabase"];
@@ -159,10 +159,16 @@ export function isPreparationReferenceSize(sizeBytes: number) {
   return Number.isSafeInteger(sizeBytes) && sizeBytes > 0;
 }
 
+/** The bound one more reference of `sizeBytes` stored bytes would pass (the number of pieces, their stored size), if any. */
+export function preparationReferenceFileLimit(budget: PreparationReferenceBudget, sizeBytes: number): "files" | "original_bytes" | null {
+  if (budget.files + 1 > PREPARATION_REFERENCE_LIMITS.files) return "files";
+  if (budget.originalBytes + sizeBytes > PREPARATION_REFERENCE_LIMITS.originalBytes) return "original_bytes";
+  return null;
+}
+
 /** Charges one more reference of `sizeBytes` stored bytes, unless the analysis's file or size bound would be passed. */
 export function admitPreparationReferenceFile(budget: PreparationReferenceBudget, sizeBytes: number) {
-  if (!isPreparationReferenceSize(sizeBytes) || budget.files + 1 > PREPARATION_REFERENCE_LIMITS.files
-      || budget.originalBytes + sizeBytes > PREPARATION_REFERENCE_LIMITS.originalBytes) return false;
+  if (!isPreparationReferenceSize(sizeBytes) || preparationReferenceFileLimit(budget, sizeBytes)) return false;
   budget.files += 1;
   budget.originalBytes += sizeBytes;
   return true;
@@ -230,6 +236,12 @@ async function readReferenceDocuments(input: Input, projectId: string, sources: 
           source.source_version !== getPreparationIntakeSourceVersion(document) || source.file_path !== document.storage_path ||
           !document.storage_path || (!source.confirmed && !input.snapshot.preparation.provenance) || !source.content_hash) {
         rejectSource(input.job, `La pièce « ${source.document_name} » a changé ou n'est plus disponible. Confirmez à nouveau la préparation.`);
+      }
+      // The worker's own client is not bound by the bucket's policy: only the object the dossier wrote for this piece of
+      // this affaire is read.
+      if (!isAffaireIntakeStorageKey(document.storage_path!, { tenantId: input.job.tenant_id, projectId, uploadId: document.upload_id ?? null,
+          documentId: document.id })) {
+        rejectSource(input.job, `Le fichier de la pièce « ${source.document_name} » n’est pas celui que le dossier de cette affaire a enregistré. Confirmez à nouveau la préparation.`);
       }
     }
     return documents;

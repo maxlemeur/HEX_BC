@@ -6,7 +6,7 @@ import { GET as getPlanLocations } from "@/app/api/takeoff/jobs/[jobId]/plan-loc
 import { GET as getVectorPlan } from "@/app/api/takeoff/jobs/[jobId]/vector-plans/[fileId]/route";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import { getAuthenticatedTakeoffContext, getTakeoffJobDetailByIdOrThrow } from "@/lib/takeoff/job-read-server";
-import type { TakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
+import { describeTakeoffLaunchReason, type TakeoffLaunchManifest, type TakeoffLaunchPiece, type TakeoffLaunchReason } from "@/lib/takeoff/launch-request";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 
 import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
@@ -70,13 +70,19 @@ const SELECTION = { profileId: "profil-fictif", model: "modele-fictif", reasonin
 const FILE_PATH = `${TENANT}/${PLAN_SET}/${PLAN_FILE}/plan-rdc.pdf`;
 
 /** A reference of the dossier (a CCTP, a DPGF) with its bytes, retained by default by the automatic start. */
-type DossierReference = { id: string; name: string; kind: "cctp" | "dpgf"; mime: string; bytes: Uint8Array };
+type DossierReference = { id: string; name: string; kind: "cctp" | "dpgf"; mime: string; bytes: Uint8Array;
+  /** The Storage key its row records, when not its own; the storage holds the bytes there. */
+  storedAt?: string; missing?: boolean; recordedSize?: number };
+const UPLOAD = "aaaaaaaa-0000-4000-8000-000000000070";
+/** A dossier piece's Storage key as the dossier writes it: tenant, affaire, upload, document, name. */
+const referenceKey = (reference: Pick<DossierReference, "id" | "name" | "storedAt">) =>
+  reference.storedAt ?? `${TENANT}/${PROJECT}/${UPLOAD}/${reference.id}/${reference.name}`;
 
 function dossier(input: { classification?: string; copy?: "same" | "older" | "legacy" | "none"; executionHost?: string; running?: boolean;
   references?: DossierReference[] } = {}) {
   const document = {
     id: DOCUMENT, tenant_id: TENANT, project_id: PROJECT, upload_id: "aaaaaaaa-0000-4000-8000-000000000070", created_by: PAYER,
-    storage_path: `${TENANT}/dossier/plan-rdc.pdf`, deletion_token: null, plan_copy_generation: "generation-2",
+    storage_path: `${TENANT}/${PROJECT}/${UPLOAD}/${DOCUMENT}/plan-rdc.pdf`, deletion_token: null, plan_copy_generation: "generation-2",
     file_name: "Plan RDC.pdf", mime_type: "application/pdf", size_bytes: BYTES.byteLength, upload_status: "uploaded",
     rejection_reason: null, classification_status: input.classification ?? "classified", document_kind: "plans",
     document_priority: "primary", confidence: 0.92, issues: [], extracted_metadata: {}, classification_source: "heuristic",
@@ -87,9 +93,9 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
     metadata: { source: "affaire-intake", intake_document_id: DOCUMENT, intake_storage_path: document.storage_path,
       ...(input.copy === "legacy" ? { intake_classified_at: document.classified_at }
         : { intake_generation: input.copy === "older" ? "generation-1" : "generation-2" }) } };
-  const referenceDocuments = (input.references ?? []).map((reference) => ({ ...document, id: reference.id, upload_id: null,
-    storage_path: `${TENANT}/dossier/${reference.name}`, plan_copy_generation: null, file_name: reference.name, mime_type: reference.mime,
-    size_bytes: reference.bytes.byteLength, document_kind: reference.kind }));
+  const referenceDocuments = (input.references ?? []).map((reference) => ({ ...document, id: reference.id, upload_id: UPLOAD,
+    storage_path: referenceKey(reference), plan_copy_generation: null, file_name: reference.name, mime_type: reference.mime,
+    size_bytes: reference.recordedSize ?? reference.bytes.byteLength, document_kind: reference.kind }));
   const admitted: unknown[] = [];
   const recorded: unknown[] = [];
   const fake = createSupabaseFake({
@@ -111,8 +117,9 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
     storage: {
       [PLAN_FILES_BUCKET]: () => ({ data: new Blob([BYTES]), error: null }),
       [AFFAIRE_INTAKE_BUCKET]: ({ paths }) => {
-        const reference = (input.references ?? []).find((entry) => `${TENANT}/dossier/${entry.name}` === paths[0]);
-        return reference ? { data: new Blob([Uint8Array.from(reference.bytes)]), error: null } : { data: null, error: { message: "Object not found" } };
+        const reference = (input.references ?? []).find((entry) => (entry.storedAt ?? referenceKey(entry)) === paths[0]);
+        return reference && !reference.missing ? { data: new Blob([Uint8Array.from(reference.bytes)]), error: null }
+          : { data: null, error: { message: "Object not found", statusCode: "404" } };
       },
     },
     rpc: {
@@ -284,6 +291,32 @@ describe("the automatic seal of the dossier's pieces", () => {
     expect(call.p_manifest.coverage.references_omitted).toEqual([{ id: reference.id, name: reference.name, reason: "invalid" }]);
   });
 
+  // A piece's row belongs to the affaire; its Storage object must be the one the dossier wrote for it in that affaire.
+  it("never reads, with the server's own client, a reference whose Storage key is another affaire's object", async () => {
+    const foreign = `${TENANT}/aaaaaaaa-0000-4000-8000-000000000099/${UPLOAD}/${CCTP}/cctp.txt`;
+    const { admitted, fake } = dossier({ references: [{ id: CCTP, name: "CCTP.txt", kind: "cctp", mime: "text/plain",
+      bytes: new TextEncoder().encode("CCTP d'une autre affaire"), storedAt: foreign }] });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.references).toEqual([]);
+    expect(call.p_manifest.coverage.references_omitted).toEqual([{ id: CCTP, name: "CCTP.txt", reason: "outside_affaire" }]);
+    expect(fake.storageCalls.filter((entry) => entry.paths[0] === foreign)).toEqual([]);
+  });
+
+  it("keeps a usable reference after one whose stored file is missing, its size never reserved", async () => {
+    const big = 19 * 1024 * 1024;
+    const DPGF_TEXT = "aaaaaaaa-0000-4000-8000-000000000065";
+    const { admitted } = dossier({ references: [
+      { id: CCTP, name: "CCTP absent.pdf", kind: "cctp", mime: "application/pdf", bytes: new Uint8Array(1), recordedSize: big, missing: true },
+      { id: DPGF_TEXT, name: "DPGF.txt", kind: "dpgf", mime: "text/plain", bytes: new TextEncoder().encode("x".repeat(2 * 1024 * 1024)) },
+    ] });
+    await evaluateTakeoffLaunchRequests();
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.references.map((reference) => reference.document_id)).toEqual([DPGF_TEXT]);
+    expect(call.p_manifest.coverage.references_omitted).toEqual([{ id: CCTP, name: "CCTP absent.pdf", reason: "unreadable" }]);
+  });
+
   it("keeps the references the worker reads: a CCTP of 200 pages and a DPGF in text", async () => {
     const { admitted } = dossier({ references: [
       { id: CCTP, name: "CCTP lot plomberie.pdf", kind: "cctp", mime: "application/pdf", bytes: await pdfOfPages(200) },
@@ -349,6 +382,23 @@ describe("the automatic seal of the dossier's pieces", () => {
     expect(call.p_manifest.coverage.plans_omitted).toEqual([{ id: BROKEN, name: "Distribution rev B.pdf", reason: "alternate" }]);
   });
 
+  // The worker refuses plans past its page budget, counted on their real pages: a dossier's copy records none.
+  it("stops, naming it, on a retained plan whose real pages pass the analysis's budget, and spends nothing", async () => {
+    const { admitted, recorded, fake } = dossier();
+    const large = await pdfOfPages(201);
+    const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
+    vi.spyOn(plans, "info").mockResolvedValue({ data: { size: large.byteLength }, error: null } as never);
+    vi.spyOn(plans, "download").mockResolvedValue({ data: new Blob([Uint8Array.from(large)]), error: null } as never);
+    vi.mocked(fake.client.storage.from).mockReturnValue(plans as never);
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "blocked", reason: "PLAN_SET_TOO_LARGE" });
+    const [evaluation] = recorded as Array<{ p_reason: TakeoffLaunchReason; p_details: { pieces: TakeoffLaunchPiece[] } }>;
+    expect(evaluation.p_details.pieces).toEqual([{ id: PLAN_FILE, name: "Plan RDC.pdf" }]);
+    expect(describeTakeoffLaunchReason(evaluation.p_reason, evaluation.p_details.pieces)).toContain("« Plan RDC.pdf »");
+    expect(admitted).toEqual([]);
+    expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
+  });
+
   it("names the plan larger than a plan may be when it stops on it, and never downloads it", async () => {
     const { admitted, recorded, fake } = dossier();
     const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
@@ -380,13 +430,13 @@ describe("the automatic seal of the dossier's pieces", () => {
     expect(call.p_manifest.coverage.references_omitted.map(({ id, reason }) => [id, reason]))
       .toEqual([[CCTP_C, "limit"], [DPGF, "invalid"]]);
     const rows = references.map((reference) => ({ id: reference.id, tenant_id: TENANT, project_id: PROJECT, file_name: reference.name,
-      storage_path: `${TENANT}/dossier/${reference.name}`, size_bytes: reference.bytes.byteLength, mime_type: reference.mime,
+      upload_id: UPLOAD, storage_path: referenceKey(reference), size_bytes: reference.bytes.byteLength, mime_type: reference.mime,
       document_kind: reference.kind, updated_at: "2026-11-21T08:00:00Z", extracted_metadata: {}, upload_status: "uploaded",
       deleted_at: null, deletion_token: null }));
     const worker = createSupabaseFake({
       tables: { affaire_intake_documents: (query: FakeQuery) => servedRows(rows, query) },
       storage: { [AFFAIRE_INTAKE_BUCKET]: ({ paths }) => {
-        const reference = references.find((entry) => `${TENANT}/dossier/${entry.name}` === paths[0])!;
+        const reference = references.find((entry) => referenceKey(entry) === paths[0])!;
         return { data: new Blob([Uint8Array.from(reference.bytes)]), error: null };
       } },
     });

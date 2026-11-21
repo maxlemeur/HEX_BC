@@ -86,6 +86,10 @@ function fixture() {
 /** What the dossier's text pieces hold by default; a row records the size of the file it names. */
 const CCTP_TEXT = "CCTP fictif : lot plomberie.";
 const CCTP_SIZE = Buffer.byteLength(CCTP_TEXT);
+/** The upload of the dossier's pieces, and a piece's Storage key as the dossier writes it (tenant/affaire/upload/document/name). */
+const DOSSIER_UPLOAD = "abababab-abab-4bab-8bab-abababababab";
+const dossierKey = (documentId: string, name: string, projectId = M3_PROJECT_ID) =>
+  `${M3_TENANT_ID}/${projectId}/${DOSSIER_UPLOAD}/${documentId}/${name}`;
 const selection = { profileId: "alice", model: "gpt-5.4", reasoningEffort: "medium", hostId: "mac", authorizationId: "connexion-alice" } as const;
 const observedFingerprint = createHash("sha256").update(JSON.stringify([selection.profileId, selection.hostId, selection.model, selection.reasoningEffort,
   selection.authorizationId])).digest("hex");
@@ -146,7 +150,7 @@ describe("persisted preparation server boundary", () => {
     const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
     f.files.push({ ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan B.pdf" });
     f.intake.push({ id: "99999999-9999-4999-8999-999999999999", file_name: "CCTP.txt",
-      storage_path: `${M3_TENANT_ID}/CCTP.txt`, document_kind: "cctp", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" });
+      upload_id: DOSSIER_UPLOAD, storage_path: dossierKey("99999999-9999-4999-8999-999999999999", "CCTP.txt"), document_kind: "cctp", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" });
     await expect(saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null })).rejects.toMatchObject({ status: 409 });
     expect(f.getRecord()).toBeNull();
     const refreshed = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
@@ -156,7 +160,8 @@ describe("persisted preparation server boundary", () => {
 
   it.each(["cctp", "dpgf"])("treats an attachment reclassified as %s as a new dossier piece", async (kind) => {
     const f = fixture();
-    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", storage_path: `${M3_TENANT_ID}/piece.txt`,
+    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", upload_id: DOSSIER_UPLOAD,
+      storage_path: dossierKey("99999999-9999-4999-8999-999999999999", "piece.txt"),
       document_kind: "other", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" };
     f.intake.push(attachment);
     const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
@@ -178,7 +183,8 @@ describe("persisted preparation server boundary", () => {
 
   it.each(["cctp", "dpgf"])("includes an attachment of an old draft reclassified as %s on its first opening", async (kind) => {
     const f = fixture();
-    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", storage_path: `${M3_TENANT_ID}/piece.txt`,
+    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", upload_id: DOSSIER_UPLOAD,
+      storage_path: dossierKey("99999999-9999-4999-8999-999999999999", "piece.txt"),
       document_kind: "other", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" };
     f.intake.push(attachment);
     // A draft as the previous application saved it: no dossier provenance, the attachment left out.
@@ -514,7 +520,7 @@ describe("persisted preparation server boundary", () => {
     const f = fixture();
     const document: PreparationIntakeDocument = {
       id: "99999999-9999-4999-8999-999999999999", file_name: "Prescriptions.docx",
-      storage_path: `${M3_TENANT_ID}/prescriptions.docx`, size_bytes: 100,
+      upload_id: DOSSIER_UPLOAD, storage_path: dossierKey("99999999-9999-4999-8999-999999999999", "prescriptions.docx"), size_bytes: 100,
       mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       document_kind: "cctp", updated_at: "2026-10-29T00:00:00Z",
     };
@@ -549,8 +555,9 @@ describe("persisted preparation server boundary", () => {
 /** A CCTP of the dossier with the given bytes: a dossier preparation retains it by default. */
 function addReference(f: ReturnType<typeof fixture>, input: { name: string; mime: string; bytes: Buffer; kind?: "cctp" | "dpgf" }) {
   const document: PreparationIntakeDocument = {
-    id: "99999999-9999-4999-8999-99999999999" + String(f.intake.length), file_name: input.name,
-    storage_path: `${M3_TENANT_ID}/dossier/${input.name}`, size_bytes: input.bytes.byteLength, mime_type: input.mime,
+    id: `99999999-9999-4999-8999-${String(f.intake.length).padStart(12, "0")}`, file_name: input.name,
+    upload_id: DOSSIER_UPLOAD, storage_path: dossierKey(`99999999-9999-4999-8999-${String(f.intake.length).padStart(12, "0")}`, input.name),
+    size_bytes: input.bytes.byteLength, mime_type: input.mime,
     document_kind: input.kind ?? "cctp", updated_at: "2026-11-21T00:00:00Z",
   };
   f.intake.push(document);
@@ -706,6 +713,43 @@ describe("the sealing of a member's confirmation", () => {
     await expect(confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 1 })).rejects.toMatchObject({ status: 422,
       message: expect.stringContaining("« Plan fictif.pdf »") });
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // A piece's row belongs to the affaire; its Storage object must be the one the dossier wrote for it in that affaire.
+  it("never reads a reference whose Storage key is another affaire's object, and names it", async () => {
+    const f = fixture();
+    const cctp = addReference(f, { name: "CCTP.txt", mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    const foreign = dossierKey(cctp.id, "CCTP.txt", "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd");
+    f.intakeContents.set(foreign, Buffer.from(CCTP_TEXT));
+    cctp.storage_path = foreign;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("« CCTP.txt »") });
+    expect(f.user.storageCalls.filter((call) => call.paths[0] === foreign)).toEqual([]);
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // The worker refuses plans past its page budget, counted on their real pages: the dossier's copies record none.
+  it("refuses, naming them, retained plans whose real pages pass the analysis's budget, though their count is unknown", async () => {
+    const f = fixture();
+    f.file.page_count = null;
+    f.contents.set(f.file.file_path, await pdfOfPages(101));
+    f.file.file_size_bytes = f.contents.get(f.file.file_path)!.byteLength;
+    const second = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan étage.pdf", file_path: `${M3_TENANT_ID}/plan-etage.pdf` };
+    f.files.push(second);
+    f.contents.set(second.file_path, Buffer.concat([await pdfOfPages(101), Buffer.from("\n% etage\n")]));
+    second.file_size_bytes = f.contents.get(second.file_path)!.byteLength;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringMatching(/« Plan fictif\.pdf ».*« Plan étage\.pdf »|« Plan étage\.pdf ».*« Plan fictif\.pdf »/) });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("names the references past the analysis's 20 pieces when it refuses them", async () => {
+    const f = fixture();
+    for (let index = 1; index <= 21; index += 1) {
+      addReference(f, { name: `Pièce ${String(index).padStart(2, "0")}.txt`, mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    }
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringContaining("« Pièce 21.txt »") });
+    expect(f.user.storageCalls.filter((call) => call.bucket === "affaire-intake")).toEqual([]);
   });
 
   it("never downloads a reference whose stored file is not the size its row records", async () => {

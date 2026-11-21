@@ -325,24 +325,34 @@ La préparation signale une pièce retenue que le serveur ne peut pas lire.
 Le scellement des sources est le même pour la confirmation d’un membre et pour
 le démarrage automatique
 ([`sealPreparationSources`](../../src/lib/takeoff/preparation-server.ts)). Avant
-tout téléchargement, il vérifie, depuis les lignes du dossier, le format, le
-nombre et la taille enregistrée des pièces de référence, puis que le fichier
-stocké a bien cette taille (un plan, au plus la taille d’un plan). Il lit chaque
-pièce de référence comme le traitement la lira
+tout téléchargement, il vérifie, depuis les lignes du dossier, le format et la
+taille enregistrée des pièces de référence, et que le fichier stocké est celui
+que le dossier a enregistré pour cette pièce dans cette affaire (sa clé nomme
+l’entreprise, l’affaire, le dépôt et la pièce) : le serveur et le traitement
+lisent avec leur propre accès, que la règle de stockage des membres ne borne
+pas, et une pièce dont la clé ne correspond pas n’est jamais lue (elle est
+nommée). Le fichier stocké doit ensuite avoir la taille enregistrée (un plan, au
+plus la taille d’un plan). Il lit chaque pièce de référence comme le traitement
+la lira
 ([`readPreparationReference`](../../src/lib/takeoff/preparation-reference-loader.ts)),
-dans les mêmes limites : 20 pièces, 20 Mo de fichiers, 200 pages retenues et
-20 Mo joints. Une pièce que le traitement refuserait (un PDF abîmé ou protégé,
-un classeur invalide, des pages retenues au-delà des limites) est montrée au
-membre avant sa confirmation, qui n’a pas lieu ; le démarrage automatique la
-laisse de côté et la nomme. Chaque plan est ouvert comme le traitement l’ouvre
+dans les mêmes limites : 20 pièces, 20 Mo de fichiers, 200 pages retenues et 20
+Mo joints ; une pièce n’y compte qu’une fois lue et gardée. Une pièce que le
+traitement refuserait (un PDF abîmé ou protégé, un classeur invalide, des pages
+retenues au-delà des limites) est montrée au membre avant sa confirmation, qui
+n’a pas lieu ; le démarrage automatique la laisse de côté et la nomme. Chaque
+plan est ouvert comme le traitement l’ouvre
 ([`openPreparedPlan`](../../src/lib/takeoff/preparation-source-loader.ts)) : un
 plan invalide ou protégé, ou des pages retenues que le fichier n’a pas, arrêtent
 la confirmation comme le démarrage automatique, en nommant le plan ; une version
 que les choix d’indices écartent n’est jamais ouverte par le traitement et
-n’arrête rien. Le cartouche d’un plan du dossier donne son indice ;
-une page que le rendu ne peut pas dessiner laisse cet indice non lu (le dossier
-ou le nom du fichier le donnent alors), sans écarter le plan : le traitement lit
-le plan sans son cartouche.
+n’arrête rien. Les plans lus, une fois les choix d’indices appliqués, doivent
+tenir ensemble dans le budget de plans du traitement (nombre, taille et pages
+réelles, au niveau de l’analyse) : une copie de travail du dossier n’enregistre
+pas son nombre de pages, il est compté sur le fichier. Sinon la confirmation et
+le démarrage automatique s’arrêtent en nommant les plans. Le cartouche d’un plan
+du dossier donne son indice ; une page que le rendu ne peut pas dessiner laisse
+cet indice non lu (le dossier ou le nom du fichier le donnent alors), sans
+écarter le plan : le traitement lit le plan sans son cartouche.
 
 L'instantané contient la préparation complète, sa révision enregistrée, l'auteur,
 la date et l'état de préparation calculé. Les références et les valeurs copiées

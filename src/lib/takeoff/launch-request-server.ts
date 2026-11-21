@@ -36,8 +36,9 @@ import {
 import { reopenDeducedPlanCandidates, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
 import {
-  assertConfirmedTakeoffPreparation, loadPreparation, PreparationPlanSealError, sealPreparationSources,
+  assertConfirmedTakeoffPreparation, loadPreparation, PreparationPlanBudgetError, PreparationPlanSealError, sealPreparationSources,
 } from "@/lib/takeoff/preparation-server";
+import { getPlanSetMaxPdfPages } from "@/lib/takeoff/source-loader";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
@@ -239,7 +240,7 @@ type Refusal = { state: "not_eligible" | "blocked"; reason: TakeoffLaunchReason;
  */
 async function sealAutomaticSnapshot(service: Service, input: {
   tenantId: string; projectId: string; planSet: DossierPlanSet; payerId: string; selection: TakeoffExecutionSelection; jobId: string;
-  documents: ReadonlyArray<{ id: string; size_bytes: number }>;
+  documents: ReadonlyArray<{ id: string; size_bytes: number; upload_id: string | null }>;
   /** Plans of the dossier the analysis cannot read (not PDF): named in the coverage, never read. */
   unsupportedPlans: TakeoffLaunchPiece[];
 }): Promise<Sealed | Refusal> {
@@ -259,15 +260,18 @@ async function sealAutomaticSnapshot(service: Service, input: {
       return { state: "blocked", reason: "SOURCE_UNREADABLE", pieces: [] };
     }
   }
-  // A plan the analysis could not read: its copy is missing or unreadable, a dossier change evaluates it again.
+  // A plan the analysis could not read (its copy missing or unreadable), or plans past its budget: named, and a dossier
+  // change evaluates the request again.
   const planRefusal = (error: unknown): Refusal => {
+    if (error instanceof PreparationPlanBudgetError) return { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: error.pieces };
     if (!(error instanceof PreparationPlanSealError)) throw error;
     return { state: "blocked", reason: error.reason === "too_large" ? "PLAN_SET_TOO_LARGE" : "PLAN_COPY_MISSING", pieces: [error.piece] };
   };
   let sealed: Awaited<ReturnType<typeof sealPreparationSources>>;
   try {
-    sealed = await sealPreparationSources(draft, { supabase: service, sources: loaded.availableSources,
-      recordedSizes: new Map(input.documents.map((document) => [document.id, document.size_bytes])),
+    sealed = await sealPreparationSources(draft, { supabase: service, affaire: { tenantId: input.tenantId, projectId: input.projectId },
+      sources: loaded.availableSources,
+      documents: new Map(input.documents.map((document) => [document.id, { size_bytes: document.size_bytes, upload_id: document.upload_id }])),
       onReferenceIssue: "omit" });
   } catch (error) {
     return planRefusal(error);
@@ -281,7 +285,7 @@ async function sealAutomaticSnapshot(service: Service, input: {
       .map((id) => ({ id, name: named.get(id) ?? id })) };
   }
   try {
-    sealed.assertReadPlansOpen(resolved);
+    sealed.assertReadPlans(resolved, { maxPages: await getPlanSetMaxPdfPages({ supabase: service, tenantId: input.tenantId, level: "C" }) });
   } catch (error) {
     return planRefusal(error);
   }
@@ -302,7 +306,7 @@ async function sealAutomaticSnapshot(service: Service, input: {
       jobId: input.jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
   } catch (error) {
     if (error instanceof TakeoffError && error.code === TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE) {
-      return { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: [] };
+      return { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: plans.map((source) => ({ id: source.document_id, name: source.document_name })) };
     }
     throw error;
   }
