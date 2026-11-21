@@ -10,15 +10,20 @@ export function isTakeoffSourceVisible(visible: TakeoffVisibleSources, ...ids: A
   return ids.some((id) => Boolean(id) && (visible.planFiles.has(id!.toLowerCase()) || visible.documents.has(id!.toLowerCase())));
 }
 
-/** A list of named pieces with the names the member may not read replaced by « Plan N » (its rank in the list). */
-export function maskTakeoffPieces<T extends { id: string; name: string }>(pieces: ReadonlyArray<T>, visible: TakeoffVisibleSources): T[] {
-  return pieces.map((piece, index) => isTakeoffSourceVisible(visible, piece.id) ? piece : { ...piece, name: `Plan ${index + 1}` });
+/**
+ * A list of named pieces where a piece the member may not read is « Plan N » (its rank in the list) with an opaque
+ * identifier, `hidden:[list:]N`, the same at each read of the same list: never its source's name or identifier.
+ */
+export function maskTakeoffPieces<T extends { id: string; name: string }>(pieces: ReadonlyArray<T>, visible: TakeoffVisibleSources,
+  list?: string): T[] {
+  return pieces.map((piece, index) => isTakeoffSourceVisible(visible, piece.id) ? piece
+    : { ...piece, id: `hidden:${list ? `${list}:` : ""}${index + 1}`, name: `Plan ${index + 1}` });
 }
 
-/** The dossier's changes since a seal, each name shown only to a member who may read its source. */
+/** The dossier's changes since a seal, each name and identifier shown only to a member who may read its source. */
 export function maskTakeoffDossierChange<T extends { added: Array<{ id: string; name: string }>; replaced: Array<{ id: string; name: string }>;
   removed: Array<{ id: string; name: string }> }>(change: T | null, visible: TakeoffVisibleSources): T | null {
   if (!change) return null;
-  return { ...change, added: maskTakeoffPieces(change.added, visible), replaced: maskTakeoffPieces(change.replaced, visible),
-    removed: maskTakeoffPieces(change.removed, visible) };
+  return { ...change, added: maskTakeoffPieces(change.added, visible, "added"),
+    replaced: maskTakeoffPieces(change.replaced, visible, "replaced"), removed: maskTakeoffPieces(change.removed, visible, "removed") };
 }

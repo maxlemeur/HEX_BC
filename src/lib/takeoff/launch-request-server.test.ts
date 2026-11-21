@@ -302,18 +302,19 @@ describe("readDossierChangeSinceAnalysis", () => {
       added: [{ id: PLAN_C, name: "Plan C.pdf" }], replaced: [], removed: [] });
   });
 
+  // Neither the name nor the identifier of a source the member may not read: an opaque « hidden » key and « Plan N ».
   it.each([
-    ["the affaire's owner or an administrator", { owner: true }, "Plan RDC.pdf"],
-    ["a member who reads the dossier piece", { readable: [DOCUMENT] }, "Plan RDC.pdf"],
-    ["a member who reads neither the piece nor its copy", { readable: [] }, "Plan 1"],
-  ] as const)("names the dossier's replaced piece to %s", async (_case, rights, name) => {
+    ["the affaire's owner or an administrator", { owner: true }, { id: DOCUMENT, name: "Plan RDC.pdf" }],
+    ["a member who reads the dossier piece", { readable: [DOCUMENT] }, { id: DOCUMENT, name: "Plan RDC.pdf" }],
+    ["a member who reads neither the piece nor its copy", { readable: [] }, { id: "hidden:replaced:1", name: "Plan 1" }],
+  ] as const)("names the dossier's replaced piece to %s", async (_case, rights, piece) => {
     await expect(read({ analysed: "dossier", files: [dossierCopy], ...rights })).resolves.toEqual({
-      added: [], replaced: [{ id: DOCUMENT, name }], removed: [] });
+      added: [], replaced: [piece], removed: [] });
   });
 
   it("names a removed plan only to a member who may read its copy", async () => {
     await expect(read({ analysed: "b", files: [dossierCopy], readable: [] })).resolves.toEqual({
-      added: [], replaced: [], removed: [{ id: PLAN_B, name: "Plan 1" }] });
+      added: [], replaced: [], removed: [{ id: "hidden:removed:1", name: "Plan 1" }] });
   });
 });
 
