@@ -386,25 +386,26 @@ select results_eq($$select outcome, plans_read_count, plans_failed_count, plans_
   from public.takeoff_completion_notifications where request_id = pg_temp.request(23)$$,
   $$values ('failure'::text, 0, 0, 1, pg_temp.f(1))$$, 'its notice counts the plan as not started, for its payer');
 
--- An explicit relaunch sets aside an automatic start that had not begun: it never spends later on its own. It replaces
--- an analysis launched before, from the existing dialog (a job without a request).
+-- An automatic start that can still begin is never set aside by a command (20261121193413): a relaunch replacing an
+-- analysis launched before, from the dialogue's launch on a version (a job without a request), is refused while it waits
+-- for its payer, and the payer's gesture admits it. A start set aside by a relaunch that ran first, and its finality, are in
+-- takeoff-launch-round-two.test.sql.
 set local session_replication_role = replica;
 insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by)
 values (pg_temp.f(75), pg_temp.f(10), pg_temp.f(21), pg_temp.f(41), 'C', 'completed', pg_temp.f(1));
 set local session_replication_role = origin;
-select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
+select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
   pg_temp.f(74), 'reread_plans', pg_temp.f(75), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(51), pg_temp.snapshot(41), pg_temp.job(69, 41), pg_temp.f(41), 1)$$,
-  $$values ('admitted'::text, pg_temp.f(69))$$, 'a relaunch on the affaire whose automatic start waits for its payer runs');
-select results_eq($$select state, reason_code, reason_details ->> 'request_id' from public.takeoff_launch_requests where id = pg_temp.request(21)$$,
-  $$values ('superseded'::text, null::text, (select id::text from public.takeoff_launch_requests where intent_key = pg_temp.f(74)))$$,
-  'the automatic start is set aside by it, and names it');
-update public.affaire_briefs set status = 'a_confirmer', confirmed_at = null, confirmed_by = null where id = pg_temp.f(36);
-update public.affaire_briefs set status = 'confirme', confirmed_at = clock_timestamp(), confirmed_by = pg_temp.f(1) where id = pg_temp.f(36);
+  '55000', 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING', 'a relaunch on the affaire whose automatic start waits for its payer is refused');
 select results_eq($$select state, reason_code from public.takeoff_launch_requests where id = pg_temp.request(21)$$,
-  $$values ('superseded'::text, null::text)$$, 'a later confirmation of its dossier never re-arms it');
-select results_eq($$select outcome, state, reason_code from pg_temp.take_on(21, 1, 'take_on')$$,
-  $$values ('moved'::text, 'superseded'::text, null::text)$$, 'nor a take-over: a new analysis is a relaunch');
-select is(public.takeoff_launch_request_awaits_mac(pg_temp.request(21)), false, 'a set-aside start waits for no Mac');
+  $$values ('blocked'::text, 'PAYER_NOT_ELIGIBLE'::text)$$, 'the automatic start keeps waiting for its gesture');
+select results_eq($$select outcome, state, payer_id from pg_temp.take_on(21, 1)$$, $$values ('mandated'::text, 'evaluating'::text, pg_temp.f(1))$$,
+  'its payer''s gesture takes it on');
+delete from claimed;
+insert into claimed select * from public.claim_takeoff_launch_evaluations(pg_temp.host(), pg_temp.f(98));
+select results_eq($$select outcome, job_id from public.admit_takeoff_launch_request(pg_temp.request(21), pg_temp.f(98),
+  (select mark from claimed where project_id = pg_temp.f(21)), pg_temp.manifest(51), pg_temp.snapshot(41), pg_temp.job(69, 41))$$,
+  $$values ('admitted'::text, pg_temp.f(69))$$, 'and its Mac admits it, with its job');
 
 -- A dossier confirmed by a reader outside the server: its request is reserved in that transaction, and taken on later.
 insert into public.estimate_projects (id, tenant_id, user_id, name) values
@@ -433,7 +434,7 @@ select lives_ok($$delete from public.estimate_projects where id = pg_temp.f(23)$
 reset role;
 select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.f(23)), 0, 'its request is gone');
 select is((select count(*)::integer from public.takeoff_completion_notifications where project_id = pg_temp.f(23)), 0, 'and its notice');
-select is((select state from public.takeoff_launch_requests where intent_key = pg_temp.f(74)), 'admitted', 'an affaire holds a running request');
+select is((select state from public.takeoff_launch_requests where id = pg_temp.request(21)), 'admitted', 'an affaire holds a running request');
 set local role service_role;
 select lives_ok($$delete from public.estimate_projects where id = pg_temp.f(21)$$,
   'deleting it removes the running request and its job together');

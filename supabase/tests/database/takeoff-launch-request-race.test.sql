@@ -291,7 +291,8 @@ $$;
 
 -- 5. A confirmation and a relaunch of one affaire at the same time. First order: the confirmation's transaction is open
 -- when the relaunch arrives (red when the request was reserved by a call after the brief's commit: the relaunch found
--- no automatic request, ran, and the late reservation was admitted once it ended, a second paid analysis).
+-- no automatic request, ran, and the late reservation was admitted once it ended, a second paid analysis). Since
+-- 20261121193413 the relaunch that finds the automatic start able to begin is refused: that start is taken on instead.
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a member confirms the brief of a second affaire');
 select is((select x.outcome || ':' || x.state from extensions.dblink('race_a', pg_temp.confirm_sql(pg_temp.fx(110), 1))
   as x(outcome text, request_id text, state text, reason_code text)), 'confirmed:evaluating',
@@ -304,13 +305,14 @@ select ok(pg_temp.answered('race_b'), 'the relaunch answers');
 create temp table relaunched as select x.outcome from extensions.dblink_get_result('race_b', false)
   as x(outcome text, request_id text, job_id text);
 select diag(concat('relaunch: ', extensions.dblink_error_message('race_b')));
+select ok(extensions.dblink_error_message('race_b') ~ 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING', 'by name: the start can still begin');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text, request_id text, job_id text)),
   0, 'and is done');
-select is((select outcome from relaunched), 'admitted', 'the relaunch runs');
+select is((select count(*)::integer from relaunched), 0, 'the relaunch is refused');
 select results_eq($$select (pg_temp.automatic(110)).state, (pg_temp.automatic(110)).reason_code$$,
-  $$values ('superseded'::text, null::text)$$, 'it found the reserved automatic request and set it aside: it never spends');
-select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(110) and launch_request_id is not null), 1,
-  'one analysis is paid');
+  $$values ('evaluating'::text, null::text)$$, 'it found the reserved automatic request and left it to start: it never sets it aside');
+select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(110) and launch_request_id is not null), 0,
+  'the relaunch paid nothing');
 
 -- The other order: the relaunch's transaction is open when the confirmation arrives.
 select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'a relaunch of a third affaire starts');
