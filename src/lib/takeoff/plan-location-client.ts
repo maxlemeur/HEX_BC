@@ -51,7 +51,7 @@ export function fetchTakeoffJobPlanLocations(jobId: string) {
 }
 
 const CONFLICT_REASONS = ["TAKEOFF_PLAN_LOCATION_CONFLICT", "TAKEOFF_PLAN_LOCATION_REVISION_CHANGED",
-  "TAKEOFF_PLAN_LOCATION_ORIGIN_MOVED", "TAKEOFF_PLAN_LOCATION_SOURCE_STALE"] as const;
+  "TAKEOFF_PLAN_LOCATION_ORIGIN_MOVED", "TAKEOFF_PLAN_LOCATION_SOURCE_STALE", "TAKEOFF_PLAN_LOCATION_COPY_PENDING"] as const;
 
 /**
  * Why a read or a save was refused for a change made meanwhile, and the plan's current copy when the dossier replaced

@@ -1,6 +1,6 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { SWRConfig } from "swr";
+import { SWRConfig, useSWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TakeoffPlanLocationDialog } from "@/components/takeoff/TakeoffPlanLocationDialog";
@@ -41,9 +41,29 @@ function planLocation(carryOver: ReturnType<typeof carry> | null = null): Takeof
   };
 }
 
+/** Reads the plan's location again, as the data library does on its own (a reconnect, a focus). */
+function BackgroundRead() {
+  const { mutate } = useSWRConfig();
+  return <button type="button" data-testid="background-read" onClick={() => void mutate(`takeoff-plan-location:${SET_ID}:${FILE_ID}`)} />;
+}
+
+/** The location the route answers after a save: the annotation it stored, from the request it received. */
+function saved(_setId: string, _fileId: string, body: { building: { choice: string; value: string | null };
+  level: { choice: string; value: string | null } }): TakeoffPlanFileLocation {
+  const field = (choice: { choice: string; value: string | null }) => ({ choice: choice.choice as "reading" | "value" | "unknown",
+    value: choice.value, carried: false, set_by: ORIGIN_ID, set_by_name: "Membre Fictif", set_at: "2026-11-21T08:00:00Z", set_revision: 1 });
+  const annotation = { id: ORIGIN_ID, revision: 1, building: field(body.building), level: field(body.level), carried_from_id: null,
+    carried_from_revision: null, document_name: "P-101.pdf", updated_by: ORIGIN_ID, updated_by_name: "Membre Fictif",
+    updated_at: "2026-11-21T08:00:00Z", created_at: "2026-11-21T08:00:00Z" };
+  return { ...planLocation(), annotation, location: resolvePlanLocation({ reading, carryOver: null,
+    annotation: { building: { choice: annotation.building.choice, value: annotation.building.value },
+      level: { choice: annotation.level.choice, value: annotation.level.value } } }) };
+}
+
 function open() {
   return render(
     <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <BackgroundRead />
       <TakeoffPlanLocationDialog setId={SET_ID} fileId={FILE_ID} documentName="P-101.pdf" open onOpenChange={() => undefined} />
     </SWRConfig>,
   );
@@ -63,7 +83,7 @@ describe("what a save confirms", () => {
   it("leaves a field the member did not touch to the plan's reading, and confirms a deduced value only when chosen", async () => {
     const user = userEvent.setup();
     fetchLocation.mockResolvedValue(planLocation());
-    saveLocation.mockImplementation(async () => planLocation());
+    saveLocation.mockImplementation(async (...args: Parameters<typeof saved>) => saved(...args));
     open();
     const level = within(await screen.findByTestId("plan-location-choice-level")).getByLabelText("Niveau");
     await user.clear(level);
@@ -72,10 +92,11 @@ describe("what a save confirms", () => {
     expect(saveLocation).toHaveBeenLastCalledWith(SET_ID, FILE_ID, { content_hash: HASH, expected_revision: 0,
       building: { choice: "reading", value: null }, level: { choice: "value", value: "L01" }, carried_from: null });
     // Confirming the building's reading is its own act: « Valeur saisie », prefilled with what the plan shows.
+    expect(await within(fieldset("level")).findByDisplayValue("L01")).toBeInTheDocument();
     await user.click(within(fieldset("building")).getByRole("radio", { name: "Valeur saisie" }));
     expect(within(fieldset("building")).getByLabelText("Bâtiment")).toHaveValue("A");
     await user.click(screen.getByRole("button", { name: "Enregistrer" }));
-    expect(saveLocation).toHaveBeenLastCalledWith(SET_ID, FILE_ID, expect.objectContaining({
+    expect(saveLocation).toHaveBeenLastCalledWith(SET_ID, FILE_ID, expect.objectContaining({ expected_revision: 1,
       building: { choice: "value", value: "A" }, level: { choice: "value", value: "L01" } }));
   });
 });
@@ -97,5 +118,23 @@ describe("a carried correction that moved before the save", () => {
     await user.click(screen.getByRole("button", { name: "Valider pour cette version" }));
     expect(saveLocation).toHaveBeenNthCalledWith(2, SET_ID, FILE_ID, expect.objectContaining({ level: { choice: "value", value: "L03" },
       carried_from: { id: ORIGIN_ID, revision: 3, fields: ["building", "level"] } }));
+  });
+});
+
+describe("a background read that brings another proposal", () => {
+  // Written first, failing: the form remounted when the origin's generation changed, and the building the member had
+  // typed was gone without a word.
+  it("keeps what the member typed in a field the change does not concern, and says the proposal changed", async () => {
+    const user = userEvent.setup();
+    fetchLocation.mockResolvedValueOnce(planLocation(carry(2, "L02"))).mockResolvedValue(planLocation(carry(3, "L03")));
+    open();
+    const building = within(await screen.findByTestId("plan-location-choice-building")).getByLabelText("Bâtiment");
+    await user.clear(building);
+    await user.type(building, "B");
+    await act(async () => { screen.getByTestId("background-read").click(); });
+    expect(await within(fieldset("level")).findByDisplayValue("L03")).toBeInTheDocument();
+    expect(within(fieldset("building")).getByLabelText("Bâtiment")).toHaveValue("B");
+    expect(screen.getByTestId("plan-location-proposal-changed")).toHaveTextContent("La proposition a changé");
+    expect(saveLocation).not.toHaveBeenCalled();
   });
 });

@@ -369,6 +369,21 @@ set local role authenticated;
 select pg_temp.save(54, pg_temp.digest('deleted-a'), 0, 'value', 'A', 'reading', null, '{}', 22);
 select pg_temp.save(54, pg_temp.digest('deleted-b'), 0, 'value', 'A', 'reading', null, array['building'], 22,
   (select id from pg_temp.location(pg_temp.digest('deleted-a'))));
+-- One origin for every carried field: carrying the level from another correction while the building is still carried
+-- from the first one is refused, by name (the origin would then be credited for a value it never held). Written first,
+-- failing: the command kept the building carried and moved the shared origin to the second correction.
+select pg_temp.save(54, pg_temp.digest('deleted-c'), 0, 'reading', null, 'value', 'L7', '{}', 22);
+select throws_ok($$select pg_temp.save(54, pg_temp.digest('deleted-b'), 1, 'value', 'A', 'value', 'L7', array['level'], 22,
+  (select id from pg_temp.location(pg_temp.digest('deleted-c'))))$$, '22023', 'TAKEOFF_PLAN_LOCATION_CARRY_OVER_MIXED',
+  'a carry onto a row that still carries a field from another origin is refused');
+select results_eq($$select building_carried, level_carried, carried_from_id from pg_temp.location(pg_temp.digest('deleted-b'))$$,
+  $$values (true, false, (select id from pg_temp.location(pg_temp.digest('deleted-a'))))$$, 'the row keeps its one origin');
+select results_eq($$select building_carried, level_carried, carried_from_id
+  from pg_temp.save(54, pg_temp.digest('deleted-b'), (select revision from pg_temp.location(pg_temp.digest('deleted-b'))),
+    'value', 'B', 'value', 'L7', array['level'], 22,
+    (select id from pg_temp.location(pg_temp.digest('deleted-c'))))$$,
+  $$values (false, true, (select id from pg_temp.location(pg_temp.digest('deleted-c'))))$$,
+  'once the member types the other field, the level is carried from the second correction');
 reset role;
 delete from public.estimate_projects where id = pg_temp.fixture(22);
 select is((select count(*) from public.takeoff_plan_locations where project_id = pg_temp.fixture(22)), 0::bigint,
@@ -397,11 +412,13 @@ insert into public.tenant_memberships(tenant_id, user_id, role, is_default, crea
 insert into public.estimate_projects(id, tenant_id, user_id, name) values
   ('b3100000-0000-4000-8000-000000000120', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'Course (fictif)'),
   ('b3100000-0000-4000-8000-000000000121', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'Suppression (fictif)'),
-  ('b3100000-0000-4000-8000-000000000122', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'Archivage (fictif)');
+  ('b3100000-0000-4000-8000-000000000122', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'Archivage (fictif)'),
+  ('b3100000-0000-4000-8000-000000000123', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'Réaffectation (fictif)');
 insert into public.plan_sets(id, tenant_id, project_id, name) values
   ('b3100000-0000-4000-8000-000000000140', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000120', 'Plans'),
   ('b3100000-0000-4000-8000-000000000141', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000121', 'Plans'),
-  ('b3100000-0000-4000-8000-000000000142', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000122', 'Plans');
+  ('b3100000-0000-4000-8000-000000000142', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000122', 'Plans'),
+  ('b3100000-0000-4000-8000-000000000143', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000123', 'Plans');
 insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count) values
   ('b3100000-0000-4000-8000-000000000150', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000140', 'course.pdf',
     'b3100000-0000-4000-8000-000000000110/b3100000-0000-4000-8000-000000000140/b3100000-0000-4000-8000-000000000150/course.pdf',
@@ -411,6 +428,9 @@ insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, 
     'application/pdf', 8, 1),
   ('b3100000-0000-4000-8000-000000000153', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000142', 'archive.pdf',
     'b3100000-0000-4000-8000-000000000110/b3100000-0000-4000-8000-000000000142/b3100000-0000-4000-8000-000000000153/archive.pdf',
+    'application/pdf', 8, 1),
+  ('b3100000-0000-4000-8000-000000000154', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000143', 'reaffecte.pdf',
+    'b3100000-0000-4000-8000-000000000110/b3100000-0000-4000-8000-000000000143/b3100000-0000-4000-8000-000000000154/reaffecte.pdf',
     'application/pdf', 8, 1);
 commit;
 $setup$), 'COMMIT', 'race fixtures committed');
@@ -514,6 +534,56 @@ select throws_ok($$select * from extensions.dblink_get_result('location_b') as r
   'TAKEOFF_PLAN_LOCATION_FORBIDDEN', 'the right to write is checked again on the locked affaire');
 select is((select count(*)::integer from extensions.dblink_get_result('location_b', false) as remote(value text)), 0, 'that save is over');
 select is(extensions.dblink_exec('location_b', 'commit'), 'ROLLBACK', 'nothing of it is committed on the archived affaire');
+
+-- The right to write is checked once more after the last wait, just before the first write: a reassignment of the
+-- affaire (an ordinary owner update, which a key-share lock lets through) committing while the correction waits for the
+-- plan file leaves the former owner nothing to write. Written first, failing: the correction wrote on the earlier
+-- authorization.
+insert into location_race_attestations values
+  ('reassigned', pg_temp.race_attest('b3100000-0000-4000-8000-000000000101', 'b3100000-0000-4000-8000-000000000123',
+    'b3100000-0000-4000-8000-000000000154', 'reassigned'));
+select is(extensions.dblink_exec('location_setup', $hold$begin;
+do $do$ begin perform 1 from public.plan_files where id = 'b3100000-0000-4000-8000-000000000154' for update; end $do$;$hold$),
+  'DO', 'a writer holds the plan file');
+select is(pg_temp.as_operator('location_b', 'b3100000-0000-4000-8000-000000000101'), 'SET', 'the owner opens a correction');
+select is(extensions.dblink_send_query('location_b', pg_temp.save_call((select id from location_race_attestations where label = 'reassigned'), 0, 'A')),
+  1, 'the owner saves');
+select ok(pg_temp.waits_for_lock('location_b', 'public.plan_files'), 'the correction waits for the plan file, past its earlier checks');
+select is(extensions.dblink_exec('location_a', $reassign$update public.estimate_projects set user_id = 'b3100000-0000-4000-8000-000000000102'
+  where id = 'b3100000-0000-4000-8000-000000000123'$reassign$), 'UPDATE 1', 'meanwhile the affaire is reassigned to another member');
+select is(extensions.dblink_exec('location_setup', 'commit'), 'COMMIT', 'the plan file is released');
+select throws_ok($$select * from extensions.dblink_get_result('location_b') as remote(value text)$$, '42501',
+  'TAKEOFF_PLAN_LOCATION_FORBIDDEN', 'the former owner is refused just before the write');
+select is((select count(*)::integer from extensions.dblink_get_result('location_b', false) as remote(value text)), 0, 'that save is over');
+select is(extensions.dblink_exec('location_b', 'commit'), 'ROLLBACK', 'nothing of it is committed');
+
+-- Two attestations of one member cleaning up at once never wait for each other: the cleanup takes the spent rows in a
+-- fixed order and skips those another call holds. The deadlock itself depends on the order in which the two deletes
+-- happen to scan the rows, which a test cannot set; what rules it out is that no cleanup waits for a row another holds.
+-- Written first, failing: the second call waited for the rows the first was deleting (lock timeout).
+insert into location_race_attestations
+select label, pg_temp.race_attest('b3100000-0000-4000-8000-000000000101', 'b3100000-0000-4000-8000-000000000120',
+  'b3100000-0000-4000-8000-000000000150', label)
+from (values ('spent-1'), ('spent-2'), ('spent-3')) as spent(label);
+select is(extensions.dblink_exec('location_setup', format($spend$update private.takeoff_plan_location_attestations set used_at = now()
+  where id in (%L, %L, %L)$spend$, (select id from location_race_attestations where label = 'spent-1'),
+  (select id from location_race_attestations where label = 'spent-2'), (select id from location_race_attestations where label = 'spent-3'))),
+  'UPDATE 3', 'three of the member''s attestations are spent');
+select is(extensions.dblink_exec('location_a', format($first$begin;
+do $do$ begin perform public.attest_takeoff_plan_revision('b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101',
+  'b3100000-0000-4000-8000-000000000120', 'b3100000-0000-4000-8000-000000000150', %L, 'course.pdf'); end $do$;$first$,
+  pg_temp.digest('first tab'))), 'DO', 'a first tab is attested, its cleanup not yet committed');
+select is(extensions.dblink_exec('location_b', $timeout$begin; set local lock_timeout = '2s'$timeout$), 'SET',
+  'a second tab starts, refusing to wait more than a lock timeout');
+select is((select count(*)::integer from extensions.dblink('location_b', format($second$select public.attest_takeoff_plan_revision(
+  'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'b3100000-0000-4000-8000-000000000120',
+  'b3100000-0000-4000-8000-000000000150', %L, 'course.pdf')$second$, pg_temp.digest('second tab'))) as remote(id uuid)), 1,
+  'it is attested meanwhile, without waiting for the first one''s cleanup');
+select is(extensions.dblink_exec('location_b', 'commit'), 'COMMIT', 'the second tab''s attestation commits');
+select is(extensions.dblink_exec('location_a', 'commit'), 'COMMIT', 'and the first''s');
+select is((select count(*)::integer from extensions.dblink('location_setup', $left$select id from private.takeoff_plan_location_attestations
+  where actor_id = 'b3100000-0000-4000-8000-000000000101' and project_id = 'b3100000-0000-4000-8000-000000000120' and used_at is not null$left$)
+  as remote(id uuid)), 0, 'the spent ones are gone');
 
 -- The fifteen minutes of an attestation run until it is consumed, by the wall clock: a transaction begun before they
 -- elapse cannot consume it after. Written first, failing: the check used the transaction's start time.

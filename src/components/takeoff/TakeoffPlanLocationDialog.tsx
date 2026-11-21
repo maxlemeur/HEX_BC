@@ -89,6 +89,9 @@ function initialDraft(field: PlanLocationField, data: TakeoffPlanFileLocation): 
   return offered !== null ? { choice: "value", text: offered } : { choice: "reading", text: "" };
 }
 
+/** What a field starts from: another value here means another proposal for that field. */
+const fieldBasis = (field: PlanLocationField, data: TakeoffPlanFileLocation) => JSON.stringify(initialDraft(field, data));
+
 /** What « Valeur saisie » starts from on an empty field: the value offered, else the single value the plan shows. */
 function proposedValue(field: PlanLocationField, data: TakeoffPlanFileLocation) {
   return offeredValue(field, data) ?? resolvePlanLocation({ reading: data.reading, annotation: null, carryOver: null })[field].value ?? "";
@@ -113,6 +116,17 @@ function LocationForm({ data, onSaved, onConflict }: {
   const [drafts, setDrafts] = useState<Record<PlanLocationField, FieldDraft>>(() => ({
     building: initialDraft("building", data), level: initialDraft("level", data),
   }));
+  // What each field started from. Another proposal (a read in the background, a refused save) restarts only the fields
+  // it concerns, keeps what the member typed in the others, and says so, whatever brought it.
+  const proposed = { building: fieldBasis("building", data), level: fieldBasis("level", data) };
+  const [basis, setBasis] = useState(proposed);
+  const [changed, setChanged] = useState<PlanLocationField[]>([]);
+  if (proposed.building !== basis.building || proposed.level !== basis.level) {
+    const concerned = PLAN_LOCATION_FIELDS.filter((field) => proposed[field] !== basis[field]);
+    setBasis(proposed);
+    setDrafts((current) => ({ ...current, ...Object.fromEntries(concerned.map((field) => [field, initialDraft(field, data)])) }));
+    setChanged(concerned);
+  }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const carrying = !data.annotation && data.carry_over ? data.carry_over : null;
@@ -201,6 +215,15 @@ function LocationForm({ data, onSaved, onConflict }: {
         du plan ; pour confirmer la valeur lue, choisissez « Valeur saisie ». Le choix s’affiche dans les plans, la revue et toute
         relance sur le même fichier.
       </FieldDescription>
+      {changed.length ? (
+        <Alert variant="warning" data-testid="plan-location-proposal-changed">
+          <AlertDescription>
+            La proposition a changé depuis l’ouverture du formulaire : {changed.length > 1
+              ? "le bâtiment et le niveau affichés sont les nouvelles valeurs"
+              : `le ${PLAN_LOCATION_FIELD_LABELS[changed[0]].toLowerCase()} affiché est la nouvelle valeur ; votre autre saisie est conservée`}.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {error ? <Alert variant="danger"><AlertDescription>{error}</AlertDescription></Alert> : null}
       <DialogFooter>
         <Button type="submit" loading={saving} disabled={saving}>{carrying ? "Valider pour cette version" : "Enregistrer"}</Button>
@@ -215,7 +238,8 @@ async function readLocation(setId: string, fileId: string) {
     return { location: await fetchTakeoffPlanFileLocation(setId, fileId), replaced: null };
   } catch (cause) {
     const conflict = planLocationConflict(cause);
-    if (!conflict?.replacement) throw cause;
+    // Only a copy the dossier replaced is followed; one being prepared is told to try again.
+    if (conflict?.reason !== "TAKEOFF_PLAN_LOCATION_SOURCE_STALE" || !conflict.replacement) throw cause;
     return {
       location: await fetchTakeoffPlanFileLocation(conflict.replacement.plan_set_id, conflict.replacement.plan_file_id),
       replaced: conflict.message,
@@ -240,6 +264,8 @@ export function TakeoffPlanLocationDialog({ setId, fileId, documentName, open, o
   const { data: read, error, isLoading, mutate } = useSWR(open ? `takeoff-plan-location:${shown.plan_set_id}:${shown.plan_file_id}` : null,
     () => readLocation(shown.plan_set_id, shown.plan_file_id), { revalidateOnFocus: false, shouldRetryOnError: false });
   const [notice, setNotice] = useState<{ tone: "info" | "warning"; message: string } | null>(null);
+  // The member's own saves: the form starts again from what was saved.
+  const [saves, setSaves] = useState(0);
   const data = read?.location;
 
   const changeOpen = (next: boolean) => {
@@ -278,17 +304,17 @@ export function TakeoffPlanLocationDialog({ setId, fileId, documentName, open, o
                 </Alert>
               ) : null}
               {data.can_edit ? (
-                // A new generation of this revision's correction, or of the correction offered, starts the form again from it:
-                // a value offered before is never kept as if the member had typed it.
-                <LocationForm key={[data.plan_file_id, data.revision.content_hash, data.annotation?.revision ?? 0, data.carry_over?.id ?? "",
-                  data.carry_over?.revision ?? 0].join(":")} data={data}
+                // Another copy, other bytes or the member's own save start the form again; another proposal for these bytes
+                // restarts only the fields it concerns, inside the form.
+                <LocationForm key={[data.plan_file_id, data.revision.content_hash, saves].join(":")} data={data}
                   onSaved={(next) => {
+                    setSaves((count) => count + 1);
                     void mutate({ location: next, replaced: null }, { revalidate: false });
                     setNotice({ tone: "info", message: "Localisation enregistrée pour cette version du plan." });
                     onSaved?.();
                   }}
                   onConflict={async (conflict, rejected) => {
-                    if (conflict.replacement) setTarget(conflict.replacement);
+                    if (conflict.reason === "TAKEOFF_PLAN_LOCATION_SOURCE_STALE" && conflict.replacement) setTarget(conflict.replacement);
                     else await mutate();
                     setNotice({ tone: "warning", message: `${conflict.message} ${rejected}` });
                     onSaved?.();

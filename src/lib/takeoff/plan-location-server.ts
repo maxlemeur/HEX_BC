@@ -137,18 +137,20 @@ async function readSource(supabase: Supabase, projectId: string, planFileId: str
  * pointing elsewhere is never followed. The bytes never leave this server; only their digest and reading do.
  */
 async function readPlanBytes(tenantId: string, file: { id: string; plan_set_id: string; file_name: string; file_path: string;
-  file_size_bytes: number }): Promise<Uint8Array | null> {
+  file_size_bytes: number }): Promise<{ bytes: Uint8Array } | { bytes: null; notStored: boolean }> {
   if (file.file_size_bytes > PLAN_FILE_MAX_SIZE_BYTES || file.file_path !== buildPlanFileStoragePath({
     tenantId, setId: file.plan_set_id, fileId: file.id, fileName: sanitizePlanPdfFilename(file.file_name),
-  })) return null;
+  })) return { bytes: null, notStored: false };
   const { data, error } = await createServiceRoleClient().storage.from(PLAN_FILES_BUCKET).download(file.file_path);
   if (error || !data || data.size === 0 || data.size > PLAN_FILE_MAX_SIZE_BYTES) {
-    const status = (error as { status?: number; statusCode?: string } | null)?.status ?? (error as { statusCode?: string } | null)?.statusCode;
-    console.error("takeoff.plan_location.read_failed", { status: status ?? null, size: data?.size ?? null,
+    const failure = error as { status?: number; statusCode?: string } | null;
+    const status = Number(failure?.statusCode ?? failure?.status);
+    console.error("takeoff.plan_location.read_failed", { status: Number.isFinite(status) ? status : null, size: data?.size ?? null,
       message: (error?.message ?? "").slice(0, 200) });
-    return null;
+    // Storage answers 400 or 404 for an object that is not there (yet).
+    return { bytes: null, notStored: Boolean(error) && (status === 400 || status === 404) };
   }
-  return new Uint8Array(await data.arrayBuffer());
+  return { bytes: new Uint8Array(await data.arrayBuffer()) };
 }
 
 /** The title block text of the given pages; null pages could not be read. */
@@ -344,12 +346,20 @@ function parseIds(setId: string, fileId: string) {
   };
 }
 
-/** The plan's bytes; when they are gone, a copy the dossier replaced meanwhile is told as such, else they are missing. */
+/**
+ * The plan's bytes. When they are not there: a copy the dossier replaced meanwhile is told as such; the dossier's
+ * current copy whose bytes are not uploaded yet (the sync records the copy before it uploads it) is being prepared, to
+ * try again in a moment; anything else is missing.
+ */
 async function currentBytes(context: AuthenticatedTakeoffContext, loaded: LoadedPlanFile): Promise<Uint8Array> {
-  const bytes = await readPlanBytes(context.tenantId, loaded.file);
-  if (bytes) return bytes;
+  const read = await readPlanBytes(context.tenantId, loaded.file);
+  if (read.bytes) return read.bytes;
   const now = await readSource(context.supabase, loaded.projectId, loaded.file.id);
   if (!now?.current_copy) return replacedConflict(context, loaded.projectId, now ?? loaded.source);
+  if (read.notStored && now.source_kind === "intake_document") {
+    conflict("TAKEOFF_PLAN_LOCATION_COPY_PENDING", "La copie de ce plan est en cours de préparation dans le dossier : réessayez dans un instant.",
+      { replacement: { plan_set_id: loaded.file.plan_set_id, plan_file_id: loaded.file.id } });
+  }
   notFound("Le PDF de ce plan est introuvable ou trop volumineux : sa localisation ne peut pas être lue.");
 }
 
@@ -373,6 +383,10 @@ function saveRefused(error: { message?: string; code?: string }): never {
       message: "Seuls les opérateurs de l’affaire corrigent la localisation d’un plan." });
   }
   if (message.includes("TAKEOFF_PLAN_LOCATION_SOURCE_NOT_FOUND")) notFound("Plan introuvable.");
+  if (message.includes("TAKEOFF_PLAN_LOCATION_CARRY_OVER_MIXED")) {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+      message: "Un autre champ de ce plan est repris d’une autre correction : saisissez-le ou choisissez la lecture du plan avant de reprendre celui-ci." });
+  }
   if (message.includes("TAKEOFF_PLAN_LOCATION_VALUE_INVALID") || message.includes("TAKEOFF_PLAN_LOCATION_CARRY_OVER_INVALID")
     || message.includes("TAKEOFF_PLAN_LOCATION_ATTESTATION_INVALID")) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
@@ -473,7 +487,7 @@ export async function readTakeoffJobPlanLocations(jobId: string): Promise<Takeof
       if (fileError) readFailure(fileError, "Impossible de charger un plan du métré.");
       file = row as PlanFileRow | null;
     }
-    const bytes = sourceRow && file && file.file_path === source.file_path ? await readPlanBytes(context.tenantId, file) : null;
+    const bytes = sourceRow && file && file.file_path === source.file_path ? (await readPlanBytes(context.tenantId, file)).bytes : null;
     const status = !sourceRow || !bytes ? "unavailable" : sha256(bytes) === source.content_hash ? "current" : "changed";
     const originalName = originalNameOf(file?.metadata);
     let reading: PlanLocationReading = readPlanLocation({ originalName, pageCount: source.page_count, pages: [] });

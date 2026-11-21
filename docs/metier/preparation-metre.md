@@ -393,10 +393,16 @@ plans qu’elle peut retenir (un plan que le membre a écarté n’en donne aucu
 depuis la pièce écartée ; deux pièces qui ont seulement le même nom ne sont
 jamais rapprochées. Le report garde la correction d’origine, la génération à
 laquelle elle a été proposée et les champs repris ; quand plus aucun champ n’est
-repris, l’origine disparaît aussi. Si la correction d’origine a changé
-entre-temps, l’enregistrement est refusé : le formulaire repart de sa valeur
-actuelle et dit que la proposition a changé ; rien de ce que l’opérateur n’a pas
-saisi n’est enregistré comme saisi. La
+repris, l’origine disparaît aussi. Tous les champs repris le sont d’une même
+origine : reprendre un champ d’une autre correction pendant que l’autre champ
+est encore repris est refusé ; il faut d’abord saisir cet autre champ. Si la
+correction d’origine a changé entre-temps, l’enregistrement est refusé et le
+formulaire repart de sa valeur actuelle ; rien de ce que l’opérateur n’a pas
+saisi n’est enregistré comme saisi. Quand une autre proposition arrive pendant
+que le formulaire est ouvert (une relecture en arrière-plan, un enregistrement
+refusé), seuls les champs qu’elle concerne repartent d’elle : la saisie de
+l’opérateur dans l’autre champ est conservée, et le formulaire dit que la
+proposition a changé. La
 revue d’une analyse dont le plan a changé depuis montre la correction de la
 version qu’elle a lue, sans en proposer d’autre.
 
@@ -406,7 +412,10 @@ refusé avec la même réponse, quelle que soit l’étape où le remplacement e
 constaté (fichier disparu, octets disparus, commande qui refuse la copie) : le
 plan a été remplacé, voici sa copie actuelle, ou il n’en a plus. Seule une copie
 dont la source, telle que la base la résout, est la même pièce est proposée. Le
-formulaire affiche alors cette copie, avec ce qui s’y applique. La revue d’une analyse qui avait lu l’ancienne copie le dit
+formulaire affiche alors cette copie, avec ce qui s’y applique. Le dossier
+enregistre une nouvelle copie avant d’en déposer le fichier : une copie actuelle
+dont le fichier n’est pas encore là est « en cours de préparation », à réessayer
+dans un instant, jamais introuvable. La revue d’une analyse qui avait lu l’ancienne copie le dit
 aussi et ouvre la copie actuelle ; la correction de la pièce s’y applique tant
 que les octets sont les mêmes.
 
@@ -442,10 +451,16 @@ session du membre ne peut pas attester. Une nouvelle attestation retire celles
 du même membre sur la même affaire qui ne peuvent plus servir (utilisées ou
 expirées). La commande `set_takeoff_plan_location` consomme une seule fois une
 attestation faite pour ce membre, de moins de quinze minutes à l’horloge au
-moment où elle est consommée ; elle vérifie ses droits sur l’affaire, de nouveau
-une fois l’affaire verrouillée (un archivage peut s’être terminé pendant
-l’attente), que la copie est toujours celle de sa pièce et que la correction
-reprise n’a pas changé, puis compare la génération que l’écran a vue.
+moment où elle est consommée. Elle vérifie les droits du membre sur l’affaire au
+départ, de nouveau une fois l’affaire verrouillée (un archivage peut s’être
+terminé pendant l’attente) et une dernière fois juste avant d’écrire (une
+réaffectation ou un changement de rôle peut s’être terminé pendant une autre
+attente) ; un changement terminé pendant l’écriture elle-même n’est pas vu. Elle
+vérifie aussi que la copie est toujours celle de sa pièce et que la correction
+reprise n’a pas changé, puis compare la génération que l’écran a vue. Une
+nouvelle attestation retire les attestations usées du même membre dans un ordre
+fixe, en passant celles qu’une autre attestation est en train de retirer : deux
+onglets ne s’attendent jamais l’un l’autre.
 Elle ne modifie aucun objet existant ; créer un fichier de plan note en plus sa
 source, sans jamais être refusé pour cela.
 

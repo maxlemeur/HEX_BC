@@ -354,10 +354,15 @@ begin
       raise exception 'TAKEOFF_PLAN_LOCATION_CARRY_OVER_INVALID' using errcode = '22023';
     end if;
   end if;
-  -- What can no longer serve leaves: this member's used and expired attestations on this affaire.
+  -- What can no longer serve leaves: this member's used and expired attestations on this affaire, taken in a fixed order
+  -- and skipping those another attestation of the same member is removing (two tabs never wait for each other here).
   delete from private.takeoff_plan_location_attestations a
-  where a.tenant_id = p_tenant_id and a.project_id = p_project_id and a.actor_id = p_actor_id
-    and (a.used_at is not null or a.created_at < pg_catalog.clock_timestamp() - interval '15 minutes');
+  where a.id in (
+    select spent.id from private.takeoff_plan_location_attestations spent
+    where spent.tenant_id = p_tenant_id and spent.project_id = p_project_id and spent.actor_id = p_actor_id
+      and (spent.used_at is not null or spent.created_at < pg_catalog.clock_timestamp() - interval '15 minutes')
+    order by spent.id
+    for update skip locked);
   insert into private.takeoff_plan_location_attestations (tenant_id, project_id, plan_file_id, source_kind, source_id,
     content_hash, document_name, actor_id, carry_from_id, carry_from_revision, carry_building, carry_level)
   values (p_tenant_id, p_project_id, p_plan_file_id, source.source_kind, source.source_id, p_content_hash, p_document_name,
@@ -377,8 +382,9 @@ grant execute on function public.attest_takeoff_plan_revision(uuid, uuid, uuid, 
 -- most, by the wall clock when it is consumed) and checks the member may write the affaire, then takes, in this order:
 -- the affaire (key share: its deletion locks it first, then cascades to its plan files, annotations and attestations),
 -- where the right to write is checked again, the attestation, the plan file of that affaire, its dossier piece, the
--- carried origin, the annotation row. The generation the member saw is compared under the annotation's row lock; a
--- carried field must hold the origin's value at the generation the server proposed, and no field carried, no origin.
+-- carried origin, the annotation row, after which the right to write is checked a last time before the first write.
+-- The generation the member saw is compared under the annotation's row lock; a carried field must hold the origin's
+-- value at the generation the server proposed, all carried fields share one origin, and no field carried, no origin.
 create function public.set_takeoff_plan_location(
   p_attestation_id uuid,
   p_expected_revision integer,
@@ -479,6 +485,12 @@ begin
   where l.tenant_id = tenant and l.project_id = attestation.project_id and l.source_kind = attestation.source_kind
     and l.source_id = attestation.source_id and l.content_hash = attestation.content_hash
   for update;
+  -- The right to write once more, after the last wait and just before the first write: a reassignment of the affaire or
+  -- a role change committed while this save waited (for the plan file, its piece, the origin or this row) leaves it
+  -- nothing to write. A change committed during the write's own statements below is not seen.
+  if not private.can_access_takeoff_scope(tenant, attestation.project_id, null, true) then
+    raise exception 'TAKEOFF_PLAN_LOCATION_FORBIDDEN' using errcode = '42501';
+  end if;
   -- Consumed now, after every wait: its fifteen minutes are measured by the wall clock, not from this transaction's start.
   if attestation.created_at < pg_catalog.clock_timestamp() - interval '15 minutes' then
     raise exception 'TAKEOFF_PLAN_LOCATION_NOT_ATTESTED' using errcode = '42501';
@@ -521,6 +533,15 @@ begin
     or (carry_building and not existing.building_carried);
   level_changed := existing.level_choice is distinct from p_level_choice or existing.level is distinct from p_level
     or (carry_level and not existing.level_carried);
+  -- One origin for every carried field: a field still carried from another origin (or another generation of it) must be
+  -- typed or set aside before another field is carried, else the origin would be credited for a value it never held.
+  if (carry_building or carry_level)
+    and ((not carry_building and not building_changed and existing.building_carried)
+      or (not carry_level and not level_changed and existing.level_carried))
+    and (existing.carried_from_id, existing.carried_from_revision)
+      is distinct from (attestation.carry_from_id, attestation.carry_from_revision) then
+    raise exception 'TAKEOFF_PLAN_LOCATION_CARRY_OVER_MIXED' using errcode = '22023';
+  end if;
   -- Saving the same choices again changes nothing and records nothing.
   if not building_changed and not level_changed then
     return existing;

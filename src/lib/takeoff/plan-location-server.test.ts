@@ -321,3 +321,32 @@ describe("a copy the dossier replaces during a read or a save", () => {
     expect(refusal).toMatchObject({ status: 409, details: { reason: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE", replacement: null } });
   });
 });
+
+describe("a current copy whose bytes the dossier has not uploaded yet", () => {
+  // Written first, failing: the sync commits the copy's row before it uploads the bytes, and in between the member got a
+  // 404 for the current copy the dialogue had just followed.
+  it("is answered as being prepared, to try again in a moment, never as missing", async () => {
+    harness({ files: [pieceCopy(FILE_ID)],
+      source: () => ({ source_kind: "intake_document", source_id: PIECE_ID, plan_file_id: FILE_ID, current_copy: true, can_write: true }),
+      download: () => ({ data: null, error: { message: "Object not found", status: 404 } }) });
+    await expect(readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID })).rejects.toMatchObject({ status: 409,
+      message: "La copie de ce plan est en cours de préparation dans le dossier : réessayez dans un instant.",
+      details: { reason: "TAKEOFF_PLAN_LOCATION_COPY_PENDING", replacement: { plan_set_id: M3_PLAN_SET_ID, plan_file_id: FILE_ID } } });
+  });
+
+  // The counterexample: a plan uploaded outside the dossier whose object is gone is missing, not being prepared.
+  it("leaves a missing upload outside the dossier answered as missing", async () => {
+    harness({ download: () => ({ data: null, error: { message: "Object not found", status: 404 } }) });
+    await expect(readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID })).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("a carry the command refuses because another field carries from another origin", () => {
+  // Written first, failing: the command's named refusal reached the member as an internal error.
+  it("tells the member to type the other field first", async () => {
+    harness({ set: () => ({ data: null, error: { message: "TAKEOFF_PLAN_LOCATION_CARRY_OVER_MIXED", code: "22023" } }) });
+    await expect(saveTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID, body: { content_hash: HASH, expected_revision: 1,
+      building: { choice: "value", value: "A" }, level: { choice: "reading", value: null } } })).rejects.toMatchObject({ status: 422,
+      message: "Un autre champ de ce plan est repris d’une autre correction : saisissez-le ou choisissez la lecture du plan avant de reprendre celui-ci." });
+  });
+});
