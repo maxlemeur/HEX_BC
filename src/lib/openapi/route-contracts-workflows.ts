@@ -1,6 +1,7 @@
 import { takeoffItemBatchPatchResponseSchema } from "@/lib/takeoff/item-response-contracts";
 import { takeoffItemBatchPatchSchema as takeoffItemsPatchSchema } from "@/lib/takeoff/item-patch-preparation";
 import { takeoffActivityCenterResponseSchema } from "@/lib/takeoff/activity-center-contracts";
+import { TAKEOFF_REQUEST_ACTIVITY_VIEWS, takeoffRequestActivityResponseSchema } from "@/lib/takeoff/request-activity-contracts";
 import { takeoffJobActionResponseSchema } from "@/lib/takeoff/job-response-contracts";
 import {
   duplicateSectionResponseSchema, importEstimateSectionsResponseSchema,
@@ -586,6 +587,25 @@ const takeoffOperationsContracts: RouteContract[] = [
     ],
     success: [{ status: "200", description: "Analyses de l’affaire, leurs compteurs et leurs décisions de reprise.", schema: {
       schemaName: "ApiTakeoffActivityCenterResponse", schema: z.object({ ok: z.literal(true), data: takeoffActivityCenterResponseSchema }), io: "output",
+    } }],
+  },
+  {
+    id: "get-takeoff-activity-center-requests",
+    method: "get",
+    path: "/api/takeoff/activity-center/requests",
+    summary: "Suivre les demandes de lancement d’une affaire et leurs plans",
+    description: "Projection légère, lue à nouveau par l’écran tant qu’une demande peut changer d’elle-même : la dernière exécution de l’affaire (current), une page des précédentes (history), la demande qu’un lien nomme (request) ou celle d’une analyse (job). Chaque demande liste ses unités dans l’ordre enregistré par son manifeste, chacune dans un seul état (une unité groupée au format 1, une par plan au format 2), sa couverture et, pour les analyses que le membre lit, la décision de reprise de la même politique que le détail et la commande. Le nombre de lectures ne dépend ni du nombre de plans ni du nombre d’échecs ; signature ne change qu’à une transition, jamais au renouvellement d’un bail. Jamais un poste, un compte, un bail ni le texte d’un fournisseur.",
+    tags: ["Takeoff"],
+    queryParameters: [
+      { name: "project_id", schema: uuidSchema, description: "Affaire cible.", required: true },
+      { name: "view", schema: z.enum(TAKEOFF_REQUEST_ACTIVITY_VIEWS), description: "current (défaut), history, request ou job." },
+      { name: "requestId", schema: uuidSchema, description: "Demande à afficher (vue request), par exemple depuis le courriel de fin." },
+      { name: "jobId", schema: uuidSchema, description: "Analyse dont la demande est affichée (vue job), depuis sa revue." },
+      { name: "offset", schema: z.number().int().min(0), description: "Décalage de la page des demandes précédentes (vue history)." },
+      { name: "limit", schema: z.number().int().min(1).max(20), description: "Nombre de demandes précédentes par page (5 par défaut)." },
+    ],
+    success: [{ status: "200", description: "Demandes de l’affaire, leurs unités et ce que le membre peut faire de chaque analyse.", schema: {
+      schemaName: "ApiTakeoffRequestActivityResponse", schema: z.object({ ok: z.literal(true), data: takeoffRequestActivityResponseSchema }), io: "output",
     } }],
   },
   {
