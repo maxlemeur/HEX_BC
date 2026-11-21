@@ -226,7 +226,9 @@ export async function getTakeoffPlanSetJobByPreparation(input: {
     .select("id,status,level,source_file_name,source_file_path,estimate_version_id,created_at,project_id,plan_set_id,preparation_snapshot,execution_provider,execution_host_id,created_by")
     .eq("tenant_id", input.tenantId).eq("project_id", input.projectId).eq("estimate_version_id", input.estimateVersionId)
     .eq("plan_set_id", input.planSetId).eq("level", input.level)
-    .eq("preparation_snapshot->>preparation_revision", String(input.preparationRevision));
+    .eq("preparation_snapshot->>preparation_revision", String(input.preparationRevision))
+    // A launch request's job is never the receipt of a launch on a version, even once sent to that version.
+    .is("launch_request_id", null);
   if (input.executionProvider) query = query.eq("execution_provider", input.executionProvider);
   else if (input.provider && input.provider !== "auto") query = query.eq("execution_provider", input.provider === "chatgpt" ? "chatgpt_local" : "gemini");
   const { data, error } = await query.order("created_at", { ascending: false }).limit(1).abortSignal(new AbortController().signal).maybeSingle();
