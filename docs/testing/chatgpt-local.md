@@ -277,8 +277,8 @@ compte propriétaire, son port et son dossier d'artefacts
 ([`chatgpt-local-journey-support.ts`](../../e2e/army/local/chatgpt-local-journey-support.ts)) :
 
 - [`chatgpt-local-takeoff.e2e.ts`](../../e2e/army/local/chatgpt-local-takeoff.e2e.ts) :
-  règles du fournisseur local (LOCAL01 à LOCAL06), les trois parcours
-  « ChatGPT local » et V3C08 ;
+  règles du fournisseur local (LOCAL01 à LOCAL06), le lancement d’un second
+  jeu de plans (LOCAL07), les trois parcours « ChatGPT local » et V3C08 ;
 - [`chatgpt-local-decisions.e2e.ts`](../../e2e/army/local/chatgpt-local-decisions.e2e.ts) :
   assistance Decisions (DEC01, TRI01), écran Vecteurs du labo (VEC01), reprise
   des prix (PRX02) et réanalyse des pièces (INTRETRY01, INTWORD01).
