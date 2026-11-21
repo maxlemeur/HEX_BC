@@ -780,7 +780,7 @@ l’activation n’arrête que les nouvelles admissions : les plans déjà admis
 lus un à la fois, sous le créneau du Mac. Tant que l’envoi partiel n’est pas livré,
 l’activer ferme l’envoi de toute nouvelle analyse, même d’un dossier d’un seul
 plan (voir le dernier point). La base en décide (migration
-`20261121181031_takeoff_plan_dispatcher.sql`) ; le serveur suit
+`20261121231238_takeoff_plan_dispatcher.sql`) ; le serveur suit
 [`launch-request.ts`](../../src/lib/takeoff/launch-request.ts),
 [`launch-call-ledger.ts`](../../src/lib/takeoff/launch-call-ledger.ts) et
 [`local-dispatcher.ts`](../../src/lib/takeoff/local-dispatcher.ts).

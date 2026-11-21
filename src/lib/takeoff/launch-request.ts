@@ -198,7 +198,7 @@ export type AnyTakeoffLaunchManifest = TakeoffLaunchManifest | TakeoffPlanLaunch
 
 /**
  * The unit a job of one analysis per plan reads, from the snapshot its admission attested (the database's projection of
- * the request's snapshot, migration 20261121181031_takeoff_plan_dispatcher.sql): its request, key, place, budget and
+ * the request's snapshot, migration 20261121231238_takeoff_plan_dispatcher.sql): its request, key, place, budget and
  * vector pages. None for a grouped analysis or a job without a request.
  */
 export function readTakeoffLaunchUnit(snapshot: unknown): null | {

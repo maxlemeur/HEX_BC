@@ -11,7 +11,7 @@ import {
 } from "./plan-dispatch-support";
 import { signUpWorkerOwner } from "./worker-support";
 
-// Lot 3, one analysis per plan (migration 20261121181031_takeoff_plan_dispatcher.sql), on the owned worker stack: the
+// Lot 3, one analysis per plan (migration 20261121231238_takeoff_plan_dispatcher.sql), on the owned worker stack: the
 // member's explicit command (the server's), the Mac's dispatcher with the real claim, slot, ledger, processor,
 // persistence and end of each unit, and a controlled local provider. Fictional plans and dossier only.
 

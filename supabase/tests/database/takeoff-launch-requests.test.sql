@@ -239,7 +239,7 @@ select is((select after_data #>> '{metadata,launch_request_id}' from public.audi
   and record_id = pg_temp.f(60)), pg_temp.request(20)::text, 'the job''s creation record names its request');
 select is((select count(*)::integer from public.audit_logs where action = 'takeoff.request.admitted'
   and record_id = pg_temp.request(20)), 1, 'the request''s admission is recorded');
--- Migration A (20261121181031_takeoff_plan_dispatcher.sql), not activated: a grouped admission records exactly what lot 2 does.
+-- Migration A (20261121231238_takeoff_plan_dispatcher.sql), not activated: a grouped admission records exactly what lot 2 does.
 select is((select after_data -> 'metadata' ? 'format_version' from public.audit_logs where action = 'takeoff.request.admitted'
   and record_id = pg_temp.request(20)), false, 'its admission record is the one lot 2 writes');
 select results_eq($$select outcome, job_id from public.admit_takeoff_launch_request(pg_temp.request(20), pg_temp.f(92), 0,
@@ -273,7 +273,7 @@ select is((select count(*)::integer from public.takeoff_jobs where project_id = 
 -- 7. The end of its job closes the request and publishes its one notice; the job publishes none of its own.
 select is((select count(*)::integer from public.claim_observed_local_takeoff_job(pg_temp.f(60), pg_temp.f(10), pg_temp.host(),
   now(), pg_temp.f(95), now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 1, 'the Mac claims the job');
--- Before the owner's activation of one analysis per plan (20261121181031_takeoff_plan_dispatcher.sql), a call of this
+-- Before the owner's activation of one analysis per plan (20261121231238_takeoff_plan_dispatcher.sql), a call of this
 -- grouped analysis is checked against its request's balance as before and reserves nothing: nothing new is written.
 select results_eq($$select outcome, reason from public.reserve_takeoff_launch_call(pg_temp.f(60), pg_temp.f(95), 'C:0', 'pdf', 30000)$$,
   $$values ('unreserved'::text, null::text)$$, 'before one analysis per plan is active, a call is checked and not reserved');

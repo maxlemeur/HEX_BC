@@ -1,4 +1,4 @@
--- Lot 3, migration A (20261121181031_takeoff_plan_dispatcher.sql): one analysis per plan. Nothing of format 2 before the
+-- Lot 3, migration A (20261121231238_takeoff_plan_dispatcher.sql): one analysis per plan. Nothing of format 2 before the
 -- owner's activation; a request seals one unit per plan and inserts their jobs in one commit, each attesting the
 -- projection of its unit; one plan at a time on the Mac (its slot); every paid call reserved before it is sent and settled
 -- once; a plan that fails does not stop the others; the request ends on its last unit with one notice, partial when some

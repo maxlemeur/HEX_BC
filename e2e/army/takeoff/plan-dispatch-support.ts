@@ -13,7 +13,7 @@ import { toPreparationIntakeSource, toPreparationPlanSource } from "@/lib/takeof
 import { querySql } from "../local/calculation-gate-support";
 import { ownedWorkerSelection, type WorkerOwner, type WorkerUi } from "./worker-support";
 
-// One analysis per plan (lot 3, migration 20261121181031_takeoff_plan_dispatcher.sql) on the owned worker stack: its
+// One analysis per plan (lot 3, migration 20261121231238_takeoff_plan_dispatcher.sql) on the owned worker stack: its
 // activation for the duration of a journey, a fictional dossier of plans, a member's explicit command run by the server
 // (scripts/tester-army/takeoff-request-command.mjs) and a pass of the Mac's dispatcher with a controlled provider
 // (scripts/tester-army/takeoff-plan-dispatch.mjs). The takeoff journeys run one at a time (army-shards.json, suite

@@ -229,7 +229,7 @@ export async function recordLocalTakeoffFailure(input: {
   }
   if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible pour clore le job.", retryable: false, jobId: input.job.id });
   // The end the database recorded: it ends without a retry an attempt that holds a paid call of unknown outcome
-  // (migration 20261121181031_takeoff_plan_dispatcher.sql); before it answered only its diagnostic.
+  // (migration 20261121231238_takeoff_plan_dispatcher.sql); before it answered only its diagnostic.
   const recorded = data as { error_code?: unknown; error_message?: unknown; retry_scheduled?: unknown };
   if (typeof recorded.error_code !== "string" || recorded.error_code === input.error.code) return input.error;
   return new TakeoffError({ code: recorded.error_code as TakeoffErrorCode, status: input.error.status, retryable: recorded.retry_scheduled === true,
@@ -237,7 +237,7 @@ export async function recordLocalTakeoffFailure(input: {
 }
 
 /**
- * The worker's end of an attempt that may have held the Mac's slot (migration 20261121181031_takeoff_plan_dispatcher.sql):
+ * The worker's end of an attempt that may have held the Mac's slot (migration 20261121231238_takeoff_plan_dispatcher.sql):
  * whatever ended the job (its own write, or a member's stop that made that write refused), the Mac is given back for the
  * next plan. A no-op once the job's end gave it back, or for an attempt that never held it; best effort: the slot lapses
  * with the lease anyway.

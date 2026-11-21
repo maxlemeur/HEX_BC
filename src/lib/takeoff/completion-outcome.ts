@@ -16,7 +16,7 @@ export const TAKEOFF_PUBLIC_FAILURE_CODES = [
 
 /**
  * The codes a plan of one analysis per plan publishes to the affaire's readers, on that plan (private.
- * takeoff_plan_public_failure_codes, migration 20261121181031_takeoff_plan_dispatcher.sql): the list above, a plan's source
+ * takeoff_plan_public_failure_codes, migration 20261121231238_takeoff_plan_dispatcher.sql): the list above, a plan's source
  * changed after its admission, its request's budget spent, a call whose consumption stayed unknown or was not recorded.
  */
 export const TAKEOFF_PLAN_PUBLIC_FAILURE_CODES = [

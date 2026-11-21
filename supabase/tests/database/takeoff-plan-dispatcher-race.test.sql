@@ -1,4 +1,4 @@
--- Lot 3, migration A (20261121181031_takeoff_plan_dispatcher.sql): one analysis per plan across sessions.
+-- Lot 3, migration A (20261121231238_takeoff_plan_dispatcher.sql): one analysis per plan across sessions.
 -- 1. Two processes of one Mac claim two units at the same time: the second waits for the Mac's lock, then finds the Mac
 --    busy and starts nothing. One plan is read at a time.
 -- 2. The end of a unit and the cancellation of the last one at the same time: the second waits for the request's row,

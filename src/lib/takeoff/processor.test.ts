@@ -176,7 +176,7 @@ type SupabaseMockOptions = {
   job?: Partial<TakeoffJobRow>;
   /**
    * The attempt holds a paid call of unknown outcome: the failure writer ends the job without the retry the worker
-   * asked and answers what it recorded (record_local_takeoff_failure, migration 20261121181031_takeoff_plan_dispatcher.sql).
+   * asked and answers what it recorded (record_local_takeoff_failure, migration 20261121231238_takeoff_plan_dispatcher.sql).
    */
   heldUnknownCall?: boolean;
   existingResults?: StoredTakeoffResultRow[];
@@ -3451,7 +3451,7 @@ describe("a failure after a paid call of unknown outcome", () => {
   });
 });
 
-// Lot 3: a plan of one analysis per plan is read only under the Mac's slot (migration 20261121181031).
+// Lot 3: a plan of one analysis per plan is read only under the Mac's slot (migration 20261121231238).
 describe("an attempt of a plan of one analysis per plan", () => {
   const REQUEST = "77777777-7777-4777-8777-777777777777";
   const planUnit = { launch_request_id: REQUEST, preparation_snapshot: { launch_unit: { request_id: REQUEST,

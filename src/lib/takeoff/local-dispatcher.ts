@@ -9,7 +9,7 @@ import type { TakeoffJobAttemptOutcome, TakeoffJobAttemptTrigger } from "@/lib/t
 
 /**
  * The dispatcher of this Mac, once the owner activated one analysis per plan (migration
- * 20261121181031_takeoff_plan_dispatcher.sql): the database hands the next job this Mac reads, once its slot is free
+ * 20261121231238_takeoff_plan_dispatcher.sql): the database hands the next job this Mac reads, once its slot is free
  * (the oldest eligible request first, its units in their recorded order; a unit waiting for a later retry never holds
  * the others back), and the job's claim takes the slot in the same transaction. One attempt at a time, then the next:
  * a gesture (a confirmation, a relaunch, « Soumettre à nouveau ») and the Mac's poller both start a pass, never a lane

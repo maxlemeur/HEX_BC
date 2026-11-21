@@ -2,7 +2,7 @@
  * The coverage of a launch request (lot 3): one execution of an affaire's analysis on a sealed manifest, each unit of
  * which is analysed by its own job (one per plan in format 2, one grouped unit holding every plan in format 1). The
  * database decides the state of every unit in one place (private.takeoff_unit_state, migration
- * 20261121181031_takeoff_plan_dispatcher.sql): the reading contract of the affaire's activity
+ * 20261121231238_takeoff_plan_dispatcher.sql): the reading contract of the affaire's activity
  * (`readTakeoffLaunchRequestUnits` in launch-request-units-server.ts) returns those states; this module only counts and
  * words them, for the server and the screens alike. It never infers a success from the presence of a result row.
  */

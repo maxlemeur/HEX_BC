@@ -295,7 +295,7 @@ export async function recoverDurableWorkflows(
   }
 
   // A launch request whose units have all ended but which is still open is closed, with its one notice, from what was
-  // recorded, without any AI call (migration 20261121181031_takeoff_plan_dispatcher.sql). Best effort: its failure never
+  // recorded, without any AI call (migration 20261121231238_takeoff_plan_dispatcher.sql). Best effort: its failure never
   // stops the recovery of the rest.
   const { error: reconcileError } = await client.rpc("reconcile_takeoff_launch_requests", { p_limit: 20 });
   if (reconcileError) console.error("takeoff.launch_request.reconcile_failed");

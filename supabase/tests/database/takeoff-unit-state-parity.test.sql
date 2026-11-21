@@ -1,4 +1,4 @@
--- Lot 3, migration A (20261121181031_takeoff_plan_dispatcher.sql): the state of a unit is decided in SQL
+-- Lot 3, migration A (20261121231238_takeoff_plan_dispatcher.sql): the state of a unit is decided in SQL
 -- (private.takeoff_unit_state) and derived again in TypeScript for the activity centre's batched reads
 -- (deriveTakeoffRequestUnits, src/lib/takeoff/request-activity.ts). Both read the one matrix below:
 -- src/lib/takeoff/unit-state-parity.test.ts runs the same rows through the TypeScript derivation and requires the same

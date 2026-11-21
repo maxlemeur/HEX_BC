@@ -5,7 +5,7 @@ import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 
 /**
- * The ledger of a job's paid calls (migration 20261121181031_takeoff_plan_dispatcher.sql): every call of an attempt, a
+ * The ledger of a job's paid calls (migration 20261121231238_takeoff_plan_dispatcher.sql): every call of an attempt, a
  * reading of the PDF or a question on its vector groups, is reserved before it is sent, with its credential in hand,
  * and settled once with the usage its answer carried; a call that ends without a known usage stays held as unknown in
  * the request's balance, never credited back. The database decides, under the job's lock then the request's: the job's
