@@ -6,6 +6,7 @@ import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
+import { isTakeoffPlanDispatchActive, runLocalTakeoffDispatcherPass } from "@/lib/takeoff/local-dispatcher";
 
 const POLL_INTERVAL_MS = 15_000;
 const BATCH_SIZE = 5;
@@ -60,6 +61,11 @@ export function startLocalTakeoffRetryRecovery() {
     if (running) return;
     running = true;
     try {
+      // Once one analysis per plan is active, the dispatcher serves this Mac's queue in the database's order.
+      if (await isTakeoffPlanDispatchActive(client).catch(() => false)) {
+        await runLocalTakeoffDispatcherPass();
+        return;
+      }
       const due = new Date().toISOString();
       let query = client.from("takeoff_jobs")
         .select("id, tenant_id, status, created_at, tenants!inner(is_active)")
