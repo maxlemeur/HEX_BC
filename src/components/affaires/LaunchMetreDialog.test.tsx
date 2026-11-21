@@ -189,33 +189,64 @@ describe("LaunchMetreDialog", () => {
       expect(await screen.findByText("Une analyse de l’affaire est déjà en cours")).toBeInTheDocument();
     });
 
-    // A lost answer, then a reload (the dialogue mounted again): the same intention of the same member (affaire, intent,
-    // analysis replaced, plan set, preparation revision) sends the key the lost command used, so its replay finds its
-    // receipt instead of paying a second analysis. Another intention, another member or an answer received ends it.
-    it("replays a command whose answer was lost with the same key after a reload", async () => {
-      const user = userEvent.setup();
+    // A lost answer is settled before anything new: whatever the dialogue shows after a reload (its analysis may have
+    // finished meanwhile, and the zone then names it as the one to replace), the member's next click on the affaire sends
+    // the unanswered command again, with its key and its own content, and shows its answer; only a click after that answer
+    // is a new command. Another member of the same browser never sends it.
+    const clickOnce = async (element: React.ReactElement) => {
+      const view = render(element);
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+      await screen.findByText(/Impossible de lancer|Analyse existante retrouvée|Analyse transmise|déjà en cours/);
+      view.unmount();
+    };
+    const sent = () => relaunchTakeoffMock.mock.calls.map(([input]) => input as { intentKey: string; predecessorJobId: string | null });
+    const FINISHED = "55555555-5555-4555-8555-555555555555";
+
+    it("settles a command whose answer was lost before any new one, after its analysis finished and a reload", async () => {
       relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
-        .mockResolvedValueOnce({ ok: true, data: { outcome: "replayed", requestId: "r1", jobId: "j1" } })
+        .mockResolvedValueOnce({ ok: true, data: { outcome: "replayed", requestId: "r1", jobId: FINISHED } })
         .mockResolvedValue({ ok: true, data: { outcome: "admitted", requestId: "r2", jobId: "j2" } });
-      const keys = () => relaunchTakeoffMock.mock.calls.map(([input]) => (input as { intentKey: string }).intentKey);
-      const clickOnce = async (element: React.ReactElement) => {
-        const view = render(element);
-        await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
-        await screen.findByText(/Impossible de lancer|Analyse existante retrouvée|Analyse transmise/);
-        view.unmount();
-      };
       await clickOnce(as(MEMBER, request()));
-      await clickOnce(as(MEMBER, request()));
-      expect(keys()[1]).toBe(keys()[0]);
-      // The answer came: the same intention again is a new command.
-      await clickOnce(as(MEMBER, request()));
-      expect(keys()[2]).not.toBe(keys()[0]);
-      // A lost answer for one analysis replaced, then another intention, or another member of the same browser.
+      // The analysis that click launched finished; the reloaded affaire offers to relaunch it.
+      const afterReload = request({ launchMode: { kind: "request", predecessorJobId: FINISHED } });
+      render(as(MEMBER, afterReload));
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+      expect(await screen.findByText("Analyse existante retrouvée")).toBeInTheDocument();
+      expect(sent()).toHaveLength(2);
+      expect(sent()[1]).toEqual({ ...sent()[0] });
+      expect(sent()[1]!.predecessorJobId).toBe(predecessor);
+      cleanup();
+      // Its answer shown, a new click is a new command, naming the finished analysis.
+      await clickOnce(as(MEMBER, afterReload));
+      expect(sent()[2]).toMatchObject({ predecessorJobId: FINISHED });
+      expect(sent()[2]!.intentKey).not.toBe(sent()[0]!.intentKey);
+      // Another member of the same browser never sends the first member's command.
       relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"));
       await clickOnce(as(MEMBER, request()));
-      await clickOnce(as(MEMBER, request({ launchMode: { kind: "request", predecessorJobId: "55555555-5555-4555-8555-555555555555" } })));
       await clickOnce(as(OTHER_MEMBER, request()));
-      expect(new Set(keys().slice(3)).size).toBe(3);
+      expect(sent()[4]!.intentKey).not.toBe(sent()[3]!.intentKey);
+    });
+
+    // Two tabs of one member: an answer received in one ends the command for both; the other never sends its key again.
+    it("never sends again a key settled in another tab", async () => {
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValue({ ok: true, data: { outcome: "admitted", requestId: "r2", jobId: "j2" } });
+      await clickOnce(as(MEMBER, request()));
+      // The other tab's answer cleared the browser's entry.
+      window.localStorage.clear();
+      await clickOnce(as(MEMBER, request()));
+      expect(sent()[1]!.intentKey).not.toBe(sent()[0]!.intentKey);
+    });
+
+    it("keeps no identifier of the member, the affaire or the command in the browser entry's name", async () => {
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"));
+      await clickOnce(as(MEMBER, request()));
+      const names = Object.keys(window.localStorage);
+      expect(names).toHaveLength(1);
+      for (const id of [TENANT, MEMBER, defaultProps.projectId, predecessor, defaultProps.availablePlanSets[0]!.id]) {
+        expect(names[0]).not.toContain(id);
+      }
+      expect(names[0]).toMatch(/^mergeone:takeoff-launch-command:v2:[0-9a-f]{64}$/);
     });
 
     it("launches nothing from options shown while another analysis waits or runs, and says why", async () => {
