@@ -8,7 +8,9 @@ import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import type { TakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
+import { isTakeoffSourceVisible, type TakeoffVisibleSources } from "@/lib/takeoff/request-activity";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { readTakeoffVisibleSources } from "@/lib/takeoff/source-visibility-server";
 import {
   describeTakeoffJobFailure, resolveTakeoffVisibleJobStatus, takeoffCompletionFailureReason,
 } from "@/lib/takeoff/visible-status";
@@ -39,19 +41,40 @@ function toZoneJob(projectId: string, row: JobRow): AffaireTakeoffZoneJob {
   };
 }
 
-/** What the request sealed, by name only: the manifest itself (digests, files, budget) never reaches a member. */
-export function toAffaireTakeoffCoverage(manifest: unknown): AffaireTakeoffZoneRequest["coverage"] {
-  const coverage = (manifest as Partial<TakeoffLaunchManifest> | null)?.coverage;
-  if (!coverage || typeof coverage.plans_retained !== "number") return null;
-  const named = <T extends string>(entries: unknown, reasons: readonly T[]) => (Array.isArray(entries) ? entries : []).flatMap((entry) => {
+type OmittedEntry<T extends string> = { id: string; name: string; reason: T };
+
+function omittedEntries<T extends string>(entries: unknown, reasons: readonly T[]): OmittedEntry<T>[] {
+  return (Array.isArray(entries) ? entries : []).flatMap((entry) => {
     const piece = entry as { id?: unknown; name?: unknown; reason?: unknown };
     return typeof piece.id === "string" && typeof piece.name === "string" && reasons.includes(piece.reason as T)
       ? [{ id: piece.id, name: piece.name, reason: piece.reason as T }] : [];
   });
+}
+
+const PLAN_REASONS = ["alternate", "identical_copy", "unsupported_format"] as const;
+const REFERENCE_REASONS = ["unreadable", "unsupported_format", "limit"] as const;
+
+/** The plans and pieces a request's coverage names, whose read rights decide what the member sees of them. */
+function coverageSourceIds(manifest: unknown) {
+  const coverage = (manifest as Partial<TakeoffLaunchManifest> | null)?.coverage;
+  return [...omittedEntries(coverage?.plans_omitted, PLAN_REASONS), ...omittedEntries(coverage?.references_omitted, REFERENCE_REASONS)]
+    .map((entry) => entry.id);
+}
+
+/**
+ * What the request sealed, by name only: the manifest itself (digests, files, budget) never reaches a member, nor the ids
+ * of its pieces. A piece is named only to a member who may read its plan file or its dossier piece (`visible`); anyone
+ * else reads « Plan N » or « Pièce N », its rank in its list.
+ */
+export function toAffaireTakeoffCoverage(manifest: unknown, visible: TakeoffVisibleSources): AffaireTakeoffZoneRequest["coverage"] {
+  const coverage = (manifest as Partial<TakeoffLaunchManifest> | null)?.coverage;
+  if (!coverage || typeof coverage.plans_retained !== "number") return null;
+  const named = <T extends string>(entries: OmittedEntry<T>[], neutral: string) => entries.map((entry, index) => ({
+    name: isTakeoffSourceVisible(visible, entry.id) ? entry.name : `${neutral} ${index + 1}`, reason: entry.reason }));
   return {
     plansRetained: coverage.plans_retained,
-    plansOmitted: named(coverage.plans_omitted, ["alternate", "identical_copy", "unsupported_format"] as const),
-    referencesOmitted: named(coverage.references_omitted, ["unreadable", "unsupported_format", "limit"] as const),
+    plansOmitted: named(omittedEntries(coverage.plans_omitted, PLAN_REASONS), "Plan"),
+    referencesOmitted: named(omittedEntries(coverage.references_omitted, REFERENCE_REASONS), "Pièce"),
   };
 }
 
@@ -93,6 +116,10 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
     });
   const toJob = (row: unknown) => toZoneJob(projectId, row as JobRow);
   const { request } = launch;
+  const manifest = (sealed.data as { manifest?: unknown } | null)?.manifest ?? null;
+  // The member's own read rights on the pieces its coverage names (no read when it names none).
+  const visible = await readTakeoffVisibleSources({ supabase: context.supabase, tenantId: context.tenantId, projectId,
+    ids: coverageSourceIds(manifest) });
   return {
     active: launch.active,
     canOperate,
@@ -103,7 +130,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
       createdAt: request.createdAt, admittedAt: request.admittedAt, closedAt: request.closedAt, outcome: request.outcome,
       units: request.units, action: request.action,
       jobs: ((requestJobs.data ?? []) as unknown[]).map(toJob),
-      coverage: toAffaireTakeoffCoverage((sealed.data as { manifest?: unknown } | null)?.manifest ?? null),
+      coverage: toAffaireTakeoffCoverage(manifest, visible),
       completionEventId,
     } : null,
     dossierChangedSinceAnalysis: launch.dossierChangedSinceAnalysis,

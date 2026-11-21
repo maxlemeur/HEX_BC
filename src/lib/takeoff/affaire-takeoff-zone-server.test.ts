@@ -1,36 +1,104 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/takeoff/launch-request-server", () => ({ readAffaireTakeoffLaunchState: vi.fn() }));
 vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjectAccess: vi.fn() }));
 
-import { toAffaireTakeoffCoverage } from "@/lib/takeoff/affaire-takeoff-zone-server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { readAffaireTakeoffZone, toAffaireTakeoffCoverage } from "@/lib/takeoff/affaire-takeoff-zone-server";
+import { readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
+import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
+import { createSupabaseFake, filterValue, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
+
+const TENANT = "bbbbbbbb-0000-4000-8000-000000000010";
+const PROJECT = "bbbbbbbb-0000-4000-8000-000000000020";
+const REQUEST = "bbbbbbbb-0000-4000-8000-000000000030";
+const VIEWER = "bbbbbbbb-0000-4000-8000-000000000001";
+const ALTERNATE = "bbbbbbbb-0000-4000-8000-000000000051";
+const CCTP = "bbbbbbbb-0000-4000-8000-000000000061";
+
+const manifest = {
+  format_version: 1, budget: { tokens: 400000, cost_cents: 2500 },
+  plans: [{ plan_file_id: "f1", content_sha256: "a".repeat(64), generation: "g1" }],
+  references: [{ document_id: "d1", kind: "cctp", content_sha256: "b".repeat(64) }],
+  coverage: {
+    plans_retained: 1,
+    plans_omitted: [{ id: ALTERNATE, name: "Plan RDC indice A.pdf", reason: "alternate", content_sha256: "c".repeat(64) },
+      { id: "f3", name: "Inconnu.pdf", reason: "autre" }],
+    references_omitted: [{ id: CCTP, name: "CCTP.docx", reason: "unsupported_format", file_path: "tenant/affaire/cctp.docx" }],
+  },
+};
 
 // The manifest a request sealed holds digests, files, the budget and the plans' generations: a member's zone reads only
-// how many plans it retained and the pieces it left out, by name and reason.
+// how many plans it retained and the pieces it left out, by name and reason, never their ids.
 describe("toAffaireTakeoffCoverage", () => {
   it("projects names and reasons only, and drops an entry it does not know", () => {
-    const manifest = {
-      format_version: 1, budget: { tokens: 400000, cost_cents: 2500 },
-      plans: [{ plan_file_id: "f1", content_sha256: "a".repeat(64), generation: "g1" }],
-      references: [{ document_id: "d1", kind: "cctp", content_sha256: "b".repeat(64) }],
-      coverage: {
-        plans_retained: 1,
-        plans_omitted: [{ id: "f2", name: "Plan RDC indice A.pdf", reason: "alternate", content_sha256: "c".repeat(64) },
-          { id: "f3", name: "Inconnu.pdf", reason: "autre" }],
-        references_omitted: [{ id: "d2", name: "CCTP.docx", reason: "unsupported_format", file_path: "tenant/affaire/cctp.docx" }],
-      },
-    };
-    expect(toAffaireTakeoffCoverage(manifest)).toEqual({
+    expect(toAffaireTakeoffCoverage(manifest, "all")).toEqual({
       plansRetained: 1,
-      plansOmitted: [{ id: "f2", name: "Plan RDC indice A.pdf", reason: "alternate" }],
-      referencesOmitted: [{ id: "d2", name: "CCTP.docx", reason: "unsupported_format" }],
+      plansOmitted: [{ name: "Plan RDC indice A.pdf", reason: "alternate" }],
+      referencesOmitted: [{ name: "CCTP.docx", reason: "unsupported_format" }],
     });
-    expect(JSON.stringify(toAffaireTakeoffCoverage(manifest))).not.toMatch(/sha256|cost_cents|file_path|generation/);
+    expect(JSON.stringify(toAffaireTakeoffCoverage(manifest, "all"))).not.toMatch(/sha256|cost_cents|file_path|generation|bbbbbbbb/);
   });
 
   it("shows no coverage for a request without a sealed manifest", () => {
-    expect(toAffaireTakeoffCoverage(null)).toBeNull();
-    expect(toAffaireTakeoffCoverage({ coverage: {} })).toBeNull();
+    expect(toAffaireTakeoffCoverage(null, "all")).toBeNull();
+    expect(toAffaireTakeoffCoverage({ coverage: {} }, "all")).toBeNull();
+  });
+});
+
+// The zone names a piece the request left out only to a member who may read its plan file or its dossier piece (their own
+// policies, under their session); anyone else reads a neutral name.
+describe("readAffaireTakeoffZone", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(assertPreparationProjectAccess).mockResolvedValue(undefined as never);
+    vi.mocked(readAffaireTakeoffLaunchState).mockResolvedValue({ active: true, confirmedBeforeActivation: false,
+      request: { id: REQUEST, origin: "automatic", state: "closed", mandateRevision: 1, reason: null, message: null, pieces: [],
+        hasPayer: true, payerIsViewer: false, createdAt: "2026-11-21T08:00:00Z", admittedAt: "2026-11-21T08:05:00Z",
+        closedAt: "2026-11-21T08:30:00Z", outcome: "success", jobId: null,
+        units: { expected: 1, succeeded: 1, failed: 0, canceled: 0 }, action: "none", actionLabel: null },
+      dossierChangedSinceAnalysis: null } as never);
+    const service = createSupabaseFake({ tables: { takeoff_launch_requests: () => ({ data: { manifest }, error: null }) } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
+  });
+
+  function zone(rights: { owner?: boolean; readable?: string[] }) {
+    const readable = new Set(rights.readable ?? []);
+    const rows = (query: FakeQuery) => ({ data: ((filterValue(query, "id") as string[] | undefined) ?? [])
+      .filter((id) => readable.has(id)).map((id) => ({ id })), error: null });
+    const session = createSupabaseFake({
+      tables: {
+        takeoff_launch_requests: () => ({ data: { completion_event_id: null }, error: null }),
+        takeoff_jobs: () => ({ data: [], error: null }),
+        plan_files: rows, affaire_intake_documents: rows,
+      },
+      rpc: {
+        list_affaire_takeoff_completions: () => ({ data: [], error: null }),
+        can_access_takeoff_project: () => ({ data: rights.owner ?? false, error: null }),
+      },
+    });
+    return readAffaireTakeoffZone({ supabase: session.client, tenantId: TENANT, userId: VIEWER } as never, PROJECT)
+      .then((data) => data.request?.coverage);
+  }
+
+  it("names the pieces left out to the affaire's owner or an administrator", async () => {
+    await expect(zone({ owner: true })).resolves.toEqual({ plansRetained: 1,
+      plansOmitted: [{ name: "Plan RDC indice A.pdf", reason: "alternate" }],
+      referencesOmitted: [{ name: "CCTP.docx", reason: "unsupported_format" }] });
+  });
+
+  it("names only the pieces whose rows the member reads", async () => {
+    await expect(zone({ readable: [CCTP] })).resolves.toEqual({ plansRetained: 1,
+      plansOmitted: [{ name: "Plan 1", reason: "alternate" }],
+      referencesOmitted: [{ name: "CCTP.docx", reason: "unsupported_format" }] });
+  });
+
+  it("gives a neutral name to every piece the member may not read", async () => {
+    const coverage = await zone({ readable: [] });
+    expect(coverage).toEqual({ plansRetained: 1,
+      plansOmitted: [{ name: "Plan 1", reason: "alternate" }],
+      referencesOmitted: [{ name: "Pièce 1", reason: "unsupported_format" }] });
+    expect(JSON.stringify(coverage)).not.toMatch(/RDC|CCTP|bbbbbbbb/);
   });
 });

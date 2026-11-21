@@ -8,7 +8,7 @@ import { AFFAIRE_INTAKE_PLAN_SET_METADATA } from "@/lib/takeoff/default-import-p
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import {
   assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
-  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice,
+  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import { createSupabaseFake, filterValue, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
@@ -230,6 +230,80 @@ describe("describeDossierChangeSinceAnalysis", () => {
       expect(describeDossierChangeSinceAnalysis(manifest, [copy], [replaced])).toEqual({ added: [], removed: [],
         replaced: [{ id: DOCUMENT, name: "Plan RDC.pdf" }] });
     });
+});
+
+// The dossier change the affaire's zone shows after an analysis: compared with the plan set the request analysed (a
+// relaunch on another set than the dossier's never reads as the dossier's plans added and its own removed), and naming a
+// plan only to a member who may read its copy or its dossier piece.
+describe("readDossierChangeSinceAnalysis", () => {
+  const SET_B = "aaaaaaaa-0000-4000-8000-000000000041";
+  const PLAN_B = "aaaaaaaa-0000-4000-8000-000000000051";
+  const PLAN_C = "aaaaaaaa-0000-4000-8000-000000000052";
+  const document = { id: DOCUMENT, upload_id: null, storage_path: `${TENANT}/dossier/plan-rdc.pdf`, plan_copy_generation: "generation-3",
+    file_name: "Plan RDC.pdf", mime_type: "application/pdf", size_bytes: 10, upload_status: "uploaded", classification_status: "classified",
+    document_kind: "plans", document_priority: "primary", classified_at: "2026-11-21T09:00:00Z", source_provider: null, deleted_at: null };
+  const dossierCopy = { id: PLAN_FILE, plan_set_id: PLAN_SET, file_path: FILE_PATH, file_name: "plan-rdc.pdf", file_size_bytes: 10,
+    metadata: { source: "affaire-intake", intake_document_id: DOCUMENT, intake_storage_path: document.storage_path, intake_generation: "generation-2" } };
+  const planB = { id: PLAN_B, plan_set_id: SET_B, file_path: `${TENANT}/${SET_B}/${PLAN_B}/plan-b.pdf`, file_name: "Plan B.pdf",
+    file_size_bytes: 10, metadata: {} };
+  const planC = { ...planB, id: PLAN_C, file_path: `${TENANT}/${SET_B}/${PLAN_C}/plan-c.pdf`, file_name: "Plan C.pdf" };
+  const sealedPlan = (plan: typeof planB | typeof dossierCopy, intake: { id: string; generation: string } | null) => ({
+    entry_key: plan.id, name: plan.file_name, logical_id: intake?.id ?? plan.id, intake_document_id: intake?.id ?? null,
+    plan_file_id: plan.id, generation: intake?.generation ?? null, content_sha256: "c".repeat(64), pages: [], page_count: 1 });
+
+  function read(input: { analysed: "dossier" | "b"; files: Array<typeof planB | typeof dossierCopy>; owner?: boolean; readable?: readonly string[] }) {
+    const manifest = { format_version: 1, intent: "reread_plans", units: [{ key: "grouped", plans: [] }], references: [],
+      plans: input.analysed === "b" ? [sealedPlan(planB, null)] : [sealedPlan(dossierCopy, { id: DOCUMENT, generation: "generation-2" })],
+      coverage: { plans_retained: 1, plans_omitted: [], references_omitted: [] } };
+    const service = createSupabaseFake({ tables: {
+      takeoff_launch_requests: () => ({ data: { manifest }, error: null }),
+      takeoff_jobs: (query: FakeQuery) => ({ data: filterValue(query, "launch_request_id") === REQUEST
+        ? { plan_set_id: input.analysed === "b" ? SET_B : PLAN_SET } : null, error: null }),
+      plan_sets: () => ({ data: [
+        { id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
+          updated_at: "2026-11-21T08:00:00Z", plan_files: [{ count: 1 }] },
+        { id: SET_B, estimate_version_id: null, name: "Plans B", metadata: {}, updated_at: "2026-11-21T08:30:00Z", plan_files: [{ count: 1 }] },
+      ], error: null, count: 2 }),
+      plan_files: (query: FakeQuery) => {
+        const rows = input.files.filter((file) => file.plan_set_id === filterValue(query, "plan_set_id"));
+        return { data: rows, error: null, count: rows.length };
+      },
+      affaire_intake_documents: () => ({ data: [document], error: null, count: 1 }),
+    } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
+    // The member's own session: their policies say which plan files and dossier pieces they read.
+    const readable = new Set(input.readable ?? []);
+    const rows = (query: FakeQuery) => ({ data: ((filterValue(query, "id") as string[] | undefined) ?? [])
+      .filter((id) => readable.has(id)).map((id) => ({ id })), error: null });
+    const session = createSupabaseFake({
+      tables: { plan_files: rows, affaire_intake_documents: rows },
+      rpc: { can_access_takeoff_project: () => ({ data: input.owner ?? false, error: null }) },
+    });
+    return readDossierChangeSinceAnalysis({ supabase: session.client as never, tenantId: TENANT }, PROJECT, REQUEST);
+  }
+
+  it("reports no change right after a relaunch on another plan set than the dossier's", async () => {
+    await expect(read({ analysed: "b", files: [dossierCopy, planB], owner: true })).resolves.toBeNull();
+  });
+
+  it("reports a plan added to the analysed set since, and nothing of the dossier's own set", async () => {
+    await expect(read({ analysed: "b", files: [dossierCopy, planB, planC], owner: true })).resolves.toEqual({
+      added: [{ id: PLAN_C, name: "Plan C.pdf" }], replaced: [], removed: [] });
+  });
+
+  it.each([
+    ["the affaire's owner or an administrator", { owner: true }, "Plan RDC.pdf"],
+    ["a member who reads the dossier piece", { readable: [DOCUMENT] }, "Plan RDC.pdf"],
+    ["a member who reads neither the piece nor its copy", { readable: [] }, "Plan 1"],
+  ] as const)("names the dossier's replaced piece to %s", async (_case, rights, name) => {
+    await expect(read({ analysed: "dossier", files: [dossierCopy], ...rights })).resolves.toEqual({
+      added: [], replaced: [{ id: DOCUMENT, name }], removed: [] });
+  });
+
+  it("names a removed plan only to a member who may read its copy", async () => {
+    await expect(read({ analysed: "b", files: [dossierCopy], readable: [] })).resolves.toEqual({
+      added: [], replaced: [], removed: [{ id: PLAN_B, name: "Plan 1" }] });
+  });
 });
 
 // The gestures: the brief's confirmation records who pays, on this Mac, or why nobody does; a take-over and a relaunch.

@@ -45,6 +45,8 @@ import { TAKEOFF_PAGE_TRIAGE_TEXT } from "@/lib/takeoff/page-triage-server";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
+import { maskTakeoffDossierChange, maskTakeoffPieces } from "@/lib/takeoff/request-activity";
+import { readTakeoffVisibleSources } from "@/lib/takeoff/source-visibility-server";
 import type { Database, Json } from "@/types/database";
 
 type Service = SupabaseClient<Database>;
@@ -220,11 +222,32 @@ async function readDossierPlanSet(service: Service, tenantId: string, projectId:
     metadata: unknown; updated_at: string; plan_files?: Array<{ count: number }> }>)
     .map((set) => ({ ...set, file_count: set.plan_files?.[0]?.count ?? 0 })));
   if (!chosen) return null;
+  return { id: chosen.id, files: await readPlanSetFiles(service, tenantId, chosen.id) };
+}
+
+async function readPlanSetFiles(service: Service, tenantId: string, planSetId: string) {
   const files = await readAllRows(() => service.from("plan_files").select("id, file_path, file_name, file_size_bytes, metadata", { count: "exact" })
-    .eq("tenant_id", tenantId).eq("plan_set_id", chosen.id).order("id"));
+    .eq("tenant_id", tenantId).eq("plan_set_id", planSetId).order("id"));
   if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
-  return { id: chosen.id, files: (files.data ?? []).map((file) => ({ ...file,
-    metadata: (file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata) ? file.metadata : {}) as Record<string, unknown> })) };
+  return (files.data ?? []).map((file) => ({ ...file,
+    metadata: (file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata) ? file.metadata : {}) as Record<string, unknown> }));
+}
+
+/**
+ * The plan set a request analysed (its analysis's), with its copies; `dossier` when it is the dossier's import set, whose
+ * plans without a working copy count. A request without an analysis yet reads the dossier's.
+ */
+async function readRequestPlanSet(service: Service, tenantId: string, projectId: string, requestId: string) {
+  const [dossier, analysed] = await Promise.all([
+    readDossierPlanSet(service, tenantId, projectId),
+    service.from("takeoff_jobs").select("plan_set_id").eq("tenant_id", tenantId).eq("project_id", projectId)
+      .eq("launch_request_id", requestId).order("launch_unit_key").order("id").limit(1).maybeSingle(),
+  ]);
+  if (analysed.error) databaseError(analysed.error, "Impossible de lire l’analyse du métré.");
+  const planSetId = analysed.data?.plan_set_id ?? dossier?.id ?? null;
+  if (!planSetId) return null;
+  if (planSetId === dossier?.id) return { ...dossier, dossier: true };
+  return { id: planSetId, files: await readPlanSetFiles(service, tenantId, planSetId), dossier: false };
 }
 
 async function readDossierDocuments(service: Service, tenantId: string, projectId: string) {
@@ -649,16 +672,19 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
 
   const reason = isTakeoffLaunchReason(latest.reason_code) ? latest.reason_code : null;
   const details = (latest.reason_details ?? {}) as { pieces?: unknown };
-  const pieces = Array.isArray(details.pieces) ? details.pieces.flatMap((piece) => {
+  const named = Array.isArray(details.pieces) ? details.pieces.flatMap((piece) => {
     const entry = piece as { id?: unknown; name?: unknown };
     return typeof entry?.id === "string" && typeof entry.name === "string" ? [{ id: entry.id, name: entry.name }] : [];
   }) : [];
+  // A piece is named only to a member who may read it.
+  const pieces = named.length ? maskTakeoffPieces(named, await readTakeoffVisibleSources({ supabase: context.supabase,
+    tenantId: context.tenantId, projectId, ids: named.map((piece) => piece.id) })) : named;
   const [allowed, jobs, dossierChangedSinceAnalysis] = await Promise.all([
     service.rpc("takeoff_launch_request_action", { p_request_id: latest.id, p_actor: context.userId }),
     latest.admitted_at ? context.supabase.from("takeoff_jobs").select("id")
       .eq("tenant_id", context.tenantId).eq("launch_request_id", latest.id).order("launch_unit_key").limit(1)
       : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
-    latest.admitted_at ? readDossierChangeSinceAnalysis(service, context.tenantId, projectId, latest.id) : Promise.resolve(null),
+    latest.admitted_at ? readDossierChangeSinceAnalysis(context, projectId, latest.id) : Promise.resolve(null),
   ]);
   if (allowed.error) databaseError(allowed.error, "Impossible de lire le métré de l’affaire.");
   if (jobs.error) databaseError(jobs.error, "Impossible de lire l’analyse du métré.");
@@ -685,16 +711,27 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
 
 /**
  * The plans of the dossier against the plans the request sealed (read by the server after the access check): its plan
- * set's copies, and every plan classified in the dossier since that has no working copy (it is named, never invisible).
+ * set's copies, and every plan classified in the dossier since that has no working copy (it is listed, never invisible).
+ * Each is named only to the member who may read its source, by the plan files' and dossier pieces' own policies
+ * evaluated for that member (`member`: their session); anyone else reads « Plan N ». The plan set compared is the one
+ * the request analysed: a relaunch on another set than the dossier's is compared with that set alone.
  */
-async function readDossierChangeSinceAnalysis(service: Service, tenantId: string, projectId: string, requestId: string) {
+export async function readDossierChangeSinceAnalysis(member: Pick<Context, "supabase" | "tenantId">, projectId: string,
+  requestId: string) {
+  const service = createServiceRoleClient();
+  const { tenantId } = member;
   const [{ data: request, error }, planSet, documents] = await Promise.all([
     service.from("takeoff_launch_requests").select("manifest").eq("id", requestId).eq("tenant_id", tenantId).maybeSingle(),
-    readDossierPlanSet(service, tenantId, projectId),
+    readRequestPlanSet(service, tenantId, projectId, requestId),
     readDossierDocuments(service, tenantId, projectId),
   ]);
   if (error) databaseError(error, "Impossible de lire le métré de l’affaire.");
-  return describeDossierChangeSinceAnalysis(request?.manifest as TakeoffLaunchManifest | null, planSet?.files ?? [], documents);
+  const change = describeDossierChangeSinceAnalysis(request?.manifest as TakeoffLaunchManifest | null, planSet?.files ?? [],
+    planSet?.dossier === false ? [] : documents);
+  if (!change) return null;
+  const visible = await readTakeoffVisibleSources({ supabase: member.supabase, tenantId, projectId,
+    ids: [...change.added, ...change.replaced, ...change.removed].map((piece) => piece.id) });
+  return maskTakeoffDossierChange(change, visible);
 }
 
 /** The dossier's plans and pieces against a request's sealed manifest: what was added, replaced or removed since. */

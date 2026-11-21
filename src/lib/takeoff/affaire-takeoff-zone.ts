@@ -50,11 +50,14 @@ export type AffaireTakeoffZoneRequest = {
   action: TakeoffLaunchAction;
   /** Every analysis of the request, never only the latest by date. */
   jobs: AffaireTakeoffZoneJob[];
-  /** What the request sealed: the plans it reads and the pieces it left out, by name. */
+  /**
+   * What the request sealed: the plans it reads and the pieces it left out, by name (a neutral « Plan N » or « Pièce N »
+   * for a piece the member may not read), never by id.
+   */
   coverage: null | {
     plansRetained: number;
-    plansOmitted: Array<TakeoffLaunchPiece & { reason: "alternate" | "identical_copy" | "unsupported_format" }>;
-    referencesOmitted: Array<TakeoffLaunchPiece & { reason: "unreadable" | "unsupported_format" | "limit" }>;
+    plansOmitted: Array<{ name: string; reason: "alternate" | "identical_copy" | "unsupported_format" }>;
+    referencesOmitted: Array<{ name: string; reason: "unreadable" | "unsupported_format" | "limit" }>;
   };
   /** The event of its end: the members' notification and its e-mail. */
   completionEventId: string | null;
