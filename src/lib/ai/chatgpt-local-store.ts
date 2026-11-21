@@ -79,11 +79,13 @@ export async function readChatGptStore(owner: ChatGptOwner): Promise<ChatGptStor
   try {
     const content = await readFile(path.join(root(), `${ownerKey(owner)}.json`), "utf8");
     const store = storeSchema.parse(JSON.parse(content));
-    // A connection made before authorizations existed gets one when the store loads, from the identity token it was
-    // signed in with (a refresh keeps it, a new sign-in replaces it, a disconnection removes it).
+    // A connection made before authorizations existed gets one when the store loads, from what it was signed in with:
+    // its identity token, or else its registration and account (a refresh keeps it, a new sign-in replaces it with its
+    // own, a disconnection removes it with the tokens).
     for (const profile of store.profiles) {
-      if (!profile.authorizationId && profile.idToken) {
-        profile.authorizationId = `legacy:${createHash("sha256").update(`${profile.id}:${profile.idToken}`).digest("hex")}`;
+      if (!profile.authorizationId && (profile.accessToken || profile.refreshToken)) {
+        const signedIn = profile.idToken ?? `${profile.clientId}:${profile.subject}`;
+        profile.authorizationId = `legacy:${createHash("sha256").update(`${profile.id}:${signedIn}`).digest("hex")}`;
       }
     }
     return store;

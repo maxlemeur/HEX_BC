@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -236,6 +237,21 @@ describe("local ChatGPT authorization", () => {
     expect(store.selectedId).toBeNull(); expect(store.profiles[0].clientId).toBe("oaiapp_test");
     const file = (await readdir(path.join(directory, ".private", "chatgpt-local"))).find((entry) => entry !== "host.json")!;
     expect(await readFile(path.join(directory, ".private", "chatgpt-local", file), "utf8")).not.toContain("fixture-refresh");
+  });
+
+  it("gives a connection made before authorizations existed one when the store loads, stable until it is withdrawn", async () => {
+    const file = path.join(directory, ".private", "chatgpt-local", `${createHash("sha256").update(JSON.stringify([owner.userId, owner.tenantId])).digest("hex")}.json`);
+    await mkdir(path.dirname(file), { recursive: true });
+    // A store written by an earlier version, without an identity token (as an older connection may be).
+    await writeFile(file, JSON.stringify({ selectedId: "ancien", profiles: [{ id: "ancien", clientId: "oaiapp_test", issuer: "https://auth.openai.com",
+      subject: "account-a", email: "fixture@example.test", model: "modele", reasoningEffort: null, accessToken: "fixture-access",
+      refreshToken: "fixture-refresh", expiresAt: Date.now() + 3_600_000, scopes: ["chatgpt.tokens.use.direct"] }] }));
+    const first = (await readChatGptStore(owner)).profiles[0].authorizationId;
+    expect(first).toEqual(expect.stringMatching(/^legacy:/));
+    expect((await readChatGptStore(owner)).profiles[0].authorizationId).toBe(first);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    await disconnectLocalChatGpt(owner);
+    expect((await readChatGptStore(owner)).profiles[0].authorizationId).toBeUndefined();
   });
 
   it("gives each connection its own authorization: a reconnection of the same profile never restores a withdrawn one", async () => {
