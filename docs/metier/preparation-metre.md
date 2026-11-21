@@ -131,8 +131,12 @@ la base en garantit l’unicité et l’admission (migration
   préparation déduite du dossier (avec les options enregistrées, sans écrire sur
   le brouillon des membres), les empreintes des octets lus et le manifeste, puis
   admet la demande : son job et les deux traces de création sont écrits dans la
-  même transaction. Lire une page ne dépense rien : seules les transitions du
-  dossier et les gestes le font.
+  même transaction. Le scellement est celui de la confirmation d’un membre
+  (voir « Sources et instantané de lancement ») : une pièce de référence que
+  l’analyse ne lirait pas est laissée de côté et nommée, avec son motif, dans la
+  couverture du manifeste, et l’analyse se fait sans elle ; elle ne consomme
+  jamais le seul démarrage automatique de l’affaire. Lire une page ne dépense
+  rien : seules les transitions du dossier et les gestes le font.
 - **Ce qui empêche de démarrer** est un état visible, avec son motif, jamais un
   job présenté comme lancé ni un changement de mode de paiement : dossier non
   confirmé ou sans plan exploitable ; plan sans copie de travail (la pièce est
@@ -317,11 +321,31 @@ leurs identités sont conservées dans l’instantané. Les pièces DPGF et CCTP
 disponibles complètent le contexte dans les limites de format et de volume.
 La préparation signale une pièce retenue que le serveur ne peut pas lire.
 
+Le scellement des sources est le même pour la confirmation d’un membre et pour
+le démarrage automatique
+([`sealPreparationSources`](../../src/lib/takeoff/preparation-server.ts)). Avant
+tout téléchargement, il vérifie, depuis les lignes du dossier, le format, le
+nombre et la taille enregistrée des pièces de référence, puis que le fichier
+stocké a bien cette taille (un plan, au plus la taille d’un plan). Il lit chaque
+pièce de référence comme le traitement la lira
+([`readPreparationReference`](../../src/lib/takeoff/preparation-reference-loader.ts)),
+dans les mêmes limites : 20 pièces, 20 Mo de fichiers, 200 pages retenues et
+20 Mo joints. Une pièce que le traitement refuserait (un PDF abîmé ou protégé,
+un classeur invalide, des pages retenues au-delà des limites) est montrée au
+membre avant sa confirmation, qui n’a pas lieu ; le démarrage automatique la
+laisse de côté et la nomme. Le cartouche d’un plan du dossier donne son indice ;
+une page que le rendu ne peut pas dessiner laisse cet indice non lu (le dossier
+ou le nom du fichier le donnent alors), sans écarter le plan : le traitement lit
+le plan sans son cartouche.
+
 L'instantané contient la préparation complète, sa révision enregistrée, l'auteur,
 la date et l'état de préparation calculé. Les références et les valeurs copiées
 ne sont plus liées en mémoire au brouillon. Le serveur confirme également le
 SHA-256 des octets des plans, y compris pour les anciens imports sans empreinte
-fiable. Le traitement doit vérifier ce contenu avant de l'utiliser.
+fiable, et marque chaque pièce dont il a lu les octets comme attestée : la revue
+ne sert la localisation et le PDF d’origine d’un plan que pour une pièce
+attestée, qu’un membre ou le démarrage automatique l’ait scellée. Le traitement
+doit vérifier ce contenu avant de l'utiliser.
 
 Les sources, pages et conventions sont des contraintes d'entrée. Les lots,
 réseaux, niveaux et exclusions exprimés en texte guident l'analyse ; ils ne
