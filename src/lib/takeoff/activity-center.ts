@@ -17,8 +17,9 @@ import type {
   TakeoffDispatchOutcome,
   TakeoffDispatchStatus,
 } from "@/lib/takeoff/types";
-import { hasScheduledLocalTakeoffRetry, toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
-import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
+import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
+import { resolveTakeoffOperatorState, toTakeoffOperatorStateInput } from "@/lib/takeoff/operator-state";
+import { readTakeoffExecutionHostId, toTakeoffResumeViewer } from "@/lib/takeoff/resume-viewer-server";
 import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
 
@@ -52,6 +53,10 @@ type JobRow = {
   analysis_finished_at?: string | null;
   analysis_completion_event_id?: string | null;
   execution_provider?: string | null;
+  execution_host_id?: string | null;
+  created_by?: string | null;
+  completed_at?: string | null;
+  error_code?: string | null;
   next_retry_at?: string | null;
   processing_strategy: string | null;
   provider_batch_id: string | null;
@@ -143,7 +148,7 @@ async function listMatchingJobs(
       supabase
         .from("takeoff_jobs" as never)
         .select(
-          "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
+          "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, execution_host_id, created_by, completed_at, error_code, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
         )
         .eq("tenant_id" as never, tenantId as never),
       {
@@ -364,13 +369,12 @@ async function listJobsWithBlockingExceptions(
   return jobsWithExceptions;
 }
 
-async function countItemsByJobId(
+/** One head count per job: the fallback when the lines of a page change while they are read. */
+async function countItemsOfEachJob(
   supabase: SupabaseClient,
   tenantId: string,
   jobIds: string[]
 ): Promise<Map<string, number>> {
-  if (jobIds.length === 0) return new Map();
-
   const entries = await Promise.all(
     jobIds.map(async (jobId) => {
       const { count, error } = await supabase
@@ -393,7 +397,39 @@ async function countItemsByJobId(
   return new Map(entries);
 }
 
+/**
+ * The lines of the given jobs, from one read of their rows rather than one count per analysis. A read that sees the lines
+ * change between its pages (a result being stored) falls back to a count per job, never to a wrong count.
+ */
+async function countItemsByJobId(
+  supabase: SupabaseClient,
+  tenantId: string,
+  jobIds: string[]
+): Promise<Map<string, number>> {
+  const counts = new Map(jobIds.map((jobId) => [jobId, 0]));
+  if (jobIds.length === 0) return counts;
+
+  let read: Awaited<ReturnType<typeof readAllRowsInChunks>>;
+  try {
+    read = await readAllRowsInChunks(jobIds, (pageIds) => supabase
+      .from("takeoff_items" as never)
+      .select("job_id, id" as never, { count: "exact" })
+      .eq("tenant_id" as never, tenantId as never)
+      .in("job_id" as never, pageIds as never));
+  } catch {
+    return countItemsOfEachJob(supabase, tenantId, jobIds);
+  }
+  if (read.error) return countItemsOfEachJob(supabase, tenantId, jobIds);
+
+  for (const row of (read.data ?? []) as Array<{ job_id: string }>) {
+    counts.set(row.job_id, (counts.get(row.job_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 type EnrichmentResult = {
+  /** The lines of each enriched job, from the same read as their confidence. */
+  itemCounts: Map<string, number>;
   confidence: Map<string, number | null>;
   exceptions: Map<string, number>;
   coverage: Map<string, number | null>;
@@ -407,6 +443,7 @@ async function batchEnrich(
 ): Promise<EnrichmentResult> {
   if (jobs.length === 0) {
     return {
+      itemCounts: new Map(),
       confidence: new Map(),
       exceptions: new Map(),
       coverage: new Map(),
@@ -503,8 +540,10 @@ async function batchEnrich(
       })(),
     ]);
 
+  const itemCounts = new Map<string, number>(jobIds.map((jobId) => [jobId, 0]));
   const confidenceByJob = new Map<string, number[]>();
   for (const row of confidenceRows) {
+    itemCounts.set(row.job_id, (itemCounts.get(row.job_id) ?? 0) + 1);
     if (row.confidence !== null && Number.isFinite(row.confidence)) {
       const arr = confidenceByJob.get(row.job_id) ?? [];
       arr.push(row.confidence);
@@ -574,14 +613,17 @@ async function batchEnrich(
     }
   }
 
-  return { confidence, exceptions, coverage, carryOver };
+  return { itemCounts, confidence, exceptions, coverage, carryOver };
 }
 
 export async function listActivityCenterJobs(
   input: ListActivityCenterJobsInput
 ): Promise<TakeoffActivityCenterResponse> {
-  const { context: { supabase, tenantId, tenantRole } } = await requireAffaireAccess(input.project_id, "read");
+  const { context, project } = await requireAffaireAccess(input.project_id, "read");
+  const { supabase, tenantId } = context;
   await assertTakeoffEnabled(tenantId, { supabase });
+  // The member's rights on this affaire and the Mac of this request, read once: every row is decided from them.
+  const resumeViewer = readTakeoffExecutionHostId().then((hostId) => toTakeoffResumeViewer(context, project, hostId));
 
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
@@ -691,15 +733,24 @@ export async function listActivityCenterJobs(
   const total = statusFilteredRows.length;
   const jobIds = pagedRows.map((row) => row.id);
 
-  const itemCountMap = await countItemsByJobId(supabase, tenantId, jobIds);
-
-  // 5. Batch-enrich completed/applied jobs for the current page only.
+  // 5. Batch-enrich completed/applied jobs for the current page only. The other rows of the page (failed, canceled,
+  // in progress) have their lines counted by one more read: the list makes no request per analysis.
   const enrichableJobs = pagedRows.filter(
     (r) => r.status === "completed" || r.status === "applied"
   );
+  const enrichableIds = new Set(enrichableJobs.map((job) => job.id));
 
-  const { confidence: confidenceMap, exceptions: exceptionMap, coverage: coverageMap, carryOver: carryOverMap } =
-    await batchEnrich(supabase, tenantId, enrichableJobs);
+  const [
+    { itemCounts: enrichedItemCounts, confidence: confidenceMap, exceptions: exceptionMap, coverage: coverageMap, carryOver: carryOverMap },
+    otherItemCounts,
+  ] = await Promise.all([
+    batchEnrich(supabase, tenantId, enrichableJobs),
+    countItemsByJobId(supabase, tenantId, jobIds.filter((jobId) => !enrichableIds.has(jobId))),
+  ]);
+  const itemCountMap = new Map([...otherItemCounts, ...enrichedItemCounts]);
+
+  const viewer = await resumeViewer;
+  const decidedAt = new Date();
 
   const counters: TakeoffActivityCenterCounters = {
     technicalJobs: technicalCount,
@@ -735,30 +786,8 @@ export async function listActivityCenterJobs(
             : null,
         exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : null,
       });
-    const operatorState = resolveTakeoffOperatorState({
-      status: row.status,
-      processingStrategy:
-        row.processing_strategy === "sync" || row.processing_strategy === "batch"
-          ? row.processing_strategy
-          : null,
-      providerBatchId: row.provider_batch_id ?? null,
-      providerBatchState:
-        row.provider_batch_state === "submitted" ||
-        row.provider_batch_state === "pending" ||
-        row.provider_batch_state === "running" ||
-        row.provider_batch_state === "succeeded" ||
-        row.provider_batch_state === "failed" ||
-        row.provider_batch_state === "cancelled" ||
-        row.provider_batch_state === "expired" ||
-        row.provider_batch_state === "unknown"
-          ? row.provider_batch_state
-          : null,
-      providerReconcileDueAt: row.provider_reconcile_due_at ?? null,
-      providerReconcileLeaseExpiresAt:
-        row.provider_reconcile_lease_expires_at ?? null,
-      retryCount: row.retry_count,
-      tenantRole,
-    });
+    // The same policy as the job's detail and the retry command, from this row alone: no read per analysis.
+    const operatorState = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(row, viewer, decidedAt));
 
     const outcome = toTakeoffAnalysisOutcome(row.analysis_outcome);
     const analysisCompletion = outcome && row.analysis_finished_at
@@ -798,7 +827,10 @@ export async function listActivityCenterJobs(
       operatorState: operatorState.state,
       operatorStateLabel: operatorState.label,
       canCancel: operatorState.canCancel,
-      canResubmit: !row.analysis_outcome && !hasScheduledLocalTakeoffRetry(row) && operatorState.canResubmit,
+      canResubmit: operatorState.canResubmit,
+      resume: operatorState.resume,
+      errorCode: row.error_code ?? null,
+      nextRetryAt: row.next_retry_at ?? null,
       itemCount: itemCountMap.get(row.id) ?? 0,
       coveragePercent: isEnrichable ? (coverageMap.get(row.id) ?? null) : null,
       exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : 0,

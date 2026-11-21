@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useSWRConfig } from "swr";
 import { getTakeoffOperatorStateLabel } from "@/lib/takeoff/operator-state";
-import { TakeoffJobActions, type ActionKind } from "./TakeoffJobActions";
+import { TakeoffJobActions, useTakeoffResumeRefresh, type ActionKind } from "./TakeoffJobActions";
 
 import {
   cancelTakeoffJob,
@@ -94,7 +94,14 @@ export default function TakeoffJobsTable({
     [mutate]
   );
 
+  // A wait the server announced is over: read the list again, which decides anew. Revalidate only: the rows stay on
+  // screen while the list is read.
+  const revalidateList = useCallback(() => {
+    void mutate((key: unknown) => Array.isArray(key) && key[0] === "activity-center");
+  }, [mutate]);
+
   const { jobs } = data;
+  useTakeoffResumeRefresh(jobs, revalidateList);
   const smallestPageSize = PAGE_SIZE_OPTIONS[0];
   // Page size and paging only matter once the list runs past one short page.
   const showPaging =

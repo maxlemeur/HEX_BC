@@ -1,5 +1,6 @@
 import { takeoffItemBatchPatchResponseSchema } from "@/lib/takeoff/item-response-contracts";
 import { takeoffItemBatchPatchSchema as takeoffItemsPatchSchema } from "@/lib/takeoff/item-patch-preparation";
+import { takeoffActivityCenterResponseSchema } from "@/lib/takeoff/activity-center-contracts";
 import { takeoffJobActionResponseSchema } from "@/lib/takeoff/job-response-contracts";
 import {
   duplicateSectionResponseSchema, importEstimateSectionsResponseSchema,
@@ -568,7 +569,7 @@ const takeoffOperationsContracts: RouteContract[] = [
     method: "get",
     path: "/api/takeoff/activity-center",
     summary: "Consulter le centre d'activite Takeoff",
-    description: "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue et la date de fin, indépendamment des détails réservés de chaque analyse.",
+    description: "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue et la date de fin, indépendamment des détails réservés de chaque analyse. Chaque ligne porte la décision de reprise du membre qui lit (resume), la même que le détail de l’analyse et que la commande de nouvelle soumission, et le code de diagnostic (errorCode) que l’écran traduit : la liste décide de tout ce qu’elle a lu, sans lecture par analyse.",
     tags: ["Takeoff"],
     queryParameters: [
       { name: "project_id", schema: uuidSchema, description: "Affaire cible.", required: true },
@@ -581,6 +582,9 @@ const takeoffOperationsContracts: RouteContract[] = [
       { name: "limit", schema: z.number().positive(), description: "Nombre maximal de resultats." },
       { name: "offset", schema: z.number().min(0), description: "Decalage de pagination." },
     ],
+    success: [{ status: "200", description: "Analyses de l’affaire, leurs compteurs et leurs décisions de reprise.", schema: {
+      schemaName: "ApiTakeoffActivityCenterResponse", schema: z.object({ ok: z.literal(true), data: takeoffActivityCenterResponseSchema }), io: "output",
+    } }],
   },
   {
     id: "get-takeoff-health",
@@ -620,7 +624,7 @@ const takeoffOperationsContracts: RouteContract[] = [
     method: "post",
     path: "/api/takeoff/jobs/{jobId}/resubmit",
     summary: "Resoumettre un job Takeoff",
-    description: "Resoumet un job eligible et declenche son traitement asynchrone.",
+    description: "Resoumet un job eligible et declenche son traitement asynchrone. Le serveur relit le rôle, les droits sur l’affaire, l’état, la fin enregistrée, la reprise programmée, le délai et le Mac, applique la même décision de reprise que la liste et le détail, puis écrit sous condition (statut, nombre de relances, fin et reprise inchangés). Un refus porte cette décision dans error.details.resume (action, reason, available_at) : 403 pour un membre qui ne peut pas agir ou qui n’a pas lancé l’analyse, 422 pour un ancien fournisseur, un serveur sans métré local ou un autre Mac, 409 sinon.",
     tags: ["Takeoff"],
     pathParameters: [jobIdParameter],
     success: [{ status: "200", description: "État confirmé du job et résultat de la soumission.", schema: {

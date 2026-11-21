@@ -1,4 +1,8 @@
-import { TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
+import {
+  TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS,
+  TAKEOFF_RETRY_BACKOFF_SECONDS,
+  TAKEOFF_RETRY_MAX as TAKEOFF_RETRY_MAX_CONSTANT,
+} from "@/lib/takeoff/constants";
 import type {
   TakeoffJobOperatorState,
   TakeoffJobStatus,
@@ -24,7 +28,7 @@ const PROVIDER_TERMINAL_STATES = new Set<TakeoffProviderBatchState>([
   "succeeded",
   ...PROVIDER_FAILED_STATES,
 ]);
-export const TAKEOFF_RETRY_MAX = 3;
+export const TAKEOFF_RETRY_MAX = TAKEOFF_RETRY_MAX_CONSTANT;
 
 const TAKEOFF_OPERATOR_STATE_LABELS: Record<TakeoffJobOperatorState, string> = {
   none: "Aucune action requise",
@@ -32,6 +36,45 @@ const TAKEOFF_OPERATOR_STATE_LABELS: Record<TakeoffJobOperatorState, string> = {
   awaiting_provider_result: "En attente du résultat du fournisseur IA",
   provider_failed: "Échec du fournisseur IA",
   orphan_to_reconcile: "Reprise à vérifier",
+};
+
+/** What a member may do with an analysis that stopped. */
+export const TAKEOFF_RESUME_ACTIONS = ["retry_now", "wait_retry", "new_analysis", "none"] as const;
+export type TakeoffResumeAction = (typeof TAKEOFF_RESUME_ACTIONS)[number];
+
+/** Why: the first rule of the policy that decided. Each one is worded in French by describeTakeoffResume. */
+export const TAKEOFF_RESUME_REASONS = [
+  "not_stopped",
+  "legacy_provider",
+  "retry_limit",
+  "analysis_closed",
+  "outcome_unknown",
+  "retry_scheduled",
+  "budget_exhausted",
+  "read_only",
+  "launched_by_other",
+  "execution_unavailable",
+  "other_mac",
+  "retry_delay",
+  "retry_available",
+] as const;
+export type TakeoffResumeReason = (typeof TAKEOFF_RESUME_REASONS)[number];
+
+export type TakeoffResumeDecision = {
+  action: TakeoffResumeAction;
+  reason: TakeoffResumeReason;
+  /** For a wait: when the scheduled retry is due, or when a retry of the same job is admitted again. */
+  availableAt: string | null;
+};
+
+/** The member who reads or acts, as the server saw them for this request. */
+export type TakeoffResumeViewer = {
+  userId: string | null;
+  tenantRole: string | null;
+  /** The member may write the job's affaire (its owner, or an administrator of the tenant), read from the affaire itself. */
+  canWriteAffaire: boolean;
+  /** The Mac this server runs local analyses on for this request; null when it runs none (hosted runtime, another address). */
+  executionHostId: string | null;
 };
 
 export type ResolveTakeoffOperatorStateInput = {
@@ -43,7 +86,15 @@ export type ResolveTakeoffOperatorStateInput = {
   providerReconcileLeaseExpiresAt?: string | null;
   errorCode?: string | null;
   retryCount?: number | null;
-  tenantRole?: string | null;
+  /** NULL on no row of the database (default « gemini »): a missing value is read as the former provider. */
+  executionProvider?: string | null;
+  executionHostId?: string | null;
+  /** The recorded end of the analysis; NULL for every job that ended before the end-of-analysis notices were activated. */
+  analysisOutcome?: string | null;
+  nextRetryAt?: string | null;
+  completedAt?: string | null;
+  createdBy?: string | null;
+  viewer: TakeoffResumeViewer;
   now?: Date;
 };
 
@@ -52,6 +103,25 @@ export type TakeoffOperatorStateDescriptor = {
   label: string;
   canCancel: boolean;
   canResubmit: boolean;
+  resume: TakeoffResumeDecision;
+};
+
+/** A DB row of takeoff_jobs, as the list, the detail and the command read it. */
+export type TakeoffOperatorStateRow = {
+  status: string;
+  processing_strategy?: string | null;
+  provider_batch_id?: string | null;
+  provider_batch_state?: string | null;
+  provider_reconcile_due_at?: string | null;
+  provider_reconcile_lease_expires_at?: string | null;
+  error_code?: string | null;
+  retry_count?: number | null;
+  execution_provider?: string | null;
+  execution_host_id?: string | null;
+  analysis_outcome?: string | null;
+  next_retry_at?: string | null;
+  completed_at?: string | null;
+  created_by?: string | null;
 };
 
 export function isTakeoffOperatorMutationRole(
@@ -70,6 +140,41 @@ function parseIsoTime(value: string | null | undefined): number | null {
   if (!value) return null;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function toProcessingStrategy(value: string | null | undefined): TakeoffProcessingStrategy | null {
+  return value === "sync" || value === "batch" ? value : null;
+}
+
+function toProviderBatchState(value: string | null | undefined): TakeoffProviderBatchState | null {
+  return value === "submitted" || value === "pending" || value === "running" || value === "succeeded" ||
+    value === "failed" || value === "cancelled" || value === "expired" || value === "unknown" ? value : null;
+}
+
+/** The same input for the three surfaces, from the columns each of them reads. */
+export function toTakeoffOperatorStateInput(
+  row: TakeoffOperatorStateRow,
+  viewer: TakeoffResumeViewer,
+  now?: Date,
+): ResolveTakeoffOperatorStateInput {
+  return {
+    status: row.status,
+    processingStrategy: toProcessingStrategy(row.processing_strategy),
+    providerBatchId: row.provider_batch_id ?? null,
+    providerBatchState: toProviderBatchState(row.provider_batch_state),
+    providerReconcileDueAt: row.provider_reconcile_due_at ?? null,
+    providerReconcileLeaseExpiresAt: row.provider_reconcile_lease_expires_at ?? null,
+    errorCode: row.error_code ?? null,
+    retryCount: row.retry_count ?? null,
+    executionProvider: row.execution_provider ?? null,
+    executionHostId: row.execution_host_id ?? null,
+    analysisOutcome: row.analysis_outcome ?? null,
+    nextRetryAt: row.next_retry_at ?? null,
+    completedAt: row.completed_at ?? null,
+    createdBy: row.created_by ?? null,
+    viewer,
+    now,
+  };
 }
 
 function resolveTakeoffOperatorStateValue(
@@ -140,42 +245,118 @@ function resolveTakeoffOperatorStateValue(
   return "awaiting_provider_result";
 }
 
-function hasLiveProviderBatch(input: ResolveTakeoffOperatorStateInput) {
-  return (
-    input.processingStrategy === "batch" &&
-    typeof input.providerBatchId === "string" &&
-    input.providerBatchId.length > 0 &&
-    (input.providerBatchState == null ||
-      !PROVIDER_TERMINAL_STATES.has(input.providerBatchState))
-  );
+/** The delay a manual retry of the same job waits after its failure: 5, 15 then 45 s. */
+export function getTakeoffRetryBackoffMs(retryCount: number) {
+  const clamped = Math.max(0, Math.min(retryCount, TAKEOFF_RETRY_BACKOFF_SECONDS.length - 1));
+  return TAKEOFF_RETRY_BACKOFF_SECONDS[clamped] * 1000;
 }
 
-function hasSucceededProviderBatch(input: ResolveTakeoffOperatorStateInput) {
-  return (
-    input.processingStrategy === "batch" &&
-    typeof input.providerBatchId === "string" &&
-    input.providerBatchId.length > 0 &&
-    input.providerBatchState === "succeeded"
-  );
+/** An engineer or an administrator who may write the job's affaire. */
+export function canTakeoffResumeViewerAct(viewer: TakeoffResumeViewer) {
+  return isTakeoffOperatorMutationRole(viewer.tenantRole) && viewer.canWriteAffaire;
+}
+
+/**
+ * The resume policy. The first rule that matches decides; the job's own facts come before the member's rights, so that a
+ * reader learns why nobody can resume the job, and a scheduled retry is awaited by everyone.
+ */
+function resolveTakeoffResumeDecision(input: ResolveTakeoffOperatorStateInput): TakeoffResumeDecision {
+  const decide = (action: TakeoffResumeAction, reason: TakeoffResumeReason, availableAt: string | null = null) =>
+    ({ action, reason, availableAt });
+  const finalForThisJob = (reason: TakeoffResumeReason) =>
+    decide(canTakeoffResumeViewerAct(input.viewer) ? "new_analysis" : "none", reason);
+
+  if (input.status !== "failed" && input.status !== "canceled") return decide("none", "not_stopped");
+  // The former provider and its batches have no reader left to run them again.
+  if (input.executionProvider !== "chatgpt_local" || input.processingStrategy === "batch" || input.providerBatchId) {
+    return finalForThisJob("legacy_provider");
+  }
+  const retryCount = input.retryCount ?? 0;
+  if (retryCount >= TAKEOFF_RETRY_MAX) return finalForThisJob("retry_limit");
+  // A recorded end (failure, cancellation) is final for its job: a relaunch after it is a new analysis.
+  if (input.analysisOutcome) {
+    return finalForThisJob(input.errorCode === "TAKEOFF_WORKER_OUTCOME_UNKNOWN" ? "outcome_unknown" : "analysis_closed");
+  }
+  if (input.nextRetryAt) return decide("wait_retry", "retry_scheduled", input.nextRetryAt);
+  // The same sources would spend the same budget again.
+  if (input.errorCode === "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED") return finalForThisJob("budget_exhausted");
+  if (!canTakeoffResumeViewerAct(input.viewer)) return decide("none", "read_only");
+  // A retry of the same job runs on the plan of the member who launched it: nobody else may spend it.
+  if (!input.createdBy || input.createdBy !== input.viewer.userId) return decide("new_analysis", "launched_by_other");
+  if (!input.viewer.executionHostId) return decide("none", "execution_unavailable");
+  if (input.executionHostId !== input.viewer.executionHostId) return decide("none", "other_mac");
+  const completedAtMs = input.status === "failed" ? parseIsoTime(input.completedAt) : null;
+  if (completedAtMs !== null) {
+    const availableAtMs = completedAtMs + getTakeoffRetryBackoffMs(retryCount);
+    if ((input.now ?? new Date()).getTime() < availableAtMs) {
+      return decide("wait_retry", "retry_delay", new Date(availableAtMs).toISOString());
+    }
+  }
+  // An analysis that ended before the notices were activated has no recorded end and keeps the relaunch it had.
+  return decide("retry_now", input.errorCode === "TAKEOFF_WORKER_OUTCOME_UNKNOWN" ? "outcome_unknown" : "retry_available");
 }
 
 export function resolveTakeoffOperatorState(
   input: ResolveTakeoffOperatorStateInput
 ): TakeoffOperatorStateDescriptor {
   const state = resolveTakeoffOperatorStateValue(input);
-  const hasMutationAccess = isTakeoffOperatorMutationRole(input.tenantRole);
+  const resume = resolveTakeoffResumeDecision(input);
 
   return {
     state,
     label: getTakeoffOperatorStateLabel(state),
     canCancel:
-      hasMutationAccess &&
+      canTakeoffResumeViewerAct(input.viewer) &&
       (input.status === "pending" || input.status === "processing"),
-    canResubmit:
-      hasMutationAccess &&
-      (input.status === "failed" || input.status === "canceled") &&
-      (input.retryCount ?? 0) < TAKEOFF_RETRY_MAX &&
-      !hasSucceededProviderBatch(input) &&
-      !hasLiveProviderBatch(input),
+    canResubmit: resume.action === "retry_now",
+    resume,
   };
+}
+
+const resumeTime = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "medium", timeZone: "Europe/Paris" });
+
+function formatResumeTime(value: string | null) {
+  const timestamp = parseIsoTime(value);
+  return timestamp === null ? null : resumeTime.format(new Date(timestamp));
+}
+
+const NEW_ANALYSIS = "Préparez une nouvelle analyse depuis l’affaire.";
+const ASK_AN_OPERATOR = "Un ingénieur ou un administrateur peut préparer une nouvelle analyse.";
+
+/** The decision in French, as the list, the detail and the refusal of the command say it. Null when nothing is to resume. */
+export function describeTakeoffResume(decision: TakeoffResumeDecision): string | null {
+  const next = decision.action === "new_analysis" ? NEW_ANALYSIS : ASK_AN_OPERATOR;
+  const at = formatResumeTime(decision.availableAt);
+  switch (decision.reason) {
+    case "not_stopped":
+      return null;
+    case "legacy_provider":
+      return `Ce fournisseur IA ne permet plus de relancer cette analyse. ${next}`;
+    case "retry_limit":
+      return `Le nombre maximal de relances est atteint. ${next}`;
+    case "analysis_closed":
+      return `Cette analyse est close. ${next}`;
+    case "outcome_unknown":
+      return decision.action === "retry_now"
+        ? "Le résultat de la tentative interrompue est inconnu. Vous pouvez soumettre cette analyse à nouveau ; votre forfait ChatGPT est vérifié au lancement."
+        : `Cette analyse est close et le résultat de sa dernière tentative est inconnu. ${next}`;
+    case "retry_scheduled":
+      return at ? `Une reprise automatique est programmée à partir du ${at}.` : "Une reprise automatique est programmée.";
+    case "budget_exhausted":
+      return decision.action === "new_analysis"
+        ? "Le budget de l’analyse détaillée est épuisé. Préparez une nouvelle analyse en restreignant les sources."
+        : `Le budget de l’analyse détaillée est épuisé. ${ASK_AN_OPERATOR}`;
+    case "read_only":
+      return "Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.";
+    case "launched_by_other":
+      return "Seule la personne qui a lancé cette analyse peut la soumettre à nouveau avec son forfait. Préparez une nouvelle analyse avec votre forfait.";
+    case "execution_unavailable":
+      return "Pour soumettre cette analyse à nouveau, ouvrez MergeOne sur le Mac connecté.";
+    case "other_mac":
+      return "Cette analyse a été lancée depuis un autre Mac. Soumettez-la à nouveau depuis le Mac qui l’a lancée.";
+    case "retry_delay":
+      return at ? `Vous pourrez soumettre cette analyse à nouveau à partir du ${at}.` : "Vous pourrez bientôt soumettre cette analyse à nouveau.";
+    case "retry_available":
+      return "Vous pouvez soumettre cette analyse à nouveau ; votre forfait ChatGPT est vérifié au lancement.";
+  }
 }

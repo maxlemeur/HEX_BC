@@ -1,4 +1,3 @@
-import { hasScheduledLocalTakeoffRetry } from "@/lib/takeoff/completion-outcome";
 import { verificationJustificationReadSchema } from "@/lib/takeoff/rules/verification";
 import { TAKEOFF_JOB_STATUSES, TAKEOFF_LEVELS as TAKEOFF_RESPONSE_LEVELS } from "@/lib/takeoff/enums";
 import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
@@ -16,7 +15,14 @@ import { mapSupabaseError } from "@/lib/http/api-response";
 
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 
-import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
+import {
+  resolveTakeoffOperatorState,
+  toTakeoffOperatorStateInput,
+  type TakeoffOperatorStateRow,
+  type TakeoffResumeViewer,
+} from "@/lib/takeoff/operator-state";
+
+import { readTakeoffResumeViewers } from "@/lib/takeoff/resume-viewer-server";
 
 import {
   takeoffJobIdSchema,
@@ -94,13 +100,14 @@ const TAKEOFF_JOB_LIST_SELECT = [
   "error_message",
   "created_at",
   "updated_at",
+  // Read by the resume policy only; the response contract never returns them.
+  "created_by",
+  "execution_host_id",
 ].join(", ");
 
 export const TAKEOFF_JOB_DETAIL_SELECT = [
   TAKEOFF_JOB_LIST_SELECT,
   "source_file_path",
-  "created_by",
-  "execution_host_id",
 ].join(", ");
 
 const TAKEOFF_RESULT_SELECT = [
@@ -393,52 +400,40 @@ export type AuthenticatedTakeoffContext = Awaited<
 
 function decorateTakeoffJobSummaryWithOperatorState(
   job: TakeoffJobSummary,
-  tenantRole?: string | null,
-  legacyProvider = false,
-  resubmissionBlocked = false,
+  row: TakeoffOperatorStateRow,
+  viewer: TakeoffResumeViewer,
 ): TakeoffJobSummary {
-  const operatorState = resolveTakeoffOperatorState({
-    status: job.status,
-    processingStrategy: job.processing_strategy,
-    providerBatchId: job.provider_batch_id,
-    providerBatchState: job.provider_batch_state,
-    providerReconcileDueAt: job.provider_reconcile_due_at ?? null,
-    providerReconcileLeaseExpiresAt:
-      job.provider_reconcile_lease_expires_at ?? null,
-    errorCode: job.error_code,
-    retryCount: job.retry_count,
-    tenantRole,
-  });
+  const operatorState = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(row, viewer));
 
   return {
     ...job,
     operator_state: operatorState.state,
     operator_state_label: operatorState.label,
     can_cancel: operatorState.canCancel,
-    can_resubmit: !legacyProvider && !resubmissionBlocked && operatorState.canResubmit,
+    can_resubmit: operatorState.canResubmit,
+    resume: {
+      action: operatorState.resume.action,
+      reason: operatorState.resume.reason,
+      available_at: operatorState.resume.availableAt,
+    },
   };
 }
 
+/**
+ * A job summary with the resume decision of the member who reads it. Without a viewer (a caller that did not read the
+ * member's rights on the affaire), the decision is the one of a member who cannot act.
+ */
 export function normalizeTakeoffJobSummaryRow(
   row: unknown,
-  tenantRole?: string | null
+  tenantRole?: string | null,
+  viewer?: TakeoffResumeViewer,
 ): TakeoffJobSummary {
   const job = parseTakeoffResponse(takeoffJobSummarySchema, row);
-  const raw = row as Pick<TakeoffJobDetailRow, "execution_provider" | "analysis_outcome">;
-  return decorateTakeoffJobSummaryWithOperatorState(
-    job,
-    tenantRole,
-    raw.execution_provider === "gemini",
-    Boolean(raw.analysis_outcome) || hasScheduledLocalTakeoffRetry({ ...job, execution_provider: raw.execution_provider }),
-  );
+  return decorateTakeoffJobSummaryWithOperatorState(job, row as TakeoffOperatorStateRow,
+    viewer ?? { userId: null, tenantRole: tenantRole ?? null, canWriteAffaire: false, executionHostId: null });
 }
 
-function normalizeTakeoffJobSummaryRows(
-  rows: unknown[],
-  tenantRole?: string | null
-): TakeoffJobSummary[] {
-  return rows.map((row) => normalizeTakeoffJobSummaryRow(row, tenantRole));
-}
+
 
 function normalizeTakeoffResultRow(row: unknown): TakeoffJobResult {
   return parseWithSchema(
@@ -811,7 +806,7 @@ async function listTakeoffItemCountsByJobId(input: {
 export async function listTakeoffJobs(
   input: ListTakeoffJobsQuery
 ): Promise<TakeoffJobListResponse> {
-  const { supabase, tenantId, tenantRole } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, tenantRole, userId } = await getAuthenticatedTakeoffContext();
   const limit = input.limit ?? DEFAULT_TAKEOFF_JOBS_LIST_LIMIT;
   const offset = input.offset ?? 0;
   const rangeEnd = offset + limit - 1;
@@ -896,10 +891,11 @@ export async function listTakeoffJobs(
     );
   }
 
-  const jobs = normalizeTakeoffJobSummaryRows(
-    (data ?? []) as TakeoffJobDetailRow[],
-    tenantRole
-  );
+  const rows = (data ?? []) as TakeoffJobDetailRow[];
+  const viewerOf = await readTakeoffResumeViewers({
+    supabase, tenantId, member: { userId, tenantRole }, projectIds: rows.map((row) => row.project_id),
+  });
+  const jobs = rows.map((row) => normalizeTakeoffJobSummaryRow(row, tenantRole, viewerOf(row.project_id)));
   const uniqueJobIds = Array.from(new Set(jobs.map((job) => job.id)));
   const itemCountByJobId = await listTakeoffItemCountsByJobId({
     supabase,
@@ -926,7 +922,7 @@ export async function getTakeoffJobDetails(
   jobId: string,
   input: GetTakeoffJobDetailsQuery
 ): Promise<TakeoffJobDetailResponse> {
-  const { supabase, tenantId, tenantRole } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, tenantRole, userId } = await getAuthenticatedTakeoffContext();
   const limit = input.items_limit ?? DEFAULT_TAKEOFF_JOB_ITEMS_LIMIT;
   const offset = input.items_offset ?? 0;
   const normalizedJobId = parseWithSchema(
@@ -935,12 +931,17 @@ export async function getTakeoffJobDetails(
     "Identifiant job invalide."
   );
 
-  const [jobRow, result, items] = await Promise.all([
-    getTakeoffJobDetailByIdOrThrow({
-      supabase,
-      tenantId,
-      jobId: normalizedJobId,
-    }),
+  const jobRowRead = getTakeoffJobDetailByIdOrThrow({
+    supabase,
+    tenantId,
+    jobId: normalizedJobId,
+  });
+  // The member's rights on the job's affaire, read beside the result and the lines once the job is known.
+  const viewerRead = jobRowRead.then((row) => readTakeoffResumeViewers({
+    supabase, tenantId, member: { userId, tenantRole }, projectIds: [row.project_id],
+  }));
+  const [jobRow, result, items, viewerOf] = await Promise.all([
+    jobRowRead,
     getTakeoffResultByJobId({
       supabase,
       tenantId,
@@ -953,10 +954,11 @@ export async function getTakeoffJobDetails(
       limit,
       offset,
     }),
+    viewerRead,
   ]);
 
   return {
-    job: normalizeTakeoffJobSummaryRow(jobRow, tenantRole),
+    job: normalizeTakeoffJobSummaryRow(jobRow, tenantRole, viewerOf(jobRow.project_id)),
     result,
     items: {
       data: items.data,
