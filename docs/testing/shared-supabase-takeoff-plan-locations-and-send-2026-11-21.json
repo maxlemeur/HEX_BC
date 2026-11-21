@@ -1,0 +1,284 @@
+{
+  "date_utc": "2026-11-21",
+  "source_commit": "0dcea6a2f86a0cd9b61058334764eaf2964545cc",
+  "applied_and_verified": 1,
+  "applied": {
+    "file": "20261121040445_takeoff_plan_locations.sql",
+    "pr": 429,
+    "merge_commit": "10859bcedec33d6e5fdea3c2166c5e2d1dc5e3b3",
+    "remote_version": "20261121083406",
+    "applied_at_utc": "2026-11-21T08:34:06Z",
+    "bytes": 37942,
+    "sha256": "a88febeb429035374fb0d6fa869cc668634ec4e39cdc75d6075a0be0367c487b",
+    "stored_form": "full_file_including_final_lf"
+  },
+  "history": {
+    "before": 415,
+    "after": 416,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "last_seven_match_morning_receipt": true
+  },
+  "precheck": {
+    "m1_applied": true,
+    "plan_set_scope_key": true,
+    "project_tenant_key": true,
+    "names_free": true,
+    "plan_files_to_record": 15,
+    "plan_files_without_a_source": 0
+  },
+  "locks": {
+    "db_utc": "2026-11-21 08:34:02.134664+00",
+    "excluded_window": false,
+    "activation_rows": 0,
+    "locks": []
+  },
+  "backfill": {
+    "files": 15,
+    "sources": 15,
+    "discrepancies": 0,
+    "corrections": 0,
+    "events": 0,
+    "attestations": 0,
+    "activation_rows": 0
+  },
+  "tables": [
+    {
+      "name": "private.takeoff_plan_location_attestations",
+      "columns": 15,
+      "constraints": 6,
+      "indexes": 2,
+      "rls": false,
+      "acl": "{postgres=arwdDxtm/postgres}",
+      "policies": [],
+      "triggers": []
+    },
+    {
+      "name": "public.takeoff_plan_location_events",
+      "columns": 22,
+      "constraints": 5,
+      "indexes": 3,
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+      "policies": [
+        "Affaire readers can select takeoff plan location events"
+      ],
+      "triggers": [
+        "refuse_takeoff_plan_location_event_change"
+      ]
+    },
+    {
+      "name": "public.takeoff_plan_location_sources",
+      "columns": 7,
+      "constraints": 4,
+      "indexes": 3,
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+      "policies": [
+        "Affaire readers can select takeoff plan location sources"
+      ],
+      "triggers": []
+    },
+    {
+      "name": "public.takeoff_plan_locations",
+      "columns": 27,
+      "constraints": 21,
+      "indexes": 4,
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+      "policies": [
+        "Affaire readers can select takeoff plan locations"
+      ],
+      "triggers": [
+        "enforce_takeoff_plan_location_identity"
+      ]
+    }
+  ],
+  "plan_files_trigger": "record_takeoff_plan_location_source",
+  "functions": [
+    {
+      "sig": "private.enforce_takeoff_plan_location_identity()",
+      "md5": "44fb0d2113720ef5d17a5116a3fb9ae5",
+      "definer": false,
+      "vol": "v",
+      "config": [
+        "search_path=\"\""
+      ],
+      "acl": {
+        "anon": false,
+        "public": false,
+        "service_role": false,
+        "authenticated": false
+      }
+    },
+    {
+      "sig": "private.record_takeoff_plan_location_source()",
+      "md5": "34acc9ac64a3a13107147aeff0b9e0cb",
+      "definer": true,
+      "vol": "v",
+      "config": [
+        "search_path=\"\""
+      ],
+      "acl": {
+        "anon": false,
+        "public": false,
+        "service_role": false,
+        "authenticated": false
+      }
+    },
+    {
+      "sig": "private.refuse_takeoff_plan_location_event_change()",
+      "md5": "2a0d343cfed06c22a1abdd50cb38bdc4",
+      "definer": false,
+      "vol": "v",
+      "config": [
+        "search_path=\"\""
+      ],
+      "acl": {
+        "anon": false,
+        "public": false,
+        "service_role": false,
+        "authenticated": false
+      }
+    },
+    {
+      "sig": "private.resolve_takeoff_plan_location_source(uuid,uuid,uuid)",
+      "md5": "26e275ef696bbb96e47e0e6f2f07a1f7",
+      "definer": false,
+      "vol": "s",
+      "config": [
+        "search_path=\"\""
+      ],
+      "acl": {
+        "anon": false,
+        "public": false,
+        "service_role": false,
+        "authenticated": false
+      }
+    },
+    {
+      "sig": "private.takeoff_plan_file_source(uuid,uuid,uuid,jsonb)",
+      "md5": "ff07a62534259e53d36c4898845ff688",
+      "definer": false,
+      "vol": "s",
+      "config": [
+        "search_path=\"\""
+      ],
+      "acl": {
+        "anon": false,
+        "public": false,
+        "service_role": false,
+        "authenticated": false
+      }
+    },
+    {
+      "sig": "public.attest_takeoff_plan_revision(uuid,uuid,uuid,uuid,text,text,uuid,integer)",
+      "md5": "6b3755d68f665623fe139ae30bc14b14",
+      "definer": true,
+      "vol": "v",
+      "config": [
+        "search_path=\"\""
+      ],
+      "acl": {
+        "anon": false,
+        "public": false,
+        "service_role": true,
+        "authenticated": false
+      }
+    },
+    {
+      "sig": "public.read_takeoff_plan_location_source(uuid,uuid)",
+      "md5": "771a9220534427bad58cb43f6eae0324",
+      "definer": true,
+      "vol": "s",
+      "config": [
+        "search_path=\"\""
+      ],
+      "acl": {
+        "anon": false,
+        "public": false,
+        "service_role": false,
+        "authenticated": true
+      }
+    },
+    {
+      "sig": "public.set_takeoff_plan_location(uuid,integer,text,text,text,text,text[])",
+      "md5": "461075ae8653c8565382c8f45dfafea6",
+      "definer": true,
+      "vol": "v",
+      "config": [
+        "search_path=\"\""
+      ],
+      "acl": {
+        "anon": false,
+        "public": false,
+        "service_role": false,
+        "authenticated": true
+      }
+    }
+  ],
+  "security_advisors": {
+    "before": [
+      [
+        "rls_enabled_no_policy",
+        26
+      ],
+      [
+        "authenticated_security_definer_function_executable",
+        85
+      ],
+      [
+        "auth_leaked_password_protection",
+        1
+      ]
+    ],
+    "after": [
+      [
+        "rls_enabled_no_policy",
+        26
+      ],
+      [
+        "authenticated_security_definer_function_executable",
+        87
+      ],
+      [
+        "auth_leaked_password_protection",
+        1
+      ]
+    ],
+    "added": [
+      {
+        "category": "authenticated_security_definer_function_executable",
+        "severity": "WARN",
+        "object": "read_takeoff_plan_location_source",
+        "detail": "Function `public.read_takeoff_plan_location_source(p_project_id uuid, p_plan_file_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_takeoff_plan_location_source`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "category": "authenticated_security_definer_function_executable",
+        "severity": "WARN",
+        "object": "set_takeoff_plan_location",
+        "detail": "Function `public.set_takeoff_plan_location(p_attestation_id uuid, p_expected_revision integer, p_building_choice text, p_building text, p_level_choice text, p_level text, p_carried_fields text[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_takeoff_plan_location`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      }
+    ],
+    "removed": []
+  },
+  "pending": {
+    "pr": 426,
+    "minimum_release": "0.8.0",
+    "production": {
+      "at_utc": "2026-11-21T08:35:35.325Z",
+      "url": "https://hex-bc.vercel.app/api/health",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "version": "0.7.0",
+        "db": "up"
+      }
+    },
+    "reason": "La version déployée précède le garde de fusion sur une ligne saisie à la main."
+  },
+  "notices_activated": false,
+  "deployed": false
+}
