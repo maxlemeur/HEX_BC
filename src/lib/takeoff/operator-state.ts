@@ -381,7 +381,7 @@ export function describeTakeoffResume(decision: TakeoffResumeDecision): string |
   }
 }
 
-/** What a member may do with a launch request that has not started (migration 20261121111238_takeoff_launch_requests.sql). */
+/** What a member may do with a launch request that has not started (migration 20261121170448_takeoff_launch_requests.sql). */
 export const TAKEOFF_LAUNCH_ACTIONS = ["take_on", "resume", "open_mac", "wait", "none"] as const;
 export type TakeoffLaunchAction = (typeof TAKEOFF_LAUNCH_ACTIONS)[number];
 

@@ -1,4 +1,4 @@
--- Lot 2, M4 (20261121111238_takeoff_launch_requests.sql), its second review round: one rule for who may confirm and
+-- Lot 2, M4 (20261121170448_takeoff_launch_requests.sql), its second review round: one rule for who may confirm and
 -- pay, checked on the rows the confirmation locks; a brief without its own upload is confirmed; the identical
 -- submission of a confirmation whose answer was lost finds its request; the takeoff module and the activation decided in
 -- SQL; usage counted only from the worker's own records, both budget stops closing the request so; command receipts kept

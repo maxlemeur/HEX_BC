@@ -1,4 +1,4 @@
--- Lot 2, M4 (20261121111238_takeoff_launch_requests.sql), its closing round: the server's confirmation lets exactly the
+-- Lot 2, M4 (20261121170448_takeoff_launch_requests.sql), its closing round: the server's confirmation lets exactly the
 -- members the released brief policy lets confirm (their current tenant, the JWT administrator override); the identical
 -- retry of a confirmation is found without the intake event; a first analysis names no predecessor; the worker's usage
 -- needs a live lease; no cent left stops a call; removing the cut-off stops new admissions only. All fictional.

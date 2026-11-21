@@ -5,7 +5,7 @@ import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 
 /**
- * The budget of a launch request (migration 20261121111238_takeoff_launch_requests.sql), sealed at its admission (lot
+ * The budget of a launch request (migration 20261121170448_takeoff_launch_requests.sql), sealed at its admission (lot
  * 2: the tenant's per-job budget of the detailed reading), and what every attempt of its jobs consumed, counted from
  * their run metrics, failed attempts included.
  */

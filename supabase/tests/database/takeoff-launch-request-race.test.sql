@@ -1,4 +1,4 @@
--- Lot 2, M4 (20261121111238_takeoff_launch_requests.sql): the automatic start across sessions.
+-- Lot 2, M4 (20261121170448_takeoff_launch_requests.sql): the automatic start across sessions.
 -- 1. Two server confirmations of one brief at the same time: the second waits for the first and its compare-and-set
 --    then fails; there is one automatic request, mandated by the first.
 -- 2. An admission while a plan of the dossier is being changed: the admission waits for the change, then finds its

@@ -355,7 +355,7 @@ select throws_ok($$
     '8f400000-0000-4000-8000-000000000099', 'partial', now(), 2, 1, 0, 'unavailable',
     'takeoff-completion/' || tenant_id::text || '/request/8f400000-0000-4000-8000-000000000099/unavailable'
   from completion_fixture
--- M4 (20261121111238_takeoff_launch_requests.sql) replaced the autonomous-only gate by the request's foreign key, in one
+-- M4 (20261121170448_takeoff_launch_requests.sql) replaced the autonomous-only gate by the request's foreign key, in one
 -- transaction: a request subject still needs a request.
 $$, '23503', 'insert or update on table "takeoff_completion_notifications" violates foreign key constraint "takeoff_completion_request_fkey"',
   'an unbacked launch-request subject cannot be inserted');

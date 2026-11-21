@@ -5,7 +5,7 @@ import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 
-// The budget of a launch request (migration 20261121111238_takeoff_launch_requests.sql): sealed at its admission, it
+// The budget of a launch request (migration 20261121170448_takeoff_launch_requests.sql): sealed at its admission, it
 // bounds every paid attempt of its jobs with what their earlier attempts consumed (a retry never starts from zero).
 const config = { maxPdfPages: 200, maxTotalTokens: 400_000, maxCostCents: 2_500 };
 const JOB = "aaaaaaaa-0000-4000-8000-000000000080";

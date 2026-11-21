@@ -6,7 +6,7 @@ vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn()
 
 // The receipt of a launch on a version (a reopened hub finds the job of its preparation) is a job without a launch
 // request: a request's job of the same plan set and preparation revision, sent to that version since, is never the
-// receipt of an unrelated launch (migration 20261121111238_takeoff_launch_requests.sql narrows the receipt index so).
+// receipt of an unrelated launch (migration 20261121170448_takeoff_launch_requests.sql narrows the receipt index so).
 function jobs(rows: Array<{ id: string; launch_request_id: string | null }>) {
   const calls: Array<[string, unknown[]]> = [];
   const builder: Record<string, unknown> = {};

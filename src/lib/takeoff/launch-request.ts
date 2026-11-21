@@ -2,7 +2,7 @@ import { getAffaireDossierState, type AffaireDossierState, type AffaireIntakeRev
 import type { TakeoffExecutionSelection, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 
 /**
- * The launch requests of a takeoff (migration 20261121111238_takeoff_launch_requests.sql): one execution of an affaire's
+ * The launch requests of a takeoff (migration 20261121170448_takeoff_launch_requests.sql): one execution of an affaire's
  * analysis on a sealed manifest. The automatic request is the one start of an affaire, when its dossier is confirmed; a
  * manual request is one explicit command (a relaunch). This module holds what the server and the screens decide alike.
  */
