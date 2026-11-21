@@ -144,7 +144,11 @@ export type ProcessLevelAOptions = {
   resolveProvider?: typeof resolveLocalTakeoffProvider;
   assertTenantActive?: (tenantId: string) => Promise<void>;
   renewLease?: TakeoffLeaseRenewal;
+  /** The status and attempt the caller decided on; the claim refuses any other (defaults to the processor's read). */
+  claimObservation?: TakeoffClaimObservation;
 };
+
+export type TakeoffClaimObservation = { status: string; retryCount: number };
 
 type ProcessLevelCompletedResult = {
   jobId: string;
@@ -777,17 +781,19 @@ async function markJobAsProcessing(input: {
   model: string;
   promptVersion: string;
   level: ProcessableTakeoffLevel;
+  observed: TakeoffClaimObservation;
 }): Promise<TakeoffJobProcessingRow> {
   const processingLeaseToken = crypto.randomUUID();
   const processingLeaseExpiresAt = new Date(
     Date.parse(input.startedAtIso) + TAKEOFF_PROCESSING_LEASE_TTL_MS
   ).toISOString();
 
-  const { data, error } = await input.supabase.rpc("claim_local_takeoff_job" as never, {
+  const { data, error } = await input.supabase.rpc("claim_observed_local_takeoff_job" as never, {
     p_job_id: input.job.id, p_tenant_id: input.job.tenant_id, p_host_id: input.hostId,
     p_started_at: input.startedAtIso, p_lease_token: processingLeaseToken,
     p_lease_expires_at: processingLeaseExpiresAt, p_model: input.model,
     p_prompt_version: input.promptVersion,
+    p_observed_status: input.observed.status, p_observed_retry_count: input.observed.retryCount,
   } as never).maybeSingle();
 
   if (error) {
@@ -821,18 +827,21 @@ async function markJobAsProcessing(input: {
   return parseTakeoffJobRow(data);
 }
 
-async function updateJobAsFailed(input: {
+/** The failure, its retry decision and its diagnostic commit together, under the job's unexpired lease. */
+async function recordLocalTakeoffFailure(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
-  tenantId: string | null;
   completedAtIso: string;
   durationMs: number;
   error: TakeoffError;
+  diagnostic: Record<string, unknown> | null;
+  runMetrics: ReturnType<typeof buildLevelCRunMetricRows>;
 }) {
-  let query = input.supabase
-    .from("takeoff_jobs" as never)
-    .update({
-      status: "failed",
+  const { data, error } = await input.supabase.rpc("record_local_takeoff_failure" as never, {
+    p_job_id: input.job.id,
+    p_tenant_id: input.job.tenant_id,
+    p_lease_token: input.job.processing_lease_token,
+    p_failure: {
       completed_at: input.completedAtIso,
       duration_ms: input.durationMs,
       error_code: input.error.code,
@@ -842,102 +851,19 @@ async function updateJobAsFailed(input: {
         retryCount: input.job.retry_count,
         completedAtIso: input.completedAtIso,
       }),
-      processing_lease_token: null,
-      processing_lease_expires_at: null,
-    } as never)
-    .eq("id" as never, input.job.id as never)
-    .eq("status" as never, "processing" as never);
-
-  if (input.tenantId) {
-    query = query.eq("tenant_id" as never, input.tenantId as never);
-  }
-
-  if (input.job.processing_lease_token) {
-    query = query.eq(
-      "processing_lease_token" as never,
-      input.job.processing_lease_token as never
-    );
-  }
-
-  const { data, error } = await query.select("id" as never).maybeSingle();
+    },
+    p_diagnostic: input.diagnostic,
+    p_run_metrics: input.runMetrics,
+  } as never);
 
   if (error) {
     console.error("Impossible de marquer le job takeoff en échec.", {
       job_id: input.job.id,
-      tenant_id: input.tenantId,
+      tenant_id: input.job.tenant_id,
       error,
     });
   }
   if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible pour clore le job.", retryable: false, jobId: input.job.id });
-}
-
-async function clearPreviousResultsForJob(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  level: ProcessableTakeoffLevel;
-}) {
-  const { error: deleteMetricsError } = await input.supabase
-    .from("takeoff_run_metrics" as never)
-    .delete()
-    .eq("tenant_id" as never, input.job.tenant_id as never)
-    .eq("job_id" as never, input.job.id as never);
-
-  if (deleteMetricsError) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        deleteMetricsError,
-        "Impossible de nettoyer les metriques takeoff precedentes."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-
-  const { error: deleteItemsError } = await input.supabase
-    .from("takeoff_items" as never)
-    .delete()
-    .eq("tenant_id" as never, input.job.tenant_id as never)
-    .eq("job_id" as never, input.job.id as never);
-
-  if (deleteItemsError) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        deleteItemsError,
-        "Impossible de nettoyer les items takeoff précédents."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-
-  const { error: deleteResultsError } = await input.supabase
-    .from("takeoff_results" as never)
-    .delete()
-    .eq("tenant_id" as never, input.job.tenant_id as never)
-    .eq("job_id" as never, input.job.id as never);
-
-  if (deleteResultsError) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        deleteResultsError,
-        "Impossible de nettoyer les résultats takeoff précédents."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
 }
 
 function annotateAtomicPersistenceRollbackError(error: TakeoffError) {
@@ -1067,60 +993,40 @@ function extractRawResponseFromTakeoffError(error: TakeoffError): unknown {
   return record;
 }
 
-async function persistFailureSnapshotIfNeeded(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
+/** The failure diagnostic that replaces the job's previous rows, or null when there is nothing to retain. */
+function buildFailureDiagnostic(input: {
   error: TakeoffError;
   durationMs: number;
   model: string;
   promptVersion: string;
-  level: ProcessableTakeoffLevel;
   retainMetrics: boolean;
-}): Promise<string | null> {
+}): Record<string, unknown> | null {
   const rawResponse = extractRawResponseFromTakeoffError(input.error);
   if (rawResponse == null && !input.retainMetrics) {
     return null;
   }
 
-  try {
-    await clearPreviousResultsForJob({
-      supabase: input.supabase,
-      job: input.job,
-      level: input.level,
-    });
-    const { data, error } = await input.supabase.from("takeoff_results" as never).insert({
-      tenant_id: input.job.tenant_id,
-      job_id: input.job.id,
-      extracted_json: {},
-      warnings: [
-        warning({
-          code: "PROCESSING_FAILED",
-          message: input.error.message,
-          severity: input.error.retryable ? "warning" : "error",
-        }),
-      ],
-      tables: [],
-      provider_meta: {
-        status: "failed",
-        model: input.model,
-        prompt_version: input.promptVersion,
-        error_code: input.error.code,
-      },
-      raw_response: rawResponse ?? null,
-      token_count: 0,
-      cost_cents: 0,
-      duration_ms: input.durationMs,
-    } as never).select("id" as never).single();
-    if (error) throw error;
-    return (data as { id: string } | null)?.id ?? null;
-  } catch (snapshotError) {
-    console.error("Impossible de persister le snapshot d'échec takeoff.", {
-      job_id: input.job.id,
-      error: snapshotError,
-    });
-  }
-
-  return null;
+  return {
+    extracted_json: {},
+    warnings: [
+      warning({
+        code: "PROCESSING_FAILED",
+        message: input.error.message,
+        severity: input.error.retryable ? "warning" : "error",
+      }),
+    ],
+    tables: [],
+    provider_meta: {
+      status: "failed",
+      model: input.model,
+      prompt_version: input.promptVersion,
+      error_code: input.error.code,
+    },
+    raw_response: rawResponse ?? null,
+    token_count: 0,
+    cost_cents: 0,
+    duration_ms: input.durationMs,
+  };
 }
 
 function buildPromptSourceHint(fileName: string, sheets: ParsedTakeoffSheet[]) {
@@ -1514,22 +1420,6 @@ function buildLevelCRunMetricRows(input: LevelCChunkMetricWriteInput) {
     },
   }));
 
-}
-
-async function persistLevelCRunMetrics(input: LevelCChunkMetricWriteInput) {
-  if (input.metrics.length === 0) return;
-  const { error } = await input.supabase
-    .from("takeoff_run_metrics" as never)
-    .insert(buildLevelCRunMetricRows(input) as never);
-
-  if (error) {
-    console.error("Impossible de persister les metriques takeoff_run_metrics.", {
-      job_id: input.job.id,
-      tenant_id: input.job.tenant_id,
-      metrics_count: input.metrics.length,
-      error,
-    });
-  }
 }
 
 async function processLevelCChunks(input: {
@@ -2345,6 +2235,7 @@ async function processTakeoffLevel(
       model,
       promptVersion,
       level,
+      observed: options.claimObservation ?? { status: job.status, retryCount: job.retry_count },
     });
     enteredProcessing = true;
     // Even preflight failures must become visible, terminal job failures.
@@ -2579,46 +2470,31 @@ async function processTakeoffLevel(
         level === TAKEOFF_LEVEL_A && hasAtomicPersistenceRollbackError(mappedError);
 
       await renewProcessingLease();
-      const failureResultId = skipFailureSnapshotPersist
-        ? null
-        : await persistFailureSnapshotIfNeeded({
-            supabase: context.supabase,
-            job,
-            error: mappedError,
-            durationMs,
-            model,
-            promptVersion,
-            level,
-            retainMetrics: level === TAKEOFF_LEVEL_C && chunkMetricsToPersist.length > 0,
-          });
-
-      await updateJobAsFailed({
+      const retainMetrics = level === TAKEOFF_LEVEL_C && chunkMetricsToPersist.length > 0;
+      await recordLocalTakeoffFailure({
         supabase: context.supabase,
         job,
-        tenantId: context.tenantId,
         completedAtIso: completedAt.toISOString(),
         durationMs,
         error: mappedError,
+        diagnostic: skipFailureSnapshotPersist
+          ? null
+          : buildFailureDiagnostic({ error: mappedError, durationMs, model, promptVersion, retainMetrics }),
+        runMetrics: retainMetrics
+          ? buildLevelCRunMetricRows({
+              supabase: context.supabase,
+              job,
+              metrics: chunkMetricsToPersist,
+              hint: {
+                sourceFileName:
+                  levelCSourceFileName ??
+                  toNonEmptyString(job.source_file_name) ??
+                  "unknown",
+                errorDetails: mappedError.details,
+              },
+            })
+          : [],
       });
-
-      if (
-        level === TAKEOFF_LEVEL_C &&
-        chunkMetricsToPersist.length > 0
-      ) {
-        await persistLevelCRunMetrics({
-          supabase: context.supabase,
-          job,
-          resultId: failureResultId,
-          metrics: chunkMetricsToPersist,
-          hint: {
-            sourceFileName:
-              levelCSourceFileName ??
-              toNonEmptyString(job.source_file_name) ??
-              "unknown",
-            errorDetails: mappedError.details,
-          },
-        });
-      }
 
       await logFailedAuditEvent({
         supabase: context.supabase,

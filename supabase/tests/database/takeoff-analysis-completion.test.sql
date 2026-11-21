@@ -144,6 +144,128 @@ update public.takeoff_jobs set status = 'failed', error_code = 'AI_PROVIDER', pr
   processing_lease_expires_at = null where id = '8f400000-0000-4000-8000-000000000087';
 select lives_ok($$update public.takeoff_jobs set last_error_at = now(), next_retry_at = null
   where id = '8f400000-0000-4000-8000-000000000087'$$, 'before activation the old scheduler can write after failure');
+-- Two callbacks of this application read the same row; one is stopped between
+-- its read and its claim. The deployed claim would still accept the row. The
+-- colleague creates these jobs: the requester's admission budget is spent.
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, created_by, execution_provider, execution_host_id)
+select x.id, f.tenant_id, '8f400000-0000-4000-8000-000000000011', 'A', '8f400000-0000-4000-8000-000000000002',
+  'chatgpt_local', 'urn:uuid:8f400000-0000-4000-8000-000000000099'
+from completion_fixture f
+cross join (values ('8f400000-0000-4000-8000-000000000091'::uuid), ('8f400000-0000-4000-8000-000000000092'::uuid),
+  ('8f400000-0000-4000-8000-000000000093'::uuid)) as x(id);
+-- The worker's role reads the fixture's tenant like the processor reads its job.
+grant select on completion_fixture to service_role;
+set local role service_role;
+select throws_ok($$select * from public.claim_observed_local_takeoff_job('8f400000-0000-4000-8000-000000000091',
+    (select tenant_id from completion_fixture), 'urn:uuid:8f400000-0000-4000-8000-000000000099', now(), gen_random_uuid(),
+    now() + interval '1 hour', 'fixture', 'fixture', 'processing', 0)$$,
+  '22023', 'TAKEOFF_LOCAL_CLAIM_INVALID', 'a claim names the pending or failed state it observed');
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000091', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), 'aaaaaaaa-0000-4000-8000-000000000091', now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 1::bigint,
+  'the first callback claims the pending attempt it observed');
+select ok(public.record_local_takeoff_failure('8f400000-0000-4000-8000-000000000091', (select tenant_id from completion_fixture),
+  'aaaaaaaa-0000-4000-8000-000000000091', jsonb_build_object('completed_at', clock_timestamp(), 'duration_ms', 5,
+    'error_code', 'AI_PROVIDER', 'error_message', 'Fixture provider failure', 'analysis_outcome', 'failure',
+    'last_error_at', clock_timestamp(), 'next_retry_at', null),
+  '{"extracted_json": {}, "warnings": [], "tables": [], "provider_meta": {"status": "failed"}, "raw_response": {"fixture": true},
+    "token_count": 0, "cost_cents": 0, "duration_ms": 5}') is not null, 'the leased worker records its definitive failure');
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000091', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 0::bigint,
+  'a callback delayed after reading pending starts no attempt after a definitive failure');
+select results_eq($$select status::text, retry_count, error_code, processing_lease_token is null,
+    (select count(*) from public.takeoff_results r where r.job_id = j.id and r.provider_meta ->> 'status' = 'failed')
+  from public.takeoff_jobs j where j.id = '8f400000-0000-4000-8000-000000000091'$$,
+  $$values ('failed'::text, 0, 'AI_PROVIDER'::text, true, 1::bigint)$$,
+  'the failure, its diagnostic and the released lease commit together');
+
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000092', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), 'aaaaaaaa-0000-4000-8000-000000000092', now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 1::bigint,
+  'a callback claims a pending attempt');
+select ok(public.record_local_takeoff_failure('8f400000-0000-4000-8000-000000000092', (select tenant_id from completion_fixture),
+  'aaaaaaaa-0000-4000-8000-000000000092', jsonb_build_object('completed_at', clock_timestamp(), 'duration_ms', 5,
+    'error_code', 'AI_TIMEOUT', 'error_message', 'Fixture timeout', 'analysis_outcome', null,
+    'last_error_at', clock_timestamp(), 'next_retry_at', clock_timestamp() + interval '15 seconds')) is not null,
+  'the leased worker schedules its retry with its failure');
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000092', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 0::bigint,
+  'a callback delayed after reading pending cannot consume the scheduled retry early');
+reset role;
+update public.takeoff_jobs set next_retry_at = clock_timestamp() - interval '1 second'
+where id = '8f400000-0000-4000-8000-000000000092';
+set local role service_role;
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000092', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), 'aaaaaaaa-0000-4000-8000-000000000192', now() + interval '1 hour', 'fixture', 'fixture', 'failed', 0)), 1::bigint,
+  'the due retry is claimed from the attempt its callback observed');
+select ok(public.record_local_takeoff_failure('8f400000-0000-4000-8000-000000000092', (select tenant_id from completion_fixture),
+  'aaaaaaaa-0000-4000-8000-000000000192', jsonb_build_object('completed_at', clock_timestamp(), 'duration_ms', 5,
+    'error_code', 'AI_TIMEOUT', 'error_message', 'Fixture timeout', 'analysis_outcome', null,
+    'last_error_at', clock_timestamp(), 'next_retry_at', clock_timestamp() - interval '1 second')) is not null,
+  'the retried attempt fails again with a due schedule');
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000092', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), gen_random_uuid(), now() + interval '1 hour', 'fixture', 'fixture', 'failed', 0)), 0::bigint,
+  'a second callback of the same due retry cannot spend the next attempt');
+select is((select retry_count from public.takeoff_jobs where id = '8f400000-0000-4000-8000-000000000092'), 1,
+  'one due retry spends one attempt');
+
+-- A worker stopped after its failure renewal: the recovery closes it, the
+-- previous application relaunches the job and another worker succeeds.
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000093', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), 'aaaaaaaa-0000-4000-8000-000000000093', now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 1::bigint,
+  'the first worker claims the job');
+reset role;
+update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second'
+where id = '8f400000-0000-4000-8000-000000000093';
+set local role service_role;
+select is(public.record_local_takeoff_failure('8f400000-0000-4000-8000-000000000093', (select tenant_id from completion_fixture),
+  'aaaaaaaa-0000-4000-8000-000000000093', jsonb_build_object('completed_at', clock_timestamp(), 'duration_ms', 5,
+    'error_code', 'AI_PROVIDER', 'error_message', 'Fixture', 'analysis_outcome', 'failure', 'last_error_at', clock_timestamp())),
+  null, 'an expired lease cannot record a failure');
+reset role;
+-- The deployed recovery's statement, then the previous application's relaunch
+-- once its backoff after that recovery has elapsed.
+update public.takeoff_jobs set status = 'failed', completed_at = now() - interval '1 minute', next_retry_at = null,
+  last_error_at = now() - interval '1 minute',
+  error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', error_message = 'Fixture recovery',
+  processing_lease_token = null, processing_lease_expires_at = null
+where id = '8f400000-0000-4000-8000-000000000093' and status = 'processing';
+select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000001', true);
+set local role authenticated;
+update public.takeoff_jobs set status = 'pending', retry_count = retry_count + 1, next_retry_at = null, last_error_at = null,
+  started_at = null, completed_at = null, token_count = null, cost_cents = null, duration_ms = null,
+  error_code = null, error_message = null
+where id = '8f400000-0000-4000-8000-000000000093';
+reset role;
+set local role service_role;
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000093', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), 'aaaaaaaa-0000-4000-8000-000000000193', now() + interval '1 hour', 'fixture', 'fixture', 'pending', 1)), 1::bigint,
+  'the relaunched attempt is claimed by a second worker');
+select set_config('app.completion_test_relaunch_result', public.finalize_local_takeoff_result(
+  '8f400000-0000-4000-8000-000000000093', (select tenant_id from completion_fixture),
+  'aaaaaaaa-0000-4000-8000-000000000193', clock_timestamp(), 'fixture', 'fixture',
+  '{"extracted_json": {"items": [{"designation":"Ligne de la relance"}]}, "warnings": [], "tables": [], "provider_meta": {}}',
+  '[{"designation":"Ligne de la relance", "quantity": 2, "unit":"u", "metadata": {}, "is_excluded": false, "rules_stale": false}]'
+)::text, true);
+select is(public.record_local_takeoff_failure('8f400000-0000-4000-8000-000000000093', (select tenant_id from completion_fixture),
+  'aaaaaaaa-0000-4000-8000-000000000093', jsonb_build_object('completed_at', clock_timestamp(), 'duration_ms', 5,
+    'error_code', 'AI_PROVIDER', 'error_message', 'Fixture', 'analysis_outcome', 'failure', 'last_error_at', clock_timestamp()),
+  '{"extracted_json": {}, "warnings": [], "tables": [], "provider_meta": {"status": "failed"}, "token_count": 0,
+    "cost_cents": 0, "duration_ms": 5}'),
+  null, 'the resumed first worker cannot record its failure');
+reset role;
+select results_eq($$select j.status::text, (select array_agg(r.id::text) from public.takeoff_results r where r.job_id = j.id),
+    (select array_agg(i.designation) from public.takeoff_items i where i.job_id = j.id)
+  from public.takeoff_jobs j where j.id = '8f400000-0000-4000-8000-000000000093'$$,
+  $$values ('completed'::text, array[current_setting('app.completion_test_relaunch_result')], array['Ligne de la relance'::text])$$,
+  'the later result and its lines survive the resumed worker');
+
 select is((select count(*) from public.takeoff_jobs where analysis_outcome is not null), 0::bigint,
   'before activation no writer stamps a terminal outcome');
 
@@ -406,6 +528,25 @@ from completion_fixture;
 select is((select project_id from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000084'),
   '8f400000-0000-4000-8000-000000000010'::uuid,
   'a versionless job publishes to its frozen affaire after its plan set moves');
+
+-- After activation the same writer publishes the definitive end it commits.
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, created_by, execution_provider, execution_host_id)
+select '8f400000-0000-4000-8000-000000000094', tenant_id, '8f400000-0000-4000-8000-000000000011', 'A',
+  '8f400000-0000-4000-8000-000000000002', 'chatgpt_local', 'urn:uuid:8f400000-0000-4000-8000-000000000099'
+from completion_fixture;
+set local role service_role;
+select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000094', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), 'aaaaaaaa-0000-4000-8000-000000000094', now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0);
+select ok(public.record_local_takeoff_failure('8f400000-0000-4000-8000-000000000094', (select tenant_id from completion_fixture),
+  'aaaaaaaa-0000-4000-8000-000000000094', jsonb_build_object('completed_at', clock_timestamp(), 'duration_ms', 5,
+    'error_code', 'AI_PROVIDER', 'error_message', 'Fixture', 'analysis_outcome', 'failure', 'last_error_at', clock_timestamp(),
+    'next_retry_at', null)) is not null, 'an activated worker records its definitive failure');
+reset role;
+select results_eq($$select j.analysis_outcome, n.outcome from public.takeoff_jobs j
+  join public.takeoff_completion_notifications n on n.id = j.analysis_completion_event_id
+  where j.id = '8f400000-0000-4000-8000-000000000094'$$, $$values ('failure'::text, 'failure'::text)$$,
+  'the definitive failure and its notice commit with the worker write');
 
 select * from finish();
 rollback;

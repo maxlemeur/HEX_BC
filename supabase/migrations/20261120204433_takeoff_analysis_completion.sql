@@ -1,3 +1,9 @@
+begin;
+
+-- The first statement takes ACCESS EXCLUSIVE on takeoff_jobs. Give up instead
+-- of queueing every reader and writer of the table behind a long transaction.
+set local lock_timeout = '5s';
+
 alter table public.takeoff_jobs
   add column analysis_requested_by uuid,
   add column analysis_queued_at timestamptz,
@@ -544,6 +550,106 @@ revoke all on function public.finalize_local_takeoff_result(uuid, uuid, uuid, ti
 grant execute on function public.finalize_local_takeoff_result(uuid, uuid, uuid, timestamptz, text, text, jsonb, jsonb, jsonb)
   to service_role;
 
+-- Deployed workers keep claim_local_takeoff_job. This application's worker
+-- claims only the status and attempt it decided on: a callback delayed between
+-- its read and its claim can no longer start a provider call nobody asked for.
+create function public.claim_observed_local_takeoff_job(
+  p_job_id uuid, p_tenant_id uuid, p_host_id text, p_started_at timestamptz, p_lease_token uuid,
+  p_lease_expires_at timestamptz, p_model text, p_prompt_version text,
+  p_observed_status text, p_observed_retry_count integer
+)
+returns setof public.takeoff_jobs language plpgsql security definer set search_path = pg_catalog as $$
+begin
+  if p_observed_status is null or p_observed_status not in ('pending', 'failed') or p_observed_retry_count is null then
+    raise exception 'TAKEOFF_LOCAL_CLAIM_INVALID' using errcode = '22023';
+  end if;
+  perform 1 from public.takeoff_jobs j
+  where j.id = p_job_id and j.tenant_id = p_tenant_id
+    and j.status::text = p_observed_status and j.retry_count = p_observed_retry_count
+  for update;
+  if not found then return; end if;
+  -- Planned per call: a session keeps working after a column joins the job row.
+  return query execute 'select * from public.claim_local_takeoff_job($1, $2, $3, $4, $5, $6, $7, $8)'
+    using p_job_id, p_tenant_id, p_host_id, p_started_at, p_lease_token, p_lease_expires_at, p_model, p_prompt_version;
+end;
+$$;
+revoke all on function public.claim_observed_local_takeoff_job(uuid, uuid, text, timestamptz, uuid, timestamptz, text, text, text, integer)
+  from public, anon, authenticated;
+grant execute on function public.claim_observed_local_takeoff_job(uuid, uuid, text, timestamptz, uuid, timestamptz, text, text, text, integer)
+  to service_role;
+
+-- The failure, its retry decision and the replacement of the diagnostic share
+-- the job lock and unexpired lease of finalize_local_takeoff_result: a worker
+-- that resumes after recovery cannot erase the result of a later attempt.
+create function public.record_local_takeoff_failure(
+  p_job_id uuid, p_tenant_id uuid, p_lease_token uuid, p_failure jsonb,
+  p_diagnostic jsonb default null, p_run_metrics jsonb default null
+)
+returns jsonb language plpgsql security definer set search_path = pg_catalog as $$
+declare
+  failure public.takeoff_jobs := jsonb_populate_record(null::public.takeoff_jobs, p_failure);
+  diagnostic public.takeoff_results;
+  diagnostic_id uuid;
+begin
+  perform 1 from public.takeoff_jobs j
+  where j.id = p_job_id and j.tenant_id = p_tenant_id and j.status = 'processing'
+    and j.execution_provider = 'chatgpt_local' and j.processing_lease_token = p_lease_token
+  for update;
+  if not found then return null; end if;
+
+  if not exists (select 1 from public.takeoff_jobs j where j.id = p_job_id
+      and j.processing_lease_expires_at > clock_timestamp()) then
+    return null;
+  end if;
+
+  -- The diagnostic stays best effort, as it was: if it cannot be stored, the
+  -- previous rows stay whole and the failure is still recorded.
+  if p_diagnostic is not null then
+    begin
+      diagnostic := jsonb_populate_record(null::public.takeoff_results, p_diagnostic);
+      delete from public.takeoff_run_metrics where job_id = p_job_id and tenant_id = p_tenant_id;
+      delete from public.takeoff_items where job_id = p_job_id and tenant_id = p_tenant_id;
+      delete from public.takeoff_results where job_id = p_job_id and tenant_id = p_tenant_id;
+      insert into public.takeoff_results (tenant_id, job_id, extracted_json, warnings, tables, provider_meta, raw_response,
+        token_count, cost_cents, duration_ms)
+      values (p_tenant_id, p_job_id, diagnostic.extracted_json, diagnostic.warnings, diagnostic.tables, diagnostic.provider_meta,
+        diagnostic.raw_response, diagnostic.token_count, diagnostic.cost_cents, diagnostic.duration_ms)
+      returning id into diagnostic_id;
+    exception when others then
+      diagnostic_id := null;
+      raise log 'takeoff.failure.diagnostic_persistence_failed job=% code=%', p_job_id, sqlstate;
+    end;
+  end if;
+
+  if jsonb_typeof(p_run_metrics) = 'array' and jsonb_array_length(p_run_metrics) > 0 then
+    begin
+      insert into public.takeoff_run_metrics (
+        tenant_id, job_id, result_id, level, provider, model, chunk_index, chunk_start_page, chunk_end_page,
+        input_tokens, reasoning_tokens, output_tokens, total_tokens, cost_cents, duration_ms, timed_out,
+        budget_exceeded, metadata
+      )
+      select p_tenant_id, p_job_id, diagnostic_id, m.level, m.provider, m.model, m.chunk_index,
+        m.chunk_start_page, m.chunk_end_page, m.input_tokens, m.reasoning_tokens, m.output_tokens,
+        m.total_tokens, m.cost_cents, m.duration_ms, m.timed_out, m.budget_exceeded, m.metadata
+      from jsonb_populate_recordset(null::public.takeoff_run_metrics, p_run_metrics) m;
+    exception when others then
+      raise log 'takeoff.failure.metrics_persistence_failed job=% code=%', p_job_id, sqlstate;
+    end;
+  end if;
+
+  update public.takeoff_jobs set
+    status = 'failed', completed_at = failure.completed_at, duration_ms = failure.duration_ms,
+    error_code = failure.error_code, error_message = failure.error_message,
+    analysis_outcome = failure.analysis_outcome, last_error_at = failure.last_error_at,
+    next_retry_at = failure.next_retry_at,
+    processing_lease_token = null, processing_lease_expires_at = null
+  where id = p_job_id and tenant_id = p_tenant_id;
+  return jsonb_build_object('diagnostic_id', diagnostic_id);
+end;
+$$;
+revoke all on function public.record_local_takeoff_failure(uuid, uuid, uuid, jsonb, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.record_local_takeoff_failure(uuid, uuid, uuid, jsonb, jsonb, jsonb) to service_role;
+
 create function public.claim_takeoff_completion_email(p_id uuid default null)
 returns setof public.takeoff_completion_notifications
 language sql
@@ -617,3 +723,5 @@ end;
 $$;
 revoke all on function public.prepare_takeoff_completion_email(uuid, uuid, text, text, text) from public, anon, authenticated;
 grant execute on function public.prepare_takeoff_completion_email(uuid, uuid, text, text, text) to service_role;
+
+commit;

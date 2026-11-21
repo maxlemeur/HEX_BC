@@ -100,15 +100,25 @@ describe("durable takeoff failure decisions", () => {
     expect(processLevelCFn).not.toHaveBeenCalled();
   });
 
-  it("leaves an unclaimed due retry to bounded recovery instead of immediately requeueing it", async () => {
+  it("reports a due retry whose claim was rejected and leaves its schedule to the recovery poll", async () => {
     const { row, options, repository } = fixture("failed");
-    row.next_retry_at = new Date(now.getTime() - 1_000).toISOString();
+    const dueAt = new Date(now.getTime() - 1_000).toISOString();
+    Object.assign(row, { next_retry_at: dueAt, error_code: TakeoffErrorCode.AI_TIMEOUT, error_message: "fixture earlier timeout" });
+    vi.mocked(reportError).mockClear();
     const outcome = await processTakeoffJobAttempt(id, {
       ...options, trigger: "retry",
       processLevelCFn: vi.fn().mockRejectedValue(new Error("lease claim failed")),
     });
-    expect(outcome).toMatchObject({ status: "in_progress", should_requeue: false });
+    expect(outcome).toMatchObject({ status: "failed_terminal", should_requeue: false, error_code: "INTERNAL_ERROR" });
     expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
+    expect(row).toMatchObject({ status: "failed", next_retry_at: dueAt });
+    // The rejected attempt is reported, not the earlier failure the schedule retries.
+    expect(reportError).toHaveBeenCalledWith(expect.objectContaining({
+      error: new Error("Le traitement async du job takeoff a echoue."), source: "takeoff.async-worker",
+      context: expect.objectContaining({ job_id: id, error_code: "INTERNAL_ERROR" }),
+    }));
+    expect(options.logger.error).toHaveBeenCalledWith("Takeoff async worker reached terminal failure",
+      expect.objectContaining({ job_id: id, error_code: "INTERNAL_ERROR" }));
   });
 
   it("does not infer a definitive failure from a historical failed status", async () => {

@@ -827,6 +827,8 @@ describe("processTakeoffJobAttempt attempt endings", () => {
           now: harness.now,
           assertTenantActive: expect.any(Function),
           renewLease: expect.any(Function),
+          // The claim accepts only the state this attempt loaded and decided on.
+          claimObservation: { status: "pending", retryCount: 0 },
         });
       }
     );
@@ -1124,7 +1126,10 @@ describe("processTakeoffJobAttempt attempt endings", () => {
           })
         );
         expect(consoleError).toHaveBeenCalledWith("Unexpected takeoff error", expect.any(Error));
-        expect(vi.mocked(reportError)).toHaveBeenCalledWith(expect.objectContaining({ source: "takeoff.async-worker" }));
+        expect(vi.mocked(reportError)).toHaveBeenCalledWith(expect.objectContaining({
+          error: new Error("Le traitement async du job takeoff a echoue."),
+          source: "takeoff.async-worker",
+        }));
       } finally {
         consoleError.mockRestore();
       }

@@ -386,6 +386,8 @@ function takeoffProcessorOptions(
     now: attempt.now,
     assertTenantActive: attempt.assertTenantActive,
     renewLease,
+    // A callback delayed after this read cannot claim a later state of the job.
+    claimObservation: { status: attempt.job.status, retryCount: attempt.retryCount },
   };
 }
 
@@ -491,8 +493,12 @@ function failJobTerminally(
   attempt: TakeoffJobAttempt,
   current: TakeoffWorkerJobRow,
   currentRetryCount: number,
-  mappedError: TakeoffError
+  mappedError: TakeoffError,
+  // A rejected attempt reports its own error, not the stored one its job keeps.
+  rejected = false
 ) {
+  const errorCode = rejected ? mappedError.code : current.error_code ?? mappedError.code;
+  const errorMessage = rejected ? mappedError.message : current.error_message ?? mappedError.message;
   attempt.logger.error("Takeoff async worker reached terminal failure", {
     job_id: current.id,
     tenant_id: current.tenant_id,
@@ -501,17 +507,17 @@ function failJobTerminally(
     duration_ms: elapsedMs(attempt),
     status: "failed_terminal",
     correlation_id: attempt.correlationId,
-    error_code: current.error_code ?? mappedError.code,
+    error_code: errorCode,
   });
   reportError({
-    error: new Error(current.error_message ?? mappedError.message),
+    error: new Error(errorMessage),
     source: "takeoff.async-worker",
     context: {
       job_id: current.id,
       tenant_id: current.tenant_id,
       status: "failed_terminal",
       correlation_id: attempt.correlationId,
-      error_code: current.error_code ?? mappedError.code,
+      error_code: errorCode,
     },
   });
 
@@ -521,8 +527,8 @@ function failJobTerminally(
     retryable: false,
     shouldRequeue: false,
     durationMs: elapsedMs(attempt),
-    errorCode: current.error_code ?? mappedError.code,
-    errorMessage: current.error_message ?? mappedError.message,
+    errorCode,
+    errorMessage,
   });
 }
 
@@ -574,22 +580,15 @@ async function settleLevelProcessingFailure(attempt: TakeoffJobAttempt, error: u
   if (current.status === "pending") {
     // The callback reports the rejected attempt. Durable recovery still owns
     // the accepted job, which has not acquired a worker lease.
-    return failJobTerminally(attempt, current, currentRetryCount, mappedError);
+    return failJobTerminally(attempt, current, currentRetryCount, mappedError, true);
   }
   const scheduled = current.status === "failed" && current.next_retry_at && currentRetryCount < TAKEOFF_RETRY_MAX;
   if (scheduled && (current.next_retry_at !== job.next_retry_at || currentRetryCount !== attempt.retryCount)) {
     return scheduledRetryOutcome(attempt, current, mappedError);
   }
-  // An unchanged due schedule stays available for the recovery poll.
-  return attemptOutcome(attempt, current, {
-    status: scheduled ? "in_progress" : "noop_terminal",
-    retryCount: currentRetryCount,
-    retryable: false,
-    shouldRequeue: false,
-    durationMs: elapsedMs(attempt),
-    errorCode: current.error_code ?? mappedError.code,
-    errorMessage: current.error_message ?? mappedError.message,
-  });
+  // The claim rejected this attempt and left the job as it was: its due
+  // schedule stays for the recovery poll, and the rejection is reported.
+  return failJobTerminally(attempt, current, currentRetryCount, mappedError, true);
 }
 
 // Runs the level processor under the processing lease the job's claim holds.
