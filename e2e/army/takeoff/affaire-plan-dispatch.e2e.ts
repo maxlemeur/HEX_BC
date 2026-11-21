@@ -16,7 +16,7 @@ import { signUpWorkerOwner } from "./worker-support";
 // persistence and end of each unit, and a controlled local provider. Fictional plans and dossier only.
 
 armyTest("TKPD01 a request of three plans gives three analyses read one at a time; one that fails stops nothing; one notice « 2 plans lus sur 3 »", {
-  session: "army", trace: "off", tags: ["takeoff-worker", "local"], timeout: 300_000,
+  session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
 }, async (ui) => {
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "TKPD1");
@@ -110,7 +110,7 @@ armyTest("TKPD01 a request of three plans gives three analyses read one at a tim
 });
 
 armyTest("TKPD02 a member stops the rest of a request after its first plan: the plan read stays, its requester is told; a full stop sends nothing", {
-  session: "army", trace: "off", tags: ["takeoff-worker", "local"], timeout: 300_000,
+  session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
 }, async (ui) => {
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "TKPD2");
