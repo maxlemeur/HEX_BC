@@ -146,8 +146,11 @@ const chatGptUsageSchema = z.object({
   output_tokens_details: z.object({ reasoning_tokens: z.number().default(0) }).optional(),
 });
 type ChatGptUsage = z.infer<typeof chatGptUsageSchema>;
-/** Records a paid call's usage (a launch request's ledger); a failure to record stops the call's caller. */
-export type ChatGptUsageRecorder = (usage: { totalTokens: number; costCents: number }) => Promise<void>;
+/**
+ * Records a paid call's usage (a launch request's ledger); a failure to record stops the call's caller. `trusted`: the
+ * provider stated its total (trustedChatGptUsageTotal); a reserved call is settled only by such a total.
+ */
+export type ChatGptUsageRecorder = (usage: { totalTokens: number; costCents: number; trusted: boolean }) => Promise<void>;
 
 /**
  * The total a response's usage states, when it can settle a paid call: `total_tokens` given as a whole number above zero,
@@ -165,8 +168,8 @@ export function trustedChatGptUsageTotal(raw: unknown): number | null {
 
 /**
  * Read through the terminal event: partial output is never a successful answer. Every response that carries a usage was
- * paid for: `onUsage` records it first when its total can be trusted (trustedChatGptUsageTotal), whatever happens to its
- * answer (no text, incomplete, failed), and its own failure is the one thrown; otherwise the call's usage stays unknown.
+ * paid for: `onUsage` records it first, with whether its total can be trusted (trustedChatGptUsageTotal), whatever happens
+ * to its answer (no text, incomplete, failed), and its own failure is the one thrown.
  */
 export async function readChatGptResponse(response: Response, onUsage?: ChatGptUsageRecorder) {
   let usage: ChatGptUsage | null = null;
@@ -185,7 +188,7 @@ export async function readChatGptResponse(response: Response, onUsage?: ChatGptU
   }
   const paid = usage as ChatGptUsage | null;
   const total = trusted as number | null;
-  if (paid && total !== null && onUsage) await onUsage({ totalTokens: total, costCents: 0 });
+  if (paid && onUsage) await onUsage({ totalTokens: total ?? paid.total_tokens, costCents: 0, trusted: total !== null });
   if ("error" in read) throw read.error;
   return { text: read.text, usage: paid ?? chatGptUsageSchema.parse({}) };
 }
@@ -272,7 +275,7 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
  */
 type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null;
   authorizationId?: string | null; beforeSend?: () => Promise<unknown>;
-  onUsage?: (usage: { totalTokens: number; costCents: number }, call: unknown) => Promise<void>;
+  onUsage?: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => Promise<void>;
   onUnknownUsage?: (call: unknown) => Promise<void> };
 
 /** A takeoff call whose pinned connection was withdrawn, renewed or never recorded: nothing is sent. */

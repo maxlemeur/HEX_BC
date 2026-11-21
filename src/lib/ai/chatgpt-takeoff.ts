@@ -190,7 +190,7 @@ export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClie
 }
 
 type PaidSelection = { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null; authorizationId?: string | null;
-  beforeSend?: () => Promise<TakeoffPaidCall>; onUsage?: (usage: { totalTokens: number; costCents: number }, call: unknown) => Promise<void>;
+  beforeSend?: () => Promise<TakeoffPaidCall>; onUsage?: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => Promise<void>;
   onUnknownUsage?: (call: unknown) => Promise<void> };
 
 export type LocalTakeoffProvider = {
@@ -251,7 +251,7 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
     authorizationId: pinned.data.authorizationId,
     ...(ledger ? {
       beforeSend: () => ledger.beforePaidCall(branch),
-      onUsage: (usage: { totalTokens: number; costCents: number }, call: unknown) => ledger.recordPaidUsage(call as TakeoffPaidCall, usage),
+      onUsage: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => ledger.recordPaidUsage(call as TakeoffPaidCall, usage),
       onUnknownUsage: (call: unknown) => ledger.recordUnknownUsage(call as TakeoffPaidCall),
     } : {}),
   });

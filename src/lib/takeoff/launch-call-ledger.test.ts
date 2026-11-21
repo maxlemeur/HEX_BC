@@ -60,6 +60,20 @@ describe("createTakeoffCallLedger", () => {
       ["reserve_takeoff_launch_call", "call:1"], ["record_takeoff_launch_usage", "call:1"]]);
   });
 
+  // A reserved call is settled only by a total the provider stated; a call checked without a reservation (a grouped
+  // analysis before the activation) is recorded as lot 2 records it, whatever its usage said.
+  it("holds a reserved call as unknown when its answer's total cannot be trusted, and records an unreserved one as before", async () => {
+    const ledger = createTakeoffCallLedger({ id: "job", launch_request_id: "request" }, () => "lease");
+    const reservedCall = await ledger.beforePaidCall("pdf");
+    await ledger.recordPaidUsage(reservedCall, { totalTokens: 0, costCents: 0, trusted: false });
+    answers.push({ data: [{ outcome: "unreserved", reason: null }], error: null });
+    const unreservedCall = await ledger.beforePaidCall("pdf");
+    await ledger.recordPaidUsage(unreservedCall, { totalTokens: 0, costCents: 0, trusted: false });
+    expect(rpc.mock.calls.map(([name, args]) => [name, args.p_call_key])).toEqual([
+      ["reserve_takeoff_launch_call", "call:1"], ["record_takeoff_launch_call_unknown", "call:1"],
+      ["reserve_takeoff_launch_call", "call:2"], ["record_takeoff_launch_usage", "call:2"]]);
+  });
+
   // A call of unknown outcome freezes every further paid call of its request: the refusal names it, nothing is sent.
   it("stops on a request frozen by a call of unknown outcome, with that reason", async () => {
     answers.push({ data: [{ outcome: "refused", reason: "USAGE_UNKNOWN" }], error: null });
@@ -79,7 +93,7 @@ describe("createTakeoffCallLedger", () => {
     expect(second).toBe("pending");
     await ledger.recordPaidUsage(first, { totalTokens: 10, costCents: 0 });
     await waiting;
-    expect(second).toEqual({ key: "call:2" });
+    expect(second).toEqual({ key: "call:2", reserved: true });
     expect(rpc.mock.calls.map(([name, args]) => [name, args.p_call_key])).toEqual([
       ["reserve_takeoff_launch_call", "call:1"], ["reserve_takeoff_launch_call", "call:2"],
       ["record_takeoff_launch_usage", "call:1"], ["reserve_takeoff_launch_call", "call:2"],

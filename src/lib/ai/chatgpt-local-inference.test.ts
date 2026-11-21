@@ -71,7 +71,7 @@ describe("ChatGPT plan inference", () => {
     const onUsage = vi.fn().mockResolvedValue(undefined);
     await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
       { profileId: "profile-a", model: "account-model", onUsage })).rejects.toThrow();
-    expect(onUsage).toHaveBeenCalledWith({ totalTokens: 8, costCents: 0 }, undefined);
+    expect(onUsage).toHaveBeenCalledWith({ totalTokens: 8, costCents: 0, trusted: true }, undefined);
   });
   // A call sent that never told its usage stays held in its request's ledger: the reservation that names it is told so.
   it("tells the reservation of a call that ended without a known usage, and only then", async () => {
@@ -94,14 +94,14 @@ describe("ChatGPT plan inference", () => {
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ costCents: 0 }), { key: "call:1" });
     expect(onUnknownUsage).not.toHaveBeenCalled();
   });
-  // A reservation is released only by a total the provider stated, consistent with its parts: otherwise the call stays
-  // held as unknown (and its request makes no further paid call).
+  // A total can settle a reservation only when the provider stated it, consistent with its parts: the usage is passed on
+  // as not trusted otherwise (the ledger then holds a reserved call as unknown, and its request makes no further paid call).
   it.each([
     ["no total", { input_tokens: 12000 }],
     ["a total of zero", { input_tokens: 0, output_tokens: 0, total_tokens: 0 }],
     ["a total below its parts", { input_tokens: 12000, output_tokens: 300, total_tokens: 100 }],
     ["a total that is not a whole number", { total_tokens: 12.5 }],
-  ])("keeps a call held as unknown when its usage has %s", async (_case, usage) => {
+  ])("passes on a usage with %s as not trusted", async (_case, usage) => {
     const beforeSend = vi.fn(async () => ({ key: "call:1" }));
     const onUsage = vi.fn().mockResolvedValue(undefined);
     const onUnknownUsage = vi.fn().mockResolvedValue(undefined);
@@ -109,8 +109,8 @@ describe("ChatGPT plan inference", () => {
       output: [{ type: "message", content: [{ type: "output_text", text: '{"amount":2}' }] }], usage } }])));
     await callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
       { profileId: "profile-a", model: "account-model", beforeSend, onUsage, onUnknownUsage });
-    expect(onUsage).not.toHaveBeenCalled();
-    expect(onUnknownUsage).toHaveBeenCalledWith({ key: "call:1" });
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ trusted: false }), { key: "call:1" });
+    expect(onUnknownUsage).not.toHaveBeenCalled();
   });
   it("stops with the recording's own error when a call's usage cannot be recorded, whatever the answer", async () => {
     const unrecorded = new Error("Le registre de consommation est indisponible.");

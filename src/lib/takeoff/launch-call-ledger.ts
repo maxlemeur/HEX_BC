@@ -16,14 +16,20 @@ import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
  */
 export type TakeoffPaidCallBranch = "pdf" | "vector_group" | "other";
 
-/** A call that may be sent: its key in the ledger, or none for a job without a request. */
-export type TakeoffPaidCall = { readonly key: string } | null;
+/**
+ * A call that may be sent: its key in the ledger and whether it holds a reservation (a call of a grouped analysis before
+ * the activation is checked without one), or none for a job without a request.
+ */
+export type TakeoffPaidCall = { readonly key: string; readonly reserved: boolean } | null;
 
 export type TakeoffPaidCallLedger = {
   /** Before a paid call is sent: its right and its reservation; throws the refusal, and nothing is sent. */
   beforePaidCall(branch: TakeoffPaidCallBranch): Promise<TakeoffPaidCall>;
-  /** The usage the call's answer carried: settles its reservation once; a failure to record stops the job. */
-  recordPaidUsage(call: TakeoffPaidCall, usage: { totalTokens: number; costCents: number }): Promise<void>;
+  /**
+   * The usage the call's answer carried: settles its reservation once, only with a total the provider stated (`trusted`;
+   * otherwise a reserved call stays held as unknown); a failure to record stops the job.
+   */
+  recordPaidUsage(call: TakeoffPaidCall, usage: { totalTokens: number; costCents: number; trusted?: boolean }): Promise<void>;
   /** The call ended without a known usage (no answer, or one without its usage): it stays held as unknown. */
   recordUnknownUsage(call: TakeoffPaidCall): Promise<void>;
 };
@@ -68,6 +74,18 @@ export function createTakeoffCallLedger(job: { id: string; launch_request_id?: s
     inFlight.delete(call.key);
   };
 
+  const recordUnknownUsage = async (call: TakeoffPaidCall) => {
+    if (!call) return;
+    try {
+      // Best effort: a reservation still open when its attempt ends is held as unknown by the database anyway.
+      const { error } = await service().rpc("record_takeoff_launch_call_unknown", {
+        p_job_id: job.id, p_lease_token: lease() ?? "", p_call_key: call.key });
+      if (error) console.error("takeoff.paid_call.unknown_unrecorded", { jobId: job.id, call: call.key });
+    } finally {
+      end(call);
+    }
+  };
+
   return {
     async beforePaidCall(branch) {
       const key = `call:${++calls}`;
@@ -89,12 +107,12 @@ export function createTakeoffCallLedger(job: { id: string; launch_request_id?: s
         if (row?.outcome === "unbudgeted") return null;
         // Before the owner's activation of one analysis per plan: checked as before, not reserved, its usage recorded once
         // answered.
-        if (row?.outcome === "unreserved") return { key };
+        if (row?.outcome === "unreserved") return { key, reserved: false };
         if (row?.outcome === "reserved") {
           let resolve = () => {};
           const done = new Promise<void>((settle) => { resolve = settle; });
           inFlight.set(key, { done, end: resolve });
-          return { key };
+          return { key, reserved: true };
         }
         if (row?.outcome === "wait" && inFlight.size > 0 && waits < MAX_WAITS) {
           await Promise.race([...inFlight.values()].map((entry) => entry.done));
@@ -106,6 +124,7 @@ export function createTakeoffCallLedger(job: { id: string; launch_request_id?: s
 
     async recordPaidUsage(call, usage) {
       if (!call) return;
+      if (call.reserved && usage.trusted === false) return recordUnknownUsage(call);
       try {
         const { error } = await service().rpc("record_takeoff_launch_usage", {
           p_job_id: job.id, p_lease_token: lease() ?? "", p_call_key: call.key, p_tokens: usage.totalTokens, p_cost_cents: usage.costCents,
@@ -119,16 +138,6 @@ export function createTakeoffCallLedger(job: { id: string; launch_request_id?: s
       }
     },
 
-    async recordUnknownUsage(call) {
-      if (!call) return;
-      try {
-        // Best effort: a reservation still open when its attempt ends is held as unknown by the database anyway.
-        const { error } = await service().rpc("record_takeoff_launch_call_unknown", {
-          p_job_id: job.id, p_lease_token: lease() ?? "", p_call_key: call.key });
-        if (error) console.error("takeoff.paid_call.unknown_unrecorded", { jobId: job.id, call: call.key });
-      } finally {
-        end(call);
-      }
-    },
+    recordUnknownUsage,
   };
 }
