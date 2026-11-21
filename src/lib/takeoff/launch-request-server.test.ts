@@ -775,6 +775,8 @@ describe("launchTakeoffRelaunch", () => {
     const calls: string[] = [];
     const service = createSupabaseFake({ rpc: {
       replay_manual_takeoff_request: () => ({ data: [], error: null }),
+      // Lot 4: the command reads whether the second measuring order is active (it is not: the free extraction).
+      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
       launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
     } });
     vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
