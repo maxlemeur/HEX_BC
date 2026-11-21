@@ -14,6 +14,7 @@ import {
 } from "@/lib/ai/chatgpt-takeoff";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
+import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertTakeoffWorkerConfiguration } from "@/lib/takeoff/default-on-flags";
@@ -25,6 +26,7 @@ import { deriveDeterministicJobId } from "@/lib/takeoff/job-creation-input";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
   buildTakeoffLaunchManifest, decideTakeoffLaunch, describeTakeoffLaunchReason, isTakeoffLaunchReason, splitTakeoffLaunchManifest,
+  takeoffPlanUnitKey,
   TAKEOFF_AUTOMATIC_PAYER_NOTICE, TAKEOFF_GROUPED_UNIT_KEY,
   type AnyTakeoffLaunchManifest, type TakeoffLaunchManifest, type TakeoffLaunchPiece, type TakeoffLaunchReason,
   type TakeoffLaunchRequestState, type TakeoffPlanLaunchManifest,
@@ -41,6 +43,7 @@ import {
   assertConfirmedTakeoffPreparation, loadPreparation, PreparationPlanBudgetError, PreparationPlanSealError, sealPreparationSources,
 } from "@/lib/takeoff/preparation-server";
 import { getPlanSetMaxPdfPages } from "@/lib/takeoff/source-loader";
+import { openPreparedPlan } from "@/lib/takeoff/preparation-source-loader";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
@@ -81,6 +84,9 @@ function launchError(error: { code?: string; message: string }, fallback: string
       throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR, "L’analyse à relancer n’appartient pas à cette affaire.");
     case "TAKEOFF_JOB_ADMISSION_LIMIT":
       throw takeoffJobInsertError({ code: "23514", message: error.message }, "");
+    case "TAKEOFF_LAUNCH_STOP_GROUPED":
+      throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR,
+        "Cette analyse lit tous ses plans en une fois : annulez-la depuis son suivi plutôt que d’arrêter ses plans un par un.");
   }
   databaseError(error, fallback);
 }
@@ -233,7 +239,9 @@ async function readDossierDocuments(service: Service, tenantId: string, projectI
   return ((rows.data ?? []) as unknown[]).map(normalizeDocumentRow).filter((row) => row !== null);
 }
 
-type Sealed = { snapshot: TakeoffPreparationSnapshot; manifest: TakeoffLaunchManifest; sourceFile: Awaited<ReturnType<typeof resolvePlanSetSourceFile>> };
+type Sealed = { snapshot: TakeoffPreparationSnapshot; manifest: TakeoffLaunchManifest; sourceFile: Awaited<ReturnType<typeof resolvePlanSetSourceFile>>;
+  /** The pages of each plan the sealing counted on its bytes. */
+  pageCounts: ReadonlyMap<string, number> };
 type Refusal = { state: "not_eligible" | "blocked"; reason: TakeoffLaunchReason; pieces: TakeoffLaunchPiece[] };
 
 /**
@@ -322,7 +330,27 @@ async function sealAutomaticSnapshot(service: Service, input: {
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
     omittedPlans, omittedReferences: sealed.omittedReferences, preparationRevision: snapshot.preparation_revision,
     budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
-  return { snapshot, manifest, sourceFile };
+  return { snapshot, manifest, sourceFile, pageCounts: sealed.planPageCounts };
+}
+
+/**
+ * The pages of each plan a command reads whose row stores no count, counted on its bytes as the worker opens it (the
+ * member's confirmation counted them, but a snapshot keeps the stored count). A plan that cannot be opened is left to its
+ * reading, which refuses it.
+ */
+async function countUnstoredPlanPages(service: Service, sources: TakeoffPreparationSnapshot["preparation"]["sources"]) {
+  const counted = new Map<string, number>();
+  for (const source of sources) {
+    if (source.kind !== "plan" || !source.active || source.page_count != null || !source.file_path) continue;
+    const { data, error } = await service.storage.from(PLAN_FILES_BUCKET).download(source.file_path);
+    if (error || !data) continue;
+    try {
+      counted.set(source.document_id, (await openPreparedPlan(new Uint8Array(await data.arrayBuffer()), [])).pdf.getPageCount());
+    } catch {
+      // Refused by its reading, with its reason.
+    }
+  }
+  return counted;
 }
 
 /** The plan set's copies a preparation does not read: a revision the members set aside, or an identical copy of a plan it reads. */
@@ -336,19 +364,27 @@ function planSetCopiesSetAside(sources: TakeoffPreparationSnapshot["preparation"
 }
 
 /**
- * What the affaire's latest analysis read: its plans, and the plans it set aside in turn as read before it, each with the
- * dossier piece and generation it sealed. A command that does not name them leaves them to that analysis.
+ * What the affaire's latest analysis read: the plans whose unit it actually read (every plan of a grouped analysis whose
+ * one unit was read), and the plans it set aside in turn as read before it, each with the dossier piece and generation
+ * sealed with it. A plan never read (its unit cancelled, failed, or never started) is not among them. A command that does
+ * not name them leaves them to that analysis.
  */
 async function readPlansAnalysedBefore(service: Service, tenantId: string, projectId: string) {
-  const { data, error } = await service.from("takeoff_launch_requests").select("manifest").eq("tenant_id", tenantId)
+  const { data, error } = await service.from("takeoff_launch_requests").select("id, manifest").eq("tenant_id", tenantId)
     .eq("project_id", projectId).in("state", ["admitted", "closed"])
     .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
   if (error) databaseError(error, "Impossible de lire la dernière analyse de l’affaire.");
   const manifest = data?.manifest as AnyTakeoffLaunchManifest | null | undefined;
-  if (!manifest || !Array.isArray(manifest.plans)) return [];
+  if (!data || !manifest || !Array.isArray(manifest.plans)) return [];
+  const { data: units, error: unitsError } = await service.rpc("read_takeoff_launch_request_units",
+    { p_tenant_id: tenantId, p_project_id: projectId, p_request_id: data.id });
+  if (unitsError) databaseError(unitsError, "Impossible de lire la dernière analyse de l’affaire.");
+  const answer = units as { format?: string; units?: Array<{ key?: string; state?: string }> } | null;
+  const readKeys = new Set((answer?.units ?? []).filter((unit) => unit.state === "succeeded").map((unit) => unit.key));
+  const wasRead = (planFileId: string) => (answer?.format === "per_plan" ? readKeys.has(takeoffPlanUnitKey(planFileId)) : readKeys.size > 0);
   return [
-    ...manifest.plans.map((plan) => ({ id: plan.plan_file_id, name: plan.name, intake_document_id: plan.intake_document_id ?? null,
-      generation: plan.generation ?? null })),
+    ...manifest.plans.filter((plan) => wasRead(plan.plan_file_id)).map((plan) => ({ id: plan.plan_file_id, name: plan.name,
+      intake_document_id: plan.intake_document_id ?? null, generation: plan.generation ?? null })),
     ...(manifest.coverage?.plans_omitted ?? []).filter((plan) => plan.reason === "not_requested")
       .map((plan) => ({ id: plan.id, name: plan.name, intake_document_id: plan.intake_document_id ?? null, generation: plan.generation ?? null })),
   ];
@@ -417,7 +453,7 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
   // Once the owner activated one analysis per plan, the same seal is admitted as one unit per plan, each with its job.
   const units = await isTakeoffPlanDispatchActive(service)
     ? await planUnitJobs(service, { tenantId: claim.tenant_id, planSetId: planSet!.id, jobKey: `takeoff-request:${claim.request_id}`,
-      manifest: splitTakeoffLaunchManifest(sealed.manifest), hostId })
+      manifest: splitTakeoffLaunchManifest(sealed.manifest, sealed.pageCounts), hostId })
     : null;
   const { data, error: admitError } = await service.rpc("admit_takeoff_launch_request", {
     p_request_id: claim.request_id, p_token: token, p_mark: claim.mark,
@@ -543,7 +579,7 @@ export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "alread
  * another command is a conflict. While another request of the affaire runs, the command is recorded as refused.
  * Once the owner activated one analysis per plan, the command reads only the plans it names (`planFileIds`), by default
  * the plan of the analysis it replaces, each as its own unit; a plan added to the dossier after the analysis is read by
- * a command that names it, without a predecessor.
+ * a command that names it and the analysis it extends.
  */
 export async function launchTakeoffRelaunch(input: {
   context: Context; projectId: string; planSetId: string; preparationRevision: number; intentKey: string;
@@ -649,6 +685,8 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput):
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
       message: "Choisissez l’analyse à relancer ou les plans à lire." });
   }
+  // A command names the analysis it replaces or extends (a plan added to the dossier since included); without one it is
+  // the affaire's first analysis, refused below once the affaire has one.
   const intent = input.predecessorJobId ? "reread_plans" : "initial";
   const scope = await relaunchPlanScope(service, input);
   const command = { p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
@@ -660,6 +698,15 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput):
   const recorded = (replayed as Array<{ outcome: string; request_id: string; job_id: string | null }> | null)?.[0];
   if (recorded) {
     return { outcome: recorded.outcome as TakeoffRelaunchResult["outcome"], requestId: recorded.request_id, jobId: recorded.job_id };
+  }
+  if (intent === "initial") {
+    const { data: analysed, error: analysedError } = await service.from("takeoff_jobs").select("id")
+      .eq("tenant_id", context.tenantId).eq("project_id", input.projectId).limit(1).maybeSingle();
+    if (analysedError) databaseError(analysedError, "Impossible de lire les analyses de l’affaire.");
+    if (analysed) {
+      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+        message: "Ce métré a déjà une analyse : choisissez celle que cette commande complète." });
+    }
   }
   // Only the plans named are read: the member's confirmed preparation of the plan set, the other plans set aside.
   const { snapshot: confirmed, owner, config } = await relaunchSeal(service, input);
@@ -695,7 +742,8 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput):
   }
   const units = await planUnitJobs(service, { tenantId: context.tenantId, planSetId: input.planSetId, jobKey,
     hostId: owner.execution_host_id,
-    manifest: splitTakeoffLaunchManifest(await relaunchManifest(context, input.planSetId, snapshot, config, intent, [...omitted.values()])) });
+    manifest: splitTakeoffLaunchManifest(await relaunchManifest(context, input.planSetId, snapshot, config, intent, [...omitted.values()]),
+      await countUnstoredPlanPages(service, snapshot.preparation.sources)) });
   const { data, error } = await service.rpc("launch_manual_takeoff_plan_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
     p_manifest: units.manifest as unknown as Json, p_snapshot: snapshot as unknown as Json, p_jobs: units.jobs as unknown as Json,

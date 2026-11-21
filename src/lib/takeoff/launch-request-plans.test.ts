@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  allotTakeoffVectorPages, buildTakeoffLaunchManifest, buildTakeoffPlanLaunchManifest, compareTakeoffPlansForDispatch, splitTakeoffRequestBudget,
+  allotTakeoffVectorPages, buildTakeoffLaunchManifest, buildTakeoffPlanLaunchManifest, compareTakeoffPlansForDispatch, splitTakeoffLaunchManifest,
+  splitTakeoffRequestBudget,
   takeoffPlanUnitKey, takeoffPlanWeights, TAKEOFF_LAUNCH_MAX_UNITS,
 } from "@/lib/takeoff/launch-request";
 import {
@@ -70,6 +71,18 @@ describe("the manifest of one analysis per plan (format 2)", () => {
     ]);
     // A zero envelope stays zero: no call is paid (the rule of a grouped analysis).
     expect(splitTakeoffRequestBudget({ tokens: 400_000, cost_cents: 0 }, [3, 1]).map((share) => share.cost_cents)).toEqual([0, 0]);
+  });
+
+  // A whole plan whose stored page count is unknown weighs its pages as the sealing counted them on its bytes, never one.
+  it("weighs a whole plan by the pages its sealing counted when none was stored", () => {
+    const grouped = buildTakeoffLaunchManifest(input);
+    const counted = new Map([["90000000-0000-4000-8000-00000000000c", 40]]);
+    const manifest = splitTakeoffLaunchManifest(grouped, counted);
+    const unit = manifest.units.find((entry) => entry.plans[0] === "90000000-0000-4000-8000-00000000000c")!;
+    expect(unit).toMatchObject({ page_count: 40, vector_pages: 40 });
+    expect(manifest.plans.find((entry) => entry.plan_file_id === "90000000-0000-4000-8000-00000000000c")?.page_count).toBe(40);
+    // The grouped manifest itself is the one lot 2 seals: its counts are those stored.
+    expect(grouped.plans.find((entry) => entry.plan_file_id === "90000000-0000-4000-8000-00000000000c")?.page_count).toBeNull();
   });
 
   it("refuses an empty request and one of more plans than a plan set may hold", () => {

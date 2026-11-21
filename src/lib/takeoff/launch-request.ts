@@ -271,11 +271,15 @@ export function buildTakeoffPlanLaunchManifest(input: TakeoffLaunchManifestInput
 
 /**
  * The same seal, one unit per plan: the grouped manifest's plans, references and coverage, its plans in the recorded
- * order, each with its share of the envelope and of the dossier's vector pages. Nothing is read again: the plans are
- * those the request's one seal verified.
+ * order, each with its share of the envelope and of the dossier's vector pages, weighed by its retained pages, else its
+ * page count (stored, or counted by the sealing on its bytes). Nothing is read again: the plans are those the request's
+ * one seal verified.
  */
-export function splitTakeoffLaunchManifest(grouped: TakeoffLaunchManifest): TakeoffPlanLaunchManifest {
-  const plans = [...grouped.plans].sort(compareTakeoffPlansForDispatch);
+export function splitTakeoffLaunchManifest(grouped: TakeoffLaunchManifest,
+  /** The pages of each plan counted on its bytes (as the worker counts them), before the count its row stores. */
+  countedPages: ReadonlyMap<string, number> = new Map()): TakeoffPlanLaunchManifest {
+  const plans = [...grouped.plans].map((plan) => ({ ...plan, page_count: countedPages.get(plan.plan_file_id) ?? plan.page_count }))
+    .sort(compareTakeoffPlansForDispatch);
   if (plans.length === 0 || plans.length > TAKEOFF_LAUNCH_MAX_UNITS) {
     throw new Error(`A request seals between 1 and ${TAKEOFF_LAUNCH_MAX_UNITS} plans.`);
   }

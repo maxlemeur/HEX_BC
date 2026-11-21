@@ -86,17 +86,21 @@ const referenceKey = (reference: Pick<DossierReference, "id" | "name" | "storedA
 function dossier(input: { classification?: string; copy?: "same" | "older" | "legacy" | "none"; executionHost?: string; running?: boolean;
   references?: DossierReference[];
   /** The owner activated one analysis per plan. */
-  perPlan?: boolean } = {}) {
+  perPlan?: boolean;
+  /** The plan copy's bytes, and the page count its row stores (null: not counted yet). */
+  bytes?: Uint8Array; storedPageCount?: number | null } = {}) {
+  const planBytes = input.bytes ?? BYTES;
+  const storedPageCount = input.storedPageCount === undefined ? 1 : input.storedPageCount;
   const document = {
     id: DOCUMENT, tenant_id: TENANT, project_id: PROJECT, upload_id: "aaaaaaaa-0000-4000-8000-000000000070", created_by: PAYER,
     storage_path: `${TENANT}/${PROJECT}/${UPLOAD}/${DOCUMENT}/plan-rdc.pdf`, deletion_token: null, plan_copy_generation: "generation-2",
-    file_name: "Plan RDC.pdf", mime_type: "application/pdf", size_bytes: BYTES.byteLength, upload_status: "uploaded",
+    file_name: "Plan RDC.pdf", mime_type: "application/pdf", size_bytes: planBytes.byteLength, upload_status: "uploaded",
     rejection_reason: null, classification_status: input.classification ?? "classified", document_kind: "plans",
     document_priority: "primary", confidence: 0.92, issues: [], extracted_metadata: {}, classification_source: "heuristic",
     classified_by: null, classified_at: "2026-11-21T08:00:00Z", manually_overridden_at: null, source_provider: null,
   };
   // A copy made before generations were recorded (legacy) names the classification it was made from instead.
-  const copy = { id: PLAN_FILE, file_path: FILE_PATH, file_name: "plan-rdc.pdf", file_size_bytes: BYTES.byteLength,
+  const copy = { id: PLAN_FILE, file_path: FILE_PATH, file_name: "plan-rdc.pdf", file_size_bytes: planBytes.byteLength,
     metadata: { source: "affaire-intake", intake_document_id: DOCUMENT, intake_storage_path: document.storage_path,
       ...(input.copy === "legacy" ? { intake_classified_at: document.classified_at }
         : { intake_generation: input.copy === "older" ? "generation-1" : "generation-2" }) } };
@@ -115,14 +119,14 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
       plan_sets: () => ({ data: [{ id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
         updated_at: "2026-11-21T08:00:00Z", plan_files: [{ count: input.copy === "none" ? 0 : 1 }] }], error: null, count: 1 }),
       plan_files: (query: FakeQuery) => {
-        const rows = input.copy === "none" ? [] : [{ ...copy, file_type: "application/pdf", page_count: 1 }];
+        const rows = input.copy === "none" ? [] : [{ ...copy, file_type: "application/pdf", page_count: storedPageCount }];
         return { data: filterValue(query, "plan_set_id") === PLAN_SET ? rows : [], error: null, count: rows.length };
       },
       tenant_memberships: () => ({ data: { role: "engineer" }, error: null }),
       estimate_projects: () => ({ data: { user_id: PAYER, is_archived: false }, error: null }),
     },
     storage: {
-      [PLAN_FILES_BUCKET]: () => ({ data: new Blob([BYTES]), error: null }),
+      [PLAN_FILES_BUCKET]: () => ({ data: new Blob([Uint8Array.from(planBytes)]), error: null }),
       [AFFAIRE_INTAKE_BUCKET]: ({ paths }) => {
         const reference = (input.references ?? []).find((entry) => (entry.storedAt ?? referenceKey(entry)) === paths[0]);
         return reference && !reference.missing ? { data: new Blob([Uint8Array.from(reference.bytes)]), error: null }
@@ -148,7 +152,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
   const source = takeoffPreparationSourceSchema.parse({
     document_id: PLAN_FILE, document_name: "Plan RDC.pdf", kind: "plan", revision: null, source_version: "fixture-version",
     // As the dossier's reader gives it (toPreparationPlanSource): no member confirmed it.
-    pages: [], active: true, confirmed: false, plan_set_id: PLAN_SET, file_path: FILE_PATH, page_count: 1,
+    pages: [], active: true, confirmed: false, plan_set_id: PLAN_SET, file_path: FILE_PATH, page_count: storedPageCount,
     source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf",
   });
   const references = referenceDocuments.map((row) => toPreparationIntakeSource({ ...row, updated_at: "2026-11-21T08:00:00Z" }));
@@ -252,6 +256,17 @@ describe("evaluateTakeoffLaunchRequests", () => {
       execution_host_id: HOST, id: expect.stringMatching(/^[0-9a-f-]{36}$/) })]);
     expect(result.jobId).toBe(call.p_job[0].id);
     expect(runLocalTakeoffAttempts).toHaveBeenCalledWith(expect.objectContaining({ jobId: call.p_job[0].id }));
+  });
+
+  // A whole plan whose stored page count is unknown: the sealing counts its pages on its bytes, and its unit gets them.
+  it("allots a whole plan the pages its sealing counted, its stored count unknown", async () => {
+    const document = await PDFDocument.create();
+    for (let page = 0; page < 40; page += 1) document.addPage([20, 20]);
+    const { admitted } = dossier({ perPlan: true, bytes: await document.save(), storedPageCount: null });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    const call = admitted[0] as { p_manifest: { units: Array<Record<string, unknown>> } };
+    expect(call.p_manifest.units).toEqual([expect.objectContaining({ page_count: 40, vector_pages: 40 })]);
   });
 
   it("asks the claim with the server's module default, and admits with it", async () => {
@@ -703,12 +718,23 @@ describe("launchTakeoffRelaunch", () => {
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
   });
 
-  it("reads a plan added after the analysis by a command that names it, without a predecessor", async () => {
+  // A plan added after the analysis is read by a command that names it and the analysis it extends: never a first analysis
+  // (« initial ») on an affaire that has one.
+  it("reads a plan added after the analysis by a command that names it and the analysis it extends", async () => {
     const { calls } = gesture({ perPlan: true, replayed: { outcome: "replayed", request_id: REQUEST, job_id: null } });
     await launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
-      intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab", planFileIds: [PLAN_FILE.toUpperCase()] });
-    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "initial", p_predecessor_job_id: null,
-      p_plan_file_ids: [PLAN_FILE] })]);
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab", planFileIds: [PLAN_FILE.toUpperCase()],
+      predecessorJobId: "aaaaaaaa-0000-4000-8000-0000000000bb" });
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "reread_plans",
+      p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb", p_plan_file_ids: [PLAN_FILE] })]);
+  });
+
+  it("refuses a first analysis on an affaire that has one: the command names the analysis it extends", async () => {
+    const { calls } = gesture({ perPlan: true });
+    await expect(launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000ae", planFileIds: [PLAN_FILE] })).rejects.toMatchObject({ status: 422 });
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "initial" })]);
+    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
   });
 
   // Lot 3: the dossier's limits are checked on every plan a command reads before its units are admitted (two plans of 150
@@ -720,21 +746,35 @@ describe("launchTakeoffRelaunch", () => {
    * The member's confirmed preparation of plans A, B and C, with B's former revision set aside, and the affaire's previous
    * analysis, which read `previousRead`.
    */
-  function planCommand(pages: { a: number; b: number }, previousRead: string[] = []) {
+  /**
+   * `previous`: the affaire's latest analysis, its plans and those of its units read (succeeded); grouped (lot 2) or one
+   * unit per plan.
+   */
+  function planCommand(pages: { a: number | null; b: number }, previous: { format: 1 | 2; plans: string[]; read: string[] } | null = null,
+    bytes?: Uint8Array, predecessorJobId: string | null = "aaaaaaaa-0000-4000-8000-0000000000bb") {
     const launched: Array<Record<string, unknown>> = [];
-    const planRow = (id: string, name: string, pageCount: number) => ({ id, tenant_id: TENANT, plan_set_id: PLAN_SET,
+    const planRow = (id: string, name: string, pageCount: number | null) => ({ id, tenant_id: TENANT, plan_set_id: PLAN_SET,
       file_path: `${TENANT}/${PLAN_SET}/${id}/${name}`, file_name: name, file_type: "application/pdf", file_size_bytes: 8,
       page_count: pageCount, metadata: {}, created_at: "2026-11-21T08:00:00Z" });
     const rows = [planRow(PLAN_FILE, "plan-a.pdf", pages.a), planRow(PLAN_B, "plan-b.pdf", pages.b), planRow(PLAN_C, "plan-c.pdf", 2),
       planRow(PLAN_B_COPY, "plan-b-ancien.pdf", 2)];
-    const previous = previousRead.length ? { manifest: { format_version: 1, coverage: { plans_omitted: [] },
-      plans: previousRead.map((id) => ({ plan_file_id: id, name: rows.find((row) => row.id === id)!.file_name, intake_document_id: null,
-        generation: null })) } } : null;
+    const previousRow = previous ? { id: "aaaaaaaa-0000-4000-8000-0000000000e1", manifest: { format_version: previous.format,
+      coverage: { plans_omitted: [] }, plans: previous.plans.map((id) => ({ plan_file_id: id, name: rows.find((row) => row.id === id)!.file_name,
+        intake_document_id: null, generation: null })) } } : null;
+    const previousUnits = previous ? { request_id: previousRow!.id, format: previous.format === 2 ? "per_plan" : "grouped",
+      units: previous.format === 2
+        ? previous.plans.map((id, index) => ({ key: `plan:${id}`, ordinal: index + 1, state: previous.read.includes(id) ? "succeeded" : "canceled" }))
+        : [{ key: "grouped", ordinal: 1, state: previous.read.length ? "succeeded" : "failed" }] } : null;
     const fake = createSupabaseFake({
-      tables: { plan_files: (query: FakeQuery) => servedRows(rows, query), takeoff_launch_requests: () => ({ data: previous, error: null }) },
+      tables: { plan_files: (query: FakeQuery) => servedRows(rows, query), takeoff_launch_requests: () => ({ data: previousRow, error: null }),
+        // The affaire's analyses: those of its previous request, if any.
+        takeoff_jobs: () => ({ data: previous ? { id: "aaaaaaaa-0000-4000-8000-0000000000bb" } : null, error: null }) },
+      storage: { [PLAN_FILES_BUCKET]: () => (bytes ? { data: new Blob([Uint8Array.from(bytes)]), error: null }
+        : { data: null, error: { message: "Object not found", statusCode: "404" } }) },
       rpc: {
         replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
         takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
+        read_takeoff_launch_request_units: () => ({ data: previousUnits, error: null }),
         launch_manual_takeoff_plan_request: (args) => {
           launched.push(args as Record<string, unknown>);
           return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_jobs: Array<{ id: string }> }).p_jobs[0].id }], error: null };
@@ -753,9 +793,35 @@ describe("launchTakeoffRelaunch", () => {
     vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({ execution_host_id: HOST } as never);
     const context = { userId: PAYER, tenantId: TENANT, tenantRole: "engineer", supabase: fake.client } as never;
     const run = (planFileIds: string[]) => launchTakeoffRelaunch({ context, projectId: PROJECT, planSetId: PLAN_SET,
-      preparationRevision: 2, intentKey: "aaaaaaaa-0000-4000-8000-0000000000ad", planFileIds });
+      preparationRevision: 2, intentKey: "aaaaaaaa-0000-4000-8000-0000000000ad", planFileIds, predecessorJobId });
     return { run, launched, rows };
   }
+
+  // A plan the earlier analysis never read (its unit cancelled before its reading) is not set aside as read.
+  it("sets aside only the plans whose unit an earlier analysis actually read", async () => {
+    const { run, launched, rows } = planCommand({ a: 3, b: 3 }, { format: 2, plans: [PLAN_FILE, PLAN_B], read: [PLAN_FILE] });
+    expect(await run([PLAN_C])).toMatchObject({ outcome: "admitted" });
+    const manifest = launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual([{ id: PLAN_B_COPY, name: "plan-b-ancien.pdf", reason: "alternate" },
+      expect.objectContaining({ id: PLAN_FILE, reason: "not_requested" })]);
+    expect(describeDossierChangeSinceAnalysis(manifest, rows, [])?.added).toEqual([{ id: PLAN_B, name: "plan-b.pdf" }]);
+  });
+
+  // Counterexample: an affaire without any analysis may start its first one by a command (« initial »).
+  it("lets a command start the first analysis of an affaire that has none", async () => {
+    const { run, launched } = planCommand({ a: 3, b: 3 }, null, undefined, null);
+    expect(await run([PLAN_FILE])).toMatchObject({ outcome: "admitted" });
+    expect(launched[0]).toMatchObject({ p_intent: "initial", p_predecessor_job_id: null });
+  });
+
+  it("weighs a plan of unknown count by the pages counted on its bytes", async () => {
+    const document = await PDFDocument.create();
+    for (let page = 0; page < 12; page += 1) document.addPage([20, 20]);
+    const { run, launched } = planCommand({ a: null, b: 3 }, null, await document.save());
+    expect(await run([PLAN_FILE])).toMatchObject({ outcome: "admitted" });
+    expect((launched[0].p_manifest as { units: Array<Record<string, unknown>> }).units)
+      .toEqual([expect.objectContaining({ page_count: 12, vector_pages: 12 })]);
+  });
 
   it("refuses a command whose plans together exceed the plan set's limits, before any unit is admitted", async () => {
     const { run, launched } = planCommand({ a: 150, b: 150 });
@@ -766,7 +832,7 @@ describe("launchTakeoffRelaunch", () => {
   // The plans the affaire's previous analysis read, and the plan set's copies set aside, are recorded as such: the
   // dossier does not show them as added since. A plan never read still is.
   it("records the plans a command sets aside, so that the dossier shows only the plans never read as added", async () => {
-    const { run, launched, rows } = planCommand({ a: 3, b: 3 }, [PLAN_FILE, PLAN_B]);
+    const { run, launched, rows } = planCommand({ a: 3, b: 3 }, { format: 1, plans: [PLAN_FILE, PLAN_B], read: [PLAN_FILE, PLAN_B] });
     expect(await run([PLAN_FILE])).toMatchObject({ outcome: "admitted" });
     const manifest = launched[0].p_manifest as AnyTakeoffLaunchManifest;
     expect(manifest.coverage.plans_omitted).toEqual([{ id: PLAN_B_COPY, name: "plan-b-ancien.pdf", reason: "alternate" },
