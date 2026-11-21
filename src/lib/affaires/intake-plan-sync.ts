@@ -105,7 +105,7 @@ function isClassifiedPdfPlan(document: SyncDocument) {
 }
 
 /** A dossier piece that must have a working copy in the affaire's plan set: an uploaded, classified PDF plan. */
-export function isEligiblePlanDocument(document: SyncDocument) {
+function isEligiblePlanDocument(document: SyncDocument) {
   return isClassifiedPdfPlan(document) && Boolean(document.storage_path || isDrivePlanSource(document));
 }
 
@@ -118,7 +118,7 @@ function toIntakeDocumentId(planFile: PlanFileRow) {
   return typeof intakeDocumentId === "string" ? intakeDocumentId : null;
 }
 
-export function isSameIntakePlanGeneration(file: PlanFileRow, document: SyncDocument) {
+function isSameIntakePlanGeneration(file: PlanFileRow, document: SyncDocument) {
   if (file.metadata.intake_storage_path !== document.storage_path) return false;
   if (isDrivePlanSource(document) && file.metadata.intake_drive_file_id !== document.drive_file_id) return false;
   // Older copies predate the generation marker; keep them until a cleanup has
