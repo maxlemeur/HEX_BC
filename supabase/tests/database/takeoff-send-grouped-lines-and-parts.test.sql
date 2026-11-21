@@ -484,6 +484,33 @@ select is(jsonb_build_array(trim_scale((pg_temp.line(130, 'Lavabo')).quantity), 
   'the line holds 8 at its price, its parts A, C and D: the stale part is not copied');
 select is(pg_temp.stale_part_lines(10), 0::bigint, 'the count finds none');
 
+-- Replaced again: E reads C's page anew (5 washbasins) and the member replaces C's measure: 3 + 1 + 5, the parts A, D
+-- and E.
+select pg_temp.prepare(23, 10, 1, 54, 5);
+select pg_temp.admit(79, 23, 44, 10, 1);
+select pg_temp.measure(101, 79, 10, 54, 'Lavabo', 5, 'u');
+insert into commands select 'e', pg_temp.command(79, pg_temp.draft(130), pg_temp.existing_section(131),
+  p_page_decisions => jsonb_build_array(jsonb_build_object(
+    'document', jsonb_build_object('plan_file_id', pg_temp.fx(54), 'content_hash', pg_temp.hash(54), 'logical_document_id', null,
+      'file_name', 'plan-54.pdf'),
+    'source_page', 1, 'earlier_job_ids', jsonb_build_array(pg_temp.fx(70)), 'decision', 'replace', 'reason_code', null, 'note', null,
+    'lines', jsonb_build_array(jsonb_build_object('estimate_item_id', (pg_temp.line(130, 'Lavabo')).id,
+      'expected_updated_at', (pg_temp.line(130, 'Lavabo')).updated_at, 'action', 'update', 'take', null,
+      'item_ids', jsonb_build_array(pg_temp.fx(89)))),
+    'pairs', jsonb_build_array(jsonb_build_object('takeoff_item_id', pg_temp.fx(101),
+      'estimate_item_id', (pg_temp.line(130, 'Lavabo')).id)))));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select lives_ok($$select pg_temp.confirm('e')$$, 'E replaces C''s page');
+reset role;
+select is(jsonb_build_array(trim_scale((pg_temp.line(130, 'Lavabo')).quantity), (pg_temp.line(130, 'Lavabo')).unit_price_ht_cents,
+    pg_temp.parts(130, 'Lavabo')),
+  jsonb_build_array(9, 4500, jsonb_build_array(jsonb_build_array(pg_temp.fx(68), jsonb_build_array(pg_temp.fx(85)), 3),
+    jsonb_build_array(pg_temp.fx(71), jsonb_build_array(pg_temp.fx(90)), 1),
+    jsonb_build_array(pg_temp.fx(79), jsonb_build_array(pg_temp.fx(101)), 5))),
+  'replaced again, the line holds 9 at its price, its parts A, D and E: C''s part is gone');
+select is(pg_temp.stale_part_lines(10), 0::bigint, 'the count still finds none');
+
 -- 5. The application's audit rows, in the send's transaction for a command of format 2: one « takeoff.apply.completed »
 -- (its counts as the server read them from the receipt) and one « takeoff.mapping.applied » per line a mapping rule
 -- changed — renamed, or set aside (no estimate line), two equal lengths renamed naming the one line that represents them
