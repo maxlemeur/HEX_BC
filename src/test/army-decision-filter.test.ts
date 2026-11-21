@@ -198,7 +198,7 @@ describe("the decision filter behind its guards", () => {
     expect(mapChangesBeyondRules(before, widened)).toEqual(["full", "nonRuntime"]);
   });
 
-  it("judges nothing when the change adds a journey beside a rule edit, the base's journeys taken from the base's own tree", async () => {
+  it("protects a journey tied by the base and judges nothing when the change adds a journey beside a rule edit", async () => {
     const tree = fs.mkdtempSync(path.join(os.tmpdir(), "army-base-map-"));
     const git = (...args: string[]) => {
       const result = spawnSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", ...args],
@@ -212,33 +212,37 @@ describe("the decision filter behind its guards", () => {
     };
     const existing = "e2e/army/critical/existing.e2e.ts";
     const added = "e2e/army/critical/added.e2e.ts";
+    const other = "e2e/army/critical/other.e2e.ts";
     const stored: StoredImpactMap = {
-      schemaVersion: 1, suite: { anchor: existing, anonymous: [] }, fullOnly: {}, docs: [], nonRuntime: [], full: [], runnerEntries: [],
+      schemaVersion: 1, suite: { anchor: other, anonymous: [] }, fullOnly: {}, docs: [], nonRuntime: [], full: [], runnerEntries: [],
       graph: { sourceRoots: ["src", "e2e"], extraFiles: [], apiRouteRoot: "src/app/api", apiCallers: [], apiCallersExcluded: [], importersExcluded: [],
         escalationExcluded: [] },
       groups: {}, rules: [{ id: "feature", paths: ["src/feature.ts"], journeys: [existing] }],
     };
     const judged = async (files: string[], base: string) => {
-      const { calls, filter } = recording();
+      const { calls, filter } = recording({ [`${existing}#0`]: "0% likely affected" });
       const result = await filter.filter([candidate(existing)], { ...context(files), projectRoot: tree, changes: { base, root: tree, files: [...files].sort() } });
-      return { calls, note: result.note };
+      return { calls, exclude: result.exclude, note: result.note };
     };
     try {
       write(MAP_PATH, JSON.stringify(stored));
       write("src/feature.ts", "export const feature = 1;\n");
       write(existing, "");
+      write(other, "");
       git("init", "-q");
       git("add", ".");
       git("commit", "-q", "-m", "base");
       const base = git("rev-parse", "HEAD");
-      // A rule edit alone: the model judges it.
-      write(MAP_PATH, JSON.stringify({ ...stored, rules: [...stored.rules, { id: "more", paths: ["src/more/**"], journeys: [existing] }] }));
-      expect((await judged(["src/feature.ts", MAP_PATH], base)).calls).toEqual([["src/feature.ts"]]);
+      // A rule edit alone is judged. The old rule still protects the journey it tied to this file.
+      write(MAP_PATH, JSON.stringify({ ...stored, rules: [{ id: "feature", paths: ["src/feature.ts"], journeys: [other] }] }));
+      expect(await judged(["src/feature.ts", MAP_PATH], base)).toMatchObject({
+        calls: [["src/feature.ts"]], exclude: {}, note: expect.stringContaining("a map rule ties"),
+      });
       // A rule edit that comes with a new journey changes the suite, as when the map listed its journeys.
       write(added, "");
       write(MAP_PATH, JSON.stringify({ ...stored, rules: [...stored.rules, { id: "added", paths: ["src/feature.ts"], journeys: [added] }] }));
       expect(await judged(["src/feature.ts", MAP_PATH, added], base))
-        .toEqual({ calls: [], note: "the model judges nothing: the impact map changed beyond its rules (suite)" });
+        .toEqual({ calls: [], exclude: {}, note: "the model judges nothing: the impact map changed beyond its rules (suite)" });
     } finally {
       fs.rmSync(tree, { recursive: true, force: true });
     }
@@ -272,13 +276,8 @@ describe("the decision filter behind its guards", () => {
       `2 test(s) kept: rated ${DECISION_MIN_PERCENT} % or more, or without a rating`);
   });
 
-  it("counts the rules of the base when the pull request edits the map, and judges nothing when the base cannot be read", async () => {
+  it("judges nothing when the base map cannot be read", async () => {
     const { file, journeys: tied } = ruledFile();
-    // The map of HEAD is the base here: the journeys it ties to the file stay, whatever the working tree's map says.
-    const { calls, filter } = recording({ [`${tied[0]}#0`]: "0% likely affected" });
-    const kept = await filter.filter([candidate(tied[0])], context([file, MAP_PATH]));
-    expect(calls).toEqual([[file]]);
-    expect(kept.exclude).toEqual({});
     const unreadable = recording({ [`${tied[0]}#0`]: "0% likely affected" });
     const refused = await unreadable.filter.filter([candidate(tied[0])], { ...context([file, MAP_PATH]), changes: { base: "0".repeat(40), root, files: [file, MAP_PATH].sort() } });
     expect(unreadable.calls).toEqual([]);
