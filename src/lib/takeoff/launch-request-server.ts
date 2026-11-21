@@ -83,6 +83,9 @@ function launchError(error: { code?: string; message: string }, fallback: string
       throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR, "L’analyse à relancer n’appartient pas à cette affaire.");
     case "TAKEOFF_JOB_ADMISSION_LIMIT":
       throw takeoffJobInsertError({ code: "23514", message: error.message }, "");
+    // Lot 4: the list of items changed while the command was sealed (once the second order is activated).
+    case "TAKEOFF_LAUNCH_DOSSIER_CHANGED":
+      throw refusal(409, TakeoffErrorCode.CONFLICT, "La liste des postes a changé pendant la relance : relancez l’analyse.");
   }
   databaseError(error, fallback);
 }

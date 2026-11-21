@@ -24,7 +24,7 @@ type Client = SupabaseClient<Database>;
 
 export type StoredItemListRevisionRow = {
   id: string; revision: number; cause: "initial" | "proposal" | "item_added"; sources: Json; item_count: number;
-  content_sha256: string; created_by: string; created_at: string;
+  content_sha256: string; created_by: string; created_at: string; intent_key: string;
 };
 
 export type StoredItemList = {
@@ -32,6 +32,8 @@ export type StoredItemList = {
   revision: PosteRevision;
   history: StoredItemListRevisionRow[];
   continuities: Array<{ source_key: string; item_id: string; accepted_in_revision: number; accepted_by: string; accepted_at: string }>;
+  /** Every origin key the affaire's registry holds: a key already known is never offered as a new continuity. */
+  registeredKeys: Set<string>;
 };
 
 const PAGE = 1000;
@@ -59,7 +61,7 @@ async function readOrdered<Row>(query: (from: number, to: number) => PromiseLike
 /** The latest stored revision of an affaire's list, read with the client given (a member's session reads it under RLS). */
 export async function readStoredItemList(client: Client, scope: PosteListScope): Promise<StoredItemList | null> {
   const { data: history, error } = await client.from("takeoff_list_revisions")
-    .select("id, revision, cause, sources, item_count, content_sha256, created_by, created_at")
+    .select("id, revision, cause, sources, item_count, content_sha256, created_by, created_at, intent_key")
     .eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId).order("revision", { ascending: false }).limit(20);
   if (error) throw mapSupabaseError(error, "Impossible de lire la liste des postes.");
   const [row] = (history ?? []) as StoredItemListRevisionRow[];
@@ -69,15 +71,19 @@ export async function readStoredItemList(client: Client, scope: PosteListScope):
       .select("item_id, source_key, label, expected_unit, measurement_basis, qualifiers, sections, synonyms, origin, reference_quantity",
         { count: "exact" })
       .eq("revision_id", row.id).order("position").range(from, to) as never),
-    readOrdered<StoredItemList["continuities"][number]>((from, to) => client.from("takeoff_list_item_sources")
-      .select("source_key, item_id, accepted_in_revision, accepted_by, accepted_at", { count: "exact" })
-      .eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId).eq("kind", "continuity")
-      .order("source_key").range(from, to) as never),
+    readOrdered<StoredItemList["continuities"][number] & { kind: "origin" | "continuity" }>((from, to) =>
+      client.from("takeoff_list_item_sources")
+        .select("source_key, item_id, kind, accepted_in_revision, accepted_by, accepted_at", { count: "exact" })
+        .eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId).order("source_key").range(from, to) as never),
   ]);
   if (entries.length !== row.item_count) throw internalError("La liste des postes enregistrée est incomplète.");
-  const aliases = Object.fromEntries(continuities.map(({ source_key, item_id }) => [source_key, item_id]));
+  const accepted = continuities.filter(({ kind }) => kind === "continuity")
+    .map(({ source_key, item_id, accepted_in_revision, accepted_by, accepted_at }) =>
+      ({ source_key, item_id, accepted_in_revision, accepted_by, accepted_at }));
+  const aliases = Object.fromEntries(accepted.map(({ source_key, item_id }) => [source_key, item_id]));
   return {
-    row, history: (history ?? []) as StoredItemListRevisionRow[], continuities,
+    row, history: (history ?? []) as StoredItemListRevisionRow[], continuities: accepted,
+    registeredKeys: new Set(continuities.map(({ source_key }) => source_key)),
     revision: storedItemListRevision(scope, { revision: row.revision, entries, aliases }),
   };
 }
@@ -124,8 +130,8 @@ export type ItemListProposalView = {
 export type AffaireItemListView = {
   projectId: string;
   canWrite: boolean;
-  current: (Omit<StoredItemListRevisionRow, "sources"> & { items: Poste[] }) | null;
-  history: Array<Omit<StoredItemListRevisionRow, "sources" | "content_sha256">>;
+  current: (Omit<StoredItemListRevisionRow, "sources" | "intent_key"> & { items: Poste[] }) | null;
+  history: Array<Omit<StoredItemListRevisionRow, "sources" | "content_sha256" | "intent_key">>;
   continuities: StoredItemList["continuities"];
   sources: Exclude<ItemListSourceState, { kind: "dpgf" | "template" }> | (Omit<Extract<ItemListSourceState, { kind: "dpgf" }>, "drafts">)
     | { kind: "template"; template: { key: string; version: number; publicationId: string | null; publishedAt: string | null;
@@ -168,7 +174,8 @@ export async function loadAffaireItemList(projectId: string): Promise<AffaireIte
   ]);
   if (mayWrite.error) throw mapSupabaseError(mayWrite.error, "Impossible de vérifier les droits sur la liste des postes.");
   const drafts = sourceDrafts(sources);
-  const proposal = drafts ? proposeItemListRevision({ scope, current: stored?.revision ?? null, sourceDrafts: drafts }) : null;
+  const proposal = drafts ? proposeItemListRevision({ scope, current: stored?.revision ?? null, sourceDrafts: drafts,
+    registeredKeys: stored?.registeredKeys }) : null;
   const authors = [
     ...(stored?.history.map(({ created_by }) => created_by) ?? []),
     ...(stored?.continuities.map(({ accepted_by }) => accepted_by) ?? []),
@@ -194,6 +201,19 @@ export async function loadAffaireItemList(projectId: string): Promise<AffaireIte
     proposal: proposal?.changed ? proposalView(proposal, stored?.row.revision ?? 0) : null,
     names: await memberNames(context.supabase as unknown as Client, authors),
   };
+}
+
+/**
+ * One line for the takeoff page of an affaire that already has an estimate: the stored revision only, read under the
+ * member's session; its sources and the proposal are read when the whole list is opened.
+ */
+export async function loadAffaireItemListSummary(projectId: string) {
+  const { context, project } = await requireAffaireAccess(projectId, "read");
+  const { data, error } = await context.supabase.from("takeoff_list_revisions").select("revision, item_count")
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).order("revision", { ascending: false }).limit(1);
+  if (error) throw mapSupabaseError(error, "Impossible de lire la liste des postes.");
+  const [latest] = (data ?? []) as Array<{ revision: number; item_count: number }>;
+  return { projectId: project.id, revision: latest?.revision ?? null, itemCount: latest?.item_count ?? null };
 }
 
 /** The refusals of the list's write function, by their own code: a fixed French answer, never the database's text. */
@@ -224,6 +244,14 @@ export async function recordItemListRevision(service: Client, input: RecordInput
     throw unprocessableEntity("La liste dépasse 10 000 postes : elle ne peut pas être enregistrée.", undefined,
       "TAKEOFF_ITEM_LIST_INVALID");
   }
+  // The table's own bounds, named before the database refuses them as a whole.
+  const oversized = input.revision.items.find((item) => item.label.length > ITEM_LIST_LIMITS.label
+    || Buffer.byteLength(JSON.stringify(item.origin), "utf8") > ITEM_LIST_LIMITS.originBytes);
+  if (oversized) {
+    throw unprocessableEntity(`Le poste « ${oversized.label.slice(0, 80)}${oversized.label.length > 80 ? "…" : ""} » dépasse la `
+      + "taille d’une ligne de la liste (désignation ou notes de la DPGF trop longues) : raccourcissez-la dans la DPGF.",
+    undefined, "TAKEOFF_ITEM_LIST_INVALID");
+  }
   const { data, error } = await service.rpc("record_takeoff_list_revision", {
     p_tenant_id: input.scope.tenantId, p_project_id: input.scope.projectId, p_actor: input.actor,
     p_expected_revision: input.expectedRevision, p_intent_key: input.intentKey, p_cause: input.cause, p_sources: input.sources,
@@ -237,11 +265,29 @@ export async function recordItemListRevision(service: Client, input: RecordInput
     replayed: recorded.replayed };
 }
 
-async function replayed(client: Client, scope: PosteListScope, intentKey: string) {
-  const { data, error } = await client.from("takeoff_list_revisions").select("id, revision, content_sha256")
+type Recorded = { revisionId: string; revision: number; contentSha256: string; replayed: boolean };
+
+async function recordedByIntent(client: Client, scope: PosteListScope, intentKey: string) {
+  const { data, error } = await client.from("takeoff_list_revisions").select("id, revision, cause, content_sha256")
     .eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId).eq("intent_key", intentKey).maybeSingle();
   if (error) throw mapSupabaseError(error, "Impossible de lire la liste des postes.");
-  return data ? { revisionId: data.id, revision: data.revision, contentSha256: data.content_sha256, replayed: true } : null;
+  return data as { id: string; revision: number; cause: StoredItemListRevisionRow["cause"]; content_sha256: string } | null;
+}
+
+const replay = (row: { id: string; revision: number; content_sha256: string }): Recorded =>
+  ({ revisionId: row.id, revision: row.revision, contentSha256: row.content_sha256, replayed: true });
+
+function intentConflict(): never {
+  throw conflict("Cette action a déjà été enregistrée avec un autre contenu : rechargez la liste des postes.", undefined,
+    "TAKEOFF_ITEM_LIST_INTENT_CONFLICT");
+}
+
+/** The right to write, the database's rule, read before anything a gesture could learn or replay. */
+async function requireListWriter(service: Client, scope: PosteListScope, actor: string) {
+  const { data, error } = await service.rpc("takeoff_item_list_may_write", { p_tenant_id: scope.tenantId,
+    p_project_id: scope.projectId, p_actor: actor });
+  if (error) throw mapSupabaseError(error, "Impossible de vérifier les droits sur la liste des postes.");
+  if (data !== true) listWriteFailure({ message: "TAKEOFF_ITEM_LIST_FORBIDDEN" });
 }
 
 /** A stable key derived from a gesture's key, for the first list it records before its own change. */
@@ -275,21 +321,27 @@ export async function acceptItemListProposal(projectId: string, input: {
   const { context, project } = await requireAffaireAccess(projectId, "read");
   const scope = { tenantId: context.tenantId, projectId: project.id };
   const service = createServiceRoleClient();
-  const earlier = await replayed(service, scope, input.intentKey);
-  if (earlier) return earlier;
+  await requireListWriter(service, scope, context.userId);
+  // The same gesture again (a lost answer, a double click): the revision it recorded, if it is that acceptance.
+  const earlier = await recordedByIntent(service, scope, input.intentKey);
+  if (earlier) {
+    if (earlier.cause === "item_added" || earlier.revision !== input.expectedRevision + 1) intentConflict();
+    return replay(earlier);
+  }
   const [sources, stored] = await Promise.all([resolveItemListSources(scope, service), readStoredItemList(service, scope)]);
   const drafts = sourceDrafts(sources);
   const current = stored?.revision ?? null;
   if ((stored?.row.revision ?? 0) !== input.expectedRevision || !drafts) {
     throw conflict("La liste des postes a changé depuis votre lecture : rechargez-la.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
-  const proposal = proposeItemListRevision({ scope, current, sourceDrafts: drafts });
+  const proposal = proposeItemListRevision({ scope, current, sourceDrafts: drafts, registeredKeys: stored?.registeredKeys });
   if (!proposal.changed || proposal.candidate.digest !== input.proposalDigest) {
     throw conflict("La révision proposée a changé depuis votre lecture : rechargez la liste.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
   let accepted;
   try {
-    accepted = proposeItemListRevision({ scope, current, sourceDrafts: drafts, continuities: input.continuities });
+    accepted = proposeItemListRevision({ scope, current, sourceDrafts: drafts, continuities: input.continuities,
+      registeredKeys: stored?.registeredKeys });
   } catch {
     throw conflict("Un rapprochement de postes n’est plus proposé : rechargez la liste.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
@@ -320,10 +372,28 @@ export async function addItemListPoste(projectId: string, input: ItemListAdditio
   const { context, project } = await requireAffaireAccess(projectId, "read");
   const scope = { tenantId: context.tenantId, projectId: project.id };
   const service = createServiceRoleClient();
-  const earlier = await replayed(service, scope, input.intentKey);
+  await requireListWriter(service, scope, context.userId);
+  const replayedAddition = async () => {
+    const earlier = await recordedByIntent(service, scope, input.intentKey);
+    if (!earlier) return null;
+    // The same gesture: the item it added, with the same definition.
+    const { data, error } = await service.from("takeoff_list_revision_entries")
+      .select("label, expected_unit, measurement_basis, qualifiers")
+      .eq("revision_id", earlier.id).eq("origin->>intentId", input.intentKey).maybeSingle();
+    if (error) throw mapSupabaseError(error, "Impossible de lire la liste des postes.");
+    const same = earlier.cause === "item_added" && data && data.label === input.label.trim()
+      && data.expected_unit === input.expectedUnit && data.measurement_basis === input.measurementBasis
+      && JSON.stringify(Object.entries(data.qualifiers ?? {}).sort()) === JSON.stringify(Object.entries(input.qualifiers).sort());
+    if (!same) intentConflict();
+    return replay(earlier);
+  };
+  const earlier = await replayedAddition();
   if (earlier) return earlier;
   let stored = await readStoredItemList(service, scope);
-  if ((stored?.row.revision ?? 0) !== input.expectedRevision) {
+  // A first list this same gesture recorded (a double click on an affaire without a list) is its own, not a change.
+  const ownFirst = input.expectedRevision === 0 && stored?.history.some(({ intent_key }) =>
+    intent_key === derivedIntent(input.intentKey, "initial"));
+  if ((stored?.row.revision ?? 0) !== input.expectedRevision && !ownFirst) {
     throw conflict("La liste des postes a changé depuis votre lecture : rechargez-la.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
   if (!stored) {
@@ -349,7 +419,7 @@ export async function addItemListPoste(projectId: string, input: ItemListAdditio
     });
   } catch (error) {
     // The same gesture recorded by a concurrent call (a double click): its revision is the answer.
-    const concurrent = await replayed(service, scope, input.intentKey);
+    const concurrent = await replayedAddition();
     if (concurrent) return concurrent;
     throw error;
   }
@@ -364,7 +434,7 @@ export async function resolveSealableItemList(service: Client, input: { tenantId
   const scope = { tenantId: input.tenantId, projectId: input.projectId };
   const sources = await resolveItemListSources(scope, service);
   const drafts = sourceDrafts(sources);
-  if (!drafts) return { blocked: "ITEM_LIST_TO_PREPARE" as const };
+  if (!drafts) return { blocked: "ITEM_LIST_TO_PREPARE" as const, order: null };
   let stored = await readStoredItemList(service, scope);
   if (!stored) {
     const first = proposeItemListRevision({ scope, current: null, sourceDrafts: drafts });

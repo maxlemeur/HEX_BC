@@ -37,7 +37,8 @@ en-tête répété ne devient jamais un poste, quel que soit le choix.
 **Emplacement d’origine.** Pour un CSV, la position est le rang de l’enregistrement
 importé (« Enregistrement importé N »), jamais une ligne physique du fichier. Pour un
 classeur, c’est la ligne du tableau importé (« Ligne du tableau N »), comptée depuis
-le début de la plage lue. Pour un PDF, c’est la page.
+le début de la plage lue. Ce n’est pas encore la ligne de la feuille Excel : l’import
+ne l’enregistre pas. Pour un PDF, c’est la page.
 
 **Identité.** Un poste reçoit un identifiant à sa première apparition, dérivé de son
 origine : ligne brute de la DPGF, ligne du gabarit ou ajout à la main. Il le garde

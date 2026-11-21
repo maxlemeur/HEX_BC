@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import ExcelJS from "exceljs";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -163,13 +163,24 @@ describe("Aperçu des postes à mesurer", () => {
     await expect(screen.getByText("Liste enregistrée · révision 1 · 23 postes", { exact: false })).toBeVisible();
     expect(await lavabo.getAttribute("id")).toBe(proposedId);
 
-    // An item added by hand, without quantity or price, filed under « Postes ajoutés »; a double click adds it once.
+    // An item added by hand, without quantity or price, filed under « Postes ajoutés ».
     await screen.getByText("Ajouter un poste", { exact: true }).click();
     const form = screen.getByRole("form", "Ajouter un poste", { exact: true });
     await form.getByRole("textbox", "Désignation", { exact: true }).fill("Siphon de sol");
     await form.getByRole("textbox", "Unité (vide : à préciser)", { exact: true }).fill("u");
-    await form.getByRole("button", "Ajouter le poste", { exact: true }).dblclick();
+    await form.getByRole("button", "Ajouter le poste", { exact: true }).click();
     await expect(screen.getByText("Liste enregistrée · révision 2 · 24 postes", { exact: false })).toBeVisible();
+    // The same gesture sent twice (a lost answer, a double click) adds nothing more; another content under its key refuses.
+    const gesture = { expected_revision: 2, intent_key: randomUUID(), label: "Clapet anti-retour", expected_unit: "u" };
+    const first = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`, { data: gesture });
+    const again = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`, { data: gesture });
+    expect([first.status(), again.status()]).toEqual([200, 200]);
+    expect((await again.json() as { data: unknown }).data).toEqual({ ...(await first.json() as { data: object }).data, replayed: true });
+    const other = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`,
+      { data: { ...gesture, label: "Autre poste" }, failOnStatusCode: false });
+    expect(other.status()).toBe(409);
+    await ui.browser.reload();
+    await expect(screen.getByText("Liste enregistrée · révision 3 · 25 postes", { exact: false })).toBeVisible();
     const added = table.getByRole("row", /^Siphon de sol /);
     await expect(added).toContainText("Postes ajoutés");
     await expect(added).toContainText("Ajouté");
@@ -179,10 +190,11 @@ describe("Aperçu des postes à mesurer", () => {
     expect([await lavabo.getAttribute("id"), await added.getAttribute("id")]).toEqual([proposedId, addedId]);
     expect((await revisions()).data).toEqual([
       { revision: 1, cause: "initial", item_count: 23 }, { revision: 2, cause: "item_added", item_count: 24 },
+      { revision: 3, cause: "item_added", item_count: 25 },
     ]);
     const versions = await client.from("estimate_versions").select("id").eq("project_id", projectId);
     expect(versions.data).toEqual([]);
-    await recordEvidence(army, "POSTE-gabarit", { projectId, versions: versions.data, posts: 24, ids: [proposedId, addedId] });
+    await recordEvidence(army, "POSTE-gabarit", { projectId, versions: versions.data, posts: 25, ids: [proposedId, addedId] });
   });
 
   test("POSTE demande de préparer la DPGF importée sans correspondances", options, async ({ ui }) => {

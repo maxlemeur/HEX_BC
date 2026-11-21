@@ -169,6 +169,22 @@ describe("stored revisions and proposals", () => {
       continuities: [{ previousItemId: manualId, nextItemId: "00000000-0000-4000-8000-000000000000" }] })).toThrow();
   });
 
+  it("never offers as a continuity an origin the affaire's registry already holds (its own item coming back)", () => {
+    const first = proposeItemListRevision({ scope, current: null, sourceDrafts: [] }).candidate;
+    const empty = storedItemListRevision(scope, { revision: 1, entries: roundTrip(itemListEntries(first)), aliases: {} });
+    const added = withAddedItem(empty, {
+      intentId: "8f7c1d9e-0000-4000-8000-000000000003", addedBy: "member", addedAt: "2026-11-21T10:00:00.000Z",
+      label: "Siphon de sol", expectedUnit: "u", measurementBasis: null, qualifiers: {}, sectionPath: null,
+    });
+    const stored = storedItemListRevision(scope, { revision: 2, entries: roundTrip(itemListEntries(added)), aliases: {} });
+    const [row] = dpgfDrafts([{ id: "r9", designation: "Siphon de sol", unit: "u", quantity: 4 }]).items;
+    const offered = proposeItemListRevision({ scope, current: stored, sourceDrafts: [row] });
+    expect(offered.comparison.continuities).toHaveLength(1);
+    const known = proposeItemListRevision({ scope, current: stored, sourceDrafts: [row],
+      registeredKeys: new Set([itemListEntries({ items: [{ ...row, id: "x" }] })[0].source_key]) });
+    expect(known.comparison.continuities).toEqual([]);
+  });
+
   it("reads a stored entry without inventing fields", () => {
     const [entry] = roundTrip(itemListEntries(proposeItemListRevision({ scope, current: null, sourceDrafts: sources }).candidate));
     expect(posteFromStoredEntry(entry)).toEqual(expect.objectContaining({ label: "Lavabo en céramique", expectedUnit: "u",

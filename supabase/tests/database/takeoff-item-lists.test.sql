@@ -6,9 +6,12 @@
 -- 3. A revision is immutable, its digest is the database's own over what it stored, a gesture replayed returns it and
 --    another submission under the same key is a conflict; a stale revision refuses.
 -- 4. The proof of an import's confirmation stops matching when the rows, their measured fields or the mapping change.
--- 5. The lineage of mapped rows keeps the line → raw row join after a remapping.
--- 6. The seal of the second measuring order: refused before its activation, then only with the affaire's own revision.
--- 7. Two writers of one list at once: the second waits for the first, then refuses as stale.
+-- 5. The lineage of mapped rows keeps the line → raw row join after a remapping; the creation of an estimate and its
+--    confirmation record commit together.
+-- 6. Two writers of one list at once: the second waits for the first, then refuses as stale; an admission sealing a list
+--    while a writer records a revision waits for it, then is stale.
+-- 7. The seal of the second measuring order: refused before its activation, then only with the affaire's own latest
+--    revision, recorded on the request.
 -- Isolation justified: rights under RLS, the identity rule in SQL, digests, the seal and the cross-session wait are not
 -- observable from a journey. All values are fictional.
 begin;
@@ -276,7 +279,8 @@ select isnt(public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2)
 select results_eq($$ select proof_current, jsonb_array_length(decisions) from public.read_dpgf_import_confirmation(
   pg_temp.fx(10), pg_temp.fx(60)) $$, $$ values (true, 0) $$, 'the latest confirmation is the one read');
 
--- 5. Lineage: every mapped row inserted, and those that existed before the migration.
+-- 5. Lineage: every mapped row inserted is linked to its raw row, and stays linked after a remapping. (The copy of the
+--    rows that existed before the migration runs in the migration itself, with its count check; it is not replayed here.)
 select results_eq($$ select mapped_row_id, raw_row_id from private.dpgf_mapped_row_lineage
   where import_id = pg_temp.fx(60) order by mapped_row_id $$,
   $$ values (pg_temp.fx(71), pg_temp.fx(61)), (pg_temp.fx(72), pg_temp.fx(62)), (pg_temp.fx(74), pg_temp.fx(61)),
@@ -301,10 +305,134 @@ delete from public.estimate_versions where id = pg_temp.fx(80);
 select is((select count(*)::integer from public.dpgf_import_confirmations where estimate_version_id = pg_temp.fx(80)), 0,
   'deleting that version clears the reference and keeps the confirmation');
 
--- 6. The seal of the second measuring order.
+-- The estimate created from the import and its confirmation's record commit together (engine 2 policy, as the
+-- creations of transactional-workflows.test.sql): a record refused leaves no version.
+select public.set_tenant_calc_policy(p_tenant_id => pg_temp.fx(10), p_new_estimate_calc_engine => 2::smallint,
+  p_default_sale_coefficient_fo => null, p_default_sale_coefficient_mo => null, p_allowed_tax_rates_bp => null,
+  p_change_reason => 'Fixture: liste de postes (lot 4)', p_actor_user_id => pg_temp.fx(5));
+create function pg_temp.import_estimate(version integer, mapping integer) returns jsonb language sql as $$
+  select public.persist_dpgf_import_estimate_atomic(pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(20), null,
+    jsonb_build_object('id', pg_temp.fx(version), 'title', 'Import DPGF fictif', 'date_devis', '2026-11-21', 'validite_jours', 30,
+      'margin_multiplier', 1, 'margin_mode', 'fixed', 'currency', 'EUR', 'margin_bp', 0, 'discount_bp', 0,
+      'discount_mode', 'simple', 'discount_steps', '[]'::jsonb, 'global_coefficient', 1, 'tax_rate_bp', 2000,
+      'rounding_mode', 'none', 'rounding_step_cents', 1, 'max_section_depth', 3, 'total_ht_cents', 0, 'total_tax_cents', 0,
+      'total_ttc_cents', 0), '[]'::jsonb, pg_temp.fx(60), pg_temp.fx(mapping),
+    '[{"rowIndex":0,"kind":"section","level":1}]'::jsonb)
+$$;
+set local role service_role;
+select throws_ok($$ select pg_temp.import_estimate(82, 70) $$, '40001', 'DPGF_IMPORT_CONFIRMATION_STALE',
+  'a confirmation on a mapping that is no longer the latest refuses');
+select is((select count(*)::integer from public.estimate_versions where id = pg_temp.fx(82)), 0,
+  'and its estimate was not created: one transaction');
+select isnt(pg_temp.import_estimate(83, 73), null, 'on the latest mapping, the estimate is created');
+reset role;
+select results_eq($$ select estimate_version_id, decisions from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60)) $$,
+  $$ values (pg_temp.fx(83), '[{"rowIndex":0,"kind":"section","level":1}]'::jsonb) $$,
+  'and the confirmation that created it records its decisions and names it');
+
+-- 6. Two writers at once, and an admission against a writer (before this session activates the second order).
+create temp table race_connection as select format('host=%s port=%s dbname=%s user=postgres password=postgres',
+  trim(split_part(current_setting('unix_socket_directories'), ',', 1)), current_setting('port'), current_database()) as connection;
+select is(extensions.dblink_connect(session.name, (select connection from race_connection)), 'OK', format('%s connected', session.name))
+from (values ('race_setup'), ('race_a'), ('race_b')) as session(name);
+select is(extensions.dblink_exec('race_setup', format($setup$
+begin;
+insert into auth.users(id, email, raw_user_meta_data) values (%L, 'item-list-race@example.test', '{}');
+update public.tenant_memberships set role = 'admin' where user_id = %L;
+insert into public.estimate_projects(id, tenant_id, user_id, name)
+select %L, m.tenant_id, m.user_id, 'Liste en concurrence (fictive)' from public.tenant_memberships m where m.user_id = %L;
+commit;
+$setup$, pg_temp.fx(6), pg_temp.fx(6), pg_temp.fx(22), pg_temp.fx(6))), 'COMMIT', 'an affaire whose list two members write');
+create function pg_temp.race_call(intent integer, label text, expected integer default 0) returns text language sql stable as $$
+  select format($call$select revision from public.record_takeoff_list_revision(
+    (select tenant_id from public.estimate_projects where id = %L), %L, %L, %s, %L, %L, '{}', %L)$call$,
+    pg_temp.fx(22), pg_temp.fx(22), pg_temp.fx(6), expected, pg_temp.fx(intent),
+    case when expected = 0 then 'initial' else 'item_added' end,
+    jsonb_build_array(jsonb_build_object('item_id', pg_temp.fx(intent), 'source_key', '["manual","' || intent || '"]',
+      'label', label, 'expected_unit', null, 'measurement_basis', null, 'qualifiers', '{}'::jsonb, 'sections', '[]'::jsonb,
+      'synonyms', '[]'::jsonb, 'origin', jsonb_build_object('kind', 'manual', 'intentId', intent::text,
+      'addedBy', pg_temp.fx(6), 'addedAt', '2026-11-21T00:00:00Z', 'addedInRevision', expected + 1), 'reference_quantity', null)))
+$$;
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the first writer opens its transaction');
+select results_eq(format('select * from extensions.dblink(%L, %L) as t(revision integer)', 'race_a',
+  pg_temp.race_call(300, 'Premier')), $$ values (1) $$, 'the first writer records revision 1, not yet committed');
+select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'the second writer opens its transaction');
+select is(extensions.dblink_send_query('race_b', pg_temp.race_call(301, 'Second')), 1,
+  'the second writer starts on the same view (no revision yet)');
+create function pg_temp.waits_on_lock(p_marker text) returns boolean language plpgsql as $$
+begin
+  for attempt in 1..200 loop
+    -- The statistics views are a snapshot per transaction: read them afresh at each attempt.
+    perform pg_catalog.pg_stat_clear_snapshot();
+    if exists (select 1 from pg_catalog.pg_stat_activity a where a.wait_event_type = 'Lock'
+      and a.query like '%' || p_marker || '%') then
+      return true;
+    end if;
+    perform pg_catalog.pg_sleep(0.025);
+  end loop;
+  return false;
+end;
+$$;
+select ok(pg_temp.waits_on_lock('Second'), 'the second writer waits for the first');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first writer commits');
+select throws_ok($$ select * from extensions.dblink_get_result('race_b') as t(revision integer) $$, '40001',
+  'TAKEOFF_ITEM_LIST_STALE', 'the second writer then refuses as stale: nothing is written twice');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as t(revision integer)), 0,
+  'its call is over');
+select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'the second writer ends');
+select is((select count(*)::integer from extensions.dblink('race_setup', format(
+  'select revision from public.takeoff_list_revisions where project_id = %L', pg_temp.fx(22))) as t(revision integer)), 1,
+  'one revision exists');
+-- An admission sealing revision 1 while a writer records revision 2: it waits for the writer, then is stale.
+select is(extensions.dblink_exec('race_setup', format($setup$
+begin;
+insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 minute');
 set local session_replication_role = replica;
 insert into public.takeoff_launch_requests (id, tenant_id, project_id, origin, intent, intent_key, state)
-values (pg_temp.fx(90), pg_temp.fx(10), pg_temp.fx(20), 'automatic', 'initial', pg_temp.fx(90), 'evaluating');
+select %L, tenant_id, id, 'automatic', 'initial', %L, 'evaluating' from public.estimate_projects where id = %L;
+commit;
+$setup$, pg_temp.fx(91), pg_temp.fx(91), pg_temp.fx(22))), 'COMMIT', 'a request of that affaire, the second order activated');
+create temp table race_manifest as select jsonb_build_object('order', jsonb_build_object('kind', 'item_list', 'version', 2,
+  'list', jsonb_build_object('revision_id', r.revision_id, 'revision', r.revision, 'content_sha256', r.content_sha256,
+  'item_count', r.item_count))) as manifest
+from extensions.dblink('race_setup', format('select id, revision, content_sha256, item_count from public.takeoff_list_revisions
+  where project_id = %L and revision = 1', pg_temp.fx(22))) as r(revision_id uuid, revision integer, content_sha256 text, item_count integer);
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a writer opens its transaction');
+select results_eq(format('select * from extensions.dblink(%L, %L) as t(revision integer)', 'race_a',
+  pg_temp.race_call(302, 'Ajout pendant l''admission', 1)), $$ values (2) $$,
+  'the writer records revision 2, not yet committed');
+select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'the admission opens its transaction');
+select is(extensions.dblink_send_query('race_b', format(
+  'select private.assert_takeoff_launch_order(r, %L::jsonb) is not null from public.takeoff_launch_requests r where r.id = %L',
+  (select manifest from race_manifest), pg_temp.fx(91))), 1, 'the admission seals revision 1');
+select ok(pg_temp.waits_on_lock('assert_takeoff_launch_order'), 'the seal waits for the writer of the list');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the writer commits revision 2');
+select throws_ok($$ select * from extensions.dblink_get_result('race_b') as t(sealed boolean) $$, '40001',
+  'TAKEOFF_LAUNCH_DOSSIER_CHANGED', 'the admission is stale: the addition is never left out of an initial analysis');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as t(sealed boolean)), 0,
+  'its seal is over');
+select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'the admission ends, nothing sealed');
+select is(extensions.dblink_exec('race_setup', format($cleanup$
+begin;
+delete from public.takeoff_launch_requests where id = %L;
+delete from private.takeoff_item_list_order_activation;
+delete from public.estimate_projects where id = %L;
+delete from auth.users where id = %L;
+commit;
+$cleanup$, pg_temp.fx(91), pg_temp.fx(22), pg_temp.fx(6))), 'COMMIT', 'the race fixture is removed');
+select extensions.dblink_disconnect(session.name) from (values ('race_setup'), ('race_a'), ('race_b')) as session(name);
+
+-- 7. The seal of the second measuring order.
+-- An automatic request mandated by the owner on a Mac, waiting for its admission (as M4 leaves it before the seal).
+create function pg_temp.selection() returns jsonb language sql immutable as $$
+  select jsonb_build_object('profileId', 'profil-fictif', 'model', 'modele-fictif', 'reasoningEffort', null,
+    'hostId', 'urn:uuid:b4200000-0000-4000-8000-000000000099', 'authorizationId', 'autorisation-fictive')
+$$;
+set local session_replication_role = replica;
+insert into public.takeoff_launch_requests (id, tenant_id, project_id, origin, intent, intent_key, state, payer_id,
+  mandate_kind, mandated_at, execution_host_id, mandate_selection)
+values (pg_temp.fx(90), pg_temp.fx(10), pg_temp.fx(20), 'automatic', 'initial', pg_temp.fx(90), 'evaluating', pg_temp.fx(1),
+  'confirmation', now(), pg_temp.selection() ->> 'hostId', pg_temp.selection());
 set local session_replication_role = origin;
 create function pg_temp.request() returns public.takeoff_launch_requests language sql stable as $$
   select * from public.takeoff_launch_requests where id = pg_temp.fx(90)
@@ -326,6 +454,30 @@ select is(private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_m
   'once activated, the affaire''s revision is sealed');
 select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(5, 20,
   repeat('a', 64))) $$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'a digest other than the stored one is refused');
+select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(4)) $$,
+  '40001', 'TAKEOFF_LAUNCH_DOSSIER_CHANGED',
+  'a revision recorded since the evaluation read the list makes the admission stale, never sealed without it');
+-- The seal itself (M4's, replaced): it records the list it sealed on the request.
+create function pg_temp.sealed_manifest(p_revision integer) returns jsonb language sql stable as $$
+  select pg_temp.order_manifest(p_revision) || jsonb_build_object('format_version', 1, 'intent', 'initial',
+    'units', jsonb_build_array(jsonb_build_object('key', 'grouped', 'plans', jsonb_build_array('plan-fictif'))),
+    'plans', jsonb_build_array(jsonb_build_object('entry_key', 'plan-fictif')), 'budget', jsonb_build_object('tokens', 1000,
+    'cost_cents', 0))
+$$;
+create function pg_temp.snapshot() returns jsonb language sql stable as $$
+  select jsonb_build_object('schema_version', 1, 'confirmed_by', pg_temp.fx(1), 'execution_selection', pg_temp.selection(),
+    'readiness', jsonb_build_object('can_launch', true), 'preparation', jsonb_build_object(
+      'processing', jsonb_build_object('level', 'C', 'provider', 'chatgpt'), 'destination', jsonb_build_object('kind', 'analysis_only')))
+$$;
+select throws_ok($$ select private.seal_takeoff_launch_request(pg_temp.request(), pg_temp.sealed_manifest(4), pg_temp.snapshot(), 0) $$,
+  '40001', 'TAKEOFF_LAUNCH_DOSSIER_CHANGED', 'the seal refuses a list that is no longer the latest');
+select results_eq($$ select r.state, r.item_list_revision_id, r.manifest #>> '{order,kind}'
+  from private.seal_takeoff_launch_request(pg_temp.request(), pg_temp.sealed_manifest(5), pg_temp.snapshot(), 0) r $$,
+  $$ select 'admitted'::text, id, 'item_list'::text from public.takeoff_list_revisions
+    where project_id = pg_temp.fx(20) and revision = 5 $$,
+  'the seal admits the request and records the revision it sealed');
+select throws_ok($$ delete from public.takeoff_list_revisions where project_id = pg_temp.fx(20) and revision = 5 $$, '23503', null,
+  'a sealed revision outlives any attempt to delete it while its request exists');
 select results_eq($$ select revision from pg_temp.record(2, 0, 208, 'initial', jsonb_build_array(
   pg_temp.entry(110, '["manual","x"]', 'Poste de l''autre affaire', jsonb_build_object('kind', 'manual', 'intentId', 'x',
     'addedBy', pg_temp.fx(2), 'addedAt', '2026-11-21T00:00:00Z', 'addedInRevision', 1))), project => 21) $$,
@@ -337,64 +489,6 @@ select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request()
   'the second order names its list');
 select ok('ITEM_LIST_TO_PREPARE' = any (private.takeoff_launch_transient_reasons()),
   'a list to prepare is retried by the Mac of the mandate');
-
--- 7. Two writers at once.
-create temp table race_connection as select format('host=%s port=%s dbname=%s user=postgres password=postgres',
-  trim(split_part(current_setting('unix_socket_directories'), ',', 1)), current_setting('port'), current_database()) as connection;
-select is(extensions.dblink_connect(session.name, (select connection from race_connection)), 'OK', format('%s connected', session.name))
-from (values ('race_setup'), ('race_a'), ('race_b')) as session(name);
-select is(extensions.dblink_exec('race_setup', format($setup$
-begin;
-insert into auth.users(id, email, raw_user_meta_data) values (%L, 'item-list-race@example.test', '{}');
-update public.tenant_memberships set role = 'admin' where user_id = %L;
-insert into public.estimate_projects(id, tenant_id, user_id, name)
-select %L, m.tenant_id, m.user_id, 'Liste en concurrence (fictive)' from public.tenant_memberships m where m.user_id = %L;
-commit;
-$setup$, pg_temp.fx(6), pg_temp.fx(6), pg_temp.fx(22), pg_temp.fx(6))), 'COMMIT', 'an affaire whose list two members write');
-create function pg_temp.race_call(intent integer, label text) returns text language sql stable as $$
-  select format($call$select revision from public.record_takeoff_list_revision(
-    (select tenant_id from public.estimate_projects where id = %L), %L, %L, 0, %L, 'initial', '{}', %L)$call$,
-    pg_temp.fx(22), pg_temp.fx(22), pg_temp.fx(6), pg_temp.fx(intent),
-    jsonb_build_array(jsonb_build_object('item_id', pg_temp.fx(intent), 'source_key', '["manual","' || intent || '"]',
-      'label', label, 'expected_unit', null, 'measurement_basis', null, 'qualifiers', '{}'::jsonb, 'sections', '[]'::jsonb,
-      'synonyms', '[]'::jsonb, 'origin', jsonb_build_object('kind', 'manual', 'intentId', intent::text,
-      'addedBy', pg_temp.fx(6), 'addedAt', '2026-11-21T00:00:00Z', 'addedInRevision', 1), 'reference_quantity', null)))
-$$;
-select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the first writer opens its transaction');
-select results_eq(format('select * from extensions.dblink(%L, %L) as t(revision integer)', 'race_a',
-  pg_temp.race_call(300, 'Premier')), $$ values (1) $$, 'the first writer records revision 1, not yet committed');
-select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'the second writer opens its transaction');
-select is(extensions.dblink_send_query('race_b', pg_temp.race_call(301, 'Second')), 1,
-  'the second writer starts on the same view (no revision yet)');
-create function pg_temp.waits_on_lock(p_marker text) returns boolean language plpgsql as $$
-begin
-  for attempt in 1..200 loop
-    if exists (select 1 from pg_catalog.pg_stat_activity a where a.wait_event_type = 'Lock'
-      and a.query like '%' || p_marker || '%') then
-      return true;
-    end if;
-    perform pg_catalog.pg_sleep(0.025);
-  end loop;
-  return false;
-end;
-$$;
-select ok(pg_temp.waits_on_lock('Second'), 'the second writer waits for the first');
-select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first writer commits');
-select throws_ok($$ select * from extensions.dblink_get_result('race_b') as t(revision integer) $$, '40001',
-  'TAKEOFF_ITEM_LIST_STALE', 'the second writer then refuses as stale: nothing is written twice');
-select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as t(revision integer)), 0,
-  'its call is over');
-select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'the second writer ends');
-select is((select count(*)::integer from extensions.dblink('race_setup', format(
-  'select revision from public.takeoff_list_revisions where project_id = %L', pg_temp.fx(22))) as t(revision integer)), 1,
-  'one revision exists');
-select is(extensions.dblink_exec('race_setup', format($cleanup$
-begin;
-delete from public.estimate_projects where id = %L;
-delete from auth.users where id = %L;
-commit;
-$cleanup$, pg_temp.fx(22), pg_temp.fx(6))), 'COMMIT', 'the race fixture is removed');
-select extensions.dblink_disconnect(session.name) from (values ('race_setup'), ('race_a'), ('race_b')) as session(name);
 
 select * from finish();
 rollback;

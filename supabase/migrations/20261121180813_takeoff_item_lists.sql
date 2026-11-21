@@ -13,10 +13,65 @@
 --     activation (private.takeoff_item_list_order_activation, empty): the seal of the first order is unchanged.
 --   - The import confirmation of the previous version calls public.persist_estimate_creation_atomic as before and records
 --     no structure decision; a later reading of the list then finds no valid proof for that confirmation (section 4).
+--
+-- Locks. Section 0 copies the identities of every mapped row while it holds public.dpgf_rows_mapped (SHARE ROW
+-- EXCLUSIVE, from its trigger's creation to the commit): mapping creations and the catalogue linking wait for the copy
+-- (the only scan of this migration). Everything after it is DDL on new tables; the foreign keys it creates hold the
+-- referenced tables (tenants, estimate_projects, estimate_versions, dpgf_imports, dpgf_mappings) against writes from
+-- their creation to the commit, which follows within milliseconds, and the launch requests are altered last. To apply
+-- outside an import being mapped; nothing else to drain.
 begin;
 
 -- Every statement takes a short lock: give up instead of queueing the import, mapping and launch writers.
 set local lock_timeout = '5s';
+
+-- 0. The link of an estimate line to its raw DPGF row, first: during its copy only the mapped rows are held. A line
+--    made from an import carries its import and its mapped row in its source metadata (unchanged); a remapping deletes
+--    the mapped rows. The database records, when a mapped
+--    row is inserted, which raw row of which import it was made from: the join line → mapped row → raw row stays proven
+--    after a remapping, for the line and for its copies, without a byte more in the line's metadata.
+create table private.dpgf_mapped_row_lineage (
+  mapped_row_id uuid primary key,
+  tenant_id uuid not null,
+  -- No foreign key: identifiers only, kept as a journal when an import is deleted, and no lock on the imports here.
+  import_id uuid not null,
+  raw_row_id uuid not null,
+  recorded_at timestamptz not null default pg_catalog.clock_timestamp()
+);
+create index dpgf_mapped_row_lineage_raw_idx on private.dpgf_mapped_row_lineage (import_id, raw_row_id);
+revoke all on private.dpgf_mapped_row_lineage from public, anon, authenticated, service_role;
+
+create function private.record_dpgf_mapped_row_lineage()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  insert into private.dpgf_mapped_row_lineage (mapped_row_id, tenant_id, import_id, raw_row_id)
+  select n.id, n.tenant_id, n.import_id, n.raw_row_id from inserted_rows n where n.raw_row_id is not null
+  on conflict (mapped_row_id) do nothing;
+  return null;
+end;
+$$;
+revoke all on function private.record_dpgf_mapped_row_lineage() from public, anon, authenticated, service_role;
+-- Created before the copy of the existing rows: from here until the commit, no mapped row is inserted unseen.
+create trigger zz_record_dpgf_mapped_row_lineage after insert on public.dpgf_rows_mapped
+  referencing new table as inserted_rows for each statement execute function private.record_dpgf_mapped_row_lineage();
+
+-- The rows that exist now. A mapped row without its raw row is not copied (no proof); the count is checked.
+insert into private.dpgf_mapped_row_lineage (mapped_row_id, tenant_id, import_id, raw_row_id)
+select m.id, m.tenant_id, m.import_id, m.raw_row_id from public.dpgf_rows_mapped m where m.raw_row_id is not null
+on conflict (mapped_row_id) do nothing;
+do $$
+declare
+  missing bigint;
+begin
+  select count(*) into missing from public.dpgf_rows_mapped m
+  where m.raw_row_id is not null
+    and not exists (select 1 from private.dpgf_mapped_row_lineage l where l.mapped_row_id = m.id);
+  if missing <> 0 then
+    raise exception 'DPGF_MAPPED_ROW_LINEAGE_INCOMPLETE: % mapped rows without lineage', missing;
+  end if;
+end;
+$$;
+
 
 -- 1. The takeoff operator of an affaire, for every write below: the rule of who may launch an analysis on it
 --    (private.takeoff_launch_payer_eligible: an active tenant, the affaire not archived, an administrator of the tenant
@@ -535,7 +590,11 @@ begin
   ) or (select count(distinct e.value ->> 'item_id') from jsonb_array_elements(p_entries) e(value))
       <> jsonb_array_length(p_entries)
     or (select count(distinct e.value ->> 'source_key') from jsonb_array_elements(p_entries) e(value))
-      <> jsonb_array_length(p_entries) then
+      <> jsonb_array_length(p_entries)
+    or exists (select 1 from jsonb_array_elements(continuities) c(value)
+      where jsonb_typeof(c.value) <> 'object' or (c.value - array['source_key', 'item_id']) <> '{}'::jsonb
+        or jsonb_typeof(c.value -> 'source_key') is distinct from 'string'
+        or coalesce(c.value ->> 'item_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') then
     raise exception 'TAKEOFF_ITEM_LIST_INVALID' using errcode = '22023';
   end if;
   -- An addition by hand names the member recorded as its author and the revision that adds it.
@@ -566,10 +625,9 @@ begin
   ) or exists (
     -- A continuity names an entry of this revision and an item the affaire already has, under a key it never had.
     select 1 from jsonb_array_elements(continuities) c(value)
-    where jsonb_typeof(c.value) <> 'object' or (c.value - array['source_key', 'item_id']) <> '{}'::jsonb
-      or not exists (select 1 from jsonb_array_elements(p_entries) e(value)
+    where not exists (select 1 from jsonb_array_elements(p_entries) e(value)
         where e.value ->> 'source_key' = c.value ->> 'source_key' and e.value ->> 'item_id' = c.value ->> 'item_id')
-      or not exists (select 1 from public.takeoff_list_items i where i.id::text = c.value ->> 'item_id'
+      or not exists (select 1 from public.takeoff_list_items i where i.id = (c.value ->> 'item_id')::uuid
         and i.tenant_id = p_tenant_id and i.project_id = p_project_id)
       or exists (select 1 from public.takeoff_list_item_sources s where s.tenant_id = p_tenant_id
         and s.project_id = p_project_id and s.source_key = c.value ->> 'source_key')
@@ -778,51 +836,6 @@ $$;
 revoke all on function public.read_dpgf_import_confirmation(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.read_dpgf_import_confirmation(uuid, uuid) to service_role;
 
--- 5. The link of an estimate line to its raw DPGF row. A line made from an import carries its import and its mapped
---    row in its source metadata (unchanged); a remapping deletes the mapped rows. The database records, when a mapped
---    row is inserted, which raw row of which import it was made from: the join line → mapped row → raw row stays proven
---    after a remapping, for the line and for its copies, without a byte more in the line's metadata.
-create table private.dpgf_mapped_row_lineage (
-  mapped_row_id uuid primary key,
-  tenant_id uuid not null,
-  import_id uuid not null references public.dpgf_imports (id) on delete cascade,
-  raw_row_id uuid not null,
-  recorded_at timestamptz not null default pg_catalog.clock_timestamp()
-);
-create index dpgf_mapped_row_lineage_raw_idx on private.dpgf_mapped_row_lineage (import_id, raw_row_id);
-revoke all on private.dpgf_mapped_row_lineage from public, anon, authenticated, service_role;
-
-create function private.record_dpgf_mapped_row_lineage()
-returns trigger language plpgsql security definer set search_path = '' as $$
-begin
-  insert into private.dpgf_mapped_row_lineage (mapped_row_id, tenant_id, import_id, raw_row_id)
-  select n.id, n.tenant_id, n.import_id, n.raw_row_id from inserted_rows n where n.raw_row_id is not null
-  on conflict (mapped_row_id) do nothing;
-  return null;
-end;
-$$;
-revoke all on function private.record_dpgf_mapped_row_lineage() from public, anon, authenticated, service_role;
--- Created before the copy of the existing rows: from here until the commit, no mapped row is inserted unseen.
-create trigger zz_record_dpgf_mapped_row_lineage after insert on public.dpgf_rows_mapped
-  referencing new table as inserted_rows for each statement execute function private.record_dpgf_mapped_row_lineage();
-
--- The rows that exist now. A mapped row without its raw row is not copied (no proof); the count is checked.
-insert into private.dpgf_mapped_row_lineage (mapped_row_id, tenant_id, import_id, raw_row_id)
-select m.id, m.tenant_id, m.import_id, m.raw_row_id from public.dpgf_rows_mapped m where m.raw_row_id is not null
-on conflict (mapped_row_id) do nothing;
-do $$
-declare
-  missing bigint;
-begin
-  select count(*) into missing from public.dpgf_rows_mapped m
-  where m.raw_row_id is not null
-    and not exists (select 1 from private.dpgf_mapped_row_lineage l where l.mapped_row_id = m.id);
-  if missing <> 0 then
-    raise exception 'DPGF_MAPPED_ROW_LINEAGE_INCOMPLETE: % mapped rows without lineage', missing;
-  end if;
-end;
-$$;
-
 -- The raw DPGF rows of an estimate version's lines, by the proven join (service role, for the sending of lot 4).
 create function public.read_estimate_dpgf_raw_rows(p_tenant_id uuid, p_version_id uuid)
 returns table (estimate_item_id uuid, import_id uuid, mapped_row_id uuid, raw_row_id uuid)
@@ -830,7 +843,8 @@ language sql stable security definer set search_path = '' as $$
   select i.id, l.import_id, l.mapped_row_id, l.raw_row_id
   from public.estimate_items i
   join private.dpgf_mapped_row_lineage l
-    on l.mapped_row_id::text = i.source_metadata ->> 'mapped_row_id'
+    on l.mapped_row_id = (case when i.source_metadata ->> 'mapped_row_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      then (i.source_metadata ->> 'mapped_row_id')::uuid end)
     and l.import_id::text = i.source_metadata ->> 'import_id' and l.tenant_id = i.tenant_id
   where i.tenant_id = p_tenant_id and i.version_id = p_version_id and i.source_metadata ? 'mapped_row_id'
 $$;
@@ -868,10 +882,14 @@ alter table public.takeoff_launch_requests
 grant select (item_list_revision_id) on public.takeoff_launch_requests to authenticated;
 
 -- The measuring order of a manifest, checked at its seal: the free extraction (version 1, no list), or, once activated,
--- a sealed list of the request's own affaire, named by its revision, its number, its stored digest and its size.
+-- a sealed list of the request's own affaire, named by its revision, its number, its stored digest and its size, and
+-- still its latest: the seal waits for a writer of the list that holds it (private.lock_takeoff_item_list), and a
+-- revision recorded since the evaluation read the list makes the admission stale (M4's « dossier changed », evaluated
+-- again), never sealed without it. A writer that comes after the seal waits for the admission's commit: its revision is
+-- the current list, the sealed manifest does not change. Volatile: what it reads after the wait is read fresh.
 -- Returns the revision sealed, or null. Lot 3 checks the units of the manifest beside it (private.assert_takeoff_launch_seal).
 create function private.assert_takeoff_launch_order(p_request public.takeoff_launch_requests, p_manifest jsonb)
-returns uuid language plpgsql stable security definer set search_path = '' as $$
+returns uuid language plpgsql volatile security definer set search_path = '' as $$
 declare
   sealed public.takeoff_list_revisions%rowtype;
   list jsonb := p_manifest #> '{order,list}';
@@ -893,6 +911,11 @@ begin
     or list -> 'item_count' is distinct from pg_catalog.to_jsonb(sealed.item_count) then
     raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
   end if;
+  perform private.lock_takeoff_item_list(p_request.project_id);
+  if exists (select 1 from public.takeoff_list_revisions r where r.tenant_id = p_request.tenant_id
+      and r.project_id = p_request.project_id and r.revision > sealed.revision) then
+    raise exception 'TAKEOFF_LAUNCH_DOSSIER_CHANGED' using errcode = '40001';
+  end if;
   return sealed.id;
 end;
 $$;
@@ -901,7 +924,7 @@ revoke all on function private.assert_takeoff_launch_order(public.takeoff_launch
 
 -- M4's check of a seal (20261121170448), with its order delegated to the function above; every other condition unchanged.
 create or replace function private.assert_takeoff_launch_seal(p_request public.takeoff_launch_requests, p_manifest jsonb, p_snapshot jsonb)
-returns void language plpgsql stable set search_path = '' as $$
+returns void language plpgsql volatile set search_path = '' as $$
 begin
   if jsonb_typeof(p_manifest) is distinct from 'object' or p_manifest -> 'format_version' is distinct from '1'::jsonb
     or jsonb_typeof(p_manifest -> 'units') is distinct from 'array' or jsonb_array_length(p_manifest -> 'units') <> 1
@@ -923,7 +946,8 @@ end;
 $$;
 revoke all on function private.assert_takeoff_launch_seal(public.takeoff_launch_requests, jsonb, jsonb) from public, anon, authenticated, service_role;
 
--- M4's seal, which also records the list it sealed (null for the free extraction).
+-- M4's seal, which also records the list it sealed (null for the free extraction). Its check comes first, so that the
+-- admission's exception block (stale on « dossier changed ») sees a list recorded since the evaluation.
 create or replace function private.seal_takeoff_launch_request(p_request public.takeoff_launch_requests, p_manifest jsonb, p_snapshot jsonb,
   p_mark bigint)
 returns public.takeoff_launch_requests language plpgsql security definer set search_path = '' as $$
@@ -937,7 +961,9 @@ begin
     token_budget = (p_manifest #>> '{budget,tokens}')::bigint, cost_budget_cents = (p_manifest #>> '{budget,cost_cents}')::bigint,
     evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(), admitted_at = pg_catalog.clock_timestamp(),
     evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0,
-    item_list_revision_id = private.assert_takeoff_launch_order(p_request, p_manifest)
+    -- The list the check above sealed (null for the free extraction).
+    item_list_revision_id = case when p_manifest #>> '{order,kind}' = 'item_list'
+      then (p_manifest #>> '{order,list,revision_id}')::uuid end
   where r.id = p_request.id
   returning * into request;
   return request;

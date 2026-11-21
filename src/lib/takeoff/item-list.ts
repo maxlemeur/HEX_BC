@@ -36,7 +36,7 @@ export type StoredItemListEntry = {
 export const ITEM_LIST_ADDED_SECTION: PosteSection = { id: "postes-ajoutes", title: "Postes ajoutés", order: 1_000_000 };
 
 /** Bounds of the stored list, the database's own (its table checks and its write function). */
-export const ITEM_LIST_LIMITS = { items: 10_000, label: 4_000, unit: 32, basis: 300, qualifier: 120 } as const;
+export const ITEM_LIST_LIMITS = { items: 10_000, label: 4_000, unit: 32, basis: 300, qualifier: 120, originBytes: 65_536 } as const;
 
 function normalized(draft: PosteDraft): PosteDraft {
   return {
@@ -149,6 +149,11 @@ export function proposeItemListRevision(input: {
   current: PosteRevision | null;
   sourceDrafts: readonly PosteDraft[];
   continuities?: readonly ItemListContinuity[];
+  /**
+   * Every origin key the affaire's registry already holds: an added item under one of them is that key's own item
+   * coming back, never offered as the continuity of another (the database refuses it).
+   */
+  registeredKeys?: ReadonlySet<string>;
 }): ItemListProposal {
   const { scope, current } = input;
   const drafts = withCarriedAdditions(input.sourceDrafts, current);
@@ -157,7 +162,8 @@ export function proposeItemListRevision(input: {
     ? comparePosteRevisions(current, base)
     : { added: [...base.items], removed: [], changes: [], continuities: [] };
   const carried = current ? base.items.filter(({ origin }) => origin.kind === "manual") : [];
-  const added = comparison.added.filter(({ origin }) => origin.kind !== "manual");
+  const added = comparison.added.filter(({ origin }) => origin.kind !== "manual"
+    && !input.registeredKeys?.has(posteOriginKey(origin)));
   const candidates = current ? findPosteContinuities([...comparison.removed, ...carried], added) : [];
   const proposed = { ...comparison, continuities: candidates };
   const accepted = input.continuities ?? [];

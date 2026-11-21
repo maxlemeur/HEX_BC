@@ -8,7 +8,7 @@ import { describe, expect, nativeTest as test, type NativeUi } from "./native-ui
 
 // A publication changes the template of its tenant for every later list: this journey owns its account and tenant,
 // never the campaign's (the POSTE journeys read the shipped version there).
-const options = { session: "army", trace: "off" as const, tags: ["local", "takeoff-template"], timeout: 180_000 };
+const options = { session: "army", trace: "off" as const, tags: ["critical", "local", "takeoff-template"], timeout: 180_000 };
 
 async function affaire(tenantId: string, userId: string, name: string) {
   const id = randomUUID();

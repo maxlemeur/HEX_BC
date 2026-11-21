@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { JourneyPanel } from "@/components/journey/JourneyPage";
 import { TakeoffItemListAddForm, TakeoffItemListProposalForm } from "@/components/takeoff/TakeoffItemListActions";
-import { loadAffaireItemList, type AffaireItemListView } from "@/lib/takeoff/item-list-server";
+import { loadAffaireItemList, loadAffaireItemListSummary, type AffaireItemListView } from "@/lib/takeoff/item-list-server";
 import type { ItemListPrepareReason } from "@/lib/takeoff/item-list-sources-server";
 import type { Poste } from "@/lib/takeoff/poste-list";
 
@@ -104,8 +104,20 @@ function SourceLine({ list }: { list: AffaireItemListView }) {
 export async function TakeoffItemListPanel({ projectId, query, compact = false }: {
   projectId: string; query: Query; compact?: boolean;
 }) {
-  const list = await loadAffaireItemList(projectId).catch(() => null);
   const href = `/dashboard/affaires/${projectId}/takeoff`;
+  if (compact && query.postes !== "liste") {
+    // One line from the stored revision: the sources and the proposal are read when the whole list is opened.
+    const summary = await loadAffaireItemListSummary(projectId).catch(() => null);
+    return (
+      <p className="text-sm">
+        Liste des postes · {summary?.revision ? `révision ${summary.revision} · ${summary.itemCount} postes` : "non enregistrée"}{" "}
+        <Link href={{ pathname: href, query: { ...query, postes: "liste" }, hash: "postes-a-mesurer" }} className="underline">
+          Voir la liste des postes
+        </Link>
+      </p>
+    );
+  }
+  const list = await loadAffaireItemList(projectId).catch(() => null);
   if (!list) {
     return (
       <JourneyPanel headingId="postes-a-mesurer" title="Postes à mesurer">
@@ -114,17 +126,6 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
     );
   }
   const items = list.current?.items ?? list.proposal?.items ?? [];
-  if (compact && query.postes !== "liste") {
-    return (
-      <p className="text-sm">
-        Liste des postes · {list.current ? `révision ${list.current.revision} · ${list.current.items.length} postes` : "non enregistrée"}
-        {list.proposal && list.current ? " · une révision est proposée" : ""}{" "}
-        <Link href={{ pathname: href, query: { ...query, postes: "liste" }, hash: "postes-a-mesurer" }} className="underline">
-          Voir la liste des postes
-        </Link>
-      </p>
-    );
-  }
 
   const sourceFormat = list.sources.kind === "dpgf" || list.sources.kind === "prepare"
     ? list.sources.sourceFormat ?? undefined : undefined;
