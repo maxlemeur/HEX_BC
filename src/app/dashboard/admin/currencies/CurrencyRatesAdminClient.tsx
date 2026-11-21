@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { useEffect, useId, useMemo, useState } from "react";
 import { CoinsIcon, PlusIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 import useSWR from "swr";
@@ -221,10 +222,7 @@ function formatDateTime(value: string | null): string {
   if (!value) return "—";
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return value;
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(timestamp));
+  return formatDisplayDateTime(new Date(timestamp));
 }
 
 function formatRate(value: number) {

@@ -33,21 +33,34 @@ export function normalizeEstimateCurrency(
 
 // One formatter per currency: building an Intl.NumberFormat costs far more than formatting with it,
 // and the editor formats every line amount on each render.
-const currencyFormatters = new Map<SupportedEstimateCurrency, Intl.NumberFormat>();
+const currencyFormatters = new Map<string, Intl.NumberFormat>();
+const unknownCurrencyAmount = new Intl.NumberFormat("fr-FR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
-export function formatCurrency(
-  cents: number,
-  currency: SupportedEstimateCurrency
-) {
-  let formatter = currencyFormatters.get(currency);
+function formatCurrencyAmount(cents: number, code: string) {
+  let formatter = currencyFormatters.get(code);
   if (!formatter) {
-    formatter = new Intl.NumberFormat(CURRENCY_LOCALE_BY_CODE[currency], {
+    const locale = isSupportedEstimateCurrency(code) ? CURRENCY_LOCALE_BY_CODE[code] : "fr-FR";
+    formatter = new Intl.NumberFormat(locale, {
       style: "currency",
-      currency,
+      currency: code,
     });
-    currencyFormatters.set(currency, formatter);
+    currencyFormatters.set(code, formatter);
   }
   return formatter.format(cents / 100);
+}
+
+/** Format the ISO currency carried by a supplier offer or a saved document. */
+export function formatCurrencyCode(cents: number, currency: string) {
+  const code = normalizeCurrencyInput(currency);
+  if (!/^[A-Z]{3}$/.test(code)) return `${unknownCurrencyAmount.format(cents / 100)} ${currency}`;
+  return formatCurrencyAmount(cents, code);
+}
+
+export function formatCurrency(cents: number, currency: SupportedEstimateCurrency) {
+  return formatCurrencyAmount(cents, currency);
 }
 
 function stripCurrencyMarkers(

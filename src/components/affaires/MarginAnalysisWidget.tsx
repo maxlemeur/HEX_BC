@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPercentPoints } from "@/lib/display-format";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +34,7 @@ function MarginGlobalSummary({
           <p className="text-xs text-muted-foreground">Marge globale</p>
           <div className="mt-1 flex items-center gap-2">
             <Badge variant={getMarginBadgeVariant(tier)}>
-              {global.marginPercent.toFixed(1)}%
+              {formatPercentPoints(global.marginPercent)}
             </Badge>
           </div>
         </div>
@@ -140,7 +141,7 @@ function MarginSectionTable({
                   </td>
                   <td className="py-2 pr-1 text-right">
                     <Badge variant={getMarginBadgeVariant(tier)}>
-                      {section.marginPercent.toFixed(1)}%
+                      {formatPercentPoints(section.marginPercent)}
                     </Badge>
                   </td>
                   <td className="py-2 text-subtle-foreground">
@@ -177,7 +178,7 @@ function MarginSectionTable({
               </div>
               <div className="ml-3 flex shrink-0 items-center gap-2">
                 <Badge variant={getMarginBadgeVariant(tier)}>
-                  {section.marginPercent.toFixed(1)}%
+                  {formatPercentPoints(section.marginPercent)}
                 </Badge>
                 <ChevronRightIcon aria-hidden="true" stroke="var(--slate-400)" size={14} />
               </div>
@@ -277,7 +278,7 @@ function MarginVersionChart({
                 fontSize="10"
                 fill="var(--slate-600)"
               >
-                {p.marginPercent.toFixed(1)}%
+                {formatPercentPoints(p.marginPercent)}
               </text>
               <text
                 x={x}

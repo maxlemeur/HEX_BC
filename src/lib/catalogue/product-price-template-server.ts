@@ -1,3 +1,5 @@
+import { insertCatalogueProducts } from "./product-repository";
+import type { Database } from "@/types/database";
 import { readAllRows } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -244,7 +246,7 @@ export async function importProductPriceTemplate(
   let updatedProducts = 0;
 
   if (input.products.length > 0) {
-    const productsToCreate: Array<Record<string, unknown>> = [];
+    const productsToCreate: Database["public"]["Tables"]["products"]["Insert"][] = [];
     const productsToUpdate: Array<Record<string, unknown>> = [];
 
     for (const product of input.products) {
@@ -282,7 +284,7 @@ export async function importProductPriceTemplate(
     }
 
     if (productsToCreate.length > 0) {
-      const { error } = await supabase.from("products").insert(productsToCreate);
+      const { error } = await insertCatalogueProducts(supabase, productsToCreate);
 
       if (error) {
         throw mapDatabaseError(error, "Impossible de créer les produits du fichier.");

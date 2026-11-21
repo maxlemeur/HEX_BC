@@ -651,13 +651,13 @@ decimalTest("local oversized purchase refuses truncated editing detail print and
   await app.open(`/dashboard/orders/${id}/print`);
   await expect(screen.getByRole("alert").filter({ hasText: message })).toHaveText(message);
   await expect(screen.getByRole("table")).toHaveCount(0);
-  const zip = await apiRequest<{ error: string }>(browser, "GET", `/api/purchase-orders/${id}/zip`);
+  const zip = await apiRequest<unknown>(browser, "GET", `/api/purchase-orders/${id}/zip`);
   const after = await items(browser, id);
   const mutations = fixture.requests.filter((request) => request.pathname === `/api/purchase-orders/${id}` && request.method !== "GET");
   await recordEvidence(army, "oversized-document-refused", { id, before, zip, after, mutations,
     expected: { count: 1001, zipStatus: 409, message, partialDocument: false, saveAvailable: false } });
   expect(zip.status).toBe(409);
-  expect(zip.body).toMatchObject({ error: message });
+  expect(zip.body).toMatchObject({ ok: false, error: { code: "CONFLICT", message } });
   expect(mutations).toEqual([]);
   expect(after).toEqual(before);
 });

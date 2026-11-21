@@ -1,5 +1,6 @@
 "use client";
 
+import { toErrorMessage } from "@/lib/http/error-body";
 import { useCallback, useState } from "react";
 
 import { Alert } from "@/components/ui/alert";
@@ -59,14 +60,7 @@ export function RejectEstimateModal({
 
         if (!res.ok) {
           const data = await res.json().catch(() => null);
-          const errorMessage =
-            data &&
-            typeof data === "object" &&
-            "error" in data &&
-            typeof (data as Record<string, unknown>).error === "string"
-              ? ((data as Record<string, unknown>).error as string)
-              : "Erreur lors du refus du devis.";
-          throw new Error(errorMessage);
+          throw new Error(toErrorMessage(data, "Erreur lors du refus du devis."));
         }
 
         onRejected();

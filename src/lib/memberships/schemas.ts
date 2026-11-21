@@ -29,6 +29,20 @@ export const updateMembershipSchema = z.object({
   role: tenantRoleSchema,
 });
 
+const membershipIdSchema = z.string().uuid("membership_id invalide.");
+
+export const tenantMembershipActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("set-role"),
+    membership_id: membershipIdSchema,
+    role: tenantRoleSchema,
+  }),
+  z.object({
+    action: z.literal("set-default"),
+    membership_id: membershipIdSchema,
+  }),
+]);
+
 export type TenantRole = z.infer<typeof tenantRoleSchema>;
 export type MembershipsListQueryInput = z.infer<typeof membershipsListQuerySchema>;
 export type CreateMembershipInput = z.infer<typeof createMembershipSchema>;

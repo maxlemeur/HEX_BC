@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
@@ -22,7 +23,6 @@ type Page = TakeoffPageContributionsResponse["pages"][number];
 type Job = TakeoffPageContributionsResponse["jobs"][number];
 
 const TITLE = "Pages déjà au devis";
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 function pageLabel(page: Page) {
   return `${page.file_name ?? "Plan sans nom"}, ${page.page === null ? "page inconnue" : `page ${page.page}`}`;
@@ -31,7 +31,7 @@ function pageLabel(page: Page) {
 function takeoffLabel(job: Job | undefined) {
   if (!job) return "un autre métré";
   const date = new Date(job.created_at);
-  return `le métré du ${Number.isNaN(date.getTime()) ? "—" : dateFormat.format(date)}${job.source_file_name ? ` (${job.source_file_name})` : ""}`;
+  return `le métré du ${Number.isNaN(date.getTime()) ? "—" : formatDisplayDate(date)}${job.source_file_name ? ` (${job.source_file_name})` : ""}`;
 }
 
 /**

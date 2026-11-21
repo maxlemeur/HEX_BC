@@ -1,7 +1,7 @@
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { EstimateEngineUnavailableError, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 
@@ -16,13 +16,14 @@ import {
   resolveAffairePreliminaryStructureCapability,
 } from "@/lib/affaires/intake";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { withEstimateAiGenerationLease } from "@/lib/estimates/ai-drafts/generation-lease-server";
+export { withEstimateAiGenerationLease, type EstimateAiGenerationOperation } from "@/lib/estimates/ai-drafts/generation-lease-server";
+import { confirmedAiDraftBrief, readAiDraftTarget, type AiDraftProject, type AiDraftVersion } from "@/lib/estimates/ai-drafts/sources-server";
 import { getAuthenticatedTenantContext as getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import {
   assertDraftLockOwnedByCurrentUser,
   assertDraftStatus,
-  getVersionAccessOrThrow,
-  type VersionAccessQuery,
 } from "@/lib/estimates/server-context";
 import type { Database, Json } from "@/types/database";
 
@@ -47,8 +48,6 @@ import { normalizeSectionTitleKey } from "@/lib/estimates/estimate-structure-dra
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
-type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
-type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   source_provider?: string | null;
   source_job_id?: string | null;
@@ -88,17 +87,6 @@ type EstimateStructureDraftSourceKind = z.infer<
   typeof estimateStructureDraftSourceKindSchema
 >;
 
-type EmbeddedProjectAccess = Pick<
-  EstimateProjectRow,
-  | "id"
-  | "tenant_id"
-  | "user_id"
-  | "name"
-  | "reference"
-  | "client_name"
-  | "notes"
-  | "is_archived"
->;
 
 type AffaireBriefRow = {
   id: string;
@@ -131,35 +119,6 @@ type AffaireIntakeDocumentRow = {
   extracted_metadata: Json | null;
 };
 
-type VersionAccessRow = Pick<
-  EstimateVersionRow,
-  | "id"
-  | "project_id"
-  | "status"
-  | "margin_multiplier"
-  | "tax_rate_bp"
-  | "updated_at"
-  | "calc_engine_version"
-> & {
-  estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
-
-export type EstimateAiGenerationOperation =
-  | "structure_draft"
-  | "version_zero_draft";
-
-type EstimateAiGenerationRpc = (
-  functionName: string,
-  args: Record<string, unknown>
-) => Promise<{
-  data: unknown;
-  error: PostgrestError | null;
-}>;
-
-type EstimateAiGenerationLeaseRow = {
-  claimed: boolean;
-  retry_after_seconds: number | null;
-};
 
 export type EstimateStructureDraftSourceSummary = {
   kind: EstimateStructureDraftSourceKind;
@@ -370,86 +329,6 @@ const EstimateStructureGeminiExchangeSchema = z.object({
   summary: z.union([z.string().trim().min(1).max(400), z.null()]).default(null),
   roots: z.array(EstimateStructureGeminiNodeSchema).min(1).max(24),
 });
-
-function estimateAiGenerationRpc(supabase: Supabase) {
-  return supabase.rpc.bind(supabase) as unknown as EstimateAiGenerationRpc;
-}
-
-function readEstimateAiGenerationLeaseRow(
-  value: unknown
-): EstimateAiGenerationLeaseRow | null {
-  const row = Array.isArray(value) ? value[0] : value;
-  if (!row || typeof row !== "object") {
-    return null;
-  }
-
-  const candidate = row as Partial<EstimateAiGenerationLeaseRow>;
-  if (typeof candidate.claimed !== "boolean") {
-    return null;
-  }
-
-  return {
-    claimed: candidate.claimed,
-    retry_after_seconds:
-      typeof candidate.retry_after_seconds === "number"
-        ? Math.max(1, Math.trunc(candidate.retry_after_seconds))
-        : null,
-  };
-}
-
-export async function withEstimateAiGenerationLease<T>(input: {
-  supabase: Supabase;
-  versionId: string;
-  operation: EstimateAiGenerationOperation;
-  run: () => Promise<T>;
-}) {
-  const leaseToken = randomUUID();
-  const rpc = estimateAiGenerationRpc(input.supabase);
-  const { data, error } = await rpc("acquire_estimate_ai_generation_lease", {
-    p_version_id: input.versionId,
-    p_operation: input.operation,
-    p_lease_token: leaseToken,
-  });
-
-  if (error) {
-    throw mapSupabaseError(
-      error,
-      "Impossible de réserver le budget de génération IA."
-    );
-  }
-
-  const lease = readEstimateAiGenerationLeaseRow(data);
-  if (!lease?.claimed) {
-    throw conflict(
-      "Une generation IA est déjà en cours ou a été lancee recemment pour cette version.",
-      { retry_after_seconds: lease?.retry_after_seconds ?? null },
-      "ESTIMATE_AI_GENERATION_BUDGET_EXCEEDED"
-    );
-  }
-
-  try {
-    return await input.run();
-  } finally {
-    const completion = await rpc("complete_estimate_ai_generation_lease", {
-      p_version_id: input.versionId,
-      p_operation: input.operation,
-      p_lease_token: leaseToken,
-    });
-    if (completion.error) {
-      console.error("estimate.ai_generation.lease_completion_failed", {
-        operation: input.operation,
-        version_id: input.versionId,
-        code: completion.error.code,
-      });
-    }
-  }
-}
-
-const STRUCTURE_DRAFT_VERSION_ACCESS: VersionAccessQuery = {
-  mode: "owner_or_admin_on_active_project",
-  versionColumns: "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, calc_engine_version",
-  projectColumns: "name, reference, client_name, notes",
-};
 
 async function fetchEstimateVersionToken(input: {
   supabase: Supabase;
@@ -1547,7 +1426,7 @@ function groupSectionsByOwner<T extends { id: string }>(
 function buildLinkedDpgfSource(input: {
   latestLinkedImport: LinkedDpgfImport | null;
   linkedImportRows: Awaited<ReturnType<typeof fetchMappedRowsForImport>>;
-  version: VersionAccessRow;
+  version: AiDraftVersion;
 }): StructureDraftSource {
   const { latestLinkedImport, linkedImportRows, version } = input;
   if (!latestLinkedImport) {
@@ -1742,13 +1621,7 @@ async function loadConfirmedBriefAndClassifiedCctpDocuments(input: {
     confirmedBriefResult,
     primaryCctpDocumentsResult,
   ] = await Promise.all([
-    supabase
-      .from("affaire_briefs" as never)
-      .select(
-        "id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements" as never
-      )
-      .eq("project_id", projectId)
-      .eq("status", "confirme")
+    confirmedAiDraftBrief(supabase, projectId)
       .maybeSingle(),
     readAllRows(() => supabase
       .from("affaire_intake_documents" as never)
@@ -1997,8 +1870,8 @@ function buildStructureDraftSourceBundle(
 async function loadStructureDraftSourceBundle(input: {
   supabase: Supabase;
   tenantId: string;
-  project: EmbeddedProjectAccess;
-  version: VersionAccessRow;
+  project: AiDraftProject;
+  version: AiDraftVersion;
 }): Promise<EstimateStructureDraftSourceBundle> {
   const { supabase, tenantId, project, version } = input;
 
@@ -2039,7 +1912,7 @@ async function loadStructureDraftSourceBundle(input: {
 }
 
 function buildGeminiPrompt(input: {
-  project: EmbeddedProjectAccess;
+  project: AiDraftProject;
   sourceSummaries: EstimateStructureDraftSourceSummary[];
   promptSources: EstimateStructurePromptSource[];
   heuristicNodes: EstimateStructureDraftNodePayload[];
@@ -2097,7 +1970,7 @@ Consignes de generation:
 }
 
 async function tryGenerateGeminiNodes(input: {
-  project: EmbeddedProjectAccess;
+  project: AiDraftProject;
   sourceSummaries: EstimateStructureDraftSourceSummary[];
   promptSources: EstimateStructurePromptSource[];
   heuristicNodes: EstimateStructureDraftNodePayload[];
@@ -2117,7 +1990,7 @@ function buildDraftNodesFromSources(input: {
   sourceEntries: EstimateStructureSourceEntry[];
   sourceSummaries: EstimateStructureDraftSourceSummary[];
   promptSources: EstimateStructurePromptSource[];
-  project: EmbeddedProjectAccess;
+  project: AiDraftProject;
   existingSections: MutableExistingSection[];
 }) {
   const heuristicNodes = dedupeSiblingNodes(buildHeuristicNodes(input.sourceEntries));
@@ -2319,9 +2192,7 @@ export async function generateEstimateStructureDraft(
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
   // Lot 3.2, entrée 2 (P-14) : la génération n'écrit qu'une preview, sur tout moteur.
-  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase, versionId, context, STRUCTURE_DRAFT_VERSION_ACCESS
-  );
+  const { version, project } = await readAiDraftTarget(context, versionId);
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -2481,9 +2352,7 @@ export async function getEstimateStructureDraft(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
 
-  await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase, versionId, context, STRUCTURE_DRAFT_VERSION_ACCESS
-  );
+  await readAiDraftTarget(context, versionId);
   const loaded = await loadEstimateStructureDraftOrThrow({
     supabase,
     tenantId,
@@ -2755,9 +2624,7 @@ export async function applyEstimateStructureDraft(
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
-  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase, versionId, context, STRUCTURE_DRAFT_VERSION_ACCESS
-  );
+  const { version } = await readAiDraftTarget(context, versionId);
   // Lot 3.2, entrée 2 (P-14) : une v3 s'applique par la même fonction atomique, sous le contrat d'écrivain v3
   // (20261025163000) ; jamais par l'écriture directe de secours.
   const isV3 = usesPerUnitLabor(resolveEstimateEngineVersion(version));

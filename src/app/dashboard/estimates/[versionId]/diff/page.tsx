@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "@/lib/display-format";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRightIcon, GitCompareArrowsIcon, PencilIcon } from "lucide-react";
@@ -99,11 +100,7 @@ function statusLabel(status: EstimateStatus) {
 function formatDate(dateValue: string) {
   const date = new Date(dateValue);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatDisplayDate(date);
 }
 
 function formatVersionLabel(input: {

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBasisPoints, formatPercentPoints } from "@/lib/display-format";
 import { useMemo, useState } from "react";
 
 import { IconButton } from "@/components/ui/icon-button";
@@ -221,10 +222,8 @@ export function EstimateSettingsSummaryBar({
   const derived = useMemo(() => {
     if (!totals) return null;
 
-    const marginPercent = `${((totals.appliedMarginMultiplier - 1) * 100).toFixed(0)}%`;
-    const tvaPrecision =
-      taxRateBp % 100 === 0 ? 0 : taxRateBp % 10 === 0 ? 1 : 2;
-    const tvaPercent = `${(taxRateBp / 100).toFixed(tvaPrecision)}%`;
+    const marginPercent = formatPercentPoints((totals.appliedMarginMultiplier - 1) * 100);
+    const tvaPercent = formatBasisPoints(taxRateBp);
     const discountDisplay = formatCurrency(totals.discountCents, currency);
     const totalHt = formatCurrency(totals.saleTotalCents, currency);
     const ttcBeforeRoundingCents =

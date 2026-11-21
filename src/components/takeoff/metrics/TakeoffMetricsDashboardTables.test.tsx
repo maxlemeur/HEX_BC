@@ -30,7 +30,7 @@ describe("RuleForcingTable", () => {
       "Taux observé (n/N)"]);
     const cells = (label: string) => within(screen.getByRole("row", { name: new RegExp(label) }))
       .getAllByRole("cell").map((cell) => cell.textContent);
-    expect(cells("DN et réseau")).toEqual(["DN et réseau", "11", "5", "3", "27,3 % (3/11)"]);
+    expect(cells("DN et réseau")).toEqual(["DN et réseau", "11", "5", "3", "27,3\u00a0% (3/11)"]);
     expect(cells("Échelle et cotes")).toEqual(["Échelle et cotes", "5", "0", "0", "Sans objet"]);
     expect(cells("Pièces qui se chevauchent")).toEqual(["Pièces qui se chevauchent", "0", "0", "0", "Sans objet"]);
     expect(cells("Doublon entre zones")).toEqual(["Doublon entre zones", "0", "0", "0", "-"]);

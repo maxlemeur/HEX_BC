@@ -10,6 +10,7 @@ import type { Database } from "@/types/database";
 
 import { getCatalogueWriterClient } from "./access-server";
 import type { CreateProductInput, UpdateProductInput } from "./directory-schemas";
+import { insertCatalogueProducts } from "./product-repository";
 import {
   PRODUCT_SUPPLY_TYPE_INVALID,
   PRODUCT_VALIDATION_INCOMPLETE,
@@ -87,9 +88,7 @@ export async function createProduct(input: CreateProductInput) {
     catalogue_status: input.catalogue_status,
   });
 
-  const { data, error } = await supabase
-    .from("products")
-    .insert(payload)
+  const { data, error } = await insertCatalogueProducts(supabase, payload)
     .select("*")
     .single();
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPercentPoints } from "@/lib/display-format";
 import { useEffect, useState } from "react";
 import { NumberInput, parseLocalizedNumberInput } from "@/components/ui-legacy/NumberInput";
 import { MarginTiersExplanation } from "@/components/estimates/MarginTiersExplanation";
@@ -461,7 +462,7 @@ export function EstimateSettingsPanel({
                 />
                 <span className="shrink-0 rounded-control border border-border bg-surface-subtle px-3 py-2 text-sm font-medium text-foreground-secondary">
                   {settings.margin_multiplier > 0
-                    ? `${((settings.margin_multiplier - 1) * 100).toFixed(0)}%`
+                    ? formatPercentPoints((settings.margin_multiplier - 1) * 100)
                     : "0%"}
                 </span>
               </div>
@@ -481,7 +482,7 @@ export function EstimateSettingsPanel({
                   >
                     {formatMarginMultiplier(value)}
                     <span className="sr-only">
-                      {` (marge de ${((value - 1) * 100).toFixed(0)} %)`}
+                      {` (marge de ${formatPercentPoints((value - 1) * 100)})`}
                     </span>
                   </button>
                 ))}

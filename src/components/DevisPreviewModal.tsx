@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { DownloadIcon, XIcon } from "lucide-react";
@@ -76,10 +77,7 @@ function formatEmailDate(value?: string | null) {
   if (!value) return "";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(parsed);
+  return formatDisplayDateTime(parsed);
 }
 
 function formatAddress(address?: EmailAddress | null) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useTransition, type ChangeEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -35,11 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return formatDisplayDate(new Date(iso));
 }
 
 function StatValue({ value, suffix }: { value: string; suffix?: string }) {

@@ -1,7 +1,8 @@
+import { formatDisplayDate } from "@/lib/display-format";
 import { Badge } from "@/components/ui/badge";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { Database } from "@/types/database";
-import { resolveEnvelopeErrorMessage } from "@/lib/estimates/client-errors";
+import { resolveEnvelopeErrorMessage } from "@/lib/http/error-body";
 
 export type TenantRole = Database["public"]["Enums"]["tenant_role"];
 
@@ -81,11 +82,7 @@ export function MemberIdentity({
 export function formatMembershipDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatDisplayDate(date);
 }
 
 type ApiEnvelope<T> = {

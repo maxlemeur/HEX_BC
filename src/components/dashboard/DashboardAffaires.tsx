@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
@@ -20,7 +21,6 @@ const STATUS_BADGES: Record<NonNullable<AffaireListItem["currentStatus"]>, {
   accepted: { label: "Acceptée", variant: "success" },
   archived: { label: "Archivée", variant: "neutral" },
 };
-const DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: "Europe/Paris" });
 const NAV_LINK = "inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-primary hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
 export function DashboardAffaires({ data, query }: Readonly<{
@@ -69,7 +69,7 @@ export function DashboardAffaires({ data, query }: Readonly<{
           <tbody className="divide-y divide-border-subtle">
             {data.affaires.map(item => {
               const status = STATUS_BADGES[item.currentStatus ?? "draft"];
-              const date = DATE_FORMATTER.format(new Date(item.currentUpdatedAt));
+              const date = formatDisplayDate(new Date(item.currentUpdatedAt));
               return (
                 <tr key={item.projectId} className="group hover:bg-surface-subtle focus-within:bg-surface-subtle">
                   <td className="px-4 py-3 sm:px-5">

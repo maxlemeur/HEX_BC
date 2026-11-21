@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "@/lib/display-format";
 import {
   PURCHASE_ORDER_STATUS_LABELS,
   PURCHASE_ORDER_STATUSES,
@@ -87,12 +88,6 @@ export function relatedName(value: PurchaseOrderListRow["suppliers"]) {
 
 /** `TBD` is the stored sentinel of a delivery date still to be agreed with the supplier. */
 export function formatOrderDate(dateStr: string | null) {
-  if (!dateStr) return "-";
   if (dateStr === "TBD") return "À déterminer";
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return "-";
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  return `${day}/${month}/${year}`;
+  return formatDisplayDate(dateStr, "-");
 }

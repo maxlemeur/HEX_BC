@@ -88,7 +88,8 @@ describe("purchase order devis item route", () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
-      error: "Ce document prouve la commande confirmée : il ne peut pas être supprimé.",
+      ok: false,
+      error: { code: "CONFLICT", message: "Ce document prouve la commande confirmée : il ne peut pas être supprimé." },
     });
     expect(harness.queries.proof.eq.mock.calls).toEqual([["document_id", DEVIS_ID]]);
     expect(harness.remove).not.toHaveBeenCalled();
@@ -107,7 +108,8 @@ describe("purchase order devis item route", () => {
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
-      error: "Ce document prouve la commande confirmée : il ne peut pas être supprimé.",
+      ok: false,
+      error: { code: "CONFLICT", message: "Ce document prouve la commande confirmée : il ne peut pas être supprimé." },
     });
     expect(harness.deleteRows).not.toHaveBeenCalled();
   });

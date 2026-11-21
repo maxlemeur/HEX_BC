@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
+import { buildErrorResponseBody, toErrorResponse as toSharedErrorResponse } from "@/lib/http/errors";
 
 import {
   ApiError,
@@ -146,18 +146,11 @@ export function toErrorResponse(error: unknown) {
     isApiError: (value): value is ApiError => value instanceof ApiError,
     mapZodError: fromZodError,
     createInternalError: () => internalError(),
-    unexpectedLogMessage: "Unexpected estimate API error",
+    unexpectedLogMessage: "Unexpected API error",
   });
 }
 
-/**
- * The `{ error: message }` body of the purchase-order document routes and the audit
- * route, which predate the `{ ok, error: { code, message } }` envelope. Anything
- * that is not an `ApiError` is rethrown.
- */
-export function jsonApiError(error: unknown) {
-  if (error instanceof ApiError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
-  }
-  throw error;
+/** A known HTTP refusal with a message written for the caller. */
+export function apiFailure(status: number, code: string, message: string) {
+  return NextResponse.json(buildErrorResponseBody({ status, code, message }), { status });
 }

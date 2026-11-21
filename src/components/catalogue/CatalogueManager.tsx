@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBasisPoints, formatDisplayDateTime } from "@/lib/display-format";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -74,16 +75,13 @@ function formatDateTime(value: string | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
 
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
+  return formatDisplayDateTime(date);
 }
 
 // M-20: Display TVA as percentage
 function formatTaxRate(bp: number | undefined | null): string {
   if (typeof bp !== "number" || !Number.isFinite(bp)) return "-";
-  return `${(bp / 100).toFixed(bp % 100 === 0 ? 0 : 1)} %`;
+  return formatBasisPoints(bp);
 }
 
 // M-17: Tab state for catalogue sections

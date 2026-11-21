@@ -1,5 +1,6 @@
 "use client";
 
+import { formatEUR } from "@/lib/money";
 import { useEffect, useMemo, useState } from "react";
 import { takeoffPreparationSchema } from "@/lib/takeoff/preparation";
 import { takeoffScopeCoverage } from "@/lib/takeoff/scope-coverage";
@@ -10,7 +11,7 @@ import { TAKEOFF_COMPARISON_DEFERRED } from "@/lib/takeoff/apply-readiness";
 import { Button } from "@/components/ui/button";
 
 const money = (value: number | null) => value === null ? "Montant inconnu" :
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(value / 100);
+  formatEUR(value);
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
 

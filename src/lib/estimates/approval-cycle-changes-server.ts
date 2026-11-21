@@ -1,11 +1,12 @@
 import type { EstimateAuditLogRow, AuthenticatedContext, VersionAccessRow, EstimateApprovalCorrectionItem, EstimateApprovalChangeField, EstimateApprovalChangesSinceLastCycle, EstimateApprovalReviewCycle } from "@/lib/estimates/approval-types";
-import { formatPercentBp, formatEuroCents } from "@/lib/estimates/rule-evaluation";
+import { formatEuroCents } from "@/lib/estimates/rule-evaluation";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Json } from "@/types/database";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { asFiniteNumber } from "@/lib/value-guards";
-import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
+import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
+import { formatBasisPoints } from "@/lib/display-format";
 
 const APPROVAL_CHANGE_FIELD_LABELS: Record<string, string> = {
   margin_bp: "Marge",
@@ -32,9 +33,9 @@ function formatChangeFieldValue(input: {
   }
 
   if (input.field === "discount_amount_cents") {
-    const currency = (SUPPORTED_ESTIMATE_CURRENCIES as readonly string[]).includes(input.currency ?? "") ? input.currency! : "EUR";
+    const currency = normalizeEstimateCurrency(input.currency) ?? "EUR";
     return typeof input.value === "number" && Number.isFinite(input.value)
-      ? new Intl.NumberFormat("fr-FR", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(input.value / 100)
+      ? formatCurrency(input.value, currency)
       : String(input.value);
   }
 
@@ -44,7 +45,7 @@ function formatChangeFieldValue(input: {
     input.field === "tax_rate_bp"
   ) {
     return typeof input.value === "number" && Number.isFinite(input.value)
-      ? formatPercentBp(input.value)
+      ? formatBasisPoints(input.value)
       : String(input.value);
   }
 

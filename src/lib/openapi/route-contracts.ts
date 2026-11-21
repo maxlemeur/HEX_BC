@@ -1,3 +1,4 @@
+import { apiFailureResponseSchema } from "@/lib/http/error-contracts";
 import { affaireLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
 import { z, type ZodTypeAny } from "zod";
 import { driveRequestSchema,driveConnectionRequestSchema,driveConnectionStateSchema,drivePurposeSchema } from "@/lib/affaires/google-drive/contracts";
@@ -19,7 +20,7 @@ import {
 import { mappingsActionSchema } from "@/lib/mappings/schemas";
 import {
   createMembershipSchema,
-  tenantRoleSchema,
+  tenantMembershipActionSchema,
   updateMembershipSchema,
 } from "@/lib/memberships/schemas";
 import type {
@@ -73,8 +74,8 @@ const genericJsonResponseDefinition: OpenApiSchemaDefinition = {
   io: "output",
 };
 const genericErrorResponseDefinition: OpenApiSchemaDefinition = {
-  schemaName: "ApiGenericErrorResponse",
-  schema: z.unknown(),
+  schemaName: "ApiFailureResponse",
+  schema: apiFailureResponseSchema,
   io: "output",
 };
 export const csvResponseDefinition: OpenApiSchemaDefinition = {
@@ -131,7 +132,7 @@ export type RouteContract = {
   queryParameters?: ParameterContract[];
   body?: BodyContract;
   success?: SuccessContract[];
-  rawErrors?: boolean;
+  standardErrors?: boolean;
   extraErrors?: Array<{ status: string; description: string }>;
 };
 
@@ -210,7 +211,7 @@ export function buildOpenApiRouteOperation(
         ],
     };
   });
-  if (input.rawErrors) {
+  if (input.standardErrors) {
     ["400", "401", "403", "404", "409", "500"].forEach((status) => {
       responses[status] = jsonResponse(
         "Erreur retournee par la route.",
@@ -365,17 +366,6 @@ const tabularPdfReviewFileSchema = z.object({
   sourceDocumentId: z.string().optional(),
 });
 
-const tenantMembershipActionSchema = z.discriminatedUnion("action", [
-  z.object({
-    action: z.literal("set-role"),
-    membership_id: uuidSchema,
-    role: tenantRoleSchema,
-  }),
-  z.object({
-    action: z.literal("set-default"),
-    membership_id: uuidSchema,
-  }),
-]);
 
 export const portalAcceptSchema = z.object({
   accepted_terms: z.literal(true),
@@ -594,7 +584,7 @@ const administrationContracts: RouteContract[] = [
     summary: "Lister les journaux d'audit",
     description: "Retourne les journaux accessibles, du plus recent au plus ancien.",
     tags: ["Administration"],
-    rawErrors: true,
+    standardErrors: true,
     queryParameters: [
       { name: "table_name", schema: z.string(), description: "Table a filtrer." },
       {

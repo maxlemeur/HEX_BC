@@ -1,5 +1,6 @@
 "use client";
 
+import { toErrorMessage } from "@/lib/http/error-body";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -230,8 +231,8 @@ export default function OrdersPage() {
       try {
         const res = await fetch(`/api/purchase-orders/${order.id}`, { method: "DELETE" });
         if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(body?.error ?? "Échec de la suppression.");
+          const body = (await res.json().catch(() => null)) as unknown;
+          throw new Error(toErrorMessage(body, "Échec de la suppression."));
         }
         toast.success({ title: `Bon ${order.reference} supprimé.` });
         void mutate();

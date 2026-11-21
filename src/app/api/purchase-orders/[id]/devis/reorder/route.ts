@@ -2,7 +2,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { jsonApiError } from "@/lib/http/api-response";
+import { apiFailure, toErrorResponse } from "@/lib/http/api-response";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
@@ -22,7 +22,7 @@ export async function PATCH(
   try {
     context = await getAuthenticatedTenantContext();
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase, userId, tenantId } = context;
@@ -31,24 +31,18 @@ export async function PATCH(
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return apiFailure(400, "BAD_REQUEST", "Invalid JSON payload");
   }
 
   const { orderedIds } = body;
 
   if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
-    return NextResponse.json(
-      { error: "orderedIds must be a non-empty array" },
-      { status: 400 }
-    );
+    return apiFailure(400, "BAD_REQUEST", "orderedIds must be a non-empty array");
   }
 
   const uniqueOrderedIds = new Set(orderedIds);
   if (uniqueOrderedIds.size !== orderedIds.length) {
-    return NextResponse.json(
-      { error: "orderedIds doit contenir des identifiants uniques." },
-      { status: 400 }
-    );
+    return apiFailure(400, "BAD_REQUEST", "orderedIds doit contenir des identifiants uniques.");
   }
 
   const order = await getAccessiblePurchaseOrderOrNull<{
@@ -58,31 +52,19 @@ export async function PATCH(
   }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (order.tenant_id !== tenantId) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
-    return NextResponse.json(
-      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Cette action est réservée aux administrateurs et aux chiffreurs.");
   }
 
   if (order.status === "canceled") {
-    return NextResponse.json(
-      { error: "Les bons de commande annules ne peuvent plus être reordonnes." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Les bons de commande annules ne peuvent plus être reordonnes.");
   }
 
   const { data: existingDevis, error: fetchError } = await readAllRows(() => supabase
@@ -91,32 +73,24 @@ export async function PATCH(
     .eq("purchase_order_id", id));
 
   if (fetchError) {
-    return NextResponse.json({ error: fetchError.message }, { status: 400 });
+    console.error("Impossible de charger la liste des devis.", fetchError);
+    return apiFailure(400, "BAD_REQUEST", "Impossible de charger la liste des devis.");
   }
 
   const existing = existingDevis ?? [];
   const existingIds = new Set(existing.map((d) => d.id));
 
   if (existing.length === 0) {
-    return NextResponse.json(
-      { error: "Aucun devis à reordonner pour cette commande." },
-      { status: 400 }
-    );
+    return apiFailure(400, "BAD_REQUEST", "Aucun devis à reordonner pour cette commande.");
   }
 
   if (orderedIds.length !== existing.length) {
-    return NextResponse.json(
-      { error: "La liste de reordonnancement est incomplete." },
-      { status: 400 }
-    );
+    return apiFailure(400, "BAD_REQUEST", "La liste de reordonnancement est incomplete.");
   }
 
   for (const devisId of orderedIds) {
     if (!existingIds.has(devisId)) {
-      return NextResponse.json(
-        { error: `Devis ${devisId} non trouve dans cette commande.` },
-        { status: 400 }
-      );
+      return apiFailure(400, "BAD_REQUEST", `Devis ${devisId} non trouve dans cette commande.`);
     }
   }
 
@@ -129,14 +103,12 @@ export async function PATCH(
   );
 
   if (reorderError) {
-    return NextResponse.json({ error: reorderError.message }, { status: 400 });
+    console.error("Impossible de réordonner les devis.", reorderError);
+    return apiFailure(400, "BAD_REQUEST", "Impossible de réordonner les devis.");
   }
 
   if ((updatedCount ?? 0) !== orderedIds.length) {
-    return NextResponse.json(
-      { error: "La liste de reordonnancement est desynchronisee." },
-      { status: 409 }
-    );
+    return apiFailure(409, "CONFLICT", "La liste de reordonnancement est desynchronisee.");
   }
 
   return NextResponse.json({ success: true });

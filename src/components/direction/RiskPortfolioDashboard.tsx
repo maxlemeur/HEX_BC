@@ -1,3 +1,4 @@
+import { formatBasisPoints } from "@/lib/display-format";
 import Link from "next/link";
 import { ChartColumnIcon } from "lucide-react";
 
@@ -31,7 +32,7 @@ function formatPercent(value: number | null) {
     return "n/a";
   }
 
-  return `${(value / 100).toFixed(1)} %`;
+  return formatBasisPoints(value);
 }
 
 function formatCoverage(value: number | null) {

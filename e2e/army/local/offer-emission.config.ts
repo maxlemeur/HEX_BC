@@ -9,13 +9,13 @@ import { COLLECTOR_SENTINEL } from "../../../scripts/tester-army/offer-collector
 import { offerServerMode, validateOfferProductionBuild } from "../../../scripts/tester-army/run-offer-local.mjs";
 import { assertInstalledDependencies } from "../../../scripts/tester-army/installed-dependencies.mjs";
 import { OFFER_EMISSION_SELECTION } from "../../../scripts/tester-army/journey-selections.mjs";
+import { NATIVE_OFFER_BACKEND_ORIGIN, readExplicitLoopbackOrigin, requestsOfferSandboxTerms } from "../../../src/lib/runtime/offer-sandbox";
 
 assertInstalledDependencies();
 
 function explicitOrigin(name: string, collector = false) {
-  const value = process.env[name];
-  const url = new URL(value ?? "");
-  if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !url.port || url.origin !== value || url.username || url.password || url.pathname !== "/" || url.search || url.hash || (collector && url.hostname !== "127.0.0.1")) throw new Error(`Explicit local ${name} required.`);
+  const url = readExplicitLoopbackOrigin(process.env[name]);
+  if (!url || (collector && url.hostname !== "127.0.0.1")) throw new Error(`Explicit local ${name} required.`);
   return url;
 }
 if (!["26"].includes(process.versions.node.split(".")[0])) throw new Error("Offer profile requires Node 26.");
@@ -25,9 +25,7 @@ const appOrigin = explicitOrigin("E2E_OFFER_APP_ORIGIN");
 const backend = explicitOrigin("E2E_OFFER_BACKEND_ORIGIN");
 const collector = explicitOrigin("E2E_OFFER_COLLECTOR_ORIGIN", true);
 if (new Set([appOrigin.origin, backend.origin, collector.origin]).size !== 3 || process.env.E2E_ARMY_BASE_URL !== appOrigin.origin || process.env.NEXT_PUBLIC_SUPABASE_URL !== backend.origin || process.env.RESEND_BASE_URL !== collector.origin || process.env.RESEND_API_KEY !== COLLECTOR_SENTINEL || process.env.EMAIL_FROM !== "ARMY Local <offer@army.invalid>") throw new Error("Offer profile origins or sentinel environment mismatch.");
-const sandboxTermsEnabled = process.env.E2E_OFFER_SANDBOX_TERMS === "1" &&
-  serverMode === "production" && backend.origin === "http://127.0.0.1:45585" && Number(appOrigin.port) > 0 &&
-  ["VERCEL", "VERCEL_ENV", "VERCEL_URL", "VERCEL_TARGET_ENV"].every((name) => process.env[name] === undefined);
+const sandboxTermsEnabled = requestsOfferSandboxTerms(process.env) && backend.origin === NATIVE_OFFER_BACKEND_ORIGIN;
 if (process.env.E2E_OFFER_SANDBOX_TERMS === "1" && !sandboxTermsEnabled) throw new Error("Sandbox draft terms require the explicit native production offer profile without hosting markers.");
 const archiveRoot = path.resolve(".e2e/army/offer/runs");
 const runDirectory = path.resolve(process.env.E2E_OFFER_RUN_DIRECTORY ?? "");

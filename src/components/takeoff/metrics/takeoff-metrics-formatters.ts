@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
+import { formatEUR } from "@/lib/money";
 import { DEFAULT_LOW_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_CEILING } from "@/lib/takeoff/guards";
 
 export function formatDurationMs(ms: number | null): string {
@@ -13,11 +15,7 @@ export function formatDurationMs(ms: number | null): string {
 
 export function formatCostCents(cents: number | null): string {
   if (cents == null) return "-";
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-  }).format(cents / 100);
+  return formatEUR(cents);
 }
 
 export function formatPercent(value: number): string {
@@ -35,13 +33,7 @@ export function formatConfidence(value: number | null): string {
 export function formatGeneratedAt(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDisplayDateTime(parsed);
 }
 
 export function formatDate(value: string): string {

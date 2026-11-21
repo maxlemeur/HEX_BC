@@ -1,3 +1,4 @@
+import { formatPercentPoints } from "@/lib/display-format";
 import type {
   TakeoffDpgfComparisonProof,
   TakeoffDpgfComparisonRow,
@@ -23,7 +24,7 @@ export function formatNumber(value: number | null, digits = 2) {
 export function formatPercent(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "-";
   const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(1)}%`;
+  return `${sign}${formatPercentPoints(value)}`;
 }
 
 export function formatConfidence(value: number | null) {

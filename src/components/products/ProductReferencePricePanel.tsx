@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { formatEUR, parseEuroToCents } from "@/lib/money";
+import { formatCurrencyCode, formatEUR, parseEuroToCents } from "@/lib/money";
 import type { ReferencePriceHistory, ReferencePriceResponse } from "@/lib/catalogue/reference-price-schemas";
 
 const exclusions: Record<string, string> = {
@@ -28,13 +28,6 @@ const exclusions: Record<string, string> = {
 
 function transportLabel(mode: string | null) {
   return mode === "included" ? "Transport inclus" : mode === "excluded" ? "Hors transport" : "À préciser";
-}
-
-function formatOfferPrice(cents: number, currency: string) {
-  if (/^[a-z]{3}$/i.test(currency)) {
-    return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency });
-  }
-  return `${(cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} ${currency}`;
 }
 
 function HistoryEntry({ event }: { event: ReferencePriceHistory["events"][number] }) {
@@ -63,7 +56,7 @@ function HistoryEntry({ event }: { event: ReferencePriceHistory["events"][number
               <li key={offer.id} className="break-words">
                 <span className="font-medium">{offer.supplier_name}{offer.supplier_sku ? ` · ${offer.supplier_sku}` : ""}</span>
                 <span className="block text-xs text-muted-foreground">
-                  {formatOfferPrice(offer.unit_price_cents, offer.currency)} / {offer.unit}
+                  {formatCurrencyCode(offer.unit_price_cents, offer.currency)} / {offer.unit}
                   {" · "}Dès {offer.min_quantity} {offer.unit} · {offer.valid_from} → {offer.valid_to ?? "Fin non renseignée"}
                   {" · "}{transportLabel(offer.transport_mode)} · {offer.exclusion ? exclusions[offer.exclusion] : "Retenue"}
                 </span>
@@ -224,7 +217,7 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
               <thead className="text-xs uppercase tracking-wide text-muted-foreground"><tr><th scope="col" className="p-2 font-semibold">Fournisseur / référence</th><th scope="col" className="p-2 font-semibold">Prix HT</th><th scope="col" className="p-2 font-semibold">Conditions</th><th scope="col" className="p-2 font-semibold">Calcul</th></tr></thead>
               <tbody>{proposal.offers.map((offer) => <tr key={offer.id} className="border-t border-border-subtle">
                 <td className="p-2">{offer.supplier_name}<span className="block text-xs text-muted-foreground">{offer.supplier_sku ?? "Référence manquante"}</span></td>
-                <td className="whitespace-nowrap p-2">{formatOfferPrice(offer.unit_price_cents, offer.currency)} / {offer.unit}</td>
+                <td className="whitespace-nowrap p-2">{formatCurrencyCode(offer.unit_price_cents, offer.currency)} / {offer.unit}</td>
                 <td className="p-2"><span className="block">Dès {offer.min_quantity} {offer.unit} · {offer.valid_from} → {offer.valid_to ?? "Fin non renseignée"}</span>
                   {data.can_validate ? <NativeSelect size="sm" wrapperClassName="mt-1 w-auto" aria-label={`Transport pour ${offer.supplier_name} (${offer.id})`}
                     value={offer.transport_mode ?? ""} disabled={busy || isValidating}

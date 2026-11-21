@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { jsonApiError } from "@/lib/http/api-response";
+import { apiFailure, toErrorResponse } from "@/lib/http/api-response";
 import { drainProcurementStorageCleanupOutbox } from "@/lib/procurement/storage-cleanup-outbox";
 import {
   canWritePurchaseOrders,
@@ -26,7 +26,7 @@ export async function PUT(
       request.json().catch(() => null),
     ]);
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase, userId, tenantId } = context;
@@ -38,36 +38,24 @@ export async function PUT(
   }>(supabase, id, "id, status, tenant_id");
 
   if (!existingOrder) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (existingOrder.tenant_id !== tenantId) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (!(await canWritePurchaseOrders(supabase, userId, existingOrder.tenant_id))) {
-    return NextResponse.json(
-      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Cette action est réservée aux administrateurs et aux chiffreurs.");
   }
 
   if (existingOrder.status !== "draft") {
-    return NextResponse.json(
-      { error: "Seuls les bons de commande en brouillon peuvent être modifiés." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Seuls les bons de commande en brouillon peuvent être modifiés.");
   }
 
   const parsed = updatePurchaseOrderSchema.safeParse(payload);
   if (!parsed.success) {
-    return NextResponse.json({ error: purchaseOrderInputError(parsed.error.issues) }, { status: 400 });
+    return apiFailure(400, "VALIDATION_ERROR", purchaseOrderInputError(parsed.error.issues));
   }
   const input = parsed.data;
   const header: Record<string, Json> = {};
@@ -84,9 +72,7 @@ export async function PUT(
       pricePer: item.pricePer, kind: item.lineKind,
     })));
   } catch (error) {
-    return NextResponse.json({
-      error: error instanceof OrderTotalNegativeError ? error.message : "Le montant dépasse la capacité d'une commande.",
-    }, { status: 400 });
+    return apiFailure(400, "BAD_REQUEST", error instanceof OrderTotalNegativeError ? error.message : "Le montant dépasse la capacité d'une commande.");
   }
   const { data, error } = await supabase.rpc("replace_purchase_order_draft", {
     p_order_id: id,
@@ -96,14 +82,11 @@ export async function PUT(
   });
   if (error) {
     const failure = purchaseOrderWriteError(error);
-    return NextResponse.json(
-      { error: failure.message, ...(failure.code === "PURCHASE_ORDER_DRAFT_NOT_EDITABLE" ? {} : { code: failure.code }) },
-      { status: failure.status }
-    );
+    return apiFailure(failure.status, failure.code, failure.message);
   }
   const receipt = purchaseOrderWriteReceiptSchema.safeParse(data);
   if (!receipt.success || receipt.data.id !== id.toLowerCase()) {
-    return NextResponse.json({ error: "Réponse de sauvegarde invalide. Rechargez la commande avant de réessayer." }, { status: 500 });
+    return apiFailure(500, "INTERNAL_ERROR", "Réponse de sauvegarde invalide. Rechargez la commande avant de réessayer.");
   }
   return NextResponse.json({ success: true, id: receipt.data.id, editRevision: receipt.data.edit_revision });
 }
@@ -117,7 +100,7 @@ export async function DELETE(
   try {
     context = await getAuthenticatedTenantContext();
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase, userId, tenantId } = context;
@@ -129,31 +112,19 @@ export async function DELETE(
   }>(supabase, id, "id, status, tenant_id");
 
   if (!existingOrder) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (existingOrder.tenant_id !== tenantId) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (!(await canWritePurchaseOrders(supabase, userId, existingOrder.tenant_id))) {
-    return NextResponse.json(
-      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Cette action est réservée aux administrateurs et aux chiffreurs.");
   }
 
   if (existingOrder.status !== "draft") {
-    return NextResponse.json(
-      { error: "Seuls les bons de commande en brouillon peuvent être supprimés." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Seuls les bons de commande en brouillon peuvent être supprimés.");
   }
 
   const { error: deleteError } = await supabase.rpc(
@@ -163,13 +134,11 @@ export async function DELETE(
 
   if (deleteError) {
     if (deleteError.message.includes("PURCHASE_ORDER_DRAFT_NOT_DELETABLE")) {
-      return NextResponse.json(
-        { error: "Seuls les bons de commande en brouillon peuvent être supprimés." },
-        { status: 403 }
-      );
+      return apiFailure(403, "FORBIDDEN", "Seuls les bons de commande en brouillon peuvent être supprimés.");
     }
 
-    return NextResponse.json({ error: deleteError.message }, { status: 400 });
+    console.error("Impossible de supprimer le bon de commande.", deleteError);
+    return apiFailure(400, "BAD_REQUEST", "Impossible de supprimer le bon de commande.");
   }
 
   try {

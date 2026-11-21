@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { jsonApiError } from "@/lib/http/api-response";
+import { apiFailure, toErrorResponse } from "@/lib/http/api-response";
 import { validateFileForUpload } from "@/lib/file-validation";
 import {
   canWritePurchaseOrders,
@@ -50,7 +50,7 @@ export async function GET(
   try {
     context = await getAuthenticatedTenantContext();
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase } = context;
@@ -62,10 +62,7 @@ export async function GET(
   );
 
   if (!order) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   const { data: devisData, error: devisError } = await supabase
@@ -77,7 +74,8 @@ export async function GET(
     .order("position", { ascending: true });
 
   if (devisError) {
-    return NextResponse.json({ error: devisError.message }, { status: 400 });
+    console.error("Impossible de charger les devis de la commande.", devisError);
+    return apiFailure(400, "BAD_REQUEST", "Impossible de charger les devis de la commande.");
   }
 
   const devis = devisData ?? [];
@@ -97,7 +95,8 @@ export async function GET(
 
   const signedError = signedResults.find((result) => result.error)?.error;
   if (signedError) {
-    return NextResponse.json({ error: signedError.message }, { status: 500 });
+    console.error("Impossible de générer les liens des devis.", signedError);
+    return apiFailure(500, "INTERNAL_ERROR", "Impossible de générer les liens des devis.");
   }
 
   const items = devis.map((item, index) => {
@@ -121,26 +120,23 @@ export async function POST(
       request.formData().catch(() => null),
     ]);
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase, userId, tenantId } = context;
 
   if (!formData) {
-    return NextResponse.json({ error: "Invalid form payload" }, { status: 400 });
+    return apiFailure(400, "BAD_REQUEST", "Invalid form payload");
   }
 
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return NextResponse.json(
-      { error: "Aucun fichier fourni." },
-      { status: 400 }
-    );
+    return apiFailure(400, "BAD_REQUEST", "Aucun fichier fourni.");
   }
 
   const validation = validateFileForUpload(file);
   if (!validation.valid) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
+    return apiFailure(400, "BAD_REQUEST", validation.error);
   }
 
   const order = await getAccessiblePurchaseOrderOrNull<{
@@ -150,31 +146,19 @@ export async function POST(
   }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (order.tenant_id !== tenantId) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
-    return NextResponse.json(
-      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Cette action est réservée aux administrateurs et aux chiffreurs.");
   }
 
   if (order.status === "canceled") {
-    return NextResponse.json(
-      { error: "Les bons de commande annules n'acceptent plus de devis." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Les bons de commande annules n'acceptent plus de devis.");
   }
 
   const originalFilename = file.name || "fichier";
@@ -199,7 +183,8 @@ export async function POST(
     });
 
   if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 400 });
+    console.error("Impossible d’envoyer le fichier du devis.", uploadError);
+    return apiFailure(400, "BAD_REQUEST", "Impossible d’envoyer le fichier du devis.");
   }
 
   const { data: inserted, error: insertError } = await supabase
@@ -221,10 +206,8 @@ export async function POST(
 
   if (insertError || !inserted) {
     await supabase.storage.from(DEVIS_BUCKET).remove([storagePath]);
-    return NextResponse.json(
-      { error: insertError?.message ?? "Impossible d'enregistrer le devis." },
-      { status: 400 }
-    );
+    console.error("Impossible d’enregistrer le devis.", insertError);
+    return apiFailure(400, "BAD_REQUEST", "Impossible d’enregistrer le devis.");
   }
 
   const { data: signedData } = await supabase.storage

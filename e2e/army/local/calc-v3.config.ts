@@ -7,6 +7,7 @@ import type { E2EConfig } from "e2e";
 
 import { COLLECTOR_SENTINEL } from "../../../scripts/tester-army/offer-collector.mjs";
 import { assertInstalledDependencies } from "../../../scripts/tester-army/installed-dependencies.mjs";
+import { hasOfferHostingMarker, readExplicitLoopbackOrigin } from "../../../src/lib/runtime/offer-sandbox";
 import {
   CALC_V3_EMAIL_FROM, CALC_V3_EMAIL_REDIRECT_TO, CALC_V3_FORBIDDEN_PORTS, CALC_V3_PHASE_DEFINITIONS, isCalcV3Phase,
 } from "../../../scripts/tester-army/calc-v3-phases";
@@ -23,12 +24,8 @@ assertInstalledDependencies();
 // (src/lib/estimates/pdf-terms-server.ts), a development phase keeps next dev.
 // offer-emission.config.ts stays unchanged.
 function loopbackOrigin(name: string, options: { ipv4Only?: boolean } = {}) {
-  const value = process.env[name];
-  let url: URL;
-  try { url = new URL(value ?? ""); } catch { throw new Error(`calc-v3 requires an explicit loopback ${name}.`); }
-  if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || !url.port ||
-    url.origin !== value || url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
-    (options.ipv4Only && url.hostname !== "127.0.0.1")) {
+  const url = readExplicitLoopbackOrigin(process.env[name]);
+  if (!url || (options.ipv4Only && url.hostname !== "127.0.0.1")) {
     throw new Error(`calc-v3 requires an explicit loopback ${name}.`);
   }
   if (CALC_V3_FORBIDDEN_PORTS.has(url.port)) throw new Error(`calc-v3 refuses ${name} on the developers' long-running stack port ${url.port}.`);
@@ -64,7 +61,7 @@ if (process.env.E2E_ARMY_LOCAL_DB_URL !== undefined) {
 }
 const serverMode = definition.serverMode;
 if ((process.env.E2E_ARMY_SERVER_MODE ?? "") !== serverMode) throw new Error(`calc-v3 phase ${phase} requires server mode ${serverMode}.`);
-if (["VERCEL", "VERCEL_ENV", "VERCEL_URL", "VERCEL_TARGET_ENV"].some((name) => process.env[name] !== undefined)) {
+if (hasOfferHostingMarker(process.env)) {
   throw new Error("calc-v3 refuses hosting markers.");
 }
 

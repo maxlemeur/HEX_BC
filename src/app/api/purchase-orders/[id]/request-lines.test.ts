@@ -55,7 +55,7 @@ async function put(body: unknown) {
   const response = await PUT(new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
     method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   }), { params: Promise.resolve({ id: ORDER_ID }) });
-  return { status: response.status, body: await response.json() as { error?: string; code?: string } };
+  return { status: response.status, body: await response.json() as { ok: false; error: { code: string; message: string } } };
 }
 
 const requestLine = { id: ITEM_ID, productId: PRODUCT_ID, reference: "ALPHA-501", designation: "Coude 90°, DN 50, Inox 304L",
@@ -83,7 +83,7 @@ describe("draft edit of an order made from a material request", () => {
     const rpc = supabaseMock();
     for (const forged of [{ materialRequestLineId: ITEM_ID }, { imputation: "overhead" }, { projectId: ORDER_ID }]) {
       const answer = await put({ expectedRevision: 1, items: [{ ...requestLine, ...forged }] });
-      expect([answer.status, answer.body.error]).toEqual([400, "Ligne 1 : Champ inconnu ou non modifiable."]);
+      expect([answer.status, answer.body.error.message]).toEqual([400, "Ligne 1 : Champ inconnu ou non modifiable."]);
     }
     expect(rpc).not.toHaveBeenCalled();
   });
@@ -107,9 +107,9 @@ describe("draft edit of an order made from a material request", () => {
   it("2 refuses an article on a discount, and 3 a lot of 7 units", async () => {
     const rpc = supabaseMock();
     const withArticle = await put({ expectedRevision: 1, items: [{ ...requestLine, id: undefined, lineKind: "discount" }] });
-    expect([withArticle.status, withArticle.body.error]).toEqual([400, "Ligne 1 : Un port ou une remise ne porte pas d'article."]);
+    expect([withArticle.status, withArticle.body.error.message]).toEqual([400, "Ligne 1 : Un port ou une remise ne porte pas d'article."]);
     const oddLot = await put({ expectedRevision: 1, items: [{ ...requestLine, pricePer: 7 }] });
-    expect([oddLot.status, oddLot.body.error]).toEqual([400, "Ligne 1 : Le prix s'entend pour 1, 10, 100 ou 1 000 unités."]);
+    expect([oddLot.status, oddLot.body.error.message]).toEqual([400, "Ligne 1 : Le prix s'entend pour 1, 10, 100 ou 1 000 unités."]);
     expect(rpc).not.toHaveBeenCalled();
   });
 
@@ -119,7 +119,7 @@ describe("draft edit of an order made from a material request", () => {
       { designation: "Tube", quantity: 1, unit: "u", unitPriceCents: 1000, taxRateBp: 2000 },
       { designation: "Remise", quantity: 1, unitPriceCents: 1001, taxRateBp: 2000, lineKind: "discount" },
     ] });
-    expect([answer.status, answer.body.error]).toEqual([400, "La remise dépasse le montant de la commande."]);
+    expect([answer.status, answer.body.error.message]).toEqual([400, "La remise dépasse le montant de la commande."]);
     expect(rpc).not.toHaveBeenCalled();
   });
 
@@ -155,7 +155,7 @@ describe("draft edit of an order made from a material request", () => {
   ])("6 answers %s in French", async (message, sentence) => {
     supabaseMock({ data: null, error: { code: "22023", message } });
     const answer = await put({ expectedRevision: 1, supplierId: SUPPLIER_ID });
-    expect([answer.status, answer.body.error, answer.body.code]).toEqual([400, sentence, message]);
+    expect([answer.status, answer.body.error.message, answer.body.error.code]).toEqual([400, sentence, message]);
   });
 });
 
@@ -170,7 +170,7 @@ describe("manual creation with shipping and a discount", () => {
       { designation: "Tube", quantity: 1, unit: "u", unitPriceCents: 1000, taxRateBp: 2000 },
       { designation: "Remise", quantity: 1, unitPriceCents: 2000, taxRateBp: 2000, lineKind: "discount" },
     ]);
-    expect([refused.status, ((await refused.json()) as { error: string }).error]).toEqual([400, "La remise dépasse le montant de la commande."]);
+    expect([refused.status, ((await refused.json()) as { error: { message: string } }).error.message]).toEqual([400, "La remise dépasse le montant de la commande."]);
     expect(rpc).not.toHaveBeenCalled();
     const created = await create([
       { designation: "Tube", quantity: 1, unit: "u", unitPriceCents: 1000, taxRateBp: 2000 },

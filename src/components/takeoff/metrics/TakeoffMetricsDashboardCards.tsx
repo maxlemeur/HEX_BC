@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPercentPoints } from "@/lib/display-format";
 import type { TakeoffMetricsReliability } from "@/lib/takeoff/types";
 import type {
   TakeoffPilotGoNoGo,
@@ -8,7 +9,6 @@ import type {
 
 import { Badge } from "@/components/ui/badge";
 
-import { formatPercent } from "./takeoff-metrics-formatters";
 
 type MetricCardVariant = "default" | "success" | "danger" | "warning";
 
@@ -58,7 +58,7 @@ export function ReliabilityCards({ data }: { data: TakeoffMetricsReliability }) 
       />
       <MetricCard
         label="Relances réussies"
-        value={data.retriedJobs > 0 ? `${formatPercent(data.retrySuccessRate)} %` : "-"}
+        value={data.retriedJobs > 0 ? `${formatPercentPoints(data.retrySuccessRate)}` : "-"}
         hint={`${data.retriedThenCompleted}/${data.retriedJobs} relances`}
         variant={
           data.retrySuccessRate >= 50

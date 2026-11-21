@@ -31,20 +31,8 @@ type TenantMembershipInsert =
   Database["public"]["Tables"]["tenant_memberships"]["Insert"];
 type ProfileRow = Pick<
   Database["public"]["Tables"]["profiles"]["Row"],
-  "id" | "full_name" | "work_email" | "role"
+  "id" | "full_name" | "work_email" | "role" | "job_title"
 >;
-
-type MembershipRecord = {
-  id: string;
-  user_id: string;
-  role: TenantRole;
-  is_default: boolean;
-  created_at: string;
-  updated_at: string;
-  user_full_name: string;
-  user_work_email: string | null;
-  user_legacy_role: ProfileRow["role"];
-};
 
 type CandidateRecord = {
   id: string;
@@ -52,8 +40,13 @@ type CandidateRecord = {
 };
 
 const ADMIN_ROLE: TenantRole = "admin";
+const MEMBERSHIP_COLUMNS = "id, tenant_id, user_id, role, is_default, created_at, updated_at";
+const LAST_ADMIN = "Impossible de retirer le dernier administrateur de l’organisation.";
+const ACTIVE_MEMBER_NOT_FOUND = "Membre introuvable dans l’organisation active.";
 
-async function getAuthenticatedContext() {
+type MembershipSurface = "directory" | "tenant-settings";
+
+async function getAdminContext() {
   const { supabase, user, error } = await readAuthenticatedUser();
 
   if (error || !user) {
@@ -74,6 +67,10 @@ async function getAuthenticatedContext() {
     throw forbidden("Aucune organisation active pour cet utilisateur.");
   }
 
+  if (membership.role !== ADMIN_ROLE) {
+    throw forbidden("Accès réservé aux administrateurs de l’organisation.");
+  }
+
   return {
     supabase,
     userId: user.id,
@@ -81,17 +78,15 @@ async function getAuthenticatedContext() {
   };
 }
 
-function assertTenantAdmin(role: TenantRole) {
-  if (role === ADMIN_ROLE) return;
-  throw forbidden("Accès réservé aux administrateurs de l’organisation.");
-}
-
-async function getTenantOrThrow(supabase: Supabase, tenantId: string) {
+async function getTenantOrThrow(supabase: Supabase, tenantId: string, surface: MembershipSurface) {
   const { data, error } = await supabase
     .from("tenants")
     .select("id, name, slug, is_active")
     .eq("id", tenantId)
-    .single();
+    .maybeSingle();
+  if (error && surface === "tenant-settings") {
+    throw mapSupabaseError(error, "Impossible de charger l’organisation.");
+  }
 
   if (error || !data) {
     throw notFound("Organisation introuvable.");
@@ -109,7 +104,7 @@ async function getTenantOrThrow(supabase: Supabase, tenantId: string) {
 async function listMembershipRowsForTenant(supabase: Supabase, tenantId: string) {
   const { data, error } = await supabase
     .from("tenant_memberships")
-    .select("id, tenant_id, user_id, role, is_default, created_at, updated_at")
+    .select(MEMBERSHIP_COLUMNS)
     .eq("tenant_id", tenantId)
     .order("is_default", { ascending: false })
     .order("created_at", { ascending: true });
@@ -126,7 +121,7 @@ async function getProfilesByUserIds(supabase: Supabase, userIds: string[]) {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, work_email, role")
+    .select("id, full_name, work_email, role, job_title")
     .in("id", userIds);
 
   if (error) {
@@ -136,30 +131,25 @@ async function getProfilesByUserIds(supabase: Supabase, userIds: string[]) {
   return (data ?? []) as ProfileRow[];
 }
 
-function toMembershipRecords(input: {
-  memberships: TenantMembershipRow[];
-  profiles: ProfileRow[];
-}) {
-  const profileById = new Map<string, ProfileRow>();
-  input.profiles.forEach((profile) => {
-    profileById.set(profile.id, profile);
-  });
+function membershipFields(membership: TenantMembershipRow, profile: ProfileRow | undefined) {
+  return {
+    id: membership.id,
+    user_id: membership.user_id,
+    role: membership.role,
+    is_default: membership.is_default,
+    created_at: membership.created_at,
+    updated_at: membership.updated_at,
+    user_full_name: profile?.full_name ?? "Utilisateur",
+    user_work_email: profile?.work_email ?? null,
+  };
+}
 
-  return input.memberships.map((membership) => {
-    const profile = profileById.get(membership.user_id);
+function directoryRecord(membership: TenantMembershipRow, profile: ProfileRow | undefined) {
+  return { ...membershipFields(membership, profile), user_legacy_role: profile?.role ?? "buyer" };
+}
 
-    return {
-      id: membership.id,
-      user_id: membership.user_id,
-      role: membership.role,
-      is_default: membership.is_default,
-      created_at: membership.created_at,
-      updated_at: membership.updated_at,
-      user_full_name: profile?.full_name ?? "Utilisateur",
-      user_work_email: profile?.work_email ?? null,
-      user_legacy_role: profile?.role ?? "buyer",
-    } as MembershipRecord;
-  });
+function tenantSettingsRecord(membership: TenantMembershipRow, profile: ProfileRow | undefined) {
+  return { ...membershipFields(membership, profile), user_job_title: profile?.job_title ?? null };
 }
 
 async function listCandidates(input: {
@@ -188,7 +178,7 @@ async function listCandidates(input: {
 async function getMembershipByIdOrThrow(supabase: Supabase, membershipId: string) {
   const { data, error } = await supabase
     .from("tenant_memberships")
-    .select("id, tenant_id, user_id, role, is_default, created_at, updated_at")
+    .select(MEMBERSHIP_COLUMNS)
     .eq("id", membershipId)
     .single();
 
@@ -213,42 +203,47 @@ async function countTenantAdmins(supabase: Supabase, tenantId: string) {
   return count ?? 0;
 }
 
-async function mapMembershipWithProfile(supabase: Supabase, membership: TenantMembershipRow) {
-  const profiles = await getProfilesByUserIds(supabase, [membership.user_id]);
-  return toMembershipRecords({ memberships: [membership], profiles })[0] ?? null;
+async function readMemberProfile(supabase: Supabase, userId: string) {
+  const profiles = await getProfilesByUserIds(supabase, [userId]);
+  return profiles.find((profile) => profile.id === userId);
 }
 
-export async function listTenantMemberships(query: MembershipsListQueryInput) {
-  const { supabase, userId, membership: actorMembership } =
-    await getAuthenticatedContext();
-  assertTenantAdmin(actorMembership.role);
-
-  const tenant = await getTenantOrThrow(supabase, actorMembership.tenant_id);
-  const memberships = await listMembershipRowsForTenant(supabase, actorMembership.tenant_id);
-
+async function readMembershipDirectory(surface: MembershipSurface) {
+  const { supabase, userId, membership: actor } = await getAdminContext();
+  const tenant = await getTenantOrThrow(supabase, actor.tenant_id, surface);
+  const memberships = await listMembershipRowsForTenant(supabase, actor.tenant_id);
   const profiles = await getProfilesByUserIds(
     supabase,
     memberships.map((membership) => membership.user_id)
   );
+  return { tenant, userId, actor, memberships, profiles: new Map(profiles.map((profile) => [profile.id, profile])) };
+}
 
-  const candidates = await listCandidates({
-    actorUserId: userId,
-    search: query.search,
-  });
-
+export async function listTenantMemberships(query: MembershipsListQueryInput) {
+  const { tenant, userId, actor, memberships, profiles } = await readMembershipDirectory("directory");
+  const candidates = await listCandidates({ actorUserId: userId, search: query.search });
   return {
     tenant,
     current_user_id: userId,
-    current_membership_role: actorMembership.role,
-    memberships: toMembershipRecords({ memberships, profiles }),
+    current_membership_role: actor.role,
+    memberships: memberships.map((membership) => directoryRecord(membership, profiles.get(membership.user_id))),
     candidates,
+  };
+}
+
+export async function listTenantSettingsMemberships() {
+  const { tenant, userId, actor, memberships, profiles } = await readMembershipDirectory("tenant-settings");
+  return {
+    tenant,
+    current_user_id: userId,
+    current_membership_id: actor.id,
+    memberships: memberships.map((membership) => tenantSettingsRecord(membership, profiles.get(membership.user_id))),
   };
 }
 
 export async function createMembership(input: CreateMembershipInput) {
   const { supabase, membership: actorMembership } =
-    await getAuthenticatedContext();
-  assertTenantAdmin(actorMembership.role);
+    await getAdminContext();
 
   const { data: existingMembership, error: existingMembershipError } = await supabase
     .from("tenant_memberships")
@@ -297,7 +292,7 @@ export async function createMembership(input: CreateMembershipInput) {
   const { data: created, error: createError } = await supabase
     .from("tenant_memberships")
     .insert(payload)
-    .select("id, tenant_id, user_id, role, is_default, created_at, updated_at")
+    .select(MEMBERSHIP_COLUMNS)
     .single();
 
   if (createError || !created) {
@@ -307,59 +302,85 @@ export async function createMembership(input: CreateMembershipInput) {
     throw conflict("Impossible d’ajouter le membre.");
   }
 
-  const membership = await mapMembershipWithProfile(supabase, created as TenantMembershipRow);
+  return { membership: directoryRecord(created, await readMemberProfile(supabase, created.user_id)) };
+}
 
-  return {
-    membership,
-  };
+async function assertCanRemoveAdmin(supabase: Supabase, membership: TenantMembershipRow, surface: MembershipSurface) {
+  if (membership.role === ADMIN_ROLE && await countTenantAdmins(supabase, membership.tenant_id) <= 1) {
+    throw surface === "tenant-settings" ? forbidden(LAST_ADMIN) : conflict(LAST_ADMIN);
+  }
+}
+
+async function writeMembershipRole(
+  supabase: Supabase,
+  target: TenantMembershipRow,
+  role: TenantRole,
+  surface: MembershipSurface
+) {
+  if (role !== ADMIN_ROLE) await assertCanRemoveAdmin(supabase, target, surface);
+  const update = supabase
+    .from("tenant_memberships")
+    .update({ role })
+    .eq("id", target.id)
+    .eq("tenant_id", target.tenant_id)
+    .select(MEMBERSHIP_COLUMNS);
+  const { data, error } = surface === "tenant-settings" ? await update.maybeSingle() : await update.single();
+
+  if (error) throw mapSupabaseError(error, surface === "tenant-settings"
+    ? "Impossible de mettre à jour le rôle du membre."
+    : "Impossible de mettre à jour le membre.");
+  if (!data) {
+    if (surface === "tenant-settings") throw notFound(ACTIVE_MEMBER_NOT_FOUND);
+    throw conflict("Impossible de mettre à jour le membre.");
+  }
+  return data;
 }
 
 export async function updateMembership(membershipId: string, input: UpdateMembershipInput) {
-  const { supabase, membership: actorMembership } =
-    await getAuthenticatedContext();
-  assertTenantAdmin(actorMembership.role);
+  const { supabase, membership: actor } = await getAdminContext();
+  const target = await getMembershipByIdOrThrow(supabase, membershipId);
+  if (target.tenant_id !== actor.tenant_id) throw forbidden("Vous ne pouvez pas modifier ce membre.");
+  const updated = await writeMembershipRole(supabase, target, input.role, "directory");
+  return { membership: directoryRecord(updated, await readMemberProfile(supabase, updated.user_id)) };
+}
 
-  const targetMembership = await getMembershipByIdOrThrow(supabase, membershipId);
+export async function updateTenantSettingsMembershipRole(membershipId: string, role: TenantRole) {
+  const { supabase, membership: actor } = await getAdminContext();
+  const { data, error } = await supabase.from("tenant_memberships")
+    .select(MEMBERSHIP_COLUMNS)
+    .eq("id", membershipId)
+    .eq("tenant_id", actor.tenant_id)
+    .maybeSingle();
+  if (error) throw mapSupabaseError(error, "Impossible de charger le membre ciblé.");
+  if (!data) throw notFound(ACTIVE_MEMBER_NOT_FOUND);
 
-  if (targetMembership.tenant_id !== actorMembership.tenant_id) {
-    throw forbidden("Vous ne pouvez pas modifier ce membre.");
+  const updated = await writeMembershipRole(supabase, data, role, "tenant-settings");
+  return { membership: tenantSettingsRecord(updated, await readMemberProfile(supabase, updated.user_id)) };
+}
+
+export async function setDefaultMembership(membershipId: string) {
+  const { supabase, userId } = await getAdminContext();
+  const { error: switchError } = await supabase.rpc("set_active_tenant_membership_default", {
+    p_membership_id: membershipId,
+  });
+  if (switchError?.message === "TENANT_DEFAULT_SWITCH_FORBIDDEN") {
+    throw forbidden("Impossible de changer l’organisation par défaut depuis ce compte administrateur.");
   }
+  if (switchError) throw mapSupabaseError(switchError, "Impossible de définir l’organisation par défaut.");
 
-  const demotingAdmin =
-    targetMembership.role === ADMIN_ROLE && input.role !== ADMIN_ROLE;
-
-  if (demotingAdmin) {
-    const adminCount = await countTenantAdmins(supabase, actorMembership.tenant_id);
-    if (adminCount <= 1) {
-      throw conflict("Impossible de retirer le dernier administrateur de l’organisation.");
-    }
-  }
-
-  const { data: updated, error: updateError } = await supabase
-    .from("tenant_memberships")
-    .update({ role: input.role })
-    .eq("id", targetMembership.id)
-    .select("id, tenant_id, user_id, role, is_default, created_at, updated_at")
-    .single();
-
-  if (updateError || !updated) {
-    if (updateError) {
-      throw mapSupabaseError(updateError, "Impossible de mettre à jour le membre.");
-    }
-    throw conflict("Impossible de mettre à jour le membre.");
-  }
-
-  const membership = await mapMembershipWithProfile(supabase, updated as TenantMembershipRow);
-
-  return {
-    membership,
-  };
+  const { data, error } = await supabase.from("tenant_memberships")
+    .select(MEMBERSHIP_COLUMNS)
+    .eq("id", membershipId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw mapSupabaseError(error, "Impossible de relire l’organisation par défaut.");
+  if (!data) throw notFound("Accès à l’organisation introuvable.");
+  return { membership: tenantSettingsRecord(data, await readMemberProfile(supabase, data.user_id)) };
 }
 
 export async function deleteMembership(membershipId: string) {
   const { supabase, userId, membership: actorMembership } =
-    await getAuthenticatedContext();
-  assertTenantAdmin(actorMembership.role);
+    await getAdminContext();
 
   const targetMembership = await getMembershipByIdOrThrow(supabase, membershipId);
 
@@ -371,12 +392,7 @@ export async function deleteMembership(membershipId: string) {
     throw conflict("Vous ne pouvez pas vous retirer vous-même de l’organisation.");
   }
 
-  if (targetMembership.role === ADMIN_ROLE) {
-    const adminCount = await countTenantAdmins(supabase, actorMembership.tenant_id);
-    if (adminCount <= 1) {
-      throw conflict("Impossible de retirer le dernier administrateur de l’organisation.");
-    }
-  }
+  await assertCanRemoveAdmin(supabase, targetMembership, "directory");
 
   await removeMemberDriveConnection(
     { tenantId: targetMembership.tenant_id, userId: targetMembership.user_id },

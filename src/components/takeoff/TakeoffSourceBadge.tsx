@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
+import { formatEUR } from "@/lib/money";
 import dynamic from "next/dynamic";
 import { useId, useState, type FocusEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
@@ -130,10 +132,7 @@ function formatExtractionDate(value: string | null | undefined) {
     return normalized;
   }
 
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(parsed);
+  return formatDisplayDateTime(parsed);
 }
 
 function formatSourcePage(value: number | null | undefined) {
@@ -262,10 +261,7 @@ function formatMoneyFromCents(value: number | null) {
     return NOT_AVAILABLE_LABEL;
   }
 
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(value / 100);
+  return formatEUR(value);
 }
 
 function parseGeneratedOuvrageSnapshot(value: unknown): GeneratedOuvrageSnapshot | null {

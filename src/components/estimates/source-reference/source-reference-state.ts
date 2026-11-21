@@ -1,3 +1,4 @@
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { z } from "zod";
 
 import {
@@ -62,5 +63,5 @@ export function saveSourceReferenceIntent(scope: SourceReferenceScope, intent: S
 }
 
 export function sourceReferenceDate(value: string) {
-  return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Paris" }).format(new Date(value));
+  return formatDisplayDateTime(new Date(value));
 }

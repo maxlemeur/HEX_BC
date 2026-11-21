@@ -1,16 +1,13 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import { Badge } from "@/components/ui/badge";
 
 export function formatDate(value: string | undefined | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatDisplayDate(date);
 }
 
 export function toEuroInput(unitPriceCents: number | undefined) {

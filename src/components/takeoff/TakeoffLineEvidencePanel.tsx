@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert } from "@/components/ui/alert";
@@ -89,10 +90,7 @@ function formatEvidenceDate(value: string) {
     return value;
   }
 
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(parsed);
+  return formatDisplayDateTime(parsed);
 }
 
 function buildLineContextLabel(input: {

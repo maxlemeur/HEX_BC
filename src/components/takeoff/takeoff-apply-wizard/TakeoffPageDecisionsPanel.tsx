@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import { AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,6 @@ import { plural } from "@/lib/text/plural";
 
 export const PAGE_DECISIONS_TITLE = "Pages déjà au devis";
 
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 const quantity = (value: number | null) => (value === null ? "—" : formatTakeoffQuantity(value));
 
 type Job = TakeoffPageReplacementResponse["jobs"][number];
@@ -42,7 +42,7 @@ function earlierLabel(jobIds: readonly string[], jobs: ReadonlyMap<string, Job>)
     const job = jobs.get(id);
     if (!job) return "un autre métré";
     const date = new Date(job.created_at);
-    return `le métré du ${Number.isNaN(date.getTime()) ? "—" : dateFormat.format(date)}${job.level ? ` (niveau ${job.level})` : ""}`;
+    return `le métré du ${Number.isNaN(date.getTime()) ? "—" : formatDisplayDate(date)}${job.level ? ` (niveau ${job.level})` : ""}`;
   }).join(" et ");
 }
 

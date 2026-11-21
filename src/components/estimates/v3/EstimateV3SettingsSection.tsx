@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBasisPoints } from "@/lib/display-format";
 import type { ReactNode } from "react";
 import { Loader2Icon } from "lucide-react";
 
@@ -11,7 +12,6 @@ import { controlSizes, controlSurface } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import {
   formatEstimateV3Coefficient,
-  formatEstimateV3RatePercent,
   type EstimateV3SettingsController,
   type EstimateV3SettingsTextField,
 } from "@/hooks/useEstimateV3Settings";
@@ -73,14 +73,14 @@ function keptValueText(controller: EstimateV3SettingsController, field: Estimate
     case "sale_coefficient_mo":
       return `Valeur conservée : ${formatEstimateV3Coefficient(draft[field])}.`;
     case "tax_rate":
-      return `Taux conservé : ${formatEstimateV3RatePercent(draft.tax_rate_bp)} %.`;
+      return `Taux conservé : ${formatBasisPoints(draft.tax_rate_bp)}.`;
     case "discount_amount":
     case "discount_rate":
       switch (draft.discount.kind) {
         case "amount":
           return `Remise conservée : ${formatCurrency(draft.discount.amount_cents, currency)}.`;
         case "rate":
-          return `Remise conservée : ${formatEstimateV3RatePercent(draft.discount.rate_bp)} %.`;
+          return `Remise conservée : ${formatBasisPoints(draft.discount.rate_bp)}.`;
         default:
           return "Aucune remise enregistrée dans le brouillon.";
       }
@@ -149,7 +149,7 @@ function DiscountAppliedText({ controller, currency }: Readonly<{ controller: Es
         : ".";
       break;
     case "rate":
-      text = `Remise de ${formatEstimateV3RatePercent(discount.rate_bp)} % : appliqué ${applied ?? "indisponible (aperçu)"}.`;
+      text = `Remise de ${formatBasisPoints(discount.rate_bp)} : appliqué ${applied ?? "indisponible (aperçu)"}.`;
       break;
     default: {
       const unknownDiscount: never = discount;
@@ -191,7 +191,7 @@ function V3Summary({ breakdown, currency }: Readonly<{ breakdown: EstimateV3Brea
       ) : null}
       <SummaryRow label="Total HT" value={money(totals.total_ht_cents)} className="estimate-summary__row--bold" />
       {totals.tax_breakdown.map((row) => (
-        <SummaryRow key={row.rate_bp} label={`TVA ${formatEstimateV3RatePercent(row.rate_bp)} %`} value={money(row.tax_cents)} />
+        <SummaryRow key={row.rate_bp} label={`TVA ${formatBasisPoints(row.rate_bp)}`} value={money(row.tax_cents)} />
       ))}
       <SummaryRow label="TVA" value={money(totals.total_tax_cents)} />
       <SummaryRow label="TTC à payer" value={money(totals.total_ttc_cents)} className="estimate-summary__row--total" />

@@ -1,3 +1,4 @@
+import { formatBasisPoints } from "@/lib/display-format";
 import type {
   TakeoffRiskAlert,
   TakeoffRiskSeverity,
@@ -67,7 +68,7 @@ function formatPercent(valueBp: number | null) {
     return "n/a";
   }
 
-  return `${(valueBp / 100).toFixed(1)} %`;
+  return formatBasisPoints(valueBp);
 }
 
 function deriveGroupStatus(alerts: TakeoffRiskAlert[]): TakeoffRiskStatus {

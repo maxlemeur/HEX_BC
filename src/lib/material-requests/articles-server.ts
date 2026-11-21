@@ -1,6 +1,7 @@
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { canAddToCatalogue } from "@/lib/catalogue/access";
 import { PRODUCT_REFERENCE_TAKEN, PRODUCT_WRITE_REFUSAL, catalogueStatusError } from "@/lib/catalogue/product-writes";
+import { insertCatalogueProducts } from "@/lib/catalogue/product-repository";
 import { badRequest, conflict, forbidden, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 
@@ -572,9 +573,7 @@ export async function createMaterialRequestLineArticle(
 
   const designation = input.designation
     ?? [input.product_type, input.material, input.dimensions].filter((part): part is string => Boolean(part)).join(" ");
-  const { data, error } = await context.supabase
-    .from("products")
-    .insert({
+  const { data, error } = await insertCatalogueProducts(context.supabase, {
       reference: input.reference ?? null,
       designation,
       product_type: input.product_type,
@@ -586,7 +585,7 @@ export async function createMaterialRequestLineArticle(
       is_active: true,
       catalogue_status: "draft",
       created_from_material_request: true,
-    })
+  })
     .select(ARTICLE_COLUMNS)
     .single();
   if (error) {

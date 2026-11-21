@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { useState } from "react";
 import useSWR from "swr";
 
@@ -97,7 +98,7 @@ export function OrderLineHistory({ orderId }: { orderId: string }) {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {event.actor_name?.trim() || "Utilisateur non renseigné"}{" · "}
                   <time dateTime={event.occurred_at}>
-                    {new Date(event.occurred_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                    {formatDisplayDateTime(new Date(event.occurred_at))}
                   </time>
                 </p>
                 <div className="mt-2 overflow-x-auto">

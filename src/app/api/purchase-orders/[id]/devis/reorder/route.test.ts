@@ -99,7 +99,7 @@ describe("purchase order devis reorder route", () => {
     const response = await PATCH(reorderRequest(orderedIds), params);
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: expectedError });
+    expect(await response.json()).toEqual({ ok: false, error: { code: "BAD_REQUEST", message: expectedError } });
     expect(harness.rpc).not.toHaveBeenCalled();
   });
 });

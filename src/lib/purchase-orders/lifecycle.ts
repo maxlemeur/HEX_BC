@@ -1,3 +1,4 @@
+import { toErrorMessage } from "@/lib/http/error-body";
 /**
  * What the screens of an order of an affaire need to order and receive it (TI-691, delivery 3b-1), without any
  * dependency: the order pages are under a bundle budget, so validation schemas stay in lifecycle-contracts.ts, on the
@@ -55,9 +56,7 @@ export function formatPriceLot(per: number): string {
 /** What the screen says about a refusal of the confirmation or the reception: the server's sentence, else a fallback. */
 export async function refusalMessage(response: Response, fallback: string): Promise<string> {
   try {
-    const body = (await response.json()) as { error?: { message?: unknown } | string } | null;
-    const message = typeof body?.error === "string" ? body.error : body?.error?.message;
-    return typeof message === "string" && message.trim() ? message : fallback;
+    return toErrorMessage(await response.json(), fallback);
   } catch {
     return fallback;
   }

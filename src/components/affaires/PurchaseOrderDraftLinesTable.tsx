@@ -1,3 +1,4 @@
+import { formatBasisPoints } from "@/lib/display-format";
 import type { EstimatePurchaseOrderDraftPreparation } from "@/lib/estimates/purchase-order-draft-contracts";
 import { formatEUR } from "@/lib/money";
 
@@ -73,7 +74,7 @@ export function PurchaseOrderDraftLinesTable({
               </td>
               <td className="whitespace-nowrap px-2 py-3">
                 {formatEUR(line.lineTaxCents)} (
-                {line.taxRateBp / 100} %)
+                {formatBasisPoints(line.taxRateBp)})
               </td>
               <td className="whitespace-nowrap px-2 py-3">
                 {formatEUR(line.lineTotalTtcCents)}

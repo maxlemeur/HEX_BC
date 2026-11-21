@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPercentPoints } from "@/lib/display-format";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useFeedbackRouter as useRouter } from "@/components/navigation/NavigationFeedback";
@@ -561,7 +562,7 @@ function ExpandedContent({
             <p>
               <span className="text-muted-foreground">Marge : </span>
               <span className="font-medium">
-                {cv.marginPercent === null ? "indisponible" : `${cv.marginPercent.toFixed(1)} %`}
+                {cv.marginPercent === null ? "indisponible" : formatPercentPoints(cv.marginPercent)}
               </span>
             </p>
             <p>

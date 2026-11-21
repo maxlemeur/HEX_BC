@@ -1,3 +1,4 @@
+import { formatBasisPoints, formatPercentPoints } from "@/lib/display-format";
 import { ESTIMATE_QUALITY_FLAG_META } from "@/lib/estimate-quality";
 import type { AffaireIntakeWorkspaceMissingPiece } from "@/lib/affaires/intake";
 import type {
@@ -106,7 +107,7 @@ function formatPercentBp(value: number | null) {
     return "n/a";
   }
 
-  return `${(value / 100).toFixed(1)}%`;
+  return formatBasisPoints(value);
 }
 
 function deriveSeverity(score: number): TakeoffRiskSeverity {
@@ -586,7 +587,7 @@ export function buildTakeoffRiskCandidates(
     const gapReason = row.dpgf_quantity === 0 && measuredTotal !== null && measuredTotal > 0
       ? `Quantité DPGF nulle, métré de ${measuredTotal} ${row.quantity_unit ?? ""}.`.trim()
       : row.delta_percent !== null && Math.abs(row.delta_percent) > 20
-        ? `Écart de ${row.delta_percent.toFixed(1)}% entre la quantité DPGF et le métré.` : null;
+        ? `Écart de ${formatPercentPoints(row.delta_percent)} entre la quantité DPGF et le métré.` : null;
     if (gapReason) {
       candidates.push(
         createCandidate({

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatCurrencyCode, formatEUR } from "@/lib/money";
 import { useEffect, useRef, useState } from "react";
 
 import { DownloadIcon } from "lucide-react";
@@ -49,10 +50,6 @@ type TemplateImportResponse = {
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const PREVIEW_ROWS_COUNT = 5;
 
-const currencyFormatter = new Intl.NumberFormat("fr-FR", {
-  style: "currency",
-  currency: "EUR",
-});
 
 export function ProductPriceTemplateImport({
   open,
@@ -365,7 +362,7 @@ function PricesPreview({ prices }: Readonly<{ prices: SupplierPriceTemplateRow[]
                 <td className="px-3 py-2 font-medium text-foreground">{price.supplier_name}</td>
                 <td className="px-3 py-2 text-foreground-secondary">{price.supplier_sku ?? "—"}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
-                  {formatCurrency(price.unit_price_cents, price.currency)}
+                  {formatCurrencyCode(price.unit_price_cents, price.currency)}
                 </td>
                 <td className="px-3 py-2 text-foreground-secondary">{formatDate(price.valid_from)}</td>
               </tr>
@@ -460,15 +457,7 @@ function ImportProgress({ label, value }: Readonly<{ label: string; value: numbe
 }
 
 function formatEuro(cents: number) {
-  return currencyFormatter.format(cents / 100);
-}
-
-function formatCurrency(cents: number, currency: string) {
-  try {
-    return new Intl.NumberFormat("fr-FR", { style: "currency", currency }).format(cents / 100);
-  } catch {
-    return `${(cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} ${currency}`;
-  }
+  return formatEUR(cents);
 }
 
 function formatDate(value: string) {

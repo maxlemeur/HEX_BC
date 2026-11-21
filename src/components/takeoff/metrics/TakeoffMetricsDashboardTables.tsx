@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPercentPoints } from "@/lib/display-format";
 import type {
   TakeoffCorrectionMetricsByLevel,
   TakeoffCorrectionMetricsEventCount,
@@ -292,7 +293,7 @@ export function RuleForcingTable({ data }: { data: TakeoffRuleForcingMetrics }) 
                     ? "Sans objet"
                     : row.falsePositiveRate === null
                       ? "-"
-                      : `${formatPercent(row.falsePositiveRate)} % (${formatNumber(row.falsePositiveLines)}/${formatNumber(row.failedLines)})`}
+                      : `${formatPercentPoints(row.falsePositiveRate)} (${formatNumber(row.falsePositiveLines)}/${formatNumber(row.failedLines)})`}
                 </td>
               </tr>
             ))}

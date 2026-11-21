@@ -37,6 +37,7 @@ import type {
 } from "./schemas";
 import { asRecord } from "@/lib/value-guards";
 import { compactRecord } from "@/lib/catalogue/product-writes";
+import { insertCatalogueProducts } from "@/lib/catalogue/product-repository";
 import { foldWords } from "@/lib/text/fold";
 
 type JsonRecord = Record<string, unknown>;
@@ -2184,14 +2185,12 @@ export async function createMissingPriceImportEntities(
 
     if (exactProduct) continue;
 
-    const { data: insertedProduct, error: insertProductError } = await supabase
-      .from("products")
-      .insert({
+    const { data: insertedProduct, error: insertProductError } = await insertCatalogueProducts(supabase, {
         reference: productReference,
         designation: productReference,
         unit_price_cents: 0,
         is_active: true,
-      })
+    })
       .select("id, reference, designation")
       .single();
 

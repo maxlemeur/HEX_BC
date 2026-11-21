@@ -746,7 +746,7 @@ describe("generateEstimateStructureDraft sources", () => {
       `estimate_versions.select("id, version_number, title").eq("tenant_id", "${TENANT_ID}").eq("project_id", "${PROJECT_ID}").neq("id", "${VERSION_ID}").order("version_number", {"ascending":false}).limit(5)`,
       `estimate_templates.select("id, name, description, updated_at").eq("tenant_id", "${TENANT_ID}").order("updated_at", {"ascending":false}).limit(10)`,
       `estimate_assemblies.select("id, name, description, updated_at").eq("tenant_id", "${TENANT_ID}").order("updated_at", {"ascending":false}).limit(12)`,
-      `affaire_briefs.select("id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements").eq("project_id", "${PROJECT_ID}").eq("status", "confirme").maybeSingle()`,
+      `affaire_briefs.select("id, tenant_id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements, updated_at").eq("project_id", "${PROJECT_ID}").eq("status", "confirme").maybeSingle()`,
       `affaire_intake_documents.select("id, file_name, document_kind, upload_status, classification_status, document_priority, extracted_metadata", {"count":"exact"}).eq("tenant_id", "${TENANT_ID}").eq("project_id", "${PROJECT_ID}").eq("document_kind", "cctp").eq("upload_status", "uploaded").eq("classification_status", "classified").order("created_at", {"ascending":true}).order("id", {"ascending":true})`,
     ]);
   });
@@ -1449,7 +1449,7 @@ describe("generateEstimateStructureDraft sources", () => {
       `estimate_assemblies.select("id, name, description, updated_at").eq("tenant_id", "${TENANT_ID}").order("updated_at", {"ascending":false}).limit(12)`,
       `estimate_items.select("id, version_id, parent_id, item_type, title, position", {"count":"exact"}).eq("tenant_id", "${TENANT_ID}").eq("item_type", "section").in("version_id", ["${HISTORY_V2_ID}","${HISTORY_V1_ID}"])`,
       `estimate_template_items.select("id, template_id, parent_id, item_type, title, position", {"count":"exact"}).eq("tenant_id", "${TENANT_ID}").eq("item_type", "section").in("template_id", ["${TEMPLATE_FULL_ID}","${TEMPLATE_EMPTY_ID}"])`,
-      `affaire_briefs.select("id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements").eq("project_id", "${PROJECT_ID}").eq("status", "confirme").maybeSingle()`,
+      `affaire_briefs.select("id, tenant_id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements, updated_at").eq("project_id", "${PROJECT_ID}").eq("status", "confirme").maybeSingle()`,
       `affaire_intake_documents.select("id, file_name, document_kind, upload_status, classification_status, document_priority, extracted_metadata", {"count":"exact"}).eq("tenant_id", "${TENANT_ID}").eq("project_id", "${PROJECT_ID}").eq("document_kind", "cctp").eq("upload_status", "uploaded").eq("classification_status", "classified").order("created_at", {"ascending":true}).order("id", {"ascending":true})`,
       `affaire_brief_source_links.select("source_document_id, block_key, entry_index, source_file_name").eq("brief_id", "${BRIEF_ID}")`,
     ]);

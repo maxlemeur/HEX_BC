@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "@/lib/display-format";
 import Link from "next/link";
 
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -31,11 +32,6 @@ function timelineCurrency(
   return inVersionCurrency ? (normalizeEstimateCurrency(version.currency) ?? "EUR") : "EUR";
 }
 
-const TIMELINE_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-});
 
 function statusLabel(status: EstimateTimelineStatus) {
   switch (status) {
@@ -71,7 +67,7 @@ function statusVariant(status: EstimateTimelineStatus): BadgeProps["variant"] {
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return TIMELINE_DATE_FORMATTER.format(date);
+  return formatDisplayDate(date);
 }
 
 function buildVersionHref(versionId: string, page: number) {

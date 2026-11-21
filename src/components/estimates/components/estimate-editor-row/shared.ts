@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import { type KeyboardEvent } from "react";
 
 import { type EstimateEditorRowItemPatch } from "@/components/estimates/context/EstimateEditorRowActionsContext";
@@ -319,7 +320,7 @@ export function formatCompactDate(value: string | null | undefined) {
     return value.slice(0, 10);
   }
 
-  return date.toLocaleDateString("fr-FR");
+  return formatDisplayDate(date);
 }
 
 export function toAlternativeKindLabel(kind: SupplierAlternativeKind) {

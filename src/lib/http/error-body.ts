@@ -1,0 +1,73 @@
+import { isRecord, toNonEmptyString } from "@/lib/value-guards";
+
+export type ApiEnvelope<T> = {
+  ok?: boolean;
+  data?: T;
+  error?: {
+    message?: string;
+    code?: string;
+    details?: unknown;
+  };
+};
+
+/** The envelope's `error.message`, else `fallback`; unlike `toErrorMessage`, no other field is tried. */
+export function resolveEnvelopeErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return fallback;
+  }
+
+  const envelope = payload as ApiEnvelope<unknown>;
+  return envelope.error?.message ?? fallback;
+}
+
+export function toErrorMessage(payload: unknown, fallback: string): string {
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+
+  if (!isRecord(payload)) return fallback;
+
+  const envelope = payload as ApiEnvelope<unknown>;
+  const candidates = [
+    envelope.error?.message,
+    envelope.error?.code,
+    payload.message,
+    payload.error,
+    payload.details,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = toNonEmptyString(candidate);
+    if (parsed) return parsed;
+  }
+
+  return fallback;
+}
+
+export function extractErrorDetails(payload: unknown): unknown {
+  if (!isRecord(payload)) return payload;
+
+  const envelope = payload as ApiEnvelope<unknown>;
+
+  if (envelope.error?.details !== undefined) {
+    return envelope.error.details;
+  }
+
+  if (payload.details !== undefined) {
+    return payload.details;
+  }
+
+  return payload;
+}
+
+export function extractErrorCode(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+
+  const envelope = payload as ApiEnvelope<unknown>;
+  return (
+    toNonEmptyString(envelope.error?.code) ??
+    toNonEmptyString(payload.code) ??
+    null
+  );
+}

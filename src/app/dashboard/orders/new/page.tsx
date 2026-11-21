@@ -1,5 +1,6 @@
 "use client";
 
+import { toErrorMessage } from "@/lib/http/error-body";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
@@ -316,7 +317,7 @@ export default function NewOrderPage() {
     }
 
     if (!response.ok || !result?.id) {
-      setFormError(result?.error ?? "Impossible de créer le bon de commande.");
+      setFormError(toErrorMessage(result, "Impossible de créer le bon de commande."));
       return;
     }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import Link from "next/link";
 import { useCallback, useId, useState } from "react";
 import useSWR from "swr";
@@ -75,14 +76,9 @@ async function updatePlanSetRequest(input: {
   }
 }
 
-const absoluteDateFormatter = new Intl.DateTimeFormat("fr-FR", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
 
 function formatAbsoluteDate(isoDate: string) {
-  return absoluteDateFormatter.format(new Date(isoDate));
+  return formatDisplayDate(new Date(isoDate));
 }
 
 export function PlanSetCard({

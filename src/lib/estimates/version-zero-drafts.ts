@@ -20,19 +20,16 @@ import { selectInChunks } from "@/lib/supabase/in-chunks";
 import {
   assertDraftLockOwnedByCurrentUser,
   assertDraftStatus,
-  getVersionAccessOrThrow,
-  type VersionAccessQuery,
 } from "@/lib/estimates/server-context";
 import {
   assignVersionZeroLotKeys,
   matchVersionZeroLotsByLabel,
   normalizeVersionZeroLotKey,
 } from "@/lib/estimates/version-zero-utils";
-import {
-  generateEstimateStructureDraft,
-  withEstimateAiGenerationLease,
-} from "@/lib/estimates/structure-drafts";
+import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
+import { withEstimateAiGenerationLease } from "@/lib/estimates/ai-drafts/generation-lease-server";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { confirmedAiDraftBrief, readAiDraftTarget, type AiDraftProject, type AiDraftVersion } from "@/lib/estimates/ai-drafts/sources-server";
 import type { Database, Json } from "@/types/database";
 
 import type {
@@ -49,7 +46,6 @@ type VersionZeroDraftCounts = NonNullable<
   VersionZeroDraftSummary["activeDraft"]
 >["counts"];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
-type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionZeroDraftRow =
   Database["public"]["Tables"]["estimate_version_zero_drafts"]["Row"];
 type EstimateVersionZeroDraftInsert =
@@ -74,29 +70,7 @@ type AuthenticatedContext = {
   tenantRole: TenantRole;
 };
 
-type EmbeddedProjectAccess = {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  name: string;
-  reference: string | null;
-  client_name: string | null;
-  notes: string | null;
-  is_archived: boolean;
-};
 
-type VersionAccessRow = Pick<
-  EstimateVersionRow,
-  | "id"
-  | "project_id"
-  | "status"
-  | "margin_multiplier"
-  | "tax_rate_bp"
-  | "updated_at"
-  | "calc_engine_version"
-> & {
-  estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
 
 
 type AffaireBriefRow = {
@@ -407,12 +381,6 @@ function extractLineMetadata(row: EstimateVersionZeroLineRow) {
   return toJsonRecord(row.metadata);
 }
 
-const VERSION_ZERO_VERSION_ACCESS: VersionAccessQuery = {
-  mode: "owner_or_admin_on_active_project",
-  versionColumns: "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, calc_engine_version",
-  projectColumns: "name, reference, client_name, notes",
-};
-
 async function assertVersionIsEmpty(input: {
   supabase: Supabase;
   tenantId: string;
@@ -444,13 +412,7 @@ async function loadConfirmedBrief(input: {
   projectId: string;
   briefId?: string | null;
 }) {
-  let query = input.supabase
-    .from("affaire_briefs" as never)
-    .select(
-      "id, tenant_id, project_id, status, summary, project_object, scope, lots, assumptions, vigilance_points, missing_elements, updated_at" as never
-    )
-    .eq("project_id", input.projectId)
-    .eq("status", "confirme");
+  let query = confirmedAiDraftBrief(input.supabase, input.projectId);
 
   if (input.briefId) {
     query = query.eq("id", input.briefId);
@@ -1114,8 +1076,8 @@ async function refreshDraftStatus(input: {
 
 async function buildDraftSummary(input: {
   context: AuthenticatedContext;
-  version: VersionAccessRow;
-  project: EmbeddedProjectAccess;
+  version: AiDraftVersion;
+  project: AiDraftProject;
 }) {
   const [confirmedBrief, drafts, isVersionEmpty] = await Promise.all([
     loadConfirmedBrief({
@@ -1187,12 +1149,7 @@ async function buildDraftSummary(input: {
 
 export async function fetchVersionZeroDraftSummary(input: { versionId: string }) {
   const context = await getAuthenticatedContext();
-  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    context.supabase,
-    input.versionId,
-    context,
-    VERSION_ZERO_VERSION_ACCESS
-  );
+  const { version, project } = await readAiDraftTarget(context, input.versionId);
 
   return buildDraftSummary({
     context,
@@ -1209,12 +1166,7 @@ export async function generateVersionZeroDraft(input: {
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
-  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase,
-    input.versionId,
-    context,
-    VERSION_ZERO_VERSION_ACCESS
-  );
+  const { version, project } = await readAiDraftTarget(context, input.versionId);
   // Lot 2, sous-lot 2.8 (P-14) : refusée dans une v3 pendant le lot 2, avec le message nommé.
   if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 
@@ -1366,12 +1318,7 @@ export async function fetchVersionZeroReview(input: {
   draftId?: string | null;
 }) {
   const context = await getAuthenticatedContext();
-  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    context.supabase,
-    input.versionId,
-    context,
-    VERSION_ZERO_VERSION_ACCESS
-  );
+  const { version, project } = await readAiDraftTarget(context, input.versionId);
 
   const draft = await loadDraftOrThrow({
     supabase: context.supabase,
@@ -1426,12 +1373,7 @@ export async function reviewVersionZeroLine(input: {
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
-  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase,
-    input.versionId,
-    context,
-    VERSION_ZERO_VERSION_ACCESS
-  );
+  const { version } = await readAiDraftTarget(context, input.versionId);
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -1576,12 +1518,7 @@ export async function materializeVersionZeroDraft(input: {
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
   const { supabase, tenantId, userId } = context;
-  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase,
-    input.versionId,
-    context,
-    VERSION_ZERO_VERSION_ACCESS
-  );
+  const { version } = await readAiDraftTarget(context, input.versionId);
   // Lot 2, sous-lot 2.8 (P-14) : refusée dans une v3 pendant le lot 2, avec le message nommé.
   if (usesPerUnitLabor(resolveEstimateEngineVersion(version))) throw new EstimateEngineUnavailableError();
 

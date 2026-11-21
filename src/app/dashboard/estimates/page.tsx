@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useActionFeedback, useFeedbackRouter as useRouter } from "@/components/navigation/NavigationFeedback";
@@ -95,12 +96,7 @@ function statusClass(status: EstimateStatus) {
 }
 
 function formatDate(dateStr: string | null) {
-  if (!dateStr) return "-";
-  const date = new Date(dateStr);
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  return `${day}/${month}/${year}`;
+  return formatDisplayDate(dateStr, "-");
 }
 
 function resolveEstimateCurrency(estimate: EstimateListItem): SupportedEstimateCurrency {

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPercentPoints } from "@/lib/display-format";
 import { useCallback, useState } from "react";
 import { useSWRConfig } from "swr";
 import { getTakeoffOperatorStateLabel } from "@/lib/takeoff/operator-state";
@@ -273,7 +274,7 @@ export default function TakeoffJobsTable({
                       >
                         {job.coveragePercent === null
                           ? "Aucun DPGF"
-                          : `${job.coveragePercent}%`}
+                          : formatPercentPoints(job.coveragePercent)}
                       </dd>
                     </div>
                     <div>
@@ -407,7 +408,7 @@ export default function TakeoffJobsTable({
                       >
                         {job.coveragePercent === null
                           ? "Aucun DPGF"
-                          : `${job.coveragePercent}%`}
+                          : formatPercentPoints(job.coveragePercent)}
                       </td>
                       <td
                         className={

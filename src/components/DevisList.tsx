@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
+import { toErrorMessage } from "@/lib/http/error-body";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import {
@@ -70,10 +72,8 @@ type DevisListProps = {
 const fetcher = async (url: string) => {
   const response = await fetch(url);
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
-    throw new Error(payload?.error ?? "Impossible de charger les devis.");
+    const payload = await response.json().catch(() => null);
+    throw new Error(toErrorMessage(payload, "Impossible de charger les devis."));
   }
   return (await response.json()) as DevisApiResponse;
 };
@@ -81,11 +81,7 @@ const fetcher = async (url: string) => {
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(date);
+  return formatDisplayDate(date);
 }
 
 function SkeletonCard() {
@@ -358,10 +354,8 @@ export function DevisList({
     setSavingId(null);
 
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null;
-      setActionError(payload?.error ?? "Erreur lors du renommage.");
+      const payload = await response.json().catch(() => null);
+      setActionError(toErrorMessage(payload, "Erreur lors du renommage."));
       return;
     }
 
@@ -401,10 +395,8 @@ export function DevisList({
     setRemovingId(null);
 
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null;
-      setActionError(payload?.error ?? "Erreur lors de la suppression.");
+      const payload = await response.json().catch(() => null);
+      setActionError(toErrorMessage(payload, "Erreur lors de la suppression."));
       return;
     }
 
@@ -434,10 +426,8 @@ export function DevisList({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        setActionError(payload?.error ?? "Erreur lors du réordonnancement.");
+        const payload = await response.json().catch(() => null);
+        setActionError(toErrorMessage(payload, "Erreur lors du réordonnancement."));
         setOptimisticItems(null);
         return;
       }

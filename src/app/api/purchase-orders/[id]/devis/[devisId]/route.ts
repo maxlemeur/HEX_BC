@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { jsonApiError } from "@/lib/http/api-response";
+import { apiFailure, toErrorResponse } from "@/lib/http/api-response";
 import {
   canWritePurchaseOrders,
   getAccessiblePurchaseOrderOrNull,
@@ -21,7 +21,7 @@ export async function PATCH(
   try {
     context = await getAuthenticatedTenantContext();
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase, userId, tenantId } = context;
@@ -30,15 +30,12 @@ export async function PATCH(
   try {
     payload = (await request.json()) as { name?: string };
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return apiFailure(400, "BAD_REQUEST", "Invalid JSON payload");
   }
 
   const name = typeof payload.name === "string" ? payload.name.trim() : "";
   if (!name) {
-    return NextResponse.json(
-      { error: "Le nom du devis est obligatoire." },
-      { status: 400 }
-    );
+    return apiFailure(400, "BAD_REQUEST", "Le nom du devis est obligatoire.");
   }
 
   const order = await getAccessiblePurchaseOrderOrNull<{
@@ -48,31 +45,19 @@ export async function PATCH(
   }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (order.tenant_id !== tenantId) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
-    return NextResponse.json(
-      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Cette action est réservée aux administrateurs et aux chiffreurs.");
   }
 
   if (order.status === "canceled") {
-    return NextResponse.json(
-      { error: "Les bons de commande annules n'acceptent plus de devis." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Les bons de commande annules n'acceptent plus de devis.");
   }
 
   const { data: updated, error: updateError } = await supabase
@@ -86,10 +71,7 @@ export async function PATCH(
     .single();
 
   if (updateError || !updated) {
-    return NextResponse.json(
-      { error: "Devis introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Devis introuvable.");
   }
 
   const { data: signedData } = await supabase.storage
@@ -110,7 +92,7 @@ export async function DELETE(
   try {
     context = await getAuthenticatedTenantContext();
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase, userId, tenantId } = context;
@@ -122,31 +104,19 @@ export async function DELETE(
   }>(supabase, id, "id, tenant_id, status");
 
   if (!order) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (order.tenant_id !== tenantId) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   if (!(await canWritePurchaseOrders(supabase, userId, order.tenant_id))) {
-    return NextResponse.json(
-      { error: "Cette action est réservée aux administrateurs et aux chiffreurs." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Cette action est réservée aux administrateurs et aux chiffreurs.");
   }
 
   if (order.status === "canceled") {
-    return NextResponse.json(
-      { error: "Les bons de commande annules n'acceptent plus de devis." },
-      { status: 403 }
-    );
+    return apiFailure(403, "FORBIDDEN", "Les bons de commande annules n'acceptent plus de devis.");
   }
 
   const { data: devis, error: devisError } = await supabase
@@ -157,7 +127,7 @@ export async function DELETE(
     .single();
 
   if (devisError || !devis) {
-    return NextResponse.json({ error: "Devis introuvable." }, { status: 404 });
+    return apiFailure(404, "NOT_FOUND", "Devis introuvable.");
   }
 
   // TI-691: the proof of a confirmed order is kept (its foreign key refuses the row); say so before the file is
@@ -169,13 +139,10 @@ export async function DELETE(
     .limit(1);
 
   if (proofError) {
-    return NextResponse.json({ error: "Impossible de vérifier ce document. Réessayez." }, { status: 400 });
+    return apiFailure(400, "BAD_REQUEST", "Impossible de vérifier ce document. Réessayez.");
   }
   if (proofs && proofs.length > 0) {
-    return NextResponse.json(
-      { error: "Ce document prouve la commande confirmée : il ne peut pas être supprimé." },
-      { status: 409 }
-    );
+    return apiFailure(409, "CONFLICT", "Ce document prouve la commande confirmée : il ne peut pas être supprimé.");
   }
 
   const { error: removeError } = await supabase.storage
@@ -185,12 +152,10 @@ export async function DELETE(
   if (removeError) {
     // A confirmation committed since the check above: the database keeps the file of a proof.
     if (removeError.message.includes("PURCHASE_ORDER_PROOF_FILE_KEPT")) {
-      return NextResponse.json(
-        { error: "Ce document prouve la commande confirmée : il ne peut pas être supprimé." },
-        { status: 409 }
-      );
+      return apiFailure(409, "CONFLICT", "Ce document prouve la commande confirmée : il ne peut pas être supprimé.");
     }
-    return NextResponse.json({ error: removeError.message }, { status: 400 });
+    console.error("Impossible de supprimer le fichier du devis.", removeError);
+    return apiFailure(400, "BAD_REQUEST", "Impossible de supprimer le fichier du devis.");
   }
 
   const { error: deleteError } = await supabase
@@ -200,7 +165,8 @@ export async function DELETE(
     .eq("purchase_order_id", id);
 
   if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 400 });
+    console.error("Impossible de supprimer le devis de la commande.", deleteError);
+    return apiFailure(400, "BAD_REQUEST", "Impossible de supprimer le devis de la commande.");
   }
 
   return NextResponse.json({ success: true });

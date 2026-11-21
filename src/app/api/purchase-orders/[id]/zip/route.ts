@@ -1,10 +1,9 @@
 import { readAllRows } from "@/lib/supabase/read-all";
 import { ZipArchive } from "archiver";
-import { NextResponse } from "next/server";
 import { Readable } from "stream";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { jsonApiError } from "@/lib/http/api-response";
+import { apiFailure, toErrorResponse } from "@/lib/http/api-response";
 import { formatOrderQuantity } from "@/lib/purchase-orders/quantities";
 import { assertCompletePurchaseOrderSnapshot, getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders/access";
 import type { OrderStatus } from "@/lib/purchase-orders/lifecycle";
@@ -294,7 +293,7 @@ export async function GET(
   try {
     context = await getAuthenticatedTenantContext();
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase } = context;
@@ -306,16 +305,13 @@ export async function GET(
   );
 
   if (!order) {
-    return NextResponse.json(
-      { error: "Bon de commande introuvable." },
-      { status: 404 }
-    );
+    return apiFailure(404, "NOT_FOUND", "Bon de commande introuvable.");
   }
 
   try {
     await assertCompletePurchaseOrderSnapshot(supabase, id, order.edit_revision, order.purchase_order_items?.length ?? -1);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Lecture modifiée. Rechargez la commande." }, { status: 409 });
+    return apiFailure(409, "CONFLICT", error instanceof Error ? error.message : "Lecture modifiée. Rechargez la commande.");
   }
 
   const devisResult = await readAllRows(() => supabase
@@ -324,7 +320,7 @@ export async function GET(
     .eq("purchase_order_id", id)
     .order("position", { ascending: true }));
   if (devisResult.error || !Array.isArray(order.purchase_order_items)) {
-    return NextResponse.json({ error: "Impossible de lire les éléments du dossier de commande." }, { status: 500 });
+    return apiFailure(500, "INTERNAL_ERROR", "Impossible de lire les éléments du dossier de commande.");
   }
   const items = [...order.purchase_order_items].sort((left, right) => left.position - right.position);
   const devis = (devisResult.data ?? []) as DevisRow[];

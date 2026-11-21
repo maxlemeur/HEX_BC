@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "@/lib/display-format";
 import {
   MATERIAL_REQUEST_FILE_MAX_BYTES,
   MATERIAL_REQUEST_MAX_FILES,
@@ -111,16 +112,10 @@ export function purchaseOrderHref(orderId: string): string {
   return `/dashboard/orders/${encodeURIComponent(orderId)}`;
 }
 
-const DAY = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  timeZone: "Europe/Paris",
-});
 
 /** A moment recorded by the server, as the day it was in France (« 12/11/2026 »). */
 export function formatDay(value: string | null | undefined): string {
   if (!value) return "";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : DAY.format(date);
+  return Number.isNaN(date.getTime()) ? "" : formatDisplayDate(date);
 }

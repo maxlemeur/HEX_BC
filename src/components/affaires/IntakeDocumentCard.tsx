@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import { useCallback, useEffect, useState, useTransition } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -353,7 +354,7 @@ export function IntakeDocumentCard({
           <MetadataLine label="Nature" value={meta.documentNature ?? null} />
           <MetadataLine label="Projet" value={meta.projectName} />
           <MetadataLine label="Client" value={meta.clientName} />
-          <MetadataLine label="Échéance" value={meta.deadlineAt ? new Date(meta.deadlineAt).toLocaleDateString("fr-FR") : null} />
+          <MetadataLine label="Échéance" value={meta.deadlineAt ? formatDisplayDate(new Date(meta.deadlineAt)) : null} />
           {meta.detectedLots.length > 0 && (
             <span className="text-xs text-muted-foreground">
               <span className="font-medium text-muted-foreground">Lots:</span>{" "}

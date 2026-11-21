@@ -1,5 +1,6 @@
 "use client";
 
+import { formatEUR } from "@/lib/money";
 import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
 
 import {
@@ -217,7 +218,7 @@ export function useEstimateClipboard({
   const pasteLaborRoleField = useMemo<PasteLaborRoleField | null>(() => {
     if (!v3Paste || !pasteLaborRoleResolution || pasteLaborRoleResolution.status === "not_needed") return null;
     const formatRate = (cents: number) =>
-      new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100);
+      formatEUR(cents);
     const options = [
       ...v3Paste.laborRoles.map((role) => ({ value: role.id, label: `${role.name} (${formatRate(role.hourlyRateCents)}/h)` })),
       { value: PASTE_NO_LABOR_ROLE, label: "Aucun rôle (MO à 0 €/h)" },

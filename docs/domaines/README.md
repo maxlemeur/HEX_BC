@@ -7,6 +7,32 @@ Les contrats transverses sont les [calculs](../metier/regles-de-calcul.md), le
 [cycle de vie](../metier/cycle-de-vie.md) et la
 [sécurité](securite-multi-tenant.md).
 
+## Emplacement du code
+
+- `src/app` porte les routes Next.js, les pages et leur assemblage. Les routes
+  analysent la requête et sérialisent la réponse. Les droits, lectures et
+  écritures restent dans le domaine appelé.
+- `src/lib/<domaine>` possède les règles et les accès aux données. Les
+  [erreurs HTTP](../../src/lib/http/error-contracts.ts) et les
+  [formats d’affichage](../../src/lib/display-format.ts) se partagent entre
+  domaines. Les montants affichés passent par [money.ts](../../src/lib/money.ts).
+- `src/components/<domaine>` possède le rendu et l’état visuel. Les hooks
+  propres à un écran restent proches de cet écran. `src/hooks` accueille les
+  contrôleurs partagés entre plusieurs surfaces.
+- Pour transférer une responsabilité, conserver temporairement les exports
+  utilisés par les branches et rediriger les nouveaux appels vers le domaine
+  propriétaire. Le [parseur CSV des articles](../../src/lib/catalogue/product-csv.ts)
+  suit cette convention.
+
+Les erreurs JSON de l’API suivent `{ ok: false, error: { code, message, details? } }`.
+Les clients qui lisent les erreurs du portail ou des commandes utilisent
+`error.message` et, pour les décisions automatiques, `error.code`.
+
+Le [service membres](../../src/lib/memberships/server.ts) alimente l’annuaire et
+les réglages de l’organisation. Le [dépôt catalogue](../../src/lib/catalogue/product-repository.ts)
+écrit les articles avec le client de l’utilisateur, sous les mêmes politiques
+de lignes, pour la création unitaire et les imports.
+
 ## Affaire, pièces et import
 
 L'affaire regroupe versions de devis, pièces déposées et registre de questions,
@@ -125,6 +151,15 @@ La génération d'un **devis complet V0 par IA est désactivée** par
 La [génération ponctuelle d'ouvrages](../../src/lib/estimates/generated-ouvrages.ts)
 est un parcours distinct ; la présence de code V0 ne signifie pas que le produit
 l'expose.
+
+Les trois parcours lisent la version cible et le brief confirmé depuis les
+[sources communes](../../src/lib/estimates/ai-drafts/sources-server.ts). La
+[réservation de génération](../../src/lib/estimates/ai-drafts/generation-lease-server.ts)
+est partagée par la structure et la V0. Les ouvrages générés enregistrent leur
+réservation et leur clôture dans leurs opérations transactionnelles.
+
+Les conditions PDF de travail utilisent le [profil local d’émission](../../src/lib/runtime/offer-sandbox.ts),
+partagé par le serveur PDF et les lanceurs TesterArmy concernés.
 
 ## Sources techniques et métré
 

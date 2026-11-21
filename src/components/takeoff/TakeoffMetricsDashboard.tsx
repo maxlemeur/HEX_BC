@@ -1,5 +1,6 @@
 "use client";
 
+import { formatPercentPoints } from "@/lib/display-format";
 import { useState } from "react";
 import useSWR from "swr";
 
@@ -38,7 +39,6 @@ import {
   formatDurationMs,
   formatGeneratedAt,
   formatNumber,
-  formatPercent,
 } from "@/components/takeoff/metrics/takeoff-metrics-formatters";
 import type {
   TakeoffLevel,
@@ -175,7 +175,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
         />
         <MetricCard
           label="Taux de succès"
-          value={`${formatPercent(data.kpis.successRate)} %`}
+          value={`${formatPercentPoints(data.kpis.successRate)}`}
           hint={`${data.kpis.completedJobs} / ${data.kpis.completedJobs + data.kpis.failedJobs + data.kpis.canceledJobs} terminaux`}
           variant={
             data.kpis.successRate >= 90
@@ -211,13 +211,13 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
         <MetricCard
           label="Dossiers corrigés"
           value={formatNumber(data.corrections.kpis.correctedJobs)}
-          hint={`${formatPercent(data.corrections.kpis.correctionRate)} % des dossiers exploitables`}
+          hint={`${formatPercentPoints(data.corrections.kpis.correctionRate)} des dossiers exploitables`}
           variant={data.corrections.kpis.correctedJobs > 0 ? "warning" : "default"}
         />
         <MetricCard
           label="Validation rapide"
           value={formatNumber(data.corrections.kpis.quicklyValidatedJobs)}
-          hint={`${formatPercent(data.corrections.kpis.quickValidationRate)} % validés après revue`}
+          hint={`${formatPercentPoints(data.corrections.kpis.quickValidationRate)} validés après revue`}
           variant={data.corrections.kpis.quicklyValidatedJobs > 0 ? "success" : "default"}
         />
         <MetricCard
@@ -234,7 +234,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           label="Lignes à score élevé corrigées"
           value={
             data.calibration.appliedHighScoreItems > 0
-              ? `${formatPercent(data.calibration.appliedHighScoreMaterialCorrectionRate)} %`
+              ? `${formatPercentPoints(data.calibration.appliedHighScoreMaterialCorrectionRate)}`
               : "-"
           }
           // TI-681: the sample size n first, then how to read the rate (an indicator, never a reliability bound).
@@ -260,7 +260,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           label="Preuves niveau C"
           value={
             data.calibration.levelCIncludedItems > 0
-              ? `${formatPercent(data.calibration.levelCLocalizedProofCoverage)} %`
+              ? `${formatPercentPoints(data.calibration.levelCLocalizedProofCoverage)}`
               : "-"
           }
           hint={

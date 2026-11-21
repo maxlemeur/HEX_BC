@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { jsonApiError } from "@/lib/http/api-response";
+import { apiFailure, toErrorResponse } from "@/lib/http/api-response";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
   try {
     context = await getAuthenticatedTenantContext();
   } catch (error) {
-    return jsonApiError(error);
+    return toErrorResponse(error);
   }
 
   const { supabase, tenantId } = context;
@@ -52,17 +52,11 @@ export async function GET(request: Request) {
   const limit = parseLimit(searchParams.get("limit"));
 
   if (limit === null) {
-    return NextResponse.json(
-      { error: "Invalid limit. Use a positive integer." },
-      { status: 400 }
-    );
+    return apiFailure(400, "BAD_REQUEST", "Invalid limit. Use a positive integer.");
   }
 
   if (estimateVersionId && !isValidUuid(estimateVersionId)) {
-    return NextResponse.json(
-      { error: "Invalid estimate_version_id. Must be a UUID." },
-      { status: 400 }
-    );
+    return apiFailure(400, "BAD_REQUEST", "Invalid estimate_version_id. Must be a UUID.");
   }
 
   let query = supabase
@@ -87,12 +81,10 @@ export async function GET(request: Request) {
   if (error) {
     const normalized = (error.message ?? "").toLowerCase();
     if (normalized.includes("row-level security")) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return apiFailure(403, "FORBIDDEN", "Forbidden");
     }
-    return NextResponse.json(
-      { error: error.message ?? "Unable to fetch audit logs." },
-      { status: 500 }
-    );
+    console.error("Unable to fetch audit logs", error);
+    return apiFailure(500, "INTERNAL_ERROR", "Impossible de charger le journal d’audit.");
   }
 
   return NextResponse.json({

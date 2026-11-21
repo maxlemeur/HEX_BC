@@ -12,6 +12,7 @@ import { probeOfferGuard } from "./check-offer-network-guard.mjs";
 import { buildOutputEvidence, offerBuildProfileEvidence } from "./build-local.mjs";
 import { assertRecipeHost, buildCommands, buildSourceEvidence, readProof, requireValue, sha256 } from "./local-recipe-common.mjs";
 import { assertInstalledDependencies } from "./installed-dependencies.mjs";
+import { NATIVE_OFFER_BACKEND_ORIGIN, requestsOfferSandboxTerms } from "../../src/lib/runtime/offer-sandbox.ts";
 
 // This runner owns new local-only evidence; it never seeds users, tokens or statuses.
 const root = process.cwd();
@@ -34,7 +35,7 @@ export async function validateOfferProductionBuild() {
   requireValue(!path.isAbsolute(relativeBuild) && !relativeBuild.startsWith(".."), "Production build manifest escaped recipes/builds.");
   const build = proof.data;
   requireValue(build.schemaVersion === "army-local-build-1" && build.sourceChangedDuringBuild === false &&
-    build.backend === "http://127.0.0.1:45585" && process.env.NEXT_PUBLIC_SUPABASE_URL === build.backend &&
+    build.backend === NATIVE_OFFER_BACKEND_ORIGIN && process.env.NEXT_PUBLIC_SUPABASE_URL === build.backend &&
     build.platform === process.platform && build.node === process.version &&
     typeof build.buildId === "string" && build.buildId.length > 0 &&
     Array.isArray(build.steps) && build.steps.every((step) => step.exitCode === 0) &&
@@ -88,14 +89,13 @@ if (git("branch", "--show-current").trim() !== "main") throw new Error("Existing
 const serverMode = offerServerMode();
 const productionBuild = await validateOfferProductionBuild();
 const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
-if (backend.origin !== "http://127.0.0.1:45585" || backend.href !== `${backend.origin}/`) throw new Error("This authorized recipe targets the verified local API45585 only.");
+if (backend.origin !== NATIVE_OFFER_BACKEND_ORIGIN || backend.href !== `${backend.origin}/`) throw new Error("This authorized recipe targets the verified local API45585 only.");
 if (!["NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD"].every((key) => process.env[key])) {
   throw new Error("Explicit local backend/account environment files required.");
 }
 if (!process.env.E2E_LOGIN_EMAIL.endsWith(".invalid")) throw new Error("Dedicated .invalid test account required.");
 const appOrigin = "http://localhost:3176";
-const sandboxTermsEnabled = process.env.E2E_OFFER_SANDBOX_TERMS === "1" && serverMode === "production" &&
-  ["VERCEL", "VERCEL_ENV", "VERCEL_URL", "VERCEL_TARGET_ENV"].every((name) => process.env[name] === undefined);
+const sandboxTermsEnabled = requestsOfferSandboxTerms(process.env);
 if (process.env.E2E_OFFER_SANDBOX_TERMS === "1" && !sandboxTermsEnabled) throw new Error("Sandbox draft terms require the explicit native production offer profile without hosting markers.");
 const startedAt = new Date().toISOString();
 const campaign = path.resolve(".e2e/army/offer/runs", `${startedAt.replace(/[:.]/g, "-")}-${randomUUID()}`);

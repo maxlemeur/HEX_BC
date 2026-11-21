@@ -15,11 +15,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { controlSurface } from "@/components/ui/input";
+import { parseProductCsv, type ProductCsvParseResult } from "@/lib/catalogue/product-csv";
+import { insertCatalogueProducts } from "@/lib/catalogue/product-repository";
+import { formatEUR } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-
-import { parseProductCsv } from "./product-csv";
-import type { ProductCsvParseResult } from "./product-csv";
 
 export type ProductCsvImportProps = {
   open: boolean;
@@ -88,10 +88,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
     setSuccess(null);
     setIsImporting(true);
 
-    // The generated database type can lag behind additive catalogue migrations.
-    const { error: insertError } = await supabase
-      .from("products")
-      .insert(result.acceptedRows as never);
+    const { error: insertError } = await insertCatalogueProducts(supabase, result.acceptedRows);
 
     if (insertError) {
       setError(insertError.message);
@@ -206,7 +203,7 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                               {[row.material, row.grade].filter(Boolean).join(" · ") || "—"}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-foreground-secondary">
-                              {(row.unit_price_cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €
+                              {formatEUR(row.unit_price_cents)}
                             </td>
                           </tr>
                         ))}

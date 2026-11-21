@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBasisPoints } from "@/lib/display-format";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -9,7 +10,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { formatEstimateV3RatePercent, type EstimateV3TaxPropagationRequest } from "@/hooks/useEstimateV3Settings";
+import { type EstimateV3TaxPropagationRequest } from "@/hooks/useEstimateV3Settings";
 
 type TaxRatePropagationDialogProps = {
   /** Question ouverte par `requestSave` (le taux par défaut change et au moins une ligne porte un autre taux). */
@@ -25,7 +26,7 @@ type TaxRatePropagationDialogProps = {
  * ligne porte un autre taux ; la réponse part dans la même sauvegarde (`apply_tax_rate_to_lines`).
  */
 export function TaxRatePropagationDialog({ request, onAnswer, onCancel }: Readonly<TaxRatePropagationDialogProps>) {
-  const rate = request ? `${formatEstimateV3RatePercent(request.rateBp)} %` : "";
+  const rate = request ? formatBasisPoints(request.rateBp) : "";
   const lines = request?.lineCount === 1 ? "1 ligne porte" : `${request?.lineCount ?? 0} lignes portent`;
   return (
     <AlertDialog

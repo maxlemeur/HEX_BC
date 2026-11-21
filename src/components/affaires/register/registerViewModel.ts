@@ -1,3 +1,4 @@
+import { formatDisplayDateTime } from "@/lib/display-format";
 import {
   AFFAIRE_REGISTER_REVALIDATION_CAUSE_LABELS,
   AFFAIRE_REGISTER_REVALIDATION_IMPACTED_STAGE_LABELS,
@@ -15,13 +16,6 @@ import {
 } from "@/lib/affaires/register";
 import type { PendingTransition } from "./registerTypes";
 
-const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 export function getRegisterBlockingCount(summary: AffaireRegisterSummary) {
   return summary.criticalOpenCount + summary.clarifyWithClientCount +
@@ -58,7 +52,7 @@ export function formatDateTime(value: string) {
     return value;
   }
 
-  return DATE_TIME_FORMATTER.format(date);
+  return formatDisplayDateTime(date);
 }
 
 export function getErrorMessage(error: unknown) {

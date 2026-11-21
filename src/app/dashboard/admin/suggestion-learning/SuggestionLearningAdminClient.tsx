@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { useEffect, useId, useMemo, useState } from "react";
 import { RefreshCwIcon, SparklesIcon } from "lucide-react";
 import useSWR from "swr";
@@ -219,10 +220,7 @@ function formatDateTime(value: string) {
     return value;
   }
 
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(timestamp));
+  return formatDisplayDateTime(new Date(timestamp));
 }
 
 async function fetchSuggestionLearnings(route: string): Promise<SuggestionLearningState> {

@@ -9,6 +9,8 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/estimates/structure-drafts", () => ({
   generateEstimateStructureDraft: vi.fn(),
+}));
+vi.mock("@/lib/estimates/ai-drafts/generation-lease-server", () => ({
   withEstimateAiGenerationLease: vi.fn(),
 }));
 import {

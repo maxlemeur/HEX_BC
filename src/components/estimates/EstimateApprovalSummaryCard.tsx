@@ -1,3 +1,5 @@
+import { formatBasisPoints, formatDisplayDateTime } from "@/lib/display-format";
+import { formatEUR } from "@/lib/money";
 import type { ReactNode } from "react";
 
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -6,24 +8,11 @@ import type { EstimateApprovalSummary } from "@/lib/estimates/approval-types";
 
 type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 
-const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 const DISCOUNT_PERCENT_FORMATTER = new Intl.NumberFormat("fr-FR", {
   maximumFractionDigits: 8,
 });
 
-const APPROVAL_MONEY_FORMATTER = new Intl.NumberFormat("fr-FR", {
-  style: "currency",
-  currency: "EUR",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 const APPROVAL_STATUS_STYLES: Record<
   EstimateApprovalSummary["approvalStatus"],
@@ -91,12 +80,12 @@ function formatDateTime(value: string) {
     return "—";
   }
 
-  return DATE_TIME_FORMATTER.format(date);
+  return formatDisplayDateTime(date);
 }
 
 function formatThresholdValue(reason: EstimateApprovalSummary["reasons"][number]) {
   if (reason.signalKey === "total_ht_cents") {
-    return APPROVAL_MONEY_FORMATTER.format(reason.thresholdValue / 100);
+    return formatEUR(reason.thresholdValue);
   }
 
   if (reason.signalKey === "discount_bp") {
@@ -108,7 +97,7 @@ function formatThresholdValue(reason: EstimateApprovalSummary["reasons"][number]
     reason.signalKey === "dpgf_coverage_bp" ||
     reason.signalKey === "takeoff_evidence_coverage_bp"
   ) {
-    return `${(reason.thresholdValue / 100).toFixed(1)}%`;
+    return formatBasisPoints(reason.thresholdValue);
   }
 
   return String(reason.thresholdValue);
@@ -120,7 +109,7 @@ function formatActualValue(reason: EstimateApprovalSummary["reasons"][number]) {
   }
 
   if (reason.signalKey === "total_ht_cents") {
-    return APPROVAL_MONEY_FORMATTER.format(reason.actualValue / 100);
+    return formatEUR(reason.actualValue);
   }
 
   if (reason.signalKey === "discount_bp") {
@@ -132,7 +121,7 @@ function formatActualValue(reason: EstimateApprovalSummary["reasons"][number]) {
     reason.signalKey === "dpgf_coverage_bp" ||
     reason.signalKey === "takeoff_evidence_coverage_bp"
   ) {
-    return `${(reason.actualValue / 100).toFixed(1)}%`;
+    return formatBasisPoints(reason.actualValue);
   }
 
   return String(reason.actualValue);

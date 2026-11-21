@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import Link from "next/link";
 import { CheckIcon, CopyIcon, InboxIcon } from "lucide-react";
 
@@ -24,10 +25,7 @@ function formatDate(value: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
 
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
+  return formatDisplayDateTime(date);
 }
 
 function formatRowsCount(value: number | null): string {

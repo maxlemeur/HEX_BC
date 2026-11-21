@@ -7,6 +7,7 @@ import { expect } from "e2e";
 import type { AffaireSupplyCost as SupplyCost } from "@/lib/material-requests/supply-cost-contracts";
 
 import { apiRequest, armyTest, recordEvidence } from "./fixtures";
+import { waitForHydration } from "./hydration-support";
 import { draftOrderOfAnAffaire, type Envelope } from "./order-draft-support";
 
 type Line = { id: string; status: string; unit_price_ht_cents: number | null; price_per: number };
@@ -114,6 +115,7 @@ armyTest(
 
     // The draft says its next step, leads back to its request, and names apart the status changes without proof.
     await browser.goto(`/dashboard/orders/${order.id}`, { waitUntil: "domcontentloaded" });
+    await waitForHydration(browser);
     const draftHead = screen.getByRole("region", "Envoyer le bon au fournisseur", { exact: true });
     await expect(draftHead).toBeVisible({ timeout: 60_000 });
     await expect(draftHead.getByText("Étape 1 sur 3 · Envoyer", { exact: true })).toBeVisible();
@@ -157,8 +159,12 @@ armyTest(
     // The proof is joined to the order and stays: its deletion is refused, the file is still there.
     const [proof] = (await documentsOf(browser, order.id)).filter((document) => document.name === "Confirmation de commande");
     expect(proof).toBeDefined();
-    const deletion = await apiRequest<{ error?: string }>(browser, "DELETE", `/api/purchase-orders/${order.id}/devis/${proof.id}`);
-    expect([deletion.status, deletion.body.error]).toEqual([409, "Ce document prouve la commande confirmée : il ne peut pas être supprimé."]);
+    const deletion = await apiRequest<unknown>(browser, "DELETE", `/api/purchase-orders/${order.id}/devis/${proof.id}`);
+    expect(deletion.status).toBe(409);
+    expect(deletion.body).toMatchObject({
+      ok: false,
+      error: { code: "CONFLICT", message: "Ce document prouve la commande confirmée : il ne peut pas être supprimé." },
+    });
     expect((await documentsOf(browser, order.id)).map((document) => document.id)).toContain(proof.id);
 
     // The request line keeps the quote's price; the request sees its order confirmed.

@@ -1,5 +1,6 @@
 "use client";
 
+import { toErrorMessage } from "@/lib/http/error-body";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Trash2Icon } from "lucide-react";
@@ -45,8 +46,8 @@ export function DeleteOrderButton({
 
     let errorMessage = "Erreur lors de la suppression.";
     try {
-      const data = (await response?.json()) as { error?: string } | undefined;
-      errorMessage = data?.error ?? errorMessage;
+      const data = (await response?.json()) as unknown;
+      errorMessage = toErrorMessage(data, errorMessage);
     } catch {
       // ignore JSON parse errors
     }

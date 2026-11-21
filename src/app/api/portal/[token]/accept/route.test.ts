@@ -189,7 +189,8 @@ describe("POST /api/portal/[token]/accept", () => {
     );
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toMatch(/conditions/i);
+    expect(json).toMatchObject({ ok: false, error: { code: "BAD_REQUEST" } });
+    expect(json.error.message).toMatch(/conditions/i);
   });
 
   it("returns 400 when accepted_terms is missing", async () => {
@@ -207,7 +208,8 @@ describe("POST /api/portal/[token]/accept", () => {
     );
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toMatch(/signature/i);
+    expect(json).toMatchObject({ ok: false, error: { code: "BAD_REQUEST" } });
+    expect(json.error.message).toMatch(/signature/i);
   });
 
   it("returns 400 on oversized signature", async () => {
@@ -221,7 +223,8 @@ describe("POST /api/portal/[token]/accept", () => {
     );
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toMatch(/volumineuse/i);
+    expect(json).toMatchObject({ ok: false, error: { code: "BAD_REQUEST" } });
+    expect(json.error.message).toMatch(/volumineuse/i);
   });
 
   it("fails closed when the contractual document lookup fails", async () => {
@@ -240,7 +243,7 @@ describe("POST /api/portal/[token]/accept", () => {
     );
 
     expect(res.status).toBe(409);
-    expect((await res.json()).error).toMatch(/copie.*vérifiée/i);
+    expect(await res.json()).toMatchObject({ ok: false, error: { code: "PORTAL_OFFER_UNVERIFIED", message: expect.stringMatching(/copie.*vérifiée/i) } });
     expect(mockRpc).not.toHaveBeenCalled();
     expect(mockStorageUpload).not.toHaveBeenCalled();
   });

@@ -1,5 +1,6 @@
 "use client";
 
+import { toErrorMessage } from "@/lib/http/error-body";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSWRConfig } from "swr";
 import { CircleCheckIcon, CloudUploadIcon, XIcon } from "lucide-react";
@@ -159,8 +160,8 @@ export function DevisUploader({ orderId, canManage, onUploadComplete }: DevisUpl
         } else {
           let errorMsg = "Erreur lors de l'envoi";
           try {
-            const payload = JSON.parse(xhr.responseText) as { error?: string };
-            errorMsg = payload?.error ?? errorMsg;
+            const payload = JSON.parse(xhr.responseText) as unknown;
+            errorMsg = toErrorMessage(payload, errorMsg);
           } catch {
             // ignore parse error
           }

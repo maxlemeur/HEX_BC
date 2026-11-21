@@ -1,3 +1,4 @@
+import { insertCatalogueProducts } from "./product-repository";
 import "server-only";
 
 import { getAuthenticatedTenantContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
@@ -154,7 +155,7 @@ async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan)
 
   for (let start = 0; start < plan.drafts.length; start += WRITE_CHUNK) {
     const chunk = plan.drafts.slice(start, start + WRITE_CHUNK);
-    const { error } = await supabase.from("products").insert(chunk.map(productRow));
+    const { error } = await insertCatalogueProducts(supabase, chunk.map(productRow));
     if (error) throw stopped(error);
     created.push(...chunk);
   }

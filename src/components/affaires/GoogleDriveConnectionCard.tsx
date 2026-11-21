@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { PageSection } from "@/components/layout/page-section";
@@ -203,7 +204,7 @@ export function GoogleDriveConnectionCard() {
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Connecté le{" "}
-                  {new Date(account.connectedAt).toLocaleDateString("fr-FR")}
+                  {formatDisplayDate(new Date(account.connectedAt))}
                 </p>
               </div>
               <p className="text-sm text-muted-foreground">

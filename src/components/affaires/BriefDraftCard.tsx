@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate, formatDisplayDateTime } from "@/lib/display-format";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
@@ -502,20 +503,10 @@ export function BriefDraftCard({
   }
 
   const generationDate = briefDraft?.lastGeneratedAt
-    ? new Date(briefDraft.lastGeneratedAt).toLocaleDateString("fr-FR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
+    ? formatDisplayDateTime(new Date(briefDraft.lastGeneratedAt))
     : null;
   const confirmationDate = briefDraft?.confirmedAt
-    ? new Date(briefDraft.confirmedAt).toLocaleDateString("fr-FR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      })
+    ? formatDisplayDate(new Date(briefDraft.confirmedAt))
     : null;
   const isConfirmedBrief = briefDraft?.status === "confirme";
   const requiresConfirmation = briefDraft?.status === "a_confirmer";

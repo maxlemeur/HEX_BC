@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import type {
   ApiKeyAccessState, ApiKeySaveResult, ApiKeyTestResult,
 } from "@/lib/ai/access/contracts";
@@ -40,9 +41,8 @@ export function aiAccessErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "La demande n’a pas abouti. Réessayez.";
 }
 
-const dateTime = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" });
 
 /** « 18/11/2026 14:32 ». */
 export function formatAccessDate(iso: string) {
-  return dateTime.format(new Date(iso));
+  return formatDisplayDateTime(new Date(iso));
 }

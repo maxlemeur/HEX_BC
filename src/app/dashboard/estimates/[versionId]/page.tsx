@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "@/lib/display-format";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GitCompareArrowsIcon, PencilIcon, PrinterIcon } from "lucide-react";
@@ -93,7 +94,7 @@ function computeExpiryInfo(dateDevis: string | null, validiteJours: number | nul
   const now = new Date();
   const expired = now > expiryDate;
   return {
-    expiryDate: expiryDate.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }),
+    expiryDate: formatDisplayDate(expiryDate),
     expired,
   };
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { toErrorMessage } from "@/lib/http/error-body";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -534,7 +535,7 @@ export default function EditOrderPage() {
     }
 
     if (!response.ok || !result?.success) {
-      setFormError(result?.error ?? "Impossible de modifier le bon.");
+      setFormError(toErrorMessage(result, "Impossible de modifier le bon."));
       return;
     }
 

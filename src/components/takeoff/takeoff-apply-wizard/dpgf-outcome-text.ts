@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "@/lib/display-format";
 import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
 
 import type { DpgfTargetOutcome } from "./page-decisions";
@@ -6,7 +7,6 @@ import { formatTakeoffQuantity } from "./shared";
 // TI-682 D4: how the application's confirmation says what a DPGF line will hold. A line that falls says so on the line,
 // with why (the page no longer feeds it) and where the page's new measure went: it never reads as unchanged.
 
-const dateFormat = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 const quantity = (value: number | null) => (value === null ? "—" : formatTakeoffQuantity(value));
 
 /** « 40 → 30 (−10) ». */
@@ -34,7 +34,7 @@ export function dpgfTakeoffName(jobId: string | null, jobs: TakeoffPageReplaceme
   const job = jobs.find((entry) => entry.id === jobId);
   if (!job) return "un autre métré";
   const date = new Date(job.created_at);
-  return `le métré du ${Number.isNaN(date.getTime()) ? "—" : dateFormat.format(date)}${job.level ? ` (niveau ${job.level})` : ""}`;
+  return `le métré du ${Number.isNaN(date.getTime()) ? "—" : formatDisplayDate(date)}${job.level ? ` (niveau ${job.level})` : ""}`;
 }
 
 /** Each takeoff the line will keep, with its measure by page. */

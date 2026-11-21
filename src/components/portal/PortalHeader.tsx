@@ -1,3 +1,4 @@
+import { formatDisplayDate } from "@/lib/display-format";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, type SupportedEstimateCurrency } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -19,11 +20,7 @@ type PortalHeaderProps = {
 function formatPortalDate(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatDisplayDate(date);
 }
 
 function isExpired(expiresAt: string): boolean {

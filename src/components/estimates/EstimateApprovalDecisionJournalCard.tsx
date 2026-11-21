@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { useEffect, useId, useState, useTransition } from "react";
 
 import { Alert } from "@/components/ui/alert";
@@ -22,13 +23,6 @@ import {
   APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
 } from "@/lib/estimates/approval-decision-journal";
 
-const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 const DECISION_META: Record<
   EstimateApprovalDecisionFilter,
@@ -66,7 +60,7 @@ function formatDateTime(value: string) {
     return value;
   }
 
-  return DATE_TIME_FORMATTER.format(date);
+  return formatDisplayDateTime(date);
 }
 
 function resolveActorLabel(input: {

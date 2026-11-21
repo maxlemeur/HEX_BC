@@ -1,3 +1,5 @@
+import { formatDisplayDateTime, formatPercentPoints } from "@/lib/display-format";
+import { formatEUR } from "@/lib/money";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import type {
@@ -28,13 +30,6 @@ export const SUBMIT_PANEL_QUERY_PARAM = "approvalSubmit";
 
 type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 
-const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 export const SCOPE_LABELS: Record<EstimateReviewCommentScope, string> = {
   project: "Affaire",
@@ -114,7 +109,7 @@ export function formatDateTime(value: string) {
     return "-";
   }
 
-  return DATE_TIME_FORMATTER.format(date);
+  return formatDisplayDateTime(date);
 }
 
 export function getTargetOptions(
@@ -159,7 +154,7 @@ export function formatPercent(value: number | null) {
     return "Indisponible";
   }
 
-  return `${value.toFixed(1)}%`;
+  return formatPercentPoints(value);
 }
 
 export function formatCount(value: number | null) {
@@ -175,12 +170,7 @@ export function formatCurrencyDelta(value: number | null) {
     return "Indisponible";
   }
 
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-    signDisplay: "always",
-  }).format(value / 100);
+  return formatEUR(value);
 }
 
 export function setSubmitPanelUrlState(nextOpen: boolean) {

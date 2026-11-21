@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate, formatPercentPoints } from "@/lib/display-format";
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { ChevronLeftIcon, ChevronRightIcon, FileIcon, FileTextIcon, PlusIcon } from "lucide-react";
 
@@ -16,15 +17,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 
-const DATE_FMT = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-});
 
 export function fmtHubDate(iso: string) {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "-" : DATE_FMT.format(d);
+  return Number.isNaN(d.getTime()) ? "-" : formatDisplayDate(d);
 }
 
 export function getEstimateMarginSettingsHref(versionId: string) {
@@ -112,7 +108,7 @@ export function FinancialSummaryCard({
           <div>
             <KpiLabel dotClass="bg-brand-orange">Marge appliquée</KpiLabel>
             <p className={cn("mt-1 font-bold", isEmptyEstimate || marginPct === null ? "text-lg" : "text-2xl", marginColorClass)}>
-              {marginPct === null ? "Indisponible" : `${marginPct.toFixed(1)} %`}
+              {marginPct === null ? "Indisponible" : formatPercentPoints(marginPct)}
             </p>
             {currentVersion.marginMultiplier === null ? null : (
               <p className="mt-0.5 text-xs text-muted-foreground">

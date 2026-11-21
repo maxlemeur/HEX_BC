@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { useId, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
@@ -38,11 +39,6 @@ const FIELD_ORDER: readonly { field: TenantCalcDefaultsField; suffix: string }[]
 
 const SAVED_MESSAGE = "Réglages enregistrés. Les coefficients valent pour les prochains devis, les taux de TVA dès le prochain gel d'un devis v3.";
 
-const LAST_CHANGE_FORMAT = new Intl.DateTimeFormat("fr-FR", {
-  dateStyle: "short",
-  timeStyle: "short",
-  timeZone: "Europe/Paris",
-});
 
 type TextFieldProps = {
   id: string;
@@ -220,7 +216,7 @@ export function TenantCalcPolicyAdminClient({ engine, initialForm, lastChange }:
           />
           {lastChange ? (
             <p className="text-xs text-muted-foreground">
-              Dernier changement le {LAST_CHANGE_FORMAT.format(new Date(lastChange.updatedAt))} : « {lastChange.reason} »
+              Dernier changement le {formatDisplayDateTime(new Date(lastChange.updatedAt))} : « {lastChange.reason} »
             </p>
           ) : null}
           <div>

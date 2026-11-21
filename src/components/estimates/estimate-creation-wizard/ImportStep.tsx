@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBasisPoints } from "@/lib/display-format";
 import Link from "next/link";
 
 import {
@@ -228,7 +229,7 @@ export function ImportStep({
               {data.marginMode === "tiered"
                 ? "Par tranche"
                 : data.marginBp
-                  ? `${(Number(data.marginBp) / 100).toFixed(1)}%`
+                  ? formatBasisPoints(Number(data.marginBp))
                   : "Non définie"}
             </dd>
           </div>
@@ -236,7 +237,7 @@ export function ImportStep({
             <dt className="text-muted-foreground">TVA</dt>
             <dd className="font-medium text-foreground">
               {Number(data.taxRateBp) > 0
-                ? `${(Number(data.taxRateBp) / 100).toFixed(1)}%`
+                ? formatBasisPoints(Number(data.taxRateBp))
                 : "Pas de TVA"}
             </dd>
           </div>

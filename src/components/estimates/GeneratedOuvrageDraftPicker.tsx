@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/display-format";
 import { startTransition, useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { listResumableGeneratedOuvrageDrafts } from "@/app/dashboard/affaires/_actions/generated-ouvrages";
@@ -16,10 +17,6 @@ const SUMMARY_KEYS = [
   "totalCandidates", "certainCount", "plausibleCount", "questionCount",
   "pendingCount", "insertedCount", "rejectedCount",
 ] as const;
-const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
-  dateStyle: "short",
-  timeStyle: "short",
-});
 
 function isDraftPage(value: unknown, versionId: string): value is GeneratedOuvrageDraftPage {
   if (!value || typeof value !== "object") return false;
@@ -144,7 +141,7 @@ function GeneratedOuvrageDraftPickerSession({
       {page.items.length > 0 ? (
         <ul aria-label="Brouillons à reprendre" className="divide-y divide-border rounded-lg border border-border">
           {page.items.map((item) => {
-            const date = dateFormatter.format(new Date(item.createdAt));
+            const date = formatDisplayDateTime(new Date(item.createdAt));
             return (
               <li key={item.draftId} data-testid={`generated-ouvrage-draft-${item.draftId}`} className="flex items-center justify-between gap-3 px-3 py-3">
                 <div className="min-w-0 space-y-1 text-sm">

@@ -1,3 +1,4 @@
+import { apiFailure } from "@/lib/http/api-response";
 import { NextResponse } from "next/server";
 
 import { isAuthorizedCronRequest } from "@/lib/http/shared-secret";
@@ -8,16 +9,13 @@ export const maxDuration = 300;
 
 export async function GET(request: Request) {
   if (!isAuthorizedCronRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return apiFailure(401, "UNAUTHORIZED", "Unauthorized");
   }
 
   try {
     return NextResponse.json(await recoverDurableWorkflows());
   } catch (error) {
     console.error("Durable workflow recovery failed", { error });
-    return NextResponse.json(
-      { error: "Durable workflow recovery failed" },
-      { status: 500 }
-    );
+    return apiFailure(500, "INTERNAL_ERROR", "Durable workflow recovery failed");
   }
 }

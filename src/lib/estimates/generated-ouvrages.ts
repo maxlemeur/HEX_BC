@@ -14,8 +14,6 @@ import { normalizeGeneratedOuvrageParent } from "@/lib/estimates/generated-ouvra
 import {
   assertDraftStatus,
   assertDraftLockOwnedByCurrentUser as assertDraftLockSessionOwnedByCurrentUser,
-  getVersionAccessOrThrow,
-  type VersionAccessQuery,
 } from "@/lib/estimates/server-context";
 import { prepareEstimateBatch, sameEstimateBatchTimestamp, EstimateBatchPreparationError } from "@/lib/estimates/batch-preparation";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
@@ -42,6 +40,7 @@ import {
 } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
+import { confirmedAiDraftBrief, readAiDraftTarget, type AiDraftProject } from "@/lib/estimates/ai-drafts/sources-server";
 import type { Database, Json } from "@/types/database";
 import { toNonEmptyString } from "@/lib/value-guards";
 import { mapFragmentKindToCandidateSourceType, toJson } from "@/lib/estimates/generated-ouvrage-provenance";
@@ -49,30 +48,9 @@ import { mapFragmentKindToCandidateSourceType, toJson } from "@/lib/estimates/ge
 type Supabase = SupabaseClient<Database>;
 type CandidateSourceInsert = Database["public"]["Tables"]["estimate_generated_ouvrage_candidate_sources"]["Insert"];
 type JsonRecord = Record<string, unknown>;
-type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 
-type EmbeddedProjectAccess = {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  name: string;
-  reference: string | null;
-  client_name: string | null;
-  notes: string | null;
-  is_archived: boolean;
-};
 
-type VersionAccessRow = {
-  id: string;
-  project_id: string;
-  status: EstimateStatus;
-  updated_at: string;
-  margin_multiplier: number | null;
-  // Lot 2, sous-lot 2.8: a v3 receives the yield per unit and the v3 engine amounts.
-  calc_engine_version: number | null;
-  estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
-};
 
 type GeneratedOuvrageDraftRow = {
   id: string;
@@ -797,12 +775,6 @@ function pickStringArray(value: unknown) {
     .filter((entry): entry is string => Boolean(entry));
 }
 
-const GENERATED_OUVRAGE_VERSION_ACCESS: VersionAccessQuery = {
-  mode: "owner_or_admin_on_active_project",
-  versionColumns: "id, project_id, status, updated_at, margin_multiplier, calc_engine_version",
-  projectColumns: "name, reference, client_name, notes",
-};
-
 async function loadLotLabel(input: {
   supabase: Supabase;
   tenantId: string;
@@ -837,13 +809,7 @@ async function loadConfirmedBriefFragments(input: {
   projectId: string;
 }): Promise<SourceFragmentSeed[]> {
   try {
-    const { data, error } = await input.supabase
-      .from("affaire_briefs")
-      .select(
-        "id, project_id, status, summary, project_object, scope, lots, assumptions, vigilance_points, missing_elements"
-      )
-      .eq("project_id", input.projectId)
-      .eq("status", "confirme")
+    const { data, error } = await confirmedAiDraftBrief(input.supabase, input.projectId)
       .order("updated_at", { ascending: false })
       .limit(1);
 
@@ -1017,7 +983,7 @@ async function loadLibraryFragments(input: {
 async function buildSourceFragmentSeeds(input: {
   supabase: Supabase;
   tenantId: string;
-  project: EmbeddedProjectAccess;
+  project: AiDraftProject;
   versionId: string;
   sourceKind: GeneratedOuvrageInputSourceKind;
   sourceText: string;
@@ -1135,7 +1101,7 @@ function parseSourceKindLabel(kind: GeneratedOuvrageInputSourceKind) {
 }
 
 function buildGeneratedOuvragePrompt(input: {
-  project: EmbeddedProjectAccess;
+  project: AiDraftProject;
   sourceKind: GeneratedOuvrageInputSourceKind;
   preferredLotLabel: string | null;
   fragments: GeneratedOuvrageSourceFragmentRow[];
@@ -1284,7 +1250,7 @@ function buildFallbackCandidates(input: {
 }
 
 async function generatePromptCandidates(input: {
-  project: EmbeddedProjectAccess;
+  project: AiDraftProject;
   sourceKind: GeneratedOuvrageInputSourceKind;
   preferredLotLabel: string | null;
   fragments: GeneratedOuvrageSourceFragmentRow[];
@@ -2454,12 +2420,7 @@ export async function generateOuvragesFromText(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase,
-    parsed.versionId,
-    context,
-    GENERATED_OUVRAGE_VERSION_ACCESS
-  );
+  const { version, project } = await readAiDraftTarget(context, parsed.versionId);
 
   if (project.id !== parsed.projectId) {
     throw notFound("Affaire introuvable.");
@@ -2727,9 +2688,7 @@ async function getGeneratedOuvrageResumeAccess(
   context: AuthenticatedContext,
   versionId: string
 ) {
-  const access = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    context.supabase, versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
-  );
+  const access = await readAiDraftTarget(context, versionId);
   if (context.tenantRole !== "admin" && context.tenantRole !== "engineer") {
     throw forbidden("Votre rôle ne permet pas de reprendre un brouillon d'ouvrages.");
   }
@@ -2872,9 +2831,7 @@ export async function fetchGeneratedOuvrageDraft(
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
 
-  await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
-  );
+  await readAiDraftTarget(context, parsed.versionId);
 
   const loaded = await loadGeneratedOuvrageDraftOrThrow({
     supabase,
@@ -2891,9 +2848,7 @@ export async function fetchGeneratedOuvrageSubdetailDraft(
 ): Promise<GeneratedOuvrageSubdetailResult> {
   const parsed = generatedOuvrageSubdetailFetchInputSchema.parse(input);
   const context = await getAuthenticatedContext();
-  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    context.supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
-  );
+  const { version } = await readAiDraftTarget(context, parsed.versionId);
   const snapshot = await readGeneratedOuvrageReview(context, parsed);
   if (snapshot.subdetailDraft) return reviewedResult(snapshot);
   assertCanWriteEstimateWorkflows(context.tenantRole);
@@ -2992,9 +2947,7 @@ export async function updateGeneratedOuvrageSubdetailDraft(
   const parsed = generatedOuvrageSubdetailUpdateInputSchema.parse(input);
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  const { version } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    context.supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
-  );
+  const { version } = await readAiDraftTarget(context, parsed.versionId);
   assertDraftStatus(version.status);
   const snapshot = await readGeneratedOuvrageReview(context, parsed);
   const candidate = snapshot.candidate;
@@ -3162,9 +3115,7 @@ export async function insertGeneratedOuvrages(input: InsertGeneratedOuvragesInpu
     }
     return replay;
   }
-  const { version, project } = await getVersionAccessOrThrow<VersionAccessRow, EmbeddedProjectAccess>(
-    supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS
-  );
+  const { version, project } = await readAiDraftTarget(context, parsed.versionId);
   assertDraftStatus(version.status);
   // Lot 2, sous-lot 2.8 (D16) : une v3 reçoit le rendement par unité ; ses montants sont ceux du moteur 3,
   // calculés par la base dans la transaction (M6), sans projection du client.
@@ -3296,7 +3247,7 @@ export async function rejectGeneratedOuvrageDraft(input: RejectGeneratedOuvrageD
     reason: input.reason ? normalizeText(input.reason, MAX_REASON_LENGTH) : null });
   const context = await getAuthenticatedContext();
   assertCanWriteEstimateWorkflows(context.tenantRole);
-  await getVersionAccessOrThrow(context.supabase, parsed.versionId, context, GENERATED_OUVRAGE_VERSION_ACCESS);
+  await readAiDraftTarget(context, parsed.versionId);
   let response;
   try {
     response = await context.supabase.rpc("reject_generated_ouvrage_candidate", { p_version_id: parsed.versionId,

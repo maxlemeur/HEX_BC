@@ -1,3 +1,4 @@
+import { apiErrorSchema, apiFailureResponseSchema } from "@/lib/http/error-contracts";
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
 import { estimateOfferChoiceInputSchema, estimateOfferChoiceReceiptSchema } from "@/lib/estimates/offer-choice";
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
@@ -177,16 +178,7 @@ const takeoffJobStatusSchema = z.enum([
 ]);
 const takeoffErrorCodeSchema = z.nativeEnum(TakeoffErrorCode);
 
-export const apiErrorSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  details: z.unknown().optional(),
-});
-
-export const apiFailureResponseSchema = z.object({
-  ok: z.literal(false),
-  error: apiErrorSchema,
-});
+export { apiErrorSchema, apiFailureResponseSchema } from "@/lib/http/error-contracts";
 
 export const takeoffApiErrorSchema = z.object({
   code: takeoffErrorCodeSchema,
