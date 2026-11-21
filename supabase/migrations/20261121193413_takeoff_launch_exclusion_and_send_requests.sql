@@ -10,12 +10,14 @@
 -- 2. An analysis of the affaire launched outside any request that something will still move counts as running: waiting or
 --    read, or failed with a retry the local recovery will make or close (this Mac's provider, no batch, under three
 --    attempts, within the wait ceiling). A command is answered with it (« already_running ») and an automatic admission
---    waits (ANOTHER_ANALYSIS_RUNNING, retried by its Mac). A historical failure nothing moves blocks nothing.
+--    waits (ANOTHER_ANALYSIS_RUNNING, retried by its Mac). A historical failure nothing moves blocks nothing. The
+--    affaire's zone reads that rule (public.takeoff_running_analysis_outside_request), and the Mac's poll of due retries
+--    the wait ceiling it uses (public.takeoff_local_retry_floor).
 -- 3. Once the automatic start is active, a member registers no new job outside a request (the admission RPC of jobs on a
 --    version or without one, and direct inserts): every new analysis is a launch request, with its exclusion, its mandate
 --    and its budget. An insert of a job that already exists still reaches its unique key, as a replay did. A job outside
---    any request restarts (a member's resubmit, its Mac's retry) only under the affaire's launch lock and while no request
---    of the affaire runs.
+--    any request restarts (a member's resubmit, its Mac's retry) only under the affaire's launch lock, while no request
+--    of the affaire runs, and never once its retry has waited past the wait ceiling.
 -- 4. The send's refusal of a second analysis of one preparation revision to one draft (private.takeoff_send_execute) only
 --    compares jobs without a request, as the historical receipt index does since 20261121170448.
 --
@@ -28,6 +30,16 @@ begin;
 -- Every statement takes a short lock: give up instead of queueing the job and send writers.
 set local lock_timeout = '5s';
 
+-- A retry past the wait ceiling (waiting since greatest(the cut-off, its due time) longer than the ceiling) is only closed by
+-- its recovery, never run: once both cut-offs are set, the due time at or before which a retry has expired, for the Mac's
+-- poll of due retries; null before them, or while the cut-off itself is within the ceiling (nothing has expired).
+create function private.takeoff_retry_expiry_floor()
+returns timestamptz language sql stable security definer set search_path = '' as $$
+  select case when private.takeoff_launch_active() and a.active_from <= pg_catalog.clock_timestamp() - a.wait_ceiling
+    then pg_catalog.clock_timestamp() - a.wait_ceiling end
+  from private.takeoff_completion_activation a
+$$;
+revoke all on function private.takeoff_retry_expiry_floor() from public, anon, authenticated, service_role;
 -- The analysis of an affaire launched outside any request that something will still move: waiting or read now (its
 -- recovery closes it, a member may cancel it), or failed with a technical retry that the local recovery
 -- (public.recover_stale_local_takeoff_jobs) will make or close: this Mac's provider without a batch, under three attempts,
@@ -36,16 +48,29 @@ set local lock_timeout = '5s';
 create function private.takeoff_unrequested_analysis_running(p_tenant_id uuid, p_project_id uuid)
 returns uuid language sql stable security definer set search_path = '' as $$
   select j.id from public.takeoff_jobs j
-  left join private.takeoff_completion_activation activation on true
   where j.tenant_id = p_tenant_id and j.project_id = p_project_id and j.launch_request_id is null
     and (j.status in ('pending', 'processing')
       or (j.status = 'failed' and j.next_retry_at is not null and j.analysis_outcome is null
         and j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.retry_count < 3
-        and greatest(activation.active_from, j.next_retry_at) > pg_catalog.clock_timestamp() - activation.wait_ceiling))
+        and j.next_retry_at > coalesce(private.takeoff_retry_expiry_floor(), '-infinity'::timestamptz)))
   order by j.created_at desc, j.id desc
   limit 1
 $$;
 revoke all on function private.takeoff_unrequested_analysis_running(uuid, uuid) from public, anon, authenticated, service_role;
+-- For the affaire's zone: the same rule, read rather than copied (its options only save while such an analysis runs).
+create function public.takeoff_running_analysis_outside_request(p_tenant_id uuid, p_project_id uuid)
+returns uuid language sql stable security definer set search_path = '' as $$
+  select private.takeoff_unrequested_analysis_running(p_tenant_id, p_project_id)
+$$;
+revoke all on function public.takeoff_running_analysis_outside_request(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_running_analysis_outside_request(uuid, uuid) to service_role;
+-- For the Mac's poll of due retries: the same floor, so that an expired retry is only closed.
+create function public.takeoff_local_retry_floor()
+returns timestamptz language sql stable security definer set search_path = '' as $$
+  select private.takeoff_retry_expiry_floor()
+$$;
+revoke all on function public.takeoff_local_retry_floor() from public, anon, authenticated;
+grant execute on function public.takeoff_local_retry_floor() to service_role;
 
 -- An automatic request that can still start without a new dossier change: its payer may still pay and its Mac evaluates it
 -- or has work waiting for it (a dossier change already marked, a passing cause), or a gesture lifts it that `p_actor`, a
@@ -88,6 +113,7 @@ declare
   admitted_job uuid;
   violated text;
   running_unrequested uuid;
+  decided_mark bigint;
 begin
   if p_intent not in ('initial', 'reread_plans') or p_intent_key is null or p_actor is null or p_plan_set_id is null
     or p_preparation_revision is null then
@@ -105,6 +131,13 @@ begin
   end if;
   if not private.takeoff_module_enabled(p_tenant_id, p_module_default) then
     raise exception 'TAKEOFF_LAUNCH_MODULE_DISABLED' using errcode = '55000';
+  end if;
+  -- The analysis it replaces, when launched outside any request, before the affaire's key: its Mac's claim of a retry holds
+  -- that row and then waits for the key (the restart guard below), while this command's request names it (a key share).
+  -- Both take the analysis first, never the reverse. A request's analysis is never restarted that way.
+  if p_predecessor_job_id is not null then
+    perform 1 from public.takeoff_jobs j where j.id = p_predecessor_job_id and j.tenant_id = p_tenant_id
+      and j.project_id = p_project_id and j.launch_request_id is null for key share;
   end if;
   -- Commands and reservations of one affaire are serialized on its key: the replay and the one-running rule read
   -- committed rows, and the automatic request a confirmation reserved is always found.
@@ -127,6 +160,7 @@ begin
   -- An automatic start that can still begin without a new dossier change (its eligible payer's Mac, or a gesture this
   -- member may make) is taken on from the affaire's takeoff zone: refused, nothing is recorded. One that waits for a
   -- dossier change or for nobody is set aside below by this explicit analysis.
+  decided_mark := private.takeoff_launch_mark_position(p_tenant_id, p_project_id);
   if exists (select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
       and private.takeoff_automatic_request_can_start(r, p_actor)) then
     raise exception 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING' using errcode = '55000';
@@ -172,6 +206,18 @@ begin
     perform private.record_takeoff_launch_audit(request, p_actor, 'takeoff.request.admitted', jsonb_build_object(
       'job_ids', jsonb_build_array(admitted_job), 'manifest_digest', request.manifest_digest, 'intent', p_intent,
       'predecessor_job_id', p_predecessor_job_id, 'execution_host_id', p_host, 'mandate_kind', 'command'));
+    -- Before setting an automatic start aside: the dossier key exclusively, last of everything this command locks, as the
+    -- automatic admission takes it. A dossier change committed since the decision above is counted, and a start it lets
+    -- begin again is decided again, under the same lock: refused, nothing is recorded.
+    if exists (select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
+        and r.origin = 'automatic' and private.takeoff_launch_request_open(r)) then
+      perform pg_catalog.pg_advisory_xact_lock(private.takeoff_dossier_lock_key(p_project_id));
+      if private.takeoff_launch_mark_position(p_tenant_id, p_project_id) <> decided_mark and exists (
+          select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
+            and private.takeoff_automatic_request_can_start(r, p_actor)) then
+        raise exception 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING' using errcode = '55000';
+      end if;
+    end if;
     -- An automatic start that had not begun is set aside by this explicit analysis, for good: it never spends later.
     update public.takeoff_launch_requests r set state = 'superseded', reason_code = null,
       reason_details = jsonb_build_object('request_id', request.id), evaluation_lease_token = null, evaluation_lease_expires_at = null,
@@ -318,12 +364,17 @@ create trigger aac_guard_takeoff_job_outside_request before insert on public.tak
 -- Mac's claim of a due retry takes it) only under the affaire's launch lock and only while no request of the affaire runs:
 -- otherwise two analyses would run. The lock is the one its commands take, then its automatic request's row, which that
 -- request's admission holds, in a command's order: a command or an admission in flight commits first (and this restart is
--- refused), or waits for it (and finds this analysis running). Before the cut-offs it returns at once.
+-- refused), or waits for it (and finds this analysis running). A retry past the wait ceiling no longer counts as running,
+-- so a replacement may have run: it is never restarted, only closed by its recovery. Before the cut-offs it returns at once.
 create function private.guard_takeoff_job_restart_outside_request()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   if not private.takeoff_launch_active() then
     return new;
+  end if;
+  if old.status = 'failed' and old.next_retry_at is not null
+    and old.next_retry_at <= private.takeoff_retry_expiry_floor() then
+    raise exception 'TAKEOFF_JOB_RETRY_EXPIRED' using errcode = '55000';
   end if;
   perform private.lock_takeoff_launch_commands(new.project_id);
   perform 1 from public.takeoff_launch_requests r

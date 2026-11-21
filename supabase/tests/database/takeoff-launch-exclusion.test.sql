@@ -135,6 +135,20 @@ reset role;
 select pg_temp.sign_out();
 select is((select count(*)::integer from public.takeoff_jobs where id = pg_temp.f(80) and launch_request_id is null), 1,
   'its job is registered outside any request');
+-- Before the cut-offs, the Mac's claim of a retry that has waited a month runs as before (no restart guard, no ceiling).
+set local session_replication_role = replica;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+  execution_host_id, next_retry_at, error_code)
+values (pg_temp.f(173), pg_temp.f(10), pg_temp.f(24), pg_temp.f(44), 'C', 'failed', pg_temp.f(1), 'chatgpt_local', pg_temp.host(),
+  now() - interval '30 days', 'AI_TIMEOUT');
+set local session_replication_role = origin;
+select is(public.takeoff_local_retry_floor(), null::timestamptz, 'before the cut-offs no retry expires for the Mac''s poll');
+select is((select count(*)::integer from public.claim_observed_local_takeoff_job(pg_temp.f(173), pg_temp.f(10), pg_temp.host(), now(),
+  pg_temp.f(97), now() + interval '5 minutes', 'modele-fictif', 'fixture', 'failed', 0)), 1,
+  'and its claim of a month-old retry runs as before');
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'completed' where id = pg_temp.f(173);
+set local session_replication_role = origin;
 
 -- The owner activates the automatic start and the notices.
 insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 minute');
@@ -267,6 +281,8 @@ update public.takeoff_jobs set status = 'failed', next_retry_at = now() + interv
 set local session_replication_role = origin;
 select results_eq($$select outcome, job_id from pg_temp.launch(2, 75, 'reread_plans', pg_temp.f(62), 66)$$,
   $$values ('already_running'::text, pg_temp.f(62))$$, 'an analysis whose retry is due is still running');
+select is(public.takeoff_running_analysis_outside_request(pg_temp.f(10), pg_temp.f(22)), pg_temp.f(62),
+  'the zone reads that same analysis as running, by this rule');
 
 -- 5b. A historical failed analysis that nothing will move blocks nothing (red on 5298da6a3: every launch of the affaire was
 -- answered with it, for ever): the former provider's (no recovery retries it, cancel refuses it), one past three attempts,
@@ -277,6 +293,8 @@ values (pg_temp.f(170), pg_temp.f(10), pg_temp.f(28), pg_temp.f(48), 'C', 'faile
 set local session_replication_role = origin;
 select is(private.takeoff_unrequested_analysis_running(pg_temp.f(10), pg_temp.f(28)), null::uuid,
   'a failed analysis of the former provider with a retry recorded does not run');
+select is(public.takeoff_running_analysis_outside_request(pg_temp.f(10), pg_temp.f(28)), null::uuid,
+  'and the zone reads that it does not (red on 63bc8324f: the zone counted it and only saved the options)');
 set local session_replication_role = replica;
 update public.takeoff_jobs set execution_provider = 'chatgpt_local', execution_host_id = pg_temp.host(), retry_count = 3
 where id = pg_temp.f(170);
@@ -298,6 +316,36 @@ select results_eq($$select outcome, job_id from pg_temp.attempt(8, 79, 'reread_p
 set local session_replication_role = replica;
 update public.takeoff_jobs set status = 'completed' where id = pg_temp.f(158);
 set local session_replication_role = origin;
+
+-- 5c. A retry past its wait ceiling no longer runs, so a replacement is admitted; once that replacement has ended, the
+-- expired retry never runs after it (red on 63bc8324f: the next poll's claim ran it), and the Mac's poll no longer selects
+-- it (its ceiling read from the database).
+set local session_replication_role = replica;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+  execution_host_id, next_retry_at, error_code)
+values (pg_temp.f(172), pg_temp.f(10), pg_temp.f(29), pg_temp.f(49), 'C', 'failed', pg_temp.f(1), 'chatgpt_local', pg_temp.host(),
+  now() - interval '30 days', 'AI_TIMEOUT');
+update private.takeoff_completion_activation set active_from = now() - interval '3 days';
+set local session_replication_role = origin;
+select is(public.takeoff_running_analysis_outside_request(pg_temp.f(10), pg_temp.f(29)), null::uuid, 'the expired retry does not run');
+select ok(public.takeoff_local_retry_floor() between now() - interval '24 hours 1 minute' and now() - interval '23 hours 59 minutes',
+  'the Mac''s poll reads the wait ceiling: a retry due before it has expired');
+select results_eq($$select outcome, job_id from pg_temp.attempt(9, 85, 'reread_plans', pg_temp.f(172), 159)$$,
+  $$values ('admitted'::text, pg_temp.f(159))$$, 'a replacement is admitted');
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'completed', analysis_outcome = 'success', analysis_finished_at = now() where id = pg_temp.f(159);
+update public.takeoff_launch_requests set state = 'closed', outcome = 'success', closed_at = now(), units_succeeded = 1,
+  completion_event_id = gen_random_uuid()
+where project_id = pg_temp.f(29) and origin = 'manual';
+set local session_replication_role = origin;
+select throws_ok($$select id from public.claim_observed_local_takeoff_job(pg_temp.f(172), pg_temp.f(10), pg_temp.host(), now(),
+  pg_temp.f(96), now() + interval '5 minutes', 'modele-fictif', 'fixture', 'failed', 0)$$, '55000', 'TAKEOFF_JOB_RETRY_EXPIRED',
+  'after the replacement ended, the expired retry''s claim is refused');
+select is((select status from public.takeoff_jobs where id = pg_temp.f(172)), 'failed', 'it stays failed, for its recovery to close');
+set local session_replication_role = replica;
+update private.takeoff_completion_activation set active_from = now() - interval '1 minute';
+set local session_replication_role = origin;
+select is(public.takeoff_local_retry_floor(), null::timestamptz, 'within the ceiling of a recent activation, nothing has expired');
 
 -- The automatic start of that affaire waits for it too, and its Mac tries again.
 select results_eq($$select state from pg_temp.confirm(22, 1)$$, $$values ('evaluating'::text)$$, 'C''s confirmer mandates its start');
