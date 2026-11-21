@@ -812,6 +812,25 @@
       ]
     },
     {
+      "id": "plan-dispatcher",
+      "note": "Une analyse par plan (lot 3, migration A, TKPA01 à TKPA02) : une demande scellée en une unité par plan, lues une à la fois par le Mac (son créneau), chaque appel payant réservé puis réglé, un plan en échec seul, un avis et un courriel de la demande, l'arrêt du reste par un membre.",
+      "paths": [
+        "src/lib/takeoff/**",
+        "src/lib/ai/chatgpt-local-inference.ts",
+        "src/lib/ai/chatgpt-takeoff.ts",
+        "src/lib/workflows/durable-recovery.ts",
+        "src/app/dashboard/affaires/_actions/takeoff.ts",
+        "scripts/tester-army/takeoff-*",
+        "supabase/migrations/*_takeoff_launch_requests.sql",
+        "supabase/migrations/*_takeoff_plan_dispatcher.sql",
+        "e2e/army/takeoff/plan-analyses-support.ts",
+        "e2e/army/takeoff/completion-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/affaire-plan-analyses.e2e.ts"
+      ]
+    },
+    {
       "id": "plan-location",
       "note": "Bâtiment et niveau d'une version de plan (lot 3, TKPL01) : lus sur le cartouche ou le nom avec leur source, corrigés une fois sur le plan, retrouvés dans les plans, la revue et une relance ; conflit de deux onglets, lecteur sans écriture, nouvelle version proposée à revérifier.",
       "paths": [

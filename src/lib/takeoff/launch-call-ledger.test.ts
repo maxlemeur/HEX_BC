@@ -10,7 +10,8 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({ takeoffModuleDefault: vi.fn(() =
 // reads the lease at each call, waits for a call of its attempt in flight before a reservation is refused, and stops the
 // job on a refusal: nothing is sent then.
 const answers: Array<{ data?: unknown; error?: { code?: string; message: string } | null }> = [];
-const rpc = vi.fn(async (_name: string, _args: Record<string, unknown>) => answers.shift() ?? { data: [{ outcome: "reserved", reason: null }], error: null });
+const rpc = vi.fn<(name: string, args: Record<string, unknown>) => Promise<unknown>>(
+  async () => answers.shift() ?? { data: [{ outcome: "reserved", reason: null }], error: null });
 beforeEach(() => {
   vi.clearAllMocks();
   answers.length = 0;
