@@ -74,8 +74,10 @@ export async function ownedWorkerJobOwner() {
   return { execution_provider: "chatgpt_local" as const, execution_host_id: await ownedWorkerHostId(), processing_strategy: "sync" as const };
 }
 
-export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId: string; versionId: null }, jobId: string, mode: "success" | "transient" | "terminal" | "hold" = "success",
+export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId: string; versionId: null }, jobId: string,
+  mode: "success" | "transient" | "terminal" | "hold" | "crash-after-result" = "success",
   options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner;
+    trigger?: "retry"; mailCollector?: string;
     providerItems?: Array<{ designation: string; quantity: number; unit: string; source_page: number; confidence: number; evidence: string }> } = {}) {
   const ownsScope = ids.versionId === null
     ? ui.army.ownedTakeoffAffaires?.includes(ids.projectId)
@@ -90,6 +92,13 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId:
     MERGEONE_CHATGPT_LOCAL: "1",
     MERGEONE_TAKEOFF_VECTORS: options.vectors ? "1" : "0",
     MERGEONE_TAKEOFF_RULES: options.rules ? "1" : "0",
+    ...(options.trigger ? { ARMY_TAKEOFF_WORKER_TRIGGER: options.trigger } : {}),
+    ...(options.mailCollector ? {
+      E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN: options.mailCollector,
+      RESEND_BASE_URL: options.mailCollector, RESEND_API_KEY: "LOCAL_ONLY_INVALID_RESEND_SENTINEL",
+      EMAIL_FROM: "ARMY Métré <metre@fixture.invalid>", EMAIL_DELIVERY_MODE: "redirect",
+      EMAIL_REDIRECT_TO: "collecteur@fixture.invalid", MERGEONE_TAKEOFF_EMAIL_ORIGIN: ui.app.baseUrl!,
+    } : {}),
     ...(options.providerItems ? { ARMY_TAKEOFF_PROVIDER_ITEMS: JSON.stringify(options.providerItems) } : {}),
     // The worker child signs in as the job's owner: a journey's dedicated owner, else the campaign account.
     ...(options.owner ? { E2E_LOGIN_EMAIL: options.owner.email, E2E_LOGIN_PASSWORD: options.owner.password } : {}) };
@@ -131,7 +140,7 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId:
   return { provider, done, release: () => child.stdin.end("release\n"), stop: () => { child.stdin.end(); if (child.exitCode === null) child.kill("SIGTERM"); } };
 }
 
-export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "local" | "historical" = "local") {
+export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "local" | "historical" = "local", owner?: WorkerOwner) {
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("App Edge workers must remain blocked.");
   const ids = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-${title}`, title }, ui.army);
   const before = await readEstimate(ui.browser, ids.versionId);
@@ -141,8 +150,8 @@ export async function launchWorkerCsv(ui: WorkerUi, title: string, provider: "lo
   await mkdir(directory, { recursive: true });
   const filePath = path.join(directory, fileName);
   await writeFile(filePath, "designation;quantity;unit\nARMY worker pipe;12.5;m\nARMY worker valve;3;u\n");
-  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId);
-  const { userId } = await localClient();
+  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner?.email, owner?.password);
+  const userId = owner?.userId ?? (await localClient()).userId;
   const jobId = randomUUID();
   const sourcePath = `${tenantId}/${jobId}/${fileName}`;
   const bytes = await readFile(filePath);

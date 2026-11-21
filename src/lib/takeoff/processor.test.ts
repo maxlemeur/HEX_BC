@@ -7,6 +7,7 @@ vi.mock("@/lib/supabase/read-all", () => import("@/test/complete-reads-fixture")
 vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
+vi.mock("@/lib/observability/error-reporter", () => ({ reportError: vi.fn() }));
 const HOST_ID = "urn:uuid:55555555-5555-4555-8555-555555555555";
 // The real local host check runs, against this host; the creator's plan is each test's provider.
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn(), readChatGptStore: vi.fn() }));
@@ -38,6 +39,8 @@ import {
   processLevelC,
 } from "@/lib/takeoff/processor";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
+import { processTakeoffJobAttempt } from "@/lib/takeoff/async-worker";
+import { normalizeTakeoffWorkerJobRow } from "@/lib/takeoff/job-lifecycle";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "@/lib/takeoff/hypothesis";
 
@@ -203,7 +206,7 @@ type SupabaseMockOptions = {
     bytes: ArrayBuffer;
     mimeType: string;
   };
-  cancelOnResultInsert?: boolean;
+  cancelBeforeResultCommit?: boolean;
   failCompletedJobUpdate?: boolean;
   failRunMetricsDeleteWhenNonEmpty?: boolean;
   failTakeoffItemsInsertOnce?: boolean;
@@ -357,7 +360,9 @@ function createTakeoffProcessorSupabaseMock(
 ): {
   supabase: {
     from: (table: string) => unknown;
-    rpc: (fn: string, args: Record<string, unknown>) => { maybeSingle: () => Promise<QueryResponse<TakeoffJobRow | null>> };
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<QueryResponse<string | null>> |
+      Promise<QueryResponse<{ diagnostic_id: string | null } | null>> |
+      { maybeSingle: () => Promise<QueryResponse<TakeoffJobRow | null>> };
     storage: {
       from: (
         bucket: string
@@ -489,12 +494,11 @@ function createTakeoffProcessorSupabaseMock(
       mimeType: "text/csv",
     } satisfies { bytes: ArrayBuffer; mimeType: string });
   const planFileDownloads = options.planFileDownloads ?? {};
-  const cancelOnResultInsert = options.cancelOnResultInsert ?? false;
+  const cancelBeforeResultCommit = options.cancelBeforeResultCommit ?? false;
   const failCompletedJobUpdate = options.failCompletedJobUpdate ?? false;
   const failRunMetricsDeleteWhenNonEmpty =
     options.failRunMetricsDeleteWhenNonEmpty ?? false;
   let takeoffItemsInsertFailuresRemaining = options.failTakeoffItemsInsertOnce ? 1 : 0;
-  let cancellationApplied = false;
 
   let resultIdSequence = 0;
 
@@ -847,17 +851,6 @@ function createTakeoffProcessorSupabaseMock(
         ...payload,
       });
 
-      if (cancelOnResultInsert && !cancellationApplied && state.job.status === "processing") {
-        cancellationApplied = true;
-        state.job = {
-          ...state.job,
-          status: "canceled",
-          completed_at: FIXED_NOW.toISOString(),
-          error_code: null,
-          error_message: null,
-        };
-        state.statusTransitions.push("canceled");
-      }
       return insertedId;
     }
 
@@ -1133,14 +1126,70 @@ function createTakeoffProcessorSupabaseMock(
         };
       }),
     },
-    // claim_local_takeoff_job as the migration writes it: the job's own host, from pending or failed, into processing.
+    // The worker RPCs as the migrations write them, under the job's processing lease.
     rpc: vi.fn((fn: string, args: Record<string, unknown>) => {
-      if (fn !== "claim_local_takeoff_job") throw new Error(`Unexpected rpc: ${fn}`);
+      if (fn === "record_local_takeoff_failure") {
+        const job = state.job;
+        if (job.id !== args.p_job_id || job.tenant_id !== args.p_tenant_id ||
+            job.status !== "processing" || job.processing_lease_token !== args.p_lease_token) {
+          return Promise.resolve({ data: null, error: null });
+        }
+        const scope = { tenant_id: job.tenant_id, job_id: job.id };
+        let diagnosticId: string | null = null;
+        // The diagnostic replaces the previous rows in its own subtransaction, or leaves them whole.
+        if (args.p_diagnostic && !(failRunMetricsDeleteWhenNonEmpty && state.takeoffRunMetrics.length > 0)) {
+          diagnosticId = nextResultId();
+          state.takeoffRunMetrics = [];
+          state.takeoffItems = [];
+          state.takeoffResults = [{ ...deepClone(args.p_diagnostic as Omit<StoredTakeoffResultRow, "id" | "confidence">),
+            confidence: null, ...scope, id: diagnosticId }];
+        }
+        state.takeoffRunMetrics.push(...(args.p_run_metrics as StoredTakeoffRunMetricRow[] ?? [])
+          .map(metric => ({ ...deepClone(metric), ...scope, result_id: diagnosticId })));
+        state.job = { ...job, ...deepClone(args.p_failure as Partial<TakeoffJobRow>), status: "failed",
+          processing_lease_token: null, processing_lease_expires_at: null };
+        state.statusTransitions.push("failed");
+        return Promise.resolve({ data: { diagnostic_id: diagnosticId }, error: null });
+      }
+      if (fn === "finalize_local_takeoff_result") {
+        const job = state.job;
+        if (job.id !== args.p_job_id || job.tenant_id !== args.p_tenant_id ||
+            job.status !== "processing" || job.processing_lease_token !== args.p_lease_token) {
+          return Promise.resolve({ data: null, error: null });
+        }
+        if (cancelBeforeResultCommit) {
+          state.job = { ...job, status: "canceled", completed_at: FIXED_NOW.toISOString() };
+          state.statusTransitions.push("canceled");
+          return Promise.resolve({ data: null, error: null });
+        }
+        if (failCompletedJobUpdate || (failRunMetricsDeleteWhenNonEmpty && state.takeoffRunMetrics.length > 0) ||
+            takeoffItemsInsertFailuresRemaining > 0) {
+          takeoffItemsInsertFailuresRemaining = Math.max(0, takeoffItemsInsertFailuresRemaining - 1);
+          return Promise.resolve({ data: null, error: { code: "PGRST301", message: "Simulated atomic completion failure" } });
+        }
+        const id = nextResultId();
+        const { job_duration_ms, run_metrics, ...result } = args.p_result as Omit<StoredTakeoffResultRow, "id" | "raw_response"> & {
+          job_duration_ms: number; run_metrics?: StoredTakeoffRunMetricRow[];
+        };
+        const scope = { tenant_id: job.tenant_id, job_id: job.id };
+        state.takeoffResults = [{ id, raw_response: null, ...deepClone(result), ...scope }];
+        state.takeoffItems = (args.p_items as StoredTakeoffItemRow[]).map(item => ({ ...deepClone(item), ...scope, result_id: id }));
+        state.takeoffRunMetrics = (run_metrics ?? []).map(metric => ({ ...deepClone(metric), ...scope, result_id: id }));
+        state.job = { ...job, status: "completed", completed_at: args.p_completed_at as string, duration_ms: job_duration_ms,
+          token_count: result.token_count, cost_cents: result.cost_cents, model: args.p_model as string,
+          prompt_version: args.p_prompt_version as string, error_code: null, error_message: null,
+          processing_lease_token: null, processing_lease_expires_at: null };
+        state.statusTransitions.push("completed");
+        return Promise.resolve({ data: id, error: null });
+      }
+      // claim_observed_local_takeoff_job: the job's own host, from the pending or failed state the caller observed.
+      if (fn !== "claim_observed_local_takeoff_job") throw new Error(`Unexpected rpc: ${fn}`);
       return {
         maybeSingle: async (): Promise<QueryResponse<TakeoffJobRow | null>> => {
           const job = state.job;
           if (job.id !== args.p_job_id || job.tenant_id !== args.p_tenant_id || job.execution_provider !== "chatgpt_local"
-            || job.execution_host_id !== args.p_host_id || !["pending", "failed"].includes(job.status)) {
+            || job.execution_host_id !== args.p_host_id || !["pending", "failed"].includes(job.status)
+            || job.status !== args.p_observed_status || job.retry_count !== args.p_observed_retry_count) {
             return { data: null, error: null };
           }
           state.job = { ...job, status: "processing", started_at: args.p_started_at as string, completed_at: null,
@@ -1417,7 +1466,7 @@ describe("processLevelA", () => {
     );
   });
 
-  it("restores previous Level A persistence snapshot when persisting new items fails", async () => {
+  it("keeps the previous Level A result when the atomic completion transaction fails", async () => {
     const previousResultId = "66666666-6666-4666-8666-666666666666";
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
@@ -1506,7 +1555,7 @@ describe("processLevelA", () => {
 
   it("stops persistence and preserves canceled status when cancellation happens mid-processing", async () => {
     const mock = createTakeoffProcessorSupabaseMock({
-      cancelOnResultInsert: true,
+      cancelBeforeResultCommit: true,
     });
     const callProvider = vi.fn().mockResolvedValue(
       buildProviderResult(
@@ -2951,7 +3000,7 @@ describe("processLevelC", () => {
     );
   });
 
-  it("does not duplicate chunk metrics when completion update fails after initial metric persist", async () => {
+  it("keeps a single set of chunk metrics on the failure diagnostic when the completion transaction fails", async () => {
     const pdfBytes = await createPdfArrayBuffer(8);
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
@@ -3201,5 +3250,113 @@ describe("hypothesis preselection", () => {
     await processLevelB(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
     expect(mock.state.takeoffItems[0]).toMatchObject({ designation: "Soudures inox", is_excluded: false, exclusion_reason: null });
     expect(mock.state.takeoffItems[0].metadata.rule_inputs).toBeUndefined();
+  });
+});
+
+// A worker stopped at a named point while another one runs: the deployed
+// pre-activation database lets any claim and any failure write through, so the
+// worker's own requests must carry what it observed and its lease.
+describe("concurrent local workers", () => {
+  function stop() {
+    let reached!: () => void;
+    let release!: () => void;
+    const atStop = new Promise<void>((resolve) => { reached = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    return { atStop, release, wait: () => { reached(); return released; } };
+  }
+  const success = (designation: string) => vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([
+    { designation, quantity: 2, unit: "u", source_page: 1, confidence: 0.95, evidence: "Ligne 1" },
+  ])));
+  const failure = (retryable: boolean) => vi.fn().mockRejectedValue(new TakeoffError({
+    code: retryable ? TakeoffErrorCode.AI_TIMEOUT : TakeoffErrorCode.AI_PROVIDER,
+    message: "fixture provider failure", retryable, details: { cause: { provider: "fixture answer" } },
+  }));
+
+  it("a callback stopped between its read and its claim starts no provider call after a definitive failure", async () => {
+    const mock = createTakeoffProcessorSupabaseMock();
+    const late = stop();
+    const lateCall = success("Appel non demandé");
+    const lateProvider = localProvider(lateCall);
+    const lateWorker = processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW,
+      resolveProvider: async () => { await late.wait(); return lateProvider(); } });
+    void lateWorker.catch(() => undefined);
+    await late.atStop;
+    const firstCall = failure(false);
+    await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(firstCall) })).rejects.toMatchObject({ code: TakeoffErrorCode.AI_PROVIDER });
+    expect(mock.state.job).toMatchObject({ status: "failed", retry_count: 0 });
+    late.release();
+    await expect(lateWorker).rejects.toMatchObject({ code: TakeoffErrorCode.CONFLICT });
+    expect(firstCall).toHaveBeenCalledTimes(1);
+    expect(lateCall).not.toHaveBeenCalled();
+    expect(mock.state.job).toMatchObject({ status: "failed", retry_count: 0, error_code: TakeoffErrorCode.AI_PROVIDER });
+  });
+
+  it("a due retry callback stopped before its processor cannot consume the next scheduled retry early", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({ job: { status: "failed", retry_count: 0,
+      error_code: TakeoffErrorCode.AI_TIMEOUT, error_message: "fixture earlier timeout" } });
+    Object.assign(mock.state.job, { next_retry_at: new Date(FIXED_NOW.getTime() - 1_000).toISOString(), last_error_at: FIXED_NOW.toISOString() });
+    const repository = {
+      getJobById: vi.fn(async () => normalizeTakeoffWorkerJobRow(deepClone(mock.state.job))),
+      isTenantActive: vi.fn(async () => true),
+      markUnsupportedLevelAsFailed: vi.fn(),
+      clearRetrySchedule: vi.fn(),
+      renewLease: vi.fn(async () => undefined),
+    };
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const attempt = (call: ReturnType<typeof vi.fn>, before?: () => Promise<void>) => processTakeoffJobAttempt(JOB_ID, {
+      trigger: "retry", correlationId: JOB_ID, now: () => FIXED_NOW, repository, logger,
+      processLevelAFn: async (id, options) => {
+        await before?.();
+        return processLevelA(id, { ...options, resolveProvider: localProvider(call) });
+      },
+    });
+    const late = stop();
+    const lateCall = success("Reprise anticipée");
+    const lateWorker = attempt(lateCall, late.wait);
+    await late.atStop;
+    const dueCall = failure(true);
+    expect(await attempt(dueCall)).toMatchObject({ status: "failed_retryable", retry_count: 1 });
+    const scheduled = deepClone(mock.state.job) as TakeoffJobRow & { next_retry_at: string };
+    expect(Date.parse(scheduled.next_retry_at)).toBeGreaterThan(FIXED_NOW.getTime());
+    late.release();
+    expect(await lateWorker).toMatchObject({ status: "failed_retryable", should_requeue: true, next_run_at: scheduled.next_retry_at });
+    expect(dueCall).toHaveBeenCalledTimes(1);
+    expect(lateCall).not.toHaveBeenCalled();
+    expect(mock.state.job).toMatchObject({ status: "failed", retry_count: 1, next_retry_at: scheduled.next_retry_at });
+  });
+
+  it("a worker stopped after its failure renewal cannot erase the lines of a later successful analysis", async () => {
+    const mock = createTakeoffProcessorSupabaseMock();
+    const paused = stop();
+    let failed = false;
+    let renewalsAfterFailure = 0;
+    const firstCall = vi.fn(async () => {
+      failed = true;
+      throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "fixture provider failure", retryable: false,
+        details: { cause: { provider: "fixture answer" } } });
+    });
+    const stale = processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(firstCall),
+      // The provider wrapper renews once more as the call ends; the failure path then renews before it writes.
+      renewLease: async () => { if (failed && ++renewalsAfterFailure === 2) await paused.wait(); },
+    });
+    void stale.catch(() => undefined);
+    await paused.atStop;
+    // The recovery closes the expired worker, then the ordinary relaunch of the previous application succeeds.
+    mock.state.job = { ...mock.state.job, status: "failed", error_code: "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
+      processing_lease_token: null, processing_lease_expires_at: null, completed_at: FIXED_NOW.toISOString() };
+    mock.state.job = { ...mock.state.job, status: "pending", retry_count: mock.state.job.retry_count + 1,
+      error_code: null, error_message: null, completed_at: null };
+    const laterCall = success("Ligne de la relance");
+    expect(await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(laterCall) })).toMatchObject({ status: "completed" });
+    const completed = deepClone({ job: mock.state.job, results: mock.state.takeoffResults, items: mock.state.takeoffItems });
+    paused.release();
+    await expect(stale).rejects.toMatchObject({ code: TakeoffErrorCode.CONFLICT });
+    expect(mock.state.job).toEqual(completed.job);
+    expect(mock.state.takeoffResults).toEqual(completed.results);
+    expect(mock.state.takeoffItems).toEqual(completed.items);
+    expect(mock.state.takeoffItems.map(({ designation }) => designation)).toEqual(["Ligne de la relance"]);
   });
 });

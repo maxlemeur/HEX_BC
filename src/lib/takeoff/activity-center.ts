@@ -1,13 +1,14 @@
 import { readAllRowsInChunks } from "@/lib/supabase/read-all";
+import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import {
   applyTakeoffJobsListFilters,
-  getAuthenticatedTakeoffContext,
   resolveVersionIdsForProject,
   type AuthenticatedTakeoffContext,
 } from "@/lib/takeoff/job-read-server";
+import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import type {
   TakeoffActivityCenterResponse,
   TakeoffActivityCenterJobRow,
@@ -16,6 +17,7 @@ import type {
   TakeoffDispatchOutcome,
   TakeoffDispatchStatus,
 } from "@/lib/takeoff/types";
+import { hasScheduledLocalTakeoffRetry, toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
 import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
@@ -46,6 +48,11 @@ type JobRow = {
   source_file_type: string | null;
   level: string;
   status: string;
+  analysis_outcome?: string | null;
+  analysis_finished_at?: string | null;
+  analysis_completion_event_id?: string | null;
+  execution_provider?: string | null;
+  next_retry_at?: string | null;
   processing_strategy: string | null;
   provider_batch_id: string | null;
   provider_batch_state: string | null;
@@ -136,7 +143,7 @@ async function listMatchingJobs(
       supabase
         .from("takeoff_jobs" as never)
         .select(
-          "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
+          "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
         )
         .eq("tenant_id" as never, tenantId as never),
       {
@@ -573,16 +580,26 @@ async function batchEnrich(
 export async function listActivityCenterJobs(
   input: ListActivityCenterJobsInput
 ): Promise<TakeoffActivityCenterResponse> {
-  const { supabase, tenantId, tenantRole } = await getAuthenticatedTakeoffContext();
+  const { context: { supabase, tenantId, tenantRole } } = await requireAffaireAccess(input.project_id, "read");
+  await assertTakeoffEnabled(tenantId, { supabase });
 
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
 
-  const versions = await resolveVersionIdsForProject({
-    supabase,
-    tenantId,
-    projectId: input.project_id,
-  });
+  const [versions, completionResult] = await Promise.all([
+    resolveVersionIdsForProject({ supabase, tenantId, projectId: input.project_id }),
+    supabase.rpc("list_affaire_takeoff_completions" as never, {
+      p_project_id: input.project_id,
+      p_limit: Math.trunc(limit),
+      p_offset: Math.min(Math.trunc(offset), 2_147_483_647),
+    } as never),
+  ]);
+  if (completionResult.error) throw mapSupabaseError(completionResult.error, "Impossible de charger les fins d’analyse.");
+  const analysisCompletions = ((completionResult.data ?? []) as Array<{ event_id: string; outcome: string; finished_at: string }>)
+    .flatMap((event) => {
+      const outcome = toTakeoffAnalysisOutcome(event.outcome);
+      return outcome ? [{ eventId: event.event_id, outcome, finishedAt: event.finished_at }] : [];
+    });
   const versionNumberMap = new Map(versions.map((v) => [v.id, v.version_number]));
 
   const baseFilterOpts = {
@@ -743,8 +760,14 @@ export async function listActivityCenterJobs(
       tenantRole,
     });
 
+    const outcome = toTakeoffAnalysisOutcome(row.analysis_outcome);
+    const analysisCompletion = outcome && row.analysis_finished_at
+      ? { eventId: row.analysis_completion_event_id ?? null, outcome, finishedAt: row.analysis_finished_at }
+      : null;
+
     return {
       jobId: row.id,
+      analysisCompletion,
       estimateVersionId: row.estimate_version_id,
       versionLabel: versionNumber != null ? `V${versionNumber}` : row.estimate_version_id ?? "Sans devis",
       lotLabel: resolvedSource?.lotLabel ?? null,
@@ -775,7 +798,7 @@ export async function listActivityCenterJobs(
       operatorState: operatorState.state,
       operatorStateLabel: operatorState.label,
       canCancel: operatorState.canCancel,
-      canResubmit: operatorState.canResubmit,
+      canResubmit: !row.analysis_outcome && !hasScheduledLocalTakeoffRetry(row) && operatorState.canResubmit,
       itemCount: itemCountMap.get(row.id) ?? 0,
       coveragePercent: isEnrichable ? (coverageMap.get(row.id) ?? null) : null,
       exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : 0,
@@ -795,6 +818,7 @@ export async function listActivityCenterJobs(
   return {
     counters,
     jobs,
+    analysisCompletions,
     pagination: { limit, offset, total },
   };
 }

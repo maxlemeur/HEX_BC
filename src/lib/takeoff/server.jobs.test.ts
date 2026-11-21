@@ -829,6 +829,24 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(supabase.__state.auditLogs).toEqual([]);
   });
 
+  // A job runs on its creator's subscription: only they restart it, and the reset keeps them as its creator.
+  it("lets an administrator reset their own legacy failure without changing its creator and audits them", async () => {
+    const supabase = createSupabaseMock({ jobs: [baseJob({
+      status: "failed", completed_at: "2026-02-25T08:00:00.000Z", created_by: USER_ID,
+    })] });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase, userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin",
+    } as never);
+
+    await resubmitTakeoffJob(JOB_ID);
+    expect(supabase.__state.jobsById.get(JOB_ID)).toMatchObject({
+      status: "pending", created_by: USER_ID,
+    });
+    expect(supabase.__state.auditLogs).toContainEqual(expect.objectContaining({
+      action: "takeoff.job.resubmitted", record_id: JOB_ID, user_id: USER_ID,
+    }));
+  });
+
   it("refuses to resubmit a job of a former provider without changing it or auditing", async () => {
     const job = baseJob({ status: "failed", execution_provider: "gemini" });
     const supabase = createSupabaseMock({ jobs: [job] });

@@ -2,7 +2,6 @@ import { reportError } from "@/lib/observability/error-reporter";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   TAKEOFF_PROCESSING_LEASE_TTL_SECONDS,
-  TAKEOFF_RETRY_BACKOFF_SECONDS,
   TAKEOFF_RETRY_MAX,
 } from "@/lib/takeoff/constants";
 import { assertTakeoffJobUsesLocalProvider, TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -59,13 +58,7 @@ type TakeoffWorkerRepository = {
     jobId: string;
     tenantId: string;
     nowIso: string;
-  }) => Promise<void>;
-  scheduleRetry: (input: {
-    jobId: string;
-    tenantId: string;
-    nextRetryAtIso: string;
-    lastErrorAtIso: string;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   clearRetrySchedule: (input: {
     jobId: string;
     tenantId: string;
@@ -90,11 +83,6 @@ type ProcessTakeoffJobAttemptOptions = {
   repository?: TakeoffWorkerRepository;
   logger?: Pick<typeof console, "info" | "warn" | "error">;
 };
-
-function getRetryBackoffSeconds(retryCount: number) {
-  const clamped = Math.max(0, Math.min(retryCount, TAKEOFF_RETRY_BACKOFF_SECONDS.length - 1));
-  return TAKEOFF_RETRY_BACKOFF_SECONDS[clamped];
-}
 
 function sanitizeRetryCount(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -124,6 +112,7 @@ function createSupabaseTakeoffWorkerRepository(
             "level",
             "status",
             "execution_provider",
+            "analysis_outcome",
             "retry_count",
             "error_code",
             "error_message",
@@ -155,18 +144,22 @@ function createSupabaseTakeoffWorkerRepository(
     },
 
     async markUnsupportedLevelAsFailed(input) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("takeoff_jobs")
         .update({
           status: "failed",
           completed_at: input.nowIso,
+          analysis_outcome: "failure",
           error_code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
           error_message: "Le niveau takeoff n'est pas encore supporte par le worker async.",
           next_retry_at: null,
           last_error_at: input.nowIso,
         })
         .eq("id", input.jobId)
-        .eq("tenant_id", input.tenantId);
+        .eq("tenant_id", input.tenantId)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
 
       if (error) {
         throw toTakeoffError(error, {
@@ -176,27 +169,7 @@ function createSupabaseTakeoffWorkerRepository(
           jobId: input.jobId,
         });
       }
-    },
-
-    async scheduleRetry(input) {
-      const { error } = await supabase
-        .from("takeoff_jobs")
-        .update({
-          next_retry_at: input.nextRetryAtIso,
-          last_error_at: input.lastErrorAtIso,
-        })
-        .eq("id", input.jobId)
-        .eq("tenant_id", input.tenantId)
-        .eq("status", "failed");
-
-      if (error) {
-        throw toTakeoffError(error, {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          fallbackMessage: "Impossible de programmer la relance automatique du job.",
-          retryable: false,
-          jobId: input.jobId,
-        });
-      }
+      return data !== null;
     },
 
     async clearRetrySchedule(input) {
@@ -413,66 +386,39 @@ function takeoffProcessorOptions(
     now: attempt.now,
     assertTenantActive: attempt.assertTenantActive,
     renewLease,
+    // A callback delayed after this read cannot claim a later state of the job.
+    claimObservation: { status: attempt.job.status, retryCount: attempt.retryCount },
   };
 }
 
 // A failed job runs again only as a scheduled retry within its budget, once
 // the retry is due. Returns null when the retry may run now.
-async function gateFailedJobRetry(
-  attempt: TakeoffJobAttempt
-): Promise<TakeoffJobAttemptOutcome | null> {
+function gateFailedJobRetry(attempt: TakeoffJobAttempt): TakeoffJobAttemptOutcome | null {
   const { job, now, retryCount } = attempt;
-  const nextRetryAtMs = job.next_retry_at
-    ? Date.parse(job.next_retry_at)
-    : Number.NaN;
-  const retryIsScheduled =
-    attempt.trigger === "retry" && Number.isFinite(nextRetryAtMs);
-
-  if (retryCount >= TAKEOFF_RETRY_MAX || !retryIsScheduled) {
-    await attempt.repository.clearRetrySchedule({
-      jobId: job.id,
-      tenantId: job.tenant_id,
-      lastErrorAtIso: job.last_error_at ?? now().toISOString(),
-    });
-    attempt.logger.error("Takeoff async worker rejected an unscheduled or exhausted retry", {
-      job_id: job.id,
-      tenant_id: job.tenant_id,
-      retry_count: retryCount,
-      trigger: attempt.trigger,
-      correlation_id: attempt.correlationId,
-    });
-
-    return attemptOutcome(attempt, job, {
-      status: "failed_terminal",
-      retryCount,
-      retryable: false,
-      shouldRequeue: false,
-      durationMs: elapsedMs(attempt),
-      errorCode: job.error_code,
-      errorMessage: job.error_message,
-    });
+  if (job.analysis_outcome === "failure") return untouchedJobOutcome(attempt, "failed_terminal");
+  const nextRetryAtMs = Date.parse(job.next_retry_at ?? "");
+  if (!Number.isFinite(nextRetryAtMs) || retryCount >= TAKEOFF_RETRY_MAX) {
+    return untouchedJobOutcome(attempt, "noop_terminal");
   }
+  return attempt.trigger === "retry" && nextRetryAtMs <= now().getTime()
+    ? null
+    : scheduledRetryOutcome(attempt, job);
+}
 
-  if (nextRetryAtMs > now().getTime()) {
-    const nextRunInSeconds = Math.max(
-      1,
-      Math.ceil((nextRetryAtMs - now().getTime()) / 1000)
-    );
-    return attemptOutcome(attempt, job, {
-      status: "failed_retryable",
-      retryCount,
-      retryable: true,
-      shouldRequeue: true,
-      requeueReason: "retry",
-      nextRunInSeconds,
-      nextRunAt: job.next_retry_at,
-      durationMs: elapsedMs(attempt),
-      errorCode: job.error_code,
-      errorMessage: job.error_message,
-    });
-  }
-
-  return null;
+function scheduledRetryOutcome(attempt: TakeoffJobAttempt, job: TakeoffWorkerJobRow, fallback?: TakeoffError) {
+  const remaining = Date.parse(job.next_retry_at ?? "") - attempt.now().getTime();
+  return attemptOutcome(attempt, job, {
+    status: "failed_retryable",
+    retryCount: sanitizeRetryCount(job.retry_count),
+    retryable: true,
+    shouldRequeue: true,
+    requeueReason: "retry",
+    nextRunInSeconds: Math.max(0, Math.ceil(remaining / 1000)),
+    nextRunAt: job.next_retry_at,
+    durationMs: elapsedMs(attempt),
+    errorCode: job.error_code ?? fallback?.code,
+    errorMessage: job.error_message ?? fallback?.message,
+  });
 }
 
 async function completedJobOutcome(attempt: TakeoffJobAttempt) {
@@ -520,11 +466,17 @@ function selectLevelProcessor(
 async function failUnsupportedLevel(attempt: TakeoffJobAttempt) {
   const { job } = attempt;
   const nowIso = attempt.now().toISOString();
-  await attempt.repository.markUnsupportedLevelAsFailed({
+  const changed = await attempt.repository.markUnsupportedLevelAsFailed({
     jobId: job.id,
     tenantId: job.tenant_id,
     nowIso,
   });
+  if (!changed) {
+    const current = await attempt.repository.getJobById(job.id);
+    if (current?.status === "canceled") return settleCanceledJob(attempt, current);
+    return untouchedJobOutcome(attempt, current?.status === "processing" || current?.status === "pending"
+      ? "in_progress" : "noop_terminal");
+  }
 
   return attemptOutcome(attempt, job, {
     status: "failed_terminal",
@@ -537,59 +489,16 @@ async function failUnsupportedLevel(attempt: TakeoffJobAttempt) {
   });
 }
 
-async function scheduleJobRetry(
+function failJobTerminally(
   attempt: TakeoffJobAttempt,
   current: TakeoffWorkerJobRow,
   currentRetryCount: number,
-  mappedError: TakeoffError
+  mappedError: TakeoffError,
+  // A rejected attempt reports its own error, not the stored one its job keeps.
+  rejected = false
 ) {
-  const backoffSeconds = getRetryBackoffSeconds(currentRetryCount);
-  const nextRetryAtIso = new Date(attempt.now().getTime() + backoffSeconds * 1000).toISOString();
-  const lastErrorAtIso = attempt.now().toISOString();
-
-  await attempt.repository.scheduleRetry({
-    jobId: current.id,
-    tenantId: current.tenant_id,
-    nextRetryAtIso,
-    lastErrorAtIso,
-  });
-
-  attempt.logger.warn("Takeoff async worker scheduled retry", {
-    job_id: current.id,
-    tenant_id: current.tenant_id,
-    level: current.level,
-    attempt: currentRetryCount + 1,
-    duration_ms: elapsedMs(attempt),
-    status: "failed_retryable",
-    correlation_id: attempt.correlationId,
-  });
-
-  return attemptOutcome(attempt, current, {
-    status: "failed_retryable",
-    retryCount: currentRetryCount,
-    retryable: true,
-    shouldRequeue: true,
-    requeueReason: "retry",
-    nextRunInSeconds: backoffSeconds,
-    nextRunAt: nextRetryAtIso,
-    durationMs: elapsedMs(attempt),
-    errorCode: current.error_code ?? mappedError.code,
-    errorMessage: current.error_message ?? mappedError.message,
-  });
-}
-
-async function failJobTerminally(
-  attempt: TakeoffJobAttempt,
-  current: TakeoffWorkerJobRow,
-  currentRetryCount: number,
-  mappedError: TakeoffError
-) {
-  await attempt.repository.clearRetrySchedule({
-    jobId: current.id,
-    tenantId: current.tenant_id,
-    lastErrorAtIso: attempt.now().toISOString(),
-  });
-
+  const errorCode = rejected ? mappedError.code : current.error_code ?? mappedError.code;
+  const errorMessage = rejected ? mappedError.message : current.error_message ?? mappedError.message;
   attempt.logger.error("Takeoff async worker reached terminal failure", {
     job_id: current.id,
     tenant_id: current.tenant_id,
@@ -598,17 +507,17 @@ async function failJobTerminally(
     duration_ms: elapsedMs(attempt),
     status: "failed_terminal",
     correlation_id: attempt.correlationId,
-    error_code: current.error_code ?? mappedError.code,
+    error_code: errorCode,
   });
   reportError({
-    error: new Error(current.error_message ?? mappedError.message),
+    error: new Error(errorMessage),
     source: "takeoff.async-worker",
     context: {
       job_id: current.id,
       tenant_id: current.tenant_id,
       status: "failed_terminal",
       correlation_id: attempt.correlationId,
-      error_code: current.error_code ?? mappedError.code,
+      error_code: errorCode,
     },
   });
 
@@ -618,8 +527,8 @@ async function failJobTerminally(
     retryable: false,
     shouldRequeue: false,
     durationMs: elapsedMs(attempt),
-    errorCode: current.error_code ?? mappedError.code,
-    errorMessage: current.error_message ?? mappedError.message,
+    errorCode,
+    errorMessage,
   });
 }
 
@@ -664,14 +573,22 @@ async function settleLevelProcessingFailure(attempt: TakeoffJobAttempt, error: u
     });
   }
 
-  const shouldRetry =
-    current.status === "failed" && mappedError.retryable && currentRetryCount < TAKEOFF_RETRY_MAX;
-
-  if (shouldRetry) {
-    return scheduleJobRetry(attempt, current, currentRetryCount, mappedError);
+  if (current.status === "failed" && (current.analysis_outcome === "failure" ||
+    (!current.next_retry_at && current.last_error_at && current.last_error_at !== job.last_error_at))) {
+    return failJobTerminally(attempt, current, currentRetryCount, mappedError);
   }
-
-  return failJobTerminally(attempt, current, currentRetryCount, mappedError);
+  if (current.status === "pending") {
+    // The callback reports the rejected attempt. Durable recovery still owns
+    // the accepted job, which has not acquired a worker lease.
+    return failJobTerminally(attempt, current, currentRetryCount, mappedError, true);
+  }
+  const scheduled = current.status === "failed" && current.next_retry_at && currentRetryCount < TAKEOFF_RETRY_MAX;
+  if (scheduled && (current.next_retry_at !== job.next_retry_at || currentRetryCount !== attempt.retryCount)) {
+    return scheduledRetryOutcome(attempt, current, mappedError);
+  }
+  // The claim rejected this attempt and left the job as it was: its due
+  // schedule stays for the recovery poll, and the rejection is reported.
+  return failJobTerminally(attempt, current, currentRetryCount, mappedError, true);
 }
 
 // Runs the level processor under the processing lease the job's claim holds.
@@ -737,7 +654,7 @@ export async function processTakeoffJobAttempt(
   assertTakeoffJobUsesLocalProvider(job);
 
   if (job.status === "failed") {
-    const retryGateOutcome = await gateFailedJobRetry(attempt);
+    const retryGateOutcome = gateFailedJobRetry(attempt);
     if (retryGateOutcome) return retryGateOutcome;
   }
 
