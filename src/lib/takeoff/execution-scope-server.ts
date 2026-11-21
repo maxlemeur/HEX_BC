@@ -30,10 +30,11 @@ export async function resolveTakeoffExecutionProvider(
   supabase: ServerSupabaseClient,
   job: TakeoffJobProcessingRow,
   resolveProvider: typeof resolveLocalTakeoffProvider,
+  lease?: () => string | null,
 ): ReturnType<typeof resolveLocalTakeoffProvider> {
   const assertAffaireAccess = () => assertTakeoffJobMayPay(job);
   await assertAffaireAccess();
-  const provider = await resolveProvider(supabase, job);
+  const provider = await resolveProvider(supabase, job, lease);
   return {
     ...provider,
     async assertOwnerActive() {

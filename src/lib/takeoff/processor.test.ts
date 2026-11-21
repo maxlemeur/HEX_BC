@@ -1312,6 +1312,33 @@ describe("processLevelA", () => {
     expect(mock.state.takeoffResults[0].provider_meta.preparation_snapshot).not.toHaveProperty("execution_selection");
   });
 
+  // The provider is resolved before the claim: a launch request's job records each paid call's usage under the lease the
+  // claim then took, never the one of the row it was read from (a stale lease stops the job after its first call).
+  it("gives the provider the lease the claim took, read at each paid call", async () => {
+    const bytes = toArrayBuffer("designation,quantity,unit\nTube fictif,3,u");
+    const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.sources[0] = {
+      ...snapshot.preparation.sources[0], document_id: `upload:${hash}`, source_version: hash, content_hash: hash, document_name: "niveau-a.csv",
+    };
+    const mock = createTakeoffProcessorSupabaseMock({ job: { preparation_snapshot: snapshot, processing_lease_token: null },
+      downloadFile: { bytes, mimeType: "text/csv" } });
+    const leasesSeen: Array<string | null | undefined> = [];
+    const callProvider = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([
+      { designation: "Tube fictif", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Ligne 2" },
+    ])));
+    const resolveProvider = async (_supabase: unknown, _job: unknown, lease?: () => string | null) => ({
+      model: PROVIDER_MODEL, assertOwnerActive: vi.fn(), selection: { profileId: "profile", model: PROVIDER_MODEL, reasoningEffort: null },
+      call: (async (options: unknown) => { leasesSeen.push(lease?.()); return callProvider(options); }) as StructuredCall,
+    });
+    const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: resolveProvider as never });
+    expect(result.status).toBe("completed");
+    const claim = vi.mocked(mock.supabase.rpc).mock.calls.find(([fn]) => fn === "claim_observed_local_takeoff_job");
+    expect(claim?.[1].p_lease_token).toEqual(expect.any(String));
+    expect(leasesSeen).toEqual([claim?.[1].p_lease_token]);
+  });
+
   it("passes confirmed exclusions and conventions to the provider and retains the snapshot in the result", async () => {
     const bytes = toArrayBuffer("designation,quantity,unit\nTube fictif,3,u");
     const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
@@ -1382,7 +1409,8 @@ describe("processLevelA", () => {
     vi.mocked(resolveLocalTakeoffProvider).mockImplementationOnce(localProvider(call));
     const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW });
     expect(result.status).toBe("completed");
-    expect(resolveLocalTakeoffProvider).toHaveBeenCalledWith(mock.supabase, expect.objectContaining({ id: JOB_ID, execution_provider: "chatgpt_local" }));
+    expect(resolveLocalTakeoffProvider).toHaveBeenCalledWith(mock.supabase, expect.objectContaining({ id: JOB_ID, execution_provider: "chatgpt_local" }),
+      expect.any(Function));
     expect(call).toHaveBeenCalledTimes(1);
     expect(mock.state.job).toMatchObject({ model: PROVIDER_MODEL, thinking_level: null, processing_strategy: "sync", cost_cents: 0 });
     expect(mock.state.takeoffResults[0].provider_meta).toMatchObject({ provider: "chatgpt", model: PROVIDER_MODEL });

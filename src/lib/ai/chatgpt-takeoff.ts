@@ -192,7 +192,12 @@ export type LocalTakeoffProvider = {
   assertOwnerActive: () => Promise<void>;
 };
 
-export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow): Promise<LocalTakeoffProvider> {
+/**
+ * The provider of one attempt of a job. `lease` reads the processing lease the worker holds at each paid call: the
+ * provider is resolved before the claim, so the row it is given carries the lease of an earlier attempt or none.
+ */
+export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow,
+  lease: () => string | null = () => job.processing_lease_token ?? null): Promise<LocalTakeoffProvider> {
   const hostId = await assertLocalTakeoffExecutionHost(job);
   assertTakeoffWorkerConfiguration();
   // The persisted job supplies ownership, never the triggering HTTP session.
@@ -223,7 +228,7 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
     authorizationId: (pinned.success ? pinned.data.authorizationId : undefined) ?? current.authorizationId,
     onUsage: job.launch_request_id ? async (usage: { totalTokens: number; costCents: number }) => {
       const { error } = await createServiceRoleClient().rpc("record_takeoff_launch_usage", {
-        p_job_id: job.id, p_lease_token: job.processing_lease_token ?? "", p_call_key: `call:${++calls}`,
+        p_job_id: job.id, p_lease_token: lease() ?? "", p_call_key: `call:${++calls}`,
         p_tokens: usage.totalTokens, p_cost_cents: usage.costCents });
       if (error) throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId: job.id,
         message: "La consommation de cet appel n’a pas pu être enregistrée : l’analyse s’arrête avant tout autre appel." });

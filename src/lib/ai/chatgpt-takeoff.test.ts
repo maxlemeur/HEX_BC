@@ -42,6 +42,24 @@ it("binds the plan to the persisted creator and active job tenant, rechecking ac
   expect(maybeSingle).toHaveBeenCalledTimes(2);
   expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options, { profileId: "profile", model: "chosen-model", reasoningEffort: null, authorizationId: "connexion", onUsage: undefined });
 });
+it("records each paid call's usage of a request's job under the lease the worker holds at that call", async () => {
+  const rpc = vi.fn().mockResolvedValue({ data: [{ remaining_tokens: 10, remaining_cost_cents: 0 }], error: null });
+  vi.mocked(createServiceRoleClient).mockReturnValue({ rpc } as never);
+  vi.mocked(callLocalChatGptStructured).mockImplementation(async (_owner, _options, selection) => {
+    await selection?.onUsage?.({ totalTokens: 42, costCents: 0 });
+    return { data: { quantity: 12 } } as never;
+  });
+  // The row the provider is resolved from was read before the claim: its lease is not the one the job runs under.
+  let lease: string | null = "lease-of-the-claim";
+  const provider = await resolveLocalTakeoffProvider(client as never, { ...job, launch_request_id: "request", processing_lease_token: null }, () => lease);
+  await provider.call(options);
+  lease = "lease-after-a-new-claim";
+  await provider.call(options);
+  expect(rpc.mock.calls).toEqual([
+    ["record_takeoff_launch_usage", { p_job_id: "job", p_lease_token: "lease-of-the-claim", p_call_key: "call:1", p_tokens: 42, p_cost_cents: 0 }],
+    ["record_takeoff_launch_usage", { p_job_id: "job", p_lease_token: "lease-after-a-new-claim", p_call_key: "call:2", p_tokens: 42, p_cost_cents: 0 }],
+  ]);
+});
 it("pins selected reasoning effort with the model on every takeoff chunk", async () => {
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
   const provider = await resolveLocalTakeoffProvider(client as never, job);
