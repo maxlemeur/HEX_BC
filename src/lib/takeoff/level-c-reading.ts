@@ -111,7 +111,7 @@ export async function processLevelCChunks(input: {
     {
       supabase: input.supabase,
     }
-  ), await readTakeoffRequestBudget(input.job.id), input.job.id);
+  ), await readTakeoffRequestBudget(input.job), input.job.id);
 
   if (pageCount > levelCProcessingConfig.maxPdfPages) {
     throw new TakeoffError({

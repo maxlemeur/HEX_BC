@@ -16,15 +16,14 @@ describe("boundTakeoffAttemptByRequest", () => {
   });
 
   it("gives an attempt only what its request has left", () => {
-    expect(boundTakeoffAttemptByRequest(config, { tokenBudget: 400_000, costBudgetCents: 2_500, tokensObserved: 350_000,
-      costCentsObserved: 100 }, JOB)).toEqual({ maxPdfPages: 200, maxTotalTokens: 50_000, maxCostCents: 2_400 });
+    expect(boundTakeoffAttemptByRequest(config, { remainingTokens: 50_000, remainingCostCents: 2_400 }, JOB)).toEqual({ maxPdfPages: 200, maxTotalTokens: 50_000, maxCostCents: 2_400 });
   });
 
   it.each([
-    ["its tokens", { tokensObserved: 400_000, costCentsObserved: 0 }],
-    ["its cost", { tokensObserved: 10, costCentsObserved: 2_500 }],
-  ])("stops the attempt before any call once the request spent %s", (_case, observed) => {
-    expect(() => boundTakeoffAttemptByRequest(config, { tokenBudget: 400_000, costBudgetCents: 2_500, ...observed }, JOB))
+    ["its tokens", { remainingTokens: 0, remainingCostCents: 2_500 }],
+    ["its cost", { remainingTokens: 399_990, remainingCostCents: -1 }],
+  ])("stops the attempt before any call once the request spent %s", (_case, remaining) => {
+    expect(() => boundTakeoffAttemptByRequest(config, remaining, JOB))
       .toThrow(expect.objectContaining({ code: TakeoffErrorCode.TAKEOFF_REQUEST_BUDGET_EXHAUSTED, retryable: false }));
   });
 });

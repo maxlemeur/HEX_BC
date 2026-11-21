@@ -1182,6 +1182,10 @@ function createTakeoffProcessorSupabaseMock(
         state.statusTransitions.push("completed");
         return Promise.resolve({ data: id, error: null });
       }
+      // Before each paid call, the database's check of the job (module, payer rule, budget): it may pay.
+      if (fn === "takeoff_job_may_pay") {
+        return Promise.resolve({ data: [{ reason: null, remaining_tokens: null, remaining_cost_cents: null }], error: null }) as never;
+      }
       // claim_observed_local_takeoff_job: the job's own host, from the pending or failed state the caller observed.
       if (fn !== "claim_observed_local_takeoff_job") throw new Error(`Unexpected rpc: ${fn}`);
       return {
