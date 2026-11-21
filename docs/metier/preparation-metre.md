@@ -342,32 +342,53 @@ d’autres octets sont une autre version. Aucune valeur n’est rattachée à un
 
 Sans correction, chaque champ est proposé d’après ce que montrent ces octets :
 le cartouche (coin inférieur droit) des douze premières pages, puis le nom
-d’origine du fichier s’il est univoque. Le brief et le périmètre ne sont qu’une
-aide à la saisie : un bâtiment commun à cinq plans ne prouve la localisation
-d’aucun. Chaque valeur indique sa source et ses pages et reste « à vérifier ».
-Un cartouche sans texte et un nom muet donnent « À préciser » ; plusieurs
-valeurs lues donnent « Plusieurs niveaux » (ou « Plusieurs bâtiments ») avec
-chaque page ; un nom qui contredit le cartouche reste affiché comme « Autre
-lecture ». Un cartouche qui n’a pas été lu (PDF illisible, octets qui ne sont
-plus ceux du plan, limite de lecture d’une revue) est dit « Cartouche non lu » :
-le nom du fichier n’est alors jamais proposé à sa place. RDC, R+n, R-n et SSn gardent leur écriture ; un libellé libre comme
+d’origine du fichier s’il est univoque. Seul le nom sous lequel le plan a été
+déposé compte : le nom de stockage, nettoyé, n’est jamais une lecture. Le brief
+et le périmètre ne sont qu’une aide à la saisie : un bâtiment commun à cinq
+plans ne prouve la localisation d’aucun. Chaque valeur indique sa source et ses
+pages et reste « à vérifier ». Un cartouche lu qui ne l’indique pas et un nom
+muet donnent « À préciser » ; plusieurs valeurs lues donnent « Plusieurs
+niveaux » (ou « Plusieurs bâtiments ») avec chaque page ; un nom qui contredit
+le cartouche reste affiché comme « Autre lecture ». Un cartouche qui n’a pas été
+lu (pages sans aucun texte, comme un plan scanné, PDF illisible, octets qui ne
+sont plus ceux du plan, limite de lecture d’une revue) est dit « Cartouche non
+lu » : le nom du fichier n’est alors jamais proposé à sa place, ses valeurs
+restent seulement affichées à côté. RDC, R+n, R-n et SSn gardent leur écriture ; un libellé libre comme
 `L00` est conservé tel qu’écrit, sans équivalence inventée. Le tri des pages par
 IA n’est jamais déclenché pour remplir ces champs.
 
 Un opérateur de l’affaire (administrateur, ou ingénieur propriétaire de
-l’affaire) enregistre une seule fois les deux champs ; un champ laissé vide
-n’est pas corrigé et garde la lecture du plan, toujours à vérifier (vider un
-champ retire sa correction). La valeur est « confirmée » quand elle reprend la
-proposition, « corrigée » sinon, avec l’auteur et la date de chaque champ ; elle
-se retrouve dans les plans, la revue et toute relance de la même version. Deux onglets qui enregistrent la
-même version : le second reçoit un conflit et voit la valeur enregistrée. Un
-lecteur (directeur) consulte sans rien modifier. Pour de nouveaux octets du même
-plan, la correction précédente est présentée préremplie avec sa provenance, à
-vérifier ; une validation la reporte sur la nouvelle version. Il en va de même
-pour la pièce que la préparation a retenue à la place d’une autre, depuis la
-pièce écartée ; deux pièces qui ont seulement le même nom ne sont jamais
-rapprochées. La revue d’une analyse dont le plan a changé depuis montre la
-correction de la version qu’elle a lue, sans en proposer d’autre.
+l’affaire) choisit pour chaque champ : suivre la lecture du plan (toujours à
+vérifier), saisir une valeur, ou « À préciser ». « À préciser » écarte la
+lecture : la valeur est inconnue partout (plans, revue, relance), et ce que le
+plan montre reste affiché à côté. Une valeur est « confirmée » quand elle reprend
+la proposition, « corrigée » sinon. Chaque champ garde son choix, son auteur, sa
+date et la génération où il a été fait ; un champ que l’enregistrement ne change
+pas garde les siens. Le choix se retrouve dans les plans, la revue et toute
+relance de la même version. Deux onglets qui enregistrent la même version : le
+second reçoit un conflit et voit la valeur enregistrée.
+
+Un directeur voit la lecture et la correction là où il voit déjà le plan : la
+page Plans d’une affaire qu’il peut lire et les plans d’une analyse qu’il peut
+lire. Il ne modifie rien.
+
+Pour de nouveaux octets du même plan, la correction précédente est présentée
+préremplie avec sa provenance, à vérifier ; une validation la reporte sur la
+nouvelle version. Il en va de même pour la pièce que la préparation a retenue à
+la place d’une autre, d’après les choix d’indices valides de la préparation,
+depuis la pièce écartée ; deux pièces qui ont seulement le même nom ne sont
+jamais rapprochées. Le report garde la correction d’origine, la génération à
+laquelle elle a été proposée et les champs repris : si elle a changé entre-temps,
+l’enregistrement est refusé et l’écran montre ce qui s’applique maintenant. La
+revue d’une analyse dont le plan a changé depuis montre la correction de la
+version qu’elle a lue, sans en proposer d’autre.
+
+Quand le dossier remplace la copie d’un plan pendant qu’elle est ouverte (un
+reclassement de la pièce en crée une autre), l’enregistrement est refusé : le
+formulaire dit que le plan a été remplacé et affiche sa copie actuelle, avec ce
+qui s’y applique. La revue d’une analyse qui avait lu l’ancienne copie le dit
+aussi et ouvre la copie actuelle ; la correction de la pièce s’y applique tant
+que les octets sont les mêmes.
 
 La correction est une donnée à côté du plan : elle ne modifie ni le fichier (ni
 sa date, qui entre dans la version d’une analyse en cours), ni la préparation,
@@ -390,13 +411,19 @@ autorisation explicite. Un commit ou un push ne les exécute pas.
 La migration
 [`20261121040445_takeoff_plan_locations.sql`](../../supabase/migrations/20261121040445_takeoff_plan_locations.sql)
 porte la localisation des plans : une ligne par version (source et empreinte),
-sa génération, ses valeurs, son auteur et l’historique de chaque changement, et
-la source de chaque fichier de plan, notée à sa création, pour qu’une analyse
-dont la copie de travail a été remplacée retrouve la correction des octets
-qu’elle a lus. Elle se lit comme l’affaire ; seule la commande
-`set_takeoff_plan_location` écrit une correction, en comparant la génération que
-l’écran a vue. Elle ne modifie aucun objet existant ; créer un fichier de plan
-note en plus sa source, sans jamais être refusé pour cela.
+sa génération, le choix, la valeur, l’auteur et la génération de chaque champ,
+la correction d’où vient un report et l’historique de chaque changement, et la
+source de chaque fichier de plan, notée à sa création, pour qu’une analyse dont
+la copie de travail a été remplacée retrouve la correction des octets qu’elle a
+lus. Elle se lit comme l’affaire. Une correction s’écrit en deux temps : le
+serveur relit les octets du plan, puis atteste, avec son rôle de service, la
+version (source et empreinte) et la correction précédente qu’il propose ; la
+session du membre ne peut pas attester. La commande `set_takeoff_plan_location`
+consomme une seule fois une attestation récente faite pour ce membre, vérifie
+ses droits sur l’affaire, que la copie est toujours celle de sa pièce et que la
+correction reprise n’a pas changé, puis compare la génération que l’écran a vue.
+Elle ne modifie aucun objet existant ; créer un fichier de plan note en plus sa
+source, sans jamais être refusé pour cela.
 
 Un lancement depuis une version existante crée une copie ordinaire du devis,
 sans la transformer en variante. Un reçu enregistré par le serveur relie cette

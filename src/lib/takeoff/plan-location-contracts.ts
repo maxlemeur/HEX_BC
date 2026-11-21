@@ -48,17 +48,28 @@ export const planRevisionIdentitySchema = z.object({
   content_hash: sha256,
 }).strict();
 
-const fieldAuthorSchema = z.object({ by: uuid, by_name: z.string().nullable(), at: z.string() }).strict();
+const choiceSchema = z.enum(["reading", "value", "unknown"]);
+
+/** One field of a correction: the operator's choice, who made it, when and at which generation of the annotation. */
+const annotationFieldSchema = z.object({
+  choice: choiceSchema,
+  /** The value set, only when the choice is « value ». */
+  value: z.string().nullable(),
+  /** The value was carried from the earlier revision named by the annotation. */
+  carried: z.boolean(),
+  set_by: uuid,
+  set_by_name: z.string().nullable(),
+  set_at: z.string(),
+  set_revision: z.number().int().positive(),
+}).strict();
 
 export const planLocationAnnotationSchema = z.object({
   id: uuid,
   revision: z.number().int().positive(),
-  /** Null: no correction of this field; the reading of these bytes applies. */
-  building: z.string().nullable(),
-  level: z.string().nullable(),
-  /** Who set each corrected field's current value, and when (from the history of changes). */
-  fields: z.object({ building: fieldAuthorSchema.nullable(), level: fieldAuthorSchema.nullable() }).strict(),
+  building: annotationFieldSchema,
+  level: annotationFieldSchema,
   carried_from_id: uuid.nullable(),
+  carried_from_revision: z.number().int().positive().nullable(),
   document_name: z.string(),
   updated_by: uuid,
   updated_by_name: z.string().nullable(),
@@ -66,12 +77,27 @@ export const planLocationAnnotationSchema = z.object({
   created_at: z.string(),
 }).strict();
 
-/** The correction of an earlier revision of the same plan, offered for these bytes: never applied without a save. */
-export const planLocationCarryOverSchema = planLocationAnnotationSchema.extend({
+/**
+ * The correction of an earlier revision of the same plan, offered for these bytes at its current generation: never
+ * applied without a save, which names that generation and the fields it carries.
+ */
+export const planLocationCarryOverSchema = z.object({
+  id: uuid,
+  revision: z.number().int().positive(),
+  /** The values it set (null for a field it left to its reading or marked to be specified). */
+  building: z.string().nullable(),
+  level: z.string().nullable(),
+  document_name: z.string(),
   content_hash: sha256,
-  /** The same dossier piece (or plan file) with other bytes; otherwise a piece the preparation says this one replaces. */
+  /** The same dossier piece (or plan file) with other bytes; otherwise a piece the preparation retained this one over. */
   same_source: z.boolean(),
+  updated_by_name: z.string().nullable(),
+  updated_at: z.string(),
 }).strict();
+
+/** The details of a 409 when the copy was replaced in the dossier: its current copy, when there is one. */
+export const planLocationReplacementSchema = z.object({ plan_set_id: uuid, plan_file_id: uuid }).strict();
+export type PlanLocationReplacement = z.infer<typeof planLocationReplacementSchema>;
 
 export const takeoffPlanFileLocationSchema = z.object({
   project_id: uuid,
@@ -93,12 +119,19 @@ export const takeoffPlanFileLocationSchema = z.object({
 }).strict();
 export type TakeoffPlanFileLocation = z.infer<typeof takeoffPlanFileLocationSchema>;
 
+const saveFieldSchema = z.object({ choice: choiceSchema, value: z.string().max(200).nullable() }).strict();
+
 export const takeoffPlanLocationSaveSchema = z.object({
   content_hash: sha256,
   expected_revision: z.number().int().nonnegative(),
-  building: z.string().max(200).nullable(),
-  level: z.string().max(200).nullable(),
-  carried_from_id: uuid.nullable().default(null),
+  building: saveFieldSchema,
+  level: saveFieldSchema,
+  /** The earlier correction offered, at the generation shown, and the fields set to its values. */
+  carried_from: z.object({
+    id: uuid,
+    revision: z.number().int().positive(),
+    fields: z.array(z.enum(["building", "level"])).min(1).max(2),
+  }).strict().nullable().default(null),
 }).strict();
 export type TakeoffPlanLocationSave = z.input<typeof takeoffPlanLocationSaveSchema>;
 
@@ -115,6 +148,8 @@ export const takeoffJobPlanLocationSchema = z.object({
    * unavailable: the plan file or its bytes can no longer be read.
    */
   status: z.enum(["current", "changed", "unavailable"]),
+  /** The dossier replaced the copy the analysis read: the current copy of its piece, where it is corrected now. */
+  replacement: planLocationReplacementSchema.nullable(),
   reading: planLocationReadingSchema.nullable(),
   /**
    * Why the title block of the bytes the analysis read was not read here: they are no longer the plan's (not_current),

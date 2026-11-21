@@ -2,6 +2,7 @@ import type { z } from "zod";
 
 import { TakeoffApiError, TAKEOFF_READ_REQUEST_TIMEOUT_MS, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
 import {
+  planLocationReplacementSchema,
   takeoffJobPlanLocationsSchema,
   takeoffPlanFileLocationSchema,
   type TakeoffPlanLocationSave,
@@ -49,10 +50,17 @@ export function fetchTakeoffJobPlanLocations(jobId: string) {
     "Impossible de lire la localisation des plans de ce métré.", Math.max(READ_TIMEOUT_MS, 90_000));
 }
 
-/** The reason a save was refused for a change made meanwhile: the screen reloads and shows what is stored now. */
-export function planLocationConflictReason(error: unknown) {
+const CONFLICT_REASONS = ["TAKEOFF_PLAN_LOCATION_CONFLICT", "TAKEOFF_PLAN_LOCATION_REVISION_CHANGED",
+  "TAKEOFF_PLAN_LOCATION_ORIGIN_MOVED", "TAKEOFF_PLAN_LOCATION_SOURCE_STALE"] as const;
+
+/**
+ * Why a read or a save was refused for a change made meanwhile, and the plan's current copy when the dossier replaced
+ * it: the screen reloads (or opens that copy) and shows what applies now.
+ */
+export function planLocationConflict(error: unknown) {
   if (!(error instanceof TakeoffApiError) || error.status !== 409 || !isRecord(error.details)) return null;
-  const reason = error.details.reason;
-  return reason === "TAKEOFF_PLAN_LOCATION_CONFLICT" || reason === "TAKEOFF_PLAN_LOCATION_REVISION_CHANGED"
-    || reason === "TAKEOFF_PLAN_LOCATION_SOURCE_STALE" ? reason : null;
+  const reason = CONFLICT_REASONS.find((candidate) => candidate === (error.details as Record<string, unknown>).reason);
+  if (!reason) return null;
+  const replacement = planLocationReplacementSchema.safeParse(error.details.replacement);
+  return { reason, replacement: replacement.success ? replacement.data : null, message: error.message };
 }

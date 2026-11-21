@@ -24,7 +24,7 @@ export type FakeQuery = {
   operation: "select" | "insert" | "update" | "delete" | "upsert";
   payload: unknown;
   columns: string | null;
-  filters: Array<{ kind: "eq" | "in"; column: string; value: unknown }>;
+  filters: Array<{ kind: "eq" | "in" | "contains"; column: string; value: unknown }>;
   cardinality: "single" | "maybeSingle" | "many";
 };
 
@@ -46,6 +46,7 @@ type QueryBuilder = {
   select: (columns?: string, options?: unknown) => QueryBuilder;
   eq: (column: string, value: unknown) => QueryBuilder;
   in: (column: string, value: unknown) => QueryBuilder;
+  contains: (column: string, value: unknown) => QueryBuilder;
   neq: (...args: unknown[]) => QueryBuilder;
   is: (...args: unknown[]) => QueryBuilder;
   not: (...args: unknown[]) => QueryBuilder;
@@ -98,6 +99,10 @@ export function createSupabaseFake(input: {
       },
       in: (column, value) => {
         state.filters.push({ kind: "in", column, value });
+        return builder;
+      },
+      contains: (column, value) => {
+        state.filters.push({ kind: "contains", column, value });
         return builder;
       },
       neq: () => builder,

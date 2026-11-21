@@ -4,14 +4,17 @@ import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
+import { buildAffaireIntakeStoragePath } from "@/lib/affaires/intake";
 import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot, type TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 import { getPreparationPlanSourceVersion } from "@/lib/takeoff/preparation-sources";
+import type { PlanLocationField } from "@/lib/takeoff/plan-location";
 import type { TakeoffJobPlanLocations, TakeoffPlanFileLocation } from "@/lib/takeoff/plan-location-contracts";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import type { TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
 import { apiRequest, armyTest, recordEvidence } from "../critical/fixtures";
 import { querySql } from "../local/calculation-gate-support";
+import { callServerAction, serverActionId } from "../local/engine-v3-creators-support";
 import { startOwnedTakeoffAdmission } from "./affaire-admission-support";
 import { buildVectorPlanPdf } from "./vector-plan-fixture";
 import { ownedWorkerHostId, signUpWorkerOwner, startOwnedWorker } from "./worker-support";
@@ -19,13 +22,27 @@ import { ownedWorkerHostId, signUpWorkerOwner, startOwnedWorker } from "./worker
 // Lot 3, « Localisation canonique »: the building and the level of a plan revision are read from what the plan shows,
 // corrected once on the plan, and found again in the plan centre, the review and a relaunch of the same revision. Three
 // fictional plans: A's title block says « BÂTIMENT A / NIVEAU L00 » while its name says BAT-B and R+1; B has two sheets,
-// R+1 and R+2; C prints no text. No AI call: the controlled provider of the owned worker.
+// R+1 and R+2; C prints no text (a scan) while its name says BAT-C and R+3. No AI call: the controlled provider of the
+// owned worker.
 
 const A_NAME = "P-101_BAT-B_R+1.pdf";
 const B_NAME = "P-102_colonnes.pdf";
-const C_NAME = "P-103_sans-texte.pdf";
+const C_NAME = "P-103_BAT-C_R+3_scan.pdf";
 const D_NAME = "P-101_BAT-B_R+1_indice-B.pdf";
+const PIECE_NAME = "P-201_plan-dossier.pdf";
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+const valueOf = (value: string) => ({ choice: "value" as const, value });
+
+/** The service client of the owned local stack the runner started: never a shared one. */
+function ownedLocalClient() {
+  const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+  const workerKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname)
+    || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST || !workerKey) {
+    throw new Error("An owned local worker stack is required.");
+  }
+  return createClient(backend.origin, workerKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}
 
 async function buildSheetsPdf(sheets: string[][]) {
   const doc = await PDFDocument.create();
@@ -47,13 +64,7 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "LOC");
   const { tenantId, userId } = owner;
-  const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
-  const workerKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname)
-    || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST || !workerKey) {
-    throw new Error("An owned local worker stack is required.");
-  }
-  const setup = createClient(backend.origin, workerKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const setup = ownedLocalClient();
 
   const projectId = randomUUID();
   const planSetId = randomUUID();
@@ -137,12 +148,21 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await expect(field("level")).toContainText("Plusieurs niveaux");
   await expect(field("level")).toContainText("R+1 (cartouche, page 1), R+2 (cartouche, page 2)");
   await closeLocation();
+  // A scan's title block is not read, and its original name never stands in for it. Both fields stay to be
+  // specified, with the name's values shown beside them only (the earlier rule proposed C and R+3 from the name).
   await openLocation(C_NAME);
   for (const name of ["building", "level"] as const) {
     await expect(field(name)).toHaveAttribute("data-state", "unknown");
     await expect(field(name)).toContainText("À préciser");
+    await expect(field(name)).toContainText("Cartouche non lu");
   }
-  await expect(dialog.getByText("Sans texte lisible dans le cartouche : page 1.", { exact: false })).toBeVisible();
+  await expect(field("building")).toContainText("Autre lecture : C (nom du fichier)");
+  await expect(field("level")).toContainText("Autre lecture : R+3 (nom du fichier)");
+  await expect(dialog.getByText("Cartouche non lu : aucun texte lisible sur 1 page", { exact: false })).toBeVisible();
+  const scan = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${ids.c}/location`);
+  expect(scan.body.data).toMatchObject({ reading: { title_block_read: false, building: [{ value: "C", source: "file_name", pages: [] }],
+    level: [{ value: "R+3", source: "file_name", pages: [] }] }, location: { building: { value: null, state: "unknown", origin: null },
+    level: { value: null, state: "unknown", origin: null } } });
   await closeLocation();
 
   // 2. The operator keeps the building and corrects the level once, on the plan.
@@ -154,10 +174,12 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await expect(field("level")).toHaveAttribute("data-state", "corrected");
   await expect(field("level")).toContainText("L01");
   await expect(field("level")).toContainText(/Corrigé par .+ le /);
-  const rows = async () => (await setup.from("takeoff_plan_locations").select("id,source_kind,source_id,content_hash,revision,building,level,carried_from_id,created_by,updated_by")
+  const rows = async () => (await setup.from("takeoff_plan_locations")
+    .select("id,source_kind,source_id,content_hash,revision,building_choice,building,level_choice,level,building_carried,level_carried,carried_from_id,carried_from_revision,created_by,updated_by")
     .eq("project_id", projectId).order("created_at")).data ?? [];
   expect(await rows()).toEqual([{ id: expect.any(String), source_kind: "plan_file", source_id: ids.a, content_hash: sha256(bytes.a), revision: 1,
-    building: "A", level: "L01", carried_from_id: null, created_by: userId, updated_by: userId }]);
+    building_choice: "value", building: "A", level_choice: "value", level: "L01", building_carried: false, level_carried: false,
+    carried_from_id: null, carried_from_revision: null, created_by: userId, updated_by: userId }]);
   // The label lives beside the plan: the plan file, its version and the preparation are untouched.
   const planAfter = await setup.from("plan_files").select("updated_at").eq("id", ids.a).single();
   expect(planAfter.data?.updated_at).toBe(stored.get(ids.a)!.updated_at);
@@ -171,8 +193,11 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
 
   // 4. Two tabs on the same revision: the one that saved second gets a conflict and sees the winner.
   const otherTab = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "PUT", `/api/takeoff/plan-sets/${planSetId}/files/${ids.a}/location`,
-    { content_hash: sha256(bytes.a), expected_revision: 1, building: "A", level: "L02" });
-  expect([otherTab.status, otherTab.body.data.annotation?.revision, otherTab.body.data.annotation?.level]).toEqual([200, 2, "L02"]);
+    { content_hash: sha256(bytes.a), expected_revision: 1, building: valueOf("A"), level: valueOf("L02") });
+  expect([otherTab.status, otherTab.body.data.annotation?.revision, otherTab.body.data.annotation?.level.value]).toEqual([200, 2, "L02"]);
+  // Each field keeps who set it and at which generation; the building, unchanged, keeps generation 1.
+  expect(otherTab.body.data.annotation).toMatchObject({ building: { choice: "value", value: "A", set_by: userId, set_revision: 1 },
+    level: { choice: "value", value: "L02", set_by: userId, set_revision: 2 } });
   await dialog.getByLabel("Niveau", { exact: true }).fill("L03");
   await dialog.getByRole("button", "Enregistrer", { exact: true }).click();
   await expect(dialog.getByTestId("plan-location-notice")).toContainText("a été enregistrée entre-temps");
@@ -180,9 +205,32 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await expect(field("level")).toContainText("L02");
   await expect(dialog.getByLabel("Niveau", { exact: true })).toHaveValue("L02");
   const stale = await apiRequest<{ error: { code: string; details: { reason: string } } }>(ui.browser, "PUT",
-    `/api/takeoff/plan-sets/${planSetId}/files/${ids.a}/location`, { content_hash: sha256(bytes.a), expected_revision: 1, building: "A", level: "L04" });
+    `/api/takeoff/plan-sets/${planSetId}/files/${ids.a}/location`, { content_hash: sha256(bytes.a), expected_revision: 1, building: valueOf("A"),
+      level: valueOf("L04") });
   expect([stale.status, stale.body.error.details.reason]).toEqual([409, "TAKEOFF_PLAN_LOCATION_CONFLICT"]);
   expect((await rows()).map((row) => [row.revision, row.level])).toEqual([[2, "L02"]]);
+  await closeLocation();
+
+  // 4b. On B, the operator leaves the building to the plan's reading and marks the level « À préciser ».
+  // B's two readings stay visible; its level is unknown wherever B is shown (here, the review, a relaunch).
+  await openLocation(B_NAME);
+  const choice = (name: PlanLocationField, label: string) =>
+    dialog.getByTestId(`plan-location-choice-${name}`).getByRole("radio", label, { exact: true });
+  await choice("building", "Lecture du plan (A)").click();
+  await choice("level", "À préciser").click();
+  await dialog.getByRole("button", "Enregistrer", { exact: true }).click();
+  await expect(dialog.getByTestId("plan-location-notice")).toContainText("Localisation enregistrée pour cette version du plan.");
+  await expect(field("building")).toHaveAttribute("data-state", "proposed");
+  await expect(field("building")).toContainText("Lu dans le cartouche, pages 1, 2 · à vérifier");
+  await expect(field("level")).toHaveAttribute("data-state", "unknown");
+  await expect(field("level")).toContainText("À préciser");
+  await expect(field("level")).toContainText(/Marqué à préciser par .+ le /);
+  await expect(field("level")).toContainText("Autre lecture : R+1 (cartouche, page 1), R+2 (cartouche, page 2)");
+  const marked = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${ids.b}/location`);
+  expect(marked.body.data).toMatchObject({ annotation: { revision: 1, building: { choice: "reading", value: null, set_by: userId, set_revision: 1 },
+    level: { choice: "unknown", value: null, set_by: userId, set_revision: 1 } },
+    location: { building: { value: "A", state: "proposed", origin: "title_block" }, level: { value: null, state: "unknown", origin: "operator",
+      candidates: [{ value: "R+1", source: "title_block", pages: [1] }, { value: "R+2", source: "title_block", pages: [2] }] } } });
   await closeLocation();
 
   // 5. The analysis of A and B: its review shows the correction of the revision it read; the worker's raw reading stays.
@@ -195,7 +243,10 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   expect(completed.job).toMatchObject({ status: "completed" });
   const rawVector = await apiRequest<{ data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
   const rawPage = rawVector.body.data.pages.find((page) => page.plan_file_id === ids.a);
-  expect(rawPage).toBeDefined();
+  // The worker's own reading, known before any correction (as TKW08 pins it): the location it takes from
+  // the name the preparation attests, R+1, and never the level corrected on the plan (L02, then a later one).
+  const workerLocation = { zone: null, level: "R+1", source: "file_name" };
+  expect(rawPage?.reading.location).toEqual(workerLocation);
   await ui.app.open(takeoffReviewHref({ projectId, jobId }));
   const panel = ui.screen.getByTestId("takeoff-plan-locations");
   await expect(panel).toBeVisible({ timeout: 60_000 });
@@ -204,7 +255,10 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   const reviewRow = (name: string) => ui.browser.locator("[data-testid='takeoff-plan-location']").filter({ hasText: name });
   await expect(reviewRow(A_NAME)).toContainText("L02");
   await expect(reviewRow(A_NAME)).toContainText(/Corrigé par .+ le /);
-  await expect(reviewRow(B_NAME)).toContainText("Plusieurs niveaux");
+  // B's level was marked « À préciser » (4b): the review shows it so, the readings beside it.
+  await expect(reviewRow(B_NAME)).toContainText("À préciser");
+  await expect(reviewRow(B_NAME)).toContainText(/Marqué à préciser par .+ le /);
+  await expect(reviewRow(B_NAME)).toContainText("Autre lecture : R+1 (cartouche, page 1), R+2 (cartouche, page 2)");
   await expect(reviewRow(C_NAME)).toHaveCount(0);
   const reviewScreenshot = await ui.app.screenshot("takeoff-plan-location-review");
 
@@ -214,8 +268,10 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   expect(relaunchId).not.toBe(jobId);
   const again = await apiRequest<{ data: TakeoffJobPlanLocations }>(ui.browser, "GET", `/api/takeoff/jobs/${relaunchId}/plan-locations`);
   expect(again.body.data.plans.find((plan) => plan.plan_file_id === ids.a)).toMatchObject({ status: "current",
-    revision: { source_id: ids.a, content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: "L02" }, carry_over: null,
-    location: { level: { value: "L02", state: "corrected", origin: "operator" } } });
+    revision: { source_id: ids.a, content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: { value: "L02", set_revision: 2 } },
+    carry_over: null, location: { level: { value: "L02", state: "corrected", origin: "operator" } } });
+  expect(again.body.data.plans.find((plan) => plan.plan_file_id === ids.b)).toMatchObject({ status: "current",
+    location: { level: { value: null, state: "unknown", origin: "operator" } } });
 
   // 7. A new revision of A arrives as another file, and the preparation retains it over A: A's correction is only a
   // proposal to check on it, never carried silently; one validation keeps it. A's own revision is untouched.
@@ -223,12 +279,26 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   const dPath = `${tenantId}/${planSetId}/${dId}/d.pdf`;
   const nextA = await buildVectorPlanPdf({ titleBlock: ["PLAN DE PLOMBERIE FICTIF", "BÂTIMENT A", "NIVEAU L00", "INDICE B"] });
   expect((await setup.storage.from("plan-files").upload(dPath, nextA, { contentType: "application/pdf" })).error).toBeNull();
-  expect((await setup.from("plan_files").insert({ id: dId, tenant_id: tenantId, plan_set_id: planSetId, file_name: "d.pdf", file_path: dPath,
-    file_type: "application/pdf", file_size_bytes: nextA.length, page_count: 1, metadata: { original_file_name: D_NAME } })).error).toBeNull();
-  const decided = { ...preparation, plan_revision_decisions: [{ left: { document_id: ids.a, content_hash: sha256(bytes.a) },
-    right: { document_id: dId, content_hash: sha256(nextA) }, choice: "right" as const }] };
-  expect((await setup.from("takeoff_preparations").update({ revision: 2, draft: decided, confirmed_snapshot: null, confirmed_at: null,
-    confirmed_by: null, updated_by: userId }).eq("project_id", projectId).eq("revision", 1)).error).toBeNull();
+  const dRow = await setup.from("plan_files").insert({ id: dId, tenant_id: tenantId, plan_set_id: planSetId, file_name: "d.pdf", file_path: dPath,
+    file_type: "application/pdf", file_size_bytes: nextA.length, page_count: 1, metadata: { original_file_name: D_NAME } })
+    .select("id,plan_set_id,file_path,file_name,file_size_bytes,file_hash,page_count,updated_at").single();
+  expect(dRow.error).toBeNull();
+  const dSource: TakeoffPreparationSource = { document_id: dId, document_name: D_NAME, kind: "plan", revision: "B",
+    source_version: getPreparationPlanSourceVersion(dRow.data!), content_hash: sha256(nextA), pages: [], active: true, confirmed: true,
+    plan_set_id: planSetId, file_path: dPath, page_count: 1, logical_document_id: null, source_updated_at: dRow.data!.updated_at,
+    mime_type: "application/pdf", page_triage: null };
+  // The decision is the preparation's own, saved as the application saves it, and read through the
+  // preparation's validator. A decision whose fingerprint does not name D's bytes retains nothing: no proposal on D.
+  await ui.app.open(`/dashboard/affaires/${projectId}/takeoff`);
+  const saveAction = await serverActionId("saveTakeoffPreparationAction");
+  const decide = (rightHash: string, expectedRevision: number) => callServerAction(ui.browser, saveAction, { projectId, expectedRevision,
+    draft: { ...preparation, sources: [...preparation.sources, dSource], plan_revision_decisions: [{
+      left: { document_id: ids.a, content_hash: sha256(bytes.a) }, right: { document_id: dId, content_hash: rightHash }, choice: "right" }] } });
+  expect(await decide(sha256(bytes.a), 1)).toMatchObject({ ok: true, status: 200 });
+  const undecided = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${dId}/location`);
+  expect(undecided.body.data).toMatchObject({ annotation: null, carry_over: null,
+    location: { level: { value: "L00", state: "proposed", origin: "title_block" } } });
+  expect(await decide(sha256(nextA), 2)).toMatchObject({ ok: true, status: 200 });
   await ui.app.open(`/dashboard/affaires/${projectId}/plans`);
   await ui.screen.getByRole("heading", "Plans localisés", { exact: true }).click();
   await openLocation(D_NAME);
@@ -241,14 +311,24 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   const proposal = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${dId}/location`);
   expect(proposal.body.data).toMatchObject({ revision: { source_id: dId, content_hash: sha256(nextA) }, annotation: null,
     carry_over: { revision: 2, level: "L02", same_source: false, content_hash: sha256(bytes.a) } });
-  expect((await rows()).length).toBe(1);
+  expect((await rows()).filter((row) => row.source_id === dId)).toEqual([]);
+  // A carry names the generation of the correction offered; one named at an older generation of A is a
+  // visible conflict, and nothing is written.
+  const origin = (await rows()).find((row) => row.source_id === ids.a)!;
+  const moved = await apiRequest<{ error: { code: string; details: { reason: string } } }>(ui.browser, "PUT",
+    `/api/takeoff/plan-sets/${planSetId}/files/${dId}/location`, { content_hash: sha256(nextA), expected_revision: 0, building: valueOf("A"),
+      level: valueOf("L02"), carried_from: { id: origin.id, revision: 1, fields: ["building", "level"] } });
+  expect([moved.status, moved.body.error.details.reason]).toEqual([409, "TAKEOFF_PLAN_LOCATION_ORIGIN_MOVED"]);
+  expect((await rows()).filter((row) => row.source_id === dId)).toEqual([]);
   await dialog.getByRole("button", "Valider pour cette version", { exact: true }).click();
   await expect(dialog.getByTestId("plan-location-notice")).toContainText("Localisation enregistrée pour cette version du plan.");
   await expect(field("level")).toHaveAttribute("data-state", "corrected");
   const generations = await rows();
-  expect(generations.map((row) => [row.source_id, row.content_hash, row.revision, row.level]))
-    .toEqual([[ids.a, sha256(bytes.a), 2, "L02"], [dId, sha256(nextA), 1, "L02"]]);
-  expect(generations[1].carried_from_id).toBe(generations[0].id);
+  expect(generations.map((row) => [row.source_id, row.content_hash, row.revision, row.building_choice, row.level_choice, row.level]))
+    .toEqual([[ids.a, sha256(bytes.a), 2, "value", "value", "L02"], [ids.b, sha256(bytes.b), 1, "reading", "unknown", null],
+      [dId, sha256(nextA), 1, "value", "value", "L02"]]);
+  // Pinned: the origin and the generation it was offered at, and each field carried from it.
+  expect(generations[2]).toMatchObject({ carried_from_id: origin.id, carried_from_revision: 2, building_carried: true, level_carried: true });
   await closeLocation();
   // The other plan with no decision on it (B) receives nothing from A.
   const untouched = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${ids.b}/location`);
@@ -256,12 +336,18 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   // The first analysis read A: its review keeps A's own correction and offers nothing from the newer revision.
   const history = await apiRequest<{ data: TakeoffJobPlanLocations }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/plan-locations`);
   expect(history.body.data.plans.find((plan) => plan.plan_file_id === ids.a)).toMatchObject({ status: "current", reading_issue: null,
-    revision: { content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: "L02" }, carry_over: null });
-  // A correction made after the analysis leaves the worker's own reading as it was persisted.
+    revision: { content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: { value: "L02" } }, carry_over: null });
+  // The corrections made after the analysis (B's, D's) leave the worker's own reading as it was persisted, still the
+  // value known before any correction.
   const unchangedVector = await apiRequest<{ data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
-  expect(unchangedVector.body.data.pages.find((page) => page.plan_file_id === ids.a)?.reading).toEqual(rawPage?.reading);
+  const unchangedPage = unchangedVector.body.data.pages.find((page) => page.plan_file_id === ids.a);
+  expect(unchangedPage?.reading).toEqual(rawPage?.reading);
+  expect(unchangedPage?.reading.location).toEqual(workerLocation);
 
-  // 8. A reader opens the plan and the review and changes nothing.
+  // 8. A director of the affaire's tenant reads it and changes nothing. What this proves: a director sees the reading
+  // where they can already see the plan (the plan centre of an affaire they may read, the plans of an analysis they may
+  // read), the form is read only and a write is refused (403). It does not prove what a member without the affaire sees:
+  // the SQL tests cover that.
   const reader = await signUpWorkerOwner(ui, "LOCR");
   await querySql(`update public.tenant_memberships set is_default = false where user_id = '${reader.userId}';
     insert into public.tenant_memberships (tenant_id,user_id,role,is_default) values ('${tenantId}','${reader.userId}','director',true);`);
@@ -272,7 +358,7 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await expect(dialog.getByText("Lecture seule : seuls les opérateurs de l’affaire corrigent la localisation d’un plan.", { exact: true })).toBeVisible();
   await expect(dialog.getByLabel("Niveau", { exact: true })).toHaveCount(0);
   const readerWrite = await apiRequest<{ error: { code: string } }>(ui.browser, "PUT", `/api/takeoff/plan-sets/${planSetId}/files/${ids.a}/location`,
-    { content_hash: sha256(bytes.a), expected_revision: 2, building: "A", level: "L09" });
+    { content_hash: sha256(bytes.a), expected_revision: 2, building: valueOf("A"), level: valueOf("L09") });
   expect([readerWrite.status, readerWrite.body.error.code]).toEqual([403, "FORBIDDEN"]);
   await closeLocation();
   await ui.app.open(takeoffReviewHref({ projectId, jobId }));
@@ -281,11 +367,154 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await expect(reviewRow(A_NAME)).toContainText("L02");
   await expect(reviewRow(A_NAME)).toContainText(/Corrigé par .+ le /);
   await expect(reviewRow(A_NAME).getByRole("button", /Corriger/)).toHaveCount(0);
-  expect((await rows()).map((row) => [row.revision, row.level, row.updated_by])).toEqual([[2, "L02", userId], [1, "L02", userId]]);
-  expect(await querySql(`select count(*) from public.takeoff_plan_location_events where project_id = '${projectId}';`)).toEqual(["3"]);
+  expect((await rows()).map((row) => [row.revision, row.level, row.updated_by])).toEqual([[2, "L02", userId], [1, null, userId], [1, "L02", userId]]);
+  expect(await querySql(`select count(*) from public.takeoff_plan_location_events where project_id = '${projectId}';`)).toEqual(["4"]);
 
   await recordEvidence(ui.army, "TKPL01-plan-location", { projectId, planSetId, ids, jobId, relaunchId,
     firstReading: firstReading.body.data.location, conflict: stale.status, readerWrite: readerWrite.status,
-    generations, rawVectorLocation: rawPage?.reading, screenshot: reviewScreenshot,
+    generations, rawVectorLocation: rawPage?.reading.location, originMoved: moved.status, screenshot: reviewScreenshot,
     boundary: "Owned stack, owned worker with the controlled provider; fictional PDFs; no AI call, no e-mail." });
+});
+
+// The dossier replaces a plan's copy while its location is open. A reclassification of the piece
+// rotates its copy generation, and the dossier sync (the application's own route) removes the copy and makes another of
+// the same bytes. The save made through the removed copy says so and the dialogue shows the current copy with what
+// applies to it; the analysis that read the removed copy finds the piece's correction and opens its current copy.
+// Fictional PDF; the reclassification is written with the service role (no classifier runs); no AI call.
+armyTest("TKPL02 a dossier plan replaced while its location is open: the member is told, sees the current copy and what applies to it, and the earlier analysis still finds it", {
+  session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
+}, async (ui) => {
+  await ui.app.open("/dashboard/affaires");
+  const owner = await signUpWorkerOwner(ui, "LOCD");
+  const { tenantId, userId } = owner;
+  const setup = ownedLocalClient();
+  const projectId = randomUUID();
+  const uploadId = randomUUID();
+  const documentId = randomUUID();
+  const bytes = await buildVectorPlanPdf({ titleBlock: ["PLAN DE PLOMBERIE FICTIF", "BÂTIMENT A", "NIVEAU L00"] });
+  const storagePath = buildAffaireIntakeStoragePath({ tenantId, projectId, uploadId, documentId, fileName: PIECE_NAME });
+  expect((await setup.from("estimate_projects").insert({ id: projectId, tenant_id: tenantId, user_id: userId,
+    name: `${ui.army.runPrefix} dossier localisé` })).error).toBeNull();
+  (ui.army.ownedTakeoffAffaires ??= []).push(projectId);
+  const classifiedAt = new Date().toISOString();
+  expect((await setup.from("affaire_intake_uploads").insert({ id: uploadId, tenant_id: tenantId, project_id: projectId, created_by: userId,
+    status: "ready", completed_at: classifiedAt })).error).toBeNull();
+  expect((await setup.storage.from("affaire-intake").upload(storagePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
+  expect((await setup.from("affaire_intake_documents").insert({ id: documentId, tenant_id: tenantId, project_id: projectId, upload_id: uploadId,
+    created_by: userId, storage_path: storagePath, file_name: PIECE_NAME, mime_type: "application/pdf", size_bytes: bytes.length,
+    upload_status: "uploaded", classification_status: "classified", document_kind: "plans", confidence: 0.95, issues: [],
+    classification_source: "heuristic", classified_at: classifiedAt,
+    extracted_metadata: { projectName: null, clientName: null, deadlineAt: null, detectedLots: [], detectedVariants: [] } })).error).toBeNull();
+  const copies = async () => (await setup.from("plan_files").select("id,plan_set_id,file_path,file_name,file_size_bytes,file_hash,page_count,updated_at")
+    .eq("tenant_id", tenantId).contains("metadata", { intake_document_id: documentId })).data ?? [];
+  const reconcile = async () => {
+    const synced = await apiRequest<{ data: { changed: boolean } }>(ui.browser, "POST", `/api/affaires/${projectId}/intake/reconcile-plans`);
+    expect([synced.status, synced.body.data.changed]).toEqual([200, true]);
+  };
+
+  // 1. The dossier sync copies the piece into the affaire's plans; an analysis reads that copy.
+  await reconcile();
+  const [first, ...extraFirst] = await copies();
+  expect([first, extraFirst]).toEqual([expect.objectContaining({ file_size_bytes: bytes.length }), []]);
+  const planSetId = first.plan_set_id;
+  (ui.army.ownedPlanSets ??= []).push({ projectId, planSetId, tenantId });
+  const preparation = createEmptyTakeoffPreparation({ estimateVersionId: null });
+  preparation.objective = "measure_length";
+  preparation.objective_confirmed = true;
+  preparation.scope = { ...preparation.scope, lots: ["Plomberie"], networks: ["EF"], buildings: ["A"], confirmed: true };
+  preparation.sources = [{ document_id: first.id, document_name: PIECE_NAME, kind: "plan", revision: "A",
+    source_version: getPreparationPlanSourceVersion(first), content_hash: sha256(bytes), pages: [], active: true, confirmed: true,
+    plan_set_id: planSetId, file_path: first.file_path, page_count: first.page_count, logical_document_id: null,
+    source_updated_at: first.updated_at, mime_type: "application/pdf", page_triage: null }];
+  preparation.conventions = { unit: "m", measurement_basis: "dimensioned", calibration: null, purchase: null, confirmed: true };
+  preparation.destination = { kind: "analysis_only", estimate_version_id: null, reviewer: null, confirmed: true };
+  preparation.processing = { level: "C", provider: "chatgpt" };
+  const confirmedAt = new Date().toISOString();
+  const snapshot = { ...createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedAt, confirmedBy: userId }),
+    execution_selection: { profileId: "army", model: "army", reasoningEffort: null, hostId: await ownedWorkerHostId() } };
+  expect(snapshot.readiness.can_launch).toBe(true);
+  expect((await setup.from("takeoff_preparations").insert({ tenant_id: tenantId, project_id: projectId, revision: 1, draft: preparation,
+    confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId })).error).toBeNull();
+  const launched = await startOwnedTakeoffAdmission(owner, ui.army.runPrefix, projectId, planSetId, randomUUID()).done;
+  const jobId = launched.receipt!.id;
+  const completed = await startOwnedWorker(ui, { projectId, versionId: null }, jobId, "success", { owner, providerItems: [
+    { designation: "ARMY tube du dossier", quantity: 2, unit: "m", source_page: 1, confidence: 0.9, evidence: "Tube, page 1" },
+  ] }).done;
+  expect(completed.job).toMatchObject({ status: "completed" });
+
+  // 2. The member opens the plan's location and corrects its level, on the dossier piece's revision.
+  await ui.app.open(`/dashboard/affaires/${projectId}/plans`);
+  await ui.screen.getByRole("heading", "Plans import", { exact: true }).click();
+  const dialog = ui.screen.getByRole("dialog", "Localisation du plan");
+  const field = (name: PlanLocationField) => ui.screen.getByTestId(`plan-location-summary-${name}`);
+  const notice = dialog.getByTestId("plan-location-notice");
+  await ui.screen.getByRole("button", `Bâtiment et niveau de ${PIECE_NAME}`, { exact: true }).click();
+  await expect(field("level")).toContainText("L00", { timeout: 45_000 });
+  await dialog.getByLabel("Niveau", { exact: true }).fill("L01");
+  await dialog.getByRole("button", "Enregistrer", { exact: true }).click();
+  await expect(notice).toContainText("Localisation enregistrée pour cette version du plan.");
+  const rows = async () => (await setup.from("takeoff_plan_locations").select("source_kind,source_id,content_hash,revision,level,plan_file_id")
+    .eq("project_id", projectId).order("created_at")).data ?? [];
+  expect(await rows()).toEqual([{ source_kind: "intake_document", source_id: documentId, content_hash: sha256(bytes), revision: 1, level: "L01",
+    plan_file_id: first.id }]);
+
+  // 3. With the dialogue still open, the piece is reclassified: the sync removes its copy and makes another.
+  expect((await setup.from("affaire_intake_documents").update({ classified_at: new Date(Date.parse(classifiedAt) + 60_000).toISOString(),
+    classification_source: "manual" }).eq("id", documentId)).error).toBeNull();
+  await reconcile();
+  const [second, ...extraSecond] = await copies();
+  expect([second.id === first.id, second.file_size_bytes, extraSecond]).toEqual([false, bytes.length, []]);
+
+  // 4. The save made through the removed copy is refused, says the plan was replaced and opens its current copy, where
+  // the piece's correction (same bytes) applies; the value typed is not written.
+  await dialog.getByLabel("Niveau", { exact: true }).fill("L02");
+  await dialog.getByRole("button", "Enregistrer", { exact: true }).click();
+  await expect(notice).toContainText("Ce plan a été remplacé dans le dossier : sa version actuelle est affichée, avec ce qui s’y applique.");
+  await expect(notice).toContainText("Votre saisie (bâtiment A, niveau L02) n’a pas été enregistrée.");
+  await expect(field("level")).toContainText("L01");
+  await expect(field("level")).toContainText(/Corrigé par .+ le /);
+  await expect(dialog.getByLabel("Niveau", { exact: true })).toHaveValue("L01");
+  expect((await rows()).map((row) => [row.revision, row.level, row.plan_file_id])).toEqual([[1, "L01", first.id]]);
+  // The route says the same to any caller of the removed copy, reading or writing, and names the current copy.
+  type Refusal = { error: { code: string; details: { reason: string; replacement: unknown } } };
+  const removedPath = `/api/takeoff/plan-sets/${planSetId}/files/${first.id}/location`;
+  const staleRead = await apiRequest<Refusal>(ui.browser, "GET", removedPath);
+  const staleWrite = await apiRequest<Refusal>(ui.browser, "PUT", removedPath,
+    { content_hash: sha256(bytes), expected_revision: 1, building: valueOf("A"), level: valueOf("L09") });
+  for (const refused of [staleRead, staleWrite]) {
+    expect([refused.status, refused.body.error.details]).toEqual([409, expect.objectContaining({ reason: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE",
+      replacement: { plan_set_id: planSetId, plan_file_id: second.id } })]);
+  }
+  expect((await rows()).map((row) => row.revision)).toEqual([1]);
+
+  // 5. The current copy is corrected from the same dialogue.
+  await dialog.getByLabel("Niveau", { exact: true }).fill("L02");
+  await dialog.getByRole("button", "Enregistrer", { exact: true }).click();
+  await expect(notice).toContainText("Localisation enregistrée pour cette version du plan.");
+  await expect(field("level")).toContainText("L02");
+  expect((await rows()).map((row) => [row.revision, row.level, row.plan_file_id])).toEqual([[2, "L02", second.id]]);
+  await dialog.getByRole("button", "Fermer", { exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  // 6. The analysis read the removed copy: its review shows the piece's correction, says the plan was replaced and opens
+  // its current copy.
+  const history = await apiRequest<{ data: TakeoffJobPlanLocations }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/plan-locations`);
+  expect(history.body.data).toMatchObject({ can_edit: true, plans: [{ plan_file_id: first.id, status: "unavailable",
+    replacement: { plan_set_id: planSetId, plan_file_id: second.id },
+    revision: { source_kind: "intake_document", source_id: documentId, content_hash: sha256(bytes) },
+    annotation: { revision: 2, level: { choice: "value", value: "L02" } }, location: { level: { value: "L02", state: "corrected" } } }] });
+  await ui.app.open(takeoffReviewHref({ projectId, jobId }));
+  await expect(ui.screen.getByTestId("takeoff-plan-locations")).toBeVisible({ timeout: 60_000 });
+  await ui.screen.getByRole("button", "Afficher le bâtiment et le niveau des plans", { exact: true }).click();
+  const reviewRow = ui.browser.locator("[data-testid='takeoff-plan-location']").filter({ hasText: PIECE_NAME });
+  await expect(reviewRow).toContainText("L02");
+  await expect(reviewRow).toContainText("Ce plan a été remplacé dans le dossier depuis cette analyse");
+  await reviewRow.getByRole("button", `Corriger le bâtiment et le niveau de ${PIECE_NAME}`, { exact: true }).click();
+  await expect(field("level")).toContainText("L02", { timeout: 45_000 });
+  await expect(dialog.getByLabel("Niveau", { exact: true })).toHaveValue("L02");
+  const reviewScreenshot = await ui.app.screenshot("takeoff-plan-location-replaced-review");
+
+  await recordEvidence(ui.army, "TKPL02-plan-location-replaced", { projectId, planSetId, documentId, firstCopy: first.id, secondCopy: second.id,
+    jobId, staleRead: staleRead.status, staleWrite: staleWrite.status, history: history.body.data.plans, screenshot: reviewScreenshot,
+    boundary: "Owned stack, owned worker with the controlled provider; fictional PDF; reclassification written with the service role; no AI call, no e-mail." });
 });

@@ -1,7 +1,8 @@
 import type { PlanLocationField, PlanLocationFieldView } from "@/lib/takeoff/plan-location";
 
-type FieldAuthor = { by_name: string | null; at: string } | null;
-type Correction = { fields: Record<PlanLocationField, FieldAuthor>; updated_by_name: string | null; updated_at: string } | null;
+type FieldAuthor = { set_by_name: string | null; set_at: string };
+type Correction = Record<PlanLocationField, FieldAuthor> | null;
+type EarlierCorrection = { updated_by_name: string | null; updated_at: string } | null;
 
 export const PLAN_LOCATION_FIELD_LABELS: Record<PlanLocationField, string> = { building: "Bâtiment", level: "Niveau" };
 
@@ -19,25 +20,26 @@ export function planLocationValueLabel(field: PlanLocationField, view: PlanLocat
 }
 
 /** Where the value comes from, and whether it still has to be checked. */
-export function planLocationProvenanceLabel(field: PlanLocationField, view: PlanLocationFieldView, annotation: Correction, earlier: Correction) {
-  const by = (correction: Correction) => {
-    const author = correction?.fields[field] ?? (correction ? { by_name: correction.updated_by_name, at: correction.updated_at } : null);
-    return author ? `${author.by_name ?? "un membre"} le ${formatDate(author.at)}` : "un membre";
-  };
+export function planLocationProvenanceLabel(field: PlanLocationField, view: PlanLocationFieldView, annotation: Correction, earlier: EarlierCorrection) {
+  const author = annotation?.[field];
+  const by = author ? `${author.set_by_name ?? "un membre"} le ${formatDate(author.set_at)}` : "un membre";
+  const byEarlier = earlier ? `${earlier.updated_by_name ?? "un membre"} le ${formatDate(earlier.updated_at)}` : "un membre";
   switch (view.state) {
-    case "confirmed": return `Confirmé par ${by(annotation)}`;
+    case "confirmed": return `Confirmé par ${by}`;
     // Against a title block that was not read here, the stored value is neither a confirmation nor a correction.
-    case "corrected": return `${view.title_block_read ? "Corrigé" : "Enregistré"} par ${by(annotation)}`;
+    case "corrected": return `${view.title_block_read ? "Corrigé" : "Enregistré"} par ${by}`;
     case "multiple": return `Lu dans le plan : ${view.candidates.map((candidate) => `${candidate.value} (${sourceLabel(candidate.source, candidate.pages)})`).join(", ")}`;
-    case "unknown": return view.title_block_read ? "Ni le cartouche ni le nom du fichier ne l’indiquent" : "Cartouche non lu";
+    case "unknown":
+      if (view.origin === "operator") return `Marqué à préciser par ${by}`;
+      return view.title_block_read ? "Ni le cartouche ni le nom d’origine du fichier ne l’indiquent" : "Cartouche non lu";
     case "proposed":
-      if (view.origin === "previous_revision") return `Repris de la correction d’une version précédente (${by(earlier)}) · à vérifier`;
+      if (view.origin === "previous_revision") return `Repris de la correction d’une version précédente (${byEarlier}) · à vérifier`;
       if (view.origin === "file_name") return "Lu dans le nom du fichier · à vérifier";
       return `Lu dans le cartouche, ${pages(view.pages)} · à vérifier`;
   }
 }
 
-/** The other values these bytes show for a field: a contradiction stays visible. */
+/** The other values these bytes show for a field: a contradiction, or a reading set aside, stays visible. */
 export function planLocationOtherReadings(view: PlanLocationFieldView) {
   if (view.state === "multiple") return [];
   return view.candidates.filter((candidate) => candidate.value !== view.value)

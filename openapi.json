@@ -25737,7 +25737,7 @@
           "Takeoff"
         ],
         "summary": "Batiment et niveau des plans lus par un metre",
-        "description": "Lecture seule (lot 3) : pour chaque plan que la preparation du metre atteste, la version lue (source et SHA-256), la lecture du cartouche de ces octets s'ils sont encore ceux du plan, la correction d'un operateur pour cette version et, sinon, celle d'une version precedente comme proposition a verifier. Descriptif : ni la revue des lignes ni l'envoi ne l'utilisent encore.",
+        "description": "Lecture seule (lot 3) : pour chaque plan que la preparation du metre atteste, la version lue (source et SHA-256), la lecture du cartouche de ces octets s'ils sont encore ceux du plan, la correction d'un operateur pour cette version et, sinon, celle d'une version precedente comme proposition a verifier ; la copie actuelle quand le dossier a remplace celle lue. Descriptif : ni la revue des lignes ni l'envoi ne l'utilisent encore.",
         "parameters": [
           {
             "name": "jobId",
@@ -28906,7 +28906,7 @@
           "Takeoff"
         ],
         "summary": "Corriger le batiment et le niveau d'un plan",
-        "description": "Operateur de l'affaire seulement. Enregistre la localisation de la version du plan dont le serveur relit les octets ; 409 si le contenu a change depuis l'affichage, si un autre membre a enregistre une generation plus recente ou si la copie du dossier a ete remplacee. N'ecrit ni le plan, ni la preparation, ni un metre, ni un devis.",
+        "description": "Operateur de l'affaire seulement. Le serveur relit les octets du plan, atteste leur empreinte et la version precedente proposee, puis enregistre la localisation sur cette attestation ; 409 si le contenu a change depuis l'affichage, si un autre membre a enregistre une generation plus recente, si la correction reprise a change ou si la copie du dossier a ete remplacee (la copie actuelle est alors nommee dans details.replacement). N'ecrit ni le plan, ni la preparation, ni un metre, ni un devis.",
         "parameters": [
           {
             "name": "setId",
@@ -28928,7 +28928,7 @@
           }
         ],
         "requestBody": {
-          "description": "Batiment et niveau de cette version du plan (null : a preciser), empreinte lue a l'affichage et generation de la correction vue (0 avant la premiere).",
+          "description": "Pour le batiment et le niveau de cette version du plan, le choix de l'operateur (suivre la lecture du plan, une valeur, ou a preciser), l'empreinte lue a l'affichage, la generation de la correction vue (0 avant la premiere) et, pour une valeur reprise d'une version precedente, cette correction a la generation proposee et les champs repris.",
           "required": true,
           "content": {
             "application/json": {
@@ -93591,6 +93591,33 @@
                         "unavailable"
                       ]
                     },
+                    "replacement": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "plan_set_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "plan_file_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "required": [
+                            "plan_set_id",
+                            "plan_file_id"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "reading": {
                       "anyOf": [
                         {
@@ -93598,7 +93625,7 @@
                           "properties": {
                             "rule_version": {
                               "type": "number",
-                              "const": 1
+                              "const": 2
                             },
                             "pages_total": {
                               "anyOf": [
@@ -93745,88 +93772,104 @@
                               "maximum": 9007199254740991
                             },
                             "building": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "level": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "fields": {
                               "type": "object",
                               "properties": {
-                                "building": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "by": {
-                                          "type": "string",
-                                          "format": "uuid",
-                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                        },
-                                        "by_name": {
-                                          "type": [
-                                            "string",
-                                            "null"
-                                          ]
-                                        },
-                                        "at": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": [
-                                        "by",
-                                        "by_name",
-                                        "at"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
+                                "choice": {
+                                  "type": "string",
+                                  "enum": [
+                                    "reading",
+                                    "value",
+                                    "unknown"
                                   ]
                                 },
-                                "level": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "by": {
-                                          "type": "string",
-                                          "format": "uuid",
-                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                        },
-                                        "by_name": {
-                                          "type": [
-                                            "string",
-                                            "null"
-                                          ]
-                                        },
-                                        "at": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": [
-                                        "by",
-                                        "by_name",
-                                        "at"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
                                   ]
+                                },
+                                "carried": {
+                                  "type": "boolean"
+                                },
+                                "set_by": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "set_by_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_at": {
+                                  "type": "string"
+                                },
+                                "set_revision": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
                                 }
                               },
                               "required": [
-                                "building",
-                                "level"
+                                "choice",
+                                "value",
+                                "carried",
+                                "set_by",
+                                "set_by_name",
+                                "set_at",
+                                "set_revision"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "level": {
+                              "type": "object",
+                              "properties": {
+                                "choice": {
+                                  "type": "string",
+                                  "enum": [
+                                    "reading",
+                                    "value",
+                                    "unknown"
+                                  ]
+                                },
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "carried": {
+                                  "type": "boolean"
+                                },
+                                "set_by": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "set_by_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_at": {
+                                  "type": "string"
+                                },
+                                "set_revision": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "choice",
+                                "value",
+                                "carried",
+                                "set_by",
+                                "set_by_name",
+                                "set_at",
+                                "set_revision"
                               ],
                               "additionalProperties": false
                             },
@@ -93836,6 +93879,18 @@
                                   "type": "string",
                                   "format": "uuid",
                                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "carried_from_revision": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
                                 },
                                 {
                                   "type": "null"
@@ -93868,8 +93923,8 @@
                             "revision",
                             "building",
                             "level",
-                            "fields",
                             "carried_from_id",
+                            "carried_from_revision",
                             "document_name",
                             "updated_by",
                             "updated_by_name",
@@ -93910,99 +93965,15 @@
                                 "null"
                               ]
                             },
-                            "fields": {
-                              "type": "object",
-                              "properties": {
-                                "building": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "by": {
-                                          "type": "string",
-                                          "format": "uuid",
-                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                        },
-                                        "by_name": {
-                                          "type": [
-                                            "string",
-                                            "null"
-                                          ]
-                                        },
-                                        "at": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": [
-                                        "by",
-                                        "by_name",
-                                        "at"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "level": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "by": {
-                                          "type": "string",
-                                          "format": "uuid",
-                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                        },
-                                        "by_name": {
-                                          "type": [
-                                            "string",
-                                            "null"
-                                          ]
-                                        },
-                                        "at": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": [
-                                        "by",
-                                        "by_name",
-                                        "at"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                }
-                              },
-                              "required": [
-                                "building",
-                                "level"
-                              ],
-                              "additionalProperties": false
-                            },
-                            "carried_from_id": {
-                              "anyOf": [
-                                {
-                                  "type": "string",
-                                  "format": "uuid",
-                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            },
                             "document_name": {
                               "type": "string"
                             },
-                            "updated_by": {
+                            "content_hash": {
                               "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              "pattern": "^[a-f0-9]{64}$"
+                            },
+                            "same_source": {
+                              "type": "boolean"
                             },
                             "updated_by_name": {
                               "type": [
@@ -94012,16 +93983,6 @@
                             },
                             "updated_at": {
                               "type": "string"
-                            },
-                            "created_at": {
-                              "type": "string"
-                            },
-                            "content_hash": {
-                              "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
-                            },
-                            "same_source": {
-                              "type": "boolean"
                             }
                           },
                           "required": [
@@ -94029,15 +93990,11 @@
                             "revision",
                             "building",
                             "level",
-                            "fields",
-                            "carried_from_id",
                             "document_name",
-                            "updated_by",
-                            "updated_by_name",
-                            "updated_at",
-                            "created_at",
                             "content_hash",
-                            "same_source"
+                            "same_source",
+                            "updated_by_name",
+                            "updated_at"
                           ],
                           "additionalProperties": false
                         },
@@ -94244,6 +94201,7 @@
                     "pages",
                     "revision",
                     "status",
+                    "replacement",
                     "reading",
                     "reading_issue",
                     "annotation",
@@ -101673,7 +101631,7 @@
                     "properties": {
                       "rule_version": {
                         "type": "number",
-                        "const": 1
+                        "const": 2
                       },
                       "pages_total": {
                         "anyOf": [
@@ -101818,88 +101776,104 @@
                         "maximum": 9007199254740991
                       },
                       "building": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "level": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "fields": {
                         "type": "object",
                         "properties": {
-                          "building": {
-                            "anyOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "by": {
-                                    "type": "string",
-                                    "format": "uuid",
-                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                  },
-                                  "by_name": {
-                                    "type": [
-                                      "string",
-                                      "null"
-                                    ]
-                                  },
-                                  "at": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "by",
-                                  "by_name",
-                                  "at"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "null"
-                              }
+                          "choice": {
+                            "type": "string",
+                            "enum": [
+                              "reading",
+                              "value",
+                              "unknown"
                             ]
                           },
-                          "level": {
-                            "anyOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "by": {
-                                    "type": "string",
-                                    "format": "uuid",
-                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                  },
-                                  "by_name": {
-                                    "type": [
-                                      "string",
-                                      "null"
-                                    ]
-                                  },
-                                  "at": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "by",
-                                  "by_name",
-                                  "at"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "null"
-                              }
+                          "value": {
+                            "type": [
+                              "string",
+                              "null"
                             ]
+                          },
+                          "carried": {
+                            "type": "boolean"
+                          },
+                          "set_by": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "set_by_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_at": {
+                            "type": "string"
+                          },
+                          "set_revision": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
-                          "building",
-                          "level"
+                          "choice",
+                          "value",
+                          "carried",
+                          "set_by",
+                          "set_by_name",
+                          "set_at",
+                          "set_revision"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "level": {
+                        "type": "object",
+                        "properties": {
+                          "choice": {
+                            "type": "string",
+                            "enum": [
+                              "reading",
+                              "value",
+                              "unknown"
+                            ]
+                          },
+                          "value": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "carried": {
+                            "type": "boolean"
+                          },
+                          "set_by": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "set_by_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_at": {
+                            "type": "string"
+                          },
+                          "set_revision": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "choice",
+                          "value",
+                          "carried",
+                          "set_by",
+                          "set_by_name",
+                          "set_at",
+                          "set_revision"
                         ],
                         "additionalProperties": false
                       },
@@ -101909,6 +101883,18 @@
                             "type": "string",
                             "format": "uuid",
                             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "carried_from_revision": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
                           },
                           {
                             "type": "null"
@@ -101941,8 +101927,8 @@
                       "revision",
                       "building",
                       "level",
-                      "fields",
                       "carried_from_id",
+                      "carried_from_revision",
                       "document_name",
                       "updated_by",
                       "updated_by_name",
@@ -101983,99 +101969,15 @@
                           "null"
                         ]
                       },
-                      "fields": {
-                        "type": "object",
-                        "properties": {
-                          "building": {
-                            "anyOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "by": {
-                                    "type": "string",
-                                    "format": "uuid",
-                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                  },
-                                  "by_name": {
-                                    "type": [
-                                      "string",
-                                      "null"
-                                    ]
-                                  },
-                                  "at": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "by",
-                                  "by_name",
-                                  "at"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "level": {
-                            "anyOf": [
-                              {
-                                "type": "object",
-                                "properties": {
-                                  "by": {
-                                    "type": "string",
-                                    "format": "uuid",
-                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                                  },
-                                  "by_name": {
-                                    "type": [
-                                      "string",
-                                      "null"
-                                    ]
-                                  },
-                                  "at": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "by",
-                                  "by_name",
-                                  "at"
-                                ],
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          }
-                        },
-                        "required": [
-                          "building",
-                          "level"
-                        ],
-                        "additionalProperties": false
-                      },
-                      "carried_from_id": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
                       "document_name": {
                         "type": "string"
                       },
-                      "updated_by": {
+                      "content_hash": {
                         "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "same_source": {
+                        "type": "boolean"
                       },
                       "updated_by_name": {
                         "type": [
@@ -102085,16 +101987,6 @@
                       },
                       "updated_at": {
                         "type": "string"
-                      },
-                      "created_at": {
-                        "type": "string"
-                      },
-                      "content_hash": {
-                        "type": "string",
-                        "pattern": "^[a-f0-9]{64}$"
-                      },
-                      "same_source": {
-                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -102102,15 +101994,11 @@
                       "revision",
                       "building",
                       "level",
-                      "fields",
-                      "carried_from_id",
                       "document_name",
-                      "updated_by",
-                      "updated_by_name",
-                      "updated_at",
-                      "created_at",
                       "content_hash",
-                      "same_source"
+                      "same_source",
+                      "updated_by_name",
+                      "updated_at"
                     ],
                     "additionalProperties": false
                   },
@@ -102372,34 +102260,98 @@
             "maximum": 9007199254740991
           },
           "building": {
-            "anyOf": [
-              {
+            "type": "object",
+            "properties": {
+              "choice": {
                 "type": "string",
-                "maxLength": 200
+                "enum": [
+                  "reading",
+                  "value",
+                  "unknown"
+                ]
               },
-              {
-                "type": "null"
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
-            ]
+            },
+            "required": [
+              "choice",
+              "value"
+            ],
+            "additionalProperties": false
           },
           "level": {
-            "anyOf": [
-              {
+            "type": "object",
+            "properties": {
+              "choice": {
                 "type": "string",
-                "maxLength": 200
+                "enum": [
+                  "reading",
+                  "value",
+                  "unknown"
+                ]
               },
-              {
-                "type": "null"
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
-            ]
+            },
+            "required": [
+              "choice",
+              "value"
+            ],
+            "additionalProperties": false
           },
-          "carried_from_id": {
+          "carried_from": {
             "default": null,
             "anyOf": [
               {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "fields": {
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "building",
+                        "level"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision",
+                  "fields"
+                ],
+                "additionalProperties": false
               },
               {
                 "type": "null"

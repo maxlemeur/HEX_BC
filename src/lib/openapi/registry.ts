@@ -1939,7 +1939,7 @@ const apiTakeoffJobPlanLocationsSchemaDefinition = successResponseSchemaDefiniti
 );
 const takeoffPlanLocationSaveBody = jsonBody({
   name: "TakeoffPlanLocationSaveRequest",
-  description: "Batiment et niveau de cette version du plan (null : a preciser), empreinte lue a l'affichage et generation de la correction vue (0 avant la premiere).",
+  description: "Pour le batiment et le niveau de cette version du plan, le choix de l'operateur (suivre la lecture du plan, une valeur, ou a preciser), l'empreinte lue a l'affichage, la generation de la correction vue (0 avant la premiere) et, pour une valeur reprise d'une version precedente, cette correction a la generation proposee et les champs repris.",
   schema: takeoffPlanLocationSaveSchema,
 });
 const apiTakeoffVectorReadingSchemaDefinition = successResponseSchemaDefinition(
@@ -3251,7 +3251,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/plan-locations",
     summary: "Batiment et niveau des plans lus par un metre",
     description:
-      "Lecture seule (lot 3) : pour chaque plan que la preparation du metre atteste, la version lue (source et SHA-256), la lecture du cartouche de ces octets s'ils sont encore ceux du plan, la correction d'un operateur pour cette version et, sinon, celle d'une version precedente comme proposition a verifier. Descriptif : ni la revue des lignes ni l'envoi ne l'utilisent encore.",
+      "Lecture seule (lot 3) : pour chaque plan que la preparation du metre atteste, la version lue (source et SHA-256), la lecture du cartouche de ces octets s'ils sont encore ceux du plan, la correction d'un operateur pour cette version et, sinon, celle d'une version precedente comme proposition a verifier ; la copie actuelle quand le dossier a remplace celle lue. Descriptif : ni la revue des lignes ni l'envoi ne l'utilisent encore.",
     tags: ["Takeoff"],
     parameters: [takeoffJobIdPathParameter],
     responses: {
@@ -3704,7 +3704,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/plan-sets/{setId}/files/{fileId}/location",
     summary: "Corriger le batiment et le niveau d'un plan",
     description:
-      "Operateur de l'affaire seulement. Enregistre la localisation de la version du plan dont le serveur relit les octets ; 409 si le contenu a change depuis l'affichage, si un autre membre a enregistre une generation plus recente ou si la copie du dossier a ete remplacee. N'ecrit ni le plan, ni la preparation, ni un metre, ni un devis.",
+      "Operateur de l'affaire seulement. Le serveur relit les octets du plan, atteste leur empreinte et la version precedente proposee, puis enregistre la localisation sur cette attestation ; 409 si le contenu a change depuis l'affichage, si un autre membre a enregistre une generation plus recente, si la correction reprise a change ou si la copie du dossier a ete remplacee (la copie actuelle est alors nommee dans details.replacement). N'ecrit ni le plan, ni la preparation, ni un metre, ni un devis.",
     tags: ["Takeoff"],
     parameters: [takeoffPlanSetIdPathParameter, takeoffPlanFileIdPathParameter],
     requestBody: takeoffPlanLocationSaveBody,

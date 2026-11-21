@@ -1,6 +1,7 @@
 -- Lot 3, migration B: the building and the level of a plan revision, corrected once by an operator.
--- Isolation justified: the rights of the command, its revision check under the row lock and two operators saving at
--- once are only reproducible in SQL; the journey e2e/army/takeoff/affaire-plan-location.e2e.ts covers the screens.
+-- Isolation justified: the server's attestation, the rights of the command, its revision check under the row lock, its
+-- lock order against an affaire's deletion and two operators saving at once are only reproducible in SQL; the journey
+-- e2e/army/takeoff/affaire-plan-location.e2e.ts covers the screens.
 begin;
 create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
@@ -31,10 +32,17 @@ select table_privs_are('public', 'takeoff_plan_location_events', 'authenticated'
   'members only read the history');
 select table_privs_are('public', 'takeoff_plan_locations', 'anon', array[]::text[], 'anonymous clients see nothing');
 select table_privs_are('public', 'takeoff_plan_location_events', 'anon', array[]::text[], 'anonymous clients see no history');
-select is(has_function_privilege('anon', 'public.set_takeoff_plan_location(uuid, uuid, text, integer, text, text, text, uuid)', 'EXECUTE'),
+select is(has_function_privilege('anon', 'public.set_takeoff_plan_location(uuid, integer, text, text, text, text, text[])', 'EXECUTE'),
   false, 'anonymous clients cannot call the command');
-select is(has_function_privilege('authenticated', 'public.set_takeoff_plan_location(uuid, uuid, text, integer, text, text, text, uuid)', 'EXECUTE'),
+select is(has_function_privilege('authenticated', 'public.set_takeoff_plan_location(uuid, integer, text, text, text, text, text[])', 'EXECUTE'),
   true, 'members call the command, which checks their rights');
+select is(has_function_privilege('authenticated', 'public.attest_takeoff_plan_revision(uuid, uuid, uuid, uuid, text, text, uuid, integer)', 'EXECUTE'),
+  false, 'a member''s session cannot attest a revision');
+select is(has_function_privilege('service_role', 'public.attest_takeoff_plan_revision(uuid, uuid, uuid, uuid, text, text, uuid, integer)', 'EXECUTE'),
+  true, 'the application server attests the revisions it read');
+select is(has_table_privilege('authenticated', 'private.takeoff_plan_location_attestations', 'SELECT')
+  or has_table_privilege('authenticated', 'private.takeoff_plan_location_attestations', 'INSERT'), false,
+  'members neither read nor write the attestations');
 select is(has_function_privilege('authenticated', 'private.resolve_takeoff_plan_location_source(uuid, uuid, uuid)', 'EXECUTE'),
   false, 'the source resolution is internal');
 select has_table('public', 'takeoff_plan_location_sources', 'the source of each plan file is recorded');
@@ -82,10 +90,23 @@ from (values
   (52, 41, 'plan-autre-affaire.pdf', '{}'::jsonb)
 ) as copy(n, s, name, metadata);
 
-create function pg_temp.save(file integer, hash text, expected integer, building text, level text,
-  carried uuid default null, project integer default 20) returns public.takeoff_plan_locations language sql as $$
-  select * from public.set_takeoff_plan_location(pg_temp.fixture(project), pg_temp.fixture(file), hash, expected,
-    building, level, 'plan.pdf', carried)
+-- The server's attestation, made as its service role does (a security-definer helper of this test): the digest of the
+-- bytes it read for a plan file, for the signed-in member, with the earlier revision it proposes to carry over.
+create function pg_temp.attest(file integer, hash text, project integer default 20, carry uuid default null)
+returns uuid language sql security definer as $$
+  select public.attest_takeoff_plan_revision(pg_temp.fixture(10), (select auth.uid()), pg_temp.fixture(project),
+    pg_temp.fixture(file), hash, 'plan.pdf', carry,
+    case when carry is not null then coalesce((select revision from public.takeoff_plan_locations where id = carry), 1) end)
+$$;
+-- A save through the route: attested by the server, then written under the member's session.
+create function pg_temp.save(file integer, hash text, expected integer, building_choice text, building text,
+  level_choice text, level text, carried text[] default '{}', project integer default 20, carry uuid default null)
+returns public.takeoff_plan_locations language sql as $$
+  select * from public.set_takeoff_plan_location(pg_temp.attest(file, hash, project, carry), expected,
+    building_choice, building, level_choice, level, carried)
+$$;
+create function pg_temp.location(hash text) returns public.takeoff_plan_locations language sql as $$
+  select * from public.takeoff_plan_locations where content_hash = hash
 $$;
 
 -- Each plan file records its source when it is created, the dossier copy included.
@@ -110,50 +131,103 @@ select results_eq($$select source_kind, source_id, current_copy, can_write
 select is_empty($$select * from public.read_takeoff_plan_location_source(pg_temp.fixture(20), pg_temp.fixture(52))$$,
   'a plan of another affaire is not a source of this one');
 
--- The owner corrects: one row at revision 1, authored by the session's member, and its creation in the history.
-select is((pg_temp.save(50, pg_temp.digest('plan-a'), 0, 'A', 'L00')).revision, 1, 'the first correction creates revision 1');
-select results_eq($$select source_kind, source_id, content_hash, building, level, created_by, updated_by
-  from public.takeoff_plan_locations where source_id = pg_temp.fixture(50)$$,
-  $$values ('plan_file'::text, pg_temp.fixture(50), pg_temp.digest('plan-a'), 'A'::text, 'L00'::text, pg_temp.fixture(1), pg_temp.fixture(1))$$,
-  'the values are kept as typed (L00 is no RDC) and the author is the session member');
-select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 0, 'B', 'L00')$$, '40001', 'TAKEOFF_PLAN_LOCATION_CONFLICT',
-  'a save that did not see revision 1 is refused');
-select is((pg_temp.save(50, pg_temp.digest('plan-a'), 1, 'B', null)).revision, 2,
-  'a save that saw revision 1 makes revision 2, and may remove the level correction (the reading applies again)');
-select is((pg_temp.save(50, pg_temp.digest('plan-a'), 2, 'B', null)).revision, 2, 'the same values again change nothing');
-select results_eq($$select revision, action, building_before, level_before, building, level, actor_id
-  from public.takeoff_plan_location_events e
-  where location_id = (select id from public.takeoff_plan_locations where source_id = pg_temp.fixture(50)) order by revision$$,
-  $$values (1, 'created'::text, null::text, null::text, 'A'::text, 'L00'::text, pg_temp.fixture(1)),
-    (2, 'updated'::text, 'A'::text, 'L00'::text, 'B'::text, null::text, pg_temp.fixture(1))$$,
-  'each change is recorded once, with the values it replaced');
+-- Written before the fix: an owner calling the command with the digest of bytes the server never read
+-- (a revision still to come) was accepted; any later upload of those bytes then showed it as confirmed or corrected.
+select throws_ok($$select public.attest_takeoff_plan_revision(pg_temp.fixture(10), pg_temp.fixture(1), pg_temp.fixture(20),
+  pg_temp.fixture(50), pg_temp.digest('forthcoming'), 'plan.pdf')$$, '42501', null, 'a member''s session cannot attest a digest');
+select throws_ok($$select * from public.set_takeoff_plan_location('b3100000-0000-4000-8000-0000000009ff', 0, 'value', 'A', 'reading', null)$$,
+  '42501', 'TAKEOFF_PLAN_LOCATION_NOT_ATTESTED', 'a correction of bytes the server did not attest is refused');
+select is((select count(*) from public.takeoff_plan_locations), 0::bigint, 'and nothing is written');
 
--- Values and revisions the command refuses.
-select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, ' A', null)$$, '22023', 'TAKEOFF_PLAN_LOCATION_VALUE_INVALID',
-  'a value with surrounding spaces is refused');
-select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, repeat('A', 41), null)$$, '22023',
+-- The owner corrects: one row at revision 1, authored by the session's member, and its creation in the history.
+select is((pg_temp.save(50, pg_temp.digest('plan-a'), 0, 'value', 'A', 'value', 'L00')).revision, 1,
+  'the first correction of an attested revision creates revision 1');
+select results_eq($$select source_kind, source_id, content_hash, building_choice, building, level_choice, level, created_by,
+  building_set_by, level_set_by, building_set_revision, level_set_revision from public.takeoff_plan_locations where source_id = pg_temp.fixture(50)$$,
+  $$values ('plan_file'::text, pg_temp.fixture(50), pg_temp.digest('plan-a'), 'value'::text, 'A'::text, 'value'::text, 'L00'::text,
+    pg_temp.fixture(1), pg_temp.fixture(1), pg_temp.fixture(1), 1, 1)$$,
+  'the values are kept as typed (L00 is no RDC), each field with its author and generation');
+-- An attestation is for one member and one save, for fifteen minutes at most.
+create temp table location_attestations(label text primary key, id uuid);
+grant all on location_attestations to authenticated;
+insert into location_attestations values ('once', pg_temp.attest(50, pg_temp.digest('plan-once')));
+select lives_ok($$select * from public.set_takeoff_plan_location((select id from location_attestations where label = 'once'), 0,
+  'value', 'A', 'reading', null)$$, 'an attestation serves its save');
+select throws_ok($$select * from public.set_takeoff_plan_location((select id from location_attestations where label = 'once'), 1,
+  'value', 'B', 'reading', null)$$, '42501', 'TAKEOFF_PLAN_LOCATION_NOT_ATTESTED', 'and only that one');
+insert into location_attestations values ('member', pg_temp.attest(50, pg_temp.digest('plan-member')));
+select pg_temp.sign_in(5);
+select throws_ok($$select * from public.set_takeoff_plan_location((select id from location_attestations where label = 'member'), 0,
+  'value', 'A', 'reading', null)$$, '42501', 'TAKEOFF_PLAN_LOCATION_NOT_ATTESTED', 'another member cannot use it');
+select pg_temp.sign_in(1);
+insert into location_attestations values ('old', pg_temp.attest(50, pg_temp.digest('plan-old')));
+reset role;
+update private.takeoff_plan_location_attestations set created_at = now() - interval '16 minutes'
+where id = (select id from location_attestations where label = 'old');
+set local role authenticated;
+select throws_ok($$select * from public.set_takeoff_plan_location((select id from location_attestations where label = 'old'), 0,
+  'value', 'A', 'reading', null)$$, '42501', 'TAKEOFF_PLAN_LOCATION_NOT_ATTESTED', 'an attestation older than fifteen minutes is refused');
+
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 0, 'value', 'B', 'value', 'L00')$$, '40001', 'TAKEOFF_PLAN_LOCATION_CONFLICT',
+  'a save that did not see revision 1 is refused');
+-- Written before the fix: clearing « Niveau » used to restore the plan's wrong reading. Per field the
+-- operator follows the reading, sets a value, or marks it to be specified, and that choice is stored.
+select is((pg_temp.save(50, pg_temp.digest('plan-a'), 1, 'value', 'B', 'unknown', null)).revision, 2,
+  'a save that saw revision 1 makes revision 2, and marks the level to be specified');
+select results_eq($$select level_choice, level, level_set_by, level_set_revision, building_set_revision from pg_temp.location(pg_temp.digest('plan-a'))$$,
+  $$values ('unknown'::text, null::text, pg_temp.fixture(1), 2, 2)$$, 'the explicit « À préciser » is stored with its author and generation');
+select is((pg_temp.save(50, pg_temp.digest('plan-a'), 2, 'value', 'B', 'unknown', null)).revision, 2, 'the same choices again change nothing');
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, 'reading', 'A', 'reading', null)$$, '22023',
+  'TAKEOFF_PLAN_LOCATION_VALUE_INVALID', 'following the reading carries no value');
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, 'value', null, 'reading', null)$$, '22023',
+  'TAKEOFF_PLAN_LOCATION_VALUE_INVALID', 'a set value has one');
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, 'guess', null, 'reading', null)$$, '22023',
+  'TAKEOFF_PLAN_LOCATION_VALUE_INVALID', 'a choice is one of the three');
+-- Written before the fix: the building was attributed to whoever last edited the row. Each field keeps
+-- who set it, in the same transaction as its value.
+select pg_temp.sign_in(5);
+select is((pg_temp.save(50, pg_temp.digest('plan-a'), 2, 'value', 'B', 'value', 'L09')).revision, 3, 'an admin sets only the level');
+select results_eq($$select building_set_by, building_set_revision, level_set_by, level_set_revision, updated_by
+  from pg_temp.location(pg_temp.digest('plan-a'))$$,
+  $$values (pg_temp.fixture(1), 2, pg_temp.fixture(5), 3, pg_temp.fixture(5))$$,
+  'the building stays the owner''s, the level is the admin''s');
+select pg_temp.sign_in(1);
+select results_eq($$select revision, action, building_choice_before, building_before, building_choice, building,
+  level_choice_before, level_before, level_choice, level, actor_id
+  from public.takeoff_plan_location_events e
+  where location_id = (select id from pg_temp.location(pg_temp.digest('plan-a'))) order by revision$$,
+  $$values (1, 'created'::text, null::text, null::text, 'value'::text, 'A'::text, null::text, null::text, 'value'::text, 'L00'::text, pg_temp.fixture(1)),
+    (2, 'updated'::text, 'value'::text, 'A'::text, 'value'::text, 'B'::text, 'value'::text, 'L00'::text, 'unknown'::text, null::text, pg_temp.fixture(1)),
+    (3, 'updated'::text, 'value'::text, 'B'::text, 'value'::text, 'B'::text, 'unknown'::text, null::text, 'value'::text, 'L09'::text, pg_temp.fixture(5))$$,
+  'each change is recorded once, with the choices it replaced');
+select is((select count(distinct attestation_id) from public.takeoff_plan_location_events
+  where location_id = (select id from pg_temp.location(pg_temp.digest('plan-a')))), 3::bigint, 'each on its own attestation');
+
+-- Values the command refuses, and revisions the server does not attest.
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, 'value', ' A', 'reading', null)$$, '22023',
+  'TAKEOFF_PLAN_LOCATION_VALUE_INVALID', 'a value with surrounding spaces is refused');
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, 'value', repeat('A', 41), 'reading', null)$$, '22023',
   'TAKEOFF_PLAN_LOCATION_VALUE_INVALID', 'a value longer than 40 characters is refused');
-select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, null, E'R+1\n')$$, '22023',
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-v'), 0, 'reading', null, 'value', E'R+1\n')$$, '22023',
   'TAKEOFF_PLAN_LOCATION_VALUE_INVALID', 'a value with a control character is refused');
-select throws_ok($$select pg_temp.save(50, 'not-a-digest', 0, 'A', null)$$, '22023', 'TAKEOFF_PLAN_LOCATION_REVISION_INVALID',
-  'a revision is a SHA-256 digest');
-select throws_ok($$select pg_temp.save(52, pg_temp.digest('plan-x'), 0, 'A', null)$$, 'P0002', 'TAKEOFF_PLAN_LOCATION_SOURCE_NOT_FOUND',
-  'a plan of another affaire cannot be annotated through this one');
-select throws_ok($$select * from public.set_takeoff_plan_location(pg_temp.fixture(20), pg_temp.fixture(51), pg_temp.digest('p-101-a'), 0,
-  'A', 'R+1', 'p-101-plomberie.pdf', pg_temp.fixture(99))$$,
-  '22023', 'TAKEOFF_PLAN_LOCATION_CARRY_OVER_INVALID', 'nothing is validated « from » an annotation that does not exist here');
+select throws_ok($$select pg_temp.save(50, 'not-a-digest', 0, 'value', 'A', 'reading', null)$$, '22023',
+  'TAKEOFF_PLAN_LOCATION_ATTESTATION_INVALID', 'a revision is a SHA-256 digest');
+select throws_ok($$select pg_temp.save(52, pg_temp.digest('plan-x'), 0, 'value', 'A', 'reading', null)$$, 'P0002',
+  'TAKEOFF_PLAN_LOCATION_SOURCE_NOT_FOUND', 'a plan of another affaire cannot be attested for this one');
 
 -- Direct writes are refused to the API roles, whatever they hold.
 select throws_ok($$insert into public.takeoff_plan_locations(tenant_id, project_id, source_kind, source_id, content_hash, revision,
+  building_choice, building_set_by, building_set_at, building_set_revision, level_choice, level_set_by, level_set_at, level_set_revision,
   plan_file_id, document_name, created_by, updated_by) values (pg_temp.fixture(10), pg_temp.fixture(20), 'plan_file', pg_temp.fixture(50),
-  pg_temp.digest('forged'), 1, pg_temp.fixture(50), 'x.pdf', pg_temp.fixture(5), pg_temp.fixture(5))$$, '42501', null,
+  pg_temp.digest('forged'), 1, 'reading', pg_temp.fixture(5), now(), 1, 'reading', pg_temp.fixture(5), now(), 1,
+  pg_temp.fixture(50), 'x.pdf', pg_temp.fixture(5), pg_temp.fixture(5))$$, '42501', null,
   'an operator cannot insert an annotation in another member''s name');
 select throws_ok($$update public.takeoff_plan_locations set updated_by = pg_temp.fixture(5)$$, '42501', null,
   'an operator cannot rewrite the author');
 select throws_ok($$delete from public.takeoff_plan_location_events$$, '42501', null, 'an operator cannot erase the history');
 
 -- A dossier copy: the correction belongs to the piece at these bytes, and survives a new copy of the same bytes.
-select is((select (pg_temp.save(51, pg_temp.digest('p-101-a'), 0, 'A', 'R+1')).source_kind), 'intake_document',
+select is((select (pg_temp.save(51, pg_temp.digest('p-101-a'), 0, 'value', 'A', 'value', 'R+1')).source_kind), 'intake_document',
   'a correction through a dossier copy is the dossier piece''s');
 reset role;
 -- A reclassification gives the piece a new generation: the old copy is no longer current, a new copy is made.
@@ -166,27 +240,39 @@ select pg_temp.fixture(53), pg_temp.fixture(10), pg_temp.fixture(40), 'p-101-plo
 from public.affaire_intake_documents where id = pg_temp.fixture(31);
 select pg_temp.sign_in(1);
 set local role authenticated;
-select throws_ok($$select pg_temp.save(51, pg_temp.digest('p-101-a'), 1, 'A', 'R+2')$$, '40001', 'TAKEOFF_PLAN_LOCATION_SOURCE_STALE',
-  'nothing is written through a copy its piece has replaced');
+select throws_ok($$select pg_temp.save(51, pg_temp.digest('p-101-a'), 1, 'value', 'A', 'value', 'R+2')$$, '40001',
+  'TAKEOFF_PLAN_LOCATION_SOURCE_STALE', 'nothing is written through a copy its piece has replaced');
 select results_eq($$select source_kind, source_id, current_copy from public.read_takeoff_plan_location_source(pg_temp.fixture(20), pg_temp.fixture(53))$$,
   $$values ('intake_document'::text, pg_temp.fixture(31), true)$$, 'the new copy names the same piece');
-select results_eq($$select (pg_temp.save(53, pg_temp.digest('p-101-a'), 1, 'A', 'R+2')).revision,
+select results_eq($$select (pg_temp.save(53, pg_temp.digest('p-101-a'), 1, 'value', 'A', 'value', 'R+2')).revision,
   (select count(*)::integer from public.takeoff_plan_locations where source_id = pg_temp.fixture(31))$$,
   $$values (2, 1)$$, 'the same bytes through the new copy correct the same annotation, which saw revision 1');
--- Other bytes of the piece are another revision: its own row, the earlier one kept as it was.
-select is((pg_temp.save(53, pg_temp.digest('p-101-b'), 0, 'A', 'R+2',
-  (select id from public.takeoff_plan_locations where content_hash = pg_temp.digest('p-101-a')))).carried_from_id,
-  (select id from public.takeoff_plan_locations where content_hash = pg_temp.digest('p-101-a')),
-  'a correction of new bytes records the earlier one the operator validated');
-select results_eq($$select content_hash, revision, level from public.takeoff_plan_locations where source_id = pg_temp.fixture(31) order by revision desc$$,
-  $$values (pg_temp.digest('p-101-a'), 2, 'R+2'::text), (pg_temp.digest('p-101-b'), 1, 'R+2'::text)$$,
-  'two revisions of one piece, two annotations');
-select throws_ok($$select pg_temp.save(53, pg_temp.digest('p-101-b'), 1, 'A', 'R+1',
-  (select id from public.takeoff_plan_locations where content_hash = pg_temp.digest('p-101-b')))$$,
+
+-- Written before the fix: a carried correction was not pinned. The server proposes an origin at its
+-- generation; a carried field must hold its value then, and an origin that moved since is a conflict.
+insert into location_attestations values ('carried', pg_temp.attest(53, pg_temp.digest('p-101-b'), 20, (select id from pg_temp.location(pg_temp.digest('p-101-a')))));
+select is((pg_temp.save(53, pg_temp.digest('p-101-a'), 2, 'value', 'A', 'value', 'R+3')).revision, 3,
+  'meanwhile someone changes the origin''s level');
+select throws_ok($$select * from public.set_takeoff_plan_location((select id from location_attestations where label = 'carried'), 0,
+  'value', 'A', 'value', 'R+2', array['building', 'level'])$$, '40001', 'TAKEOFF_PLAN_LOCATION_ORIGIN_MOVED',
+  'the earlier value is not carried from an origin that moved');
+select throws_ok($$select pg_temp.save(53, pg_temp.digest('p-101-b'), 0, 'value', 'A', 'value', 'R+9', array['level'], 20,
+  (select id from pg_temp.location(pg_temp.digest('p-101-a'))))$$, '22023', 'TAKEOFF_PLAN_LOCATION_CARRY_OVER_INVALID',
+  'a carried field holds the origin''s value');
+select throws_ok($$select pg_temp.save(53, pg_temp.digest('p-101-b'), 0, 'value', 'A', 'reading', null, array['building'])$$, '22023',
+  'TAKEOFF_PLAN_LOCATION_CARRY_OVER_INVALID', 'nothing is carried without an origin the server proposed');
+select throws_ok($$select pg_temp.attest(53, pg_temp.digest('p-101-b'), 20, pg_temp.fixture(99))$$, '40001',
+  'TAKEOFF_PLAN_LOCATION_ORIGIN_MOVED', 'nor from an annotation that does not exist here');
+select results_eq($$select building, building_carried, level, level_carried, carried_from_id, carried_from_revision
+  from pg_temp.save(53, pg_temp.digest('p-101-b'), 0, 'value', 'A', 'value', 'R+4', array['building'], 20,
+    (select id from pg_temp.location(pg_temp.digest('p-101-a'))))$$,
+  $$values ('A'::text, true, 'R+4'::text, false, (select id from pg_temp.location(pg_temp.digest('p-101-a'))), 3)$$,
+  'carrying one field keeps its origin at the generation proposed, the other typed');
+select throws_ok($$select pg_temp.attest(53, pg_temp.digest('p-101-b'), 20, (select id from pg_temp.location(pg_temp.digest('p-101-b'))))$$,
   '22023', 'TAKEOFF_PLAN_LOCATION_CARRY_OVER_INVALID', 'a revision is not carried over from itself');
-select is((pg_temp.save(53, pg_temp.digest('p-101-b'), 1, 'A', 'R+3')).carried_from_id,
-  (select id from public.takeoff_plan_locations where content_hash = pg_temp.digest('p-101-a')),
-  'a later correction of a carried-over revision keeps where it came from');
+select results_eq($$select building_carried, level_carried, carried_from_revision
+  from pg_temp.save(53, pg_temp.digest('p-101-b'), 1, 'value', 'A', 'value', 'R+6')$$,
+  $$values (true, false, 3)$$, 'a later correction of the other field keeps where the carried one came from');
 -- An operator's upload outside the dossier, as the previous application version makes it, still works and is recorded.
 select lives_ok($$insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
   values (pg_temp.fixture(55), pg_temp.fixture(10), pg_temp.fixture(40), 'televerse.pdf',
@@ -197,28 +283,23 @@ select results_eq($$select source_kind, source_id from public.takeoff_plan_locat
 
 -- A reader reads and changes nothing; a non-owner engineer neither reads nor writes; another tenant sees nothing.
 select pg_temp.sign_in(3);
-select is((select count(*) from public.takeoff_plan_locations where project_id = pg_temp.fixture(20)), 3::bigint,
+select is((select count(*) from public.takeoff_plan_locations where project_id = pg_temp.fixture(20)), 4::bigint,
   'a director reads the affaire''s annotations');
-select is((select count(*) from public.takeoff_plan_location_events where project_id = pg_temp.fixture(20)), 6::bigint,
-  'and their history');
 select results_eq($$select can_write from public.read_takeoff_plan_location_source(pg_temp.fixture(20), pg_temp.fixture(50))$$,
   $$values (false)$$, 'a director is told he may not correct');
-select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 2, 'C', null)$$, '42501', 'TAKEOFF_PLAN_LOCATION_FORBIDDEN',
-  'a director cannot correct');
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 3, 'value', 'C', 'reading', null)$$, '42501',
+  'TAKEOFF_PLAN_LOCATION_FORBIDDEN', 'a director cannot correct, even with an attestation');
 select pg_temp.sign_in(2);
 select is((select count(*) from public.takeoff_plan_locations where project_id = pg_temp.fixture(20)), 0::bigint,
   'an engineer who cannot read the affaire reads none of its annotations');
 select is_empty($$select * from public.read_takeoff_plan_location_source(pg_temp.fixture(20), pg_temp.fixture(50))$$,
   'nor the source of its plans');
-select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 2, 'C', null)$$, '42501', 'TAKEOFF_PLAN_LOCATION_FORBIDDEN',
-  'nor corrects them');
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 3, 'value', 'C', 'reading', null)$$, '42501',
+  'TAKEOFF_PLAN_LOCATION_FORBIDDEN', 'nor corrects them');
 select pg_temp.sign_in(4);
 select is((select count(*) from public.takeoff_plan_locations), 0::bigint, 'another tenant sees no annotation');
-select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 2, 'C', null)$$, '42501', 'TAKEOFF_PLAN_LOCATION_FORBIDDEN',
-  'another tenant cannot correct');
-select pg_temp.sign_in(5);
-select is((pg_temp.save(50, pg_temp.digest('plan-a'), 2, 'C', null)).updated_by, pg_temp.fixture(5),
-  'an admin corrects later, and is the new author');
+select throws_ok($$select pg_temp.save(50, pg_temp.digest('plan-a'), 3, 'value', 'C', 'reading', null)$$, '42501',
+  'TAKEOFF_PLAN_LOCATION_NOT_ATTESTED', 'another tenant holds no attestation of this tenant');
 reset role;
 
 -- Editing a label never touches the plan file: its updated_at enters the source version of a running analysis.
@@ -237,16 +318,16 @@ delete from public.plan_files where id = pg_temp.fixture(51);
 select is((select count(*) from public.takeoff_plan_locations where source_id = pg_temp.fixture(31)), 2::bigint,
   'removing a working copy keeps the piece''s annotations');
 select is((select count(*) from public.takeoff_plan_location_events e join public.takeoff_plan_locations l on l.id = e.location_id
-  where l.source_id = pg_temp.fixture(31)), 4::bigint, 'and their history');
+  where l.source_id = pg_temp.fixture(31)), 5::bigint, 'and their history');
 select pg_temp.sign_in(1);
 set local role authenticated;
 select results_eq($$select source_kind, source_id, current_copy from public.read_takeoff_plan_location_source(pg_temp.fixture(20), pg_temp.fixture(51))$$,
   $$values ('intake_document'::text, pg_temp.fixture(31), false)$$,
   'an analysis that read the removed copy still finds its piece, never as a copy to correct through');
-select throws_ok($$select pg_temp.save(51, pg_temp.digest('p-101-a'), 2, 'A', 'R+9')$$, '40001', 'TAKEOFF_PLAN_LOCATION_SOURCE_STALE',
-  'nothing is written through a removed copy');
+select throws_ok($$select pg_temp.save(51, pg_temp.digest('p-101-a'), 3, 'value', 'A', 'value', 'R+9')$$, '40001',
+  'TAKEOFF_PLAN_LOCATION_SOURCE_STALE', 'nothing is written through a removed copy');
 reset role;
--- Deleting an affaire takes its annotations, including one carried over from another.
+-- Deleting an affaire takes its annotations, including one carried over from another, and the server's attestations.
 select pg_temp.sign_in(1);
 insert into public.estimate_projects(id, tenant_id, user_id, name)
 values (pg_temp.fixture(22), pg_temp.fixture(10), pg_temp.fixture(1), 'Affaire supprimée (fictif)');
@@ -255,17 +336,19 @@ insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, 
 values (pg_temp.fixture(54), pg_temp.fixture(10), pg_temp.fixture(42), 'plan.pdf',
   concat_ws('/', pg_temp.fixture(10), pg_temp.fixture(42), pg_temp.fixture(54), 'plan.pdf'), 'application/pdf', 8, 1);
 set local role authenticated;
-select pg_temp.save(54, pg_temp.digest('deleted-a'), 0, 'A', null, null, 22);
-select pg_temp.save(54, pg_temp.digest('deleted-b'), 0, 'A', null,
-  (select id from public.takeoff_plan_locations where content_hash = pg_temp.digest('deleted-a')), 22);
+select pg_temp.save(54, pg_temp.digest('deleted-a'), 0, 'value', 'A', 'reading', null, '{}', 22);
+select pg_temp.save(54, pg_temp.digest('deleted-b'), 0, 'value', 'A', 'reading', null, array['building'], 22,
+  (select id from pg_temp.location(pg_temp.digest('deleted-a'))));
 reset role;
 delete from public.estimate_projects where id = pg_temp.fixture(22);
 select is((select count(*) from public.takeoff_plan_locations where project_id = pg_temp.fixture(22)), 0::bigint,
   'deleting the affaire deletes its annotations');
 select is((select count(*) from public.takeoff_plan_location_events where project_id = pg_temp.fixture(22)), 0::bigint,
   'and their history');
+select is((select count(*) from private.takeoff_plan_location_attestations where project_id = pg_temp.fixture(22)), 0::bigint,
+  'and its attestations');
 
--- Two operators save the same revision at once, through two connections. Their fixtures must be committed to be seen.
+-- Two connections. Their fixtures must be committed to be seen.
 create temp table location_race_connection as select format('host=%s port=%s dbname=%s user=postgres password=postgres',
   trim(split_part(current_setting('unix_socket_directories'), ',', 1)), current_setting('port'), current_database()) as connection;
 select is(extensions.dblink_connect('location_setup', (select connection from location_race_connection)), 'OK', 'fixture session connected');
@@ -281,35 +364,49 @@ insert into public.tenants(id, name, slug) values ('b3100000-0000-4000-8000-0000
 insert into public.tenant_memberships(tenant_id, user_id, role, is_default, created_at) values
   ('b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'engineer', true, '2020-01-01'),
   ('b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000102', 'admin', true, '2020-01-01');
-insert into public.estimate_projects(id, tenant_id, user_id, name)
-values ('b3100000-0000-4000-8000-000000000120', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'Course (fictif)');
-insert into public.plan_sets(id, tenant_id, project_id, name)
-values ('b3100000-0000-4000-8000-000000000140', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000120', 'Plans');
-insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
-values ('b3100000-0000-4000-8000-000000000150', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000140', 'course.pdf',
-  'b3100000-0000-4000-8000-000000000110/b3100000-0000-4000-8000-000000000140/b3100000-0000-4000-8000-000000000150/course.pdf',
-  'application/pdf', 8, 1);
+insert into public.estimate_projects(id, tenant_id, user_id, name) values
+  ('b3100000-0000-4000-8000-000000000120', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'Course (fictif)'),
+  ('b3100000-0000-4000-8000-000000000121', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000101', 'Suppression (fictif)');
+insert into public.plan_sets(id, tenant_id, project_id, name) values
+  ('b3100000-0000-4000-8000-000000000140', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000120', 'Plans'),
+  ('b3100000-0000-4000-8000-000000000141', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000121', 'Plans');
+insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count) values
+  ('b3100000-0000-4000-8000-000000000150', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000140', 'course.pdf',
+    'b3100000-0000-4000-8000-000000000110/b3100000-0000-4000-8000-000000000140/b3100000-0000-4000-8000-000000000150/course.pdf',
+    'application/pdf', 8, 1),
+  ('b3100000-0000-4000-8000-000000000152', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000141', 'gone.pdf',
+    'b3100000-0000-4000-8000-000000000110/b3100000-0000-4000-8000-000000000141/b3100000-0000-4000-8000-000000000152/gone.pdf',
+    'application/pdf', 8, 1);
 commit;
 $setup$), 'COMMIT', 'race fixtures committed');
 
+-- The server's attestation for one member, committed so that their session sees it.
+create function pg_temp.race_attest(member text, project text, file text, label text) returns uuid language sql as $$
+  select id from extensions.dblink('location_setup', format($sql$select public.attest_takeoff_plan_revision(
+    'b3100000-0000-4000-8000-000000000110', %L, %L, %L, %L, 'course.pdf')$sql$, member, project, file, pg_temp.digest(label)))
+    as remote(id uuid)
+$$;
 create function pg_temp.as_operator(session text, member text) returns text language sql as $$
   select extensions.dblink_exec(session, format($sql$begin;
     set local role authenticated;
     set local request.jwt.claim.sub = %1$L;
     set local request.jwt.claims = %2$L;$sql$, member, jsonb_build_object('role', 'authenticated', 'sub', member)::text))
 $$;
-create function pg_temp.save_call(expected integer, building text) returns text language sql as $$
+create function pg_temp.save_call(attestation uuid, expected integer, building text) returns text language sql as $$
   select format($sql$select revision::text || ':' || coalesce(building, '') from public.set_takeoff_plan_location(
-    'b3100000-0000-4000-8000-000000000120', 'b3100000-0000-4000-8000-000000000150', %L, %s, %L, 'R+1', 'course.pdf')$sql$,
-    pg_temp.digest('course'), expected, building)
+    %L, %s, 'value', %L, 'value', 'R+1')$sql$, attestation, expected, building)
 $$;
 create temp table location_race_pids(label text primary key, pid integer);
--- Whether the session is blocked on a lock another session holds: polled until seen (at most 10 s), never a fixed pause.
-create function pg_temp.waits_for_lock(session text) returns boolean language plpgsql as $$
+-- Whether the session is blocked on a lock another session holds (when a relation is named: waiting for a row of it,
+-- whose tuple lock it holds): polled until seen, at most 10 s, never a fixed pause.
+create function pg_temp.waits_for_lock(session text, target text default null) returns boolean language plpgsql as $$
+declare
+  waiter integer := (select pid from location_race_pids where label = session);
 begin
   for attempt in 1..1000 loop
-    if exists (select 1 from pg_catalog.pg_locks
-      where pid = (select pid from location_race_pids where label = session) and not granted) then
+    if exists (select 1 from pg_catalog.pg_locks l where l.pid = waiter and not l.granted)
+      and (target is null or exists (select 1 from pg_catalog.pg_locks t
+        where t.pid = waiter and t.locktype = 'tuple' and t.relation = target::regclass)) then
       return true;
     end if;
     perform pg_catalog.pg_sleep(0.01);
@@ -332,12 +429,40 @@ select is((select count(*)::integer from extensions.dblink('location_b', $lock$s
   'the affaire''s row is not locked by the insert''s recorded source');
 select is(extensions.dblink_exec('location_a', 'rollback'), 'ROLLBACK', 'the insert is rolled back');
 
+-- Written before the fix: the first correction locked the plan file, then needed the affaire for its
+-- foreign key, while a deletion locks the affaire, then cascades to the file: the two deadlocked. The command now takes
+-- the affaire first and waits there; the deletion goes through and the correction is told the plan is gone.
+create temp table location_race_attestations(label text primary key, id uuid);
+insert into location_race_attestations values
+  ('gone', pg_temp.race_attest('b3100000-0000-4000-8000-000000000101', 'b3100000-0000-4000-8000-000000000121',
+    'b3100000-0000-4000-8000-000000000152', 'gone'));
+select is(extensions.dblink_exec('location_setup', $hold$begin;
+do $do$ begin perform 1 from public.estimate_projects where id = 'b3100000-0000-4000-8000-000000000121' for update; end $do$;$hold$),
+  'DO', 'a deletion holds the affaire');
+select is(pg_temp.as_operator('location_b', 'b3100000-0000-4000-8000-000000000101'), 'SET', 'the owner opens a first correction');
+select is(extensions.dblink_send_query('location_b', pg_temp.save_call((select id from location_race_attestations where label = 'gone'), 0, 'A')),
+  1, 'the owner saves');
+select ok(pg_temp.waits_for_lock('location_b', 'public.estimate_projects'), 'the correction waits for the affaire''s row');
+select is((select count(*)::integer from pg_catalog.pg_locks where pid = (select pid from location_race_pids where label = 'location_b')
+  and relation = 'public.plan_files'::regclass), 0, 'holding nothing on the plan files');
+select is(extensions.dblink_exec('location_setup', $delete$delete from public.estimate_projects where id = 'b3100000-0000-4000-8000-000000000121';
+commit;$delete$), 'COMMIT', 'the deletion cascades to the plan file and commits: no deadlock');
+select throws_ok($$select * from extensions.dblink_get_result('location_b') as remote(value text)$$, 'P0002',
+  'TAKEOFF_PLAN_LOCATION_SOURCE_NOT_FOUND', 'the correction is told the plan is gone');
+select is((select count(*)::integer from extensions.dblink_get_result('location_b', false) as remote(value text)), 0, 'its save is over');
+select is(extensions.dblink_exec('location_b', 'rollback'), 'ROLLBACK', 'and rolled back');
+
 -- Both create the first annotation of the revision: B waits on A's uncommitted row, then gets the conflict.
+insert into location_race_attestations
+select label, pg_temp.race_attest(member, 'b3100000-0000-4000-8000-000000000120', 'b3100000-0000-4000-8000-000000000150', 'course')
+from (values ('a1', 'b3100000-0000-4000-8000-000000000101'), ('b1', 'b3100000-0000-4000-8000-000000000102'),
+  ('a2', 'b3100000-0000-4000-8000-000000000101'), ('b2', 'b3100000-0000-4000-8000-000000000102')) as attested(label, member);
 select is(pg_temp.as_operator('location_a', 'b3100000-0000-4000-8000-000000000101'), 'SET', 'A opens its save');
-select is((select value from extensions.dblink('location_a', pg_temp.save_call(0, 'A')) as remote(value text)), '1:A',
-  'A creates revision 1, not yet committed');
+select is((select value from extensions.dblink('location_a', pg_temp.save_call((select id from location_race_attestations where label = 'a1'), 0, 'A'))
+  as remote(value text)), '1:A', 'A creates revision 1, not yet committed');
 select is(pg_temp.as_operator('location_b', 'b3100000-0000-4000-8000-000000000102'), 'SET', 'B opens its save');
-select is(extensions.dblink_send_query('location_b', pg_temp.save_call(0, 'B')), 1, 'B saves the same revision');
+select is(extensions.dblink_send_query('location_b', pg_temp.save_call((select id from location_race_attestations where label = 'b1'), 0, 'B')),
+  1, 'B saves the same revision');
 select ok(pg_temp.waits_for_lock('location_b'), 'B waits for A''s row instead of writing beside it');
 select is(extensions.dblink_exec('location_a', 'commit'), 'COMMIT', 'A commits');
 select throws_ok($$select * from extensions.dblink_get_result('location_b') as remote(value text)$$, '40001',
@@ -345,12 +470,15 @@ select throws_ok($$select * from extensions.dblink_get_result('location_b') as r
 select is((select count(*)::integer from extensions.dblink_get_result('location_b', false) as remote(value text)), 0, 'B''s save is over');
 select is(extensions.dblink_exec('location_b', 'rollback'), 'ROLLBACK', 'B''s save is rolled back');
 
--- Both correct revision 1: the second one waits on the row lock, then sees revision 2 and is refused.
+-- Both correct revision 1: the second one waits, then sees revision 2 and is refused. The wait alone would also be seen
+-- without the row lock (B's UPDATE would wait for A's row and then overwrite it): what tells a lost update apart is
+-- B's 40001 below, the winner A's value and the history holding A's two saves only.
 select is(pg_temp.as_operator('location_a', 'b3100000-0000-4000-8000-000000000101'), 'SET', 'A opens a correction');
-select is((select value from extensions.dblink('location_a', pg_temp.save_call(1, 'C')) as remote(value text)), '2:C',
-  'A makes revision 2, not yet committed');
+select is((select value from extensions.dblink('location_a', pg_temp.save_call((select id from location_race_attestations where label = 'a2'), 1, 'C'))
+  as remote(value text)), '2:C', 'A makes revision 2, not yet committed');
 select is(pg_temp.as_operator('location_b', 'b3100000-0000-4000-8000-000000000102'), 'SET', 'B opens a correction');
-select is(extensions.dblink_send_query('location_b', pg_temp.save_call(1, 'D')), 1, 'B corrects the revision it saw');
+select is(extensions.dblink_send_query('location_b', pg_temp.save_call((select id from location_race_attestations where label = 'b2'), 1, 'D')),
+  1, 'B corrects the revision it saw');
 select ok(pg_temp.waits_for_lock('location_b'), 'B waits for A''s correction');
 select is(extensions.dblink_exec('location_a', 'commit'), 'COMMIT', 'A commits');
 select throws_ok($$select * from extensions.dblink_get_result('location_b') as remote(value text)$$, '40001',
