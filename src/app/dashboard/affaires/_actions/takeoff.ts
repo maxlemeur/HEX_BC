@@ -187,7 +187,7 @@ export async function assumeTakeoffLaunchRequestAction(input: z.input<typeof ass
 export async function relaunchTakeoffAction(input: z.input<typeof relaunchTakeoffSchema>) {
   return runSafeTakeoffAction(async () => {
     const parsed = relaunchTakeoffSchema.parse(input);
-    const result = await launchTakeoffRelaunch({ context: await getAuthenticatedContext(), ...parsed });
+    const result = await launchTakeoffRelaunch({ context: await getAuthenticatedContext(), ...parsed, host: (await headers()).get("host") });
     revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
     revalidatePath(`/dashboard/affaires/${parsed.projectId}/takeoff`);
     return result;

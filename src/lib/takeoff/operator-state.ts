@@ -3,6 +3,7 @@ import {
   TAKEOFF_RETRY_BACKOFF_SECONDS,
   TAKEOFF_RETRY_MAX as TAKEOFF_RETRY_MAX_CONSTANT,
 } from "@/lib/takeoff/constants";
+import { TAKEOFF_LAUNCH_TRANSIENT_REASONS } from "@/lib/takeoff/launch-request";
 import type {
   TakeoffJobOperatorState,
   TakeoffJobStatus,
@@ -384,48 +385,19 @@ export function describeTakeoffResume(decision: TakeoffResumeDecision): string |
 export const TAKEOFF_LAUNCH_ACTIONS = ["take_on", "resume", "open_mac", "wait", "none"] as const;
 export type TakeoffLaunchAction = (typeof TAKEOFF_LAUNCH_ACTIONS)[number];
 
-const LAUNCH_MANDATE_REASONS = new Set(["OPERATOR_REQUIRED", "MANDATE_REQUIRED", "LOCAL_RUNTIME_REQUIRED", "HOST_NOT_AUTHORISED",
-  "CHATGPT_NOT_CONNECTED", "CHATGPT_ACCESS_REVOKED", "CHATGPT_MODEL_MISSING", "CHATGPT_SELECTION_CHANGED", "PAYER_NOT_ELIGIBLE",
-  "EVALUATION_FAILED"]);
-const LAUNCH_TRANSIENT_REASONS = new Set(["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING", "TAKEOFF_DISABLED"]);
-/** A request that waits this long for the Mac of its mandate may be taken on: that Mac may be gone for good. */
-export const TAKEOFF_LAUNCH_HOST_WAIT_MS = 15 * 60 * 1000;
-
 /**
- * The launch policy, beside the resume policy of a job. A request waiting for its evaluation, or blocked by a passing
- * cause, is awaited by everyone; a blocking of the dossier is lifted in the dossier or the options; a blocking of the
- * mandate is lifted only by a gesture: « Reprendre avec mon forfait » by its payer, « Prendre en charge » by another
- * operator who may launch on the affaire, on the Mac where their subscription is connected. An admitted or closed request
- * answers through its job.
+ * The gesture the affaire's options offer a member for a launch request: what the database allows that member
+ * (public.takeoff_launch_request_action: resume its own, take on another's, or none, which also decides the fifteen
+ * minutes after which a silent Mac is given up on), and what depends on the member's own Mac: away from it (another
+ * address, the hosted application) the gesture is to open MergeOne there. A request its Mac is evaluating, or that a
+ * passing cause holds, is waited for.
  */
-export function resolveTakeoffLaunchDecision(input: {
-  state: string;
-  reasonCode: string | null;
-  payerId: string | null;
-  /** When the request last changed: one that waits for its Mac too long is offered to a gesture. */
-  updatedAt?: string | null;
-  /** The Mac of its mandate has work waiting on it (an evaluation, a changed dossier, a passing cause to try again). */
-  awaitsMac?: boolean;
-  viewer: TakeoffResumeViewer;
-  now?: Date;
-}): { action: TakeoffLaunchAction } {
-  // A start set aside by a relaunch is final: a new analysis is a relaunch.
-  // A refused click is the record of its answer; the database applies the same rule (takeoff_launch_allowed_action).
-  if (input.state === "admitted" || input.state === "closed" || input.state === "refused" || input.reasonCode === "SUPERSEDED") {
-    return { action: "none" };
+export function viewerLaunchAction(allowed: unknown, hasLocalRuntime: boolean, state: string, reasonCode: string | null): TakeoffLaunchAction {
+  if (allowed === "take_on" || allowed === "resume") return hasLocalRuntime ? allowed : "open_mac";
+  if (state === "evaluating" || (state === "blocked" && (TAKEOFF_LAUNCH_TRANSIENT_REASONS as readonly string[]).includes(reasonCode ?? ""))) {
+    return "wait";
   }
-  const waitedMs = (input.now ?? new Date()).getTime() - (parseIsoTime(input.updatedAt) ?? Number.POSITIVE_INFINITY);
-  const hostSilent = (input.state === "evaluating" || input.awaitsMac === true) && waitedMs >= TAKEOFF_LAUNCH_HOST_WAIT_MS;
-  if (!hostSilent && input.state === "not_eligible") return { action: "none" };
-  if (!hostSilent && (input.state === "evaluating" || LAUNCH_TRANSIENT_REASONS.has(input.reasonCode ?? ""))) return { action: "wait" };
-  if (hostSilent) {
-    if (!canTakeoffResumeViewerAct(input.viewer)) return { action: "none" };
-    if (!input.viewer.executionHostId) return { action: "open_mac" };
-    return { action: input.payerId && input.payerId === input.viewer.userId ? "resume" : "take_on" };
-  }
-  if (!LAUNCH_MANDATE_REASONS.has(input.reasonCode ?? "") || !canTakeoffResumeViewerAct(input.viewer)) return { action: "none" };
-  if (!input.viewer.executionHostId) return { action: "open_mac" };
-  return { action: input.payerId && input.payerId === input.viewer.userId ? "resume" : "take_on" };
+  return "none";
 }
 
 /** The gesture's name, as the affaire's options will show it. */

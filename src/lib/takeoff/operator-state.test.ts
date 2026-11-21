@@ -7,7 +7,7 @@ import {
   type TakeoffResumeAction,
   type TakeoffResumeReason,
   type TakeoffResumeViewer,
-  resolveTakeoffLaunchDecision,
+  viewerLaunchAction,
 } from "@/lib/takeoff/operator-state";
 
 const NOW = new Date("2026-11-21T10:00:00.000Z");
@@ -174,40 +174,18 @@ describe("describeTakeoffResume", () => {
   });
 });
 
-describe("resolveTakeoffLaunchDecision", () => {
-  const operator = { userId: "payer", tenantRole: "engineer", canWriteAffaire: true, executionHostId: "urn:uuid:mac", planStatus: "ready" as const };
+describe("viewerLaunchAction", () => {
   it.each([
-    ["an admitted request answers through its job", "admitted", null, "payer", operator, "none"],
-    ["a closed request answers through its job", "closed", null, "payer", operator, "none"],
-    ["a dossier not confirmed is lifted in the dossier", "not_eligible", "DOSSIER_PROCESSING", null, operator, "none"],
-    ["a request waiting for its Mac is awaited", "evaluating", null, "payer", operator, "wait"],
-    ["a passing cause is awaited", "blocked", "ADMISSION_LIMIT", "payer", operator, "wait"],
-    ["a missing working copy is lifted in the dossier", "blocked", "PLAN_COPY_MISSING", "payer", operator, "none"],
-    ["the payer resumes with their subscription", "blocked", "CHATGPT_NOT_CONNECTED", "payer", operator, "resume"],
-    ["another operator takes it on", "blocked", "CHATGPT_NOT_CONNECTED", "payer", { ...operator, userId: "other" }, "take_on"],
-    ["a reader's confirmation waits for an operator", "blocked", "OPERATOR_REQUIRED", null, operator, "take_on"],
-    ["a reader cannot take it on", "blocked", "OPERATOR_REQUIRED", null, { ...operator, tenantRole: "director", canWriteAffaire: false }, "none"],
-    ["the hosted application sends to the Mac", "blocked", "LOCAL_RUNTIME_REQUIRED", "payer", { ...operator, executionHostId: null }, "open_mac"],
-    ["repeated failures wait for a gesture", "blocked", "EVALUATION_FAILED", "payer", operator, "resume"],
-    ["an automatic start set aside by a relaunch is final", "blocked", "SUPERSEDED", "payer", { ...operator, userId: "other" }, "none"],
-  ] as const)("%s", (_case, state, reasonCode, payerId, viewer, action) => {
-    expect(resolveTakeoffLaunchDecision({ state, reasonCode, payerId, viewer, updatedAt: new Date().toISOString() })).toEqual({ action });
-  });
-  it("offers a request that waited too long for the Mac of its mandate to a gesture", () => {
-    const now = new Date("2026-11-21T12:00:00Z");
-    const waited = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString();
-    expect(resolveTakeoffLaunchDecision({ state: "evaluating", reasonCode: null, payerId: "payer", viewer: operator, updatedAt: waited(5), now }))
-      .toEqual({ action: "wait" });
-    expect(resolveTakeoffLaunchDecision({ state: "evaluating", reasonCode: null, payerId: "payer", viewer: operator, updatedAt: waited(20), now }))
-      .toEqual({ action: "resume" });
-    expect(resolveTakeoffLaunchDecision({ state: "evaluating", reasonCode: null, payerId: "payer", viewer: { ...operator, userId: "other" },
-      updatedAt: waited(20), now })).toEqual({ action: "take_on" });
-    // A dossier changed since it was found not eligible, or a passing cause to try again, on a Mac silent that long.
-    expect(resolveTakeoffLaunchDecision({ state: "not_eligible", reasonCode: "DOSSIER_PROCESSING", payerId: "payer", viewer: operator,
-      updatedAt: waited(20), awaitsMac: true, now })).toEqual({ action: "resume" });
-    expect(resolveTakeoffLaunchDecision({ state: "blocked", reasonCode: "ADMISSION_LIMIT", payerId: "payer", viewer: { ...operator, userId: "other" },
-      updatedAt: waited(20), awaitsMac: true, now })).toEqual({ action: "take_on" });
-    expect(resolveTakeoffLaunchDecision({ state: "not_eligible", reasonCode: "DOSSIER_PROCESSING", payerId: "payer", viewer: operator,
-      updatedAt: waited(20), awaitsMac: false, now })).toEqual({ action: "none" });
-  });
+    ["take_on", true, "blocked", "OPERATOR_REQUIRED", "take_on"],
+    ["resume", true, "blocked", "CHATGPT_NOT_CONNECTED", "resume"],
+    ["take_on", false, "blocked", "MANDATE_REQUIRED", "open_mac"],
+    ["none", true, "evaluating", null, "wait"],
+    ["none", true, "blocked", "ANOTHER_ANALYSIS_RUNNING", "wait"],
+    ["none", true, "not_eligible", "DOSSIER_PROCESSING", "none"],
+    ["none", true, "superseded", null, "none"],
+    ["none", true, "closed", null, "none"],
+  ] as const)("offers what the database allows (%s), on the member's Mac (%s), for a %s request (%s): %s",
+    (allowed, hasLocalRuntime, state, reasonCode, expected) => {
+      expect(viewerLaunchAction(allowed, hasLocalRuntime, state, reasonCode)).toBe(expected);
+    });
 });

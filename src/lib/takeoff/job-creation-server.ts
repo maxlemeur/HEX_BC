@@ -40,7 +40,7 @@ import {
   assertEstimateVersionAccessibleForTakeoff,
 } from "@/lib/takeoff/job-creation-repository";
 
-function takeoffJobInsertError(error: { code: string; message: string }, jobId: string, level?: TakeoffLevel) {
+export function takeoffJobInsertError(error: { code: string; message: string }, jobId: string, level?: TakeoffLevel) {
   if (error.code === "23514" && error.message === "TAKEOFF_JOB_ADMISSION_LIMIT") {
     return new TakeoffError({
       status: 409,

@@ -4,30 +4,26 @@ import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 
 const POLL_INTERVAL_MS = 15_000;
+const IDLE_INTERVAL_MS = 120_000;
 
 /**
- * The automatic start on the authorised Mac: every 15 seconds, the requests whose mandate this Mac prepared and that wait
- * for an evaluation (a dossier changed, a passing cause) are evaluated and, when ready, admitted and run here. It needs
- * no member's session: the request carries its payer and the selection of the mandate, checked again on this Mac. Before
- * the owner's activation the database hands it nothing.
+ * The automatic start on the authorised Mac: the requests whose mandate this Mac prepared and that wait for an evaluation
+ * (a dossier changed, a passing cause) are evaluated and, when ready, admitted and run here. It needs no member's
+ * session: the request carries its payer and the selection of the mandate, checked again on this Mac. The database is
+ * its gate: before both cut-offs, with the module off or for another Mac, a claim hands it nothing. Every 15 seconds while
+ * claims return work, every 2 minutes while they come back empty (a gesture wakes it at once, wakeTakeoffLaunchConsumer).
  */
 export function startLocalTakeoffLaunchConsumer() {
-  // A campaign blocks the background workers; one that tests this consumer runs it (E2E_ARMY_LAUNCH_CONSUMER): it acts
-  // only on the requests of the automatic start, which exist only while a journey sets both cut-offs.
-  const blocked = process.env.E2E_ARMY_BLOCK_WORKERS === "1" && process.env.E2E_ARMY_LAUNCH_CONSUMER !== "1";
-  if (!isLocalChatGptEnabled() || blocked || !createOptionalServiceRoleClient()) return;
-  let running = false;
+  if (!isLocalChatGptEnabled() || !createOptionalServiceRoleClient()) return;
   const pass = async () => {
-    if (running) return;
-    running = true;
+    let claimed = 0;
     try {
       const { evaluateTakeoffLaunchRequests } = await import("@/lib/takeoff/launch-request-server");
-      await evaluateTakeoffLaunchRequests();
+      claimed = (await evaluateTakeoffLaunchRequests()).length;
     } catch {
       console.error("takeoff.launch_request.pass_deferred");
-    } finally {
-      running = false;
     }
+    setTimeout(() => void pass(), claimed > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS).unref();
   };
-  setInterval(() => void pass(), POLL_INTERVAL_MS).unref();
+  setTimeout(() => void pass(), POLL_INTERVAL_MS).unref();
 }

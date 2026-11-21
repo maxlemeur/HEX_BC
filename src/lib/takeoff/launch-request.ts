@@ -6,8 +6,8 @@ import type { TakeoffExecutionSelection, TakeoffPreparationSource } from "@/lib/
  * analysis on a sealed manifest. The automatic request is the one start of an affaire, when its dossier is confirmed; a
  * manual request is one explicit command (a relaunch). This module holds what the server and the screens decide alike.
  */
-/** refused: a manual command that found another analysis of the affaire running, recorded so that its replay answers the same. */
-export const TAKEOFF_LAUNCH_REQUEST_STATES = ["evaluating", "not_eligible", "blocked", "admitted", "closed", "refused"] as const;
+/** superseded: an automatic start set aside by an explicit relaunch, final. A command's receipt is not a request. */
+export const TAKEOFF_LAUNCH_REQUEST_STATES = ["evaluating", "not_eligible", "blocked", "admitted", "closed", "superseded"] as const;
 export type TakeoffLaunchRequestState = (typeof TAKEOFF_LAUNCH_REQUEST_STATES)[number];
 
 /** The dossier does not allow an analysis yet: a change of the dossier evaluates it again. */
@@ -19,13 +19,13 @@ export const TAKEOFF_LAUNCH_DOSSIER_REASONS = [
 export const TAKEOFF_LAUNCH_MANDATE_REASONS = [
   "OPERATOR_REQUIRED", "MANDATE_REQUIRED", "LOCAL_RUNTIME_REQUIRED", "HOST_NOT_AUTHORISED", "CHATGPT_NOT_CONNECTED",
   "CHATGPT_ACCESS_REVOKED", "CHATGPT_MODEL_MISSING", "CHATGPT_SELECTION_CHANGED", "PAYER_NOT_ELIGIBLE",
-  "EVALUATION_FAILED", "SUPERSEDED",
+  "EVALUATION_FAILED",
 ] as const;
 /** The Mac of the mandate tries again on its own. */
 export const TAKEOFF_LAUNCH_TRANSIENT_REASONS = ["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING", "TAKEOFF_DISABLED"] as const;
 
-/** Why a closed request stopped before its units ended normally: its budget spent before a paid attempt. */
-export const TAKEOFF_LAUNCH_CLOSURE_REASONS = ["BUDGET_EXHAUSTED"] as const;
+/** Why a request ended without its units ending normally: its budget spent, or set aside by a relaunch (its state). */
+export const TAKEOFF_LAUNCH_CLOSURE_REASONS = ["BUDGET_EXHAUSTED", "SUPERSEDED"] as const;
 
 export type TakeoffLaunchDossierReason = (typeof TAKEOFF_LAUNCH_DOSSIER_REASONS)[number];
 export type TakeoffLaunchMandateReason = (typeof TAKEOFF_LAUNCH_MANDATE_REASONS)[number];
@@ -47,9 +47,6 @@ export type TakeoffMandateSelection = TakeoffExecutionSelection & { authorizatio
 export function isTakeoffLaunchReason(value: unknown): value is TakeoffLaunchReason {
   return typeof value === "string" && REASONS.has(value);
 }
-export function isTakeoffLaunchMandateReason(value: unknown): value is TakeoffLaunchMandateReason {
-  return (TAKEOFF_LAUNCH_MANDATE_REASONS as readonly string[]).includes(value as string);
-}
 
 /** A piece named by a blocking: what every reader of the affaire already sees in its dossier. */
 export type TakeoffLaunchPiece = { id: string; name: string };
@@ -69,7 +66,6 @@ const DOSSIER_STATE_REASON: Record<Exclude<AffaireDossierState, "confirmed">, Ta
  * subscription on this Mac. The preparation and the bytes are checked after this, when the snapshot is sealed.
  */
 export function decideTakeoffLaunch(facts: {
-  takeoffEnabled: boolean;
   documents: ReadonlyArray<AffaireIntakeReviewableDocument>;
   briefStatus: string | null;
   /** The dossier's PDF plans that have a working copy of their current generation. */
@@ -80,12 +76,10 @@ export function decideTakeoffLaunch(facts: {
   otherPlans: number;
   payerEligible: boolean;
   mandateIssue: TakeoffMandateIssue | "CHATGPT_SELECTION_CHANGED" | null;
-  /** The connection the mandate was given under was withdrawn since (disconnected, access lost, reconnected). */
-  authorizationWithdrawn?: boolean;
 }): TakeoffLaunchDecision {
-  if (!facts.takeoffEnabled) return { state: "blocked", reason: "TAKEOFF_DISABLED", pieces: [] };
-  // Whatever the dossier's state: a withdrawn connection is never revived by a later one, only by a new gesture.
-  if (facts.authorizationWithdrawn) return { state: "blocked", reason: "CHATGPT_ACCESS_REVOKED", pieces: [] };
+  // The module is decided by the database (the claim, the admission). Whatever the dossier's state, a withdrawn
+  // connection is never revived by a later one, only by a new gesture.
+  if (facts.mandateIssue === "CHATGPT_ACCESS_REVOKED") return { state: "blocked", reason: "CHATGPT_ACCESS_REVOKED", pieces: [] };
   const dossier = getAffaireDossierState({ documents: facts.documents, briefStatus: facts.briefStatus });
   if (dossier !== "confirmed") return { state: "not_eligible", reason: DOSSIER_STATE_REASON[dossier], pieces: [] };
   if (facts.plansWithoutCopy.length > 0) return { state: "blocked", reason: "PLAN_COPY_MISSING", pieces: facts.plansWithoutCopy };
