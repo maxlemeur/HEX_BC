@@ -81,15 +81,24 @@ export function buildDeducedTakeoffPreparation(input: {
   };
 }
 
-export function resolveDeducedPlanVersions(preparation: TakeoffPreparation): TakeoffPreparation {
-  const draft = structuredClone(preparation);
-  const plans = getDeducedPlanCandidates(draft.sources);
+/**
+ * Every retained version of a plan back to its own selection (a version set aside, an identical copy), as the member
+ * chose it: what a sealing reads again before the revision choices apply. Returns them.
+ */
+export function reopenDeducedPlanCandidates(sources: TakeoffPreparationSource[]) {
+  const plans = getDeducedPlanCandidates(sources);
   for (const plan of plans) {
     plan.active = true;
     plan.pages = plan.pages_before_deduplication ?? plan.pages;
     delete plan.alternate_of;
     delete plan.pages_before_deduplication;
   }
+  return plans;
+}
+
+export function resolveDeducedPlanVersions(preparation: TakeoffPreparation): TakeoffPreparation {
+  const draft = structuredClone(preparation);
+  const plans = reopenDeducedPlanCandidates(draft.sources);
   const choices = validPlanRevisionDecisions(plans, draft.plan_revision_decisions ?? []);
   draft.plan_revision_decisions = choices;
   if (hasCyclicPlanRevisionDecisions(plans, choices) || findPlanRevisionConflicts(plans, choices).length) return draft;

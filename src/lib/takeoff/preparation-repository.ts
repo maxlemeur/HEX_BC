@@ -53,7 +53,17 @@ export async function readPreparationRecord(context: ReadContext, projectId: str
   return data as PreparationRecordRow | null;
 }
 
+/**
+ * The dossier's pieces as a preparation names them, with the size each row records for its stored file (a plan file's,
+ * a dossier document's): what the sealing of a preparation reads before any download.
+ */
+export type PreparationSourceRows = { sources: TakeoffPreparationSource[]; recordedSizes: ReadonlyMap<string, number> };
+
 export async function readPreparationSources(context: ReadContext, projectId: string): Promise<TakeoffPreparationSource[]> {
+  return (await readPreparationSourceRows(context, projectId)).sources;
+}
+
+export async function readPreparationSourceRows(context: ReadContext, projectId: string): Promise<PreparationSourceRows> {
   const { data: sets, error: setError } = await readAllRows(() => context.supabase.from("plan_sets")
     .select("id", { count: "exact" }).eq("tenant_id", context.tenantId).eq("project_id", projectId).order("id").abortSignal(new AbortController().signal));
   if (setError) throw mapSupabaseError(setError, "Impossible de charger les jeux de plans.");
@@ -67,12 +77,14 @@ export async function readPreparationSources(context: ReadContext, projectId: st
     .eq("upload_status" as never, "uploaded" as never).is("deleted_at" as never, null).is("deletion_token" as never, null)
     .neq("document_kind" as never, "plans" as never).order("id" as never).abortSignal(new AbortController().signal));
   if (intake.error) throw mapSupabaseError(intake.error, "Impossible de charger les pièces de référence du métré.");
-  return [
-    ...(planFiles.data as PreparationPlanFile[] ?? []).map(toPreparationPlanSource),
-    ...(intake.data as PreparationIntakeDocument[] ?? [])
-      .filter((document) => document.document_kind === "dpgf" || document.document_kind === "cctp" || (Boolean(document.storage_path) && document.document_kind !== "plan"))
-      .map(toPreparationIntakeSource),
-  ];
+  const plans = planFiles.data as PreparationPlanFile[] ?? [];
+  const documents = (intake.data as PreparationIntakeDocument[] ?? [])
+    .filter((document) => document.document_kind === "dpgf" || document.document_kind === "cctp" || (Boolean(document.storage_path) && document.document_kind !== "plan"));
+  return {
+    sources: [...plans.map(toPreparationPlanSource), ...documents.map(toPreparationIntakeSource)],
+    recordedSizes: new Map([...plans.map((file) => [file.id, file.file_size_bytes] as const),
+      ...documents.map((document) => [document.id, document.size_bytes] as const)]),
+  };
 }
 
 /** The authenticated client only reads: confirmations are server-owned records. */

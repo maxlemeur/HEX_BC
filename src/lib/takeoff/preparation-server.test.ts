@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { PDFDocument } from "pdf-lib";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getTakeoffExecutionSelection } from "@/lib/ai/chatgpt-takeoff";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
@@ -37,6 +38,7 @@ function fixture() {
   };
   const files = [file];
   const contents = new Map([[file.file_path!, content]]);
+  const intakeContents = new Map<string, Buffer>();
   const user = createSupabaseFake({
     tables: {
       estimate_projects: (query) => ({ data: filterValue(query, "id") === M3_PROJECT_ID && filterValue(query, "tenant_id") === M3_TENANT_ID ? { id: M3_PROJECT_ID } : null, error: null }),
@@ -52,7 +54,7 @@ function fixture() {
     },
     storage: {
       "plan-files": ({ paths }) => { onDownload(); return { data: new Blob([contents.get(paths[0]) ?? content]), error: null }; },
-      "affaire-intake": () => ({ data: new Blob(["CCTP fictif : lot plomberie."]), error: null }),
+      "affaire-intake": ({ paths }) => ({ data: new Blob([Uint8Array.from(intakeContents.get(paths[0]) ?? Buffer.from(CCTP_TEXT))]), error: null }),
     },
   });
   const server = createSupabaseFake({ tables: {
@@ -73,7 +75,7 @@ function fixture() {
   ready.processing = { level: "B", provider: "auto" };
   ready.sources = [{ ...toPreparationPlanSource(file), active: true, confirmed: true }];
   return {
-    user, server, context, file, files, contents, ready, content, intake, getRecord: () => record,
+    user, server, context, file, files, contents, intakeContents, ready, content, intake, getRecord: () => record,
     seedRecord: (row: PreparationRecordRow) => { record = row; },
     setTargetProject: (id: string) => { targetProjectId = id; },
     setMissingMigration: () => { missingMigration = true; },
@@ -81,6 +83,9 @@ function fixture() {
   };
 }
 
+/** What the dossier's text pieces hold by default; a row records the size of the file it names. */
+const CCTP_TEXT = "CCTP fictif : lot plomberie.";
+const CCTP_SIZE = Buffer.byteLength(CCTP_TEXT);
 const selection = { profileId: "alice", model: "gpt-5.4", reasoningEffort: "medium", hostId: "mac", authorizationId: "connexion-alice" } as const;
 const observedFingerprint = createHash("sha256").update(JSON.stringify([selection.profileId, selection.hostId, selection.model, selection.reasoningEffort,
   selection.authorizationId])).digest("hex");
@@ -141,7 +146,7 @@ describe("persisted preparation server boundary", () => {
     const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
     f.files.push({ ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan B.pdf" });
     f.intake.push({ id: "99999999-9999-4999-8999-999999999999", file_name: "CCTP.txt",
-      storage_path: `${M3_TENANT_ID}/CCTP.txt`, document_kind: "cctp", mime_type: "text/plain", size_bytes: 10, updated_at: "2026-11-20T00:00:00Z" });
+      storage_path: `${M3_TENANT_ID}/CCTP.txt`, document_kind: "cctp", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" });
     await expect(saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null })).rejects.toMatchObject({ status: 409 });
     expect(f.getRecord()).toBeNull();
     const refreshed = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
@@ -152,7 +157,7 @@ describe("persisted preparation server boundary", () => {
   it.each(["cctp", "dpgf"])("treats an attachment reclassified as %s as a new dossier piece", async (kind) => {
     const f = fixture();
     const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", storage_path: `${M3_TENANT_ID}/piece.txt`,
-      document_kind: "other", mime_type: "text/plain", size_bytes: 10, updated_at: "2026-11-20T00:00:00Z" };
+      document_kind: "other", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" };
     f.intake.push(attachment);
     const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
     expect(draft.sources.find(({ document_id }) => document_id === attachment.id)).toMatchObject({ kind: "other", active: false });
@@ -174,7 +179,7 @@ describe("persisted preparation server boundary", () => {
   it.each(["cctp", "dpgf"])("includes an attachment of an old draft reclassified as %s on its first opening", async (kind) => {
     const f = fixture();
     const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", storage_path: `${M3_TENANT_ID}/piece.txt`,
-      document_kind: "other", mime_type: "text/plain", size_bytes: 10, updated_at: "2026-11-20T00:00:00Z" };
+      document_kind: "other", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" };
     f.intake.push(attachment);
     // A draft as the previous application saved it: no dossier provenance, the attachment left out.
     const legacy = { ...f.ready, sources: [...f.ready.sources, { ...toPreparationIntakeSource(attachment), active: false }] };
@@ -538,5 +543,96 @@ describe("persisted preparation server boundary", () => {
       planSetId: M3_PLAN_SET_ID, preparationRevision: 4, level: "B", provider: "auto" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("réglages de traitement") });
     await expect(assertConfirmedTakeoffPreparation({ context: f.context, estimateVersionId: M3_VERSION_ID,
       planSetId: M3_PLAN_SET_ID, preparationRevision: 4, level: "C", provider: "chatgpt" })).resolves.toMatchObject({ preparation: { processing: { level: "C", provider: "chatgpt" } } });
+  });
+});
+
+/** A CCTP of the dossier with the given bytes: a dossier preparation retains it by default. */
+function addReference(f: ReturnType<typeof fixture>, input: { name: string; mime: string; bytes: Buffer; kind?: "cctp" | "dpgf" }) {
+  const document: PreparationIntakeDocument = {
+    id: "99999999-9999-4999-8999-99999999999" + String(f.intake.length), file_name: input.name,
+    storage_path: `${M3_TENANT_ID}/dossier/${input.name}`, size_bytes: input.bytes.byteLength, mime_type: input.mime,
+    document_kind: input.kind ?? "cctp", updated_at: "2026-11-21T00:00:00Z",
+  };
+  f.intake.push(document);
+  f.intakeContents.set(document.storage_path!, input.bytes);
+  return document;
+}
+
+async function pdfOfPages(count: number) {
+  const pdf = await PDFDocument.create();
+  for (let page = 0; page < count; page += 1) pdf.addPage([20, 20]);
+  return Buffer.from(await pdf.save());
+}
+
+// Written before the shared sealing (lot 2, before the automatic start is activated): a confirmation hashed a
+// reference's bytes without reading them as the worker does, so the worker refused, after the launch, what was confirmed.
+describe("the sealing of a member's confirmation", () => {
+  it("tells the member a CCTP of more than 200 selected pages, though under 20 MB, and confirms nothing", async () => {
+    const f = fixture();
+    const cctp = addReference(f, { name: "CCTP lot plomberie.pdf", mime: "application/pdf", bytes: await pdfOfPages(201) });
+    expect(cctp.size_bytes).toBeLessThan(20 * 1024 * 1024);
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringContaining("« CCTP lot plomberie.pdf »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("tells the member a corrupt PDF reference the worker could not open, and confirms nothing", async () => {
+    const f = fixture();
+    addReference(f, { name: "CCTP abîmé.pdf", mime: "application/pdf", bytes: Buffer.from("%PDF-1.4 fichier tronque") });
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_PDF_CORRUPTED",
+      message: expect.stringContaining("« CCTP abîmé.pdf »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("tells the member a workbook the worker could not read, and confirms nothing", async () => {
+    const f = fixture();
+    addReference(f, { name: "DPGF.xlsx", kind: "dpgf", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      bytes: Buffer.from("ceci n'est pas un classeur") });
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TYPE_INVALID",
+      message: expect.stringContaining("« DPGF.xlsx »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("confirms the references the worker reads: a PDF of 200 selected pages and a text", async () => {
+    const f = fixture();
+    addReference(f, { name: "CCTP lot plomberie.pdf", mime: "application/pdf", bytes: await pdfOfPages(200) });
+    addReference(f, { name: "CCTP.txt", mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    const confirmed = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(confirmed.confirmedAt).not.toBeNull();
+    expect(confirmed.draft.sources.filter((source) => source.active).map((source) => source.document_name).sort())
+      .toEqual(["CCTP lot plomberie.pdf", "CCTP.txt", "Plan fictif.pdf"]);
+  });
+
+  // The review serves a plan's locations and its original PDF only for a source the preparation attested.
+  it("attests every piece whose bytes it read, a dossier preparation's included", async () => {
+    const f = fixture();
+    addReference(f, { name: "CCTP.txt", mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    const confirmed = await confirmPlanSet(M3_PLAN_SET_ID);
+    const snapshot = await launchPlanSet(f, M3_PLAN_SET_ID, confirmed.revision);
+    expect(snapshot.preparation.provenance).toBeDefined();
+    expect(snapshot.preparation.sources.filter((source) => source.active)
+      .map(({ document_name, confirmed: attested, content_hash }) => ({ document_name, attested, hashed: Boolean(content_hash) })))
+      .toEqual([{ document_name: "Plan fictif.pdf", attested: true, hashed: true }, { document_name: "CCTP.txt", attested: true, hashed: true }]);
+  });
+
+  // The worker reads a plan without its title block: a page the renderer cannot draw leaves the index unread, as the
+  // automatic start seals it, and never refuses a plan the analysis can read.
+  it("confirms a plan whose title block cannot be rendered, its index left to the dossier", async () => {
+    const f = fixture();
+    vi.mocked(renderPdfPages).mockRejectedValue(new Error("rendu impossible"));
+    const confirmed = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(confirmed.confirmedAt).not.toBeNull();
+    expect(confirmed.draft.sources.find((source) => source.document_id === f.file.id)).toMatchObject({ plan_identity: null, revision: "A" });
+    vi.mocked(renderPdfPages).mockResolvedValue({ status: "failed", pageCount: null, pages: [] } as never);
+    const again = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(again.draft.sources.find((source) => source.document_id === f.file.id)).toMatchObject({ plan_identity: null, revision: "A" });
+  });
+
+  it("never downloads a reference whose stored file is not the size its row records", async () => {
+    const f = fixture();
+    const cctp = addReference(f, { name: "CCTP.txt", mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    cctp.size_bytes += 1;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("« CCTP.txt »") });
+    expect(f.user.storageCalls.filter((call) => call.method === "download" && call.paths[0] === cctp.storage_path)).toEqual([]);
   });
 });

@@ -118,7 +118,11 @@ export type TakeoffLaunchManifest = {
     plans_retained: number;
     /** Retained in the dossier but not read: a revision set aside, an identical copy, or a plan the analysis cannot read. */
     plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" }>;
-    references_omitted: Array<{ id: string; name: string; reason: "unreadable" | "unsupported_format" | "limit" }>;
+    /**
+     * Retained in the dossier but not attached: no stored copy to read, a format the analysis does not read, content the
+     * worker cannot read (a corrupt or protected PDF, an invalid workbook), or past the bounds of the references.
+     */
+    references_omitted: Array<{ id: string; name: string; reason: "unreadable" | "unsupported_format" | "invalid" | "limit" }>;
   };
   preparation: { revision: number; rule_version: 1 };
   /** The request's budget over every attempt of its jobs (lot 2: the tenant's per-job budget of the detailed reading). */
