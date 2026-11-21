@@ -6,6 +6,7 @@ import { mapSupabaseError } from "@/lib/http/api-response";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { readAllRows } from "@/lib/supabase/read-all";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   getAuthenticatedTakeoffContext,
@@ -83,10 +84,15 @@ async function readSource(supabase: Supabase, projectId: string, planFileId: str
   return ((data ?? []) as SourceRow[])[0] ?? null;
 }
 
-/** The bytes under the member's own Storage rights; null when they cannot be read or exceed a plan's size. */
-async function readPlanBytes(supabase: Supabase, file: { file_path: string; file_size_bytes: number }): Promise<Uint8Array | null> {
+/**
+ * The bytes of a plan file the member has just been shown to read (its row under their RLS, its affaire readable by
+ * read_takeoff_plan_location_source). Read with the service role, as the attested plan of a review is: the Storage
+ * rule of plan files serves only owners and admins, while a director reads the affaire. The bytes never leave this
+ * server; only their digest and title block reading do. Null when they cannot be read or exceed a plan's size.
+ */
+async function readPlanBytes(file: { file_path: string; file_size_bytes: number }): Promise<Uint8Array | null> {
   if (file.file_size_bytes > PLAN_FILE_MAX_SIZE_BYTES) return null;
-  const { data, error } = await supabase.storage.from(PLAN_FILES_BUCKET).download(file.file_path);
+  const { data, error } = await createServiceRoleClient().storage.from(PLAN_FILES_BUCKET).download(file.file_path);
   if (error || !data || data.size === 0 || data.size > PLAN_FILE_MAX_SIZE_BYTES) {
     const status = (error as { status?: number; statusCode?: string } | null)?.status ?? (error as { statusCode?: string } | null)?.statusCode;
     console.error("takeoff.plan_location.read_failed", { status: status ?? null, size: data?.size ?? null,
@@ -281,7 +287,7 @@ export async function readTakeoffPlanFileLocation(input: { setId: string; fileId
   const { setId, fileId } = parseIds(input.setId, input.fileId);
   const context = await getAuthenticatedTakeoffContext();
   const loaded = await loadPlanFile(context, setId, fileId);
-  return buildPlanFileLocation(context, loaded, bytesOrNotFound(await readPlanBytes(context.supabase, loaded.file)));
+  return buildPlanFileLocation(context, loaded, bytesOrNotFound(await readPlanBytes(loaded.file)));
 }
 
 function conflict(reason: string, message: string): never {
@@ -326,7 +332,7 @@ export async function saveTakeoffPlanFileLocation(input: { setId: string; fileId
   if (!loaded.source.can_write) saveRefused({ message: "TAKEOFF_PLAN_LOCATION_FORBIDDEN" });
   if (!loaded.source.current_copy) saveRefused({ message: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE" });
   // The revision is the bytes this server reads now, never the digest a screen sends.
-  const bytes = bytesOrNotFound(await readPlanBytes(context.supabase, loaded.file));
+  const bytes = bytesOrNotFound(await readPlanBytes(loaded.file));
   if (sha256(bytes) !== body.content_hash) {
     conflict("TAKEOFF_PLAN_LOCATION_REVISION_CHANGED", "Le contenu de ce plan a changé depuis son affichage. Vérifiez sa nouvelle localisation avant de l’enregistrer.");
   }
@@ -380,7 +386,7 @@ export async function readTakeoffJobPlanLocations(jobId: string): Promise<Takeof
     const { data: file, error: fileError } = await context.supabase.from("plan_files").select("file_path,file_size_bytes")
       .eq("tenant_id", context.tenantId).eq("id", planFileId).maybeSingle();
     if (fileError) readFailure(fileError, "Impossible de charger un plan du métré.");
-    const bytes = file && file.file_path === source.file_path ? await readPlanBytes(context.supabase, file) : null;
+    const bytes = file && file.file_path === source.file_path ? await readPlanBytes(file) : null;
     const status = !sourceRow || !bytes ? "unavailable" : sha256(bytes) === source.content_hash ? "current" : "changed";
     let reading: PlanLocationReading = readPlanLocation({ documentName: source.document_name, pageCount: source.page_count, pages: [] });
     let readingIssue: TakeoffJobPlanLocation["reading_issue"] = status === "current" ? null : "not_current";
