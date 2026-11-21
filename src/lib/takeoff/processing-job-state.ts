@@ -236,6 +236,22 @@ export async function recordLocalTakeoffFailure(input: {
     message: typeof recorded.error_message === "string" ? recorded.error_message : input.error.message, jobId: input.job.id });
 }
 
+/**
+ * The worker's end of an attempt that may have held the Mac's slot (migration 20261121181031_takeoff_plan_dispatcher.sql):
+ * whatever ended the job (its own write, or a member's stop that made that write refused), the Mac is given back for the
+ * next plan. A no-op once the job's end gave it back, or for an attempt that never held it; best effort: the slot lapses
+ * with the lease anyway.
+ */
+export async function releaseTakeoffHostSlot(supabase: Supabase, input: { hostId: string; leaseToken: string }) {
+  try {
+    const { error } = await supabase.rpc("release_takeoff_host_slot" as never,
+      { p_host_id: input.hostId, p_lease_token: input.leaseToken } as never);
+    if (error) console.error("takeoff.host_slot.release_failed", { host_id: input.hostId, code: error.code });
+  } catch {
+    console.error("takeoff.host_slot.release_failed", { host_id: input.hostId });
+  }
+}
+
 export function annotateAtomicPersistenceRollbackError(error: TakeoffError) {
   const details: Record<string, unknown> =
     error.details && typeof error.details === "object" && !Array.isArray(error.details)

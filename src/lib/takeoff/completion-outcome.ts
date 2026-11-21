@@ -4,15 +4,23 @@ export type TakeoffAnalysisOutcome = "success" | "failure" | "canceled";
 
 /**
  * The codes of an end that the database publishes to the inbox and to the affaire's readers
- * (private.takeoff_public_failure_codes, last written by 20261121181031_takeoff_plan_dispatcher.sql): each has a public
- * French reason. Any other code is shown as the generic reason. Add a code to both lists, never to one.
+ * (private.takeoff_public_failure_codes): each has a public French reason. Any other code is shown as the generic reason.
+ * Add a code to both lists, never to one.
  */
 export const TAKEOFF_PUBLIC_FAILURE_CODES = [
   "AI_PROVIDER", "AI_RATE_LIMIT", "AI_SAFETY", "AI_SCHEMA", "AI_TIMEOUT", "FORBIDDEN", "INTERNAL_ERROR", "TAKEOFF_FILE_TOO_LARGE",
   "TAKEOFF_FILE_TYPE_INVALID", "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED", "TAKEOFF_LEVEL_C_INVALID_SCHEMA",
-  "TAKEOFF_LEVEL_C_TIMEOUT", "TAKEOFF_PDF_CORRUPTED", "TAKEOFF_PDF_NOT_INTERPRETABLE", "TAKEOFF_REQUEST_BUDGET_EXHAUSTED",
-  "TAKEOFF_USAGE_UNRECORDED", "TAKEOFF_WORKER_HOST_SILENT",
+  "TAKEOFF_LEVEL_C_TIMEOUT", "TAKEOFF_PDF_CORRUPTED", "TAKEOFF_PDF_NOT_INTERPRETABLE", "TAKEOFF_WORKER_HOST_SILENT",
   "TAKEOFF_WORKER_NOT_STARTED", "TAKEOFF_WORKER_OUTCOME_UNKNOWN", "TAKEOFF_WORKER_QUEUE_EXPIRED",
+] as const;
+
+/**
+ * The codes a plan of one analysis per plan publishes to the affaire's readers, on that plan (private.
+ * takeoff_plan_public_failure_codes, migration 20261121181031_takeoff_plan_dispatcher.sql): the list above, a plan's source
+ * changed after its admission, its request's budget spent, a call whose consumption stayed unknown or was not recorded.
+ */
+export const TAKEOFF_PLAN_PUBLIC_FAILURE_CODES = [
+  ...TAKEOFF_PUBLIC_FAILURE_CODES, "TAKEOFF_PREPARATION_SOURCE_CHANGED", "TAKEOFF_REQUEST_BUDGET_EXHAUSTED", "TAKEOFF_USAGE_UNRECORDED",
 ] as const;
 
 /** The end a notice tells: an analysis's, or a launch request's, which may have read some of its plans only. */

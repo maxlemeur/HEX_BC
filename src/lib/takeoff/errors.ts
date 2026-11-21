@@ -41,6 +41,8 @@ export enum TakeoffErrorCode {
   TAKEOFF_REQUEST_BUDGET_EXHAUSTED = "TAKEOFF_REQUEST_BUDGET_EXHAUSTED",
   /** A paid call's usage that its launch request's ledger could not record: the job stops, nothing more is sent. */
   TAKEOFF_USAGE_UNRECORDED = "TAKEOFF_USAGE_UNRECORDED",
+  /** A plan of one analysis per plan whose source changed after its admission: it fails alone, definitively. */
+  TAKEOFF_PREPARATION_SOURCE_CHANGED = "TAKEOFF_PREPARATION_SOURCE_CHANGED",
   TAKEOFF_JOB_NOT_RETRIABLE = "TAKEOFF_JOB_NOT_RETRIABLE",
   TAKEOFF_JOB_NOT_CANCELABLE = "TAKEOFF_JOB_NOT_CANCELABLE",
   TAKEOFF_JOB_ADMISSION_LIMIT = "TAKEOFF_JOB_ADMISSION_LIMIT",
