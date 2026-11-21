@@ -5,6 +5,7 @@ import { resolveTakeoffReviewScope } from "@/lib/takeoff/version-access-server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
 import { TakeoffPlanLocationsPanel } from "@/components/takeoff/TakeoffPlanLocationsPanel";
+import { TakeoffRequestPlansNav } from "@/components/takeoff/TakeoffRequestPlansNav";
 
 type Props = {
   params: Promise<{ projectId: string; jobId: string }>;
@@ -13,7 +14,7 @@ type Props = {
 
 export default async function AffaireTakeoffReviewPage({ params, searchParams }: Props) {
   const [{ projectId, jobId }, { versionId }] = await Promise.all([params, searchParams]);
-  const { tenantId } = await getUserContext();
+  const { tenantId, profile } = await getUserContext();
 
   if (!tenantId) notFound();
 
@@ -25,6 +26,8 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
 
   return (
     <div className="min-w-0">
+      {/* The other plans of the same launch request: which are missing, and the way to the next one read. */}
+      <TakeoffRequestPlansNav projectId={projectId} jobId={jobId} viewerKey={`${tenantId}:${profile?.id ?? ""}`} />
       <TakeoffReviewPage
         jobId={jobId}
         versionId={scope.versionId} canEdit={scope.canEdit}

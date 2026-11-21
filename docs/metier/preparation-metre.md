@@ -192,6 +192,81 @@ la base en garantit l’unicité et l’admission (migration
   en file, ou qui n’est plus propriétaire de l’affaire, ne dépense plus rien :
   l’analyse échoue avec ce motif.
 
+## Suivi d’une demande dans le centre d’activité
+
+La page Métrés de l’affaire (`/dashboard/affaires/{affaire}/takeoff`) montre la
+dernière exécution de l’affaire au-dessus de la liste des analyses : son origine
+(démarrage automatique ou relance), son état et son motif, puis ses plans dans
+l’ordre que son manifeste a enregistré. Une demande du lot 2 n’a qu’une unité
+groupée : elle reste une seule « analyse groupée de N plans », avec les pages de
+chaque plan, jamais N analyses ni N lectures réussies. Avec une analyse par plan,
+chaque plan est dans un seul état (en attente, en lecture, lu, en échec, arrêté,
+non démarré) et l’en-tête le résume : « 1 plan lu sur 3 · 1 en lecture · 1 en
+attente ». La règle des états, la couverture et sa formulation sont celles du
+répartiteur ([`launch-request-coverage.ts`](../../src/lib/takeoff/launch-request-coverage.ts)
+et sa fonction SQL `private.takeoff_unit_state`) ; en attendant que son lecteur
+des unités soit livré, le serveur dérive les unités du manifeste scellé et des
+jobs selon cette même règle. Aucune avancée n’est estimée en pourcentage de
+pages ou de temps.
+
+- **Revue anticipée.** Dès qu’un plan est lu, « Revoir [plan] » ouvre ses revues
+  (complète et ciblée), avec leur propre pagination et leurs preuves, pendant que
+  les autres plans sont lus. Un plan lu sans ligne retenue reste consultable et le
+  dit ; rien n’est alors à envoyer. La revue d’un plan nomme les autres plans de
+  sa demande, ceux qui manquent encore, et mène au plan précédent ou suivant lu.
+- **Ce que chacun voit.** Les lecteurs de l’affaire voient les états, les motifs
+  et ouvrent les revues qu’ils peuvent lire. Le nom et les pages d’un plan (et
+  d’une pièce du dossier) ne sont montrés qu’au membre qui peut lire sa source,
+  selon les règles des plans et des pièces évaluées pour lui (le propriétaire de
+  l’affaire et un administrateur lisent tous ses plans) ; les autres lisent
+  « Plan N », sans l’identifiant de sa source. Seul le membre qu’une décision y
+  autorise voit une action : pour une analyse arrêtée, la politique de reprise
+  ([`operator-state.ts`](../../src/lib/takeoff/operator-state.ts), la même que le
+  détail et la commande) ; pour une demande qui n’a pas démarré, le geste que la
+  base lui permet (`public.takeoff_launch_request_action` : « Prendre en charge »
+  ou « Reprendre avec mon forfait », ou ouvrir MergeOne sur le Mac connecté). Le
+  serveur relit tout au moment du geste.
+- **Bâtiment et niveau.** Chaque plan ouvre le même formulaire que le centre des
+  plans (section « Bâtiment et niveau d’un plan »).
+- **Ce que la demande n’a pas lu.** Les plans écartés à son scellement (autre
+  indice retenu, copie identique, format non lu) sont nommés ; une fois ses plans
+  lus, les plans ajoutés, remplacés ou retirés du dossier depuis sont signalés,
+  sans rien relancer.
+- **Historique et liens.** Les demandes précédentes sont listées repliées, cinq
+  par page. Un lien vers une demande (`?request=`) ouvre cette demande ; un lien
+  vers une analyse (`?job=`, celui de l’avis de fin d’analyse) ouvre aussi la
+  demande dont elle fait partie. La page suit alors aussi la dernière exécution
+  de l’affaire et ses analyses lancées sans demande ; « Voir la dernière analyse
+  de l’affaire » y revient.
+- **Mise à jour.** La page lit une projection légère
+  (`GET /api/takeoff/activity-center/requests`, [`request-activity-server.ts`](../../src/lib/takeoff/request-activity-server.ts))
+  dont le nombre de lectures ne dépend ni du nombre de plans ni du nombre
+  d’échecs, sans octet de PDF. C’est la seule lecture répétée de la page : toutes
+  les 5 secondes pendant la lecture d’un plan (ou juste après la fin du
+  précédent, ou d’une analyse sans demande mise en file à l’instant), toutes les
+  30 secondes dans tout autre état qui peut encore bouger (le Mac, une nouvelle
+  tentative ou la clôture attendue, une demande pas encore démarrée), plus du
+  tout quand tout est clos. Une lecture qui échoue (réseau, serveur, délai
+  dépassé, y compris la lecture du module ou de la session) est retentée
+  30 secondes plus tard, la page indiquant entre-temps le dernier état connu ;
+  seul un refus d’accès arrête les lectures et retire tout ce qui était affiché
+  (la demande, le résumé et la liste), quelle que soit la lecture refusée. L’écart du dossier n’est recalculé que si le dossier a
+  bougé depuis la lecture précédente, et le geste avant admission n’est relu
+  qu’au rythme lent. Un
+  onglet masqué ou hors ligne la suspend ; le retour sur l’onglet, la reconnexion
+  et chaque geste la relisent aussitôt. La liste des analyses, l’historique des
+  demandes et les fins d’analyse ne sont relus que lorsqu’elle signale une
+  transition (jamais au renouvellement du bail d’une lecture), ou après un geste
+  fait dans la liste. Le cache de cette projection est propre au membre et à son
+  entreprise ; un autre membre repart d’une page vide. Une analyse que la liste
+  montre en cours et que la projection ne voit plus en cours fait relire les
+  deux. Une arrivée en arrière-plan ne déplace ni le
+  focus, ni la sélection, ni une saisie en cours.
+- **Étape suivante.** Quand la dernière exécution est une demande, plus récente
+  que la dernière analyse lancée sans demande, l’étape suivante suit ses plans,
+  jamais le dernier job créé : un plan en échec ou en attente ne cache pas la
+  revue d’un autre.
+
 ## Contenu de la fiche
 
 | Partie | Données conservées |

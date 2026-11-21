@@ -24621,6 +24621,170 @@
         }
       }
     },
+    "/api/takeoff/activity-center/requests": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Suivre les demandes de lancement d’une affaire et leurs plans",
+        "description": "Projection légère, lue à nouveau par l’écran tant qu’une demande peut changer d’elle-même : la dernière exécution de l’affaire (current), une page des précédentes (history), la demande qu’un lien nomme (request) ou celle d’une analyse (job). Chaque demande liste ses unités dans l’ordre enregistré par son manifeste, chacune dans un seul état (une unité groupée au format 1, une par plan au format 2), sa couverture et, pour les analyses que le membre lit, la décision de reprise de la même politique que le détail et la commande. Le nombre de lectures ne dépend ni du nombre de plans ni du nombre d’échecs ; signature ne change qu’à une transition, jamais au renouvellement d’un bail. Jamais un poste, un compte, un bail ni le texte d’un fournisseur.",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsProjectIdParameter"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "current (défaut), history, request ou job.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsViewParameter"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "query",
+            "description": "Demande à afficher (vue request), par exemple depuis le courriel de fin.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsRequestIdParameter"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "description": "Analyse dont la demande est affichée (vue job), depuis sa revue.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsJobIdParameter"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Décalage de la page des demandes précédentes (vue history).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsOffsetParameter"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Nombre de demandes précédentes par page (5 par défaut).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsLimitParameter"
+            }
+          },
+          {
+            "name": "dossierSeen",
+            "in": "query",
+            "description": "Position du dossier lue la fois précédente : son écart n’est recalculé que s’il a bougé.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsDossierSeenParameter"
+            }
+          },
+          {
+            "name": "actionSeen",
+            "in": "query",
+            "description": "Clé du geste lu la fois précédente.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsActionSeenParameter"
+            }
+          },
+          {
+            "name": "actionSeenAt",
+            "in": "query",
+            "description": "Heure du serveur de cette lecture : le geste est relu après 30 s.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsActionSeenAtParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Demandes de l’affaire, leurs unités et ce que le membre peut faire de chaque analyse.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffRequestActivityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/takeoff/health": {
       "get": {
         "tags": [
@@ -84249,6 +84413,19 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
+                    "launchRequestId": {
+                      "description": "La demande de lancement dont cette analyse est une unité ; null sans demande.",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "analysisCompletion": {
                       "anyOf": [
                         {
@@ -84657,6 +84834,1520 @@
               "jobs",
               "analysisCompletions",
               "pagination"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "GetTakeoffActivityCenterRequestsProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetTakeoffActivityCenterRequestsViewParameter": {
+        "type": "string",
+        "enum": [
+          "current",
+          "history",
+          "request",
+          "job"
+        ]
+      },
+      "GetTakeoffActivityCenterRequestsRequestIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetTakeoffActivityCenterRequestsJobIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetTakeoffActivityCenterRequestsOffsetParameter": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "GetTakeoffActivityCenterRequestsLimitParameter": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20
+      },
+      "GetTakeoffActivityCenterRequestsDossierSeenParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "GetTakeoffActivityCenterRequestsActionSeenParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "GetTakeoffActivityCenterRequestsActionSeenAtParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "ApiTakeoffRequestActivityResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "view": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "history",
+                  "request",
+                  "job"
+                ]
+              },
+              "observedAt": {
+                "type": "string",
+                "description": "Heure du serveur à la lecture."
+              },
+              "live": {
+                "type": "boolean",
+                "description": "Une demande lue, ou une analyse sans demande, peut encore changer d’elle-même."
+              },
+              "signature": {
+                "type": "string",
+                "description": "Change à chaque transition lue, jamais sur un signal de vie : l’écran relit alors ses autres listes."
+              },
+              "current": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "origin": {
+                        "type": "string",
+                        "enum": [
+                          "automatic",
+                          "manual"
+                        ]
+                      },
+                      "intent": {
+                        "type": "string",
+                        "enum": [
+                          "initial",
+                          "reread_plans",
+                          "remeasure_items"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "evaluating",
+                          "not_eligible",
+                          "blocked",
+                          "admitted",
+                          "closed",
+                          "superseded"
+                        ]
+                      },
+                      "outcome": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "success",
+                              "failure",
+                              "canceled",
+                              "partial"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "reason": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Pourquoi la demande n’a pas démarré ou s’est arrêtée, en français ; le code n’est jamais affiché."
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "admittedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "closedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "units": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "format": {
+                                "type": "string",
+                                "enum": [
+                                  "grouped",
+                                  "per_plan"
+                                ]
+                              },
+                              "units": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "description": "plan:<source> ; unit:<rang> pour un plan dont la source n’est pas lisible par ce membre."
+                                    },
+                                    "ordinal": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991,
+                                      "description": "Rang dans l’ordre enregistré : le Mac lit les unités dans cet ordre."
+                                    },
+                                    "planFileId": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "logicalId": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "pages": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "integer",
+                                        "exclusiveMinimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "description": "Pages originales lues (à partir de 1) ; vide pour tout le plan."
+                                    },
+                                    "jobId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "state": {
+                                      "type": "string",
+                                      "enum": [
+                                        "queued",
+                                        "running",
+                                        "succeeded",
+                                        "failed",
+                                        "canceled",
+                                        "not_started"
+                                      ],
+                                      "description": "queued (en attente de son tour ou d’une nouvelle tentative), running (en lecture), succeeded (lu, revue ouverte, envoyé ou non), failed (lecture terminée sans résultat), canceled (arrêté par un membre), not_started (clos avant toute lecture)."
+                                    },
+                                    "reasonCode": {
+                                      "description": "Code public d’un échec ou d’un arrêt ; l’écran affiche son motif en français.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "retryAt": {
+                                      "description": "Échéance de la nouvelle tentative technique d’une unité en attente.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "updatedAt": {
+                                      "type": "string"
+                                    },
+                                    "reviewable": {
+                                      "type": "boolean",
+                                      "description": "Sa lecture peut être ouverte (« Revoir [plan] »), même pendant la lecture des autres plans."
+                                    }
+                                  },
+                                  "required": [
+                                    "key",
+                                    "ordinal",
+                                    "planFileId",
+                                    "logicalId",
+                                    "name",
+                                    "pages",
+                                    "jobId",
+                                    "state",
+                                    "reasonCode",
+                                    "retryAt",
+                                    "updatedAt",
+                                    "reviewable"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "coverage": {
+                                "type": "object",
+                                "properties": {
+                                  "expected": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "queued": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "running": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "succeeded": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "failed": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "canceled": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "not_started": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "required": [
+                                  "expected",
+                                  "queued",
+                                  "running",
+                                  "succeeded",
+                                  "failed",
+                                  "canceled",
+                                  "not_started"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "unknownCalls": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Appels envoyés sans réponse (consommation indéterminée) ; null quand non évalué."
+                              }
+                            },
+                            "required": [
+                              "format",
+                              "units",
+                              "coverage",
+                              "unknownCalls"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Ses unités, une fois la demande admise sur un manifeste lisible."
+                      },
+                      "groupedPlans": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "planFileId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            }
+                          },
+                          "required": [
+                            "planFileId",
+                            "name",
+                            "pages"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "Les plans de l’analyse groupée d’un manifeste de format 1, avec leurs pages."
+                      },
+                      "plansOmitted": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "alternate",
+                                "identical_copy",
+                                "unsupported_format"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "reason"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "jobs": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "jobId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "planSetId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "estimateVersionId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "La version sur laquelle s’ouvre sa revue, une fois envoyée."
+                            },
+                            "lastTransitionAt": {
+                              "description": "Dernière transition de l’analyse (création, début, fin), jamais un renouvellement de bail.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "itemCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991,
+                              "description": "Lignes retenues, c’est-à-dire non exclues."
+                            },
+                            "applied": {
+                              "type": "boolean",
+                              "description": "Ses lignes sont envoyées au devis ; la lecture reste réussie."
+                            },
+                            "errorCode": {
+                              "description": "Code de diagnostic s’il a un motif public en français, sinon OTHER ; l’écran affiche le motif, jamais le code.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "retryCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "resume": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "action": {
+                                      "type": "string",
+                                      "enum": [
+                                        "retry_now",
+                                        "wait_retry",
+                                        "new_analysis",
+                                        "none"
+                                      ],
+                                      "description": "Ce que le membre peut faire de l’analyse arrêtée : retry_now (la soumettre à nouveau), wait_retry (attendre la reprise programmée ou la fin du délai), new_analysis (préparer une nouvelle analyse), none (rien)."
+                                    },
+                                    "reason": {
+                                      "type": "string",
+                                      "enum": [
+                                        "not_stopped",
+                                        "legacy_provider",
+                                        "retry_limit",
+                                        "analysis_closed",
+                                        "outcome_unknown",
+                                        "retry_scheduled",
+                                        "budget_exhausted",
+                                        "read_only",
+                                        "launched_by_other",
+                                        "execution_unavailable",
+                                        "other_mac",
+                                        "plan_disconnected",
+                                        "plan_model_missing",
+                                        "retry_delay",
+                                        "retry_available"
+                                      ],
+                                      "description": "La règle qui a décidé, à afficher en français (jamais le code) : not_stopped, legacy_provider, retry_limit, analysis_closed, outcome_unknown, retry_scheduled, budget_exhausted, read_only, launched_by_other, execution_unavailable, other_mac, plan_disconnected, plan_model_missing, retry_delay, retry_available."
+                                    },
+                                    "availableAt": {
+                                      "description": "Pour une attente : l’échéance de la reprise programmée ou de la fin du délai.",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "action",
+                                    "reason",
+                                    "availableAt"
+                                  ],
+                                  "additionalProperties": false,
+                                  "description": "Décision de reprise, la même que le détail de l’analyse et que la commande de nouvelle soumission."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Décision de reprise d’une analyse arrêtée, la même que son détail."
+                            },
+                            "canCancel": {
+                              "type": "boolean"
+                            },
+                            "canResubmit": {
+                              "type": "boolean",
+                              "description": "Vrai si et seulement si resume.action vaut retry_now."
+                            }
+                          },
+                          "required": [
+                            "jobId",
+                            "planSetId",
+                            "estimateVersionId",
+                            "lastTransitionAt",
+                            "itemCount",
+                            "applied",
+                            "errorCode",
+                            "retryCount",
+                            "resume",
+                            "canCancel",
+                            "canResubmit"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "action": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "take_on",
+                                  "resume",
+                                  "open_mac",
+                                  "wait",
+                                  "none"
+                                ]
+                              },
+                              "label": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "mandateRevision": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "label",
+                              "mandateRevision"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Demande affichée non admise : le geste que la base permet à ce membre (prendre en charge, reprendre)."
+                      },
+                      "dossierChanged": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "added": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "pattern": "^hidden:(added|replaced|removed):[1-9][0-9]*$"
+                                        }
+                                      ]
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "replaced": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "pattern": "^hidden:(added|replaced|removed):[1-9][0-9]*$"
+                                        }
+                                      ]
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "removed": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "format": "uuid",
+                                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "pattern": "^hidden:(added|replaced|removed):[1-9][0-9]*$"
+                                        }
+                                      ]
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "name"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "added",
+                              "replaced",
+                              "removed"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Plans ajoutés, remplacés ou retirés du dossier depuis le scellement, lu quand ses plans ne sont plus lus."
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "origin",
+                      "intent",
+                      "state",
+                      "outcome",
+                      "reason",
+                      "createdAt",
+                      "admittedAt",
+                      "closedAt",
+                      "units",
+                      "groupedPlans",
+                      "plansOmitted",
+                      "jobs",
+                      "action",
+                      "dossierChanged"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "La dernière exécution de l’affaire (une demande mise de côté ne la cache pas), celle d’un lien ou celle d’une analyse."
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "manual"
+                      ]
+                    },
+                    "intent": {
+                      "type": "string",
+                      "enum": [
+                        "initial",
+                        "reread_plans",
+                        "remeasure_items"
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "evaluating",
+                        "not_eligible",
+                        "blocked",
+                        "admitted",
+                        "closed",
+                        "superseded"
+                      ]
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "success",
+                            "failure",
+                            "canceled",
+                            "partial"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Pourquoi la demande n’a pas démarré ou s’est arrêtée, en français ; le code n’est jamais affiché."
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "admittedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "closedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "units": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "format": {
+                              "type": "string",
+                              "enum": [
+                                "grouped",
+                                "per_plan"
+                              ]
+                            },
+                            "units": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "description": "plan:<source> ; unit:<rang> pour un plan dont la source n’est pas lisible par ce membre."
+                                  },
+                                  "ordinal": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "description": "Rang dans l’ordre enregistré : le Mac lit les unités dans cet ordre."
+                                  },
+                                  "planFileId": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "logicalId": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "pages": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "description": "Pages originales lues (à partir de 1) ; vide pour tout le plan."
+                                  },
+                                  "jobId": {
+                                    "type": "string",
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "queued",
+                                      "running",
+                                      "succeeded",
+                                      "failed",
+                                      "canceled",
+                                      "not_started"
+                                    ],
+                                    "description": "queued (en attente de son tour ou d’une nouvelle tentative), running (en lecture), succeeded (lu, revue ouverte, envoyé ou non), failed (lecture terminée sans résultat), canceled (arrêté par un membre), not_started (clos avant toute lecture)."
+                                  },
+                                  "reasonCode": {
+                                    "description": "Code public d’un échec ou d’un arrêt ; l’écran affiche son motif en français.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "retryAt": {
+                                    "description": "Échéance de la nouvelle tentative technique d’une unité en attente.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "updatedAt": {
+                                    "type": "string"
+                                  },
+                                  "reviewable": {
+                                    "type": "boolean",
+                                    "description": "Sa lecture peut être ouverte (« Revoir [plan] »), même pendant la lecture des autres plans."
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "ordinal",
+                                  "planFileId",
+                                  "logicalId",
+                                  "name",
+                                  "pages",
+                                  "jobId",
+                                  "state",
+                                  "reasonCode",
+                                  "retryAt",
+                                  "updatedAt",
+                                  "reviewable"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "coverage": {
+                              "type": "object",
+                              "properties": {
+                                "expected": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "queued": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "running": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "succeeded": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "failed": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "canceled": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "not_started": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "expected",
+                                "queued",
+                                "running",
+                                "succeeded",
+                                "failed",
+                                "canceled",
+                                "not_started"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "unknownCalls": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Appels envoyés sans réponse (consommation indéterminée) ; null quand non évalué."
+                            }
+                          },
+                          "required": [
+                            "format",
+                            "units",
+                            "coverage",
+                            "unknownCalls"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Ses unités, une fois la demande admise sur un manifeste lisible."
+                    },
+                    "groupedPlans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "planFileId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          }
+                        },
+                        "required": [
+                          "planFileId",
+                          "name",
+                          "pages"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "description": "Les plans de l’analyse groupée d’un manifeste de format 1, avec leurs pages."
+                    },
+                    "plansOmitted": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "enum": [
+                              "alternate",
+                              "identical_copy",
+                              "unsupported_format"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "jobs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "jobId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "planSetId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "estimateVersionId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "La version sur laquelle s’ouvre sa revue, une fois envoyée."
+                          },
+                          "lastTransitionAt": {
+                            "description": "Dernière transition de l’analyse (création, début, fin), jamais un renouvellement de bail.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "itemCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991,
+                            "description": "Lignes retenues, c’est-à-dire non exclues."
+                          },
+                          "applied": {
+                            "type": "boolean",
+                            "description": "Ses lignes sont envoyées au devis ; la lecture reste réussie."
+                          },
+                          "errorCode": {
+                            "description": "Code de diagnostic s’il a un motif public en français, sinon OTHER ; l’écran affiche le motif, jamais le code.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "retryCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "resume": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "action": {
+                                    "type": "string",
+                                    "enum": [
+                                      "retry_now",
+                                      "wait_retry",
+                                      "new_analysis",
+                                      "none"
+                                    ],
+                                    "description": "Ce que le membre peut faire de l’analyse arrêtée : retry_now (la soumettre à nouveau), wait_retry (attendre la reprise programmée ou la fin du délai), new_analysis (préparer une nouvelle analyse), none (rien)."
+                                  },
+                                  "reason": {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_stopped",
+                                      "legacy_provider",
+                                      "retry_limit",
+                                      "analysis_closed",
+                                      "outcome_unknown",
+                                      "retry_scheduled",
+                                      "budget_exhausted",
+                                      "read_only",
+                                      "launched_by_other",
+                                      "execution_unavailable",
+                                      "other_mac",
+                                      "plan_disconnected",
+                                      "plan_model_missing",
+                                      "retry_delay",
+                                      "retry_available"
+                                    ],
+                                    "description": "La règle qui a décidé, à afficher en français (jamais le code) : not_stopped, legacy_provider, retry_limit, analysis_closed, outcome_unknown, retry_scheduled, budget_exhausted, read_only, launched_by_other, execution_unavailable, other_mac, plan_disconnected, plan_model_missing, retry_delay, retry_available."
+                                  },
+                                  "availableAt": {
+                                    "description": "Pour une attente : l’échéance de la reprise programmée ou de la fin du délai.",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "action",
+                                  "reason",
+                                  "availableAt"
+                                ],
+                                "additionalProperties": false,
+                                "description": "Décision de reprise, la même que le détail de l’analyse et que la commande de nouvelle soumission."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Décision de reprise d’une analyse arrêtée, la même que son détail."
+                          },
+                          "canCancel": {
+                            "type": "boolean"
+                          },
+                          "canResubmit": {
+                            "type": "boolean",
+                            "description": "Vrai si et seulement si resume.action vaut retry_now."
+                          }
+                        },
+                        "required": [
+                          "jobId",
+                          "planSetId",
+                          "estimateVersionId",
+                          "lastTransitionAt",
+                          "itemCount",
+                          "applied",
+                          "errorCode",
+                          "retryCount",
+                          "resume",
+                          "canCancel",
+                          "canResubmit"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "action": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "take_on",
+                                "resume",
+                                "open_mac",
+                                "wait",
+                                "none"
+                              ]
+                            },
+                            "label": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "mandateRevision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "label",
+                            "mandateRevision"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Demande affichée non admise : le geste que la base permet à ce membre (prendre en charge, reprendre)."
+                    },
+                    "dossierChanged": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "added": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^hidden:(added|replaced|removed):[1-9][0-9]*$"
+                                      }
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "replaced": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^hidden:(added|replaced|removed):[1-9][0-9]*$"
+                                      }
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "removed": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "pattern": "^hidden:(added|replaced|removed):[1-9][0-9]*$"
+                                      }
+                                    ]
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "name"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "added",
+                            "replaced",
+                            "removed"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Plans ajoutés, remplacés ou retirés du dossier depuis le scellement, lu quand ses plans ne sont plus lus."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "origin",
+                    "intent",
+                    "state",
+                    "outcome",
+                    "reason",
+                    "createdAt",
+                    "admittedAt",
+                    "closedAt",
+                    "units",
+                    "groupedPlans",
+                    "plansOmitted",
+                    "jobs",
+                    "action",
+                    "dossierChanged"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "historyHasOlder": {
+                "type": "boolean"
+              },
+              "historyOffset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "standalone": {
+                "type": "object",
+                "properties": {
+                  "running": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "waiting": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "running",
+                  "waiting"
+                ],
+                "additionalProperties": false,
+                "description": "Analyses de l’affaire sans demande en cours de lecture ou mises en file à l’instant (running), en file depuis plus longtemps ou en attente d’une reprise programmée (waiting)."
+              },
+              "elsewhere": {
+                "type": "object",
+                "properties": {
+                  "running": {
+                    "type": "boolean"
+                  },
+                  "waiting": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "running",
+                  "waiting"
+                ],
+                "additionalProperties": false,
+                "description": "Vues request et job : la dernière exécution de l’affaire, quand ce n’est pas celle affichée, lit un plan (running) ou peut encore changer (waiting)."
+              },
+              "currentIsLatest": {
+                "type": "boolean",
+                "description": "La demande affichée est la dernière exécution de l’affaire."
+              },
+              "inFlightJobIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "description": "Analyses de l’affaire que cette lecture voit encore en file, en cours ou en attente de reprise : une analyse que la liste montre ainsi et qui n’y figure pas a changé depuis la liste."
+              },
+              "reused": {
+                "type": "object",
+                "properties": {
+                  "dossierPosition": {
+                    "description": "Position du dossier de la demande affichée ; à renvoyer en dossierSeen.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dossier": {
+                    "type": "boolean",
+                    "description": "Le dossier n’a pas bougé depuis dossierSeen : son écart n’a pas été recalculé (dossierChanged nul)."
+                  },
+                  "actionKey": {
+                    "description": "Clé du geste lu ; à renvoyer en actionSeen avec observedAt en actionSeenAt.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "action": {
+                    "type": "boolean",
+                    "description": "Le geste n’a pas été relu (lu il y a moins de 30 s pour la même demande) : action nulle."
+                  }
+                },
+                "required": [
+                  "dossierPosition",
+                  "dossier",
+                  "actionKey",
+                  "action"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "view",
+              "observedAt",
+              "live",
+              "signature",
+              "current",
+              "history",
+              "historyHasOlder",
+              "historyOffset",
+              "standalone",
+              "elsewhere",
+              "currentIsLatest",
+              "inFlightJobIds",
+              "reused"
             ],
             "additionalProperties": false
           }

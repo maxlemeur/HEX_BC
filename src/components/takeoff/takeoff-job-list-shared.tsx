@@ -9,7 +9,6 @@ import {
 } from "@/lib/takeoff/visible-status";
 import { Card } from "@/components/ui/card";
 
-export const TAKEOFF_LIST_REFRESH_INTERVAL_MS = 20_000;
 export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
 const STATUS_CSS_MAP: Record<string, string> = {

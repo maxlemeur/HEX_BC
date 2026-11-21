@@ -75,6 +75,22 @@ export async function getChatGptHostId() {
   return hostId;
 }
 
+/**
+ * The Mac's identifier when it has one, without creating anything: a read path (what a page shows) never writes the
+ * private directory or `host.json`. Null on a Mac that has never run a local analysis (no Mac here for this read).
+ */
+export async function readChatGptHostId(): Promise<string | null> {
+  const file = path.join(root(), "host.json");
+  const known = hostIds.get(file);
+  if (known) return known;
+  try {
+    return z.string().startsWith("urn:uuid:").parse(JSON.parse(await readFile(file, "utf8")));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 export async function readChatGptStore(owner: ChatGptOwner): Promise<ChatGptStore> {
   try {
     const content = await readFile(path.join(root(), `${ownerKey(owner)}.json`), "utf8");
