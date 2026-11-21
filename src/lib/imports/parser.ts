@@ -1,6 +1,7 @@
 import { resolveHeaderRowIndex } from "./header-row";
 import { attachImportRowStructure } from "./payload";
 import { convertPercentFormattedCells } from "./percent-cells";
+import { resolveSheetRowNumber } from "./sheet-row-number";
 import { selectDpgfSheetIndex } from "./sheet-selection";
 // One header normalization for both upload parsers (server and browser worker): the key the
 // upload stores is what the mapping heuristic reads (sub-lot 2.3).
@@ -72,12 +73,14 @@ export function detectImportSourceFormat(
 const PARSE_TIMEOUT_MS = 30_000;
 const DPGF_SHEET_SELECTOR_SOURCE = selectDpgfSheetIndex.toString();
 const PERCENT_CELLS_SOURCE = convertPercentFormattedCells.toString();
+const SHEET_ROW_NUMBER_SOURCE = resolveSheetRowNumber.toString();
 const WORKER_PARSE_SCRIPT = `
 const { parentPort, workerData } = require("node:worker_threads");
 const XLSX = require("xlsx");
 const __name = (target) => target;
 const selectDpgfSheetIndex = (${DPGF_SHEET_SELECTOR_SOURCE});
 const convertPercentFormattedCells = (${PERCENT_CELLS_SOURCE});
+const resolveSheetRowNumber = (${SHEET_ROW_NUMBER_SOURCE});
 
 (async () => {
   try {
@@ -123,9 +126,10 @@ const convertPercentFormattedCells = (${PERCENT_CELLS_SOURCE});
         const styleSheet =
           styleWorkbook.getWorksheet(sheetName) ?? styleWorkbook.worksheets[0];
 
-        if (styleSheet) {
+        const valueSheet = workbook.Sheets[sheetName];
+        if (styleSheet && valueSheet) {
           for (let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1) {
-            const styleRow = styleSheet.getRow(rowIndex + 1);
+            const styleRow = styleSheet.getRow(resolveSheetRowNumber(valueSheet, rowIndex));
             const matrixRow = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
             const columnCount = Math.max(matrixRow.length, styleSheet.columnCount);
             const boldColumnIndexes = [];

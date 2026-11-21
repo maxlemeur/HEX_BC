@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { resolveHeaderRowIndex } from "../lib/imports/header-row";
 import { attachImportRowStructure } from "../lib/imports/payload";
 import { convertPercentFormattedCells } from "../lib/imports/percent-cells";
+import { resolveSheetRowNumber } from "../lib/imports/sheet-row-number";
 import { selectDpgfSheetIndex } from "../lib/imports/sheet-selection";
 import {
   buildHeaders,
@@ -44,6 +45,7 @@ type ParsedWorkbookRowStyle = {
 async function extractRowStyles(
   buffer: ArrayBuffer,
   sheetName: string,
+  valueSheet: XLSX.WorkSheet,
   matrix: unknown[][]
 ): Promise<ParsedWorkbookRowStyle[]> {
   const fallback = Array.from({ length: matrix.length }, (_, index) => ({
@@ -61,7 +63,7 @@ async function extractRowStyles(
     if (!styleSheet) return fallback;
 
     return fallback.map((entry, rowIndex) => {
-      const styleRow = styleSheet.getRow(rowIndex + 1);
+      const styleRow = styleSheet.getRow(resolveSheetRowNumber(valueSheet, rowIndex));
       const matrixRow = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
       const columnCount = Math.max(matrixRow.length, styleSheet.columnCount);
       const boldColumnIndexes: number[] = [];
@@ -172,9 +174,10 @@ export async function parseWorkbook(
   );
   const selectedSheetName = workbook.SheetNames[selectedSheetIndex];
   const matrix = sheetMatrices[selectedSheetIndex];
-  if (!selectedSheetName || !matrix) return [];
+  const selectedSheet = selectedSheetName ? workbook.Sheets[selectedSheetName] : undefined;
+  if (!selectedSheetName || !matrix || !selectedSheet) return [];
 
-  const rowStyles = await extractRowStyles(buffer, selectedSheetName, matrix);
+  const rowStyles = await extractRowStyles(buffer, selectedSheetName, selectedSheet, matrix);
 
   return toImportRows(matrix, selectedSheetName, rowStyles, headerRowNumber);
 }
