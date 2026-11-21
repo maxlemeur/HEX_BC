@@ -119,8 +119,13 @@ export type TakeoffLaunchManifest = {
   references: Array<{ document_id: string; kind: string; content_sha256: string }>;
   coverage: {
     plans_retained: number;
-    /** Retained in the dossier but not read: a revision set aside, an identical copy, or a plan the analysis cannot read. */
-    plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" }>;
+    /**
+     * Retained in the dossier but not read: a revision set aside, an identical copy, a plan the analysis cannot read, or
+     * a plan of the confirmed preparation a member's command did not name (not_requested: the analysis that read it
+     * stays; its dossier piece and generation are kept so that the dossier's change since is still told for it).
+     */
+    plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested";
+      intake_document_id?: string | null; generation?: string | null }>;
     references_omitted: Array<{ id: string; name: string; reason: "unreadable" | "unsupported_format" | "limit" }>;
   };
   preparation: { revision: number; rule_version: 1 };

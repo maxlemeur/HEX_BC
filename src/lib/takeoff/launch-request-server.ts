@@ -617,14 +617,21 @@ async function relaunchSeal(service: Service, input: RelaunchInput) {
   return { snapshot, owner, config };
 }
 
+/**
+ * The manifest of a member's command. `setAside`: the plans of the confirmed preparation a command of one analysis per
+ * plan did not name, recorded as such (the analysis that read them stays, and the dossier's change since is told for them).
+ */
 async function relaunchManifest(context: Context, planSetId: string, snapshot: TakeoffPreparationSnapshot,
-  config: { maxTotalTokens: number; maxCostCents: number }, intent: TakeoffLaunchManifest["intent"] = "reread_plans") {
+  config: { maxTotalTokens: number; maxCostCents: number }, intent: TakeoffLaunchManifest["intent"] = "reread_plans",
+  setAside: ReadonlyArray<{ document_id: string; document_name: string }> = []) {
   const files = await readAllRows(() => context.supabase.from("plan_files").select("id, metadata", { count: "exact" })
     .eq("tenant_id", context.tenantId).eq("plan_set_id", planSetId).order("id"));
   if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
-  return buildTakeoffLaunchManifest({ intent, sources: snapshot.preparation.sources,
-    intakeDocumentByPlanFile: intakeDocumentsByPlanFile(files.data ?? []),
-    omittedPlans: [], omittedReferences: [], preparationRevision: snapshot.preparation_revision,
+  const intake = intakeDocumentsByPlanFile(files.data ?? []);
+  return buildTakeoffLaunchManifest({ intent, sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
+    omittedPlans: setAside.map((source) => ({ id: source.document_id, name: source.document_name, reason: "not_requested" as const,
+      intake_document_id: intake.get(source.document_id)?.intakeDocumentId ?? null, generation: intake.get(source.document_id)?.generation ?? null })),
+    omittedReferences: [], preparationRevision: snapshot.preparation_revision,
     budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
 }
 
@@ -691,9 +698,15 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput):
     }
     throw error;
   }
-  const units = await planUnitJobs(service, { tenantId: context.tenantId, planSetId: input.planSetId,
-    jobKey: `takeoff-request-command:${input.projectId}:${input.intentKey}`, hostId: owner.execution_host_id,
-    manifest: splitTakeoffLaunchManifest(await relaunchManifest(context, input.planSetId, snapshot, config, intent)) });
+  // The dossier's limits on every plan the command reads, before its units (each is checked again on its own).
+  const jobKey = `takeoff-request-command:${input.projectId}:${input.intentKey}`;
+  await resolvePlanSetSourceFile({ supabase: service, tenantId: context.tenantId, planSetId: input.planSetId,
+    jobId: deriveDeterministicJobId(context.tenantId, `${jobKey}:scope`), maxPages: config.maxPdfPages, selectedFileIds: scope });
+  const setAside = confirmed.preparation.sources.filter((source) => source.kind === "plan" && source.active
+    && !scope.includes(source.document_id));
+  const units = await planUnitJobs(service, { tenantId: context.tenantId, planSetId: input.planSetId, jobKey,
+    hostId: owner.execution_host_id,
+    manifest: splitTakeoffLaunchManifest(await relaunchManifest(context, input.planSetId, snapshot, config, intent, setAside)) });
   const { data, error } = await service.rpc("launch_manual_takeoff_plan_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
     p_manifest: units.manifest as unknown as Json, p_snapshot: snapshot as unknown as Json, p_jobs: units.jobs as unknown as Json,
@@ -842,11 +855,17 @@ export function describeDossierChangeSinceAnalysis(manifest: AnyTakeoffLaunchMan
   current: Array<PlanFileRow & { file_name: string }>,
   documents: Array<{ id: string; file_name: string; plan_copy_generation?: string | null }>) {
   if (!manifest || !Array.isArray(manifest.plans)) return null;
-  const sealed = new Map(manifest.plans.map((plan) => [plan.plan_file_id, plan]));
+  // The plans a command did not name are compared as the plans it read: the analysis that read them stays.
+  const setAside = (manifest.coverage?.plans_omitted ?? []).filter((plan) => plan.reason === "not_requested")
+    .map((plan) => ({ plan_file_id: plan.id, name: plan.name, intake_document_id: plan.intake_document_id ?? null,
+      generation: plan.generation ?? null }));
+  const known: Array<{ plan_file_id: string; name: string; intake_document_id: string | null; generation: string | null }> = [
+    ...manifest.plans, ...setAside];
+  const sealed = new Map(known.map((plan) => [plan.plan_file_id, plan]));
   const omitted = new Set((manifest.coverage?.plans_omitted ?? []).map((plan) => plan.id));
   const currentIds = new Set(current.map((file) => file.id));
   const nameOf = (file: { file_name: string; metadata: Record<string, unknown> }) => getPlanFileDisplayName(file);
-  const sealedDocuments = new Set(manifest.plans.flatMap((plan) => plan.intake_document_id ? [plan.intake_document_id] : []));
+  const sealedDocuments = new Set(known.flatMap((plan) => plan.intake_document_id ? [plan.intake_document_id] : []));
   const added = [
     ...current.filter((file) => !sealed.has(file.id) && !omitted.has(file.id)).map((file) => ({ id: file.id, name: nameOf(file) })),
     ...findIntakePlansWithoutWorkingCopy(documents as unknown as SyncDocument[], current)
@@ -858,7 +877,7 @@ export function describeDossierChangeSinceAnalysis(manifest: AnyTakeoffLaunchMan
   // recorded included); a sealed copy gone, by the generation sealed with it.
   const documentsById = new Map(documents.map((document) => [document.id, document]));
   const currentById = new Map(current.map((file) => [file.id, file]));
-  const replaced = manifest.plans.flatMap((plan) => {
+  const replaced = known.flatMap((plan) => {
     const document = plan.intake_document_id ? documentsById.get(plan.intake_document_id) : undefined;
     if (!document) return [];
     const copy = currentById.get(plan.plan_file_id);
@@ -866,7 +885,7 @@ export function describeDossierChangeSinceAnalysis(manifest: AnyTakeoffLaunchMan
       : plan.generation !== null && (document.plan_copy_generation ?? null) !== plan.generation;
     return stale ? [{ id: document.id, name: document.file_name }] : [];
   });
-  const removed = manifest.plans.filter((plan) => !currentIds.has(plan.plan_file_id)).map((plan) => ({ id: plan.plan_file_id, name: plan.name }));
+  const removed = known.filter((plan) => !currentIds.has(plan.plan_file_id)).map((plan) => ({ id: plan.plan_file_id, name: plan.name }));
   return added.length || replaced.length || removed.length ? { added, replaced, removed } : null;
 }
 

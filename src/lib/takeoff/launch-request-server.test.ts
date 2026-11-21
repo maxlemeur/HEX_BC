@@ -11,8 +11,10 @@ import {
   launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice,
 } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
-import { createSupabaseFake, filterValue, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
-import { takeoffPreparationSourceSchema } from "@/lib/takeoff/preparation";
+import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
+import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
+import { createTakeoffPreparationSnapshot, takeoffPreparationSourceSchema } from "@/lib/takeoff/preparation";
 import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
 import { assertConfirmedTakeoffPreparation, loadPreparation } from "@/lib/takeoff/preparation-server";
 
@@ -35,6 +37,9 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 }));
 vi.mock("@/lib/takeoff/local-dispatch", () => ({ runLocalTakeoffAttempts: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/takeoff/preparation-server", () => ({ loadPreparation: vi.fn(), assertConfirmedTakeoffPreparation: vi.fn() }));
+// A command reads its member's subscription as pinned at the confirmation (its own tests: chatgpt-takeoff.test.ts).
+vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>()), getConfirmedTakeoffExecutionOwner: vi.fn() }));
 vi.mock("@/lib/pdf/page-render-server", () => ({ renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
 
 const HOST = "urn:uuid:aaaaaaaa-0000-4000-8000-000000000099";
@@ -428,6 +433,58 @@ describe("launchTakeoffRelaunch", () => {
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab", planFileIds: [PLAN_FILE.toUpperCase()] });
     expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "initial", p_predecessor_job_id: null,
       p_plan_file_ids: [PLAN_FILE] })]);
+  });
+
+  // Lot 3: the dossier's limits are checked on every plan a command reads before its units are admitted (two plans of 150
+  // pages each pass one at a time under 200 pages, not together), and the plans it sets aside are recorded as such.
+  const PLAN_B = "aaaaaaaa-0000-4000-8000-000000000051";
+  function planCommand(pages: { a: number; b: number }) {
+    const launched: Array<Record<string, unknown>> = [];
+    const planRow = (id: string, name: string, pageCount: number) => ({ id, tenant_id: TENANT, plan_set_id: PLAN_SET,
+      file_path: `${TENANT}/${PLAN_SET}/${id}/${name}`, file_name: name, file_type: "application/pdf", file_size_bytes: 8,
+      page_count: pageCount, metadata: {}, created_at: "2026-11-21T08:00:00Z" });
+    const rows = [planRow(PLAN_FILE, "plan-a.pdf", pages.a), planRow(PLAN_B, "plan-b.pdf", pages.b)];
+    const fake = createSupabaseFake({
+      tables: { plan_files: (query: FakeQuery) => servedRows(rows, query) },
+      rpc: {
+        replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
+        takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
+        launch_manual_takeoff_plan_request: (args) => {
+          launched.push(args as Record<string, unknown>);
+          return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_jobs: Array<{ id: string }> }).p_jobs[0].id }], error: null };
+        },
+      },
+    });
+    vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
+    const sources = rows.map((row) => takeoffPreparationSourceSchema.parse({ document_id: row.id, document_name: row.file_name,
+      kind: "plan", revision: null, source_version: "fixture-version", pages: [], active: true, confirmed: true, plan_set_id: PLAN_SET,
+      file_path: row.file_path, page_count: row.page_count, source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf",
+      content_hash: createHash("sha256").update(row.id).digest("hex") }));
+    vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(createTakeoffPreparationSnapshot({
+      preparation: buildDeducedTakeoffPreparation({ sources, planSetId: PLAN_SET }), confirmedBy: PAYER,
+      confirmedAt: "2026-11-21T08:00:00Z", revision: 2, executionSelection: SELECTION }) as never);
+    vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({ execution_host_id: HOST } as never);
+    const context = { userId: PAYER, tenantId: TENANT, tenantRole: "engineer", supabase: fake.client } as never;
+    const run = (planFileIds: string[]) => launchTakeoffRelaunch({ context, projectId: PROJECT, planSetId: PLAN_SET,
+      preparationRevision: 2, intentKey: "aaaaaaaa-0000-4000-8000-0000000000ad", planFileIds });
+    return { run, launched, rows };
+  }
+
+  it("refuses a command whose plans together exceed the plan set's limits, before any unit is admitted", async () => {
+    const { run, launched } = planCommand({ a: 150, b: 150 });
+    await expect(run([PLAN_FILE, PLAN_B])).rejects.toMatchObject({ code: "TAKEOFF_FILE_TOO_LARGE" });
+    expect(launched).toEqual([]);
+  });
+
+  it("records the plans a command sets aside, so that the dossier does not show them as added since its analysis", async () => {
+    const { run, launched, rows } = planCommand({ a: 3, b: 3 });
+    expect(await run([PLAN_FILE])).toMatchObject({ outcome: "admitted" });
+    const manifest = launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual([expect.objectContaining({ id: PLAN_B, reason: "not_requested" })]);
+    expect(describeDossierChangeSinceAnalysis(manifest, rows, [])).toBeNull();
+    // Counterexample: the plan set aside leaves the dossier afterwards, which is still a change of the dossier.
+    expect(describeDossierChangeSinceAnalysis(manifest, rows.slice(0, 1), [])).toEqual({ added: [], replaced: [],
+      removed: [{ id: PLAN_B, name: "plan-b.pdf" }] });
   });
 
   it("refuses a relaunch that names no analysis before one analysis per plan is active", async () => {
