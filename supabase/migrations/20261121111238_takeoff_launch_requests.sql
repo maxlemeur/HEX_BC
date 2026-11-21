@@ -820,10 +820,12 @@ returns text language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_launch_allowed_action(public.takeoff_launch_requests, uuid)
   from public, anon, authenticated, service_role;
+-- For the affaire's view: the same rule, for a member who may pay on the affaire (none to anyone else).
 create function public.takeoff_launch_request_action(p_request_id uuid, p_actor uuid)
 returns text language sql stable security definer set search_path = '' as $$
-  select coalesce((select private.takeoff_launch_allowed_action(r, p_actor) from public.takeoff_launch_requests r
-    where r.id = p_request_id), 'none')
+  select coalesce((select case when private.takeoff_launch_payer_eligible(r.tenant_id, r.project_id, p_actor)
+      then private.takeoff_launch_allowed_action(r, p_actor) else 'none' end
+    from public.takeoff_launch_requests r where r.id = p_request_id), 'none')
 $$;
 revoke all on function public.takeoff_launch_request_action(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.takeoff_launch_request_action(uuid, uuid) to service_role;
