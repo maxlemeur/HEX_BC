@@ -590,6 +590,7 @@ declare
   failure public.takeoff_jobs := jsonb_populate_record(null::public.takeoff_jobs, p_failure);
   diagnostic public.takeoff_results;
   diagnostic_id uuid;
+  caller_lock_timeout text := current_setting('lock_timeout');
 begin
   perform 1 from public.takeoff_jobs j
   where j.id = p_job_id and j.tenant_id = p_tenant_id and j.status = 'processing'
@@ -603,7 +604,10 @@ begin
   end if;
 
   -- The diagnostic stays best effort, as it was: if it cannot be stored, the
-  -- previous rows stay whole and the failure is still recorded.
+  -- previous rows stay whole and the failure is still recorded. It never waits
+  -- on a held row (lock_not_available) and a statement timeout inside it is
+  -- trapped, so the retry-or-terminal decision below does not depend on it.
+  perform set_config('lock_timeout', '2s', true);
   if p_diagnostic is not null then
     begin
       diagnostic := jsonb_populate_record(null::public.takeoff_results, p_diagnostic);
@@ -615,7 +619,7 @@ begin
       values (p_tenant_id, p_job_id, diagnostic.extracted_json, diagnostic.warnings, diagnostic.tables, diagnostic.provider_meta,
         diagnostic.raw_response, diagnostic.token_count, diagnostic.cost_cents, diagnostic.duration_ms)
       returning id into diagnostic_id;
-    exception when others then
+    exception when others or query_canceled then
       diagnostic_id := null;
       raise log 'takeoff.failure.diagnostic_persistence_failed job=% code=%', p_job_id, sqlstate;
     end;
@@ -632,10 +636,11 @@ begin
         m.chunk_start_page, m.chunk_end_page, m.input_tokens, m.reasoning_tokens, m.output_tokens,
         m.total_tokens, m.cost_cents, m.duration_ms, m.timed_out, m.budget_exceeded, m.metadata
       from jsonb_populate_recordset(null::public.takeoff_run_metrics, p_run_metrics) m;
-    exception when others then
+    exception when others or query_canceled then
       raise log 'takeoff.failure.metrics_persistence_failed job=% code=%', p_job_id, sqlstate;
     end;
   end if;
+  perform set_config('lock_timeout', caller_lock_timeout, true);
 
   update public.takeoff_jobs set
     status = 'failed', completed_at = failure.completed_at, duration_ms = failure.duration_ms,
