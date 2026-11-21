@@ -518,20 +518,22 @@ export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "alread
 
 /**
  * A manual request created, sealed and admitted in one commit from the member's confirmed preparation, naming the
- * analysis it replaces; its end goes to that member. The intent key is answered first: a double click or a replay gets
+ * analysis it replaces (none for the affaire's first analysis: its intent is then « initial »); its end goes to that
+ * member. The intent key is answered first: a double click or a replay gets
  * what the command answered (its job, or the analysis that was running then), whatever changed since; the same key for
  * another command is a conflict. While another request of the affaire runs, the command is recorded as refused.
  */
 export async function launchTakeoffRelaunch(input: {
   context: Context; projectId: string; planSetId: string; preparationRevision: number; intentKey: string;
-  predecessorJobId: string; host?: string | null;
+  predecessorJobId: string | null; host?: string | null;
 }): Promise<TakeoffRelaunchResult> {
   const { context } = input;
   await assertPreparationProjectAccess(context, input.projectId, true);
   const service = createServiceRoleClient();
+  const intent: TakeoffLaunchManifest["intent"] = input.predecessorJobId ? "reread_plans" : "initial";
   // The command's identity, answered first: a double click or a replay gets its receipt whatever changed since.
   const command = { p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
-    p_intent_key: input.intentKey, p_intent: "reread_plans", p_predecessor_job_id: input.predecessorJobId,
+    p_intent_key: input.intentKey, p_intent: intent, p_predecessor_job_id: input.predecessorJobId as string,
     p_plan_set_id: input.planSetId, p_preparation_revision: input.preparationRevision };
   const { data: replayed, error: replayError } = await service.rpc("replay_manual_takeoff_request", command);
   if (replayError) launchError(replayError, "Impossible de relancer le métré.");
@@ -558,7 +560,7 @@ export async function launchTakeoffRelaunch(input: {
   const files = await readAllRows(() => context.supabase.from("plan_files").select("id, metadata", { count: "exact" })
     .eq("tenant_id", context.tenantId).eq("plan_set_id", input.planSetId).order("id"));
   if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
-  const manifest = buildTakeoffLaunchManifest({ intent: "reread_plans", sources: snapshot.preparation.sources,
+  const manifest = buildTakeoffLaunchManifest({ intent, sources: snapshot.preparation.sources,
     intakeDocumentByPlanFile: intakeDocumentsByPlanFile(files.data ?? []),
     omittedPlans: [], omittedReferences: [], preparationRevision: snapshot.preparation_revision,
     budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });

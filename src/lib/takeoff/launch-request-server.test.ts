@@ -386,4 +386,11 @@ describe("launchTakeoffRelaunch", () => {
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
   });
 
+  it("names a first analysis of the affaire « initial », with no analysis to replace", async () => {
+    const { calls } = gesture({ replayed: { outcome: "replayed", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000cc" } });
+    await launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId: null });
+    expect(calls("replay")).toEqual([expect.objectContaining({ p_intent: "initial", p_predecessor_job_id: null })]);
+  });
+
 });

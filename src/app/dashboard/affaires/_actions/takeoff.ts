@@ -14,6 +14,7 @@ import { runSafeTakeoffAction } from "@/lib/takeoff/action-errors-server";
 import { findTakeoffPreparationCopyReceipt, recordTakeoffPreparationCopy } from "@/lib/takeoff/preparation-copy-provenance-server";
 import type { TakeoffJobCreateResponse } from "@/lib/takeoff/job-creation-input";
 import { assumeTakeoffLaunchRequest, launchTakeoffRelaunch, readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
+import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
 
 // Identifiers are compared as text by the replay of a launch (its copy receipt is JSON): one spelling, lower case.
 const uuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
@@ -161,14 +162,22 @@ const relaunchTakeoffSchema = z.object({
   preparationRevision: z.number().int().positive(),
   /** One key per click, kept by the dialogue across a double click, a timeout and a reload of the answer. */
   intentKey: uuidSchema,
-  /** The analysis it replaces: a relaunch always names it. */
-  predecessorJobId: uuidSchema,
+  /** The analysis it replaces: a relaunch always names it; null for the affaire's first analysis. */
+  predecessorJobId: uuidSchema.nullable(),
 });
 
 export async function readTakeoffLaunchStateAction(input: z.input<typeof takeoffLaunchStateSchema>) {
   return runSafeTakeoffAction(async () => {
     const { projectId } = takeoffLaunchStateSchema.parse(input);
     return readAffaireTakeoffLaunchState(await getAuthenticatedContext(), projectId);
+  }, "Impossible de lire le métré de l'affaire. Rechargez la page.");
+}
+
+/** The takeoff's zone on the affaire's page, read again while it is shown: reading never spends nor writes. */
+export async function readAffaireTakeoffZoneAction(input: z.input<typeof takeoffLaunchStateSchema>) {
+  return runSafeTakeoffAction(async () => {
+    const { projectId } = takeoffLaunchStateSchema.parse(input);
+    return readAffaireTakeoffZone(await getAuthenticatedContext(), projectId);
   }, "Impossible de lire le métré de l'affaire. Rechargez la page.");
 }
 
