@@ -314,15 +314,42 @@ async function sealAutomaticSnapshot(service: Service, input: {
   }
   const intake = intakeDocumentsByPlanFile(input.planSet.files);
   const omittedPlans: TakeoffLaunchManifest["coverage"]["plans_omitted"] = [
-    ...snapshot.preparation.sources.filter((source) => source.kind === "plan" && !source.active && source.plan_set_id === input.planSet.id)
-      .map((source) => ({ id: source.document_id, name: source.document_name,
-        reason: (source.alternate_of && plans.some((plan) => plan.content_hash && plan.content_hash === source.content_hash) ? "identical_copy" : "alternate") as "alternate" | "identical_copy" })),
+    ...planSetCopiesSetAside(snapshot.preparation.sources, input.planSet.id),
     ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
   ];
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
     omittedPlans, omittedReferences: sealed.omittedReferences, preparationRevision: snapshot.preparation_revision,
     budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
   return { snapshot, manifest, sourceFile };
+}
+
+/** The plan set's copies a preparation does not read: a revision the members set aside, or an identical copy of a plan it reads. */
+function planSetCopiesSetAside(sources: TakeoffPreparationSnapshot["preparation"]["sources"], planSetId: string):
+  TakeoffLaunchManifest["coverage"]["plans_omitted"] {
+  const read = sources.filter((source) => source.kind === "plan" && source.active);
+  return sources.filter((source) => source.kind === "plan" && !source.active && source.plan_set_id === planSetId)
+    .map((source) => ({ id: source.document_id, name: source.document_name,
+      reason: (source.alternate_of && read.some((plan) => plan.content_hash && plan.content_hash === source.content_hash)
+        ? "identical_copy" : "alternate") as "alternate" | "identical_copy" }));
+}
+
+/**
+ * What the affaire's latest analysis read: its plans, and the plans it set aside in turn as read before it, each with the
+ * dossier piece and generation it sealed. A command that does not name them leaves them to that analysis.
+ */
+async function readPlansAnalysedBefore(service: Service, tenantId: string, projectId: string) {
+  const { data, error } = await service.from("takeoff_launch_requests").select("manifest").eq("tenant_id", tenantId)
+    .eq("project_id", projectId).in("state", ["admitted", "closed"])
+    .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (error) databaseError(error, "Impossible de lire la dernière analyse de l’affaire.");
+  const manifest = data?.manifest as AnyTakeoffLaunchManifest | null | undefined;
+  if (!manifest || !Array.isArray(manifest.plans)) return [];
+  return [
+    ...manifest.plans.map((plan) => ({ id: plan.plan_file_id, name: plan.name, intake_document_id: plan.intake_document_id ?? null,
+      generation: plan.generation ?? null })),
+    ...(manifest.coverage?.plans_omitted ?? []).filter((plan) => plan.reason === "not_requested")
+      .map((plan) => ({ id: plan.id, name: plan.name, intake_document_id: plan.intake_document_id ?? null, generation: plan.generation ?? null })),
+  ];
 }
 
 /** A request this Mac's claim returned, with what its evaluation needs: the mandate's selection and its payer's right. */
@@ -544,7 +571,8 @@ export async function launchTakeoffRelaunch(input: {
   const plans = snapshot.preparation.sources.filter((source) => source.active && source.kind === "plan");
   const sourceFile = await resolvePlanSetSourceFile({ supabase: context.supabase, tenantId: context.tenantId, planSetId: input.planSetId,
     jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
-  const manifest = await relaunchManifest(context, input.planSetId, snapshot, config);
+  const manifest = await relaunchManifest(context, input.planSetId, snapshot, config, "reread_plans",
+    planSetCopiesSetAside(snapshot.preparation.sources, input.planSetId));
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
     p_manifest: manifest as unknown as Json, p_snapshot: snapshot as unknown as Json,
@@ -577,20 +605,17 @@ async function relaunchSeal(service: Service, input: RelaunchInput) {
 }
 
 /**
- * The manifest of a member's command. `setAside`: the plans of the confirmed preparation a command of one analysis per
- * plan did not name, recorded as such (the analysis that read them stays, and the dossier's change since is told for them).
+ * The manifest of a member's command, with the plans it does not read (`omittedPlans`): the plan set's copies set aside,
+ * and for a command of one analysis per plan, the plans an earlier analysis read that it does not name.
  */
 async function relaunchManifest(context: Context, planSetId: string, snapshot: TakeoffPreparationSnapshot,
-  config: { maxTotalTokens: number; maxCostCents: number }, intent: TakeoffLaunchManifest["intent"] = "reread_plans",
-  setAside: ReadonlyArray<{ document_id: string; document_name: string }> = []) {
+  config: { maxTotalTokens: number; maxCostCents: number }, intent: TakeoffLaunchManifest["intent"],
+  omittedPlans: TakeoffLaunchManifest["coverage"]["plans_omitted"]) {
   const files = await readAllRows(() => context.supabase.from("plan_files").select("id, metadata", { count: "exact" })
     .eq("tenant_id", context.tenantId).eq("plan_set_id", planSetId).order("id"));
   if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
-  const intake = intakeDocumentsByPlanFile(files.data ?? []);
-  return buildTakeoffLaunchManifest({ intent, sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
-    omittedPlans: setAside.map((source) => ({ id: source.document_id, name: source.document_name, reason: "not_requested" as const,
-      intake_document_id: intake.get(source.document_id)?.intakeDocumentId ?? null, generation: intake.get(source.document_id)?.generation ?? null })),
-    omittedReferences: [], preparationRevision: snapshot.preparation_revision,
+  return buildTakeoffLaunchManifest({ intent, sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intakeDocumentsByPlanFile(files.data ?? []),
+    omittedPlans, omittedReferences: [], preparationRevision: snapshot.preparation_revision,
     budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
 }
 
@@ -661,11 +686,14 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput):
   const jobKey = `takeoff-request-command:${input.projectId}:${input.intentKey}`;
   await resolvePlanSetSourceFile({ supabase: service, tenantId: context.tenantId, planSetId: input.planSetId,
     jobId: deriveDeterministicJobId(context.tenantId, `${jobKey}:scope`), maxPages: config.maxPdfPages, selectedFileIds: scope });
-  const setAside = confirmed.preparation.sources.filter((source) => source.kind === "plan" && source.active
-    && !scope.includes(source.document_id));
+  // Not read by this command: the plan set's copies set aside, and the plans an earlier analysis read (they stay its).
+  const omitted = new Map(planSetCopiesSetAside(confirmed.preparation.sources, input.planSetId).map((plan) => [plan.id, plan]));
+  for (const plan of await readPlansAnalysedBefore(service, context.tenantId, input.projectId)) {
+    if (!scope.includes(plan.id)) omitted.set(plan.id, { ...plan, reason: "not_requested" });
+  }
   const units = await planUnitJobs(service, { tenantId: context.tenantId, planSetId: input.planSetId, jobKey,
     hostId: owner.execution_host_id,
-    manifest: splitTakeoffLaunchManifest(await relaunchManifest(context, input.planSetId, snapshot, config, intent, setAside)) });
+    manifest: splitTakeoffLaunchManifest(await relaunchManifest(context, input.planSetId, snapshot, config, intent, [...omitted.values()])) });
   const { data, error } = await service.rpc("launch_manual_takeoff_plan_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
     p_manifest: units.manifest as unknown as Json, p_snapshot: snapshot as unknown as Json, p_jobs: units.jobs as unknown as Json,
@@ -766,9 +794,10 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
   }) : [];
   const [allowed, jobs, dossierChangedSinceAnalysis] = await Promise.all([
     service.rpc("takeoff_launch_request_action", { p_request_id: latest.id, p_actor: context.userId }),
-    latest.admitted_at ? context.supabase.from("takeoff_jobs").select("id")
-      .eq("tenant_id", context.tenantId).eq("launch_request_id", latest.id).order("launch_unit_key").limit(1)
-      : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+    // Its first unit by its place in the recorded order (a unit's key is a plan copy's identifier, not the members' order).
+    latest.admitted_at ? service.rpc("read_takeoff_launch_request_units", { p_tenant_id: context.tenantId, p_project_id: projectId,
+      p_request_id: latest.id })
+      : Promise.resolve({ data: null, error: null }),
     latest.admitted_at ? readDossierChangeSinceAnalysis(service, context.tenantId, projectId, latest.id) : Promise.resolve(null),
   ]);
   if (allowed.error) databaseError(allowed.error, "Impossible de lire le métré de l’affaire.");
@@ -786,7 +815,7 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
       hasPayer: latest.payer_id !== null, payerIsViewer: latest.payer_id === context.userId,
       createdAt: latest.created_at, admittedAt: latest.admitted_at, closedAt: latest.closed_at,
       outcome: latest.outcome as NonNullable<AffaireTakeoffLaunchView["request"]>["outcome"],
-      jobId: jobs.data?.[0]?.id ?? null,
+      jobId: ((jobs.data as { units?: Array<{ job_id?: string }> } | null)?.units?.[0]?.job_id) ?? null,
       units: { expected: latest.units_expected, succeeded: latest.units_succeeded, failed: latest.units_failed, canceled: latest.units_canceled,
         notStarted: latest.units_not_started },
       action, actionLabel: describeTakeoffLaunchAction(action),

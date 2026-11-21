@@ -670,8 +670,12 @@ plan (voir le dernier point). La base en décide (migration
   l’analyse qu’elle remplace (ou les plans d’une analyse groupée) ; un plan
   ajouté au dossier après l’analyse se lit par une commande qui le nomme, sans
   analyse remplacée. Les limites du jeu de plans s’appliquent à l’ensemble des
-  plans demandés, avant leurs unités. Les autres plans de la préparation sont
-  notés comme non demandés : l’affaire ne les montre pas comme ajoutés depuis.
+  plans demandés, avant leurs unités. Les plans que l’analyse précédente de
+  l’affaire a lus et que la commande ne nomme pas sont notés comme non demandés,
+  avec la génération qu’elle a lue : l’affaire ne les montre pas comme ajoutés
+  depuis, mais signale encore leur remplacement ou leur retrait ; un plan jamais
+  lu reste signalé comme ajouté. Les copies écartées du jeu de plans sont notées
+  comme telles.
   Son identité nomme ses plans ; le rejeu de la même clé ne dépense rien de plus
   et est répondu avant toute lecture de la préparation.
 - **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à

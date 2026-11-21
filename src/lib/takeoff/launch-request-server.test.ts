@@ -714,14 +714,24 @@ describe("launchTakeoffRelaunch", () => {
   // Lot 3: the dossier's limits are checked on every plan a command reads before its units are admitted (two plans of 150
   // pages each pass one at a time under 200 pages, not together), and the plans it sets aside are recorded as such.
   const PLAN_B = "aaaaaaaa-0000-4000-8000-000000000051";
-  function planCommand(pages: { a: number; b: number }) {
+  const PLAN_C = "aaaaaaaa-0000-4000-8000-000000000052";
+  const PLAN_B_COPY = "aaaaaaaa-0000-4000-8000-000000000053";
+  /**
+   * The member's confirmed preparation of plans A, B and C, with B's former revision set aside, and the affaire's previous
+   * analysis, which read `previousRead`.
+   */
+  function planCommand(pages: { a: number; b: number }, previousRead: string[] = []) {
     const launched: Array<Record<string, unknown>> = [];
     const planRow = (id: string, name: string, pageCount: number) => ({ id, tenant_id: TENANT, plan_set_id: PLAN_SET,
       file_path: `${TENANT}/${PLAN_SET}/${id}/${name}`, file_name: name, file_type: "application/pdf", file_size_bytes: 8,
       page_count: pageCount, metadata: {}, created_at: "2026-11-21T08:00:00Z" });
-    const rows = [planRow(PLAN_FILE, "plan-a.pdf", pages.a), planRow(PLAN_B, "plan-b.pdf", pages.b)];
+    const rows = [planRow(PLAN_FILE, "plan-a.pdf", pages.a), planRow(PLAN_B, "plan-b.pdf", pages.b), planRow(PLAN_C, "plan-c.pdf", 2),
+      planRow(PLAN_B_COPY, "plan-b-ancien.pdf", 2)];
+    const previous = previousRead.length ? { manifest: { format_version: 1, coverage: { plans_omitted: [] },
+      plans: previousRead.map((id) => ({ plan_file_id: id, name: rows.find((row) => row.id === id)!.file_name, intake_document_id: null,
+        generation: null })) } } : null;
     const fake = createSupabaseFake({
-      tables: { plan_files: (query: FakeQuery) => servedRows(rows, query) },
+      tables: { plan_files: (query: FakeQuery) => servedRows(rows, query), takeoff_launch_requests: () => ({ data: previous, error: null }) },
       rpc: {
         replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
         takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
@@ -733,11 +743,12 @@ describe("launchTakeoffRelaunch", () => {
     });
     vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
     const sources = rows.map((row) => takeoffPreparationSourceSchema.parse({ document_id: row.id, document_name: row.file_name,
-      kind: "plan", revision: null, source_version: "fixture-version", pages: [], active: true, confirmed: true, plan_set_id: PLAN_SET,
-      file_path: row.file_path, page_count: row.page_count, source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf",
-      content_hash: createHash("sha256").update(row.id).digest("hex") }));
-    vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(createTakeoffPreparationSnapshot({
-      preparation: buildDeducedTakeoffPreparation({ sources, planSetId: PLAN_SET }), confirmedBy: PAYER,
+      kind: "plan", revision: null, source_version: "fixture-version", pages: [], active: row.id !== PLAN_B_COPY, confirmed: true,
+      plan_set_id: PLAN_SET, file_path: row.file_path, page_count: row.page_count, source_updated_at: "2026-11-21T08:00:00Z",
+      mime_type: "application/pdf", content_hash: createHash("sha256").update(row.id).digest("hex") }));
+    const preparation = buildDeducedTakeoffPreparation({ sources: sources.filter((source) => source.active), planSetId: PLAN_SET });
+    preparation.sources.push({ ...sources.find((source) => source.document_id === PLAN_B_COPY)!, alternate_of: PLAN_B });
+    vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(createTakeoffPreparationSnapshot({ preparation, confirmedBy: PAYER,
       confirmedAt: "2026-11-21T08:00:00Z", revision: 2, executionSelection: SELECTION }) as never);
     vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({ execution_host_id: HOST } as never);
     const context = { userId: PAYER, tenantId: TENANT, tenantRole: "engineer", supabase: fake.client } as never;
@@ -752,15 +763,19 @@ describe("launchTakeoffRelaunch", () => {
     expect(launched).toEqual([]);
   });
 
-  it("records the plans a command sets aside, so that the dossier does not show them as added since its analysis", async () => {
-    const { run, launched, rows } = planCommand({ a: 3, b: 3 });
+  // The plans the affaire's previous analysis read, and the plan set's copies set aside, are recorded as such: the
+  // dossier does not show them as added since. A plan never read still is.
+  it("records the plans a command sets aside, so that the dossier shows only the plans never read as added", async () => {
+    const { run, launched, rows } = planCommand({ a: 3, b: 3 }, [PLAN_FILE, PLAN_B]);
     expect(await run([PLAN_FILE])).toMatchObject({ outcome: "admitted" });
     const manifest = launched[0].p_manifest as AnyTakeoffLaunchManifest;
-    expect(manifest.coverage.plans_omitted).toEqual([expect.objectContaining({ id: PLAN_B, reason: "not_requested" })]);
-    expect(describeDossierChangeSinceAnalysis(manifest, rows, [])).toBeNull();
+    expect(manifest.coverage.plans_omitted).toEqual([{ id: PLAN_B_COPY, name: "plan-b-ancien.pdf", reason: "alternate" },
+      expect.objectContaining({ id: PLAN_B, reason: "not_requested" })]);
+    expect(describeDossierChangeSinceAnalysis(manifest, rows, [])).toEqual({ added: [{ id: PLAN_C, name: "plan-c.pdf" }],
+      replaced: [], removed: [] });
     // Counterexample: the plan set aside leaves the dossier afterwards, which is still a change of the dossier.
-    expect(describeDossierChangeSinceAnalysis(manifest, rows.slice(0, 1), [])).toEqual({ added: [], replaced: [],
-      removed: [{ id: PLAN_B, name: "plan-b.pdf" }] });
+    expect(describeDossierChangeSinceAnalysis(manifest, rows.filter((row) => row.id !== PLAN_B), [])).toEqual({
+      added: [{ id: PLAN_C, name: "plan-c.pdf" }], replaced: [], removed: [{ id: PLAN_B, name: "plan-b.pdf" }] });
   });
 
   it("refuses a relaunch that names no analysis before one analysis per plan is active", async () => {

@@ -121,8 +121,8 @@ export type TakeoffLaunchManifest = {
     plans_retained: number;
     /**
      * Retained in the dossier but not read: a revision set aside, an identical copy, a plan the analysis cannot read, or
-     * a plan of the confirmed preparation a member's command did not name (not_requested: the analysis that read it
-     * stays; its dossier piece and generation are kept so that the dossier's change since is still told for it).
+     * a plan an earlier analysis of the affaire read that a member's command did not name (not_requested: that analysis
+     * stays; the dossier piece and generation it sealed are kept, so that the dossier's change since is still told).
      */
     plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested";
       intake_document_id?: string | null; generation?: string | null }>;
