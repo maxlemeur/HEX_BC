@@ -110,8 +110,10 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
     keepPreviousData: true,
   });
   // An answer read for another member (or kept from another key) is never shown: the zone then says it cannot read it.
-  const model: AffaireTakeoffZoneModel | null = useMemo(() => zoneOf(data === undefined ? (error ? null : initialData) : ownData(data)),
-    [data, error, initialData, ownData, zoneOf]);
+  // Everything below renders from this answer alone, validated for this member.
+  const shown = useMemo(() => (data === undefined ? (error ? null : initialData) : ownData(data)),
+    [data, error, initialData, ownData]);
+  const model: AffaireTakeoffZoneModel | null = useMemo(() => zoneOf(shown), [shown, zoneOf]);
 
   const refresh = useCallback(() => {
     void mutate();
@@ -143,7 +145,7 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
   const dialogMode: LaunchMetreDialogMode | null = !options ? null : options.mode === "version" ? { kind: "version" }
     : options.mode === "request" ? { kind: "request", predecessorJobId: options.predecessorJobId }
     : { kind: "save_only", reason: options.reason };
-  const coverage = data?.request?.coverage ?? null;
+  const coverage = shown?.request?.coverage ?? null;
   const omitted = coverage ? [
     ...coverage.plansOmitted.map((piece) => `${piece.name} (${OMITTED_PLAN[piece.reason]})`),
     ...coverage.referencesOmitted.map((piece) => `${piece.name} (${OMITTED_REFERENCE[piece.reason]})`),

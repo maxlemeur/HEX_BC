@@ -48,6 +48,11 @@ export type AffaireTakeoffZoneRequest = {
   units: { expected: number | null; succeeded: number; failed: number; canceled: number };
   /** The gesture the database allows this member (public.takeoff_launch_request_action), with what their Mac allows. */
   action: TakeoffLaunchAction;
+  /**
+   * An automatic request that can still start without a new dossier change, by the database's rule for this member
+   * (public.takeoff_launch_request_can_start): the options only save. Otherwise a launch sets it aside.
+   */
+  canStart: boolean;
   /** Every analysis of the request, never only the latest by date. */
   jobs: AffaireTakeoffZoneJob[];
   /**
@@ -243,7 +248,7 @@ function decideOptions(input: AffaireTakeoffZoneInput, data: AffaireTakeoffZoneD
   if (request?.state === "admitted" || data.unrequestedRunning) {
     return { mode: "save_only", reason: "Une analyse de l’affaire est en cours : vos options s’appliqueront à la prochaine analyse." };
   }
-  if (isOpen(request)) {
+  if (isOpen(request) && request?.canStart) {
     return { mode: "save_only", reason: "Le métré de l’affaire n’a pas encore démarré : il reprendra vos options à son démarrage." };
   }
   // No request yet and a dossier still on its way to « confirmé »: its confirmation starts the analysis.

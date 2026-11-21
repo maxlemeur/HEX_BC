@@ -26,7 +26,7 @@ function request(overrides: Partial<AffaireTakeoffZoneRequest> = {}): AffaireTak
     id: "33333333-3333-4333-8333-333333333333", origin: "automatic", state: "blocked", mandateRevision: 2,
     reason: "MANDATE_REQUIRED", pieces: [], hasPayer: false, payerIsViewer: false,
     createdAt: "2026-11-21T08:00:00.000Z", admittedAt: null, closedAt: null, outcome: null,
-    units: { expected: null, succeeded: 0, failed: 0, canceled: 0 }, action: "none", jobs: [], coverage: null,
+    units: { expected: null, succeeded: 0, failed: 0, canceled: 0 }, action: "none", canStart: true, jobs: [], coverage: null,
     completionEventId: null, ...overrides,
   };
 }
@@ -190,6 +190,16 @@ describe("buildAffaireTakeoffZone", () => {
       expect(zone({ data: data({ active: false, latestJob: failed }) })).toMatchObject({
         status: "Échoué", message: "L’analyse s’est arrêtée : Le PDF est invalide ou protégé.", options: { mode: "version" } });
       expect(zone({ data: data({ latestJob: failed }) })).toMatchObject({ options: { mode: "request", predecessorJobId: failed.id } });
+    });
+
+    // An automatic start that cannot begin without a new dossier change, or without a payer who may pay, waits for nothing a
+    // gesture or its Mac can do: the options launch, and the database sets that start aside.
+    it("launches from the options when the automatic start cannot begin, and only saves while it can", () => {
+      const waiting = request({ state: "not_eligible", reason: "NO_EXPLOITABLE_PLAN", canStart: false });
+      expect(zone({ data: data({ request: waiting }) })).toMatchObject({ options: { mode: "request", predecessorJobId: null } });
+      expect(zone({ data: data({ request: waiting, latestJob: job() }) }))
+        .toMatchObject({ options: { mode: "request", predecessorJobId: job().id } });
+      expect(zone({ data: data({ request: { ...waiting, canStart: true } }) })).toMatchObject({ options: { mode: "save_only" } });
     });
 
     // An analysis launched before the activation, outside any request, that has not ended (waiting, read, or failed with a

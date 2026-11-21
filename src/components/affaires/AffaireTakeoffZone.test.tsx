@@ -35,7 +35,7 @@ function blocked(overrides: Partial<NonNullable<AffaireTakeoffZoneData["request"
     unrequestedRunning: false, viewer: OPERATOR,
     request: { id: requestId, origin: "automatic", state: "blocked", mandateRevision: 4, reason: "MANDATE_REQUIRED", pieces: [],
       hasPayer: false, payerIsViewer: false, createdAt: "2026-11-21T08:00:00.000Z", admittedAt: null, closedAt: null, outcome: null,
-      units: { expected: null, succeeded: 0, failed: 0, canceled: 0 }, action: "take_on", jobs: [], coverage: null,
+      units: { expected: null, succeeded: 0, failed: 0, canceled: 0 }, action: "take_on", canStart: true, jobs: [], coverage: null,
       completionEventId: null, ...overrides },
   };
 }
@@ -102,10 +102,14 @@ describe("AffaireTakeoffZone", () => {
   });
 
   it("never shows an answer the server read for another member than the page's", async () => {
-    read.mockImplementation(async () => ({ ok: true, data: blocked() }));
+    // The other member's answer names a piece the request left out, which this member may not read.
+    read.mockImplementation(async () => ({ ok: true, data: blocked({ coverage: { plansRetained: 1,
+      plansOmitted: [{ name: "Plan confidentiel indice C.pdf", reason: "alternate" }], referencesOmitted: [] } }) }));
     showAs(DIRECTOR, null, new Map());
     expect(await screen.findByText("L’état du métré n’a pas pu être lu. Réessayez dans un instant.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Prendre en charge|Options du métré/ })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Plan confidentiel indice C");
+    expect(document.body.textContent).not.toMatch(/plan retenu/);
   });
 
   it("opens the options in the mode the zone decided, and offers a reader neither gesture nor options", async () => {

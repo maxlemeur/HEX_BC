@@ -15,10 +15,12 @@ import {
   describeTakeoffJobFailure, resolveTakeoffVisibleJobStatus, takeoffCompletionFailureReason,
 } from "@/lib/takeoff/visible-status";
 
-const JOB_SELECT = "id, status, estimate_version_id, source_file_name, processing_strategy, provider_batch_state, error_code, created_at, completed_at, analysis_finished_at";
+const JOB_SELECT = "id, status, estimate_version_id, plan_set_id, source_file_name, source_file_path, processing_strategy, provider_batch_state, error_code, created_at, completed_at, analysis_finished_at";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type JobRow = {
-  id: string; status: string; estimate_version_id: string | null; source_file_name: string | null;
+  id: string; status: string; estimate_version_id: string | null; plan_set_id: string | null;
+  source_file_name: string | null; source_file_path: string | null;
   processing_strategy: string | null; provider_batch_state: string | null; error_code: string | null;
   created_at: string; completed_at: string | null; analysis_finished_at: string | null;
 };
@@ -27,13 +29,24 @@ function readError(error: { code?: string; message: string }): never {
   throw mapSupabaseError({ ...error, code: error.code ?? "UNKNOWN" }, "Impossible de lire le métré de l’affaire.");
 }
 
-function toZoneJob(projectId: string, row: JobRow): AffaireTakeoffZoneJob {
+/**
+ * The plan file an analysis is named after: the first plan of its set, whose copy's path is
+ * `<tenant>/<plan set>/<plan file>/<name>` (read here, never answered). None for any other source (an upload).
+ */
+function namedPlanFileOf(row: JobRow) {
+  const [, planSetId, planFileId] = (row.source_file_path ?? "").split("/");
+  return planSetId && planSetId === row.plan_set_id && planFileId && UUID.test(planFileId) ? planFileId : null;
+}
+
+function toZoneJob(projectId: string, row: JobRow, sources: TakeoffVisibleSources): AffaireTakeoffZoneJob {
   const visible = resolveTakeoffVisibleJobStatus({ status: row.status,
     processingStrategy: row.processing_strategy === "batch" ? "batch" : row.processing_strategy === "sync" ? "sync" : null,
     providerBatchState: row.provider_batch_state as Parameters<typeof resolveTakeoffVisibleJobStatus>[0]["providerBatchState"] });
   const readable = row.status === "completed" || row.status === "applied";
   return {
-    id: row.id, name: row.source_file_name, status: visible.status, statusLabel: visible.label,
+    // Named after its plan only for a member who may read that plan's copy; anyone else reads no name.
+    id: row.id, name: isTakeoffSourceVisible(sources, namedPlanFileOf(row)) ? row.source_file_name : null,
+    status: visible.status, statusLabel: visible.label,
     failure: row.status === "canceled" ? "Analyse annulée." : row.status === "failed" ? describeTakeoffJobFailure(row.error_code) : null,
     // A job read without a version opens its review without one: never « ?versionId=null ».
     reviewHref: readable ? takeoffReviewHref({ projectId, jobId: row.id, versionId: row.estimate_version_id }) : null,
@@ -121,12 +134,21 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
       return outcome ? [{ eventId: event.event_id, outcome, finishedAt: event.finished_at,
         reason: outcome === "failure" ? takeoffCompletionFailureReason(event.reason_code) : null }] : [];
     });
-  const toJob = (row: unknown) => toZoneJob(projectId, row as JobRow);
   const { request } = launch;
   const manifest = (sealed.data as { manifest?: unknown } | null)?.manifest ?? null;
-  // The member's own read rights on the pieces its coverage names (no read when it names none).
-  const visible = await readTakeoffVisibleSources({ supabase: context.supabase, tenantId: context.tenantId, projectId,
-    ids: coverageSourceIds(manifest) });
+  const listedJobs = [...((requestJobs.data ?? []) as JobRow[]), ...((latest.data ?? []) as JobRow[]),
+    ...((latestReadable.data ?? []) as JobRow[])];
+  // The member's own read rights on every plan and piece the answer would name: its coverage's, and the plan each listed
+  // analysis is named after (no read when there is none). Whether the automatic start can still begin, for this member.
+  const [visible, canStart] = await Promise.all([
+    readTakeoffVisibleSources({ supabase: context.supabase, tenantId: context.tenantId, projectId,
+      ids: [...coverageSourceIds(manifest), ...listedJobs.map(namedPlanFileOf)] }),
+    request?.origin === "automatic" && ["evaluating", "not_eligible", "blocked"].includes(request.state)
+      ? createServiceRoleClient().rpc("takeoff_launch_request_can_start", { p_request_id: request.id, p_actor: context.userId })
+      : Promise.resolve({ data: false, error: null }),
+  ]);
+  if (canStart.error) readError(canStart.error);
+  const toJob = (row: unknown) => toZoneJob(projectId, row as JobRow, visible);
   return {
     active: launch.active,
     canOperate,
@@ -135,7 +157,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
       id: request.id, origin: request.origin, state: request.state, mandateRevision: request.mandateRevision,
       reason: request.reason, pieces: request.pieces, hasPayer: request.hasPayer, payerIsViewer: request.payerIsViewer,
       createdAt: request.createdAt, admittedAt: request.admittedAt, closedAt: request.closedAt, outcome: request.outcome,
-      units: request.units, action: request.action,
+      units: request.units, action: request.action, canStart: canStart.data === true,
       jobs: ((requestJobs.data ?? []) as unknown[]).map(toJob),
       coverage: toAffaireTakeoffCoverage(manifest, visible),
       completionEventId,
