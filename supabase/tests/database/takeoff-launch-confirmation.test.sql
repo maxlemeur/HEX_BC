@@ -236,5 +236,18 @@ select results_eq($$select outcome, mandate_revision from public.take_on_takeoff
   pg_temp.request(21), 0, 'take_on', pg_temp.host(), pg_temp.selection(), null)$$, $$values ('mandated'::text, 1)$$,
   'the confirmer of a request reserved outside the server engages it by an explicit gesture');
 
+-- A gesture from a view of an earlier mandate is refused even when the action it saw is still offered: an operator took
+-- the request on from a Mac without the subscription connected (it waits for that operator's gesture again).
+select results_eq($$select outcome, reason_code from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(29), pg_temp.f(1),
+  pg_temp.brief_at(29), null, pg_temp.host(), pg_temp.selection(), null)$$, $$values ('confirmed'::text, 'MANDATE_REQUIRED'::text)$$,
+  'a sixth affaire is confirmed without the notice');
+select results_eq($$select outcome, state, reason_code, mandate_revision from public.take_on_takeoff_launch_request(pg_temp.f(10),
+  pg_temp.f(29), pg_temp.f(5), pg_temp.request(29), 0, 'take_on', null, null, 'CHATGPT_NOT_CONNECTED')$$,
+  $$values ('mandated'::text, 'blocked'::text, 'CHATGPT_NOT_CONNECTED'::text, 1)$$,
+  'an administrator takes it on from a Mac whose subscription is not connected');
+select results_eq($$select outcome, payer_id from public.take_on_takeoff_launch_request(pg_temp.f(10), pg_temp.f(29), pg_temp.f(1),
+  pg_temp.request(29), 0, 'take_on', pg_temp.host(), pg_temp.selection(), null)$$, $$values ('moved'::text, pg_temp.f(5))$$,
+  'the owner''s take-over from the view before that mandate is refused, though a take-over is still offered');
+
 select * from finish();
 rollback;
