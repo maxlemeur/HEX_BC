@@ -24,6 +24,7 @@ import { ownedWorkerHostId, signUpWorkerOwner, startOwnedWorker } from "./worker
 const A_NAME = "P-101_BAT-B_R+1.pdf";
 const B_NAME = "P-102_colonnes.pdf";
 const C_NAME = "P-103_sans-texte.pdf";
+const D_NAME = "P-101_BAT-B_R+1_indice-B.pdf";
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
 async function buildSheetsPdf(sheets: string[][]) {
@@ -216,36 +217,46 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
     revision: { source_id: ids.a, content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: "L02" }, carry_over: null,
     location: { level: { value: "L02", state: "corrected", origin: "operator" } } });
 
-  // 7. New bytes for A: the earlier correction is only a proposal to check, never carried silently; one validation keeps it.
+  // 7. A new revision of A arrives as another file, and the preparation retains it over A: A's correction is only a
+  // proposal to check on it, never carried silently; one validation keeps it. A's own revision is untouched.
+  const dId = randomUUID();
+  const dPath = `${tenantId}/${planSetId}/${dId}/d.pdf`;
   const nextA = await buildVectorPlanPdf({ titleBlock: ["PLAN DE PLOMBERIE FICTIF", "BÂTIMENT A", "NIVEAU L00", "INDICE B"] });
-  expect((await setup.storage.from("plan-files").update(plans[0].path, nextA, { contentType: "application/pdf" })).error).toBeNull();
-  const replaced = await setup.storage.from("plan-files").download(plans[0].path);
-  expect(replaced.data ? sha256(new Uint8Array(await replaced.data.arrayBuffer())) : replaced.error?.message).toBe(sha256(nextA));
+  expect((await setup.storage.from("plan-files").upload(dPath, nextA, { contentType: "application/pdf" })).error).toBeNull();
+  expect((await setup.from("plan_files").insert({ id: dId, tenant_id: tenantId, plan_set_id: planSetId, file_name: "d.pdf", file_path: dPath,
+    file_type: "application/pdf", file_size_bytes: nextA.length, page_count: 1, metadata: { original_file_name: D_NAME } })).error).toBeNull();
+  const decided = { ...preparation, plan_revision_decisions: [{ left: { document_id: ids.a, content_hash: sha256(bytes.a) },
+    right: { document_id: dId, content_hash: sha256(nextA) }, choice: "right" as const }] };
+  expect((await setup.from("takeoff_preparations").update({ revision: 2, draft: decided, confirmed_snapshot: null, confirmed_at: null,
+    confirmed_by: null, updated_by: userId }).eq("project_id", projectId).eq("revision", 1)).error).toBeNull();
   await ui.app.open(`/dashboard/affaires/${projectId}/plans`);
   await ui.screen.getByRole("heading", "Plans localisés", { exact: true }).click();
-  await openLocation(A_NAME);
+  await openLocation(D_NAME);
   await expect(field("level")).toHaveAttribute("data-state", "proposed");
   await expect(field("level")).toContainText("L02");
   await expect(field("level")).toContainText("Repris de la correction d’une version précédente");
   await expect(field("level")).toContainText("Autre lecture : L00 (cartouche, page 1)");
   await expect(dialog.getByText(/Le contenu du plan a changé/)).toBeVisible();
-  const proposal = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${ids.a}/location`);
-  expect(proposal.body.data).toMatchObject({ revision: { content_hash: sha256(nextA) }, annotation: null,
-    carry_over: { revision: 2, level: "L02", same_source: true, content_hash: sha256(bytes.a) } });
+  await expect(dialog.getByText(new RegExp(A_NAME.replaceAll(/[.+]/g, "\\$&")))).toBeVisible();
+  const proposal = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${dId}/location`);
+  expect(proposal.body.data).toMatchObject({ revision: { source_id: dId, content_hash: sha256(nextA) }, annotation: null,
+    carry_over: { revision: 2, level: "L02", same_source: false, content_hash: sha256(bytes.a) } });
   expect((await rows()).length).toBe(1);
   await dialog.getByRole("button", "Valider pour cette version", { exact: true }).click();
   await expect(dialog.getByTestId("plan-location-notice")).toContainText("Localisation enregistrée pour cette version du plan.");
   await expect(field("level")).toHaveAttribute("data-state", "corrected");
   const generations = await rows();
-  expect(generations.map((row) => [row.content_hash, row.revision, row.level])).toEqual([[sha256(bytes.a), 2, "L02"], [sha256(nextA), 1, "L02"]]);
+  expect(generations.map((row) => [row.source_id, row.content_hash, row.revision, row.level]))
+    .toEqual([[ids.a, sha256(bytes.a), 2, "L02"], [dId, sha256(nextA), 1, "L02"]]);
   expect(generations[1].carried_from_id).toBe(generations[0].id);
   await closeLocation();
-  // The first analysis read the earlier bytes: its review keeps their correction and says the plan changed.
+  // The other plan with no decision on it (B) receives nothing from A.
+  const untouched = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${ids.b}/location`);
+  expect(untouched.body.data).toMatchObject({ annotation: null, carry_over: null });
+  // The first analysis read A: its review keeps A's own correction and offers nothing from the newer revision.
   const history = await apiRequest<{ data: TakeoffJobPlanLocations }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/plan-locations`);
-  // Its bytes are no longer the plan's: the title block is not read again and no other revision's correction is offered.
-  expect(history.body.data.plans.find((plan) => plan.plan_file_id === ids.a)).toMatchObject({ status: "changed", reading_issue: "not_current",
-    reading: { pages_read: [], title_block_read: false }, revision: { content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: "L02" },
-    carry_over: null, location: { level: { value: "L02", origin: "operator", title_block_read: false } } });
+  expect(history.body.data.plans.find((plan) => plan.plan_file_id === ids.a)).toMatchObject({ status: "current", reading_issue: null,
+    revision: { content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: "L02" }, carry_over: null });
   // A correction made after the analysis leaves the worker's own reading as it was persisted.
   const unchangedVector = await apiRequest<{ data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
   expect(unchangedVector.body.data.pages.find((page) => page.plan_file_id === ids.a)?.reading).toEqual(rawPage?.reading);
@@ -261,16 +272,14 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   await expect(dialog.getByText("Lecture seule : seuls les opérateurs de l’affaire corrigent la localisation d’un plan.", { exact: true })).toBeVisible();
   await expect(dialog.getByLabel("Niveau", { exact: true })).toHaveCount(0);
   const readerWrite = await apiRequest<{ error: { code: string } }>(ui.browser, "PUT", `/api/takeoff/plan-sets/${planSetId}/files/${ids.a}/location`,
-    { content_hash: sha256(nextA), expected_revision: 1, building: "A", level: "L09" });
+    { content_hash: sha256(bytes.a), expected_revision: 2, building: "A", level: "L09" });
   expect([readerWrite.status, readerWrite.body.error.code]).toEqual([403, "FORBIDDEN"]);
   await closeLocation();
   await ui.app.open(takeoffReviewHref({ projectId, jobId }));
   await expect(panel).toBeVisible({ timeout: 60_000 });
   await showLocations();
   await expect(reviewRow(A_NAME)).toContainText("L02");
-  await expect(reviewRow(A_NAME)).toContainText("Le plan a changé depuis cette analyse");
-  await expect(reviewRow(A_NAME)).toContainText(/Enregistré par .+ le /);
-  await expect(reviewRow(A_NAME)).not.toContainText("Corrigé par");
+  await expect(reviewRow(A_NAME)).toContainText(/Corrigé par .+ le /);
   await expect(reviewRow(A_NAME).getByRole("button", /Corriger/)).toHaveCount(0);
   expect((await rows()).map((row) => [row.revision, row.level, row.updated_by])).toEqual([[2, "L02", userId], [1, "L02", userId]]);
   expect(await querySql(`select count(*) from public.takeoff_plan_location_events where project_id = '${projectId}';`)).toEqual(["3"]);

@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
-import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
+import { readAllRows } from "@/lib/supabase/read-all";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import {
   getAuthenticatedTakeoffContext,
@@ -136,9 +136,11 @@ async function fieldAuthors(supabase: Supabase, annotations: readonly Annotation
   const ids = [...new Set(annotations.map((row) => row.id))];
   const events: EventRow[] = [];
   if (ids.length) {
-    const { data, error } = await readAllRowsInChunks(ids, (chunk) => supabase.from("takeoff_plan_location_events")
-      .select("id,location_id,revision,action,building_before,level_before,building,level,actor_id,created_at", { count: "exact" })
-      .in("location_id", chunk));
+    // An annotation has one event per generation: at most as many rows as the generations read, plus any saved since.
+    const expected = annotations.reduce((sum, row) => sum + row.revision, 0);
+    const { data, error } = await supabase.from("takeoff_plan_location_events")
+      .select("location_id,revision,action,building_before,level_before,building,level,actor_id,created_at")
+      .in("location_id", ids).order("location_id").order("revision").range(0, expected + 99);
     if (error) readFailure(error, "Impossible de charger l’historique des localisations.");
     events.push(...((data ?? []) as unknown as EventRow[]));
   }
