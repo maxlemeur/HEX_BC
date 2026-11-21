@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { importStructuralExclusions, normalizeMappedRowsForEstimateCreation } from "@/lib/affaires/import-flow";
+import { sourcesSummary } from "./item-list-server";
 import { projectDpgfPostes } from "./poste-list-dpgf";
 import { createPosteRevision, posteSourceId, type PosteDraft } from "./poste-list";
 import {
@@ -190,6 +192,80 @@ describe("stored revisions and proposals", () => {
     expect(posteFromStoredEntry(entry)).toEqual(expect.objectContaining({ label: "Lavabo en céramique", expectedUnit: "u",
       referenceQuantity: 2, synonyms: [], qualifiers: {} }));
     expect(entry).not.toHaveProperty("unit_price_ht_cents");
+  });
+});
+
+describe("what the confirmation of the import left out", () => {
+  // The repository's own sheet (src/lib/imports/structure.test.ts): the options after « Sous-total HT » are a footer.
+  const sheet = [
+    { id: "r0", designation: "Tube acier", unit: "ml", quantity: 2, unit_price_ht: 10 },
+    { id: "r1", designation: "Sous-total HT", total_ht: 100_000 },
+    { id: "r2", designation: "PSE 1 : robinet thermostatique", unit: "u", quantity: 4, unit_price_ht: 50 },
+    { id: "r3", designation: "Total HT", total_ht: 100_200 },
+  ];
+
+  it("never makes an item of an option the import left in its footer", () => {
+    const normalized = normalizeMappedRowsForEstimateCreation(sheet.map(({ id, ...mapped }, rowIndex) => ({
+      id: `m-${id}`, payload: { row_index: rowIndex, mapped_row: mapped },
+    })), { marginMultiplier: 1, defaultTaxRateBp: 2000 }, { detectStructure: true, structureDecisions: [] });
+    const exclusions = importStructuralExclusions(normalized);
+    expect(exclusions).toEqual([{ rowIndex: 1, reason: "footer" }, { rowIndex: 2, reason: "footer" },
+      { rowIndex: 3, reason: "footer" }]);
+    const projected = projectDpgfPostes({
+      importId: "import", mappingId: "mapping", columnMapping: {}, exclusions,
+      rawRows: sheet.map(({ id }, index) => raw(id, index)),
+      mappedRows: sheet.map(({ id, designation, unit, quantity }) => ({ id: `m-${id}`, rawRowId: id, designation, unit, quantity })),
+    });
+    expect(projected.items.map(({ label }) => label)).toEqual(["Tube acier"]);
+    expect(projected.issues).toContainEqual(expect.objectContaining({ rawRowId: "r2", reason: "footer" }));
+  });
+});
+
+describe("what a revision keeps of the decisions it relied on", () => {
+  it("copies the decisions applied and the rows left out with their reason, by position only", () => {
+    const sheet = [
+      { id: "r0", designation: "Bâtiment A" },
+      { id: "r1", designation: "Tube acier", unit: "ml", quantity: 2 },
+      { id: "r2", designation: "Sous-total HT" },
+      { id: "r3", designation: "PSE 1 : robinet thermostatique", unit: "u", quantity: 4 },
+    ];
+    const decisions = [{ rowIndex: 0, kind: "section" as const, level: 1 as const }];
+    const exclusions = [{ rowIndex: 2, reason: "footer" as const }, { rowIndex: 3, reason: "footer" as const }];
+    const projection = projectDpgfPostes({
+      importId: "import", mappingId: "mapping", columnMapping: {}, decisions, exclusions,
+      rawRows: sheet.map(({ id }, index) => raw(id, index)),
+      mappedRows: sheet.map(({ id, ...mapped }) => ({ id: `m-${id}`, rawRowId: id, ...mapped })),
+    });
+    const summary = sourcesSummary({
+      kind: "dpgf", importId: "import", mappingId: "mapping", filename: "dpgf.xlsx", sourceFormat: "xlsx",
+      decisions: { status: "applied", confirmationId: "confirmation", confirmedAt: "2026-11-21T10:00:00.000Z", count: 1,
+        decisions, exclusions },
+      projection, drafts: projection.items,
+    });
+    expect(summary).toEqual({
+      kind: "dpgf", importId: "import", mappingId: "mapping", decisions: "applied", confirmationId: "confirmation",
+      confirmedAt: "2026-11-21T10:00:00.000Z",
+      structure: {
+        decisions: [{ rowIndex: 0, kind: "section", level: 1 }],
+        exclusions: [{ rowIndex: 2, reason: "footer" }, { rowIndex: 3, reason: "footer" }],
+      },
+    });
+    // Positions and codes: no designation of the import is copied.
+    expect(JSON.stringify(summary)).not.toMatch(/Tube|Sous-total|robinet|Bâtiment/);
+  });
+});
+
+describe("what the list discloses of an import", () => {
+  it("stores no word of an import's notes, only a digest that tells two rows apart", () => {
+    const projected = dpgfDrafts([{ id: "r1", designation: "Lavabo", unit: "u", quantity: 2 }]);
+    const withNotes = projectDpgfPostes({
+      importId: "import", mappingId: "mapping", columnMapping: {}, rawRows: [raw("r1", 0)],
+      mappedRows: [{ id: "m-r1", rawRowId: "r1", designation: "Lavabo", unit: "u", quantity: 2, notes: "PU négocié 85 € HT" }],
+    });
+    const entries = itemListEntries(proposeItemListRevision({ scope, current: null, sourceDrafts: withNotes.items }).candidate);
+    expect(JSON.stringify({ entries, withNotes })).not.toMatch(/négocié|85 €/);
+    expect(withNotes.items[0].origin.measurementNotesDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(withNotes.items[0].origin.measurementNotesDigest).not.toBe(projected.items[0].origin.measurementNotesDigest);
   });
 });
 

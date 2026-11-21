@@ -88,12 +88,27 @@ export async function readStoredItemList(client: Client, scope: PosteListScope):
   };
 }
 
-/** What a revision says it was made from: identifiers and states only, never a row's content. */
-function sourcesSummary(sources: ItemListSourceState): Json {
+/** The reasons a row of the DPGF was left out of the list as its structure, never as a reading of its content. */
+const STRUCTURAL_EXCLUSIONS = new Set(["footer", "ignored", "parameters", "header", "empty", "unreadable_designation"]);
+
+/**
+ * What a revision says it was made from: identifiers, states and row positions only, never a row's content. The
+ * structure decisions applied and the rows left out (with their reason) are copied, so that the revision still says
+ * why a row is not an item once the import or its mapping is gone.
+ */
+export function sourcesSummary(sources: ItemListSourceState): Json {
   switch (sources.kind) {
-    case "dpgf": return { kind: "dpgf", importId: sources.importId, mappingId: sources.mappingId,
-      decisions: sources.decisions.status,
-      ...(sources.decisions.status === "applied" ? { confirmationId: sources.decisions.confirmationId } : {}) };
+    case "dpgf": {
+      const applied = sources.decisions.status === "applied" ? sources.decisions : null;
+      return { kind: "dpgf", importId: sources.importId, mappingId: sources.mappingId,
+        decisions: sources.decisions.status,
+        ...(applied ? { confirmationId: applied.confirmationId, confirmedAt: applied.confirmedAt } : {}),
+        structure: {
+          decisions: (applied?.decisions ?? []).map(({ rowIndex, kind, level }) => ({ rowIndex, kind, level })),
+          exclusions: sources.projection.issues.flatMap(({ rowIndex, reason }) =>
+            rowIndex !== null && STRUCTURAL_EXCLUSIONS.has(reason) ? [{ rowIndex, reason }] : []),
+        } };
+    }
     case "template": return { kind: "template", templateKey: sources.template.key, version: sources.template.version,
       publicationId: sources.template.publicationId };
     case "prepare": return { kind: "pending", reason: sources.reason };
@@ -219,6 +234,7 @@ export async function loadAffaireItemListSummary(projectId: string) {
 /** The refusals of the list's write function, by their own code: a fixed French answer, never the database's text. */
 function listWriteFailure(error: { message?: string }): never {
   const message = error.message ?? "";
+  if (message.includes("TAKEOFF_ITEM_LIST_INTENT_CONFLICT")) intentConflict();
   if (message.includes("TAKEOFF_ITEM_LIST_FORBIDDEN")) {
     throw forbidden("Seuls un administrateur de l’entreprise ou l’ingénieur propriétaire de l’affaire modifient sa liste de postes.");
   }
@@ -234,9 +250,36 @@ function listWriteFailure(error: { message?: string }): never {
 
 type RecordInput = {
   scope: PosteListScope; actor: string; expectedRevision: number; intentKey: string;
+  /** The server's digest of the gesture as the member asked it: the same key with another gesture is refused. */
+  gestureSha256: string;
   cause: "initial" | "proposal" | "item_added"; sources: Json; revision: Pick<PosteRevision, "items">;
   continuities?: Array<{ sourceKey: string; itemId: string }>;
 };
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value).filter(([, entry]) => entry !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+/** The digest of a whole gesture: what it read, what it chose and what it adds (selection, section, definition). */
+export function itemListGestureDigest(gesture: Record<string, unknown>) {
+  return createHash("sha256").update(`takeoff-item-list-gesture-v1:${canonicalJson(gesture)}`).digest("hex");
+}
+
+function acceptanceGesture(input: { expectedRevision: number; proposalDigest: string; continuities: ItemListContinuity[] }) {
+  return itemListGestureDigest({ kind: "accept", expectedRevision: input.expectedRevision, proposalDigest: input.proposalDigest,
+    continuities: input.continuities.map(({ previousItemId, nextItemId }) => [previousItemId, nextItemId]).sort() });
+}
+
+function additionGesture(input: ItemListAdditionInput) {
+  return itemListGestureDigest({ kind: "add", expectedRevision: input.expectedRevision, label: input.label.trim(),
+    expectedUnit: input.expectedUnit, measurementBasis: input.measurementBasis, qualifiers: input.qualifiers,
+    sectionOfItemId: input.sectionOfItemId });
+}
 
 /** One recorded revision (the database checks the right, the expected revision and the identity rule under its lock). */
 export async function recordItemListRevision(service: Client, input: RecordInput) {
@@ -254,7 +297,8 @@ export async function recordItemListRevision(service: Client, input: RecordInput
   }
   const { data, error } = await service.rpc("record_takeoff_list_revision", {
     p_tenant_id: input.scope.tenantId, p_project_id: input.scope.projectId, p_actor: input.actor,
-    p_expected_revision: input.expectedRevision, p_intent_key: input.intentKey, p_cause: input.cause, p_sources: input.sources,
+    p_expected_revision: input.expectedRevision, p_intent_key: input.intentKey, p_gesture_sha256: input.gestureSha256,
+    p_cause: input.cause, p_sources: input.sources,
     p_entries: itemListEntries(input.revision) as unknown as Json,
     p_continuities: (input.continuities ?? []).map(({ sourceKey, itemId }) => ({ source_key: sourceKey, item_id: itemId })),
   });
@@ -267,11 +311,14 @@ export async function recordItemListRevision(service: Client, input: RecordInput
 
 type Recorded = { revisionId: string; revision: number; contentSha256: string; replayed: boolean };
 
-async function recordedByIntent(client: Client, scope: PosteListScope, intentKey: string) {
-  const { data, error } = await client.from("takeoff_list_revisions").select("id, revision, cause, content_sha256")
+/** The revision a gesture's key recorded: its receipt when the gesture is the same, a conflict when it is another. */
+async function recordedByIntent(client: Client, scope: PosteListScope, intentKey: string, gestureSha256: string) {
+  const { data, error } = await client.from("takeoff_list_revisions").select("id, revision, content_sha256, gesture_sha256")
     .eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId).eq("intent_key", intentKey).maybeSingle();
   if (error) throw mapSupabaseError(error, "Impossible de lire la liste des postes.");
-  return data as { id: string; revision: number; cause: StoredItemListRevisionRow["cause"]; content_sha256: string } | null;
+  if (!data) return null;
+  if (data.gesture_sha256 !== gestureSha256) intentConflict();
+  return replay(data);
 }
 
 const replay = (row: { id: string; revision: number; content_sha256: string }): Recorded =>
@@ -301,10 +348,13 @@ async function recordFirstList(service: Client, scope: PosteListScope, input: {
   actor: string; intentKey: string; sources: Json; revision: Pick<PosteRevision, "items">;
 }): Promise<StoredItemList> {
   try {
+    // The gesture of a first list is the list itself: a concurrent one from other sources is read, never replaced.
     await recordItemListRevision(service, { scope, actor: input.actor, expectedRevision: 0, intentKey: input.intentKey,
+      gestureSha256: itemListGestureDigest({ kind: "initial", items: itemListEntries(input.revision) }),
       cause: "initial", sources: input.sources, revision: input.revision });
   } catch (error) {
-    if (!(error instanceof ApiError) || error.code !== "TAKEOFF_ITEM_LIST_STALE") throw error;
+    if (!(error instanceof ApiError)
+      || (error.code !== "TAKEOFF_ITEM_LIST_STALE" && error.code !== "TAKEOFF_ITEM_LIST_INTENT_CONFLICT")) throw error;
   }
   const stored = await readStoredItemList(service, scope);
   if (!stored) throw internalError("Impossible d’enregistrer la liste des postes.");
@@ -322,12 +372,11 @@ export async function acceptItemListProposal(projectId: string, input: {
   const scope = { tenantId: context.tenantId, projectId: project.id };
   const service = createServiceRoleClient();
   await requireListWriter(service, scope, context.userId);
-  // The same gesture again (a lost answer, a double click): the revision it recorded, if it is that acceptance.
-  const earlier = await recordedByIntent(service, scope, input.intentKey);
-  if (earlier) {
-    if (earlier.cause === "item_added" || earlier.revision !== input.expectedRevision + 1) intentConflict();
-    return replay(earlier);
-  }
+  // The same gesture again (a lost answer, a double click): the revision it recorded, if it is that acceptance with
+  // the same proposal and the same continuities chosen.
+  const gestureSha256 = acceptanceGesture(input);
+  const earlier = await recordedByIntent(service, scope, input.intentKey, gestureSha256);
+  if (earlier) return earlier;
   const [sources, stored] = await Promise.all([resolveItemListSources(scope, service), readStoredItemList(service, scope)]);
   const drafts = sourceDrafts(sources);
   const current = stored?.revision ?? null;
@@ -346,7 +395,7 @@ export async function acceptItemListProposal(projectId: string, input: {
     throw conflict("Un rapprochement de postes n’est plus proposé : rechargez la liste.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
   return recordItemListRevision(service, {
-    scope, actor: context.userId, expectedRevision: input.expectedRevision, intentKey: input.intentKey,
+    scope, actor: context.userId, expectedRevision: input.expectedRevision, intentKey: input.intentKey, gestureSha256,
     cause: accepted.cause, sources: sourcesSummary(sources), revision: accepted.candidate, continuities: accepted.continuities,
   });
 }
@@ -373,20 +422,9 @@ export async function addItemListPoste(projectId: string, input: ItemListAdditio
   const scope = { tenantId: context.tenantId, projectId: project.id };
   const service = createServiceRoleClient();
   await requireListWriter(service, scope, context.userId);
-  const replayedAddition = async () => {
-    const earlier = await recordedByIntent(service, scope, input.intentKey);
-    if (!earlier) return null;
-    // The same gesture: the item it added, with the same definition.
-    const { data, error } = await service.from("takeoff_list_revision_entries")
-      .select("label, expected_unit, measurement_basis, qualifiers")
-      .eq("revision_id", earlier.id).eq("origin->>intentId", input.intentKey).maybeSingle();
-    if (error) throw mapSupabaseError(error, "Impossible de lire la liste des postes.");
-    const same = earlier.cause === "item_added" && data && data.label === input.label.trim()
-      && data.expected_unit === input.expectedUnit && data.measurement_basis === input.measurementBasis
-      && JSON.stringify(Object.entries(data.qualifiers ?? {}).sort()) === JSON.stringify(Object.entries(input.qualifiers).sort());
-    if (!same) intentConflict();
-    return replay(earlier);
-  };
+  // The same gesture: the same definition in the same section on the revision it read; another one is a conflict.
+  const gestureSha256 = additionGesture(input);
+  const replayedAddition = () => recordedByIntent(service, scope, input.intentKey, gestureSha256);
   const earlier = await replayedAddition();
   if (earlier) return earlier;
   let stored = await readStoredItemList(service, scope);
@@ -414,7 +452,8 @@ export async function addItemListPoste(projectId: string, input: ItemListAdditio
   });
   try {
     return await recordItemListRevision(service, {
-      scope, actor: context.userId, expectedRevision: stored.row.revision, intentKey: input.intentKey, cause: "item_added",
+      scope, actor: context.userId, expectedRevision: stored.row.revision, intentKey: input.intentKey, gestureSha256,
+      cause: "item_added",
       sources: stored.row.sources, revision: next,
     });
   } catch (error) {

@@ -19,7 +19,10 @@ const ISSUE_LABELS = {
   header: "En-tête répété",
   unreadable_designation: "Désignation illisible",
   ignored: "Ignorée à la confirmation de l’import",
+  parameters: "Paramètres du classeur",
 };
+/** The first changes shown at once; the others open below them, before the gesture. */
+const CHANGES_SHOWN = 20;
 const PREPARE_LABELS: Record<ItemListPrepareReason, string> = {
   document_without_import: "DPGF à préparer : la pièce du dossier n’est pas encore importée.",
   import_in_progress: "DPGF à préparer : l’import est en cours.",
@@ -35,16 +38,23 @@ const referenceFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
 type Query = Record<string, string | string[] | undefined>;
 
+/**
+ * Where to find a row in its source. A workbook imported since the sheet's own row is stored gives the row of the
+ * worksheet, as Excel numbers it, then the row of the table; an older import gives the row of the table only.
+ */
 function sourceLocation(origin: {
   rowIndex: number | null;
   sourceRowNumber?: number | null;
+  sheetRowNumber?: number | null;
   sourcePage?: number | null;
   sheetName?: string | null;
   reference?: string | null;
 }, sourceFormat: string | undefined) {
   const csv = sourceFormat === "csv";
   const line = !csv && origin.sourceRowNumber
-    ? `${sourceFormat === "xlsx" ? "Ligne du tableau" : "Ligne"} ${origin.sourceRowNumber}`
+    ? sourceFormat === "xlsx" && origin.sheetRowNumber
+      ? `Ligne ${origin.sheetRowNumber} de la feuille (ligne du tableau ${origin.sourceRowNumber})`
+      : `${sourceFormat === "xlsx" ? "Ligne du tableau" : "Ligne"} ${origin.sourceRowNumber}`
     : origin.rowIndex === null ? "Ligne mappée"
       : `${csv ? "Enregistrement importé" : "Ligne importée"} ${origin.rowIndex + 1}`;
   return [origin.sheetName, origin.sourcePage ? `Page ${origin.sourcePage}` : null, line, origin.reference]
@@ -61,6 +71,23 @@ function originText(item: Poste, list: AffaireItemListView, sourceFormat: string
 
 function sectionPath(item: Poste) {
   return item.sections.map(({ title }) => title).join(" / ");
+}
+
+/** What tells two items of the same designation apart: their section, then where they come from. */
+function itemFacts(item: Poste | undefined, list: AffaireItemListView, sourceFormat: string | undefined) {
+  if (!item) return "";
+  return [sectionPath(item) || "Sans section", originText(item, list, sourceFormat)].filter(Boolean).join(" · ");
+}
+
+function ChangeLine({ change }: { change: { kind: "added" | "removed"; item: Poste } | {
+  kind: "changed"; previous: Poste; current: Poste;
+} }) {
+  if (change.kind !== "changed") {
+    const where = sectionPath(change.item);
+    return <li>{change.kind === "added" ? "Ajouté" : "Retiré"} : {change.item.label}{where ? ` (${where})` : ""}</li>;
+  }
+  const { previous, current } = change;
+  return <li>Modifié : {previous.label === current.label ? current.label : `${previous.label} → ${current.label}`}</li>;
 }
 
 function SourceLine({ list }: { list: AffaireItemListView }) {
@@ -82,7 +109,11 @@ function SourceLine({ list }: { list: AffaireItemListView }) {
       ? "Choix de structure de la confirmation de l’import appliqués."
       : sources.decisions.status === "stale"
         ? "Les choix de structure enregistrés ne correspondent plus à l’import : confirmez de nouveau l’import pour les reprendre."
-        : "Import confirmé avant l’enregistrement des choix de structure : les titres sont lus tels quels.";
+        : sources.decisions.status === "superseded"
+          ? "Un chiffrage a été créé depuis l’import après sa confirmation sans enregistrer de choix de structure : les "
+            + "choix enregistrés ne sont plus établis et les titres sont lus tels quels. Confirmez de nouveau l’import "
+            + "pour les reprendre."
+          : "Import confirmé avant l’enregistrement des choix de structure : les titres sont lus tels quels.";
     return <><p className="text-sm">DPGF · {sources.filename}</p><p className="text-sm">{decisions}</p></>;
   }
   const affaireHref = `/dashboard/affaires/${list.projectId}`;
@@ -140,6 +171,14 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
   const expectedRevision = list.current?.revision ?? 0;
   const proposal = list.proposal;
   const byId = new Map([...(list.current?.items ?? []), ...(proposal?.items ?? [])].map((item) => [item.id, item]));
+  const currentById = new Map((list.current?.items ?? []).map((item) => [item.id, item]));
+  const proposedById = new Map((proposal?.items ?? []).map((item) => [item.id, item]));
+  // Every change of the proposal, in one list the member can open whole before accepting.
+  const changes = proposal ? [
+    ...proposal.added.map((item) => ({ key: `a-${item.id}`, kind: "added" as const, item })),
+    ...proposal.removed.map((item) => ({ key: `r-${item.id}`, kind: "removed" as const, item })),
+    ...proposal.changes.map((change) => ({ key: `c-${change.current.id}`, kind: "changed" as const, ...change })),
+  ] : [];
   const sectionChoices = [...new Map((list.current?.items ?? []).filter(({ sections }) => sections.length)
     .map((item) => [sectionPath(item), { itemId: item.id, label: sectionPath(item) }])).values()];
   const author = list.current ? list.names[list.current.created_by] : null;
@@ -167,20 +206,26 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
               {proposal.changes.length > 1 ? "s" : ""}
             </p>
             <ul className="list-disc space-y-1 pl-6 text-sm">
-              {proposal.added.slice(0, 20).map((item) => <li key={`a-${item.id}`}>Ajouté : {item.label}</li>)}
-              {proposal.removed.slice(0, 20).map((item) => <li key={`r-${item.id}`}>Retiré : {item.label}</li>)}
-              {proposal.changes.slice(0, 20).map(({ previous, current }) => (
-                <li key={`c-${current.id}`}>
-                  Modifié : {previous.label === current.label ? current.label : `${previous.label} → ${current.label}`}
-                </li>
-              ))}
+              {changes.slice(0, CHANGES_SHOWN).map((change) => <ChangeLine key={change.key} change={change} />)}
             </ul>
+            {changes.length > CHANGES_SHOWN && (
+              <details>
+                <summary className="cursor-pointer text-sm">
+                  Voir les {changes.length - CHANGES_SHOWN} autres changements avant d’accepter
+                </summary>
+                <ul className="list-disc space-y-1 pl-6 pt-2 text-sm">
+                  {changes.slice(CHANGES_SHOWN).map((change) => <ChangeLine key={change.key} change={change} />)}
+                </ul>
+              </details>
+            )}
             {list.canWrite ? (
               <TakeoffItemListProposalForm
                 projectId={projectId} expectedRevision={expectedRevision} digest={proposal.digest} cause="proposal"
                 continuities={proposal.continuities.map((continuity) => ({ ...continuity,
-                  previousLabel: byId.get(continuity.previousItemId)?.label ?? "Poste", nextLabel:
-                    byId.get(continuity.nextItemId)?.label ?? "Poste" }))}
+                  previousLabel: byId.get(continuity.previousItemId)?.label ?? "Poste",
+                  previousFacts: itemFacts(currentById.get(continuity.previousItemId), list, sourceFormat),
+                  nextLabel: byId.get(continuity.nextItemId)?.label ?? "Poste",
+                  nextFacts: itemFacts(proposedById.get(continuity.nextItemId), list, sourceFormat) }))}
               />
             ) : (
               <p className="text-sm text-muted-foreground">Un opérateur du métré de l’affaire peut l’accepter.</p>

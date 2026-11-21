@@ -9,7 +9,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 
-type Continuity = { previousItemId: string; nextItemId: string; previousLabel: string; nextLabel: string; ambiguous: boolean };
+/** A pair the operator may confirm, with what tells homonyms apart (section, source, position) on both sides. */
+type Continuity = {
+  previousItemId: string; nextItemId: string; previousLabel: string; nextLabel: string; previousFacts: string;
+  nextFacts: string; ambiguous: boolean;
+};
+
+function pairingText({ previousLabel, previousFacts, nextLabel, nextFacts, ambiguous }: Continuity) {
+  const side = (label: string, facts: string) => `« ${label} »${facts ? ` (${facts})` : ""}`;
+  return `${side(previousLabel, previousFacts)} devient ${side(nextLabel, nextFacts)}`
+    + (ambiguous ? " (plusieurs rapprochements possibles)" : "");
+}
 
 async function post(url: string, body: unknown): Promise<string | null> {
   const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -63,10 +73,7 @@ export function TakeoffItemListProposalForm({ projectId, expectedRevision, diges
                   return next;
                 })}
               />
-              <span>
-                « {continuity.previousLabel} » devient « {continuity.nextLabel} »
-                {continuity.ambiguous ? " (plusieurs rapprochements possibles)" : ""}
-              </span>
+              <span>{pairingText(continuity)}</span>
             </label>
           ))}
         </fieldset>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { comparePosteRevisions, createPosteRevision, type DpgfPosteOrigin, type PosteDraft } from "./poste-list";
+import { dpgfNotesDigest } from "./poste-list-dpgf";
 
 const scope = { tenantId: "tenant", projectId: "affaire" };
 
@@ -12,7 +13,7 @@ function line(rawRowId: string, mappedRowId = rawRowId, importId = "import"): Po
     origin: {
       kind: "dpgf", importId, rawRowId, mappedRowId, rowIndex: 7, mappingId: "mapping",
       sheetName: null, sourceRowNumber: null, sourcePage: null, tableIndex: null,
-      documentId: null, reference: "A7", sourceUnit: "u", measurementNotes: null, factsDigest: "facts",
+      documentId: null, reference: "A7", sourceUnit: "u", measurementNotesDigest: null, factsDigest: "facts",
     },
   };
 }
@@ -71,7 +72,8 @@ describe("poste list revisions", () => {
     const referenceOnly = createPosteRevision(scope, [{ ...source, referenceQuantity: 3 }], initial);
     const basisChanged = createPosteRevision(scope, [{ ...source, measurementBasis: "par ensemble" }], initial);
     const scopeChanged = createPosteRevision(scope, [{
-      ...source, origin: { ...source.origin, measurementNotes: "Rez-de-chaussée uniquement" },
+      // The row's notes are kept as a digest only (never their text in the list): a changed note still changes it.
+      ...source, origin: { ...source.origin, measurementNotesDigest: dpgfNotesDigest("Rez-de-chaussée uniquement") },
     }], initial);
 
     expect(comparePosteRevisions(initial, referenceOnly).changes[0]).toMatchObject({

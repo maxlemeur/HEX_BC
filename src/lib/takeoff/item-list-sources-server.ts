@@ -9,7 +9,7 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { asRecord, toNonEmptyString } from "@/lib/value-guards";
 import type { Database } from "@/types/database";
 import { readPublishedItemTemplate, type PublishedItemTemplate } from "./item-template-server";
-import { projectDpgfPostes, type DpgfPosteProjection } from "./poste-list-dpgf";
+import { projectDpgfPostes, type DpgfPosteProjection, type DpgfStructuralExclusion } from "./poste-list-dpgf";
 import type { PosteDraft, PosteListScope } from "./poste-list";
 import { templatePosteDrafts } from "./plumbing-template";
 
@@ -21,8 +21,11 @@ type Service = SupabaseClient<Database>;
  * the import was confirmed before they were stored (unrecorded).
  */
 export type ItemListDecisionsState =
-  | { status: "applied"; confirmationId: string; confirmedAt: string; count: number }
+  | { status: "applied"; confirmationId: string; confirmedAt: string; count: number;
+      decisions: ImportStructureDecision[]; exclusions: DpgfStructuralExclusion[] }
   | { status: "stale"; confirmedAt: string }
+  /** An estimate was created from the import after the record by a path that records nothing (an older version). */
+  | { status: "superseded"; confirmedAt: string }
   | { status: "unrecorded" };
 
 /** Why the DPGF of the affaire does not give a list yet: the action it waits for is an import's or a mapping's. */
@@ -63,6 +66,17 @@ function storedDecisions(value: unknown): ImportStructureDecision[] {
   });
 }
 
+const EXCLUSION_REASONS = new Set(["footer", "user_ignored", "parameters"]);
+function storedExclusions(value: unknown): DpgfStructuralExclusion[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): DpgfStructuralExclusion[] => {
+    const record = asRecord(entry);
+    const rowIndex = record?.rowIndex;
+    return record && typeof rowIndex === "number" && Number.isSafeInteger(rowIndex) && EXCLUSION_REASONS.has(String(record.reason))
+      ? [{ rowIndex, reason: record.reason as DpgfStructuralExclusion["reason"] }] : [];
+  });
+}
+
 /**
  * The sources of an affaire's list, resolved on the server under the affaire's own rule: the caller has checked that
  * the member may read the affaire; every import linked to it is then read whoever uploaded it, so that an import the
@@ -73,7 +87,7 @@ function storedDecisions(value: unknown): ImportStructureDecision[] {
 export async function resolveItemListSources(scope: PosteListScope, service: Service): Promise<ItemListSourceState> {
   const { tenantId, projectId } = scope;
   const [imports, documents] = await Promise.all([
-    service.from("dpgf_imports").select("id, filename, source_format, status, row_count")
+    service.from("dpgf_imports").select("id, filename, source_format, status, row_count, sheet_first_row")
       .eq("tenant_id", tenantId).eq("project_id", projectId).order("id").limit(2),
     service.from("affaire_intake_documents").select("id")
       .eq("tenant_id", tenantId).eq("project_id", projectId)
@@ -136,12 +150,16 @@ export async function resolveItemListSources(scope: PosteListScope, service: Ser
   if (current.data[0]?.id !== mapping.id || current.data[0]?.updated_at !== mapping.updated_at) return prepare("mapping_draft");
   if (raw.data?.length !== source.row_count || !mapped.data?.length) return prepare("rows_incomplete");
 
+  const firstRow = sourceInteger(source.sheet_first_row, 1);
   const rawRows = raw.data.map((row) => {
     const structure = readImportRowStructure({ [IMPORT_ROW_STRUCTURE_KEY]: row.structure });
     const provenance = asRecord(row.provenance);
+    const tableRow = structure?.source_row_number ?? null;
     return {
       id: row.id, rowIndex: row.row_index,
-      sheetName: structure?.sheet_name ?? null, sourceRowNumber: structure?.source_row_number ?? null,
+      sheetName: structure?.sheet_name ?? null, sourceRowNumber: tableRow,
+      // The worksheet's own row, for an import that recorded where its table starts (new imports only).
+      sheetRowNumber: firstRow !== null && tableRow !== null ? firstRow + tableRow - 1 : null,
       sourcePage: sourceInteger(provenance?.source_page, 1), tableIndex: sourceInteger(provenance?.table_index, 0),
       documentId: toNonEmptyString(provenance?.source_document_id), structure,
     };
@@ -149,13 +167,16 @@ export async function resolveItemListSources(scope: PosteListScope, service: Ser
   if (rawRows.some(({ documentId }) => documentId !== (document?.id ?? null))) return prepare("document_mismatch");
 
   const recorded = (confirmation.data ?? [])[0] as {
-    confirmation_id: string; mapping_id: string; decisions: unknown; confirmed_at: string; proof_current: boolean;
+    confirmation_id: string; mapping_id: string; decisions: unknown; exclusions: unknown; confirmed_at: string;
+    proof_current: boolean; superseded: boolean;
   } | undefined;
   const decisions: ItemListDecisionsState = !recorded ? { status: "unrecorded" }
-    : recorded.proof_current && recorded.mapping_id === mapping.id
-      ? { status: "applied", confirmationId: recorded.confirmation_id, confirmedAt: recorded.confirmed_at,
-        count: storedDecisions(recorded.decisions).length }
-      : { status: "stale", confirmedAt: recorded.confirmed_at };
+    : recorded.superseded ? { status: "superseded", confirmedAt: recorded.confirmed_at }
+      : recorded.proof_current && recorded.mapping_id === mapping.id
+        ? { status: "applied", confirmationId: recorded.confirmation_id, confirmedAt: recorded.confirmed_at,
+          count: storedDecisions(recorded.decisions).length, decisions: storedDecisions(recorded.decisions),
+          exclusions: storedExclusions(recorded.exclusions) }
+        : { status: "stale", confirmedAt: recorded.confirmed_at };
 
   const projection = projectDpgfPostes({
     importId: source.id, mappingId: mapping.id, rawRows,
@@ -166,7 +187,8 @@ export async function resolveItemListSources(scope: PosteListScope, service: Ser
       quantity: row.quantity ?? row.flat_quantity, notes: row.notes ?? row.flat_notes,
     })),
     columnMapping: asRecord(mapping.column_mapping) ?? {},
-    decisions: decisions.status === "applied" ? storedDecisions(recorded!.decisions) : undefined,
+    decisions: decisions.status === "applied" ? decisions.decisions : undefined,
+    exclusions: decisions.status === "applied" ? decisions.exclusions : undefined,
   });
   if (mapped.data.length !== rawRows.length || projection.counts.missing || projection.counts.orphaned) {
     return prepare("rows_unattested", projection);

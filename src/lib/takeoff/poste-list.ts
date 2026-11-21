@@ -20,13 +20,20 @@ export type DpgfPosteOrigin = Readonly<{
   mappedRowId: string;
   rowIndex: number;
   sheetName: string | null;
+  /** The row in the imported table (from the first row of the range read): « ligne du tableau ». */
   sourceRowNumber: number | null;
+  /** The worksheet's own row, for an import that recorded where its table starts; null otherwise. */
+  sheetRowNumber?: number | null;
   sourcePage: number | null;
   tableIndex: number | null;
   documentId: string | null;
   reference: string | null;
   sourceUnit: string | null;
-  measurementNotes: string | null;
+  /**
+   * A digest of the row's notes, never their text: the notes of an import may say what its readers must not read (a
+   * negotiated price); the digest still tells two rows apart for a continuity.
+   */
+  measurementNotesDigest: string | null;
   factsDigest: string;
 }>;
 
@@ -187,7 +194,7 @@ function measureKey(item: Poste) {
   const source = item.origin.kind === "dpgf" ? item.origin : null;
   return [
     item.expectedUnit ?? (source?.sourceUnit ? textKey(source.sourceUnit) : null),
-    item.measurementBasis, item.qualifiers, source?.measurementNotes ? textKey(source.measurementNotes) : null,
+    item.measurementBasis, item.qualifiers, source?.measurementNotesDigest ?? null,
   ];
 }
 
