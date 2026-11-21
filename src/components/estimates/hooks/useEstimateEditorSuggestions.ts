@@ -11,7 +11,7 @@ import {
 import { type SuggestionPreview } from "@/components/estimates/components/EstimateSuggestionRow";
 import { type SuggestionLearningState } from "@/lib/estimates/editor-table-types";
 import { useEstimateV3Grid } from "@/components/estimates/v3/V3LineCells";
-import { sendEstimateSuggestionRuleFeedback } from "@/lib/estimates/client";
+import { sendEstimateSuggestionRuleFeedback } from "@/lib/estimates/reference-data-client";
 import { createSuggestionRanker } from "@/lib/estimates/suggestion-scoring";
 import type { Database } from "@/types/database";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";

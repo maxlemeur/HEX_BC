@@ -6,7 +6,7 @@ import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsO
 import { useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 
 import type { EstimateEditorHistoryCommand } from "@/hooks/useEstimateEditorHistoryController";
-import { moveEstimateItem, reorderEstimateItems } from "@/lib/estimates/client";
+import { moveEstimateItem, reorderEstimateItems } from "@/lib/estimates/items-client";
 import {
   applyInterParentMoveOptimistically,
   isPendingCreateEstimateItem,

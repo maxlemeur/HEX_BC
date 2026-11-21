@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { useAffaireDossier, useDossierPoll, type AffaireDossier } from "./useAffaireDossier";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
 

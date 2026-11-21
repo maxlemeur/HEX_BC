@@ -5,7 +5,7 @@ import {
   evidenceTypeLabel,
   type FlatStructureDraftNode,
 } from "@/lib/estimates/estimate-structure-draft";
-import type { EstimateStructureDraftNodeAction } from "@/lib/estimates/client";
+import type { EstimateStructureDraftNodeAction } from "@/lib/estimates/structure-drafts-client";
 import { cn } from "@/lib/utils";
 
 type PreviewNodeCardProps = {

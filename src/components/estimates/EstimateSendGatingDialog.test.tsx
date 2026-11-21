@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
-import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
+import type { EstimateSendGatingFlag } from "@/lib/estimates/version-lifecycle-client";
 
 afterEach(() => cleanup());
 

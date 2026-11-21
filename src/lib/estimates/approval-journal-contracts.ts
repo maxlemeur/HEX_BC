@@ -94,7 +94,7 @@ function normalizeApprovalDecisionRule(
   };
 }
 
-function normalizeEstimateApprovalDecisionEvent(
+function parseEstimateApprovalDecisionEvent(
   value: unknown
 ): EstimateApprovalDecisionEvent | null {
   if (!isRecord(value)) return null;
@@ -178,7 +178,7 @@ export function parseEstimateApprovalDecisionJournal(
   if (!isRecord(root)) return null;
 
   const events = pickArray(root, ["events"])
-    .map((entry) => normalizeEstimateApprovalDecisionEvent(entry))
+    .map((entry) => parseEstimateApprovalDecisionEvent(entry))
     .filter((entry): entry is EstimateApprovalDecisionEvent => entry !== null);
   const availableAuthors = pickArray(root, ["availableAuthors", "available_authors"])
     .map((entry) => {

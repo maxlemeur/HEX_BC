@@ -8,7 +8,7 @@ import {
   DRAFT_LOCK_HEARTBEAT_INTERVAL_MS,
   useDraftLock,
 } from "@/hooks/useDraftLock";
-import type { EstimateDraftLock } from "@/lib/estimates/client";
+import type { EstimateDraftLock } from "@/lib/estimates/client-locks";
 
 const mocks = vi.hoisted(() => ({
   acquireDraftLock: vi.fn(),
@@ -18,11 +18,13 @@ const mocks = vi.hoisted(() => ({
   isEstimateApiError: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/client-locks", () => ({
   acquireEstimateDraftLock: mocks.acquireDraftLock,
   renewEstimateDraftLock: mocks.renewDraftLock,
   releaseEstimateDraftLock: mocks.releaseDraftLock,
   takeoverEstimateDraftLock: mocks.takeoverDraftLock,
+}));
+vi.mock("@/lib/estimates/client-errors", () => ({
   isEstimateApiError: mocks.isEstimateApiError,
 }));
 

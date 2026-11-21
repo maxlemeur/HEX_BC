@@ -18,7 +18,7 @@ import {
 
 import { SUPPLY_COST_ANCHOR } from "@/components/material-requests/format";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
-import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
+import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import type { AffaireHubSummaryResult } from "@/lib/affaires/server";
 import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
 import { Button, buttonVariants } from "@/components/ui/button";

@@ -1,6 +1,7 @@
 import { parseEstimateBatchResponse } from "@/lib/estimates/batch-contracts";
 import type { BatchOperationInput } from "@/lib/estimates/schemas";
-import type { EstimateBatchResult, EstimateVersionToken } from "@/lib/estimates/client";
+import type { EstimateBatchResult } from "@/lib/estimates/batch-operations-client";
+import type { EstimateVersionToken } from "@/lib/estimates/client-version";
 import { canonicalizeEstimateBatchOperations } from "@/lib/estimates/batch-request";
 import {
   assertNoPendingEstimateBatch, clearEstimateBatchIntention, createEstimateBatchAttempt,

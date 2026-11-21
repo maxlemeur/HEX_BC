@@ -7,7 +7,7 @@ import type {
   EstimateAssemblyDetail,
   EstimateAssemblyItem,
   EstimateAssemblySummary,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/assemblies-client";
 
 function createAssemblyItem(
   overrides: Partial<EstimateAssemblyItem> = {},

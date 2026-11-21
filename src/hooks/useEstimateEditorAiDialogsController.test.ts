@@ -12,7 +12,7 @@ import {
   useEstimateEditorAiDialogsController,
   type EstimateEditorAiDialogsControllerInput,
 } from "@/hooks/useEstimateEditorAiDialogsController";
-import type { VersionZeroDraftSummary } from "@/lib/estimates/client";
+import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";
 
 type HarnessProps = Pick<

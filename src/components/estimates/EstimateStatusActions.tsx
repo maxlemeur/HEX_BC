@@ -11,13 +11,15 @@ import { Input } from "@/components/ui/input";
 import { DRAFT_LOCK_HEARTBEAT_INTERVAL_MS } from "@/hooks/useDraftLock";
 import {
   acquireEstimateDraftLock,
-  fetchEstimateSendGating,
-  getEstimateDraftLockSessionId,
-  isEstimateApiError,
   releaseEstimateDraftLock,
   renewEstimateDraftLock,
+} from "@/lib/estimates/client-locks";
+import {
+  fetchEstimateSendGating,
   type EstimateSendGatingFlag,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/version-lifecycle-client";
+import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { hasEstimateEditorMutationSession } from "@/lib/estimates/editor-mutations";
 import { ESTIMATE_DRAFT_LOCK_SESSION_HEADER } from "@/lib/estimates/lock-session";
 import type { EstimateStatus } from "@/lib/estimates/status";

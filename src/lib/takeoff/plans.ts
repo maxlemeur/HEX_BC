@@ -1013,7 +1013,7 @@ export async function reconcilePlanSetDossier(setId: string) {
   const planSet = await getPlanSetByIdOrThrow({ supabase, setId });
   let changed = false;
   if (planSet.project_id) {
-    const { reconcileAffairePlanPresence } = await import("@/lib/affaires/intake-server");
+    const { reconcileAffairePlanPresence } = await import("@/lib/affaires/intake-derived-state-server");
     ({ changed } = await reconcileAffairePlanPresence(planSet.project_id));
   }
   return { synchronized: true as const, changed };
@@ -1022,7 +1022,7 @@ export async function reconcilePlanSetDossier(setId: string) {
 async function reconcilePlanDossierAfterDeletion(projectId: string | null) {
   if (!projectId) return true;
   try {
-    const { reconcileAffairePlanPresence } = await import("@/lib/affaires/intake-server");
+    const { reconcileAffairePlanPresence } = await import("@/lib/affaires/intake-derived-state-server");
     await reconcileAffairePlanPresence(projectId);
     return true;
   } catch (error) {

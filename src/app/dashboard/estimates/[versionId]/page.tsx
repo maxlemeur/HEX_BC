@@ -15,7 +15,7 @@ import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
 import { EstimateStatusActions } from "@/components/estimates/EstimateStatusActions";
 import { VariantComparisonTable } from "@/components/estimates/VariantComparisonTable";
 import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
-import { fetchAffaireRegisterSummary } from "@/lib/affaires/register-server";
+import { fetchAffaireRegisterSummary } from "@/lib/affaires/register-read-server";
 import {
   SealIntegrityBadge,
   type SealIntegrityState,
@@ -45,10 +45,8 @@ import {
   parseApprovalDecisionJournalAuthorSearchParam,
   parseApprovalDecisionJournalStatusSearchParam,
 } from "@/lib/estimates/approval-decision-journal";
-import {
-  getEstimateApprovalSummary,
-  listEstimateApprovalDecisionJournal,
-} from "@/lib/estimates/rules-engine";
+import { listEstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal-server";
+import { getEstimateApprovalSummary } from "@/lib/estimates/approval-summary-server";
 import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import { assertEstimateVersionUnchanged, readAllEstimateItems } from "@/lib/estimates/read-all-items-server";
 import { listEstimateProjectVersions, listEstimateVersionVariants } from "@/lib/estimates/version-list-server";

@@ -10,7 +10,7 @@ import {
 } from "@/lib/estimates/fo-price-origin";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
-import type { EstimateBatchOperationResult } from "@/lib/estimates/client";
+import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
 import type { Database } from "@/types/database";
 
 /** Provision d'une ligne v3 sans type FO (ou d'un type inconnu du locataire). */

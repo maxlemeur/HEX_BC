@@ -4,10 +4,8 @@ import {
   wizardStep3Schema,
 } from "@/lib/estimates/schemas";
 
-import type {
-  AffaireLinkedDpgfSource,
-  EstimateTemplateSummary,
-} from "@/lib/estimates/client";
+import type { AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
+import type { EstimateTemplateSummary } from "@/lib/estimates/templates-client";
 
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
 import { usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";

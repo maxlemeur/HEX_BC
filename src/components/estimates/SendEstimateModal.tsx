@@ -20,11 +20,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { useDraftLock } from "@/hooks/useDraftLock";
+import { fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
 import {
-  fetchEstimateEditorData,
   fetchEstimateSendGating,
   type EstimateSendGatingResponse,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/version-lifecycle-client";
 import { getEstimateDraftLockSessionId } from "@/lib/estimates/draft-lock-session-client";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { EstimateEmailSendError, sendEstimateEmailRequest } from "@/lib/email/send-estimate-client";

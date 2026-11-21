@@ -22,8 +22,8 @@ import {
   createEstimateItem,
   deleteEstimateItem,
   reorderEstimateItems,
-  type EstimateVersionToken,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/items-client";
+import type { EstimateVersionToken } from "@/lib/estimates/client-version";
 import {
   buildEstimateItemInsertPayload,
   buildEstimateItemUpdatePayload,

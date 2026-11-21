@@ -8,13 +8,13 @@ vi.mock("@/lib/affaires/plan-presence", () => ({
   hasStoredIntakePlan: vi.fn().mockResolvedValue(true), hasStoredStandalonePlan: vi.fn().mockResolvedValue(false),
 }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn(() => ({})) }));
-vi.mock("@/lib/affaires/register-server", () => ({
+vi.mock("@/lib/affaires/register-sync-server", () => ({
   syncAffairePlanGap: vi.fn(), syncAffaireRegisterFromBrief: vi.fn(), syncAffaireRegisterMissingPieces: vi.fn(),
 }));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
-import { reclassifyAffaireDocument } from "@/lib/affaires/intake-server";
+import { reclassifyAffaireDocument } from "@/lib/affaires/intake-document-edits-server";
 import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import { AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE } from "@/lib/affaires/intake";
 

@@ -2,8 +2,8 @@ import { preload } from "react-dom";
 
 import { EstimateEditorPage } from "@/components/estimates/editor/EstimateEditorPage";
 import { EstimateEngineUnavailableNotice } from "@/components/estimates/EstimateEngineUnavailableNotice";
-import type { SettingsSection } from "@/components/estimates/EstimateSettingsSummaryBar";
 import { resolveEstimateEngineVersionForDisplay } from "@/lib/estimates/calc-engine-version";
+import type { SettingsSection } from "@/lib/estimates/editor-settings-state";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type EditEstimateRoutePageProps = {

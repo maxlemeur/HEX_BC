@@ -11,21 +11,27 @@ import {
   type MutableRefObject,
 } from "react";
 
+import { applyEstimatePriceReuse } from "@/lib/estimates/price-reuse-client";
 import {
-  applyEstimatePriceReuse,
   applyEstimateStructureDraft,
-  fetchEstimateEditorData,
-  fetchAffaireLinkedDpgfSource,
-  importEstimateSections,
-  importLinkedDpgfSource as importLinkedDpgfSourceClient,
-  type AffaireLinkedDpgfSource,
   type ApplyEstimateStructureDraftPayload,
   type ApplyEstimateStructureDraftResult,
-  type EstimateVersionToken,
+} from "@/lib/estimates/structure-drafts-client";
+import { fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
+import {
+  fetchAffaireLinkedDpgfSource,
+  importLinkedDpgfSource as importLinkedDpgfSourceClient,
+} from "@/lib/estimates/linked-dpgf-client";
+import {
+  importEstimateSections,
   type ImportEstimateSectionsPayload,
-  type ImportEstimateSectionsResult,
-  type ImportLinkedDpgfSourceResult,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/section-copy-client";
+import type { AffaireLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-contracts";
+import type { EstimateVersionToken } from "@/lib/estimates/client-version";
+import type {
+  ImportEstimateSectionsResult,
+  ImportLinkedDpgfSourceResult,
+} from "@/lib/estimates/schemas";
 import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import type { PriceReuseApplyInput, PriceReuseApplyResult } from "@/lib/estimates/price-reuse-contracts";
 import type { EstimateVersionRow } from "@/lib/estimates/editor-items";

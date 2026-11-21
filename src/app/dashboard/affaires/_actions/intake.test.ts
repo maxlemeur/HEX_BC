@@ -19,8 +19,10 @@ vi.mock("@/lib/affaires/access-server", () => ({
   })),
 }));
 
-vi.mock("@/lib/affaires/intake-server", () => ({
+vi.mock("@/lib/affaires/intake-derived-state-server", () => ({
   refreshAffaireIntakeFromActiveDocuments: refreshAffaireIntakeFromActiveDocumentsMock,
+}));
+vi.mock("@/lib/affaires/intake-document-priorities", () => ({
   syncAffaireIntakeDocumentPriorities: syncAffaireIntakeDocumentPrioritiesMock,
 }));
 

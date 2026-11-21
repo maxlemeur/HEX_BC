@@ -15,15 +15,13 @@ import type {
 } from "@/hooks/useEstimateEditorHistoryController";
 import { useEstimateEditorItemsOperation } from "@/hooks/useEstimateEditorItemsOperation";
 import type { EstimateEditorDocument, EstimateEditorDocumentScopeToken } from "@/lib/estimates/editor-document-state";
-import {
-  type EstimateEditorData,
-  batchEstimateOperations,
-  deleteEstimateItem,
-  duplicateEstimateSection,
-  fetchEstimateEditorData,
-  insertAssemblyIntoVersion,
-  insertTemplateIntoVersion,
-} from "@/lib/estimates/client";
+import type { EstimateEditorData } from "@/lib/estimates/editor-read-contracts";
+import { batchEstimateOperations } from "@/lib/estimates/batch-operations-client";
+import { deleteEstimateItem } from "@/lib/estimates/items-client";
+import { duplicateEstimateSection } from "@/lib/estimates/section-copy-client";
+import { fetchEstimateEditorData } from "@/lib/estimates/editor-read-client";
+import { insertAssemblyIntoVersion } from "@/lib/estimates/assemblies-client";
+import { insertTemplateIntoVersion } from "@/lib/estimates/templates-client";
 import { usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
 import { requireEstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { ouvrageQuantity, resizeOuvrage } from "@/lib/estimates/ouvrage-quantity";

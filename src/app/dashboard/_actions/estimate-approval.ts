@@ -1,9 +1,7 @@
 "use server";
 
-import {
-  submitEstimateApproval,
-  updateEstimateReviewCorrectionItemStatus,
-} from "@/lib/estimates/rules-engine";
+import { updateEstimateReviewCorrectionItemStatus } from "@/lib/estimates/approval-review-server";
+import { submitEstimateApproval } from "@/lib/estimates/approval-workflow-server";
 import type {
   EstimateApprovalDecisionCommentInput,
   SubmitEstimateReviewRequestResult,

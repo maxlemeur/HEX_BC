@@ -35,6 +35,7 @@ export const ENGINE_UNAVAILABLE = "Ce devis utilise le moteur de calcul 3, pas e
 // Motif du refus du métré sur une v3, retiré par M2 v0.1 : V3C08 vérifie qu'il n'est plus affiché.
 export const TAKEOFF_V3_REASON = "Le métré ne s'applique pas à un devis en moteur de calcul 3.";
 export const EDITOR_URL = /\/dashboard\/estimates\/([0-9a-f-]{36})\/edit(?:[?#].*)?$/i;
+const AFFAIRE_URL = /\/dashboard\/affaires\/([0-9a-f-]{36})(?:[?#].*)?$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WIZARD_DRAFT_KEY = "est-wizard-draft";
 
@@ -602,16 +603,18 @@ export async function waitPageText(ui: Ui, needles: readonly string[], timeoutMs
   return { text, missing: needles.filter((needle) => !text.includes(normalized(needle))) };
 }
 
-/** « Nouvelle affaire » → « Créer l'affaire » (initializeAffaireDraft), then the editor or an error. */
+/** Submit « Nouvelle affaire » and record the navigation or any visible error. */
 export async function createAffaireFromOnboarding(ui: Ui, army: ArmyState, projectName: string, label: string) {
   await ui.app.open("/dashboard/affaires/new");
   await expect(ui.screen.getByRole("heading", "Nouvelle affaire", { exact: true })).toBeVisible({ timeout: 60_000 });
   await ui.browser.locator("#details-project-name").fill(projectName);
   await ui.screen.getByRole("button", "Créer l'affaire", { exact: true }).tap();
-  await expect.poll(async () => EDITOR_URL.test(await ui.browser.url()) || (await visibleAlert(ui.browser)) !== null,
-    { timeout: 90_000 }).toBe(true);
+  await expect.poll(async () => {
+    const url = await ui.browser.url();
+    return AFFAIRE_URL.test(url) || EDITOR_URL.test(url) || (await visibleAlert(ui.browser)) !== null;
+  }, { timeout: 90_000 }).toBe(true);
   const url = await ui.browser.url();
-  const outcome = { url, versionId: url.match(EDITOR_URL)?.[1] ?? null, alert: EDITOR_URL.test(url) ? null : await visibleAlert(ui.browser) };
+  const outcome = { url, projectId: url.match(AFFAIRE_URL)?.[1] ?? null, alert: await visibleAlert(ui.browser) };
   await recordEvidence(army, `v3c-onboarding-${label}`, outcome);
   return outcome;
 }

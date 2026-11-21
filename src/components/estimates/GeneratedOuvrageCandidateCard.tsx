@@ -20,9 +20,9 @@ import {
   getGeneratedOuvrageParentReadiness,
   isGeneratedOuvrageReadyForInsert,
   type CandidateEdits,
-  type ExistingSection,
   type UiGeneratedOuvrageCandidate,
 } from "./generated-ouvrage-types";
+import type { ExistingSection } from "@/lib/estimates/editor-item-tree";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
 
 const GeneratedOuvrageSubdetailEditor = dynamic(

@@ -1,6 +1,6 @@
 /**
  * Lot 2, sous-lot 2.6 - aiguillage moteur de l'éditeur (conception §9 : aiguillage exhaustif,
- * `assertNever`). Les fichiers saturés de l'éditeur (`useEstimateEditorState.tsx`,
+ * `assertNever`). Les fichiers saturés de l'éditeur (`useEstimateEditorState.ts`,
  * `useEstimateEditorSyncController.ts`) délèguent ici chaque choix qui dépend du moteur : une v1/v2
  * garde exactement son chemin historique (mêmes appels, mêmes arguments), une v3 n'est jamais
  * relue par le moteur historique ni normalisée en v2 (D1, D2).
@@ -12,14 +12,18 @@ import {
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
 import { resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
+import { hasFreshCalcSnapshot } from "@/lib/estimates/engine/amounts-source";
 import {
   assertNever,
   type CalcEngineVersion,
   type EstimateEngineVersion,
+  isLegacyEngine,
+  isUnifiedEngine,
   requireHistoricalEngine,
   usesSaleCoefficients,
 } from "@/lib/estimates/engine/capabilities";
-import type { EditorEstimateItem, EstimateItemUpdatePayload } from "@/lib/estimates/editor-items";
+import type { EditorEstimateItem, EstimateItemUpdatePayload, EstimateVersionRow } from "@/lib/estimates/editor-items";
+import type { EstimateSettingsState } from "@/lib/estimates/editor-settings-state";
 import type { EstimateV3Breakdown } from "@/lib/estimates/engine-v3";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
 import { applyEstimateV3PreviewToItems, indexEstimateV3Lines, toEstimateV3ItemWrite } from "@/lib/estimates/v3-editor";
@@ -136,6 +140,35 @@ export function resolveEditorInitialDiscountCents(input: {
     default:
       return assertNever(calcEngineVersion);
   }
+}
+
+/** The margin multiplier the settings drawer shows as stored for the open version, by its engine. */
+export function resolveEditorStoredMarginMultiplier({
+  isV3,
+  calcEngineVersion,
+  version,
+  settings,
+}: {
+  isV3: boolean;
+  calcEngineVersion: CalcEngineVersion;
+  version: EstimateVersionRow | null;
+  settings: EstimateSettingsState | null;
+}) {
+  const snapshotContext = version?.calc_snapshot_context;
+  const snapshotMultiplier = snapshotContext && typeof snapshotContext === "object" && !Array.isArray(snapshotContext)
+    ? snapshotContext.effective_margin_multiplier
+    : undefined;
+  // Lot 2, sous-lot 2.6 : une v3 n'a pas de multiplicateur de marge (marque nette, D5) ; jamais
+  // `effective_margin_multiplier`, que la v2 affiche comme multiplicateur.
+  const storedMarginMultiplier = isV3 ? undefined : isUnifiedEngine(calcEngineVersion) && version != null &&
+    hasFreshCalcSnapshot(version) &&
+    typeof snapshotMultiplier === "number" && Number.isFinite(snapshotMultiplier) &&
+    snapshotMultiplier >= 0 && snapshotMultiplier <= 100
+    ? snapshotMultiplier
+    : isLegacyEngine(calcEngineVersion) || settings?.margin_mode !== "tiered"
+      ? settings?.margin_multiplier
+      : undefined;
+  return storedMarginMultiplier;
 }
 
 /**

@@ -4,7 +4,8 @@ import type { EstimateEditorDocument } from "@/lib/estimates/editor-document-sta
 import type { EditorConflictDraft } from "@/lib/estimates/editor-drafts";
 import type { AutoSaveResult, AutoSaveStatus } from "@/hooks/useAutoSave";
 import type { EstimateTotals } from "@/lib/estimate-calculations";
-import type { EstimateBatchOperationResult, ReleaseEstimateDraftLockOptions } from "@/lib/estimates/client";
+import type { EstimateBatchOperationResult } from "@/lib/estimates/batch-contracts";
+import type { ReleaseEstimateDraftLockOptions } from "@/lib/estimates/client-locks";
 import type {
   EditorEstimateItem,
   EstimateItem,

@@ -39,7 +39,6 @@ import type { GeneratedOuvrageDraftResult, GeneratedOuvrageSubdetailResult } fro
 
 import {
   type CandidateEdits,
-  type ExistingSection,
   type GeneratedOuvrageSubdetailEditorComponent,
   type GeneratedOuvrageSubdetailUiState,
   type UiGeneratedOuvrageCandidate,
@@ -51,20 +50,9 @@ import { GeneratedOuvrageSourceForm } from "./GeneratedOuvrageSourceForm";
 import { GeneratedOuvrageDraftReview } from "./GeneratedOuvrageDraftReview";
 import { GeneratedOuvrageFooterBar } from "./GeneratedOuvrageFooterBar";
 import { GeneratedOuvrageDraftPicker } from "./GeneratedOuvrageDraftPicker";
+import type { GeneratedOuvrageDialogProps } from "@/hooks/estimate-editor-view-props";
 
 type DialogStep = "input" | "generating" | "review" | "inserting" | "error";
-
-export type GeneratedOuvrageDialogProps = {
-  scopeKey: string;
-  isOpen: boolean;
-  targetVersionId: string;
-  projectId: string;
-  existingSections: ExistingSection[];
-  isMutationBlocked: boolean;
-  mutationBlockedMessage: string;
-  ensureMutationCanProceed: (actionLabel: string) => Promise<boolean>;
-  onClose: (result?: { insertedCount?: number }) => void;
-};
 
 const DEFAULT_SUMMARY = {
   totalCandidates: 0,

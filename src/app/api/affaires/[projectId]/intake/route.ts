@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { ok, toErrorResponse } from "@/lib/http/api-response";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
