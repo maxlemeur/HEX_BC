@@ -19,11 +19,16 @@ const nextConfig: NextConfig = {
     // OAuth callback query parameters include a short-lived authorization code.
     incomingRequests: { ignore: [/^\/auth\/chatgpt\/callback(?:\?|$)/] },
   },
+  // The required CI production build checks Next.js types and the packaged runtimes.
+  // Vercel can compile the deployment without starting the memory-heavy TypeScript checker again.
+  typescript: {
+    ignoreBuildErrors: process.env.MERGEONE_SKIP_BUILD_TYPECHECK === "1",
+    ...(process.env.E2E_ARMY === "1"
+      ? { tsconfigPath: `.build/tester-army/tsconfig${armyDevServer ? `-${armyDevServer}` : ""}.json` }
+      : {}),
+  },
   ...(process.env.E2E_ARMY === "1"
-    ? {
-        distDir: `.build/tester-army/next${armyDevServer ? `-${armyDevServer}` : ""}`,
-        typescript: { tsconfigPath: `.build/tester-army/tsconfig${armyDevServer ? `-${armyDevServer}` : ""}.json` },
-      }
+    ? { distDir: `.build/tester-army/next${armyDevServer ? `-${armyDevServer}` : ""}` }
     : {}),
   // A journey's own development server (e2e/army/local/chatgpt-server-support.ts) lives for one journey file and keeps
   // every route it compiled, as a production build would. Next disposes a route idle for 60 s by default: on a slow

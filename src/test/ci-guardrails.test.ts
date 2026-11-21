@@ -296,6 +296,7 @@ describe("CI and local quality guardrails", () => {
   it.each([
     { event: "pull_request", job: "static", status: "skipped" },
     { event: "pull_request", job: "tests", status: "skipped" },
+    { event: "pull_request", job: "build", status: "skipped" },
     { event: "push", job: "static", status: "skipped" },
     { event: "push", job: "tests", status: "skipped" },
     { event: "push", job: "build", status: "skipped" },
