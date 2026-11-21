@@ -67,13 +67,17 @@ sans diagnostic dit « Échec sans code disponible », un code inconnu donne un
 motif général. La liste décide de ce qu'elle a lu, sans lire le détail d'aucune
 analyse ; à la fin d'une attente qu'elle a annoncée, elle se relit une fois.
 
-Sur la ligne et dans le bandeau de l'activité, l'échec dit seulement ce qui s'est
-passé ; la décision seule dit quoi faire. Le bandeau suit la décision de la dernière
+Partout où une analyse arrêtée est montrée (ligne et bandeau de l'activité, fiche de
+l'affaire, notifications), l'échec dit seulement ce qui s'est passé ; la décision seule
+dit quoi faire, là où elle est connue. La carte de reprise de la fiche suit la décision
+de la dernière analyse et nomme son lien d'après elle ; la vue d'ensemble de l'affaire,
+qui ne la connaît pas, ne donne pas de consigne et renvoie au suivi du métré. Les états
+du lot de l'ancien fournisseur ne s'affichent plus à côté d'une analyse arrêtée. Le bandeau suit la décision de la dernière
 analyse : il ne propose un nouveau métré que si elle le propose, et rien à un membre
 qui ne peut pas agir. Un démarrage différé (« Reprise automatique ») n'est annoncé
 que pour une analyse en file, en cours ou dont la reprise est programmée. Tant qu'une
 ligne attend une reprise ou la fin d'un délai, la liste est relue (toutes les
-20 secondes) jusqu'à ce que cela arrive. Une réponse sans décision (serveur d'une
+20 secondes, dès la première réponse) jusqu'à ce que cela arrive. Une réponse sans décision (serveur d'une
 version antérieure) n'offre aucune action et demande de recharger la page.
 
 Les motifs d'échec ne proposent jamais un autre niveau d'analyse : la nouvelle
@@ -88,7 +92,8 @@ règle. Un refus porte la décision dans `error.details.resume` : 403 pour un
 membre qui ne peut pas agir ou qui n'a pas lancé l'analyse, 422 pour un ancien
 fournisseur, un serveur sans métré local, un autre Mac ou un forfait ChatGPT à
 reconnecter ou sans modèle, 409 sinon. Tout refus porte la décision en vigueur, que
-la ligne adopte avant que la liste soit relue. Le forfait ChatGPT, le modèle et le Mac
+la ligne adopte avant que la liste soit relue ; elle est calculée sur une lecture
+faite après la cause du refus (le job, les droits du membre et sa connexion). Le forfait ChatGPT, le modèle et le Mac
 de la personne qui a lancé l'analyse sont vérifiés ensuite au lancement. Le droit
 d'écrire l'affaire est relu juste avant l'écriture, que la base protège par la même
 règle de rôle et de propriété ; l'annulation applique la même relecture. L'écriture est

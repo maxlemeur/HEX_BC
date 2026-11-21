@@ -150,14 +150,18 @@ export async function resubmitTakeoffJob(
     const viewer = viewerOf(job.project_id);
     return { viewer, resume: resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer)).resume };
   };
+  // The decision a refusal carries is read after the refusal's cause: the job, the member's rights and connection again.
+  const decideAgain = async () => {
+    const current = await getTakeoffJobDetailByIdOrThrow({ supabase, tenantId, jobId: normalizedJobId });
+    return (await decideNow(current)).resume;
+  };
   const first = await decideNow(existingJob);
   if (first.resume.action !== "retry_now") throw buildResumeRefusal(existingJob, first.resume, first.viewer);
-  // What no list reads (the launcher's membership, the schema, the selection confirmed at launch): its refusal still
-  // carries the decision.
+  // What no list reads (the launcher's membership, the schema, the selection confirmed at launch).
   try {
     await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
   } catch (error) {
-    throw withResumeDecision(error, first.resume);
+    throw withResumeDecision(error, await decideAgain());
   }
   // The right to write the affaire is read again just before the write, which the database guards by the same role and
   // ownership rule (row security of the update) and by the launcher (below).
@@ -196,8 +200,7 @@ export async function resubmitTakeoffJob(
 
   if (!data) {
     // The answer carries the decision now in force, which the row adopts.
-    const current = await getTakeoffJobDetailByIdOrThrow({ supabase, tenantId, jobId: normalizedJobId });
-    const now = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(current, viewer)).resume;
+    const now = await decideAgain();
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,

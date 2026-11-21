@@ -94,4 +94,13 @@ describe("TakeoffJobsTable", () => {
     await waitFor(() => expect(mutate).toHaveBeenCalled());
     expect(mutate.mock.calls.some(([filter, data]) => typeof filter === "function" && data === undefined)).toBe(true);
   });
+
+  // Fix round 2, point 1: the removed provider's batch badges say nothing about a stopped analysis.
+  it("shows no batch progress or reconciliation beside a stopped analysis of the former provider", () => {
+    renderTable(response([job({ processingStrategy: "batch", providerBatchState: "running", operatorState: "orphan_to_reconcile",
+      errorCode: "AI_TIMEOUT", resume: { action: "new_analysis", reason: "legacy_provider", availableAt: null } })]));
+    expect(screen.queryByText("Reprise à vérifier")).not.toBeInTheDocument();
+    expect(screen.queryByText("Analyse en cours")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/^Ce fournisseur IA ne permet plus de relancer cette analyse\./).length).toBeGreaterThan(0);
+  });
 });

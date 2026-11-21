@@ -332,6 +332,9 @@ function formatResumeTime(value: string | null) {
   return timestamp === null ? null : resumeTime.format(new Date(timestamp));
 }
 
+/** A row of an answer that carries no decision (an older server): nothing is offered until the page is reloaded. */
+export const TAKEOFF_RESUME_RELOAD_TEXT = "Rechargez la page pour voir les actions possibles sur cette analyse.";
+
 const NEW_ANALYSIS = "Préparez une nouvelle analyse depuis l’affaire.";
 const ASK_AN_OPERATOR = "Un ingénieur ou un administrateur peut préparer une nouvelle analyse.";
 

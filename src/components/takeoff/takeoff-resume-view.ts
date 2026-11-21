@@ -6,11 +6,10 @@ import {
   TAKEOFF_RESUME_REASONS,
   type TakeoffResumeDecision,
 } from "@/lib/takeoff/operator-state";
+
+export { TAKEOFF_RESUME_RELOAD_TEXT } from "@/lib/takeoff/operator-state";
 import type { TakeoffActivityCenterJobRow, TakeoffActivityCenterResponse } from "@/lib/takeoff/types";
 import { isRecord } from "@/lib/value-guards";
-
-/** The row of an answer that carries no decision (an older server): nothing is offered until the page is reloaded. */
-export const TAKEOFF_RESUME_RELOAD_TEXT = "Rechargez la page pour voir les actions possibles sur cette analyse.";
 
 /** setTimeout keeps at most a signed 32-bit delay. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -25,6 +24,15 @@ const LATE_DELAY_LIMIT_MS = 60_000;
  */
 export function takeoffExpectsAutomaticStart(job: TakeoffActivityCenterJobRow) {
   return job.technicalStatusRaw === "pending" || job.technicalStatusRaw === "processing" || job.resume?.reason === "retry_scheduled";
+}
+
+/**
+ * Whether a row shows the progress of the removed provider's batch (its state, its operator state): only while the
+ * analysis is not stopped, never beside a final decision. « Reprise à vérifier » had a reconciliation that no longer
+ * exists: it is never shown.
+ */
+export function takeoffShowsBatchProgress(job: TakeoffActivityCenterJobRow) {
+  return job.technicalStatusRaw !== "failed" && job.technicalStatusRaw !== "canceled";
 }
 
 /**

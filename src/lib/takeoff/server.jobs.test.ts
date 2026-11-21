@@ -137,6 +137,8 @@ type SupabaseMockOptions = {
   projects?: Array<{ id: string; user_id: string; is_archived: boolean; tenant_id?: string }>;
   /** Another writer, after the command read the job and before it writes. */
   afterJobRead?: (row: TakeoffJobStoredRow) => Partial<TakeoffJobStoredRow> | void;
+  /** Another writer, just before the conditional update is evaluated. */
+  beforeJobUpdate?: (row: TakeoffJobStoredRow) => Partial<TakeoffJobStoredRow> | void;
   results?: TakeoffResultStoredRow[];
   items?: TakeoffItemStoredRow[];
   versions?: Array<{ id: string; version_number: number; project_id: string }>;
@@ -470,6 +472,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       }),
       select: vi.fn(() => builder),
       maybeSingle: vi.fn(async () => {
+        for (const row of state.jobsById.values()) {
+          const concurrent = options.beforeJobUpdate?.(row);
+          if (concurrent) state.jobsById.set(row.id, { ...row, ...concurrent });
+        }
         const candidate = [...state.jobsById.values()].find((row) => {
           if (filters.id && row.id !== filters.id) return false;
           if (filters.tenant_id && row.tenant_id !== filters.tenant_id) return false;
@@ -1305,5 +1311,38 @@ describe("fix round 1: every place speaks with the decision", () => {
     expect(refusal).toMatchObject({ status: 409, code: "CONFLICT" });
     expect(refusal?.message).toMatch(/analyse/);
     expect(refusal?.message).not.toMatch(/pending|processing|canceled|failed|\bjob\b/);
+  });
+
+  // Fix round 2, point 2: a refusal's decision is computed from reads made after the refusal's cause.
+  it("answers a refusal of the launch check with the decision read after it", async () => {
+    const supabase = createSupabaseMock({ jobs: [baseJob({ status: "failed", completed_at: "2026-02-25T10:00:00.000Z" })] });
+    signIn(supabase, "engineer");
+    vi.mocked(assertLocalTakeoffResumeReady).mockImplementation(async () => {
+      vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] } as never);
+      throw new TakeoffError({ status: 422, code: "AI_PROVIDER", retryable: false,
+        message: "Reconnectez votre forfait ChatGPT dans Mon profil avant de lancer ce métré." });
+    });
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 422, code: "AI_PROVIDER", details: { resume: { action: "none", reason: "plan_disconnected", available_at: null } },
+    });
+    expect(supabase.__state.jobUpdates).toBe(0);
+  });
+
+  it("answers a lost compare-and-set with the member's rights read after it", async () => {
+    const projects = [{ id: PROJECT_ID, user_id: USER_ID, is_archived: false }];
+    const supabase = createSupabaseMock({
+      jobs: [baseJob({ status: "failed", completed_at: "2026-02-25T10:00:00.000Z" })],
+      projects,
+      beforeJobUpdate: (row) => {
+        projects[0].is_archived = true;
+        return row.retry_count === 0 ? { retry_count: 1 } : undefined;
+      },
+    });
+    signIn(supabase, "engineer");
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 409, code: "CONFLICT", details: { resume: { action: "none", reason: "read_only", available_at: null } },
+    });
   });
 });

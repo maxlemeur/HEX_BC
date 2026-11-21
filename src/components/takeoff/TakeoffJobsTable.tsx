@@ -8,6 +8,7 @@ import {
   adoptTakeoffResume,
   readTakeoffResumeRefusal,
   takeoffExpectsAutomaticStart,
+  takeoffShowsBatchProgress,
   useTakeoffResumeRefresh,
 } from "./takeoff-resume-view";
 
@@ -189,7 +190,7 @@ export default function TakeoffJobsTable({
                     <Badge variant="neutral" size="sm">
                       {getProcessingStrategyLabel(job.processingStrategy)}
                     </Badge>
-                    {job.processingStrategy === "sync" ? null : (
+                    {job.processingStrategy === "sync" || !takeoffShowsBatchProgress(job) ? null : (
                       <Badge
                         variant={getProviderBatchStateBadgeVariant(
                           job.providerBatchState
@@ -202,7 +203,8 @@ export default function TakeoffJobsTable({
                         })}
                       </Badge>
                     )}
-                    {job.operatorState && job.operatorState !== "none" ? (
+                    {job.operatorState && job.operatorState !== "none" && job.operatorState !== "orphan_to_reconcile"
+                      && takeoffShowsBatchProgress(job) ? (
                       <Badge
                         variant={getOperatorStateBadgeVariant(
                           job.operatorState
@@ -349,7 +351,7 @@ export default function TakeoffJobsTable({
                             {job.statusLabel}
                           </span>
                           {/* An immediate analysis has no provider batch: its badge would repeat the strategy. */}
-                          {job.processingStrategy === "sync" ? null : (
+                          {job.processingStrategy === "sync" || !takeoffShowsBatchProgress(job) ? null : (
                             <Badge
                               variant={getProviderBatchStateBadgeVariant(
                                 job.providerBatchState
@@ -370,7 +372,8 @@ export default function TakeoffJobsTable({
                           >
                             {job.confidenceLabel}
                           </Badge>
-                          {job.operatorState && job.operatorState !== "none" ? (
+                          {job.operatorState && job.operatorState !== "none" && job.operatorState !== "orphan_to_reconcile"
+                      && takeoffShowsBatchProgress(job) ? (
                             <Badge
                               variant={getOperatorStateBadgeVariant(
                                 job.operatorState

@@ -9,7 +9,6 @@ import { ArrowRight, SlidersHorizontalIcon } from "lucide-react";
 import {
   fetchTakeoffActivityCenter,
   isTakeoffApiError,
-  type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import { takeoffListRefreshInterval } from "@/components/takeoff/takeoff-resume-view";
@@ -161,11 +160,11 @@ export default function TakeoffActivityCenter({
     [searchParams, router, pathname]
   );
 
-  // Queued and running analyses, and stopped ones that wait for their retry or their delay, keep the list read.
-  const computeRefreshInterval = useCallback(
-    (latestData?: TakeoffActivityCenterResponse) => takeoffListRefreshInterval(latestData),
-    []
-  );
+  // Queued and running analyses, and stopped ones that wait for their retry or their delay, keep the list read. SWR reads
+  // a function interval once per key, on the empty cache: the interval is state set from each answer instead, so the
+  // first answer that has a waiting row starts the polling and the answer without one stops it.
+  const [summaryRefreshMs, setSummaryRefreshMs] = useState(0);
+  const [listRefreshMs, setListRefreshMs] = useState(0);
 
   // The next step and the « Repères » read the affaire's newest analyses on every view,
   // whatever the filters; the unfiltered first page of the list is this same request.
@@ -178,7 +177,7 @@ export default function TakeoffActivityCenter({
   } = useSWR(summaryKey, fetchActivityPage, {
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
-    refreshInterval: computeRefreshInterval,
+    refreshInterval: summaryRefreshMs,
     shouldRetryOnError: false,
   });
   const { data: listData, error: listError, mutate: mutateList } = useSWR(
@@ -200,11 +199,15 @@ export default function TakeoffActivityCenter({
     {
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      refreshInterval: computeRefreshInterval,
+      refreshInterval: listRefreshMs,
       keepPreviousData: true,
       shouldRetryOnError: false,
     }
   );
+  const summaryWantsRefreshMs = takeoffListRefreshInterval(summaryData);
+  const listWantsRefreshMs = takeoffListRefreshInterval(listData);
+  useEffect(() => { setSummaryRefreshMs(summaryWantsRefreshMs); }, [summaryWantsRefreshMs]);
+  useEffect(() => { setListRefreshMs(listWantsRefreshMs); }, [listWantsRefreshMs]);
   const isSlowLoading = useDelayedLoadingIndicator(isSummaryLoading);
 
   // Derive lot options from project-scoped plan-set metadata so filtering is stable across pages.
