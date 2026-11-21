@@ -43,7 +43,7 @@ import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-draft
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import { readAffaireAutomaticTakeoffPayerNotice } from "@/lib/takeoff/launch-request-server";
+import { isTakeoffLaunchActive, readAffaireAutomaticTakeoffPayerNotice } from "@/lib/takeoff/launch-request-server";
 import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
@@ -77,11 +77,14 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const hasOverviewQuery = search.view !== "documents" || devHubScenario !== null;
   if (!hasOverviewQuery) {
     // Document triage does not need approval projections, estimate calculations or the register.
-    const [workspace, access, takeoffEnabled] = await Promise.all([
+    const [workspace, access, takeoffEnabled, takeoffLaunchActive] = await Promise.all([
       fetchAffaireIntakeWorkspace(projectId), requireAffaireAccess(projectId, "read"), isTakeoffEnabled(tenantId).catch(() => false),
+      // The import's plans step launches on its own draft only before the automatic start is active (null: unknown).
+      isTakeoffLaunchActive().catch(() => null),
     ]).catch((error: unknown) => { if (error && typeof error === "object" && "code" in error && error.code === "NOT_FOUND") notFound(); throw error; });
     if (workspace.documents.length > 0) return <AffaireDocumentPage projectId={projectId} projectName={access.project.name} workspace={workspace}
-      canManage={Boolean(workspace.canManageDocuments && profile?.tenant_role !== "director")} takeoffEnabled={takeoffEnabled} />;
+      canManage={Boolean(workspace.canManageDocuments && profile?.tenant_role !== "director")} takeoffEnabled={takeoffEnabled}
+      takeoffLaunchActive={takeoffLaunchActive} />;
   }
 
   const timelinePageRaw =
