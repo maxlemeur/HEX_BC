@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@base-ui/react/tabs";
-import { ArrowRight, History, MessageSquareText, Settings, Trash2 } from "lucide-react";
+import { ArrowRight, MessageSquareText } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -15,12 +15,12 @@ import {
 } from "@/lib/material-requests/client";
 import type { MaterialRequestTechnician } from "@/lib/material-requests/contracts";
 
-import { ConfirmButton } from "./cells";
 import { ClarificationMessageDialog } from "./ClarificationMessageDialog";
 import { materialRequestsHref } from "./format";
 import { MaterialRequestConsultation } from "./MaterialRequestConsultation";
-import { MaterialRequestHeader } from "./MaterialRequestHeader";
+import { MaterialRequestHeader, requestFieldsOpenAtStart } from "./MaterialRequestHeader";
 import { MaterialRequestLines } from "./MaterialRequestLines";
+import { MaterialRequestOptions } from "./MaterialRequestOptions";
 import { MaterialRequestOrders } from "./MaterialRequestOrders";
 import { MaterialRequestOriginal } from "./MaterialRequestOriginal";
 import { MaterialRequestSteps, requestStepPanelId } from "./MaterialRequestSteps";
@@ -52,8 +52,10 @@ function ReadyEditor({
   const [technicians, setTechnicians] = useState<MaterialRequestTechnician[]>([]);
   const [messageOpen, setMessageOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const { data, canWrite, projectId, requestId, alertsByLine } = editor;
+  const requestFieldsId = `${ids}-request-fields`;
+  const [requestFieldsOpen, setRequestFieldsOpen] = useState(() => requestFieldsOpenAtStart(data.request, canWrite));
+  const [focusRequestFields, setFocusRequestFields] = useState(false);
   const orders = useMaterialRequestOrders(editor);
   const quotes = useMaterialRequestQuotes(editor);
 
@@ -102,6 +104,21 @@ function ReadyEditor({
     document.getElementById(requestStepPanelId(ids, focusStep))?.focus({ preventScroll: true });
   }, [focusStep, ids]);
 
+  // « Modifier la demande », from any step: the fields open on the lines step, the focus on the first one a writer can
+  // change (a reader gets the fields themselves).
+  const editRequest = () => {
+    openStep("lignes");
+    setRequestFieldsOpen(true);
+    setFocusRequestFields(true);
+  };
+  useEffect(() => {
+    if (!focusRequestFields) return;
+    setFocusRequestFields(false);
+    const fields = document.getElementById(requestFieldsId);
+    const first = fields?.querySelector<HTMLElement>("input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), button:not([disabled])");
+    (first ?? fields)?.focus();
+  }, [focusRequestFields, requestFieldsId]);
+
   useEffect(() => {
     const abort = new AbortController();
     fetchMaterialRequestTechnicians(abort.signal)
@@ -145,7 +162,15 @@ function ReadyEditor({
             ))}
           </datalist>
           <Tabs.Panel {...panel("lignes")}>
-            <MaterialRequestHeader compact editor={editor} technicians={known} materialListId={materialListId} />
+            <MaterialRequestHeader
+              compact
+              editor={editor}
+              technicians={known}
+              materialListId={materialListId}
+              fieldsId={requestFieldsId}
+              open={requestFieldsOpen}
+              onOpenChange={setRequestFieldsOpen}
+            />
             <MaterialRequestLines
               editor={editor}
               materialListId={materialListId}
@@ -155,18 +180,10 @@ function ReadyEditor({
               original={<MaterialRequestOriginal compact editor={editor} headingId={`${ids}-original`} />}
               nextAction={<Button type="button" onClick={() => goToStep("devis")}><ArrowRight aria-hidden="true" />Consulter les devis</Button>}
               toolbar={
-                <>
-                  <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setMessageOpen(true)}>
-                    <MessageSquareText aria-hidden="true" />
-                    Message au technicien
-                  </Button>
-                  {technician ? (
-                    <Button type="button" variant="outline" size="sm" aria-label={`Demandes précédentes de ${technician.name}`} title={`Demandes précédentes de ${technician.name}`} className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setHistoryOpen(true)}>
-                      <History aria-hidden="true" />
-                      Historique
-                    </Button>
-                  ) : null}
-                </>
+                <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setMessageOpen(true)}>
+                  <MessageSquareText aria-hidden="true" />
+                  Message au technicien
+                </Button>
               }
             />
           </Tabs.Panel>
@@ -190,32 +207,22 @@ function ReadyEditor({
           </Tabs.Panel>
         </div>
       </div>
-      {canWrite ? (
-        <details className="mr-request-actions border-t border-border py-3 text-sm"><summary role="button" aria-label="Options de la demande" title="Options de la demande" className="cursor-pointer text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"><Settings aria-hidden="true" className="size-5" /></summary><div className="mt-3">
-          <ConfirmButton
-            variant="outline"
-            label="Supprimer la demande"
-            confirmLabel="Confirmer la suppression de la demande"
-            confirmText="Supprimer la demande et ses lignes ?"
-            onConfirm={async () => {
-              try {
-                await deleteMaterialRequest(projectId, requestId);
-                router.push(materialRequestsHref(projectId));
-              } catch (error) {
-                setDeleteError(materialRequestErrorMessage(error, "La demande n’a pas pu être supprimée."));
-              }
-            }}
-          >
-            <Trash2 aria-hidden="true" />
-            Supprimer la demande
-          </ConfirmButton>
-          {deleteError ? (
-            <p role="alert" className="mt-2 text-sm font-medium text-danger">
-              {deleteError}
-            </p>
-          ) : null}
-        </div></details>
-      ) : null}
+      <MaterialRequestOptions
+        canWrite={canWrite}
+        technicianName={technician?.name ?? null}
+        hasOrderedLines={(orders.summary?.ordered.length ?? 0) > 0}
+        onEdit={editRequest}
+        onHistory={() => setHistoryOpen(true)}
+        onDelete={async () => {
+          try {
+            await deleteMaterialRequest(projectId, requestId);
+            router.push(materialRequestsHref(projectId));
+            return null;
+          } catch (error) {
+            return materialRequestErrorMessage(error, "La demande n’a pas pu être supprimée.");
+          }
+        }}
+      />
       <ClarificationMessageDialog
         open={messageOpen}
         onOpenChange={setMessageOpen}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { effectiveLineMaterial } from "@/lib/material-requests/alerts";
 import {
   MATERIAL_REQUEST_DELIVERY_PLACE_LABELS,
   MATERIAL_REQUEST_DELIVERY_PLACES,
+  type MaterialRequest,
   type MaterialRequestDeliveryPlace,
   type MaterialRequestTechnician,
 } from "@/lib/material-requests/contracts";
@@ -273,15 +274,32 @@ function Proposal({
   );
 }
 
+/**
+ * A material or a supplier read at the top of the sheet waits for its confirmation: the fields are then open from the
+ * start, the confirmation being the next thing to do there.
+ */
+export function requestFieldsOpenAtStart(request: MaterialRequest, canWrite: boolean): boolean {
+  const materialPending = Boolean(request.presumed_material) && !request.material_confirmed;
+  const supplierPending = Boolean(request.presumed_supplier_id) && !request.supplier_confirmed;
+  return canWrite && (materialPending || supplierPending);
+}
+
+/** The request's summary; its fields open from the request's options menu, and fold back from here. */
 export function MaterialRequestHeader({
   editor,
   technicians,
   materialListId,
+  fieldsId,
+  open,
+  onOpenChange,
   compact = false,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   technicians: readonly MaterialRequestTechnician[];
   materialListId: string;
+  fieldsId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   compact?: boolean;
 }>) {
   const ids = useId();
@@ -308,11 +326,8 @@ export function MaterialRequestHeader({
   const technicianOptions = technicians
     .filter((technician) => technician.is_active || technician.id === request.technician_id)
     .map((technician) => ({ value: technician.id, label: technician.name }));
-  // A material or a supplier read at the top of the sheet waits for its confirmation: the fields are then open from
-  // the start, the confirmation being the next thing to do there.
   const materialPending = Boolean(request.presumed_material) && !request.material_confirmed;
   const supplierPending = Boolean(request.presumed_supplier_id) && !request.supplier_confirmed;
-  const [open, setOpen] = useState(canWrite && (materialPending || supplierPending));
   const technicianName =
     technicians.find((technician) => technician.id === request.technician_id)?.name ?? data.technician?.name ?? null;
   const supplierLabel = request.presumed_supplier_id
@@ -352,17 +367,12 @@ export function MaterialRequestHeader({
         <h2 id={`${ids}-heading`} className={compact ? "sr-only" : "typo-h3 text-foreground"}>
           Demande
         </h2>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-expanded={open}
-          aria-controls={`${ids}-fields`}
-          onClick={() => setOpen((current) => !current)}
-        >
-          <ChevronDown aria-hidden="true" className={cn("transition-transform duration-150 motion-reduce:transition-none", open && "rotate-180")} />
-          {open ? "Replier" : compact ? canWrite ? "Modifier la demande" : "Détails de la demande" : canWrite ? "Modifier" : "Détails"}
-        </Button>
+        {open ? (
+          <Button type="button" variant="outline" size="sm" aria-expanded aria-controls={fieldsId} onClick={() => onOpenChange(false)}>
+            <ChevronUp aria-hidden="true" />
+            Replier
+          </Button>
+        ) : null}
       </div>
       {/* What the technician said at the top of the request, read at a glance; the fields are opened to change it. */}
       <dl className={cn("text-sm", compact ? "flex min-h-9 flex-wrap items-center gap-x-6 gap-y-2" : "mt-2 space-y-1")}>
@@ -373,7 +383,7 @@ export function MaterialRequestHeader({
           </div>
         ))}
       </dl>
-      <div id={`${ids}-fields`} hidden={!open} className={cn("mt-4 clear-both grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border pt-4", compact && "rounded-lg bg-surface p-4 md:grid-cols-4")}>
+      <div id={fieldsId} tabIndex={-1} hidden={!open} className={cn("mt-4 clear-both grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border pt-4", compact && "rounded-lg bg-surface p-4 md:grid-cols-4")}>
         <div className="col-span-2">
           <label htmlFor={`${ids}-technician`} className={LABEL}>
             Technicien

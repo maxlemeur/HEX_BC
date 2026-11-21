@@ -238,9 +238,9 @@ async function pickSupplier(user: ReturnType<typeof userEvent.setup>, field: str
 
 /** Opens the fields of the request (technician, dates, presumed material and supplier), summarised until then. */
 async function openRequestFields(user: ReturnType<typeof userEvent.setup>) {
-  const heading = screen.getByRole("heading", { name: "Demande" });
-  const toggle = within(heading.closest("section") as HTMLElement).getByRole("button", { name: /^(Modifier la demande|Détails de la demande|Replier)$/ });
-  if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
+  if (screen.queryByRole("button", { name: "Replier" })) return;
+  await user.click(screen.getByRole("button", { name: "Options de la demande" }));
+  await user.click(await screen.findByRole("menuitem", { name: /^(Modifier la demande|Détails de la demande)$/ }));
 }
 
 describe("suppliers of request lines", () => {

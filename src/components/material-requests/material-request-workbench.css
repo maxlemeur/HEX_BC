@@ -31,13 +31,8 @@
 
 .material-request-editor .mr-supplier-workspace { min-height: 37.5rem; }
 .material-request-editor .mr-order-workspace { min-height: 34rem; }
-.material-request-editor .mr-request-actions > summary { display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border: 1px solid var(--border-strong); border-radius: 0.5rem; background: var(--surface); color: var(--foreground); list-style: none; }
-.material-request-editor .mr-request-actions > summary::-webkit-details-marker { display: none; }
-.material-request-editor .mr-request-actions > summary:hover { background: var(--muted); }
-.material-request-editor .mr-request-actions > div { min-width: 16rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface); padding: 1rem; }
 @media (min-width: 768px) {
  .material-request-editor .mr-request-actions { position: absolute; right: 0; top: 2.5rem; z-index: 20; border: 0; padding: 0; }
- .material-request-editor .mr-request-actions > div { position: absolute; right: 0; top: 2.5rem; box-shadow: 0 8px 24px #0f172a12; }
 }
 
 /* Match the selected light mockups without changing the application shell. */

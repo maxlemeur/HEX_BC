@@ -59,7 +59,8 @@ import type {
  *     or dropped.
  */
 
-const { splitSourceTextMock, storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
+const { routerPushMock, splitSourceTextMock, storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
+  routerPushMock: vi.fn(),
   splitSourceTextMock: vi.fn(),
   storageFromMock: vi.fn(),
   uploadToSignedUrlMock: vi.fn(),
@@ -68,7 +69,7 @@ vi.mock("@/lib/material-requests/source-text", () => ({ splitSourceText: splitSo
 vi.mock("@/lib/supabase/client", () => ({
   createSupabaseBrowserClient: () => ({ storage: { from: storageFromMock } }),
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: routerPushMock, replace: vi.fn(), refresh: vi.fn() }) }));
 
 import { MaterialRequestEditor } from "@/components/material-requests/MaterialRequestEditor";
 
@@ -230,9 +231,9 @@ async function showMoreFields(user: ReturnType<typeof userEvent.setup>, position
 
 /** Opens the fields of the request (technician, dates, presumed material and supplier), summarised until then. */
 async function openRequestFields(user: ReturnType<typeof userEvent.setup>) {
-  const heading = screen.getByRole("heading", { name: "Demande" });
-  const toggle = within(heading.closest("section") as HTMLElement).getByRole("button", { name: /^(Modifier la demande|Détails de la demande|Replier)$/ });
-  if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
+  if (screen.queryByRole("button", { name: "Replier" })) return;
+  await user.click(screen.getByRole("button", { name: "Options de la demande" }));
+  await user.click(await screen.findByRole("menuitem", { name: /^(Modifier la demande|Détails de la demande)$/ }));
 }
 
 describe("MaterialRequestEditor", () => {
@@ -493,8 +494,14 @@ describe("MaterialRequestEditor", () => {
     // Exact whitelist: the new line selectors and next-step button only navigate; no write control is enabled.
     expect(enabledButtons.sort()).toEqual([
       "Agrandir", "Afficher les détails de la ligne 1", "Afficher les détails de la ligne 2", "Consulter les devis",
-      "Demandes précédentes de Alpha", "Détails de la demande", "Message au technicien",
+      "Message au technicien", "Options de la demande",
     ].sort());
+    // The request's details and the technician's history moved into the options menu: a reader still reads both, and
+    // is offered no deletion.
+    await userEvent.setup().click(screen.getByRole("button", { name: "Options de la demande" }));
+    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent?.trim())).toEqual([
+      "Détails de la demande", "Demandes précédentes de Alpha",
+    ]);
     expect(writes()).toEqual([]);
     expect(screen.getByText(/lecture seule/i)).toBeVisible();
   });
@@ -680,7 +687,8 @@ describe("MaterialRequestEditor", () => {
       [`POST ${BASE}/lines`]: { status: 201, data: { lines: [copied] } },
     });
 
-    await user.click(screen.getByRole("button", { name: "Demandes précédentes de Alpha" }));
+    await user.click(screen.getByRole("button", { name: "Options de la demande" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Demandes précédentes de Alpha" }));
     const history = await screen.findByRole("dialog", { name: "Demandes précédentes de Alpha" });
     expect(await within(history).findByText(/Chantier Exemple/)).toBeVisible();
     await user.click(within(history).getByRole("button", { name: "Recopier : Robinet d’arrêt DN 40" }));
@@ -1743,5 +1751,91 @@ describe("the steps of a request", () => {
     expect(await screen.findByText("Laiton brut (à confirmer)")).toBeVisible();
     expect(screen.getByRole("button", { name: "Replier" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: "Confirmer la matière" })).toBeVisible();
+  });
+});
+
+describe("the options of a request", () => {
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
+    routerPushMock.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  const validated = line({ status: "validated", validated_at: "2026-11-10T09:00:00.000Z", supplier_id: "99999999-9999-4999-8999-999999999999" });
+
+  async function open(orders: Record<string, unknown> = {}, routes: Record<string, Route> = {}) {
+    mockApi({
+      "GET /api/material-request-technicians": { data: { items: [TECHNICIAN] } },
+      [`GET ${BASE}`]: { data: detail({ lines: [validated] }) },
+      [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+      [`GET ${BASE}/quotes`]: { data: { items: [] } },
+      [`GET ${BASE}/orders`]: { data: { ready_line_ids: [], not_ready: [], ordered: [], orders: [], can_create: true, ...orders } },
+      ...routes,
+    });
+    const user = userEvent.setup();
+    render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
+    await screen.findByRole("tablist", { name: "Étapes de la demande" });
+    return user;
+  }
+  const openMenu = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("button", { name: "Options de la demande" }));
+    return screen.findAllByRole("menuitem");
+  };
+
+  it("opens the request's fields from any step, under the lines, with the focus on the first one", async () => {
+    const user = await open();
+    // Validated lines open on the quotes: the request's fields are on the lines step, out of sight.
+    expect(screen.getByRole("tab", { name: /^Étape 2 :/ })).toHaveAttribute("aria-selected", "true");
+    // The head of the lines offers no edit button of its own any more: the menu is the one way in.
+    expect(screen.queryByRole("button", { name: "Modifier la demande" })).not.toBeInTheDocument();
+
+    expect((await openMenu(user)).map((item) => item.textContent?.trim())).toEqual([
+      "Modifier la demande", "Demandes précédentes de Alpha", "Supprimer la demande",
+    ]);
+    await user.click(screen.getByRole("menuitem", { name: "Modifier la demande" }));
+
+    expect(screen.getByRole("tab", { name: /^Étape 1 :/ })).toHaveAttribute("aria-selected", "true");
+    expect(window.location.search).toBe("?etape=lignes");
+    expect(screen.getByRole("button", { name: "Replier" })).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => expect(screen.getByLabelText("Technicien")).toHaveFocus());
+
+    await user.click(screen.getByRole("button", { name: "Replier" }));
+    expect(screen.getByLabelText("Technicien")).not.toBeVisible();
+    expect(screen.queryByRole("button", { name: "Replier" })).not.toBeInTheDocument();
+  });
+
+  it("deletes the request only once confirmed, then goes back to the requests", async () => {
+    const user = await open({}, { [`DELETE ${BASE}`]: { data: { deleted: true } } });
+
+    await openMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Supprimer la demande" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "Supprimer la demande ?" });
+    expect(confirm).toHaveTextContent("La demande et ses lignes seront supprimées. Cette action est définitive.");
+
+    await user.click(within(confirm).getByRole("button", { name: "Annuler" }));
+    expect(writes()).toEqual([]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Options de la demande" })).toHaveFocus());
+
+    await openMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Supprimer la demande" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Supprimer la demande" }));
+
+    await waitFor(() => expect(writes()).toEqual([{ method: "DELETE", path: BASE, body: null }]));
+    await waitFor(() => expect(routerPushMock).toHaveBeenCalledWith(`/dashboard/affaires/${PROJECT_ID}/demandes-materiel`));
+  });
+
+  it("says why a request whose lines are ordered cannot be deleted, before any click", async () => {
+    const user = await open({
+      ordered: [{ line_id: LINE_A, purchase_order_id: "88888888-8888-4888-8888-888888888888", purchase_order_reference: "C-2026-0001", status: "draft", can_open: true }],
+    });
+
+    await openMenu(user);
+    const deletion = screen.getByRole("menuitem", { name: /^Supprimer la demande/ });
+    expect(deletion).toHaveAttribute("aria-disabled", "true");
+    expect(deletion).toHaveTextContent("Des lignes sont déjà commandées");
+    await user.click(deletion);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(writes()).toEqual([]);
   });
 });
