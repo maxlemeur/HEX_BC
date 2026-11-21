@@ -28,7 +28,8 @@ type PlansMetresCardProps = {
   plans: AffaireHubPlansSummaryData | null;
   projectId: string;
   errorMessage?: string;
-  onLaunchMetre?: () => void;
+  /** Leads to the takeoff's zone on the affaire, where its options and gestures are: nothing is launched from here. */
+  onOpenTakeoffZone?: () => void;
   hideLaunchAction?: boolean;
 };
 
@@ -107,7 +108,7 @@ export function PlansMetresCard({
   plans,
   projectId,
   errorMessage,
-  onLaunchMetre,
+  onOpenTakeoffZone,
   hideLaunchAction = false,
 }: PlansMetresCardProps) {
   const continuityPlanSetId =
@@ -374,30 +375,12 @@ export function PlansMetresCard({
           </Link>
         ) : null}
         {needsAction && !hideLaunchAction ? (
-          <>
-            <button
-              type="button"
-              disabled={!onLaunchMetre}
-              onClick={onLaunchMetre}
-              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-            >
-              Reprendre la préparation
-            </button>
-            <button
-              type="button"
-              disabled={!onLaunchMetre}
-              onClick={onLaunchMetre}
-              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-            >
-              Revoir les options du métré
-            </button>
-            <Link
-              href={`/dashboard/affaires/${projectId}/plans`}
-              className={cn(buttonVariants({ variant: "outline", size: "md" }))}
-            >
-              Vérifier les plans
-            </Link>
-          </>
+          <Link
+            href={`/dashboard/affaires/${projectId}/plans`}
+            className={cn(buttonVariants({ variant: "outline", size: "md" }))}
+          >
+            Vérifier les plans
+          </Link>
         ) : null}
         {isQueuedOrProcessing ? (
           <Link
@@ -407,14 +390,13 @@ export function PlansMetresCard({
             Suivre l&apos;analyse
           </Link>
         ) : null}
-        {canLaunchNewAnalysis && !hideLaunchAction ? (
+        {(canLaunchNewAnalysis || needsAction) && !hideLaunchAction && onOpenTakeoffZone ? (
           <button
             type="button"
-            disabled={!onLaunchMetre}
-            onClick={onLaunchMetre}
+            onClick={onOpenTakeoffZone}
             className={cn(buttonVariants({ variant: "outline", size: "md" }))}
           >
-            Préparer le métré
+            État du métré
           </button>
         ) : null}
       </div>

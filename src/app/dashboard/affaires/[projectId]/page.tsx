@@ -44,6 +44,8 @@ import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability"
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { readAffaireAutomaticTakeoffPayerNotice } from "@/lib/takeoff/launch-request-server";
+import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
+import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
 
 // A document retry may download and parse a large PDF before proposing its category.
@@ -125,6 +127,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
         : null,
     () => null
   );
+  // The takeoff's zone for this member (lot 2): read in parallel; its failure leaves the zone saying so, never the page.
+  const takeoffZonePromise = devHubScenario ? Promise.resolve(null) : takeoffEnabledPromise.then((enabled) => enabled
+    ? getAuthenticatedContext().then((context) => readAffaireTakeoffZone(context, projectId)) : null).catch(() => null);
   const intakeWorkspacePromise = fetchAffaireIntakeWorkspace(projectId);
   const cockpitPreferencesPromise = fetchCockpitCommandPreferences(projectId);
   const supportingDataPromise = fetchAffaireHubCurrentVersion(projectId).then((currentVersion) => {
@@ -381,6 +386,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   // The payer notice only for a brief to confirm, the one dialog that shows it.
   const automaticTakeoffPayerNotice = devHubScenario || intakeWorkspace?.briefDraft?.status !== "a_confirmer" ? null
     : await readAffaireAutomaticTakeoffPayerNotice(projectId);
+  const takeoffZone = await takeoffZonePromise;
+  // Former launch links (`/takeoff?launch=1`, an old bookmark) open the options of the takeoff's zone: opening launches nothing.
+  const takeoffOptionsPlanSetId = typeof search.launchPlanSet === "string" && /^[0-9a-f-]{36}$/i.test(search.launchPlanSet)
+    ? search.launchPlanSet.toLowerCase() : null;
 
   return (
     <AffaireHub
@@ -412,6 +421,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       liveDossier={devHubScenario === null}
       viewerProfileId={profile?.id ?? null}
       automaticTakeoffPayerNotice={automaticTakeoffPayerNotice}
+      takeoffZone={takeoffZone}
+      takeoffOptionsRequested={search.metreOptions === "1"}
+      takeoffOptionsPlanSetId={takeoffOptionsPlanSetId}
     />
   );
 }

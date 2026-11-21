@@ -13,16 +13,11 @@ import {
   type PlanSetListItem,
 } from "@/lib/takeoff/client";
 import {
-  classifyTakeoffPlanSetSource,
-  type TakeoffDocumentRecommendation,
-} from "@/lib/takeoff/document-classifier";
-import {
   DEFAULT_IMPORT_PLAN_SET_NAME,
   IMPORT_FLOW_PLAN_SET_METADATA,
   selectProjectImportPlanSet,
 } from "@/lib/takeoff/default-import-plan-set";
-import { TakeoffLaunchPrompt } from "@/components/takeoff/TakeoffLaunchPrompt";
-import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { CheckIcon, CircleCheckBigIcon, FileIcon, LinkIcon, PackageIcon, SearchIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -60,23 +55,6 @@ export function PlansStep({
   const [uploadedCount, setUploadedCount] = useState(0);
   const [uploadedSizeBytes, setUploadedSizeBytes] = useState(0);
   const [uploadSummaryWarning, setUploadSummaryWarning] = useState<string | null>(null);
-  const [launchRecommendation, setLaunchRecommendation] =
-    useState<TakeoffDocumentRecommendation | null>(null);
-  const {
-    dismissed: permanentlyDismissed,
-    temporarilyDismissed,
-    dismissPermanently,
-    dismissTemporarily,
-  } = useTakeoffAutoProposeDismissed(projectId, {
-    context: "import",
-    scopeKey: [
-      planSet?.id ?? "none",
-      versionId,
-      String(planSet?.file_count ?? 0),
-      String(uploadedCount),
-      String(uploadedSizeBytes),
-    ].join(":"),
-  });
   const headingRef = useRef<HTMLHeadingElement>(null);
   const initialCountsRef = useRef<{ fileCount: number; totalSizeBytes: number } | null>(
     null
@@ -155,16 +133,10 @@ export function PlansStep({
       const planFiles = await fetchPlanFiles(planSet.id);
       const currentCount = planFiles.length;
       const currentSize = sumFileSizes(planFiles.map((file) => file.file_size_bytes));
-      setLaunchRecommendation(
-        classifyTakeoffPlanSetSource({
-          files: planFiles,
-        })
-      );
 
       setUploadedCount(Math.max(0, currentCount - initialCounts.fileCount));
       setUploadedSizeBytes(Math.max(0, currentSize - initialCounts.totalSizeBytes));
     } catch {
-      setLaunchRecommendation(null);
       if (fallbackSummary) {
         setUploadedCount((currentCount) => currentCount + fallbackSummary.uploadedCount);
         setUploadedSizeBytes(
@@ -343,41 +315,21 @@ export function PlansStep({
                 </div>
               )}
 
-              {!permanentlyDismissed &&
-              !temporarilyDismissed &&
-              planSet &&
-              launchRecommendation ? (
-                <TakeoffLaunchPrompt
-                  projectId={projectId}
-                  versionId={versionId}
-                  versionLabel="Brouillon en cours"
-                  planSetId={planSet.id}
-                  planSetName={planSet.name}
-                  planFileCount={uploadedCount + (initialCountsRef.current?.fileCount ?? 0)}
-                  launchRecommendation={launchRecommendation}
-                  compact
-                  onDismissTemporary={() => {
-                    dismissTemporarily();
-                    handleFinish();
-                  }}
-                  onDismissPermanent={() => {
-                    dismissPermanently();
-                    handleFinish();
-                  }}
-                  onLaunched={() => {
-                    /* stay on step, user sees inline success */
-                  }}
-                />
-              ) : (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-                  <p className="text-xs font-medium text-foreground-secondary">
-                    Prochaine étape suggérée
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Lancez une analyse de métrés depuis le hub de votre affaire.
-                  </p>
-                </div>
-              )}
+              {/* The takeoff has one place on the affaire, its zone: this step leads there and launches nothing. */}
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                <p className="text-xs font-medium text-foreground-secondary">
+                  Prochaine étape suggérée
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  L’état du métré de l’affaire dit où en est l’analyse de ces plans et ouvre ses options.
+                </p>
+                <Link
+                  href={`/dashboard/affaires/${projectId}?view=overview#metre`}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-2")}
+                >
+                  Voir l’état du métré
+                </Link>
+              </div>
             </div>
           )}
 

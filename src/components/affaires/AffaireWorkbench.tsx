@@ -24,6 +24,8 @@ const sections = [
 
 export function affaireSectionFromLocation(params: URLSearchParams, hash: string): AffaireWorkbenchSection {
   if (hash === "#brief" || hash === "#intake") return "dossier";
+  // The takeoff's zone (AffaireTakeoffZone) is shown in the overview and in « Chiffrage ».
+  if (hash === "#metre") return params.get("view") === "estimate" ? "estimate" : "overview";
   if (hash === "#register") return "register";
   if (["#financial", "#timeline", "#plans", "#dpgf"].includes(hash)) return "estimate";
   if (["#approval", "#finish-line-orders", "#finish-line-output"].includes(hash)) return "submission";

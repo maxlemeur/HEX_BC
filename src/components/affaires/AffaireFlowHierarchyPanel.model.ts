@@ -189,8 +189,9 @@ function toSuggestionAction(suggestion: CockpitSuggestion, variant: AffaireFlowP
   return {
     kind: "suggestion",
     key: suggestion.actionId,
-    label: suggestion.intent === "analyze_plans" ? "Préparer le métré" : suggestion.label,
-    description: suggestion.intent === "analyze_plans" ? "Confirmer les sources, le périmètre et les conventions avant l’analyse." : suggestion.preview,
+    // The takeoff has one place on the affaire, its zone: this action leads there and launches nothing.
+    label: suggestion.intent === "analyze_plans" ? "Voir l’état du métré" : suggestion.label,
+    description: suggestion.intent === "analyze_plans" ? "L’état du métré dit ce qui reste à faire : ses options, sa prise en charge ou sa revue." : suggestion.preview,
     suggestion,
     variant,
   };
@@ -440,8 +441,8 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
   const showEmptyUploadCard = documentsCount === 0 && missingPieces.length === 0 && !standalonePreparationIsNextStep;
 
   if (standalonePreparationIsNextStep && analyzePlansSuggestion) {
-    title = "Préparer le métré";
-    summary = "Choisissez le résultat attendu et confirmez les sources, le périmètre et les conventions avant l’analyse. Un comptage sur plans seuls ne nécessite pas de DPGF.";
+    title = "Analyse des plans";
+    summary = "L’état du métré de l’affaire dit où en est l’analyse des plans et ouvre ses options. Un comptage sur plans seuls ne nécessite pas de DPGF.";
     statusLabel = "Préparation à confirmer";
     statusVariant = "warning";
     heroState = "plans";
@@ -781,8 +782,8 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     readinessLevel = "ready_with_reservations";
     primaryAction = toSuggestionAction(viewExceptionsSuggestion);
   } else if (analyzePlansSuggestion) {
-    title = "Préparer le métré";
-    summary = "Confirmez les pièces, le périmètre et les conventions qui seront transmis au traitement.";
+    title = "Analyse des plans";
+    summary = "L’état du métré de l’affaire dit où en est l’analyse des plans et ouvre ses options.";
     statusLabel = "Préparation à confirmer";
     statusVariant = "warning";
     heroState = "plans";
@@ -790,12 +791,12 @@ export function buildAffaireFlowPanelModel(input: Readonly<AffaireFlowHierarchyP
     primaryAction = toSuggestionAction(analyzePlansSuggestion);
     resultCard = {
       kind: "plans",
-      title: "Cadrage du métré à confirmer",
+      title: "Cadrage du métré",
       message: hasWorkReservations
         ? hasContinuationHypothesisDriver && !hasDocumentReservations
-          ? "Préparez l’analyse en conservant l’hypothèse active du registre."
-          : "Précisez les conditions de l’analyse et conservez les réserves du dossier."
-        : "Confirmez les sources actives et le résultat attendu avant l’analyse.",
+          ? "Les options du métré conservent l’hypothèse active du registre."
+          : "Les options du métré précisent les conditions de l’analyse ; les réserves du dossier sont conservées."
+        : "Les options du métré restreignent les sources ou le périmètre de l’analyse.",
       readinessStatus: readinessLevel,
       action: primaryAction,
       facts: dedupe([

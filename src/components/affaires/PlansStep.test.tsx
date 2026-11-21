@@ -17,12 +17,6 @@ vi.mock("@/lib/takeoff/client", () => ({
   fetchPlanSetsForProject: fetchPlanSetsForProjectMock,
 }));
 
-const useTakeoffAutoProposeDismissedMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/hooks/useTakeoffAutoProposeDismissed", () => ({
-  useTakeoffAutoProposeDismissed: useTakeoffAutoProposeDismissedMock,
-}));
-
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchPreparedTakeoffFromPlanSetAction: vi.fn(),
   launchPreparedTakeoffFromSourceVersionPlanSetAction: vi.fn(),
@@ -69,12 +63,6 @@ describe("PlansStep", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchPlanFilesMock.mockResolvedValue([]);
-    useTakeoffAutoProposeDismissedMock.mockReturnValue({
-      dismissed: false,
-      temporarilyDismissed: false,
-      dismissPermanently: vi.fn(),
-      dismissTemporarily: vi.fn(),
-    });
   });
 
   afterEach(() => {
