@@ -360,6 +360,7 @@
     "20261117201102_estimate_orders_in_affaire_supply_cost.sql": "f6b4bc854ac5e30f2898251748259e7ed2c20f66796473d14419b7ae899b1e57",
     "20261120204437_takeoff_jobs_by_affaire.sql": "1194ff733be5a1cc0c294c8af103e3ad6d8b908cec8f55f3cae42bd673b5075e",
     "20261121011212_takeoff_analysis_completion.sql": "fe686c48545e814dbc9b25c9db49d1ad5ea22766b6c9c56761a32ed9494d1cb2",
-    "20261121020321_takeoff_completion_before_activation.sql": "dbab0169bda43ff551d1973595106165d981171ccf3f5bda9295427a7c9cefc3"
+    "20261121020321_takeoff_completion_before_activation.sql": "dbab0169bda43ff551d1973595106165d981171ccf3f5bda9295427a7c9cefc3",
+    "20261121040445_takeoff_plan_locations.sql": "a88febeb429035374fb0d6fa869cc668634ec4e39cdc75d6075a0be0367c487b"
   }
 }

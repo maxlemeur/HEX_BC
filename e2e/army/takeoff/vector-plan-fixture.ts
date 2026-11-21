@@ -26,7 +26,8 @@ export const VECTOR_PLAN = {
 
 const POINTS_PER_MM = 72 / 25.4;
 
-export async function buildVectorPlanPdf({ printedScale = true }: { printedScale?: boolean } = {}) {
+/** `titleBlock`: lines printed in the lower-right corner, where a title block is read (absent: the historical bytes). */
+export async function buildVectorPlanPdf({ printedScale = true, titleBlock = [] }: { printedScale?: boolean; titleBlock?: string[] } = {}) {
   const doc = await PDFDocument.create();
   doc.setTitle("ARMY fictional vector plan");
   doc.setCreationDate(new Date("2026-01-01T00:00:00Z"));
@@ -48,6 +49,8 @@ export async function buildVectorPlanPdf({ printedScale = true }: { printedScale
     text(room.label, room.x + 40, room.y + 100, 8), "EMC");
   if (printedScale) content.push(text("Echelle 1/50", 950, 80, 10));
   content.push(text("Format A3", 950, 62, 10));
+  // WinAnsi octal escapes keep « Â » and « É » printable by the standard font.
+  titleBlock.forEach((line, index) => content.push(text(line.replaceAll("Â", "\\302").replaceAll("É", "\\311"), 980, 160 - index * 14, 9)));
   const page = doc.addPage(VECTOR_PLAN.pageSize);
   page.node.set(PDFName.of("Resources"), doc.context.obj({
     Font: doc.context.obj({ F1: font.ref }),

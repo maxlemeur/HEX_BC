@@ -25731,6 +25731,108 @@
         }
       }
     },
+    "/api/takeoff/jobs/{jobId}/plan-locations": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Batiment et niveau des plans lus par un metre",
+        "description": "Lecture seule (lot 3) : pour chaque plan que la preparation du metre atteste, la version lue (source et SHA-256), la lecture du cartouche de ces octets s'ils sont encore ceux du plan, la correction d'un operateur pour cette version et, sinon, celle d'une version precedente comme proposition a verifier ; la copie actuelle quand le dossier a remplace celle lue. Descriptif : ni la revue des lignes ni l'envoi ne l'utilisent encore.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Identifiant UUID du job takeoff.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Localisation des plans du metre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffJobPlanLocationsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/takeoff/jobs/{jobId}/preview-conversion": {
       "post": {
         "tags": [
@@ -28612,6 +28714,237 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiTakeoffPlanFileDeleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Set de plans ou fichier introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/takeoff/plan-sets/{setId}/files/{fileId}/location": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire le batiment et le niveau d'un plan",
+        "description": "Lit les octets actuels du plan (SHA-256), le cartouche de ses premieres pages et son nom, et renvoie pour chaque champ la valeur proposee avec sa source (cartouche et pages, nom du fichier), inconnue ou multiple ; la correction d'un operateur pour cette version ; la correction d'une version precedente comme proposition a verifier. N'ecrit rien.",
+        "parameters": [
+          {
+            "name": "setId",
+            "in": "path",
+            "description": "Identifiant UUID du set de plans.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffPlanSetIdPathParameter"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "description": "Identifiant UUID du plan dans le set.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffPlanFileIdPathParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Localisation de la version actuelle du plan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffPlanFileLocationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Set de plans ou fichier introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Corriger le batiment et le niveau d'un plan",
+        "description": "Operateur de l'affaire seulement. Le serveur relit les octets du plan, atteste leur empreinte et la version precedente proposee, puis enregistre la localisation sur cette attestation ; 409 si le contenu a change depuis l'affichage, si un autre membre a enregistre une generation plus recente, si la correction reprise a change ou si la copie du dossier a ete remplacee (la copie actuelle est alors nommee dans details.replacement). N'ecrit ni le plan, ni la preparation, ni un metre, ni un devis.",
+        "parameters": [
+          {
+            "name": "setId",
+            "in": "path",
+            "description": "Identifiant UUID du set de plans.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffPlanSetIdPathParameter"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "description": "Identifiant UUID du plan dans le set.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffPlanFileIdPathParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Pour le batiment et le niveau de cette version du plan, le choix de l'operateur (suivre la lecture du plan, une valeur, ou a preciser), l'empreinte lue a l'affichage, la generation de la correction vue (0 avant la premiere) et, pour une valeur reprise d'une version precedente, cette correction a la generation proposee et les champs repris.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeoffPlanLocationSaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Localisation enregistree.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffPlanFileLocationResponse"
                 }
               }
             }
@@ -93163,6 +93496,773 @@
         ],
         "additionalProperties": false
       },
+      "ApiTakeoffJobPlanLocationsResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "job_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "project_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "plans": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "plan_file_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "plan_set_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "document_name": {
+                      "type": "string"
+                    },
+                    "pages": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "revision": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "source_kind": {
+                              "type": "string",
+                              "enum": [
+                                "intake_document",
+                                "plan_file"
+                              ]
+                            },
+                            "source_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "content_hash": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{64}$"
+                            }
+                          },
+                          "required": [
+                            "source_kind",
+                            "source_id",
+                            "content_hash"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "current",
+                        "changed",
+                        "unavailable"
+                      ]
+                    },
+                    "replacement": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "plan_set_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "plan_file_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "required": [
+                            "plan_set_id",
+                            "plan_file_id"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reading": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "rule_version": {
+                              "type": "number",
+                              "const": 2
+                            },
+                            "pages_total": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pages_read": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "unreadable_pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "title_block_read": {
+                              "type": "boolean"
+                            },
+                            "building": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "title_block",
+                                      "file_name"
+                                    ]
+                                  },
+                                  "pages": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "source",
+                                  "pages"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "level": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "title_block",
+                                      "file_name"
+                                    ]
+                                  },
+                                  "pages": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "source",
+                                  "pages"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "rule_version",
+                            "pages_total",
+                            "pages_read",
+                            "unreadable_pages",
+                            "title_block_read",
+                            "building",
+                            "level"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reading_issue": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "not_current",
+                            "budget",
+                            "unreadable"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "annotation": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "building": {
+                              "type": "object",
+                              "properties": {
+                                "choice": {
+                                  "type": "string",
+                                  "enum": [
+                                    "reading",
+                                    "value",
+                                    "unknown"
+                                  ]
+                                },
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "carried": {
+                                  "type": "boolean"
+                                },
+                                "set_by": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "set_by_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_at": {
+                                  "type": "string"
+                                },
+                                "set_revision": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "choice",
+                                "value",
+                                "carried",
+                                "set_by",
+                                "set_by_name",
+                                "set_at",
+                                "set_revision"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "level": {
+                              "type": "object",
+                              "properties": {
+                                "choice": {
+                                  "type": "string",
+                                  "enum": [
+                                    "reading",
+                                    "value",
+                                    "unknown"
+                                  ]
+                                },
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "carried": {
+                                  "type": "boolean"
+                                },
+                                "set_by": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "set_by_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_at": {
+                                  "type": "string"
+                                },
+                                "set_revision": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "choice",
+                                "value",
+                                "carried",
+                                "set_by",
+                                "set_by_name",
+                                "set_at",
+                                "set_revision"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "carried_from_id": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "carried_from_revision": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "document_name": {
+                              "type": "string"
+                            },
+                            "updated_by": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "updated_by_name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "updated_at": {
+                              "type": "string"
+                            },
+                            "created_at": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "revision",
+                            "building",
+                            "level",
+                            "carried_from_id",
+                            "carried_from_revision",
+                            "document_name",
+                            "updated_by",
+                            "updated_by_name",
+                            "updated_at",
+                            "created_at"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "carry_over": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "building": {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_by_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_at": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "set_by_name",
+                                "set_at"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "level": {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_by_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_at": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "set_by_name",
+                                "set_at"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "document_name": {
+                              "type": "string"
+                            },
+                            "content_hash": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{64}$"
+                            },
+                            "same_source": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "revision",
+                            "building",
+                            "level",
+                            "document_name",
+                            "content_hash",
+                            "same_source"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "location": {
+                      "type": "object",
+                      "properties": {
+                        "building": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "proposed",
+                                "confirmed",
+                                "corrected",
+                                "unknown",
+                                "multiple"
+                              ]
+                            },
+                            "origin": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "title_block",
+                                    "file_name",
+                                    "previous_revision",
+                                    "operator"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "candidates": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "title_block",
+                                      "file_name"
+                                    ]
+                                  },
+                                  "pages": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "source",
+                                  "pages"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "title_block_read": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "state",
+                            "origin",
+                            "pages",
+                            "candidates",
+                            "title_block_read"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "level": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "proposed",
+                                "confirmed",
+                                "corrected",
+                                "unknown",
+                                "multiple"
+                              ]
+                            },
+                            "origin": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "title_block",
+                                    "file_name",
+                                    "previous_revision",
+                                    "operator"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "candidates": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "title_block",
+                                      "file_name"
+                                    ]
+                                  },
+                                  "pages": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "source",
+                                  "pages"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "title_block_read": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "state",
+                            "origin",
+                            "pages",
+                            "candidates",
+                            "title_block_read"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "building",
+                        "level"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "plan_file_id",
+                    "plan_set_id",
+                    "document_name",
+                    "pages",
+                    "revision",
+                    "status",
+                    "replacement",
+                    "reading",
+                    "reading_issue",
+                    "annotation",
+                    "carry_over",
+                    "location"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "without_preparation": {
+                "type": "boolean"
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "job_id",
+              "project_id",
+              "plans",
+              "without_preparation",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "PreviewTakeoffConversionRequest": {
         "type": "object",
         "properties": {
@@ -100492,6 +101592,836 @@
         "required": [
           "ok",
           "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiTakeoffPlanFileLocationResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "plan_set_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "plan_file_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "document_name": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "object",
+                "properties": {
+                  "source_kind": {
+                    "type": "string",
+                    "enum": [
+                      "intake_document",
+                      "plan_file"
+                    ]
+                  },
+                  "source_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "content_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "source_kind",
+                  "source_id",
+                  "content_hash"
+                ],
+                "additionalProperties": false
+              },
+              "current_copy": {
+                "type": "boolean"
+              },
+              "reading": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "rule_version": {
+                        "type": "number",
+                        "const": 2
+                      },
+                      "pages_total": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "pages_read": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "unreadable_pages": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "title_block_read": {
+                        "type": "boolean"
+                      },
+                      "building": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "title_block",
+                                "file_name"
+                              ]
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "source",
+                            "pages"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "level": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "title_block",
+                                "file_name"
+                              ]
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "source",
+                            "pages"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "rule_version",
+                      "pages_total",
+                      "pages_read",
+                      "unreadable_pages",
+                      "title_block_read",
+                      "building",
+                      "level"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reading_issue": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "unreadable"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "annotation": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "building": {
+                        "type": "object",
+                        "properties": {
+                          "choice": {
+                            "type": "string",
+                            "enum": [
+                              "reading",
+                              "value",
+                              "unknown"
+                            ]
+                          },
+                          "value": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "carried": {
+                            "type": "boolean"
+                          },
+                          "set_by": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "set_by_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_at": {
+                            "type": "string"
+                          },
+                          "set_revision": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "choice",
+                          "value",
+                          "carried",
+                          "set_by",
+                          "set_by_name",
+                          "set_at",
+                          "set_revision"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "level": {
+                        "type": "object",
+                        "properties": {
+                          "choice": {
+                            "type": "string",
+                            "enum": [
+                              "reading",
+                              "value",
+                              "unknown"
+                            ]
+                          },
+                          "value": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "carried": {
+                            "type": "boolean"
+                          },
+                          "set_by": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "set_by_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_at": {
+                            "type": "string"
+                          },
+                          "set_revision": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "choice",
+                          "value",
+                          "carried",
+                          "set_by",
+                          "set_by_name",
+                          "set_at",
+                          "set_revision"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "carried_from_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "carried_from_revision": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "document_name": {
+                        "type": "string"
+                      },
+                      "updated_by": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "updated_by_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "revision",
+                      "building",
+                      "level",
+                      "carried_from_id",
+                      "carried_from_revision",
+                      "document_name",
+                      "updated_by",
+                      "updated_by_name",
+                      "updated_at",
+                      "created_at"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "carry_over": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "building": {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_by_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "set_by_name",
+                          "set_at"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "level": {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_by_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "set_by_name",
+                          "set_at"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "document_name": {
+                        "type": "string"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "same_source": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "revision",
+                      "building",
+                      "level",
+                      "document_name",
+                      "content_hash",
+                      "same_source"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "location": {
+                "type": "object",
+                "properties": {
+                  "building": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "proposed",
+                          "confirmed",
+                          "corrected",
+                          "unknown",
+                          "multiple"
+                        ]
+                      },
+                      "origin": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "title_block",
+                              "file_name",
+                              "previous_revision",
+                              "operator"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "pages": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "candidates": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "title_block",
+                                "file_name"
+                              ]
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "source",
+                            "pages"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "title_block_read": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "state",
+                      "origin",
+                      "pages",
+                      "candidates",
+                      "title_block_read"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "level": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "proposed",
+                          "confirmed",
+                          "corrected",
+                          "unknown",
+                          "multiple"
+                        ]
+                      },
+                      "origin": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "title_block",
+                              "file_name",
+                              "previous_revision",
+                              "operator"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "pages": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "candidates": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "title_block",
+                                "file_name"
+                              ]
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "source",
+                            "pages"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "title_block_read": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "state",
+                      "origin",
+                      "pages",
+                      "candidates",
+                      "title_block_read"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "building",
+                  "level"
+                ],
+                "additionalProperties": false
+              },
+              "suggestions": {
+                "type": "object",
+                "properties": {
+                  "building": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "level": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "building",
+                  "level"
+                ],
+                "additionalProperties": false
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "project_id",
+              "plan_set_id",
+              "plan_file_id",
+              "document_name",
+              "revision",
+              "current_copy",
+              "reading",
+              "reading_issue",
+              "annotation",
+              "carry_over",
+              "location",
+              "suggestions",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "TakeoffPlanLocationSaveRequest": {
+        "type": "object",
+        "properties": {
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "building": {
+            "type": "object",
+            "properties": {
+              "choice": {
+                "type": "string",
+                "enum": [
+                  "reading",
+                  "value",
+                  "unknown"
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "choice",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "level": {
+            "type": "object",
+            "properties": {
+              "choice": {
+                "type": "string",
+                "enum": [
+                  "reading",
+                  "value",
+                  "unknown"
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "choice",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "carried_from": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "fields": {
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "building",
+                        "level"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision",
+                  "fields"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "content_hash",
+          "expected_revision",
+          "building",
+          "level"
         ],
         "additionalProperties": false
       },
