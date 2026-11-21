@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { forbidden } from "@/lib/http/api-response";
-import { getFeatureFlagValueForTenant, isFeatureEnabled } from "@/lib/feature-flags";
+import { getFeatureFlagValueForTenant, isFeatureEnabled, readFeatureEnabled } from "@/lib/feature-flags";
 import { parseLowConfidenceThreshold } from "@/lib/takeoff/guards";
 import {
   TAKEOFF_C_MAX_COST_CENTS_DEFAULT,
@@ -218,6 +218,13 @@ export async function getTakeoffLowConfidenceThresholdForTenant(
   return parseLowConfidenceThreshold(thresholdRaw);
 }
 
+const takeoffModuleDisabled = () =>
+  forbidden(
+    "Le module Takeoff est désactivé pour ce tenant.",
+    undefined,
+    "TAKEOFF_MODULE_DISABLED"
+  );
+
 export async function assertTakeoffEnabled(
   tenantId: string,
   input?: { supabase?: Supabase }
@@ -225,10 +232,30 @@ export async function assertTakeoffEnabled(
   const enabled = await isTakeoffEnabled(tenantId, input);
 
   if (!enabled) {
-    throw forbidden(
-      "Le module Takeoff est désactivé pour ce tenant.",
-      undefined,
-      "TAKEOFF_MODULE_DISABLED"
-    );
+    throw takeoffModuleDisabled();
+  }
+}
+
+/**
+ * assertTakeoffEnabled for a read its page tries again by itself: a read of
+ * the flag that failed throws `failedRead()` instead of reading as a module
+ * turned off. The other callers keep assertTakeoffEnabled.
+ */
+export async function assertTakeoffEnabledForPolledRead(
+  tenantId: string,
+  input: { supabase?: Supabase; failedRead: () => Error }
+) {
+  if (takeoffModuleDefault()) {
+    return;
+  }
+
+  const flag = await readFeatureEnabled(tenantId, TAKEOFF_MODULE_ENABLED_FLAG_KEY, input);
+
+  if (flag.failed) {
+    throw input.failedRead();
+  }
+
+  if (!flag.enabled) {
+    throw takeoffModuleDisabled();
   }
 }

@@ -196,11 +196,24 @@ export async function isFeatureEnabled(
   key: string,
   input?: { supabase?: Supabase }
 ): Promise<boolean> {
+  return (await readFeatureEnabled(tenantId, key, input)).enabled;
+}
+
+/**
+ * Whether a flag is on, and whether its read failed. isFeatureEnabled reads a
+ * failed read as off; a caller for which a temporary failure is not an answer
+ * (a page that polls) tells the two apart with this one.
+ */
+export async function readFeatureEnabled(
+  tenantId: string,
+  key: string,
+  input?: { supabase?: Supabase }
+): Promise<{ enabled: boolean; failed: boolean }> {
   const parsedTenantId = tenantIdSchema.safeParse(tenantId);
   const parsedKey = normalizedFlagKeySchema.safeParse(normalizeFeatureFlagKey(key));
 
   if (!parsedTenantId.success || !parsedKey.success) {
-    return false;
+    return { enabled: false, failed: false };
   }
 
   try {
@@ -212,14 +225,18 @@ export async function isFeatureEnabled(
       .eq("flag_key", parsedKey.data)
       .maybeSingle();
 
-    if (error || !data || typeof data !== "object") {
-      return false;
+    if (error) {
+      return { enabled: false, failed: true };
+    }
+
+    if (!data || typeof data !== "object") {
+      return { enabled: false, failed: false };
     }
 
     const enabledValue = (data as { enabled?: unknown }).enabled;
-    return enabledValue === true;
+    return { enabled: enabledValue === true, failed: false };
   } catch {
-    return false;
+    return { enabled: false, failed: true };
   }
 }
 

@@ -20,6 +20,7 @@ vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
 }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({
   getChatGptHostId: vi.fn(async () => "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+  readChatGptHostId: vi.fn(async () => "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
   readChatGptStore: vi.fn(async () => ({ selectedId: "profile-1", profiles: [{ id: "profile-1", accessToken: "fixture", model: "fixture-model" }] })),
 }));
 

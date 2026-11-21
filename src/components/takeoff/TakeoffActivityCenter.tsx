@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { ArrowRight, SlidersHorizontalIcon } from "lucide-react";
 
 import {
@@ -12,7 +12,6 @@ import {
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
-import { takeoffListRefreshInterval } from "@/components/takeoff/takeoff-resume-view";
 import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS } from "@/lib/takeoff/completion-outcome";
 import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
 import {
@@ -34,10 +33,13 @@ import {
 } from "@/components/takeoff/takeoff-job-list-shared";
 
 import TakeoffJobsTable from "./TakeoffJobsTable";
+import { TakeoffRequestActivity } from "./TakeoffRequestActivity";
+import { isTakeoffReadRefusal, isTakeoffRequestActivityKey, useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
 import TakeoffExceptionsTab from "./TakeoffExceptionsTab";
 import TakeoffApplicationHistoryTab from "./TakeoffApplicationHistoryTab";
 import {
   resolveTakeoffNextStep,
+  resolveTakeoffRequestStep,
   type TakeoffLatestJobContext,
   type TakeoffNextStepAction,
 } from "./TakeoffActivityNextStep";
@@ -46,6 +48,8 @@ import { NativeSelect } from "@/components/ui/native-select";
 
 type Props = {
   projectId: string;
+  /** The member and their tenant: the page's cached reads belong to them alone. */
+  viewerKey?: string;
   versions: Array<{ id: string; version_number: number }>;
   planSets: Array<{
     id: string;
@@ -96,6 +100,8 @@ function AnalysisCompletionList({ label, completions }: { label: string; complet
 
 type ActivityKey = readonly [
   scope: "activity-center",
+  /** The member and their tenant: another member's answer is never served. */
+  viewerKey: string,
   projectId: string,
   version: string,
   lot: string,
@@ -109,7 +115,7 @@ type ActivityKey = readonly [
   limit: number,
 ];
 
-function fetchActivityPage([, projectId, version, lot, planSet, status, level, period, job, offset, completionsOffset, limit]: ActivityKey) {
+function fetchActivityPage([, , projectId, version, lot, planSet, status, level, period, job, offset, completionsOffset, limit]: ActivityKey) {
   const filter = (value: string) => (value !== "all" ? value : null);
   return fetchTakeoffActivityCenter(projectId, {
     versionId: filter(version),
@@ -125,8 +131,17 @@ function fetchActivityPage([, projectId, version, lot, planSet, status, level, p
   });
 }
 
-export default function TakeoffActivityCenter({
+/**
+ * Another member (or another tenant of the same member) starts the page again: nothing of this member's answers is
+ * shown while theirs load, not even the previous page of a list.
+ */
+export default function TakeoffActivityCenter(props: Props) {
+  return <TakeoffActivityCenterView key={props.viewerKey ?? ""} {...props} />;
+}
+
+function TakeoffActivityCenterView({
   projectId,
+  viewerKey = "",
   versions,
   planSets,
   launchContext = null,
@@ -154,6 +169,12 @@ export default function TakeoffActivityCenter({
   // A failure link names its job: the list shows that job alone, or its shared end to a reader it is hidden from.
   const rawJob = searchParams.get("job");
   const selectedJob = rawJob && JOB_ID_PATTERN.test(rawJob) ? rawJob.toLowerCase() : null;
+  // A link names a launch request (?request=) or an analysis (?job=, the end-of-analysis notice): the page opens that
+  // request, the analysis's own when it has one.
+  const rawRequest = searchParams.get("request");
+  const linkedRequest = rawRequest && JOB_ID_PATTERN.test(rawRequest) ? rawRequest.toLowerCase() : null;
+  const linked = linkedRequest ? { view: "request" as const, target: linkedRequest }
+    : selectedJob ? { view: "job" as const, target: selectedJob } : null;
 
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
   const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(
@@ -191,30 +212,43 @@ export default function TakeoffActivityCenter({
     [searchParams, router, pathname]
   );
 
-  // Queued and running analyses, and stopped ones that wait for their retry or their delay, keep the list read. SWR reads
-  // a function interval once per key, on the empty cache: the interval is state set from each answer instead, so the
-  // first answer that has a waiting row starts the polling and the answer without one stops it.
-  const [summaryRefreshMs, setSummaryRefreshMs] = useState(0);
-  const [listRefreshMs, setListRefreshMs] = useState(0);
+  // The page's one poll: the affaire's latest launch request and its plans (or the request a link names), read again only
+  // while something can change by itself. The analyses below are read again when it reports a transition, on focus and
+  // after an action, never on their own interval.
+  const { mutate: mutateAll } = useSWRConfig();
+  const requestActivity = useTakeoffRequestActivity({
+    viewerKey, projectId, view: linked?.view ?? "current", target: linked?.target ?? null, poll: true,
+  });
+  const refreshEverything = useCallback(() => {
+    void mutateAll((key: unknown) => (Array.isArray(key) && key[0] === "activity-center") || isTakeoffRequestActivityKey(key));
+  }, [mutateAll]);
+  const activitySignature = requestActivity.data?.signature;
+  const seenSignature = useRef(activitySignature);
+  useEffect(() => {
+    if (activitySignature === undefined || seenSignature.current === activitySignature) return;
+    const first = seenSignature.current === undefined;
+    seenSignature.current = activitySignature;
+    if (!first) void mutateAll((key: unknown) => Array.isArray(key) && key[0] === "activity-center");
+  }, [activitySignature, mutateAll]);
 
   // The next step and the « Repères » read the affaire's newest analyses on every view,
   // whatever the filters; the unfiltered first page of the list is this same request.
-  const summaryKey: ActivityKey = ["activity-center", projectId, "all", "all", "all", "all", "all", "all", "all", 0, 0, PAGE_SIZE_OPTIONS[0]];
+  const summaryKey: ActivityKey = ["activity-center", viewerKey, projectId, "all", "all", "all", "all", "all", "all", "all", 0, 0, PAGE_SIZE_OPTIONS[0]];
   const {
-    data: summaryData,
+    data: summaryAnswer,
     error: summaryError,
     isLoading: isSummaryLoading,
     mutate: mutateSummary,
   } = useSWR(summaryKey, fetchActivityPage, {
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
-    refreshInterval: summaryRefreshMs,
     shouldRetryOnError: false,
   });
-  const { data: listData, error: listError, mutate: mutateList } = useSWR(
+  const { data: listAnswer, error: listError, mutate: mutateList } = useSWR(
     activeTab === "jobs"
       ? ([
           "activity-center",
+          viewerKey,
           projectId,
           selectedVersion,
           selectedLot,
@@ -232,16 +266,37 @@ export default function TakeoffActivityCenter({
     {
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      refreshInterval: listRefreshMs,
       keepPreviousData: true,
       shouldRetryOnError: false,
     }
   );
-  const summaryWantsRefreshMs = takeoffListRefreshInterval(summaryData);
-  const listWantsRefreshMs = takeoffListRefreshInterval(listData);
-  useEffect(() => { setSummaryRefreshMs(summaryWantsRefreshMs); }, [summaryWantsRefreshMs]);
-  useEffect(() => { setListRefreshMs(listWantsRefreshMs); }, [listWantsRefreshMs]);
+  // A refusal of any of the centre's reads (no right on the affaire any more) withdraws the three views together and shows
+  // the refusal, never an earlier state.
+  const refusal = [requestActivity.error, summaryError, listError].find(isTakeoffReadRefusal);
+  const refused = refusal !== undefined;
+  const summaryData = refused ? undefined : summaryAnswer;
+  const listData = refused ? undefined : listAnswer;
+  const lightData = refused ? undefined : requestActivity.data;
+  const pageError = summaryError ?? refusal;
   const isSlowLoading = useDelayedLoadingIndicator(isSummaryLoading);
+
+  // The page's first light answer may be older or newer than the list read beside it: an analysis the list shows queued,
+  // running or awaiting its retry that the light answer does not is a transition, and both are read again (once per
+  // light answer and list, so that a lasting difference never loops). A waiting row is then followed by the poll.
+  const lightAnswer = lightData;
+  const comparedLists = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lightAnswer) return;
+    const inFlight = new Set(lightAnswer.inFlightJobIds);
+    const listed = [...(summaryData?.jobs ?? []), ...(listData?.jobs ?? [])].filter((job) =>
+      job.technicalStatusRaw === "pending" || job.technicalStatusRaw === "processing" || job.resume?.reason === "retry_scheduled");
+    const moved = [...new Set(listed.filter((job) => !inFlight.has(job.jobId)).map((job) => job.jobId))].sort();
+    if (moved.length === 0) return;
+    const mark = `${lightAnswer.signature}|${moved.join(",")}`;
+    if (comparedLists.current === mark) return;
+    comparedLists.current = mark;
+    void mutateAll((key: unknown) => (Array.isArray(key) && key[0] === "activity-center") || isTakeoffRequestActivityKey(key));
+  }, [lightAnswer, summaryData, listData, mutateAll]);
 
   // Derive lot options from project-scoped plan-set metadata so filtering is stable across pages.
   const lotOptions = (() => {
@@ -287,7 +342,7 @@ export default function TakeoffActivityCenter({
   // Every end the reader may see, a page at a time, whatever the job list shows: a director who reads one job of the
   // affaire still sees the ends of the jobs hidden from them.
   const sharedCompletions = (listData ?? summaryData)?.analysisCompletions ?? [];
-  const showTracking = !summaryError && (hasAnalyses || hasActiveJobFilters || selectedJob !== null
+  const showTracking = !pageError && (hasAnalyses || hasActiveJobFilters || selectedJob !== null
     || (summaryData?.analysisCompletions.length ?? 0) > 0);
 
   const resetJobFilters = useCallback(() => {
@@ -350,13 +405,21 @@ export default function TakeoffActivityCenter({
     }
   }, [activeTab]);
 
-  const errorStatus = isTakeoffApiError(summaryError) ? summaryError.status : null;
+  const errorStatus = isTakeoffApiError(pageError) ? pageError.status : null;
   const errorMessage =
-    isTakeoffApiError(summaryError) && summaryError.message
-      ? summaryError.message
+    isTakeoffApiError(pageError) && pageError.message
+      ? pageError.message
       : "Impossible de charger les analyses.";
 
-  const nextStep = summaryData
+  // The latest execution leads when it is a launch request newer than the latest analysis launched without one: its plans,
+  // never the latest job by date, decide the step.
+  const latestJob = summaryData?.jobs[0] ?? null;
+  // A link to a request or an analysis of the latest execution keeps the step on that execution.
+  const currentRequest = !linked || lightData?.currentIsLatest ? lightData?.current ?? null : null;
+  const requestLeads = currentRequest !== null && (!latestJob || latestJob.launchRequestId != null
+    || Date.parse(latestJob.createdAt) <= Date.parse(currentRequest.createdAt));
+  const requestStep = requestLeads ? resolveTakeoffRequestStep({ projectId, request: currentRequest, canLaunch: launchContext !== null }) : null;
+  const nextStep = requestStep ?? (summaryData
     ? resolveTakeoffNextStep({
         projectId,
         latestJob: summaryData.jobs[0] ?? null,
@@ -365,9 +428,9 @@ export default function TakeoffActivityCenter({
         firstUsablePlanSetName: firstUsablePlanSet?.name ?? null,
         planSetCount: planSets.length,
       })
-    : null;
+    : null);
   // Always mounted, so a step that changes by itself (an analysis that ends) is announced.
-  const announcement = summaryError
+  const announcement = pageError
     ? resolveErrorTitle(errorStatus)
     : nextStep?.title ?? (isSlowLoading ? "Le chargement prend plus de temps que prévu…" : "");
 
@@ -385,7 +448,7 @@ export default function TakeoffActivityCenter({
 
   const counters = summaryData?.counters;
   const countFact = (value: number | undefined) =>
-    summaryError ? "Indisponible" : value === undefined ? "…" : formatCount(value);
+    pageError ? "Indisponible" : value === undefined ? "…" : formatCount(value);
 
   return (
     <div className="journey-page">
@@ -394,12 +457,12 @@ export default function TakeoffActivityCenter({
       <div className="journey-grid">
         <JourneyPanel headingId="takeoff-next-heading" title="Métré de l’affaire">
           <p className="sr-only" role="status">{announcement}</p>
-          {summaryError ? (
+          {pageError ? (
             <JourneyNext
               title={resolveErrorTitle(errorStatus)}
               description={errorMessage}
               action={
-                <Button variant="outline" onClick={() => void mutateSummary()}>
+                <Button variant="outline" onClick={() => (refused ? refreshEverything() : void mutateSummary())}>
                   Réessayer
                 </Button>
               }
@@ -437,6 +500,18 @@ export default function TakeoffActivityCenter({
           {help}
         </JourneyFacts>
       </div>
+
+      <TakeoffRequestActivity
+        projectId={projectId}
+        viewerKey={viewerKey}
+        live={{
+          data: lightData, error: refusal ?? requestActivity.error, isLoading: requestActivity.isLoading,
+          refused, refreshMs: requestActivity.refreshMs, refresh: refreshEverything,
+        }}
+        linked={linked}
+        onShowLatest={() => updateParams({ request: null, job: null, offset: null })}
+        onChanged={refreshEverything}
+      />
 
       {showTracking ? (
         <section className="journey-panel" aria-labelledby="takeoff-tracking-heading">
@@ -788,10 +863,7 @@ export default function TakeoffActivityCenter({
         <LaunchMetreDialog
           open={isLaunchDialogOpen}
           onOpenChange={handleLaunchDialogOpenChange}
-          onLaunched={() => {
-            void mutateSummary();
-            void mutateList();
-          }}
+          onLaunched={refreshEverything}
           projectId={projectId}
           currentVersion={launchContext.currentVersion}
           plansContext={launchContext.plansContext}
