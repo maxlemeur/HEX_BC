@@ -9,6 +9,12 @@ import type { SafeTakeoffActionResult, TakeoffActionFailure } from "@/lib/takeof
 const DEFAULT_FAILURE_MESSAGE = "Impossible de terminer cette étape. Rechargez la préparation pour retrouver les réponses enregistrées, puis réessayez.";
 
 function expectedFailure(error: unknown, failureMessage: string): TakeoffActionFailure {
+  const details = error instanceof TakeoffError ? error.details : null;
+  if (details && typeof details === "object" && "reason" in details && details.reason === "TAKEOFF_FLAG_INVALID" &&
+      "flag" in details && (details.flag === "MERGEONE_TAKEOFF_VECTORS" || details.flag === "MERGEONE_TAKEOFF_RULES")) {
+    return { status: 503, code: "TAKEOFF_FLAG_INVALID",
+      message: `Configuration du métré invalide : ${details.flag} doit valoir 0 ou 1.`, retryable: false };
+  }
   if (error instanceof TakeoffError && error.status === 503 &&
       typeof error.details === "object" && error.details !== null &&
       "reason" in error.details && error.details.reason === "PREPARATION_SCHEMA_REQUIRED") {

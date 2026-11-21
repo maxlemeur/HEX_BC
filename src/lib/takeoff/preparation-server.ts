@@ -3,13 +3,17 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { getAuthenticatedContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { mapSupabaseError } from "@/lib/http/api-response";
+import { ApiError, mapSupabaseError } from "@/lib/http/api-response";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
+import { getTakeoffExecutionSelection } from "@/lib/ai/chatgpt-takeoff";
+import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import {
   createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot, evaluateTakeoffPreparation,
-  takeoffPreparationSchema, type TakeoffPreparation, type TakeoffPreparationSnapshot,
+  takeoffExecutionSelectionSchema, takeoffPreparationSchema, type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
 } from "@/lib/takeoff/preparation";
+import { buildDeducedTakeoffPreparation, DETAILED_TAKEOFF_PROCESSING, getDeducedPlanCandidates, isDossierDefaultSource, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
+import { hasCyclicPlanRevisionDecisions, readPlanTitleBlock } from "@/lib/takeoff/plan-revision-identity";
 import { getPreparationSourcesFingerprint, reconcilePreparationSources } from "@/lib/takeoff/preparation-sources";
 import {
   assertPreparationProjectAccess, persistPreparationRecord, preparationConflict,
@@ -24,7 +28,7 @@ import { assertTakeoffPreparationProcessing, type TakeoffRequestedProcessing } f
 import { createDecisionsTokenBudget } from "@/lib/ai/decisions-budget";
 import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
 import {
-  runTakeoffPageTriage, TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS, TAKEOFF_PAGE_TRIAGE_MAX_PAGES, TAKEOFF_PAGE_TRIAGE_MAX_TOKENS,
+  runTakeoffPageTriage, TAKEOFF_PAGE_TRIAGE_CALL_ESTIMATE_TOKENS, TAKEOFF_PAGE_TRIAGE_MAX_PAGES, TAKEOFF_PAGE_TRIAGE_MAX_TOKENS, TAKEOFF_PAGE_TRIAGE_TEXT,
 } from "@/lib/takeoff/page-triage-server";
 import { getTakeoffDecisionsCapability } from "@/lib/takeoff/takeoff-decisions-server";
 
@@ -38,32 +42,91 @@ const storedPreparationSnapshotSchema = z.object({
   schema_version: z.literal(1), preparation_revision: revisionSchema,
   confirmed_by: z.string().uuid(), confirmed_at: z.string().datetime({ offset: true }),
   preparation: takeoffPreparationSchema,
+  execution_selection: takeoffExecutionSelectionSchema.optional(),
   readiness: z.object({
     status: z.enum(["incomplete", "ready_with_reservations", "ready"]), can_launch: z.boolean(),
     blockers: z.array(snapshotIssueSchema), reservations: z.array(snapshotIssueSchema),
   }).strict(),
 }).strict();
 
-async function loadPreparation(context: AuthenticatedTenantContext, projectId: string) {
+function executionFingerprint({ profileId, hostId, model, reasoningEffort }: TakeoffExecutionSelection) {
+  return createHash("sha256").update(JSON.stringify([profileId, hostId, model, reasoningEffort])).digest("hex");
+}
+
+export async function loadTakeoffExecutionPreview() {
+  const context = await getAuthenticatedContext();
+  const selection = await getTakeoffExecutionSelection(context.supabase, context, "chatgpt");
+  return { model: selection.model, reasoningEffort: selection.reasoningEffort, fingerprint: executionFingerprint(selection) };
+}
+
+async function selectionForConfirmation(context: AuthenticatedTenantContext, expectedFingerprint?: string) {
+  const selection = takeoffExecutionSelectionSchema.parse(await getTakeoffExecutionSelection(context.supabase, context, "chatgpt"));
+  if (executionFingerprint(selection) !== expectedFingerprint) {
+    throw new ApiError({ status: 409, code: "TAKEOFF_CHATGPT_SELECTION_CHANGED",
+      message: "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau." });
+  }
+  return selection;
+}
+
+async function loadPreparation(context: AuthenticatedTenantContext, projectId: string, planSetId?: string) {
   const [record, availableSources] = await Promise.all([
     readPreparationRecord(context, projectId), readPreparationSources(context, projectId),
   ]);
   const saved = record ? takeoffPreparationSchema.parse(record.draft) : createEmptyTakeoffPreparation();
-  const { draft, changedSourceIds } = reconcilePreparationSources(saved, availableSources);
+  const { draft: reconciled, changedSourceIds } = reconcilePreparationSources(saved, availableSources);
+  let draft = reconciled;
+  if (planSetId) {
+    const { data, error } = await context.supabase.from("affaire_briefs").select("scope,lots")
+      .eq("tenant_id", context.tenantId).eq("project_id", projectId).maybeSingle();
+    if (error) throw mapSupabaseError(error, "Impossible de charger le périmètre du dossier.");
+    const strings = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).slice(0, 200) : [];
+    const scope = strings(data?.scope);
+    // A piece that changed role since the draft was saved (an attachment become CCTP) is a new piece: the defaults of
+    // its new role apply, whether or not the draft already came from the dossier.
+    const savedKinds = new Map(saved.sources.map((source) => [source.document_id, source.kind]));
+    const currentKinds = new Map(availableSources.map((source) => [source.document_id, source.kind]));
+    const kept = (id: string) => savedKinds.has(id) && (!currentKinds.has(id) || currentKinds.get(id) === savedKinds.get(id));
+    draft = buildDeducedTakeoffPreparation({
+      sources: availableSources, planSetId,
+      saved: record ? { ...reconciled, sources: reconciled.sources.filter((source) => kept(source.document_id)) } : null,
+      lots: strings(data?.lots), buildings: scope.filter((entry) => /\bb[âa]timents?\b/i.test(entry)), zones: scope.filter((entry) => /\bzones?\b/i.test(entry)),
+    });
+  }
+  const needsSave = !record || JSON.stringify(saved) !== JSON.stringify(draft);
   return {
-    draft, revision: record?.revision ?? null, availableSources, changedSourceIds,
-    confirmedAt: changedSourceIds.length ? null : record?.confirmed_at ?? null,
-    confirmedBy: changedSourceIds.length ? null : record?.confirmed_by ?? null,
+    draft, revision: record?.revision ?? null, availableSources, changedSourceIds, needsSave,
+    confirmedAt: changedSourceIds.length || (planSetId && needsSave) ? null : record?.confirmed_at ?? null,
+    confirmedBy: changedSourceIds.length || (planSetId && needsSave) ? null : record?.confirmed_by ?? null,
     sourceFingerprint: getPreparationSourcesFingerprint(availableSources),
     readiness: evaluateTakeoffPreparation(draft),
   };
 }
 
-export async function loadTakeoffPreparation(projectId: string) {
+export async function loadTakeoffPreparation(projectId: string, planSetId?: string) {
   projectIdSchema.parse(projectId);
+  projectIdSchema.optional().parse(planSetId);
   const context = await getAuthenticatedContext();
   await assertPreparationProjectAccess(context, projectId);
-  return loadPreparation(context, projectId);
+  return loadPreparation(context, projectId, planSetId);
+}
+
+async function readPreparationRevision(context: AuthenticatedTenantContext, projectId: string, revision: number, confirmed: boolean) {
+  const state = await loadPreparation(context, projectId);
+  if (state.revision !== revision || Boolean(state.confirmedAt) !== confirmed) {
+    preparationConflict("La préparation a changé dans une autre fenêtre. Rechargez-la avant de continuer.");
+  }
+  return state;
+}
+
+/** A dossier piece the draft has not seen in its current role (new, or reclassified) is never left out unseen. */
+function assertDossierSourcesReviewed(draft: TakeoffPreparation, sources: TakeoffPreparation["sources"]) {
+  const planSetId = draft.provenance?.plan_set_id;
+  if (!planSetId) return;
+  const reviewed = new Map(draft.sources.map((source) => [source.document_id, source.kind]));
+  if (sources.some((source) => (isDossierDefaultSource(source, planSetId) || reviewed.has(source.document_id)) &&
+      reviewed.get(source.document_id) !== source.kind)) {
+    preparationConflict("Des pièces ont été ajoutées ou reclassées dans le dossier. Rechargez la préparation pour vérifier la sélection mise à jour.");
+  }
 }
 
 function validateCanonicalSources(draft: TakeoffPreparation, availableSources: TakeoffPreparation["sources"]) {
@@ -71,6 +134,7 @@ function validateCanonicalSources(draft: TakeoffPreparation, availableSources: T
   for (const source of draft.sources.filter((entry) => entry.active)) {
     const uploadMatch = source.document_id.match(uploadSourceId);
     if (uploadMatch) {
+      if (draft.provenance && !source.source_version) continue;
       if (source.plan_set_id || source.file_path || source.source_version !== uploadMatch[1]) {
         preparationConflict("L'identité du fichier à téléverser doit être vérifiée à nouveau.");
       }
@@ -102,19 +166,41 @@ export async function saveTakeoffPreparation(input: {
     preparationConflict("La proposition d'assistance appartient à une autre affaire.");
   }
   const availableSources = await readPreparationSources(context, input.projectId);
+  assertDossierSourcesReviewed(draft, availableSources);
+  if (draft.provenance && hasCyclicPlanRevisionDecisions(getDeducedPlanCandidates(draft.sources), draft.plan_revision_decisions ?? [])) {
+    preparationConflict("Les choix d’indices se contredisent. Gardez une version de chaque plan avant d’enregistrer.");
+  }
+  if (draft.provenance && draft.sources.some((source) => source.alternate_of) && input.expectedRevision !== null) {
+    const previous = await readPreparationRecord(context, input.projectId);
+    if (previous?.revision !== input.expectedRevision) preparationConflict("La préparation a changé. Rechargez-la avant de l’enregistrer.");
+    const original = takeoffPreparationSchema.parse(previous.draft);
+    const savedById = new Map(original.sources.map((source) => [source.document_id, source]));
+    for (const selected of draft.sources) {
+      const saved = savedById.get(selected.document_id);
+      if (!saved?.pages_before_deduplication || JSON.stringify(saved.pages) === JSON.stringify(selected.pages)) continue;
+      delete selected.pages_before_deduplication;
+      for (const copy of draft.sources) {
+        if (!copy.active && copy.alternate_of === selected.document_id && copy.content_hash === saved.content_hash) delete copy.alternate_of;
+      }
+    }
+  }
   validateCanonicalSources(draft, availableSources);
   const reconciled = reconcilePreparationSources(draft, availableSources).draft;
+  const revision = (input.expectedRevision ?? 0) + 1;
   await persistPreparationRecord({
     context, projectId: input.projectId, expectedRevision: input.expectedRevision,
-    revision: (input.expectedRevision ?? 0) + 1, draft: reconciled as unknown as Json,
+    revision, draft: reconciled as unknown as Json,
     snapshot: null, confirmedAt: null,
   });
-  return loadPreparation(context, input.projectId);
+  return readPreparationRevision(context, input.projectId, revision, false);
 }
 
-export async function confirmTakeoffPreparation(input: { projectId: string; expectedRevision: number }) {
+export async function confirmTakeoffPreparation(input: {
+  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string;
+}) {
   projectIdSchema.parse(input.projectId);
   revisionSchema.parse(input.expectedRevision);
+  z.string().regex(/^[a-f0-9]{64}$/).optional().parse(input.expectedExecutionFingerprint);
   const context = await getAuthenticatedContext();
   await assertPreparationProjectAccess(context, input.projectId, true);
   const [record, sources] = await Promise.all([
@@ -124,17 +210,37 @@ export async function confirmTakeoffPreparation(input: { projectId: string; expe
       (record.revision === input.expectedRevision || record.revision === input.expectedRevision + 1)) {
     const confirmed = takeoffPreparationSchema.parse(record.draft);
     assertTakeoffPreparationProcessing(confirmed);
+    assertDossierSourcesReviewed(confirmed, sources);
     validateCanonicalSources(confirmed, sources);
+    if (confirmed.provenance) {
+      await selectionForConfirmation(context, input.expectedExecutionFingerprint);
+      const stored = storedPreparationSnapshotSchema.parse(record.confirmed_snapshot);
+      if (stored.confirmed_by !== context.userId || !stored.execution_selection ||
+          executionFingerprint(stored.execution_selection) !== input.expectedExecutionFingerprint) {
+        preparationConflict("Cette confirmation utilise une autre sélection ChatGPT. Préparez une nouvelle analyse avec votre forfait.");
+      }
+    }
     if (reconcilePreparationSources(confirmed, sources).changedSourceIds.length) {
       preparationConflict("Les sources ont changé. Vérifiez la préparation avant une nouvelle confirmation.");
     }
-    return loadPreparation(context, input.projectId);
+    return readPreparationRevision(context, input.projectId, record.revision, true);
   }
   if (!record || record.revision !== input.expectedRevision) {
     preparationConflict("La préparation a changé. Rechargez-la avant de confirmer.");
   }
-  const draft = takeoffPreparationSchema.parse(record.draft);
+  let draft = takeoffPreparationSchema.parse(record.draft);
   assertTakeoffPreparationProcessing(draft);
+  if (draft.provenance) {
+    assertTakeoffPreparationProcessing(draft, DETAILED_TAKEOFF_PROCESSING);
+    // A previously resolved alternative is still part of the attestable choice.
+    for (const source of getDeducedPlanCandidates(draft.sources)) {
+      source.active = true;
+      source.pages = source.pages_before_deduplication ?? source.pages;
+      delete source.pages_before_deduplication;
+      delete source.alternate_of;
+    }
+  }
+  assertDossierSourcesReviewed(draft, sources);
   validateCanonicalSources(draft, sources);
   const referenceSources = draft.sources.filter((source) => source.active && source.kind !== "plan" && !source.document_id.startsWith("upload:"));
   if (referenceSources.length > 20) {
@@ -149,26 +255,53 @@ export async function confirmTakeoffPreparation(input: { projectId: string; expe
   // Confirm the actual bytes, including historical imports without a trustworthy hash.
   let referenceBytes = 0;
   for (const source of draft.sources.filter((entry) => entry.active && !entry.document_id.startsWith("upload:"))) {
-    if (!source.file_path) preparationConflict("Un plan actif n'a plus de fichier source.");
+    if (!source.file_path) preparationConflict(`La pièce « ${source.document_name} » n’a pas de fichier accessible.`);
     const { data, error } = await context.supabase.storage.from(source.plan_set_id ? PLAN_FILES_BUCKET : AFFAIRE_INTAKE_BUCKET).download(source.file_path);
-    if (error || !data) throw mapSupabaseError({ code: "SOURCE_DOWNLOAD", message: error?.message ?? "Fichier introuvable." }, "Impossible de vérifier le contenu du plan.");
+    if (error || !data) preparationConflict(`Impossible de lire la pièce « ${source.document_name} ». Rendez-la accessible ou retirez-la des pièces retenues.`);
     if (!source.plan_set_id) {
       referenceBytes += data.size;
       if (referenceBytes > 20 * 1024 * 1024) throw new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, message: "Les pièces de référence dépassent 20 Mo. Réduisez la sélection avant de confirmer.", retryable: false });
     }
-    source.content_hash = createHash("sha256").update(Buffer.from(await data.arrayBuffer())).digest("hex");
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    const previousHash = source.content_hash;
+    source.content_hash = createHash("sha256").update(bytes).digest("hex");
+    if (draft.provenance && source.kind === "plan") {
+      const document = await renderPdfPages(bytes, { ...TAKEOFF_PAGE_TRIAGE_TEXT, pages: [source.pages[0] ?? 1] });
+      source.plan_identity = readPlanTitleBlock(document.pages[0]?.regionText ?? "");
+      // The member's settled choice for this reading of these bytes; otherwise the metadata or file name, then what
+      // the preparation recorded for these bytes (an index the operator entered), then the title block. A differing
+      // reading stays a difference the member settles.
+      const sameBytes = !previousHash || previousHash === source.content_hash;
+      if (!sameBytes) delete source.revision_reading_settled;
+      const reading = source.plan_identity?.revision ?? null;
+      const settled = Boolean(reading && source.revision && source.revision_reading_settled === reading);
+      const known = sources.find((current) => current.document_id === source.document_id)?.revision;
+      source.revision = settled ? source.revision : known ?? (sameBytes ? source.revision : null) ?? reading;
+    }
   }
   const revision = record.revision + 1;
-  const confirmedAt = new Date().toISOString();
-  const snapshot = createTakeoffPreparationSnapshot({ preparation: draft, confirmedBy: context.userId, confirmedAt, revision });
   // A metadata edit during the download cannot be confirmed from an older read.
   const latest = await readPreparationSources(context, input.projectId);
   validateCanonicalSources(draft, latest);
+  if (draft.provenance && getPreparationSourcesFingerprint(sources) !== getPreparationSourcesFingerprint(latest)) {
+    preparationConflict("Les pièces du dossier ont changé pendant la vérification. Rechargez la préparation.");
+  }
+  if (draft.provenance) {
+    draft = resolveDeducedPlanVersions(draft);
+    if (evaluateTakeoffPreparation(draft).blockers.some((blocker) => blocker.code === "source_revision_conflict" || blocker.code === "source_revision_mismatch")) {
+      await persistPreparationRecord({ context, projectId: input.projectId, expectedRevision: record.revision, revision,
+        draft: draft as unknown as Json, snapshot: null, confirmedAt: null });
+      return readPreparationRevision(context, input.projectId, revision, false);
+    }
+  }
+  const confirmedAt = new Date().toISOString();
+  const snapshot = createTakeoffPreparationSnapshot({ preparation: draft, confirmedBy: context.userId, confirmedAt, revision });
+  if (draft.provenance) snapshot.execution_selection = await selectionForConfirmation(context, input.expectedExecutionFingerprint);
   await persistPreparationRecord({
     context, projectId: input.projectId, expectedRevision: record.revision, revision,
-    draft: draft as unknown as Json, snapshot: snapshot as unknown as Json, confirmedAt,
+    draft: snapshot.preparation as unknown as Json, snapshot: snapshot as unknown as Json, confirmedAt,
   });
-  return loadPreparation(context, input.projectId);
+  return readPreparationRevision(context, input.projectId, revision, true);
 }
 
 export async function assistTakeoffPreparation(input: { projectId: string; expectedRevision: number | null; instruction?: string }) {
@@ -343,6 +476,7 @@ export async function assertConfirmedTakeoffPreparation(input: {
       JSON.stringify(preparation) !== JSON.stringify(takeoffPreparationSchema.parse(record.draft))) {
     preparationConflict("La confirmation ne correspond plus à la préparation enregistrée.");
   }
+  assertDossierSourcesReviewed(preparation, sources);
   validateCanonicalSources(preparation, sources);
   createTakeoffPreparationSnapshot({
     preparation, revision: record.revision, confirmedAt: stored.confirmed_at, confirmedBy: stored.confirmed_by,
@@ -375,6 +509,34 @@ export async function assertConfirmedTakeoffPreparation(input: {
   }
   if (input.upload && (active.length !== 1 || active[0].document_id !== `upload:${input.upload.hash}` || active[0].document_name !== input.upload.fileName)) {
     preparationConflict("Le fichier téléversé ne correspond pas à la source confirmée.");
+  }
+  if (preparation.provenance) {
+    // A revision choice binds both files, and an identical copy is set aside for its bytes: the file left out is
+    // re-read here, the retained one by the worker before any model call. Only what the confirmed selection set aside
+    // counts: a plan set the member left keeps its set-aside files for a return, and the confirmation already kept
+    // only the revision choices between the plans of this selection.
+    const prepared = new Map(preparation.sources.map((source) => [source.document_id, source]));
+    const available = new Map(sources.map((source) => [source.document_id, source]));
+    const participants = [
+      ...(preparation.plan_revision_decisions ?? []).flatMap((decision) => [decision.left, decision.right]),
+      ...getDeducedPlanCandidates(preparation.sources).filter((source) => !source.active)
+        .map((source) => ({ document_id: source.document_id, content_hash: source.content_hash })),
+    ];
+    const checked = new Set<string>();
+    for (const { document_id, content_hash } of participants) {
+      const source = prepared.get(document_id);
+      const current = available.get(document_id);
+      if (!source || !content_hash || !current?.file_path || current.kind !== "plan" || current.plan_set_id !== preparation.provenance.plan_set_id ||
+          current.source_version !== source.source_version || source.content_hash !== content_hash) {
+        preparationConflict("Une version de plan a changé. Préparez une nouvelle analyse et vérifiez le choix d’indices.");
+      }
+      if (source.active || checked.has(document_id)) continue;
+      const { data, error } = await input.context.supabase.storage.from(PLAN_FILES_BUCKET).download(current.file_path);
+      if (error || !data || createHash("sha256").update(new Uint8Array(await data.arrayBuffer())).digest("hex") !== content_hash) {
+        preparationConflict(`La version « ${source.document_name} » a changé ou est inaccessible. Préparez une nouvelle analyse et vérifiez les plans retenus.`);
+      }
+      checked.add(document_id);
+    }
   }
   // PostgREST formats timestamptz with +00:00, while the immutable JSON kept Z.
   // Validate current eligibility above, then submit the exact stored JSON to SQL.

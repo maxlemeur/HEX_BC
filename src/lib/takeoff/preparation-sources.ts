@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparation, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
+import { isDossierDefaultSource } from "@/lib/takeoff/preparation-from-dossier";
+import { readPlanFilenameRevision } from "@/lib/takeoff/plan-revision-identity";
 
 export type PreparationPlanFile = {
   id: string;
@@ -53,7 +55,7 @@ export function toPreparationPlanSource(file: PreparationPlanFile): TakeoffPrepa
     document_id: file.id,
     document_name: getPlanFileDisplayName({ file_name: file.file_name, metadata: file.metadata ?? null }),
     kind: "plan",
-    revision: typeof file.metadata?.revision === "string" ? file.metadata.revision : null,
+    revision: typeof file.metadata?.revision === "string" && file.metadata.revision.trim() ? file.metadata.revision : readPlanFilenameRevision(getPlanFileDisplayName({ file_name: file.file_name, metadata: file.metadata ?? null })),
     source_version: getPreparationPlanSourceVersion(file),
     pages: [],
     active: false,
@@ -83,29 +85,42 @@ export function reconcilePreparationSources(
   const available = new Map(availableSources.map((source) => [source.document_id, source]));
   const changedSourceIds: string[] = [];
   const activePlanSets = new Set(preparation.sources.filter((source) => source.active).map((source) => source.plan_set_id));
-  const sources = preparation.sources.map((source) => {
+  const sources = preparation.sources.flatMap((source) => {
     // An upload is never triaged: it has no stored file to render server-side.
-    if (source.document_id.startsWith("upload:")) return source.page_triage ? { ...source, page_triage: null } : source;
+    if (source.document_id.startsWith("upload:")) return [source.page_triage ? { ...source, page_triage: null } : source];
     const current = available.get(source.document_id);
+    // A piece that changes role is a new piece of the dossier: the defaults of its new role apply.
+    if (preparation.provenance && current && current.kind !== source.kind) {
+      changedSourceIds.push(source.document_id);
+      return [];
+    }
     available.delete(source.document_id);
     // A triage describes one file version; pages and active stay as the user chose.
     if (!current) {
       changedSourceIds.push(source.document_id);
-      return { ...source, confirmed: false, source_version: "", page_triage: null };
+      return [{ ...source, confirmed: false, source_version: "", content_hash: null, plan_identity: null, page_triage: null }];
     }
     if (current.source_version !== source.source_version) {
       changedSourceIds.push(source.document_id);
-      return { ...source, ...current, active: source.active, pages: source.pages, revision: source.revision, confirmed: false, page_triage: null };
+      // A new version: the index the member settled for the former bytes no longer applies.
+      const next = { ...source, ...current, active: source.active, pages: source.pages, revision: preparation.provenance ? current.revision : source.revision, plan_identity: null, confirmed: false, page_triage: null };
+      delete next.revision_reading_settled;
+      return [next];
     }
     const triage = source.page_triage;
     const staleTriage = triage && (triage.source_version !== source.source_version || (current.page_count !== null && triage.page_count !== current.page_count));
-    return reconcileTakeoffPageTriageStatuses({
+    return [reconcileTakeoffPageTriageStatuses({
       ...source, file_path: current.file_path, plan_set_id: current.plan_set_id, page_count: current.page_count, source_updated_at: current.source_updated_at, mime_type: current.mime_type, kind: current.kind,
       page_triage: staleTriage || current.kind !== "plan" ? null : triage,
-    });
+    })];
   });
   for (const source of available.values()) {
-    if (source.plan_set_id && activePlanSets.has(source.plan_set_id)) changedSourceIds.push(source.document_id);
+    if (preparation.provenance && isDossierDefaultSource(source, preparation.provenance.plan_set_id)) {
+      if (!changedSourceIds.includes(source.document_id)) changedSourceIds.push(source.document_id);
+      available.delete(source.document_id);
+    } else if (source.plan_set_id && activePlanSets.has(source.plan_set_id)) {
+      changedSourceIds.push(source.document_id);
+    }
   }
   const activeChanged = preparation.sources.some((source) => source.active && changedSourceIds.includes(source.document_id));
   const calibrationChanged = preparation.conventions.calibration?.document_id && changedSourceIds.includes(preparation.conventions.calibration.document_id);

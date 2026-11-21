@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { buildDeducedTakeoffPreparation, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
+import { isSameDocument } from "@/lib/takeoff/page-contributions";
 
 import {
   applyTakeoffPreparationProfile,
@@ -48,6 +50,108 @@ function blockerCodes(preparation: TakeoffPreparation) {
 }
 
 describe("takeoff preparation business admission", () => {
+  it("takes a plan without an index and leaves documentary assumptions unaccepted", () => {
+    const plan = { ...countingPreparation().sources[0], revision: null, pages: [], confirmed: false, active: false };
+    const preparation = buildDeducedTakeoffPreparation({ sources: [plan], planSetId: "set-a", lots: ["Plomberie"] });
+    const snapshot = createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedBy: "metreur", confirmedAt: "2026-11-20T10:00:00Z" });
+    expect(snapshot.preparation).toMatchObject({
+      objective: "measure_all", objective_confirmed: false, provenance: { kind: "dossier", rule_version: 1, brief_context: { lots: ["Plomberie"] } },
+      scope: { lots: [], exclusions: [], confirmed: false },
+      sources: [{ revision: null, pages: [], active: true, confirmed: false }],
+      conventions: { unit: null, unit_mode: "per_item", measurement_basis: "documentary_evidence", calibration: null, purchase: null },
+      processing: { level: "C", provider: "chatgpt" },
+      unknowns: [], destination: { kind: "analysis_only", estimate_version_id: null, reviewer: null },
+    });
+    expect(snapshot.readiness.reservations).toEqual([]);
+  });
+
+  it("retains every source identity while measuring identical plan bytes once", () => {
+    const a = { ...countingPreparation().sources[0], document_id: "a", content_hash: "a".repeat(64), pages: [1] };
+    const b = { ...a, document_id: "b", pages: [2] };
+    const draft = buildDeducedTakeoffPreparation({ sources: [b, a], planSetId: "set-a" });
+    const resolved = resolveDeducedPlanVersions(draft);
+    expect(resolved.sources).toMatchObject([{ document_id: "b", active: false, alternate_of: "a" }, { document_id: "a", active: true, pages: [1, 2] }]);
+    expect(draft.sources.every((source) => source.active)).toBe(true);
+  });
+
+  it.each([false, true])("retains distinct page identities after variant selection (extra revision: %s)", (extraRevision) => {
+    const plan = countingPreparation().sources[0];
+    const a = { ...plan, document_id: "a", logical_document_id: "PLO-R1", content_hash: "a".repeat(64) };
+    const b = { ...plan, document_id: "b", document_name: "Plan distribution.pdf", logical_document_id: extraRevision ? "PLO-R1" : "plo-r1", content_hash: "b".repeat(64) };
+    const c = { ...b, document_id: "c", document_name: "Détail installateur.pdf", content_hash: "c".repeat(64) };
+    const draft = buildDeducedTakeoffPreparation({ sources: extraRevision ? [a, b, c] : [a, b], planSetId: "set-a" });
+    const fingerprint = ({ document_id, content_hash }: typeof a) => ({ document_id, content_hash });
+    draft.plan_revision_decisions = [{ left: fingerprint(a), right: fingerprint(b), choice: "distinct" }];
+    if (extraRevision) draft.plan_revision_decisions.push({ left: fingerprint(b), right: fingerprint(c), choice: "left" });
+    const resolved = resolveDeducedPlanVersions(draft);
+    const active = resolved.sources.filter((source) => source.active);
+    expect(active.map((source) => source.document_id)).toEqual(["a", "b"]);
+    const [left, right] = active.map((source) => ({
+      plan_file_id: source.document_id, content_hash: source.content_hash, logical_document_id: source.logical_document_id, file_name: source.document_name,
+    }));
+    expect(isSameDocument(left, right)).toBe(false);
+    expect(resolveDeducedPlanVersions(takeoffPreparationSchema.parse(resolved))).toEqual(takeoffPreparationSchema.parse(resolved));
+  });
+
+  it("keeps exclusions when switching between plan sets", () => {
+    const a = { ...countingPreparation().sources[0], document_id: "a" };
+    const b = { ...a, document_id: "b" };
+    const c = { ...a, document_id: "c", plan_set_id: "set-b" };
+    const sources = [a, b, c];
+    const initial = buildDeducedTakeoffPreparation({ sources, planSetId: "set-a" });
+    initial.sources[1].active = false;
+    const switched = buildDeducedTakeoffPreparation({ sources, saved: initial, planSetId: "set-b" });
+    const restored = buildDeducedTakeoffPreparation({ sources, saved: switched, planSetId: "set-a" });
+    expect(restored.sources.filter((source) => source.active).map((source) => source.document_id)).toEqual(["a"]);
+  });
+
+  it("blocks cyclic revision decisions even when another plan remains", () => {
+    const source = countingPreparation().sources[0];
+    const plans = ["a", "b", "c", "d"].map((id) => ({
+      ...source, document_id: id, content_hash: id.repeat(64), logical_document_id: id === "d" ? "OTHER" : "P-101",
+    }));
+    const draft = buildDeducedTakeoffPreparation({ sources: plans, planSetId: "set-a" });
+    const fingerprint = ({ document_id, content_hash }: typeof plans[number]) => ({ document_id, content_hash });
+    draft.plan_revision_decisions = [[0, 1], [1, 2], [2, 0]].map(([left, right]) => ({
+      left: fingerprint(plans[left]), right: fingerprint(plans[right]), choice: "left",
+    }));
+    const resolved = resolveDeducedPlanVersions(draft);
+    expect(blockerCodes(resolved)).toContain("source_revision_conflict");
+    expect(resolved.sources.filter(({ active }) => active)).toHaveLength(4);
+  });
+
+  it("preserves the legacy upload's selected page and the confirmed Ouest scope verbatim", () => {
+    const previous = countingPreparation();
+    previous.scope = { ...previous.scope, inclusions: [], zones: ["Ouest"], confirmed: true };
+    const dossierPlan = previous.sources[0];
+    const hash = "a".repeat(64);
+    const upload = { ...dossierPlan, document_id: `upload:${hash}`, source_version: hash,
+      pages: [3], page_count: 4, plan_set_id: null, file_path: null };
+    previous.sources = [upload];
+    const converted = buildDeducedTakeoffPreparation({
+      sources: [dossierPlan], planSetId: "set-a", saved: takeoffPreparationSchema.parse(previous),
+    });
+    expect(converted.sources.find(({ document_id }) => document_id === upload.document_id)).toMatchObject({ active: true, pages: [3] });
+    expect(converted.scope).toEqual(previous.scope);
+    expect(evaluateTakeoffPreparation(converted).can_launch).toBe(false);
+  });
+
+  it("clears the scope confirmation when the conversion has to add the default inclusion", () => {
+    const previous = countingPreparation();
+    previous.scope = { ...previous.scope, lots: [], networks: [], levels: [], zones: [], inclusions: [], exclusions: ["RDC"], confirmed: true };
+    const converted = buildDeducedTakeoffPreparation({ sources: previous.sources, planSetId: "set-a", saved: takeoffPreparationSchema.parse(previous) });
+    expect(converted.scope).toMatchObject({ inclusions: ["Toutes les pages et tous les ouvrages des plans retenus"], exclusions: ["RDC"], confirmed: false });
+  });
+
+  it("round-trips the per-item measurement convention through a saved business profile", () => {
+    const draft = buildDeducedTakeoffPreparation({ sources: countingPreparation().sources, planSetId: "set-a" });
+    const profile = createTakeoffPreparationProfile({ preparation: draft, id: "profile-a", name: "Métré détaillé", version: 1 });
+    expect(profile.conventions.unit_mode).toBe("per_item");
+    const applied = applyTakeoffPreparationProfile(draft, JSON.parse(JSON.stringify(profile)));
+    expect(applied.conventions.unit_mode).toBe("per_item");
+    expect(blockerCodes(applied)).not.toContain("measure_all_conventions_invalid");
+  });
+
   it("does not treat a proposal as a confirmed business decision", () => {
     const preparation = countingPreparation();
     preparation.objective_confirmed = false;

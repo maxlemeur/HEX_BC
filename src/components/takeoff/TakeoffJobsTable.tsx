@@ -4,6 +4,13 @@ import { useCallback, useState } from "react";
 import { useSWRConfig } from "swr";
 import { getTakeoffOperatorStateLabel } from "@/lib/takeoff/operator-state";
 import { TakeoffJobActions, type ActionKind } from "./TakeoffJobActions";
+import {
+  adoptTakeoffResume,
+  readTakeoffResumeRefusal,
+  takeoffExpectsAutomaticStart,
+  takeoffShowsBatchProgress,
+  useTakeoffResumeRefresh,
+} from "./takeoff-resume-view";
 
 import {
   cancelTakeoffJob,
@@ -83,6 +90,14 @@ export default function TakeoffJobsTable({
               ? "Impossible de soumettre à nouveau cette analyse."
               : "Impossible d'annuler cette analyse."
         );
+        // A refusal carries the decision now in force: the row adopts it at once, then the list is read again (a role
+        // or a state that changed since the read shows on every row).
+        const decision = isTakeoffApiError(err) ? readTakeoffResumeRefusal(err.details) : null;
+        const isActivityKey = (key: unknown) => Array.isArray(key) && key[0] === "activity-center";
+        void (decision
+          ? mutate(isActivityKey, (current?: TakeoffActivityCenterResponse) => current && adoptTakeoffResume(current, jobId, decision),
+            { revalidate: true })
+          : mutate(isActivityKey));
       } finally {
         setPendingActions((current) => {
           const next = { ...current };
@@ -94,7 +109,14 @@ export default function TakeoffJobsTable({
     [mutate]
   );
 
+  // A wait the server announced is over: read the list again, which decides anew. Revalidate only: the rows stay on
+  // screen while the list is read.
+  const revalidateList = useCallback(() => {
+    void mutate((key: unknown) => Array.isArray(key) && key[0] === "activity-center");
+  }, [mutate]);
+
   const { jobs } = data;
+  useTakeoffResumeRefresh(jobs, revalidateList);
   const smallestPageSize = PAGE_SIZE_OPTIONS[0];
   // Page size and paging only matter once the list runs past one short page.
   const showPaging =
@@ -168,7 +190,7 @@ export default function TakeoffJobsTable({
                     <Badge variant="neutral" size="sm">
                       {getProcessingStrategyLabel(job.processingStrategy)}
                     </Badge>
-                    {job.processingStrategy === "sync" ? null : (
+                    {job.processingStrategy === "sync" || !takeoffShowsBatchProgress(job) ? null : (
                       <Badge
                         variant={getProviderBatchStateBadgeVariant(
                           job.providerBatchState
@@ -181,7 +203,8 @@ export default function TakeoffJobsTable({
                         })}
                       </Badge>
                     )}
-                    {job.operatorState && job.operatorState !== "none" ? (
+                    {job.operatorState && job.operatorState !== "none" && job.operatorState !== "orphan_to_reconcile"
+                      && takeoffShowsBatchProgress(job) ? (
                       <Badge
                         variant={getOperatorStateBadgeVariant(
                           job.operatorState
@@ -191,8 +214,8 @@ export default function TakeoffJobsTable({
                         {getTakeoffOperatorStateLabel(job.operatorState)}
                       </Badge>
                     ) : null}
-                    {job.dispatchStatus === "queued" ||
-                    job.dispatchStatus === "trigger_failed" ? (
+                    {takeoffExpectsAutomaticStart(job) && (job.dispatchStatus === "queued" ||
+                    job.dispatchStatus === "trigger_failed") ? (
                       <Badge variant="warning" size="sm">
                         Reprise automatique
                       </Badge>
@@ -205,7 +228,7 @@ export default function TakeoffJobsTable({
                   </div>
 
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    {(job.dispatchStatus === "queued" ||
+                    {takeoffExpectsAutomaticStart(job) && (job.dispatchStatus === "queued" ||
                       job.dispatchStatus === "trigger_failed") &&
                     job.dispatchCorrelationId ? (
                       <div className="col-span-2 rounded-lg border border-warning-border bg-warning-light p-2">
@@ -328,7 +351,7 @@ export default function TakeoffJobsTable({
                             {job.statusLabel}
                           </span>
                           {/* An immediate analysis has no provider batch: its badge would repeat the strategy. */}
-                          {job.processingStrategy === "sync" ? null : (
+                          {job.processingStrategy === "sync" || !takeoffShowsBatchProgress(job) ? null : (
                             <Badge
                               variant={getProviderBatchStateBadgeVariant(
                                 job.providerBatchState
@@ -349,7 +372,8 @@ export default function TakeoffJobsTable({
                           >
                             {job.confidenceLabel}
                           </Badge>
-                          {job.operatorState && job.operatorState !== "none" ? (
+                          {job.operatorState && job.operatorState !== "none" && job.operatorState !== "orphan_to_reconcile"
+                      && takeoffShowsBatchProgress(job) ? (
                             <Badge
                               variant={getOperatorStateBadgeVariant(
                                 job.operatorState
@@ -359,8 +383,8 @@ export default function TakeoffJobsTable({
                               {getTakeoffOperatorStateLabel(job.operatorState)}
                             </Badge>
                           ) : null}
-                          {job.dispatchStatus === "queued" ||
-                          job.dispatchStatus === "trigger_failed" ? (
+                          {takeoffExpectsAutomaticStart(job) && (job.dispatchStatus === "queued" ||
+                          job.dispatchStatus === "trigger_failed") ? (
                             <Badge variant="warning" size="sm">
                               Reprise automatique
                             </Badge>

@@ -1,4 +1,5 @@
 import type { TakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
+import type { TakeoffResumeDecision } from "@/lib/takeoff/operator-state";
 import type { TakeoffRiskSeverity, TakeoffRiskStatus, TakeoffRiskScopeType } from "@/lib/takeoff/risk-response-contracts";
 import type { TakeoffDiffAddedEntry, TakeoffDiffRemovedEntry, TakeoffDiffChangedEntry, TakeoffDiffUnchangedEntry } from "@/lib/takeoff/compare-response-contracts";
 import { z } from "zod";
@@ -560,6 +561,14 @@ export type TakeoffActivityCenterJobRow = {
   operatorStateLabel?: string | null;
   canCancel?: boolean;
   canResubmit?: boolean;
+  /**
+   * The resume policy's decision for the member who reads the list, the same as the job's detail and the retry command.
+   * Every answer of this version carries it; an answer of an older server does not, and its row offers nothing.
+   */
+  resume?: TakeoffResumeDecision;
+  /** The job's diagnostic code, worded in French by the screen and never shown as such. */
+  errorCode: string | null;
+  nextRetryAt: string | null;
   itemCount: number;
   coveragePercent: number | null;
   exceptionCount: number;
@@ -578,6 +587,10 @@ export type TakeoffActivityCenterJobRow = {
 export type TakeoffActivityCenterResponse = {
   counters: TakeoffActivityCenterCounters;
   jobs: TakeoffActivityCenterJobRow[];
-  analysisCompletions: Array<{ eventId: string; outcome: TakeoffAnalysisOutcome; finishedAt: string }>;
+  /** The affaire's ends, under its read rule: one page, or the end of the job a link names. */
+  analysisCompletions: Array<{
+    eventId: string; outcome: TakeoffAnalysisOutcome; finishedAt: string; failureReason: string | null;
+  }>;
+  analysisCompletionsHasOlder: boolean;
   pagination: { limit: number; offset: number; total: number };
 };

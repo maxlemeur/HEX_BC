@@ -426,7 +426,7 @@ export function buildPilotageSteps(input: {
       status: "blocked",
       summary:
         input.plansSummary?.failureReasonLabel ??
-        "Une action est requise avant de reprendre l'analyse des plans.",
+        "La dernière analyse des plans n’a pas abouti.",
     };
   } else if (latestJob?.status === "review_required") {
     const exceptionCount = input.plansSummary?.exceptionCount;
@@ -729,10 +729,11 @@ export function buildPilotageExceptions(input: {
   if (input.plansSummary?.latestJob?.status === "action_required") {
     exceptions.push({
       id: "takeoff-action-required",
-      title: "Relancer ou corriger l'analyse des plans",
+      // The overview does not know the member's resume decision: the activity it links to says what to do.
+      title: "Analyse des plans arrêtée",
       summary:
         input.plansSummary.failureReasonLabel ??
-        "Le métré ne peut pas continuer sans action de votre part.",
+        "La dernière analyse des plans n’a pas abouti.",
       severity: "critical",
       action: {
         kind: "href",

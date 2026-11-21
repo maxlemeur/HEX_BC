@@ -30,10 +30,9 @@ armyTest("HUB04 the preparation hero identifies the retained plan set before lau
   await prompt.getByRole("button", "Préparer le métré", { exact: true }).click();
   const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await expect(dialog.getByLabel("Jeu de plans à analyser", { exact: true })).toHaveValue(set.id);
-  await dialog.getByRole("button", /Vérifier et lancer$/).click();
   await expect(dialog.getByLabel("Version cible", { exact: true })).toHaveValue(estimate.versionId);
-  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
-  await recordEvidence(ui.army, "HUB04-hero", { estimate, planSetId: set.id, fileId: file.id, fileCount: 1, preparationRequired: true });
+  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
+  await recordEvidence(ui.army, "HUB04-hero", { estimate, planSetId: set.id, fileId: file.id, fileCount: 1, deducedPreparationReady: true });
 });
 
 armyTest("HUB05 carried-over exceptions target the currently linked estimate version", options, async (ui) => {

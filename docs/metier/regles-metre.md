@@ -1413,8 +1413,13 @@ son contrôle de l'empreinte de version, ne lève jamais cette invalidation.
   hypothèse sans note de 10 caractères est refusée avec « Une hypothèse doit dire ce qui est supposé (10 à 500
   caractères). ». L'ancien `quantity_entered: true` est refusé avec la requête (422 `VALIDATION_ERROR`).
 
-**Activation** : le worker n'écrit les entrées de règles (et les ancres de recalage des
-pages vectorielles) qu'avec `MERGEONE_TAKEOFF_RULES=1`.
+**Activation**. Le worker écrit par défaut les entrées de règles et les ancres
+de recalage des pages vectorielles. La lecture vectorielle du niveau détaillé
+est aussi activée par défaut. Pour `MERGEONE_TAKEOFF_RULES` et
+`MERGEONE_TAKEOFF_VECTORS`, une variable absente ou à `1` active la
+fonctionnalité, `0` la désactive et toute autre valeur provoque une erreur
+identifiable. L’activation du module et celle des demandes facultatives de
+classification des groupes gardent leurs réglages indépendants.
 
 - Sans elles, aucune règle ne lit la ligne : rien ne change pour un job sans entrées.
 - Le recalcul tourne dès qu'une version a des lignes qui en portent.

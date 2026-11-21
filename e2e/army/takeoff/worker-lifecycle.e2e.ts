@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { expect } from "e2e";
 
-import type { TakeoffJobActionResponse, TakeoffJobDetailResponse } from "@/lib/takeoff/types";
+import type { TakeoffActivityCenterResponse, TakeoffJobActionResponse, TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import type { TakeoffVectorReadingResponse } from "@/lib/takeoff/vectors/read-contracts";
 
 import { apiRequest, armyTest, createLineViaApi, readEstimate, recordEvidence } from "../critical/fixtures";
@@ -14,10 +14,12 @@ import { VECTOR_PLAN } from "./vector-plan-fixture";
 import { activateOwnedTakeoffNotices, openWorkerNotice, readOwnedTakeoffNotice, startTakeoffEmailCollector } from "./completion-support";
 import {
   launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readVectorViewerFit,
-  signUpWorkerOwner, startOwnedWorker,
+  ownedWorkerJobOwner, signUpWorkerOwner, startOwnedWorker,
 } from "./worker-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 180_000 };
+/** The detail of one job (GET /api/takeoff/jobs/<id>), which the activity page must never read to decide a row. */
+const JOB_DETAIL_READ = /\/api\/takeoff\/jobs\/[0-9a-f-]{36}(?:\?[^/]*)?$/;
 
 armyTest("TKW01 a stored CSV publishes one success and applies exact quantities through the UI", options, async (ui) => {
   await activateOwnedTakeoffNotices();
@@ -173,7 +175,7 @@ armyTest("TKW01 a stored CSV publishes one success and applies exact quantities 
   const shared = await apiRequest<typeof activity.body>(ui.browser, "GET", `/api/takeoff/activity-center?project_id=${ids.projectId}`);
   expect(shared.status).toBe(200);
   expect(shared.body.data.analysisCompletions.find((event) => event.eventId === savedNotice.id)).toEqual({ eventId: savedNotice.id, outcome: "success",
-    finishedAt: expect.any(String) });
+    finishedAt: expect.any(String), failureReason: null });
   const colleagueNotice = await openWorkerNotice(ui, savedNotice.id);
   await expect(colleagueNotice).toHaveCount(0);
   await querySql(`update public.estimate_projects set is_archived = true where id = '${ids.projectId}'`);
@@ -303,7 +305,7 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
     expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "failure", deliveryState: "sent", isRead: false });
     const [receipt] = [...collector.receipts.values()];
     expect(collector.requests).toBe(1);
-    expect(receipt.message.text).toContain(`/dashboard/affaires/${ids.projectId}`);
+    expect(receipt.message.text).toContain(`/dashboard/affaires/${ids.projectId}/takeoff?job=${jobId}`);
     expect(receipt.message.text).not.toContain("ARMY controlled terminal provider failure");
   } finally {
     await collector.close();
@@ -320,20 +322,43 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   const failureNotice = await openWorkerNotice(ui, savedFailure.id);
   const reason = "Le service d’analyse n’a pas pu terminer le métré.";
   await expect(failureNotice).toContainText(reason);
-  await failureNotice.getByRole("link", "Ouvrir le suivi du métré", { exact: true }).click();
+  // The link names its job, so an older failure is never beyond the first page of the activity.
+  const failureLink = failureNotice.getByRole("link", "Ouvrir le suivi du métré", { exact: true });
+  const failureHref = `/dashboard/affaires/${ids.projectId}/takeoff?job=${jobId}`;
+  await expect(failureLink).toHaveAttribute("href", failureHref);
+  await failureLink.click();
+  await expect(ui.browser).toHaveURL(failureHref);
   const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
   expect(detail.body.data.job.error_message).toBe("ARMY controlled terminal provider failure");
   await expect(ui.screen.getByRole("heading", "Analyse à reprendre", { exact: true })).toBeVisible();
   const fixture = await localTakeoffFixture(ui.army, ids);
   await fixture.seed("A", [{ designation: "ARMY nouvelle analyse", quantity: 1, unit: "u", confidence: 1 }]);
-  await ui.browser.reload();
+  // Lot 3 (one resume policy): the row says why from the list alone; before it, each failed row read its job's detail.
+  const detailReads: string[] = [];
+  await ui.browser.route(JOB_DETAIL_READ, async (route) => {
+    if (route.request.method === "GET") detailReads.push(new URL(route.request.url).pathname);
+    await route.fallback();
+  });
   const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
-  await expect(failedRow).toContainText(reason);
-  await expect(failedRow).toContainText(`Relances utilisées : ${detail.body.data.job.retry_count} sur 3`);
-  expect(detail.body.data.job.can_resubmit).toBe(false);
-  await expect(failedRow).toContainText("Cette analyse est close.");
-  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
-  await expect(ui.screen.getByText("Démarrage immédiat indisponible, reprise automatique active.", { exact: true })).toHaveCount(0);
+  try {
+    await ui.browser.reload();
+    await expect(failedRow).toContainText(reason);
+    // The newer analysis seeded above is not listed beside the job the link names; « Voir toutes les analyses » lists both.
+    const listedRows = ui.screen.getByRole("tabpanel").getByRole("row");
+    await expect(listedRows).toHaveCount(2);
+    await ui.screen.getByRole("button", "Voir toutes les analyses", { exact: true }).click();
+    await expect(listedRows).toHaveCount(3);
+    await ui.app.open(failureHref);
+    await expect(failedRow).toContainText(`Relances utilisées : ${detail.body.data.job.retry_count} sur 3`);
+    expect(detail.body.data.job.can_resubmit).toBe(false);
+    expect(detail.body.data.job.resume).toEqual({ action: "new_analysis", reason: "analysis_closed", available_at: null });
+    await expect(failedRow).toContainText("Cette analyse est close. Préparez une nouvelle analyse depuis l’affaire.");
+    await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
+    await expect(ui.screen.getByText("Démarrage immédiat indisponible, reprise automatique active.", { exact: true })).toHaveCount(0);
+    expect(detailReads).toEqual([]);
+  } finally {
+    await ui.browser.unroute(JOB_DETAIL_READ);
+  }
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW05-terminal-error", { ids, jobId, failed, estimateUnchanged: true });
   const worker = await localTakeoffWorkerClient(ui.army, ids.versionId);
@@ -349,6 +374,18 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   if (!savedNotice) throw new Error("The failure notice is missing.");
   const notice = await openWorkerNotice(ui, savedNotice.id);
   await expect(notice.getByRole("heading")).toContainText("Analyse échouée");
+
+  // A director reads the affaire but not this job: the same link shows its end and the reason it ended with.
+  const director = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "FAIL" });
+  await querySql(`update public.tenant_memberships set is_default = false where user_id = '${director.userId}';
+    insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
+    select tenant_id, '${director.userId}', 'director', true from public.estimate_projects where id = '${ids.projectId}'`);
+  const hidden = await apiRequest<unknown>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(hidden.status).toBe(404);
+  await ui.app.open(failureHref);
+  const selected = ui.screen.getByRole("list", "Analyse sélectionnée", { exact: true });
+  await expect(selected).toContainText("Analyse échouée");
+  await expect(selected).toContainText(reason);
 });
 
 type ActionEnvelope = {
@@ -457,6 +494,130 @@ armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", 
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW07-historical-batch", { ids, jobId, batchId, seeded, refused, unchanged: true,
     boundary: "An owned historical batch reference is preserved; no provider or remote dispatch is invoked." });
+});
+
+// Lot 3 (one resume policy): the list, the detail and the retry command decide with the same policy. Three analyses of one
+// affaire stopped as the previous application version leaves them (no recorded end): the list says what each member may do
+// and why, from its own rows; the command reads the role and the affaire again when it is called. This application is a
+// production build, which runs no local ChatGPT analysis: before this policy it offered « Soumettre à nouveau » on a local
+// job and refused the click (422); it now says where the retry runs. The retry on the Mac is LOCAL05's and the unit tests'.
+armyTest("TKW13 the list decides the resume of several stopped analyses without reading them, and the retry command agrees", options, async (ui) => {
+  const owner = await signUpWorkerOwner(ui, "RESUME");
+  const { ids, jobId: localId, fileName, before } = await launchWorkerCsv(ui, "TKW13", "local", owner);
+  const { client, tenantId } = await localTakeoffWorkerClient(ui.army, ids.versionId, owner.email, owner.password);
+  const bytes = Buffer.from("designation;quantity;unit\nARMY worker pipe;12.5;m\n");
+  const seed = async (provider: "local" | "historical") => {
+    const jobId = randomUUID();
+    const sourcePath = `${tenantId}/${jobId}/${fileName}`;
+    expect((await client.storage.from("takeoff-files").upload(sourcePath, bytes, { contentType: "text/csv" })).error).toBeNull();
+    const inserted = await client.from("takeoff_jobs").insert({ id: jobId, tenant_id: tenantId, estimate_version_id: ids.versionId,
+      created_by: owner.userId, level: "A", status: "pending", source_file_name: fileName, source_file_path: sourcePath,
+      source_file_type: "text/csv", source_file_size_bytes: bytes.length,
+      ...provider === "historical" ? { execution_provider: "gemini" } : await ownedWorkerJobOwner() }).select("id").single();
+    expect(inserted.error).toBeNull();
+    return jobId;
+  };
+  // Created oldest first: the list shows the newest first.
+  const scheduledId = await seed("local");
+  const legacyId = await seed("historical");
+  const stop = async (jobId: string, failure: string) => expect(await querySql(`update public.takeoff_jobs set status = 'failed',
+      started_at = clock_timestamp() - interval '2 minutes', completed_at = clock_timestamp() - interval '1 minute',
+      last_error_at = clock_timestamp() - interval '1 minute', ${failure}
+    where id = '${jobId}' and tenant_id = '${tenantId}' and status = 'pending' and analysis_outcome is null and current_user = 'postgres'
+    returning id;\n`)).toEqual([jobId]);
+  await stop(localId, "error_code = 'AI_PROVIDER', error_message = 'ARMY controlled terminal provider failure', next_retry_at = null");
+  await stop(scheduledId, "error_code = 'AI_TIMEOUT', error_message = 'ARMY controlled timeout', next_retry_at = clock_timestamp() + interval '1 hour'");
+  await stop(legacyId, "error_code = 'AI_TIMEOUT', error_message = 'ARMY historical timeout', next_retry_at = null");
+  const stored = async (jobId: string) => querySql(`select status || ':' || retry_count from public.takeoff_jobs where id = '${jobId}'`);
+  type Refusal = { error: { code: string; details: { resume: unknown } } };
+  const resubmit = (jobId: string) => apiRequest<Refusal>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/resubmit`);
+
+  const rows = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
+  const [legacyRow, scheduledRow, localRow] = [0, 1, 2].map((index) => rows.nth(index));
+  const retry = (row: typeof localRow) => row.getByRole("button", "Soumettre à nouveau", { exact: true });
+  const unavailable = "Pour soumettre cette analyse à nouveau, ouvrez MergeOne sur le Mac connecté.";
+  const detailReads: string[] = [];
+  await ui.browser.route(JOB_DETAIL_READ, async (route) => {
+    if (route.request.method === "GET") detailReads.push(new URL(route.request.url).pathname);
+    await route.fallback();
+  });
+  try {
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+    await expect(rows).toHaveCount(3);
+    await expect(localRow).toContainText("Le service d’analyse n’a pas pu terminer le métré.");
+    await expect(localRow).toContainText("Relances utilisées : 0 sur 3");
+    await expect(localRow).toContainText(unavailable);
+    // The failure says what happened; only the decision says what to do (fix round 1): no « Relancez » beside a wait.
+    await expect(scheduledRow).toContainText("Délai dépassé.");
+    await expect(scheduledRow).not.toContainText("Relancez");
+    await expect(scheduledRow).toContainText(/Une reprise automatique est programmée à partir du \d/);
+    await expect(legacyRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez une nouvelle analyse depuis l’affaire.");
+    for (const row of [legacyRow, scheduledRow, localRow]) {
+      await expect(retry(row)).toHaveCount(0);
+      await expect(row).not.toContainText(/AI_PROVIDER|AI_TIMEOUT|\(code /);
+    }
+    // The banner follows the newest analysis's decision (a new analysis, for an operator who may write the affaire).
+    await expect(ui.screen.getByRole("button", "Préparer un nouveau métré", { exact: true })).toBeVisible();
+    expect(detailReads).toEqual([]);
+  } finally {
+    await ui.browser.unroute(JOB_DETAIL_READ);
+  }
+
+  // The list, each detail and the command give the same decision.
+  const decided = { [localId]: ["none", "execution_unavailable"], [scheduledId]: ["wait_retry", "retry_scheduled"],
+    [legacyId]: ["new_analysis", "legacy_provider"] };
+  const activity = await apiRequest<{ data: TakeoffActivityCenterResponse }>(ui.browser, "GET", `/api/takeoff/activity-center?project_id=${ids.projectId}`);
+  expect(activity.status).toBe(200);
+  for (const [jobId, [action, reason]] of Object.entries(decided)) {
+    const row = activity.body.data.jobs.find((job) => job.jobId === jobId);
+    expect(row?.resume, jobId).toMatchObject({ action, reason });
+    const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+    expect(detail.body.data.job.resume, jobId).toEqual({ action, reason, available_at: row!.resume?.availableAt });
+    expect(detail.body.data.job.can_resubmit, jobId).toBe(false);
+  }
+  const refusedHere = await resubmit(localId);
+  expect([refusedHere.status, refusedHere.body.error.code]).toEqual([422, "AI_PROVIDER"]);
+  expect(refusedHere.body.error.details.resume).toEqual({ action: "none", reason: "execution_unavailable", available_at: null });
+  const refusedScheduled = await resubmit(scheduledId);
+  expect([refusedScheduled.status, refusedScheduled.body.error.code]).toEqual([409, "CONFLICT"]);
+  expect(refusedScheduled.body.error.details.resume).toMatchObject({ action: "wait_retry", reason: "retry_scheduled" });
+
+  // The role changes after the read: the command reads it again and refuses with the reason the list then gives.
+  const [role] = await querySql(`select role from public.tenant_memberships where user_id = '${owner.userId}' and tenant_id = '${tenantId}'`);
+  expect(["admin", "engineer"]).toContain(role);
+  await querySql(`update public.tenant_memberships set role = 'viewer' where user_id = '${owner.userId}' and tenant_id = '${tenantId}'`);
+  try {
+    const refusedRole = await resubmit(localId);
+    expect([refusedRole.status, refusedRole.body.error.code]).toEqual([403, "FORBIDDEN"]);
+    expect(refusedRole.body.error.details.resume).toEqual({ action: "none", reason: "read_only", available_at: null });
+    await ui.browser.reload();
+    await expect(localRow).toContainText("Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.");
+    // The job's own facts come first, for a reader too; the banner offers the reader no launch either.
+    await expect(legacyRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse. Un ingénieur ou un administrateur peut préparer une nouvelle analyse.");
+    await expect(ui.screen.getByRole("button", "Préparer un nouveau métré", { exact: true })).toHaveCount(0);
+  } finally {
+    await querySql(`update public.tenant_memberships set role = '${role}' where user_id = '${owner.userId}' and tenant_id = '${tenantId}'`);
+  }
+
+  // Another administrator of the tenant: only the launcher may spend the plan of an existing job.
+  const colleague = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "OTHER" });
+  await querySql(`update public.tenant_memberships set is_default = false where user_id = '${colleague.userId}';
+    insert into public.tenant_memberships (tenant_id, user_id, role, is_default) values ('${tenantId}', '${colleague.userId}', 'admin', true)`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+  await expect(rows).toHaveCount(3);
+  await expect(localRow).toContainText(
+    "Seule la personne qui a lancé cette analyse peut la démarrer avec son forfait. Préparez une nouvelle analyse avec votre forfait.");
+  await expect(retry(localRow)).toHaveCount(0);
+  const refusedOther = await resubmit(localId);
+  expect([refusedOther.status, refusedOther.body.error.code]).toEqual([403, "FORBIDDEN"]);
+  expect(refusedOther.body.error.details.resume).toEqual({ action: "new_analysis", reason: "launched_by_other", available_at: null });
+
+  for (const jobId of [localId, scheduledId, legacyId]) expect(await stored(jobId), jobId).toEqual(["failed:0"]);
+  expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
+  await recordEvidence(ui.army, "TKW13-resume-policy", { ids, localId, scheduledId, legacyId, detailReads, decided,
+    refused: { here: "execution_unavailable", scheduled: "retry_scheduled", role: "read_only", other: "launched_by_other" },
+    boundary: "Stopped analyses seeded on the owned stack as the previous version leaves them; production app without local analysis; "
+      + "no provider call, no job or estimate write." });
 });
 
 // TI-662 (L3): the vector reading of a level C plan is persisted beside its result, read back by the review

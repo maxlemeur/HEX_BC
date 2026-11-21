@@ -31,16 +31,19 @@ export default async function NotificationsPage({
         <ul aria-label="Notifications de métré" className="mt-4 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
           {notifications.map((notice) => {
             const projectHref = `/dashboard/affaires/${notice.project_id}`;
+            // The notice is delivered under the affaire's read rule; its job may be hidden from its requester by the
+            // job's own rule (notice.job is then null). The review is offered only when the job is readable; the
+            // job's end on the affaire's activity always is.
             const reviewHref = takeoffEnabled && notice.outcome === "success" && notice.job_id && notice.job
               ? takeoffReviewHref({
                 projectId: notice.project_id, jobId: notice.job_id, versionId: notice.job.estimate_version_id,
               })
               : null;
-            const activityHref = takeoffEnabled && notice.outcome === "failure" && notice.job
-              ? `${projectHref}/takeoff`
+            const activityHref = takeoffEnabled && notice.job_id
+              ? `${projectHref}/takeoff?job=${encodeURIComponent(notice.job_id)}`
               : null;
             // A cached activity page may still show the job as pending.
-            const NoticeLink = activityHref ? "a" : Link;
+            const NoticeLink = !reviewHref && activityHref ? "a" : Link;
             const deliveryLabel = deliveryLabels[notice.delivery_state];
             return (
               <li key={notice.id} id={notice.id} className="flex flex-wrap items-start justify-between gap-3 p-4">
@@ -53,7 +56,9 @@ export default async function NotificationsPage({
                     {notice.read_at ? " · Lue" : " · Non lue"}
                   </p>
                   {notice.outcome === "failure" && (
-                    <p className="mt-1 text-sm text-slate-700">{takeoffCompletionFailureReason(notice.job?.error_code)}</p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      {takeoffCompletionFailureReason(notice.reason_code ?? notice.job?.error_code)}
+                    </p>
                   )}
                   {deliveryLabel && <p className="mt-1 text-sm text-slate-700">{deliveryLabel}</p>}
                   <NoticeLink href={reviewHref ?? activityHref ?? projectHref} className="mt-2 inline-block text-sm font-medium text-blue-700 underline">

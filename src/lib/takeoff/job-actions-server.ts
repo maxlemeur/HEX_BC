@@ -1,11 +1,11 @@
 import "server-only";
 
 import { mapSupabaseError } from "@/lib/http/api-response";
-import { hasScheduledLocalTakeoffRetry } from "@/lib/takeoff/completion-outcome";
 import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
-import { TAKEOFF_RETRY_BACKOFF_SECONDS, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
+import { TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { isRecord } from "@/lib/value-guards";
 import {
   getAuthenticatedTakeoffContext,
   getTakeoffJobDetailByIdOrThrow,
@@ -13,6 +13,16 @@ import {
   TAKEOFF_JOB_DETAIL_SELECT,
   type TakeoffJobDetailRow,
 } from "@/lib/takeoff/job-read-server";
+import {
+  canTakeoffResumeViewerAct,
+  describeTakeoffResume,
+  getTakeoffRetryBackoffMs,
+  resolveTakeoffOperatorState,
+  toTakeoffOperatorStateInput,
+  type TakeoffResumeDecision,
+  type TakeoffResumeViewer,
+} from "@/lib/takeoff/operator-state";
+import { readTakeoffResumeViewers } from "@/lib/takeoff/resume-viewer-server";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 import {
   assertTakeoffOperatorActionRole,
@@ -22,31 +32,16 @@ import {
 } from "@/lib/takeoff/server-helpers";
 import type { TakeoffJobActionResponse } from "@/lib/takeoff/types";
 
-function getTakeoffRetryBackoffMs(retryCount: number) {
-  const clamped = Math.max(
-    0,
-    Math.min(retryCount, TAKEOFF_RETRY_BACKOFF_SECONDS.length - 1)
-  );
-
-  return TAKEOFF_RETRY_BACKOFF_SECONDS[clamped] * 1000;
-}
-
 function buildTerminalStatusConflictError(input: {
   status: string;
   allowedStatuses: string[];
-  action: "cancel" | "resubmit";
 }): TakeoffError {
-  const message =
-    input.action === "resubmit"
-      ? "Le job doit être en statut failed ou canceled pour être resoumis."
-      : "Le job doit être en statut pending ou processing pour être annulé.";
-
   return new TakeoffError({
     status: 409,
     code: TakeoffErrorCode.CONFLICT,
-    message,
+    message: "Seule une analyse en file ou en traitement peut être annulée.",
     details: {
-      action: input.action,
+      action: "cancel",
       current_status: input.status,
       allowed_statuses: input.allowedStatuses,
     },
@@ -84,19 +79,50 @@ function buildTakeoffJobResetUpdate(input: { retryCount: number }) {
   };
 }
 
-function assertCanManuallyResubmitAnalysis(job: TakeoffJobDetailRow) {
-  const message = job.analysis_outcome
-    ? "Cette analyse est close. Préparez une nouvelle analyse depuis l’affaire."
-    : hasScheduledLocalTakeoffRetry(job) ? "Une reprise automatique de cette analyse est déjà programmée." : null;
-  if (message) {
-    throw new TakeoffError({
-      status: 409,
-      code: TakeoffErrorCode.CONFLICT,
-      message,
-      retryable: false,
-      jobId: job.id,
-    });
-  }
+function toResumeDetails(decision: TakeoffResumeDecision) {
+  return { action: decision.action, reason: decision.reason, available_at: decision.availableAt };
+}
+
+/** A refusal of a check the policy does not read, with the decision in force attached for the screen to adopt. */
+function withResumeDecision(error: unknown, decision: TakeoffResumeDecision): unknown {
+  if (!(error instanceof TakeoffError)) return error;
+  return new TakeoffError({
+    status: error.status,
+    code: error.code,
+    message: error.message,
+    details: { ...(isRecord(error.details) ? error.details : {}), resume: toResumeDetails(decision) },
+    retryable: error.retryable,
+    jobId: error.jobId,
+  });
+}
+
+/**
+ * The refusal of a retry the resume policy does not allow, with the policy's reason as its code: the list and the
+ * detail showed the same decision. A member who may not act on the affaire is refused as such, whatever the job.
+ */
+function buildResumeRefusal(job: TakeoffJobDetailRow, decision: TakeoffResumeDecision, viewer: TakeoffResumeViewer): TakeoffError {
+  const [status, code] = !canTakeoffResumeViewerAct(viewer) || decision.reason === "launched_by_other"
+    ? [403, TakeoffErrorCode.FORBIDDEN] as const
+    : decision.reason === "legacy_provider" || decision.reason === "execution_unavailable" || decision.reason === "other_mac"
+      || decision.reason === "plan_disconnected" || decision.reason === "plan_model_missing"
+      ? [422, TakeoffErrorCode.AI_PROVIDER] as const
+      : [409, TakeoffErrorCode.CONFLICT] as const;
+  const retryCount = job.retry_count ?? 0;
+  return new TakeoffError({
+    status,
+    code,
+    message: describeTakeoffResume(decision) ?? "Cette analyse n’est pas arrêtée : elle ne peut pas être soumise à nouveau.",
+    details: {
+      resume: toResumeDetails(decision),
+      ...decision.reason === "not_stopped" ? { action: "resubmit", current_status: job.status, allowed_statuses: ["failed", "canceled"] } : {},
+      ...decision.reason === "retry_limit" ? { retry_count: retryCount, retry_max: TAKEOFF_RETRY_MAX } : {},
+      ...decision.reason === "retry_delay" ? {
+        retry_count: retryCount, retry_backoff_ms: getTakeoffRetryBackoffMs(retryCount), retry_available_at: decision.availableAt,
+      } : {},
+    },
+    retryable: false,
+    jobId: job.id,
+  });
 }
 
 export async function resubmitTakeoffJob(
@@ -104,7 +130,6 @@ export async function resubmitTakeoffJob(
 ): Promise<TakeoffJobActionResponse> {
   const { supabase, tenantId, userId, tenantRole } =
     await getAuthenticatedTakeoffContext();
-  assertTakeoffOperatorActionRole(tenantRole);
 
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
@@ -116,61 +141,49 @@ export async function resubmitTakeoffJob(
     tenantId,
     jobId: normalizedJobId,
   });
-  if (existingJob.execution_provider === "chatgpt_local") assertCanManuallyResubmitAnalysis(existingJob);
-  await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
-
-  if (existingJob.status !== "failed" && existingJob.status !== "canceled") {
-    throw buildTerminalStatusConflictError({
-      action: "resubmit",
-      status: existingJob.status,
-      allowedStatuses: ["failed", "canceled"],
+  // Role, rights on the affaire, state, recorded end, retry schedule, delay, Mac and the member's own ChatGPT connection
+  // are read again now: the screen showed a decision of the same policy, which may have changed since.
+  const decideNow = async (job: TakeoffJobDetailRow) => {
+    const viewerOf = await readTakeoffResumeViewers({
+      supabase, tenantId, member: { userId, tenantRole }, projectIds: [job.project_id],
     });
+    const viewer = viewerOf(job.project_id);
+    return { viewer, resume: resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer)).resume };
+  };
+  // The decision a refusal carries is read after the refusal's cause: the job, the member's rights and connection again.
+  const decideAgain = async () => {
+    const current = await getTakeoffJobDetailByIdOrThrow({ supabase, tenantId, jobId: normalizedJobId });
+    return (await decideNow(current)).resume;
+  };
+  const first = await decideNow(existingJob);
+  if (first.resume.action !== "retry_now") throw buildResumeRefusal(existingJob, first.resume, first.viewer);
+  // What no list reads (the launcher's membership, the schema, the selection confirmed at launch).
+  try {
+    await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
+  } catch (error) {
+    throw withResumeDecision(error, await decideAgain());
   }
+  // The right to write the affaire is read again just before the write, which the database guards by the same role and
+  // ownership rule (row security of the update) and by the launcher (below).
+  const { viewer, resume } = await decideNow(existingJob);
+  if (resume.action !== "retry_now") throw buildResumeRefusal(existingJob, resume, viewer);
 
   const retryCount = existingJob.retry_count ?? 0;
-
-  if (retryCount >= TAKEOFF_RETRY_MAX) {
-    throw new TakeoffError({
-      status: 409,
-      code: TakeoffErrorCode.CONFLICT,
-      message: "Le nombre maximal de relances est atteint pour ce job.",
-      details: {
-        retry_count: retryCount,
-        retry_max: TAKEOFF_RETRY_MAX,
-      },
-      retryable: false,
-      jobId: normalizedJobId,
-    });
-  }
-
-  if (existingJob.status === "failed" && existingJob.completed_at) {
-    const requiredBackoffMs = getTakeoffRetryBackoffMs(retryCount);
-    const completedAtMs = Date.parse(existingJob.completed_at);
-    if (Number.isFinite(completedAtMs)) {
-      const earliestRetryAtMs = completedAtMs + requiredBackoffMs;
-      if (Date.now() < earliestRetryAtMs) {
-        throw new TakeoffError({
-          status: 409,
-          code: TakeoffErrorCode.CONFLICT,
-          message: "Le délai de relance n'est pas encore écoulé pour cette analyse.",
-          details: {
-            retry_count: retryCount,
-            retry_backoff_ms: requiredBackoffMs,
-            retry_available_at: new Date(earliestRetryAtMs).toISOString(),
-          },
-          retryable: false,
-          jobId: normalizedJobId,
-        });
-      }
-    }
-  }
-
-  const { data, error } = await supabase
+  // Compare and set: a concurrent retry, a scheduled retry, a recorded end or another launcher since the read leaves the
+  // row unchanged.
+  let reset = supabase
     .from("takeoff_jobs" as never)
     .update(buildTakeoffJobResetUpdate({ retryCount }) as never)
     .eq("tenant_id" as never, tenantId as never)
     .eq("id" as never, normalizedJobId as never)
-    .in("status" as never, ["failed", "canceled"] as never)
+    .eq("status" as never, existingJob.status as never)
+    .eq("created_by" as never, userId as never)
+    .is("analysis_outcome" as never, null)
+    .is("next_retry_at" as never, null);
+  reset = existingJob.retry_count === null
+    ? reset.is("retry_count" as never, null)
+    : reset.eq("retry_count" as never, existingJob.retry_count as never);
+  const { data, error } = await reset
     .select(TAKEOFF_JOB_DETAIL_SELECT as never)
     .maybeSingle();
 
@@ -186,11 +199,14 @@ export async function resubmitTakeoffJob(
   }
 
   if (!data) {
+    // The answer carries the decision now in force, which the row adopts.
+    const now = await decideAgain();
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "Le job n'est plus dans un statut resoumettable.",
+      message: "Cette analyse a changé depuis sa lecture. Rechargez le suivi avant de la soumettre à nouveau.",
       details: {
+        resume: toResumeDetails(now),
         allowed_statuses: ["failed", "canceled"],
       },
       retryable: false,
@@ -220,7 +236,7 @@ export async function resubmitTakeoffJob(
   });
 
   return {
-    job: normalizeTakeoffJobSummaryRow(updatedJob, tenantRole),
+    job: normalizeTakeoffJobSummaryRow(updatedJob, tenantRole, viewer),
     command: "resubmit",
     outcome: "applied",
   };
@@ -243,12 +259,26 @@ export async function cancelTakeoffJob(jobId: string): Promise<TakeoffJobActionR
 
   if (existingJob.status !== "pending" && existingJob.status !== "processing") {
     throw buildTerminalStatusConflictError({
-      action: "cancel",
       status: existingJob.status,
       allowedStatuses: ["pending", "processing"],
     });
   }
 
+  // Read before the write: the answer's resume decision must not turn a written cancel into a reported failure.
+  // The right to write the affaire, read just before the write, which the database guards by the same role and
+  // ownership rule (row security of the update).
+  const viewerOf = await readTakeoffResumeViewers({
+    supabase, tenantId, member: { userId, tenantRole }, projectIds: [existingJob.project_id],
+  });
+  if (!canTakeoffResumeViewerAct(viewerOf(existingJob.project_id))) {
+    throw new TakeoffError({
+      status: 403,
+      code: TakeoffErrorCode.FORBIDDEN,
+      message: "Vous ne pouvez pas annuler cette analyse : votre profil ne peut pas modifier cette affaire.",
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
   const completedAt = new Date().toISOString();
   const { data, error } = await supabase
     .from("takeoff_jobs" as never)
@@ -280,7 +310,7 @@ export async function cancelTakeoffJob(jobId: string): Promise<TakeoffJobActionR
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "Le job n'est plus dans un statut annulable.",
+      message: "Cette analyse n’est plus en file ni en traitement : elle ne peut plus être annulée.",
       details: {
         allowed_statuses: ["pending", "processing"],
       },
@@ -308,7 +338,7 @@ export async function cancelTakeoffJob(jobId: string): Promise<TakeoffJobActionR
   });
 
   return {
-    job: normalizeTakeoffJobSummaryRow(updatedJob, tenantRole),
+    job: normalizeTakeoffJobSummaryRow(updatedJob, tenantRole, viewerOf(updatedJob.project_id)),
     command: "cancel",
     outcome: "applied",
   };

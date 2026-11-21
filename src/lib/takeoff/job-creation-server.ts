@@ -1,6 +1,6 @@
 import "server-only";
 
-import { assertLocalTakeoffResumeReady, assertTakeoffProviderAvailable, getTakeoffExecutionOwner, parseTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
+import { assertLocalTakeoffResumeReady, assertTakeoffJobStarter, getConfirmedTakeoffExecutionOwner, requireDetailedTakeoffProcessing } from "@/lib/ai/chatgpt-takeoff";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import {
@@ -10,7 +10,6 @@ import {
 } from "@/lib/takeoff/errors";
 import {
   assertTakeoffEnabled,
-  getTakeoffChunkingConfigForTenant,
   getTakeoffLevelCProcessingConfigForTenant,
 } from "@/lib/takeoff/feature-flags";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
@@ -23,7 +22,7 @@ import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-ser
 import type { Json } from "@/types/database";
 import { assertReplayedTakeoffProcessing } from "@/lib/takeoff/preparation-processing-server";
 import {
-  TAKEOFF_PLAN_SET_LEVEL,
+  LEGACY_PLAN_SET_PROCESSING,
   type TakeoffJobRow,
   type TakeoffJobCreateResponse,
   deriveDeterministicJobId,
@@ -74,13 +73,15 @@ export type CreatePreparedPlanSetJobInput = {
 
 export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSetJobInput, executionProvider?: "chatgpt_local") {
   const context = await getAuthenticatedContext();
+  const level = input.level ?? LEGACY_PLAN_SET_PROCESSING.level;
+  const provider = input.provider ?? LEGACY_PLAN_SET_PROCESSING.provider;
   const deterministic = await getTakeoffJobById({
     supabase: context.supabase, tenantId: context.tenantId,
     jobId: derivePlanSetTakeoffJobId({ ...input, tenantId: context.tenantId }),
   });
   const existing = deterministic ?? await getTakeoffPlanSetJobByPreparation({
     ...input, supabase: context.supabase, tenantId: context.tenantId,
-    preparationRevision: input.preparationRevision ?? null, level: input.level ?? TAKEOFF_PLAN_SET_LEVEL,
+    preparationRevision: input.preparationRevision ?? null, level,
     executionProvider,
   });
   if (!existing) return null;
@@ -101,9 +102,12 @@ export async function findTakeoffJobForPlanSetLaunch(input: CreatePreparedPlanSe
   if (targetVersionId !== sourceVersionId && (revision === null || !await hasTakeoffPreparationCopyReceipt({
     context, projectId: input.projectId, sourceVersionId, targetVersionId, preparationRevision: revision,
   }))) throw conflict();
-  assertReplayedTakeoffProcessing(existing, { level: input.level ?? TAKEOFF_PLAN_SET_LEVEL, provider: input.provider ?? "auto" });
+  assertReplayedTakeoffProcessing(existing, { level, provider });
   await assertTakeoffJobCreationRecorded(context.tenantId, existing);
-  if (existing.status === "pending") await assertLocalTakeoffResumeReady(context.supabase, context.tenantId, existing);
+  if (existing.status === "pending") {
+    assertTakeoffJobStarter(existing, context.userId);
+    await assertLocalTakeoffResumeReady(context.supabase, context.tenantId, existing);
+  }
   return normalizeTakeoffJobRow(existing);
 }
 
@@ -138,23 +142,11 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
 })): Promise<TakeoffJobCreateResponse | AffaireJobReceipt> {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId, tenantRole } = context;
-  const level = input.level ?? TAKEOFF_PLAN_SET_LEVEL;
-
-  if (level === "A") {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.BAD_REQUEST,
-      message:
-        "Le niveau Rapide n'est pas disponible pour les jeux de plans. Utilisez Standard ou Détaillé.",
-      retryable: false,
-      level,
-    });
-  }
-
   const { estimateVersionId, projectId } = input;
+  // A version launch's ID follows its inputs (its processing is checked below, before anything is written).
   const jobId = input.estimateVersionId === null
     ? deriveDeterministicJobId(tenantId, `takeoff-affaire:${input.operationId}`)
-    : derivePlanSetTakeoffJobId({ ...input, tenantId, level });
+    : derivePlanSetTakeoffJobId({ ...input, tenantId });
   async function findExisting(executionProvider?: Parameters<typeof findTakeoffJobForPlanSetLaunch>[1]) {
     if (input.estimateVersionId !== null) return findTakeoffJobForPlanSetLaunch(input, executionProvider);
     const row = await getTakeoffJobById({ supabase, tenantId, projectId, jobId });
@@ -166,7 +158,10 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
     }
     assertReplayedTakeoffProcessing(row, { level: "C", provider: "chatgpt" });
     await assertTakeoffJobCreationRecorded(tenantId, row);
-    if (row.status === "pending") await assertLocalTakeoffResumeReady(supabase, tenantId, row);
+    if (row.status === "pending") {
+      assertTakeoffJobStarter(row, userId);
+      await assertLocalTakeoffResumeReady(supabase, tenantId, row);
+    }
     return affaireJobReceipt(row, projectId);
   }
 
@@ -176,7 +171,8 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
   const existing = await findExisting();
   if (existing) return existing;
 
-  assertTakeoffProviderAvailable(parseTakeoffProvider(input.provider));
+  const { level, provider } = requireDetailedTakeoffProcessing(input);
+
   await assertTakeoffEnabled(tenantId, { supabase });
   if (estimateVersionId !== null) await assertEstimateVersionAccessibleAsDraft({
     supabase, tenantId, userId, tenantRole, estimateVersionId,
@@ -185,12 +181,10 @@ async function createPreparedPlanSetTakeoffJob(input: CreatePreparedPlanSetJobIn
     context, projectId: input.projectId, estimateVersionId: input.estimateVersionId,
     preparationRevision: input.preparationRevision ?? null, planSetId: input.planSetId,
     sourceVersionId: input.sourceVersionId,
-    level, provider: input.provider ?? "auto",
+    level, provider,
   });
-  const executionOwner = await getTakeoffExecutionOwner(supabase, { userId, tenantId }, input.provider);
-  const planSetPageConfig = level === "C"
-    ? await getTakeoffLevelCProcessingConfigForTenant(tenantId, { supabase })
-    : await getTakeoffChunkingConfigForTenant(tenantId, { supabase });
+  const executionOwner = await getConfirmedTakeoffExecutionOwner(supabase, { userId, tenantId }, preparationSnapshot);
+  const planSetPageConfig = await getTakeoffLevelCProcessingConfigForTenant(tenantId, { supabase });
 
   await assertPlanSetAccessibleForCreation({
     supabase,

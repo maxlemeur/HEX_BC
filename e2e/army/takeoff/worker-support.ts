@@ -87,10 +87,13 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId:
   }
   const names = ["PATH", "TMPDIR", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
     "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD", "E2E_ALLOWED_SUPABASE_HOST", "E2E_ARMY_LOCAL_DB_URL", "E2E_ARMY_BASE_URL",
-    "E2E_COVERAGE_BACKEND_ORIGIN", "E2E_COVERAGE_NETWORK_LOG", "E2E_ARMY_BLOCK_WORKERS", "E2E_ARMY_TAKEOFF_WORKER"];
+    "E2E_COVERAGE_BACKEND_ORIGIN", "E2E_COVERAGE_NETWORK_LOG", "E2E_ARMY_BLOCK_WORKERS", "E2E_ARMY_TAKEOFF_WORKER",
+    // The e-mail it sends links to the job's page only where the takeoff is enabled, as the app decides.
+    "TAKEOFF_MODULE_ENABLED_BY_DEFAULT"];
   const env = { NODE_ENV: "test" as const, ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]!])),
-    // MergeOne local on this host: the child claims the job as its own host (ownedWorkerHostId); its provider is controlled.
     MERGEONE_CHATGPT_LOCAL: "1",
+    MERGEONE_TAKEOFF_VECTORS: options.vectors ? "1" : "0",
+    MERGEONE_TAKEOFF_RULES: options.rules ? "1" : "0",
     ...(options.trigger ? { ARMY_TAKEOFF_WORKER_TRIGGER: options.trigger } : {}),
     ...(options.mailCollector ? {
       E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN: options.mailCollector,
@@ -98,10 +101,6 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId:
       EMAIL_FROM: "ARMY Métré <metre@fixture.invalid>", EMAIL_DELIVERY_MODE: "redirect",
       EMAIL_REDIRECT_TO: "collecteur@fixture.invalid", MERGEONE_TAKEOFF_EMAIL_ORIGIN: ui.app.baseUrl!,
     } : {}),
-    // TI-662: the vector reading is opt-in per worker; only the journey that asserts it turns it on.
-    ...(options.vectors ? { MERGEONE_TAKEOFF_VECTORS: "1" } : {}),
-    // TI-664: the fixed rules' inputs are written by the worker only when they are on (MERGEONE_TAKEOFF_RULES).
-    ...(options.rules ? { MERGEONE_TAKEOFF_RULES: "1" } : {}),
     ...(options.providerItems ? { ARMY_TAKEOFF_PROVIDER_ITEMS: JSON.stringify(options.providerItems) } : {}),
     // The worker child signs in as the job's owner: a journey's dedicated owner, else the campaign account.
     ...(options.owner ? { E2E_LOGIN_EMAIL: options.owner.email, E2E_LOGIN_PASSWORD: options.owner.password } : {}) };

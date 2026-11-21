@@ -6,10 +6,11 @@ import path from "node:path";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { expect } from "e2e";
 
-import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
+import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser, type ArmyState } from "../critical/fixtures";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
-import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
+import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadPlansUnderNames, uploadSamplePlan } from "../critical/plans-support";
+import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import {
@@ -23,7 +24,8 @@ import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 import { activateOwnedTakeoffNotices, readOwnedTakeoffNotice } from "../takeoff/completion-support";
 
 // The takeoff jobs of the ChatGPT local journeys, on this file's own development server: the local-only provider
-// rules (LOCAL01 to LOCAL06), the profile's OAuth start, the PDF takeoff on the plan, and V3C08.
+// rules (LOCAL01 to LOCAL06), the launch of a second plan set (LOCAL07), the profile's OAuth start, the PDF takeoff
+// on the plan, and V3C08.
 // The Decisions, lab, price reuse and intake journeys run in chatgpt-local-decisions.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). The order matters: LOCAL01 and the OAuth start
 // need an owner without a ChatGPT profile, and the PDF takeoff leaves the profile that the private business witness
@@ -72,7 +74,7 @@ test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   const jobs = ownedTakeoffJobs(browser, estimate);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
-  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
+  const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name] });
   await expect(browser.locator('select option[value="gemini"]')).toHaveCount(0);
   await dialog.getByText("Assistance au cadrage", { exact: true }).click();
   await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
@@ -90,7 +92,7 @@ test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
     noGeminiOption: true, assistanceUnavailable: true, noJobsCreated: true, forgedProviderRejected: forged.errorStatus, forbiddenRequests: 0 });
 });
 
-test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
+if (!existsSync(liveProbePath)) test("LOCAL02 a legacy drafting choice converts to detailed ChatGPT with no data entry", {
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
 }, async ({ app, screen, browser }) => {
   if (!await preparePlanFixture()) throw new Error("LOCAL02 requires a separate temporary ChatGPT profile.");
@@ -104,13 +106,13 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
     const file = await uploadSamplePlan(ui, army, planSet);
     await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
     await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
-    await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
     await saveTakeoffPreparation({ ...ui, army });
     const { client } = await localClient();
     const row = await client.from("takeoff_preparations").select("draft,revision").eq("project_id", estimate.projectId).single();
     expect(row.error).toBeNull();
-    const draft = row.data!.draft as { processing: { level: string; provider: string } };
-    draft.processing.provider = "gemini";
+    const draft = row.data!.draft as { processing: { level: string; provider: string }; provenance?: unknown };
+    draft.processing = { level: "B", provider: "gemini" };
+    delete draft.provenance;
     const { client: worker } = await localTakeoffWorkerClient(army, estimate.versionId, fixtureEmail);
     const update = await worker.from("takeoff_preparations").update({ draft, revision: row.data!.revision + 1 }).eq("project_id", estimate.projectId).select("project_id").single();
     expect(update.error).toBeNull();
@@ -118,13 +120,11 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
     await waitForHydration(browser);
     await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
     const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
-    await dialog.getByRole("button", /Vérifier et lancer$/).click();
-    await dialog.getByText("Options avancées", { exact: true }).click();
-    const picker = dialog.getByLabel("Fournisseur IA", { exact: true });
-    await expect(picker).toHaveValue("gemini");
-    await expect(dialog.getByText(/ancien fournisseur.*indisponible/i).first()).toBeVisible();
-    await picker.selectOption({ value: "chatgpt" });
-    await expect(picker).toHaveValue("chatgpt");
+    await expect(dialog.getByText(/Préparation précédente adaptée/)).toBeVisible();
+    await expect(dialog.getByText("Tout mesurer", { exact: true })).toBeVisible();
+    await expect(dialog.getByText(/Unité par ouvrage/)).toBeVisible();
+    await expect(dialog.getByLabel("Fournisseur IA", { exact: true })).toHaveCount(0);
+    const transportStart = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).length;
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
     const jobs = ownedTakeoffJobs(browser, estimate);
     await expect.poll(async () => (await jobs.list()).length, { timeout: 45_000 }).toBe(1);
@@ -139,18 +139,108 @@ test("LOCAL02 an old Gemini draft can be reselected and launched on ChatGPT", {
     expect(result.result?.provider_meta).toMatchObject({ provider: "chatgpt" });
     const stored = await client.from("takeoff_jobs").select("execution_provider,preparation_snapshot").eq("id", job.id).single();
     expect(stored.error).toBeNull();
-    expect(stored.data).toMatchObject({ execution_provider: "chatgpt_local", preparation_snapshot: { preparation: { processing: { level: "B", provider: "chatgpt" } } } });
+    expect(stored.data).toMatchObject({ execution_provider: "chatgpt_local", preparation_snapshot: { execution_selection: { model: "army-plan-model", reasoningEffort: null }, preparation: { processing: { level: "C", provider: "chatgpt" }, objective: "measure_all", conventions: { unit_mode: "per_item" }, provenance: { rule_version: 1, converted_from_legacy: true } } } });
     const snapshot = stored.data!.preparation_snapshot as unknown as { preparation_revision: number; preparation: { sources: Array<{ active: boolean; content_hash: string; document_id: string; revision: string; plan_set_id: string }> } };
     const activeSources = snapshot.preparation.sources.filter(source => source.active);
     expect(snapshot.preparation_revision).toBeGreaterThan(0);
     expect(activeSources).toHaveLength(1);
-    expect(activeSources[0]).toMatchObject({ document_id: file.id, revision: "A", plan_set_id: planSet.id });
+    expect(activeSources[0]).toMatchObject({ document_id: file.id, revision: null, plan_set_id: planSet.id });
     expect(activeSources[0].content_hash).toMatch(/^[a-f0-9]{64}$/);
     const transport = (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
     expect(transport.filter(entry => entry.provider === "forbidden")).toEqual([]);
-    await recordEvidence(army, "local-only-legacy-draft", { estimate, jobId: job.id, restoredLegacyChoice: true,
+    const calls = transport.slice(transportStart).filter(entry => entry.provider === "chatgpt-fixture" && entry.inputKind === "pdf");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].model).toBe("army-plan-model");
+    expect(calls[0]).not.toHaveProperty("reasoningEffort");
+    await recordEvidence(army, "local-only-legacy-draft", { estimate, jobId: job.id, convertedLegacyChoice: true, providerCalls: calls,
       chosenProvider: "chatgpt", resultProvider: result.result?.provider_meta, forbiddenRequests: 0,
       boundary: "Fictional plan and ChatGPT transport fixture on an owned local backend." });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+// Regression: the plan set the member left keeps the identical copy it set aside, which must not refuse the launch of
+// the plan set chosen next.
+if (!existsSync(liveProbePath)) test("LOCAL07 another plan set launches after the first one set an identical copy aside", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("LOCAL07 requires a separate temporary ChatGPT profile.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-local-plan-sets-${Date.now()}`;
+    const army: ArmyState = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Deux jeux de plans" }, army);
+    const first = await createPlanSet(ui, army, estimate, `${prefix} plans A`);
+    await screen.getByRole("heading", first.name, { exact: true }).click();
+    const identical = await uploadPlansUnderNames(ui, army, first, ["Réseau RDC.pdf", "Réseau RDC copie.pdf"]);
+    const created = await apiRequest<{ data: { plan_set: { id: string; tenant_id: string } } }>(browser, "POST", "/api/takeoff/plan-sets",
+      { project_id: estimate.projectId, name: `${prefix} plans B` });
+    expect(created.status).toBe(201);
+    const second = { ...first, ...created.body.data.plan_set, name: `${prefix} plans B` };
+    (army.ownedPlanSets ??= []).push({ projectId: estimate.projectId, planSetId: second.id, tenantId: second.tenant_id });
+    await browser.reload();
+    await waitForHydration(browser);
+    await screen.getByRole("heading", second.name, { exact: true }).click();
+    const [other] = await uploadPlansUnderNames(ui, army, second, ["Réseau R+1.pdf"]);
+    const jobs = ownedTakeoffJobs(browser, estimate);
+    const { client } = await localClient();
+    const launchedJobs = async () => {
+      const result = await client.from("takeoff_jobs").select("id,plan_set_id,status,error_code,preparation_snapshot")
+        .eq("estimate_version_id", estimate.versionId).order("created_at");
+      expect(result.error).toBeNull();
+      return result.data!;
+    };
+    // Once an analysis exists, the hub no longer offers a launch: another plan set is analysed from its launch link in
+    // the activity center (« Pour analyser un autre jeu, ouvrez-le ci-dessous » in the plans center).
+    const openLaunch = async (planSetId: string) => {
+      await ui.app.open(`/dashboard/affaires/${estimate.projectId}/takeoff?launch=1&launchPlanSet=${planSetId}`);
+      const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+      await expect(dialog.getByLabel("Jeu de plans à analyser", { exact: true })).toHaveValue(planSetId);
+      return dialog;
+    };
+    const plans = (job: { preparation_snapshot: unknown }) => (job.preparation_snapshot as unknown as { preparation: TakeoffPreparation })
+      .preparation.sources.filter((source) => source.kind === "plan");
+
+    const firstDialog = await openLaunch(first.id);
+    await firstDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect(firstDialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible({ timeout: 45_000 });
+    await expect.poll(async () => (await launchedJobs()).length, { timeout: 45_000 }).toBe(1);
+    const [firstJob] = await launchedJobs();
+    expect(firstJob.plan_set_id).toBe(first.id);
+    // Either identical file may be the one retained: the other is set aside as its copy.
+    const firstSetPlans = plans(firstJob).filter((source) => source.plan_set_id === first.id);
+    const retained = firstSetPlans.filter((source) => source.active);
+    expect(retained).toHaveLength(1);
+    const setAside = firstSetPlans.find((source) => !source.active)!;
+    expect(setAside).toMatchObject({ alternate_of: retained[0].document_id });
+    expect([retained[0].document_id, setAside.document_id].sort()).toEqual(identical.map(({ id }) => id).sort());
+
+    const secondDialog = await openLaunch(second.id);
+    await secondDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    // The launch either succeeds or shows the refusal this journey guards against; the refusal is named if it appears.
+    await expect(secondDialog.getByText(/— 1 fichier de plan[.]|Une version de plan a changé/).first()).toBeVisible({ timeout: 45_000 });
+    await expect(secondDialog.getByText(/Une version de plan a changé/)).toHaveCount(0);
+    await expect(secondDialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible();
+    await expect.poll(async () => (await launchedJobs()).length, { timeout: 45_000 }).toBe(2);
+    const secondJob = (await launchedJobs())[1];
+    expect(secondJob.plan_set_id).toBe(second.id);
+    expect(plans(secondJob).filter((source) => source.active).map((source) => source.document_id)).toEqual([other.id]);
+    // The first plan set keeps the copy it set aside, for a return to it.
+    expect(plans(secondJob).find((source) => source.document_id === setAside.document_id))
+      .toMatchObject({ active: false, alternate_of: retained[0].document_id });
+    // Both analyses end before the next journey counts its provider calls.
+    await expect.poll(async () => {
+      const current = await launchedJobs();
+      const failed = current.find((job) => job.status === "failed");
+      if (failed) throw new Error(`Local plan-set fixture failed: ${failed.error_code ?? "unknown"}`);
+      return current.map((job) => job.status);
+    }, { timeout: 150_000 }).toEqual(["completed", "completed"]);
+    await recordEvidence(army, "local-plan-set-switch", { estimate, firstPlanSetId: first.id, secondPlanSetId: second.id,
+      retainedCopy: retained[0].document_id, setAsideCopy: setAside.document_id, jobs: (await jobs.list()).map(({ id, status }) => ({ id, status })),
+      boundary: "Fictional plans and ChatGPT transport fixture on an owned local backend." });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
@@ -176,7 +266,7 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
     const file = await uploadSamplePlan(ui, army, planSet);
     await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
     await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
-    const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name], processing: { level: "B" } });
+    const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name] });
     await dialog.getByText("Assistance au cadrage", { exact: true }).click();
     await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
     await expect(dialog.getByText(/Reconnectez.*ChatGPT/i).first()).toBeVisible();
@@ -267,7 +357,7 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a definitively ended ChatGPT job r
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Reprise ChatGPT locale" }, army);
     const before = await readEstimate(browser, estimate.versionId);
     await setDecisionsControl({ timeoutWriting: true });
-    const { jobId } = await launchPreparedPlanSet(ui, army, estimate, { level: "B", provider: "auto" });
+    const { jobId } = await launchPreparedPlanSet(ui, army, estimate);
     const read = () => apiRequest<{ data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobId}`);
     await expect.poll(async () => (await read()).body.data.job.status, { timeout: 120_000 }).toBe("failed");
     const failed = (await read()).body.data;
@@ -370,7 +460,7 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff?launch=1&launchPlanSet=${plans.id}`);
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [path.basename(file)],
     objective: "extract_quantities", unit: "Unités des lignes sources", inclusions: "Toutes les quantités documentées",
-    levels: "Tous", zones: "Toutes", exclusions: "", processing: { level: "C", provider: "chatgpt" } });
+    levels: "Tous", zones: "Toutes", exclusions: "" });
   await expect(browser.locator('[role="dialog"] select option[value="gemini"]')).toHaveCount(0);
   await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
   await expect(dialog.getByRole("link", /Centre d'activit/i)).toBeVisible();
@@ -437,9 +527,8 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   expect(planFile.file_size_bytes).toBe((await readFile(probe.pdfPath)).length);
   await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=estimate`);
   await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
-  const preparationInput: Parameters<typeof fillTakeoffPreparation>[1] = { sources: [path.basename(probe.pdfPath)], sourceRevision: probe.sourceRevision,
-    objective: "count", unit: "u", levels: "R+1", zones: "Zone 1", inclusions: probe.inclusions, exclusions: probe.exclusions,
-    processing: { level: "C", provider: "chatgpt" } };
+  const preparationInput: Parameters<typeof fillTakeoffPreparation>[1] = { sources: [path.basename(probe.pdfPath)],
+    objective: "count", unit: "u", levels: "R+1", zones: "Zone 1", inclusions: probe.inclusions, exclusions: probe.exclusions };
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { ...preparationInput, confirm: false });
   await saveTakeoffPreparation({ ...ui, army });
   const { client } = await localClient();
@@ -476,7 +565,7 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
     assistance, evidenceBoundary: "Sanitized upstream response plus successful rendered UI; full server-action provenance is covered separately, not reconstructed here.",
     beforeAssistance, afterAssistance, acceptedProposalIds: [], screenshot: assistanceScreenshot });
   // Observe the suggestions without accepting them; manually confirm the independently fixed scope.
-  await fillTakeoffPreparation({ ...ui, army }, { ...preparationInput, processing: undefined });
+  await fillTakeoffPreparation({ ...ui, army }, preparationInput);
   await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
   await expect(dialog.getByRole("link", /Centre d'activit/i)).toBeVisible();
   const jobs = await client.from("takeoff_jobs").select("id").eq("estimate_version_id", ids.versionId).eq("plan_set_id", planSet.id);
@@ -501,7 +590,7 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   expect(snapshot.preparation.processing).toEqual({ level: "C", provider: "chatgpt" });
   expect(snapshot.preparation.scope).toMatchObject({ levels: ["R+1"], zones: ["Zone 1"] });
   expect(snapshot.preparation.sources).toEqual(expect.arrayContaining([
-    expect.objectContaining({ document_id: planFile.id, content_hash: probe.sha256, revision: probe.sourceRevision, active: true }),
+    expect.objectContaining({ document_id: planFile.id, content_hash: probe.sha256, active: true }),
   ]));
   expect(detail.job.model).toBe(selectedProbe.model);
   expect(detail.items.data.reduce((sum, item) => sum + item.quantity, 0)).toBe(probe.expectedCount);
@@ -543,7 +632,13 @@ test("V3C08 a takeoff targeting a v3 is offered and launched like a v2 one, and 
     if (!serverWorkspace) throw new Error("Owned development workspace unavailable.");
     await restrictCriticalBrowser(browser, ui.app, army);
     await verifyV3TakeoffCreation(ui, army, { userId, tenantId: member.data!.tenant_id },
-      path.resolve(`.build/tester-army/next-${serverWorkspace.id}/dev/server/server-reference-manifest.json`));
+      path.resolve(`.build/tester-army/next-${serverWorkspace.id}/dev/server/server-reference-manifest.json`), {
+        unavailable: async (run) => {
+          const store = await readFile(fixtureStore!, "utf8");
+          await writeFile(fixtureStore!, JSON.stringify({ ...JSON.parse(store), selectedId: null }), { mode: 0o600 });
+          try { return await run(); } finally { await writeFile(fixtureStore!, store, { mode: 0o600 }); }
+        },
+      });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
