@@ -5,6 +5,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as XLSX from "xlsx";
 
 import { recordEvidence } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 import { describe, expect, fixtureFile, localClient, nativeTest as test, type NativeUi } from "./native-ui";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local", "import-formats"], timeout: 180_000 };
@@ -108,6 +109,8 @@ async function openImportConfirmation(ui: NativeUi, projectId: string, format: F
     for (const label of ["Bâtiment A", "Bâtiment B"]) {
       await screen.getByRole("combobox", `Type de ${label}`, { exact: true }).selectOption({ value: "section" });
     }
+    // A decision the reading of the rows alone would not take: « Bâtiment B » under « Bâtiment A ».
+    await screen.getByRole("combobox", "Niveau de Bâtiment B", { exact: true }).selectOption({ value: "2" });
   }
   await screen.getByRole("button", "Suivant : Confirmation", { exact: true }).click();
 }
@@ -129,6 +132,9 @@ async function recordConfirmedEstimate(ui: NativeUi, format: Format, file: strin
   expect(lines.map(({ source_metadata }) => source_metadata)).toEqual(lines.map(() =>
     expect.objectContaining({ import_id: stored.mappings[0].import_id, mapped_row_id: expect.any(String) })
   ));
+  // The confirmation that created the estimate recorded its structure decisions in the same transaction.
+  await ui.app.open(`/dashboard/affaires/${projectId}/takeoff?postes=liste`);
+  await expect(screen.getByText("Choix de structure de la confirmation de l’import appliqués.", { exact: true })).toBeVisible();
   await recordEvidence(army, `POSTE-devis-${format}`, { ...stored, estimate: items.data });
 }
 
@@ -141,12 +147,42 @@ describe("Aperçu des postes à mesurer", () => {
     const table = screen.getByRole("table", "Postes à mesurer", { exact: true });
 
     await expect(screen.getByText("Gabarit indicatif de plomberie · 23 postes")).toBeVisible();
+    await expect(screen.getByText("Gabarit Plomberie · version 1 livrée avec l’application", { exact: true })).toBeVisible();
     for (const family of ["Réseaux", "Appareils sanitaires", "Robinetterie", "Calorifuge"]) {
       await expect(table.getByRole("cell", `Plomberie / ${family}`, { exact: true }).first()).toBeVisible();
     }
+    // Reading the page stores nothing: the operator records the proposed list.
+    const revisions = () => client.from("takeoff_list_revisions").select("revision, cause, item_count")
+      .eq("project_id", projectId).order("revision");
+    expect((await revisions()).data).toEqual([]);
+    // A row is named by its cells: the designation first (« Mitigeur de lavabo » is another row).
+    const lavabo = table.getByRole("row", /^Lavabo Plomberie/);
+    const proposedId = await lavabo.getAttribute("id");
+    await waitForHydration(ui.browser);
+    await screen.getByRole("button", "Enregistrer la liste proposée", { exact: true }).click();
+    await expect(screen.getByText("Liste enregistrée · révision 1 · 23 postes", { exact: false })).toBeVisible();
+    expect(await lavabo.getAttribute("id")).toBe(proposedId);
+
+    // An item added by hand, without quantity or price, filed under « Postes ajoutés »; a double click adds it once.
+    await screen.getByText("Ajouter un poste", { exact: true }).click();
+    const form = screen.getByRole("form", "Ajouter un poste", { exact: true });
+    await form.getByRole("textbox", "Désignation", { exact: true }).fill("Siphon de sol");
+    await form.getByRole("textbox", "Unité (vide : à préciser)", { exact: true }).fill("u");
+    await form.getByRole("button", "Ajouter le poste", { exact: true }).dblclick();
+    await expect(screen.getByText("Liste enregistrée · révision 2 · 24 postes", { exact: false })).toBeVisible();
+    const added = table.getByRole("row", /^Siphon de sol /);
+    await expect(added).toContainText("Postes ajoutés");
+    await expect(added).toContainText("Ajouté");
+    const addedId = await added.getAttribute("id");
+    await ui.browser.reload();
+    await expect(added).toHaveCount(1);
+    expect([await lavabo.getAttribute("id"), await added.getAttribute("id")]).toEqual([proposedId, addedId]);
+    expect((await revisions()).data).toEqual([
+      { revision: 1, cause: "initial", item_count: 23 }, { revision: 2, cause: "item_added", item_count: 24 },
+    ]);
     const versions = await client.from("estimate_versions").select("id").eq("project_id", projectId);
     expect(versions.data).toEqual([]);
-    await recordEvidence(army, "POSTE-gabarit", { projectId, versions: versions.data, posts: 23 });
+    await recordEvidence(army, "POSTE-gabarit", { projectId, versions: versions.data, posts: 24, ids: [proposedId, addedId] });
   });
 
   test("POSTE demande de préparer la DPGF importée sans correspondances", options, async ({ ui }) => {
@@ -161,7 +197,7 @@ describe("Aperçu des postes à mesurer", () => {
     expect(upload.ok()).toBe(true);
 
     await app.open(href);
-    await expect(screen.getByText("DPGF à préparer.", { exact: false })).toBeVisible();
+    await expect(screen.getByText("DPGF à préparer : choisissez les colonnes de l’import.", { exact: false })).toBeVisible();
     await expect(screen.getByRole("table", "Postes à mesurer", { exact: true })).toHaveCount(0);
   });
 
@@ -190,8 +226,9 @@ describe("Aperçu des postes à mesurer", () => {
 
       await app.open(href);
       const table = screen.getByRole("table", "Postes à mesurer", { exact: true });
-      await expect(screen.getByText("Liste indicative. Les choix faits à la confirmation de l’import ne sont pas encore reflétés.", { exact: true })).toBeVisible();
-      await expect(screen.getByText("DPGF à préparer.", { exact: false })).toHaveCount(0);
+      // The structure decisions of the confirmation are stored with their proof, and the list applies them.
+      await expect(screen.getByText("Choix de structure de la confirmation de l’import appliqués.", { exact: true })).toBeVisible();
+      await expect(screen.getByText("DPGF à préparer", { exact: false })).toHaveCount(0);
       const homonyms = table.getByRole("row").filter({ hasText: "Lavabo en céramique" });
       await expect(homonyms).toHaveCount(2);
       const sourceLocations = format === "pdf" ? ["Page 1", "Page 2"]
@@ -202,8 +239,9 @@ describe("Aperçu des postes à mesurer", () => {
       await expect(homonyms.nth(0).getByRole("cell", "2", { exact: true })).toBeVisible();
       await expect(homonyms.nth(1).getByRole("cell", "3", { exact: true })).toBeVisible();
       if (format !== "pdf") {
-        await expect(homonyms.nth(0)).toContainText("Bâtiment A");
-        await expect(homonyms.nth(1)).toContainText("Bâtiment B");
+        await expect(homonyms.nth(0).getByRole("cell", "Bâtiment A", { exact: true })).toBeVisible();
+        // Read alone, « Bâtiment B » would start a section of its own: the decision of the confirmation nests it.
+        await expect(homonyms.nth(1).getByRole("cell", "Bâtiment A / Bâtiment B", { exact: true })).toBeVisible();
         await expect(table.getByRole("row").filter({ hasText: "Attente de raccordement" })
           .getByRole("cell", "—", { exact: true })).toBeVisible();
       }
@@ -224,6 +262,11 @@ describe("Aperçu des postes à mesurer", () => {
       expect(ids[0]).not.toBe(ids[1]);
       await browser.reload();
       await expect(homonyms).toHaveCount(2);
+      expect([await homonyms.nth(0).getAttribute("id"), await homonyms.nth(1).getAttribute("id")]).toEqual(ids);
+      // Recorded, the list keeps the identities it proposed; the import's own rows stay as they were.
+      await waitForHydration(browser);
+      await screen.getByRole("button", "Enregistrer la liste proposée", { exact: true }).click();
+      await expect(screen.getByText("Liste enregistrée · révision 1", { exact: false })).toBeVisible();
       expect([await homonyms.nth(0).getAttribute("id"), await homonyms.nth(1).getAttribute("id")]).toEqual(ids);
       const versions = await client.from("estimate_versions").select("id").eq("project_id", projectId);
       expect(versions.data).toEqual([]);

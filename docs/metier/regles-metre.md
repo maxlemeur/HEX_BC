@@ -5,34 +5,85 @@ les valeurs clés (TI-664 et cadrage TI-681 confirmé les 8 et 9 novembre 2026).
 
 Le métré se suit depuis son affaire, y compris pour une analyse créée sur une ancienne version du devis. Depuis sa revue, l’envoi au tableau de chiffrage exige toujours l’aperçu d’impact et une confirmation humaine.
 
-## Aperçu des postes à mesurer avant le devis
+## Liste des postes de l’affaire
 
-La page **Métrés** affiche une liste indicative pour une affaire sans devis. Elle
-lit la DPGF liée et ses correspondances validées, dans l’ordre des lignes importées.
-Les choix de structure faits à la confirmation de l’import ne sont pas encore
-reflétés. Une prestation portant une unité reste visible si sa quantité est
-inconnue. Une ligne sans quantité ni unité ni indice de section reste ambiguë.
-Le prix n’intervient pas dans la lecture. La quantité de la DPGF est
-une référence documentaire. La feuille, la ligne ou la page d’origine apparaissent
-lorsqu’elles sont connues. L’aperçu CSV indique l’ordre des enregistrements
-importés. Pour un classeur, il affiche la ligne du tableau importé. Le
-détail de lecture signale les lignes ambiguës ou sans correspondance. Pour les
-totaux, les pieds de tableau et les désignations uniquement numériques, il indique
-leur emplacement et le motif d’exclusion sans en afficher le contenu.
+Un **poste** est une prestation demandée à l’affaire. La liste des postes est un
+fait enregistré de l’affaire, en révisions immuables
+(`supabase/migrations/20261121180813_takeoff_item_lists.sql`). La page **Métrés**
+la montre en entier tant que l’affaire n’a pas de devis, puis sur une ligne avec un
+lien « Voir la liste des postes ». Tous les lecteurs de l’affaire la lisent, avec son
+historique et ses sources. L’opérateur du métré de l’affaire la complète :
+administrateur de l’entreprise ou ingénieur propriétaire de l’affaire, la règle de
+qui peut lancer une analyse.
 
-Une pièce DPGF à préparer ou plusieurs sources liées renvoient au dossier pour
-résolution. Quand les droits du compte permettent de vérifier l’absence de DPGF,
-l’aperçu propose un gabarit indicatif de plomberie couvrant les réseaux, les
-appareils sanitaires, la robinetterie et le calorifuge. Si un DPGF peut échapper
-aux droits de lecture du compte, l’aperçu l’indique et le gabarit n’est pas proposé.
+**Sources.** Le serveur résout les sources sous la règle de lecture de l’affaire. Il
+lit tout import lié à l’affaire, quel que soit son auteur. Chaque lecteur voit donc
+la même liste, même si sa session ne voit pas l’import. La DPGF du dossier donne la
+liste lorsque son import est terminé, que ses colonnes sont validées et que ses lignes
+sont attestées. Sans DPGF, la liste vient du gabarit publié par l’entreprise, à
+défaut de la version livrée avec l’application. Une DPGF à préparer ou plusieurs
+DPGF renvoient au dossier. Le prix n’intervient jamais : la quantité de la DPGF reste
+une référence documentaire.
 
-Une ligne brute appartient à un seul poste de l’affaire. Deux lignes homonymes
-restent distinctes. Refaire le mapping d’une ligne brute conserve son identité.
-Une correspondance entre deux imports demande une décision explicite. Elle reste
-valable si le poste disparaît d’une révision puis revient.
+**Choix de structure.** La confirmation d’un import enregistre ses choix : une ligne
+devenue section et son niveau, gardée comme ligne, ou ignorée. Elle les enregistre
+dans la transaction du devis qu’elle crée, ou juste après la seule correspondance.
+Une preuve couvre ces choix, l’ordre des lignes, leurs champs mesurés et la
+correspondance. Si l’import change, par exemple après une nouvelle confirmation par
+une version antérieure de l’application, la preuve ne correspond plus. La liste lit
+alors les titres tels quels et le dit. Un total, une ligne vide, illisible ou un
+en-tête répété ne devient jamais un poste, quel que soit le choix.
 
-La consultation est en lecture seule. Le gabarit et les aperçus ne lancent aucune
-analyse et ne créent aucun devis.
+**Emplacement d’origine.** Pour un CSV, la position est le rang de l’enregistrement
+importé (« Enregistrement importé N »), jamais une ligne physique du fichier. Pour un
+classeur, c’est la ligne du tableau importé (« Ligne du tableau N »), comptée depuis
+le début de la plage lue. Pour un PDF, c’est la page.
+
+**Identité.** Un poste reçoit un identifiant à sa première apparition, dérivé de son
+origine : ligne brute de la DPGF, ligne du gabarit ou ajout à la main. Il le garde
+d’une révision à l’autre, y compris après une nouvelle correspondance. Un poste retiré
+puis revenu retrouve le sien. Deux lignes homonymes restent deux postes. Une nouvelle
+origine reprend un poste existant seulement par un rapprochement confirmé par un
+opérateur ; le poste garde alors ses deux origines. La base de données refuse toute
+autre réutilisation, et l’identifiant d’un poste d’une autre affaire.
+
+**Révisions.** Quand le dossier ou le gabarit change, la page propose une révision :
+postes ajoutés, retirés, modifiés et rapprochements possibles. Aucun rapprochement
+n’est coché d’avance. Rien n’est appliqué sans « Accepter la révision proposée ». Le
+serveur recalcule la proposition et refuse celle qui a changé depuis l’affichage. Les
+postes ajoutés à la main restent à leur place. La première liste d’une affaire
+s’enregistre par « Enregistrer la liste proposée », par le premier ajout, ou par la
+première demande d’analyse qui la scelle.
+
+**Ajout d’un poste.** « Ajouter un poste » est possible à toute date : avant, pendant
+ou après une analyse, et après un premier envoi. L’opérateur donne une désignation,
+une unité ou « à préciser », une base de mesure, des discriminants (réseau, matière,
+diamètre) et une section. Il ne saisit ni quantité ni prix. L’auteur et la date sont
+ceux du serveur. Un double clic ne crée qu’un poste.
+
+**Gabarit.** L’administrateur corrige le gabarit de plomberie dans **Administration
+› Gabarit de postes**. Il enregistre un brouillon et voit les ajouts, retraits et
+modifications par rapport à la version publiée. Il publie ensuite une version
+numérotée. Chaque poste du gabarit garde son identifiant d’une version à l’autre. La
+nouvelle version vaut pour les affaires sans liste. Une affaire qui a déjà une liste
+se voit proposer l’écart. Une publication ne modifie aucun devis, aucune analyse et
+aucune demande déjà scellée.
+
+**Demande d’analyse.** Une demande scelle la liste à son admission derrière
+l’activation du second ordre de mesure : la révision enregistrée, son numéro,
+l’empreinte calculée par la base et son nombre de postes. Tant que l’activation
+n’est pas posée, une demande scelle l’extraction libre, comme avant. Une fois
+activée, une DPGF à préparer suspend l’admission avec un motif. Le Mac du mandat
+réessaie alors seul.
+
+Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
+ligne mappée. La base enregistre, à la création de chaque ligne mappée, la ligne
+brute dont elle vient. Après une nouvelle correspondance, la ligne de devis et ses
+copies retrouvent donc leur ligne brute par une jointure prouvée, sans rien ajouter à
+leurs métadonnées.
+
+Lire la liste, la compléter ou publier le gabarit ne lance aucune analyse et ne crée
+aucun devis.
 
 ## Contrat actuel de contrôle ciblé — TI-681
 
