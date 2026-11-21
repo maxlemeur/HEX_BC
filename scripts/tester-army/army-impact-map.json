@@ -813,7 +813,7 @@
     },
     {
       "id": "plan-dispatcher",
-      "note": "Une analyse par plan (lot 3, migration A, TKPA01 à TKPA02) : une demande scellée en une unité par plan, lues une à la fois par le Mac (son créneau), chaque appel payant réservé puis réglé, un plan en échec seul, un avis et un courriel de la demande, l'arrêt du reste par un membre.",
+      "note": "Une analyse par plan (lot 3, migration A, TKPD01 et TKPD02) : une demande scellée en une unité par plan, lues une à la fois par le Mac (son créneau), chaque appel payant réservé puis réglé, un plan en échec seul, un avis et un courriel de la demande, l'arrêt du reste par un membre.",
       "paths": [
         "src/lib/takeoff/**",
         "src/lib/ai/chatgpt-local-inference.ts",
@@ -823,11 +823,11 @@
         "scripts/tester-army/takeoff-*",
         "supabase/migrations/*_takeoff_launch_requests.sql",
         "supabase/migrations/*_takeoff_plan_dispatcher.sql",
-        "e2e/army/takeoff/plan-analyses-support.ts",
+        "e2e/army/takeoff/plan-dispatch-support.ts",
         "e2e/army/takeoff/completion-support.ts"
       ],
       "journeys": [
-        "e2e/army/takeoff/affaire-plan-analyses.e2e.ts"
+        "e2e/army/takeoff/affaire-plan-dispatch.e2e.ts"
       ]
     },
     {

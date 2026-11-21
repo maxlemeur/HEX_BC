@@ -8,18 +8,18 @@ import { startTakeoffEmailCollector } from "./completion-support";
 import {
   activateOwnedPlanDispatch, deactivateOwnedPlanDispatch, fictionalPlanPdf, readOwnedLedger, readOwnedPlanItems, readOwnedPlanJobs,
   readOwnedPlanRequests, readOwnedRequestNotices, runOwnedPlanDispatch, runOwnedTakeoffCommand, seedPlanDossier,
-} from "./plan-analyses-support";
+} from "./plan-dispatch-support";
 import { signUpWorkerOwner } from "./worker-support";
 
 // Lot 3, one analysis per plan (migration 20261121181031_takeoff_plan_dispatcher.sql), on the owned worker stack: the
 // member's explicit command (the server's), the Mac's dispatcher with the real claim, slot, ledger, processor,
 // persistence and end of each unit, and a controlled local provider. Fictional plans and dossier only.
 
-armyTest("TKPA01 a request of three plans gives three analyses read one at a time; one that fails stops nothing; one notice « 2 plans lus sur 3 »", {
+armyTest("TKPD01 a request of three plans gives three analyses read one at a time; one that fails stops nothing; one notice « 2 plans lus sur 3 »", {
   session: "army", trace: "off", tags: ["takeoff-worker", "local"], timeout: 300_000,
 }, async (ui) => {
   await ui.app.open("/dashboard/affaires");
-  const owner = await signUpWorkerOwner(ui, "TKPA1");
+  const owner = await signUpWorkerOwner(ui, "TKPD1");
   const mail = await startTakeoffEmailCollector();
   await activateOwnedPlanDispatch();
   try {
@@ -101,7 +101,7 @@ armyTest("TKPA01 a request of three plans gives three analyses read one at a tim
       .map((job) => [job.plans, job.status])).toEqual([[[added], "completed"]]);
     expect(await readOwnedPlanRequests(dossier.projectId)).toHaveLength(2);
 
-    await recordEvidence(ui.army, "TKPA01-plan-analyses", { projectId: dossier.projectId, requestId, jobs: ended, calls, closed,
+    await recordEvidence(ui.army, "TKPD01-plan-analyses", { projectId: dossier.projectId, requestId, jobs: ended, calls, closed,
       laterRequest: reread.result, boundary: "Fictional plans, a controlled local provider and an e-mail collector on an owned local backend." });
   } finally {
     await deactivateOwnedPlanDispatch();
@@ -109,11 +109,11 @@ armyTest("TKPA01 a request of three plans gives three analyses read one at a tim
   }
 });
 
-armyTest("TKPA02 a member stops the rest of a request after its first plan: the plan read stays, its requester is told; a full stop sends nothing", {
+armyTest("TKPD02 a member stops the rest of a request after its first plan: the plan read stays, its requester is told; a full stop sends nothing", {
   session: "army", trace: "off", tags: ["takeoff-worker", "local"], timeout: 300_000,
 }, async (ui) => {
   await ui.app.open("/dashboard/affaires");
-  const owner = await signUpWorkerOwner(ui, "TKPA2");
+  const owner = await signUpWorkerOwner(ui, "TKPD2");
   const mail = await startTakeoffEmailCollector();
   await activateOwnedPlanDispatch();
   try {
@@ -149,7 +149,7 @@ armyTest("TKPA02 a member stops the rest of a request after its first plan: the 
     expect((await readOwnedPlanRequests(other.projectId))[0]).toMatchObject({ outcome: "canceled", units_canceled: 2 });
     expect(await readOwnedRequestNotices(other.projectId)).toEqual([expect.objectContaining({ outcome: "canceled", delivery_state: "suppressed" })]);
     expect(mail.receipts.size).toBe(1);
-    await recordEvidence(ui.army, "TKPA02-stop-the-rest", { projectId: dossier.projectId, requestId, calls: pass.calls, stopped: stopped.result,
+    await recordEvidence(ui.army, "TKPD02-stop-the-rest", { projectId: dossier.projectId, requestId, calls: pass.calls, stopped: stopped.result,
       boundary: "Fictional plans, a controlled local provider and an e-mail collector on an owned local backend." });
   } finally {
     await deactivateOwnedPlanDispatch();
