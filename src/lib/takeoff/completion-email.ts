@@ -9,7 +9,7 @@ import type { Database } from "@/types/database";
 
 type Notification = Database["public"]["Tables"]["takeoff_completion_notifications"];
 export type CompletionEmailClaim = Pick<Notification["Row"],
-  "id" | "project_id" | "recipient_email" | "outcome" | "provider_key" | "attempt_count" | "first_send_at"
+  "id" | "project_id" | "job_id" | "recipient_email" | "outcome" | "provider_key" | "attempt_count" | "first_send_at"
 >;
 
 type Settlement = Pick<Notification["Update"], "delivery_state" | "last_delivery_code"> &
@@ -36,7 +36,8 @@ const SEND_TIMEOUT_MS = 15_000;
 // A call starts only if it can end, timeout included, before the lease and the window do.
 const DISPATCH_MARGIN_MS = SEND_TIMEOUT_MS + 5_000;
 
-function affaireEmailUrl(projectId: string, origin: string | undefined) {
+// The job's end on the affaire's activity: every reader of the affaire may open it, and it shows a failure's reason.
+function affaireEmailUrl(projectId: string, jobId: string | null, origin: string | undefined) {
   if (!origin) throw new Error("Missing takeoff email origin.");
   const url = new URL(origin);
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
@@ -46,7 +47,9 @@ function affaireEmailUrl(projectId: string, origin: string | undefined) {
   ) {
     throw new Error("Invalid takeoff email origin.");
   }
-  return new URL(`/dashboard/affaires/${projectId}`, url.origin).href;
+  const link = new URL(jobId ? `/dashboard/affaires/${projectId}/takeoff` : `/dashboard/affaires/${projectId}`, url.origin);
+  if (jobId) link.searchParams.set("job", jobId);
+  return link.href;
 }
 
 function retryOrStop(claim: CompletionEmailClaim, now: Date, code: string, mayHaveSent: boolean): Settlement {
@@ -92,12 +95,12 @@ export async function deliverTakeoffCompletionEmail(
   try {
     const from = env.EMAIL_FROM?.trim();
     if (!from || !env.RESEND_API_KEY?.trim()) throw new Error("Missing Resend configuration.");
-    const link = affaireEmailUrl(claim.project_id, env.MERGEONE_TAKEOFF_EMAIL_ORIGIN);
+    const link = affaireEmailUrl(claim.project_id, claim.job_id, env.MERGEONE_TAKEOFF_EMAIL_ORIGIN);
     const complete = claim.outcome === "success";
     const subject = complete ? "Votre métré est terminé" : "Votre métré nécessite une vérification";
     const summary = complete
       ? "Le résultat de votre analyse est disponible dans l’affaire."
-      : "Votre analyse n’a pas pu aboutir. Consultez l’affaire pour connaître le motif.";
+      : "Votre analyse n’a pas pu aboutir. Son suivi dans l’affaire en donne le motif.";
     const routing = readOutgoingEmailRouting(env);
     const routed = routeOutgoingEmail(routing, { to: claim.recipient_email, subject });
     routingMode = routing.mode;
@@ -106,7 +109,7 @@ export async function deliverTakeoffCompletionEmail(
       from,
       to: routed.to,
       subject: routed.subject,
-      text: `${summary}\n\nOuvrir l’affaire\n${link}`,
+      text: `${summary}\n\n${claim.job_id ? "Ouvrir le suivi du métré" : "Ouvrir l’affaire"}\n${link}`,
     };
     // Include the provider configuration in the fingerprint because changing
     // Resend accounts can change the namespace of the idempotency key.

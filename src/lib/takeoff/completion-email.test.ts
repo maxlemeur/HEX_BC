@@ -6,6 +6,7 @@ const sendingAt = new Date("2026-11-20T08:00:00Z");
 const claim: CompletionEmailClaim = {
   id: "8f400000-0000-4000-8000-000000000021",
   project_id: "8f400000-0000-4000-8000-000000000010",
+  job_id: "8f400000-0000-4000-8000-000000000031",
   recipient_email: "requester@example.test",
   outcome: "success",
   provider_key: "takeoff-completion/test",
@@ -78,7 +79,7 @@ describe("takeoff completion email", () => {
     expect(io.send).toHaveBeenCalledWith(expect.objectContaining({
       to: "collector@example.test",
       subject: "[TEST → requester@example.test] Votre métré est terminé",
-      text: expect.stringContaining(`https://estimates.example.test/dashboard/affaires/${claim.project_id}`),
+      text: expect.stringContaining(`https://estimates.example.test/dashboard/affaires/${claim.project_id}/takeoff?job=${claim.job_id}`),
     }), claim.provider_key);
     expect(io.settle).toHaveBeenCalledWith(expect.objectContaining({ delivery_state: "sent", provider_id: "fixture-provider-id" }));
   });
@@ -182,5 +183,15 @@ describe("takeoff completion email", () => {
     await deliverTakeoffCompletionEmail(claim, io, env, sendingAt);
     expect(io.send).not.toHaveBeenCalled();
     expect(io.settle).not.toHaveBeenCalled();
+  });
+
+  it("links a failure to its own job on the affaire's activity, where its reason is shown", async () => {
+    const io = fixture();
+    await deliverTakeoffCompletionEmail({ ...claim, outcome: "failure" }, io, env, sendingAt);
+    const [message] = io.send.mock.calls[0];
+    expect(message.text).toContain(
+      `https://estimates.example.test/dashboard/affaires/${claim.project_id}/takeoff?job=${claim.job_id}`,
+    );
+    expect(message.text).not.toContain("AI_PROVIDER");
   });
 });

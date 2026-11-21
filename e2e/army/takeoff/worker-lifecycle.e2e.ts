@@ -303,7 +303,7 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
     expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "failure", deliveryState: "sent", isRead: false });
     const [receipt] = [...collector.receipts.values()];
     expect(collector.requests).toBe(1);
-    expect(receipt.message.text).toContain(`/dashboard/affaires/${ids.projectId}`);
+    expect(receipt.message.text).toContain(`/dashboard/affaires/${ids.projectId}/takeoff?job=${jobId}`);
     expect(receipt.message.text).not.toContain("ARMY controlled terminal provider failure");
   } finally {
     await collector.close();

@@ -355,17 +355,48 @@ select results_eq($$select pg_temp.state(id), analysis_outcome from public.takeo
 -- The owner states another ceiling: a job queued behind the busy b6 is closed after three hours of waiting.
 update private.takeoff_completion_activation set wait_ceiling = interval '3 hours', pickup_grace = interval '10 minutes';
 select pg_temp.add_job(x.id, '8f600000-0000-4000-8000-000000000009', 'urn:uuid:8f600000-0000-4000-8000-0000000000b6')
-from (values ('8f600000-0000-4000-8000-00000000005a'::uuid), ('8f600000-0000-4000-8000-00000000005b'::uuid)) as x(id);
+from (values ('8f600000-0000-4000-8000-00000000005a'::uuid), ('8f600000-0000-4000-8000-00000000005b'::uuid),
+  ('8f600000-0000-4000-8000-00000000005d'::uuid)) as x(id);
 select pg_temp.claim_old('8f600000-0000-4000-8000-00000000005a', (select t from clock) + interval '26 hours',
-  (select t from clock) + interval '40 hours');
+  (select t from clock) + interval '50 hours');
 update public.takeoff_jobs set created_at = (select t from clock) + interval '30 hours'
 where id = '8f600000-0000-4000-8000-00000000005b';
+-- A due retry behind the same busy Mac, scheduled for T + 30 h.
+select pg_temp.claim_old('8f600000-0000-4000-8000-00000000005d', (select t from clock) + interval '29 hours', now() + interval '1 hour');
+update public.takeoff_jobs set status = 'failed', error_code = 'AI_TIMEOUT', last_error_at = (select t from clock) + interval '29 hours',
+  next_retry_at = (select t from clock) + interval '30 hours', processing_lease_token = null, processing_lease_expires_at = null
+where id = '8f600000-0000-4000-8000-00000000005d';
 select is(array(select pg_temp.recover_at(interval '32 hours') order by 1), '{}'::uuid[],
   'two hours behind the busy Mac it still waits');
 select is(array(select pg_temp.recover_at(interval '33 hours 1 minute') order by 1),
-  array['8f600000-0000-4000-8000-00000000005b'::uuid], 'past the configured ceiling it is closed');
-select is(pg_temp.state('8f600000-0000-4000-8000-00000000005b'), 'failed TAKEOFF_WORKER_QUEUE_EXPIRED',
-  'while waiting its turn');
+  array['8f600000-0000-4000-8000-00000000005b'::uuid, '8f600000-0000-4000-8000-00000000005d'::uuid],
+  'past the configured ceiling the queued job and the due retry are closed');
+select results_eq($$select pg_temp.state(id) from (values ('8f600000-0000-4000-8000-00000000005b'::uuid),
+    ('8f600000-0000-4000-8000-00000000005d'::uuid)) as x(id)$$,
+  $$values ('failed TAKEOFF_WORKER_QUEUE_EXPIRED'::text), ('failed TAKEOFF_WORKER_QUEUE_EXPIRED'::text)$$,
+  'both while waiting their turn');
+
+-- The recovery's own closures are not work of the Mac. On b7, live but whose poller takes nothing, a due retry is
+-- closed by the grace; a job queued five minutes after its retry fell due then waits the grace from its own queue
+-- time, not from the moment the recovery closed the retry.
+select pg_temp.add_job(x.id, '8f600000-0000-4000-8000-000000000009', 'urn:uuid:8f600000-0000-4000-8000-0000000000b7')
+from (values ('8f600000-0000-4000-8000-00000000005e'::uuid), ('8f600000-0000-4000-8000-00000000005f'::uuid)) as x(id);
+select pg_temp.claim_old('8f600000-0000-4000-8000-00000000005e', (select t from clock) + interval '40 hours', now() + interval '1 hour');
+update public.takeoff_jobs set status = 'failed', error_code = 'AI_TIMEOUT', last_error_at = (select t from clock) + interval '40 hours',
+  next_retry_at = (select t from clock) + interval '40 hours 1 minute', processing_lease_token = null, processing_lease_expires_at = null
+where id = '8f600000-0000-4000-8000-00000000005e';
+update public.takeoff_jobs set created_at = (select t from clock) + interval '40 hours 5 minutes'
+where id = '8f600000-0000-4000-8000-00000000005f';
+insert into private.takeoff_local_host_activity (host_id, live_since, seen_at)
+select 'urn:uuid:8f600000-0000-4000-8000-0000000000b7', t + interval '39 hours', t + interval '39 hours' from clock;
+select is(array(select pg_temp.recover_at(interval '40 hours 11 minutes') order by 1),
+  array['8f600000-0000-4000-8000-00000000005e'::uuid], 'the due retry the live, idle Mac leaves untaken is closed');
+select is(pg_temp.state('8f600000-0000-4000-8000-00000000005e'), 'failed TAKEOFF_WORKER_NOT_STARTED',
+  'nobody took the retry');
+select is(array(select pg_temp.recover_at(interval '40 hours 15 minutes 30 seconds') order by 1),
+  array['8f600000-0000-4000-8000-00000000005f'::uuid], 'the next job is closed after its own grace');
+select is(pg_temp.state('8f600000-0000-4000-8000-00000000005f'), 'failed TAKEOFF_WORKER_NOT_STARTED',
+  'nobody took it either');
 select throws_ok($$update private.takeoff_completion_activation set pickup_grace = interval '9 minutes'$$, '23514', null,
   'a grace shorter than ten minutes is refused');
 select throws_ok($$update private.takeoff_completion_activation set wait_ceiling = interval '59 minutes'$$, '23514', null,

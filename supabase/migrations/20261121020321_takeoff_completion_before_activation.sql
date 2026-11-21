@@ -232,11 +232,17 @@ begin
       and (j.status = 'pending'
         or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= recovery_at))
   ),
-  -- What the host has in hand: a job under an unexpired lease, or one it started or ended within the grace.
+  -- What the host has in hand: a job under an unexpired lease, or one it started or ended within the grace. An end
+  -- the host did not write is not its work: a cancellation, or a closure by this recovery.
   host_work as (
     select k.execution_host_id as host_id,
       bool_or(k.status = 'processing' and k.processing_lease_expires_at > recovery_at) as busy,
-      max(greatest(k.started_at, k.completed_at, k.last_error_at)) filter (where k.started_at is not null) as last_work_at
+      max(greatest(k.started_at, case
+        when k.status <> 'canceled' and k.error_code is distinct from 'TAKEOFF_WORKER_OUTCOME_UNKNOWN'
+          and k.error_code is distinct from 'TAKEOFF_WORKER_NOT_STARTED'
+          and k.error_code is distinct from 'TAKEOFF_WORKER_QUEUE_EXPIRED'
+        then greatest(k.completed_at, k.last_error_at)
+      end)) filter (where k.started_at is not null) as last_work_at
     from public.takeoff_jobs k
     where k.execution_provider = 'chatgpt_local' and k.execution_host_id in (select w.host_id from waiting w)
     group by k.execution_host_id
