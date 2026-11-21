@@ -151,15 +151,24 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
   assertTakeoffWorkerConfiguration();
   // The persisted job supplies ownership, never the triggering HTTP session.
   const owner: ChatGptOwner = { userId: job.created_by ?? "", tenantId: job.tenant_id };
+  // Before each paid call: the member whose subscription pays may still launch an analysis on this affaire (an
+  // administrator of the tenant, or the engineer who owns the affaire, which is not archived), as at its admission.
+  // A member demoted after queuing an analysis, or an analysis that starts without a click, spends nothing more.
   async function assertOwnerActive() {
+    const forbidden = (message: string) => new TakeoffError({ code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId: job.id, message });
     const { data, error } = owner.userId ? await supabase.from("tenant_memberships")
-      .select("user_id, tenants!inner(is_active)").eq("user_id", owner.userId)
+      .select("user_id, role, tenants!inner(is_active)").eq("user_id", owner.userId)
       .eq("tenant_id", owner.tenantId).eq("tenants.is_active", true).maybeSingle()
       : { data: null, error: null };
-    if (error || !data) throw new TakeoffError({
-      code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId: job.id,
-      message: "Le créateur du métré n’a plus d’accès actif au tenant.",
-    });
+    if (error || !data) throw forbidden("Le créateur du métré n’a plus d’accès actif au tenant.");
+    const role = (data as { role?: string }).role;
+    const affaire = job.project_id && (role === "admin" || role === "engineer") ? await supabase.from("estimate_projects")
+      .select("user_id, is_archived").eq("id", job.project_id).eq("tenant_id", owner.tenantId).maybeSingle()
+      : { data: null, error: null };
+    const project = affaire.data as { user_id?: string; is_archived?: boolean } | null;
+    if (affaire.error || !project || project.is_archived || (role !== "admin" && project.user_id !== owner.userId)) {
+      throw forbidden("Le créateur du métré n’a plus le droit de lancer une analyse sur cette affaire.");
+    }
   }
   await assertOwnerActive();
   const store = await readChatGptStore(owner);

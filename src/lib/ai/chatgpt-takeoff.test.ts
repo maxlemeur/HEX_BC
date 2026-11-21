@@ -11,8 +11,10 @@ import { assertLocalTakeoffResumeReady, getTakeoffExecutionSelection, parseTakeo
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 
-const job = { id: "job", tenant_id: "tenant", created_by: "creator", execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:host" } as TakeoffJobProcessingRow;
+const job = { id: "job", tenant_id: "tenant", project_id: "project", created_by: "creator", execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:host" } as TakeoffJobProcessingRow;
+// The creator's membership, then the job's affaire, as the per-call check reads them.
 const maybeSingle = vi.fn();
+const projectSingle = vi.fn();
 const eq = vi.fn();
 const select = vi.fn();
 const client = { from: vi.fn() };
@@ -21,8 +23,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("NODE_ENV", "test"); vi.stubEnv("CI", ""); vi.stubEnv("VERCEL", ""); vi.stubEnv("MERGEONE_CHATGPT_LOCAL", "1");
   const query = { select, eq, maybeSingle };
-  client.from.mockReturnValue(query); select.mockReturnValue(query); eq.mockReturnValue(query);
-  maybeSingle.mockResolvedValue({ data: { user_id: "creator" }, error: null });
+  const projectQuery = { select: () => projectQuery, eq: (...args: unknown[]) => { eq(...args); return projectQuery; }, maybeSingle: projectSingle };
+  client.from.mockImplementation((table: string) => table === "estimate_projects" ? projectQuery : query);
+  select.mockReturnValue(query); eq.mockReturnValue(query);
+  maybeSingle.mockResolvedValue({ data: { user_id: "creator", role: "engineer" }, error: null });
+  projectSingle.mockResolvedValue({ data: { user_id: "creator", is_archived: false }, error: null });
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "chosen-model" }] } as never);
   vi.mocked(callLocalChatGptStructured).mockResolvedValue({ data: { quantity: 12 } } as never);
 });
@@ -70,6 +75,26 @@ it("stops a running job when creator membership is revoked", async () => {
   maybeSingle.mockResolvedValue({ data: null, error: null });
   await expect(provider!.call(options)).rejects.toMatchObject({ code: "FORBIDDEN" });
   expect(callLocalChatGptStructured).not.toHaveBeenCalled();
+});
+// A member who queued an analysis and was then demoted, or lost the affaire, spends nothing more: the check before each
+// paid call reads the right to launch on the affaire, as the admission did.
+it.each([
+  ["demoted to director", { user_id: "creator", role: "director" }, { user_id: "creator", is_archived: false }],
+  ["no longer the owner", { user_id: "creator", role: "engineer" }, { user_id: "other", is_archived: false }],
+  ["on an archived affaire", { user_id: "creator", role: "engineer" }, { user_id: "creator", is_archived: true }],
+])("stops before the next paid call when the creator is %s", async (_case, membership, project) => {
+  const provider = await resolveLocalTakeoffProvider(client as never, job);
+  maybeSingle.mockResolvedValue({ data: membership, error: null });
+  projectSingle.mockResolvedValue({ data: project, error: null });
+  await expect(provider!.call(options)).rejects.toMatchObject({ code: "FORBIDDEN", retryable: false,
+    message: expect.stringContaining("n’a plus le droit de lancer une analyse sur cette affaire") });
+  expect(callLocalChatGptStructured).not.toHaveBeenCalled();
+});
+it("lets an administrator's analysis run on an affaire another member owns", async () => {
+  maybeSingle.mockResolvedValue({ data: { user_id: "creator", role: "admin" }, error: null });
+  projectSingle.mockResolvedValue({ data: { user_id: "other", is_archived: false }, error: null });
+  const provider = await resolveLocalTakeoffProvider(client as never, job);
+  await expect(provider!.call(options)).resolves.toMatchObject({ data: { quantity: 12 } });
 });
 it("gives the vector requests the creator's membership check and the job's pinned selection (TI-704 option B)", async () => {
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
