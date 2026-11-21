@@ -53,7 +53,20 @@ export async function readPreparationRecord(context: ReadContext, projectId: str
   return data as PreparationRecordRow | null;
 }
 
+/** What a dossier document's row records of its stored file: its size and the upload its Storage key names. */
+export type PreparationDocumentRow = { size_bytes: number; upload_id: string | null };
+
+/**
+ * The dossier's pieces as a preparation names them, with what each document's row records of its stored file: what
+ * the sealing of a preparation checks before any download.
+ */
+export type PreparationSourceRows = { sources: TakeoffPreparationSource[]; documents: ReadonlyMap<string, PreparationDocumentRow> };
+
 export async function readPreparationSources(context: ReadContext, projectId: string): Promise<TakeoffPreparationSource[]> {
+  return (await readPreparationSourceRows(context, projectId)).sources;
+}
+
+export async function readPreparationSourceRows(context: ReadContext, projectId: string): Promise<PreparationSourceRows> {
   const { data: sets, error: setError } = await readAllRows(() => context.supabase.from("plan_sets")
     .select("id", { count: "exact" }).eq("tenant_id", context.tenantId).eq("project_id", projectId).order("id").abortSignal(new AbortController().signal));
   if (setError) throw mapSupabaseError(setError, "Impossible de charger les jeux de plans.");
@@ -62,17 +75,18 @@ export async function readPreparationSources(context: ReadContext, projectId: st
     .eq("tenant_id", context.tenantId).in("plan_set_id", sets.map((set) => set.id)).order("id").abortSignal(new AbortController().signal)) : { data: [], error: null };
   if (planFiles.error) throw mapSupabaseError(planFiles.error, "Impossible de charger les sources du métré.");
   const intake = await readAllRows(() => context.supabase.from("affaire_intake_documents" as never)
-    .select("id,file_name,storage_path,size_bytes,mime_type,document_kind,updated_at,extracted_metadata" as never, { count: "exact" })
+    .select("id,upload_id,file_name,storage_path,size_bytes,mime_type,document_kind,updated_at,extracted_metadata" as never, { count: "exact" })
     .eq("tenant_id" as never, context.tenantId as never).eq("project_id" as never, projectId as never)
     .eq("upload_status" as never, "uploaded" as never).is("deleted_at" as never, null).is("deletion_token" as never, null)
     .neq("document_kind" as never, "plans" as never).order("id" as never).abortSignal(new AbortController().signal));
   if (intake.error) throw mapSupabaseError(intake.error, "Impossible de charger les pièces de référence du métré.");
-  return [
-    ...(planFiles.data as PreparationPlanFile[] ?? []).map(toPreparationPlanSource),
-    ...(intake.data as PreparationIntakeDocument[] ?? [])
-      .filter((document) => document.document_kind === "dpgf" || document.document_kind === "cctp" || (Boolean(document.storage_path) && document.document_kind !== "plan"))
-      .map(toPreparationIntakeSource),
-  ];
+  const plans = planFiles.data as PreparationPlanFile[] ?? [];
+  const documents = (intake.data as PreparationIntakeDocument[] ?? [])
+    .filter((document) => document.document_kind === "dpgf" || document.document_kind === "cctp" || (Boolean(document.storage_path) && document.document_kind !== "plan"));
+  return {
+    sources: [...plans.map(toPreparationPlanSource), ...documents.map(toPreparationIntakeSource)],
+    documents: new Map(documents.map((document) => [document.id, { size_bytes: document.size_bytes, upload_id: document.upload_id ?? null }])),
+  };
 }
 
 /** The authenticated client only reads: confirmations are server-owned records. */

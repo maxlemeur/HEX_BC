@@ -5,23 +5,35 @@ import { z } from "zod";
 import { getAuthenticatedContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { ApiError, mapSupabaseError } from "@/lib/http/api-response";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
-import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
+import { AFFAIRE_INTAKE_BUCKET, isAffaireIntakeStorageKey } from "@/lib/affaires/intake";
 import { getTakeoffExecutionSelection } from "@/lib/ai/chatgpt-takeoff";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import {
   createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot, evaluateTakeoffPreparation,
   takeoffExecutionSelectionSchema, takeoffPreparationSchema, type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
+  type TakeoffPreparationSource,
 } from "@/lib/takeoff/preparation";
-import { buildDeducedTakeoffPreparation, DETAILED_TAKEOFF_PROCESSING, getDeducedPlanCandidates, isDossierDefaultSource, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
+import {
+  buildDeducedTakeoffPreparation, DETAILED_TAKEOFF_PROCESSING, getDeducedPlanCandidates, isDossierDefaultSource, reopenDeducedPlanCandidates,
+  resolveDeducedPlanVersions,
+} from "@/lib/takeoff/preparation-from-dossier";
 import { hasCyclicPlanRevisionDecisions, readPlanTitleBlock } from "@/lib/takeoff/plan-revision-identity";
 import { getPreparationSourcesFingerprint, reconcilePreparationSources } from "@/lib/takeoff/preparation-sources";
 import {
   assertPreparationProjectAccess, persistPreparationRecord, preparationConflict,
-  readPreparationRecord, readPreparationSources,
+  readPreparationRecord, readPreparationSourceRows, readPreparationSources, type PreparationDocumentRow,
 } from "@/lib/takeoff/preparation-repository";
 import type { Json } from "@/types/database";
 import { generateTakeoffPreparationAssistance } from "@/lib/takeoff/preparation-assistance-server";
-import { classifyPreparationReferenceFormat } from "@/lib/takeoff/preparation-reference-loader";
+import {
+  admitPreparationReferenceFile, classifyPreparationReferenceFormat, createPreparationReferenceBudget, isPreparationReferenceSize,
+  PREPARATION_REFERENCE_LIMITS, preparationReferenceFileLimit, PreparationReferenceRefusal, readPreparationReference,
+  type PreparationReferenceFormat,
+} from "@/lib/takeoff/preparation-reference-loader";
+import { inspectPlanSetResourceBudget, PLAN_FILE_MAX_SIZE_BYTES } from "@/lib/takeoff/plans";
+import { getPlanSetMaxPdfPages } from "@/lib/takeoff/source-loader";
+import { openPreparedPlan, preparedPlanPages, PreparedPlanRefusal } from "@/lib/takeoff/preparation-source-loader";
+import { sha256Hex } from "@/lib/takeoff/sha256";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { hasTakeoffPreparationCopyReceipt } from "@/lib/takeoff/preparation-copy-provenance-server";
 import { assertTakeoffPreparationProcessing, type TakeoffRequestedProcessing } from "@/lib/takeoff/preparation-processing-server";
@@ -160,6 +172,239 @@ function validateCanonicalSources(draft: TakeoffPreparation, availableSources: T
   }
 }
 
+/** A reference the sealing left out of an automatic start, named with why: the manifest's coverage lists it. */
+export type PreparationSealOmission = {
+  id: string; name: string; reason: "unreadable" | "outside_affaire" | "unsupported_format" | "invalid" | "limit";
+};
+
+/**
+ * A plan the sealing could not read: no stored copy to read, a copy it cannot download, one larger than a plan may be,
+ * or one the worker would not open (`invalid`: corrupt or protected; `invalid_pages`: kept pages the file lacks).
+ */
+export class PreparationPlanSealError extends TakeoffError {
+  constructor(readonly piece: { id: string; name: string }, readonly reason: "unreadable" | "too_large" | "invalid" | "invalid_pages") {
+    const name = `« ${piece.name} »`;
+    super(reason === "too_large"
+      ? { status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
+        message: `Le plan ${name} dépasse la taille qu’une analyse peut lire. Retirez-le des pièces retenues.` }
+      : reason === "invalid" ? { status: 422, code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED, retryable: false,
+        message: `Le plan ${name} est invalide ou protégé : l’analyse ne pourrait pas l’ouvrir. Remplacez-le ou retirez-le des pièces retenues.` }
+      : reason === "invalid_pages" ? { status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+        message: `Les pages retenues du plan ${name} n’existent pas dans le fichier. Corrigez la sélection de pages.` }
+      : { status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+        message: `Impossible de lire la pièce ${name}. Rendez-la accessible ou retirez-la des pièces retenues.` });
+  }
+}
+
+/** The plans an analysis would read pass the worker's plan budget (their number, size or real pages): they are named. */
+export class PreparationPlanBudgetError extends TakeoffError {
+  constructor(readonly pieces: Array<{ id: string; name: string }>) {
+    const names = pieces.map((piece) => `« ${piece.name} »`).join(", ");
+    super({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false, message: pieces.length === 1
+      ? `Le plan ${names} dépasse les limites d’une analyse. Retirez-le des pièces retenues ou réduisez-le avant de confirmer.`
+      : `Les plans ${names} dépassent ensemble les limites d’une analyse. Retirez des plans des pièces retenues avant de confirmer.` });
+  }
+}
+
+/** Why the worker would not attach a reference, in French for the member who confirms, and as the coverage names it. */
+function referenceIssue(source: TakeoffPreparationSource, issue: PreparationReferenceRefusal["reason"] | "unsupported_format" | "unreadable"
+  | "outside_affaire" | "file_limit" | "size_limit", past: readonly TakeoffPreparationSource[] = [source]): { reason: PreparationSealOmission["reason"]; error: TakeoffError } {
+  const name = `« ${source.document_name} »`;
+  const limits = PREPARATION_REFERENCE_LIMITS;
+  const megabytes = (bytes: number) => Math.round(bytes / (1024 * 1024));
+  const tooLarge = (message: string) => ({ reason: "limit" as const,
+    error: new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false, message }) });
+  const invalidContent = () => ({ reason: "invalid" as const, error: new TakeoffError({ status: 422, retryable: false,
+    code: classifyPreparationReferenceFormat({ file_name: source.document_name, mime_type: source.mime_type }) === "pdf"
+      ? TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED : TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
+    message: `La pièce ${name} est invalide, protégée ou dépasse les limites de lecture : l’analyse ne pourrait pas la lire. Retirez-la des pièces retenues.` }) });
+  switch (issue) {
+    case "unsupported_format":
+      return { reason: "unsupported_format", error: new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID, retryable: false,
+        message: `La pièce ${name} ne peut pas servir de référence à cette analyse. Utilisez un PDF, CSV, Excel ou texte, ou retirez-la des sources actives.` }) };
+    case "unreadable":
+      return { reason: "unreadable", error: new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+        message: `Impossible de lire la pièce ${name}. Rendez-la accessible ou retirez-la des pièces retenues.` }) };
+    case "outside_affaire":
+      return { reason: "outside_affaire", error: new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+        message: `Le fichier de la pièce ${name} n’est pas celui que le dossier de cette affaire a enregistré : il ne sera pas lu. Retirez-la des pièces retenues ou déposez-la de nouveau.` }) };
+    case "file_limit":
+      return tooLarge(`Une analyse lit au plus ${limits.files} pièces de référence : ${past.map((entry) => `« ${entry.document_name} »`).join(", ")} ${past.length > 1 ? "dépassent" : "dépasse"} cette limite. Retirez des pièces avant de confirmer.`);
+    case "size_limit": return tooLarge(`Les pièces de référence dépassent ${megabytes(limits.originalBytes)} Mo avec ${name}. Réduisez la sélection avant de confirmer.`);
+    case "page_limit": return tooLarge(`Les pièces de référence dépassent ${limits.retainedPages} pages retenues avec ${name}. Restreignez ses pages ou retirez-la avant de confirmer.`);
+    case "context_limit": return tooLarge(`Le contenu joint des pièces de référence dépasse ${megabytes(limits.contextBytes)} Mo avec ${name}. Réduisez la sélection avant de confirmer.`);
+    case "invalid_pages":
+    case "pages_need_pdf":
+      // Without a page selection, a PDF without any page to read is invalid content.
+      if (!source.pages.length) return invalidContent();
+      return { reason: "invalid", error: new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+        message: issue === "pages_need_pdf" ? `La sélection de pages de ${name} nécessite un PDF. Retenez la pièce entière.`
+          : `Les pages retenues de ${name} n’existent pas dans le document. Corrigez la sélection de pages.` }) };
+    case "invalid_content":
+      return invalidContent();
+  }
+}
+
+/**
+ * The sealing of a preparation's sources, the one a member's confirmation and the automatic start share: the bytes of
+ * every active piece of the dossier (a file uploaded for a launch is sealed by its launch) are read now and digested;
+ * a dossier preparation's are recorded as attested by the server.
+ *
+ * Before any download, a reference is checked from its row: its format, its recorded size, and that its Storage key is
+ * the one the dossier wrote for it in this affaire (`isAffaireIntakeStorageKey`: the server's own client is not bound by
+ * the bucket's policy). Its stored file must then be the size its row records. It is read as the worker reads it
+ * (`readPreparationReference`), within the same bounds, and charged to them only once kept. One the worker would refuse
+ * stops a confirmation, told to the member (`throw`; the whole selection is bounded before any download), or is left
+ * out of an automatic start, named with its reason (`omit`).
+ *
+ * A plan that cannot be read stops both (`PreparationPlanSealError`). A plan is opened as the worker opens it
+ * (`openPreparedPlan`), its real size and pages counted; once the caller has applied the revision choices,
+ * `assertReadPlans` stops both on a plan the worker would not open, on pages it lacks, and on plans past the worker's
+ * plan budget (`inspectPlanSetResourceBudget`, on their real counts). The title block of a dossier plan gives its index;
+ * a page the renderer cannot draw leaves it unread, as the worker reads a plan without it.
+ *
+ * `sources` and `documents` are the dossier as the caller read it, in `affaire`; the draft is changed in place.
+ */
+export async function sealPreparationSources(draft: TakeoffPreparation, options: {
+  /** The client that reads the bytes: the member's for a confirmation, the server's own for the automatic start. */
+  supabase: { storage: AuthenticatedTenantContext["supabase"]["storage"] };
+  affaire: { tenantId: string; projectId: string };
+  sources: readonly TakeoffPreparationSource[];
+  /** What each dossier document's row records of its stored file: its size and the upload its key names. */
+  documents: ReadonlyMap<string, PreparationDocumentRow>;
+  onReferenceIssue: "throw" | "omit";
+}): Promise<{ omittedReferences: PreparationSealOmission[]; assertReadPlans: (read: TakeoffPreparation, bounds: { maxPages: number }) => void }> {
+  const available = new Map(options.sources.map((source) => [source.document_id, source]));
+  const omittedReferences: PreparationSealOmission[] = [];
+  const unopenedPlans = new Map<string, PreparationPlanSealError>();
+  const planCounts = new Map<string, { file_size_bytes: number; page_count: number }>();
+  const leaveOut = (source: TakeoffPreparationSource, issue: Parameters<typeof referenceIssue>[1]) => {
+    const { reason, error } = referenceIssue(source, issue);
+    if (options.onReferenceIssue === "throw") throw error;
+    source.active = false;
+    omittedReferences.push({ id: source.document_id, name: source.document_name, reason });
+  };
+  const sealed = draft.sources.filter((source) => source.active && !source.document_id.startsWith("upload:"));
+  // From the rows alone, before any download. A confirmation keeps every reference or none: its whole selection is
+  // bounded here, the pieces past the limit named.
+  const formats = new Map<TakeoffPreparationSource, PreparationReferenceFormat>();
+  const selection = createPreparationReferenceBudget();
+  const pastFileLimit: TakeoffPreparationSource[] = [];
+  for (const source of sealed.filter((entry) => entry.kind !== "plan")) {
+    const format = classifyPreparationReferenceFormat({ file_name: source.document_name, mime_type: source.mime_type });
+    const row = options.documents.get(source.document_id);
+    const path = available.get(source.document_id)?.file_path;
+    if (!format) leaveOut(source, "unsupported_format");
+    else if (!path || !row || !isPreparationReferenceSize(row.size_bytes)) leaveOut(source, "unreadable");
+    else if (!isAffaireIntakeStorageKey(path, { ...options.affaire, uploadId: row.upload_id, documentId: source.document_id })) {
+      leaveOut(source, "outside_affaire");
+    } else {
+      formats.set(source, format);
+      if (options.onReferenceIssue !== "throw") continue;
+      if (preparationReferenceFileLimit(selection, row.size_bytes) === "files") pastFileLimit.push(source);
+      else if (!admitPreparationReferenceFile(selection, row.size_bytes)) leaveOut(source, "size_limit");
+    }
+  }
+  if (pastFileLimit.length) throw referenceIssue(pastFileLimit[0], "file_limit", pastFileLimit).error;
+  // A reference's share of the file and size bounds is taken once it is read and kept: one left out takes nothing.
+  const budget = createPreparationReferenceBudget();
+  for (const source of sealed) {
+    if (!source.active) continue;
+    const current = available.get(source.document_id);
+    const piece = { id: source.document_id, name: source.document_name };
+    const plan = source.kind === "plan";
+    const path = current?.file_path;
+    if (!path) throw new PreparationPlanSealError(piece, "unreadable");
+    const row = plan ? null : options.documents.get(source.document_id)!;
+    const storage = options.supabase.storage.from(source.plan_set_id ? PLAN_FILES_BUCKET : AFFAIRE_INTAKE_BUCKET);
+    const { data: stored, error: infoError } = await storage.info(path);
+    const storedSize = stored?.size ?? 0;
+    if (plan && !infoError && storedSize > PLAN_FILE_MAX_SIZE_BYTES) throw new PreparationPlanSealError(piece, "too_large");
+    if (infoError || !(storedSize > 0) || (row && storedSize !== row.size_bytes)) {
+      if (plan) throw new PreparationPlanSealError(piece, "unreadable");
+      leaveOut(source, "unreadable");
+      continue;
+    }
+    if (row) {
+      const limit = preparationReferenceFileLimit(budget, row.size_bytes);
+      if (limit) {
+        leaveOut(source, limit === "files" ? "file_limit" : "size_limit");
+        continue;
+      }
+    }
+    const { data: blob, error } = await storage.download(path);
+    if (error || !blob || blob.size !== storedSize) {
+      if (plan) throw new PreparationPlanSealError(piece, "unreadable");
+      leaveOut(source, "unreadable");
+      continue;
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const previousHash = source.content_hash;
+    source.content_hash = sha256Hex(bytes);
+    if (row) {
+      try {
+        await readPreparationReference({ bytes: Buffer.from(bytes), format: formats.get(source)!,
+          document: { file_name: source.document_name, mime_type: source.mime_type }, pages: source.pages }, budget);
+      } catch (refusal) {
+        if (!(refusal instanceof PreparationReferenceRefusal)) throw refusal;
+        leaveOut(source, refusal.reason);
+        continue;
+      }
+      admitPreparationReferenceFile(budget, row.size_bytes);
+    } else {
+      // Opened as the worker opens it, its real size and pages counted. The worker never opens a version the revision
+      // choices set aside (it only compares its bytes), and an identical copy set aside gives its pages to the plan
+      // kept: what it reads is checked once the choices apply (`assertReadPlans`).
+      try {
+        planCounts.set(source.document_id, { file_size_bytes: bytes.byteLength,
+          page_count: (await openPreparedPlan(bytes, [])).pdf.getPageCount() });
+      } catch (refusal) {
+        if (!(refusal instanceof PreparedPlanRefusal)) throw refusal;
+        unopenedPlans.set(source.document_id, new PreparationPlanSealError(piece, "invalid"));
+      }
+    }
+    if (plan && draft.provenance) {
+      const document = await renderPdfPages(bytes, { ...TAKEOFF_PAGE_TRIAGE_TEXT, pages: [source.pages[0] ?? 1] }).catch(() => null);
+      source.plan_identity = readPlanTitleBlock(document?.pages[0]?.regionText ?? "");
+      // The member's settled choice for this reading of these bytes; otherwise the metadata or file name, then what
+      // the preparation recorded for these bytes (an index the operator entered), then the title block. A differing
+      // reading stays a difference the member settles.
+      const sameBytes = !previousHash || previousHash === source.content_hash;
+      if (!sameBytes) delete source.revision_reading_settled;
+      const reading = source.plan_identity?.revision ?? null;
+      const settled = Boolean(reading && source.revision && source.revision_reading_settled === reading);
+      source.revision = settled ? source.revision : current?.revision ?? (sameBytes ? source.revision : null) ?? reading;
+    }
+    // The server's attestation of the bytes it read for a dossier preparation, whose pieces no member confirms one by one:
+    // the review serves a plan's locations and original PDF only for an attested piece. Another preparation's pieces are
+    // attested by its member, which its readiness requires: never in their place.
+    if (draft.provenance) source.confirmed = true;
+  }
+  return {
+    omittedReferences,
+    /**
+     * Throws for the plans of `read` (the preparation as the analysis reads it, once the revision choices apply) that
+     * the worker would refuse: one it would not open or whose pages lie outside its file (named), or, together, plans
+     * past its plan budget at `maxPages` (all named).
+     */
+    assertReadPlans: (read, bounds) => {
+      // The plans the sealing read (a file uploaded for a launch is checked by its launch).
+      const plans = read.sources.filter((entry) => entry.active && entry.kind === "plan"
+        && (planCounts.has(entry.document_id) || unopenedPlans.has(entry.document_id)));
+      for (const source of plans) {
+        const refused = unopenedPlans.get(source.document_id);
+        if (refused) throw refused;
+        if (!preparedPlanPages(source.pages, planCounts.get(source.document_id)!.page_count)) {
+          throw new PreparationPlanSealError({ id: source.document_id, name: source.document_name }, "invalid_pages");
+        }
+      }
+      if (inspectPlanSetResourceBudget(plans.map((source) => planCounts.get(source.document_id)!), { maxPages: bounds.maxPages }).violation) {
+        throw new PreparationPlanBudgetError(plans.map((source) => ({ id: source.document_id, name: source.document_name })));
+      }
+    },
+  };
+}
+
 export async function saveTakeoffPreparation(input: {
   projectId: string; draft: TakeoffPreparation; expectedRevision: number | null;
 }) {
@@ -209,8 +454,8 @@ export async function confirmTakeoffPreparation(input: {
   z.string().regex(/^[a-f0-9]{64}$/).optional().parse(input.expectedExecutionFingerprint);
   const context = await getAuthenticatedContext();
   await assertPreparationProjectAccess(context, input.projectId, true);
-  const [record, sources] = await Promise.all([
-    readPreparationRecord(context, input.projectId), readPreparationSources(context, input.projectId),
+  const [record, { sources, documents }] = await Promise.all([
+    readPreparationRecord(context, input.projectId), readPreparationSourceRows(context, input.projectId),
   ]);
   if (record?.confirmed_at && record.confirmed_snapshot &&
       (record.revision === input.expectedRevision || record.revision === input.expectedRevision + 1)) {
@@ -239,52 +484,13 @@ export async function confirmTakeoffPreparation(input: {
   if (draft.provenance) {
     assertTakeoffPreparationProcessing(draft, DETAILED_TAKEOFF_PROCESSING);
     // A previously resolved alternative is still part of the attestable choice.
-    for (const source of getDeducedPlanCandidates(draft.sources)) {
-      source.active = true;
-      source.pages = source.pages_before_deduplication ?? source.pages;
-      delete source.pages_before_deduplication;
-      delete source.alternate_of;
-    }
+    reopenDeducedPlanCandidates(draft.sources);
   }
   assertDossierSourcesReviewed(draft, sources);
   validateCanonicalSources(draft, sources);
-  const referenceSources = draft.sources.filter((source) => source.active && source.kind !== "plan" && !source.document_id.startsWith("upload:"));
-  if (referenceSources.length > 20) {
-    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, message: "Sélectionnez au maximum 20 pièces de référence avant de confirmer.", retryable: false });
-  }
-  for (const source of referenceSources) {
-    if (!classifyPreparationReferenceFormat({ file_name: source.document_name, mime_type: source.mime_type })) {
-      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
-        message: `La pièce « ${source.document_name} » ne peut pas servir de référence à cette analyse. Utilisez un PDF, CSV, Excel ou texte, ou retirez-la des sources actives.`, retryable: false });
-    }
-  }
-  // Confirm the actual bytes, including historical imports without a trustworthy hash.
-  let referenceBytes = 0;
-  for (const source of draft.sources.filter((entry) => entry.active && !entry.document_id.startsWith("upload:"))) {
-    if (!source.file_path) preparationConflict(`La pièce « ${source.document_name} » n’a pas de fichier accessible.`);
-    const { data, error } = await context.supabase.storage.from(source.plan_set_id ? PLAN_FILES_BUCKET : AFFAIRE_INTAKE_BUCKET).download(source.file_path);
-    if (error || !data) preparationConflict(`Impossible de lire la pièce « ${source.document_name} ». Rendez-la accessible ou retirez-la des pièces retenues.`);
-    if (!source.plan_set_id) {
-      referenceBytes += data.size;
-      if (referenceBytes > 20 * 1024 * 1024) throw new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, message: "Les pièces de référence dépassent 20 Mo. Réduisez la sélection avant de confirmer.", retryable: false });
-    }
-    const bytes = new Uint8Array(await data.arrayBuffer());
-    const previousHash = source.content_hash;
-    source.content_hash = createHash("sha256").update(bytes).digest("hex");
-    if (draft.provenance && source.kind === "plan") {
-      const document = await renderPdfPages(bytes, { ...TAKEOFF_PAGE_TRIAGE_TEXT, pages: [source.pages[0] ?? 1] });
-      source.plan_identity = readPlanTitleBlock(document.pages[0]?.regionText ?? "");
-      // The member's settled choice for this reading of these bytes; otherwise the metadata or file name, then what
-      // the preparation recorded for these bytes (an index the operator entered), then the title block. A differing
-      // reading stays a difference the member settles.
-      const sameBytes = !previousHash || previousHash === source.content_hash;
-      if (!sameBytes) delete source.revision_reading_settled;
-      const reading = source.plan_identity?.revision ?? null;
-      const settled = Boolean(reading && source.revision && source.revision_reading_settled === reading);
-      const known = sources.find((current) => current.document_id === source.document_id)?.revision;
-      source.revision = settled ? source.revision : known ?? (sameBytes ? source.revision : null) ?? reading;
-    }
-  }
+  // Confirm the actual bytes, including historical imports without a trustworthy hash, as the worker will read them.
+  const sealed = await sealPreparationSources(draft, { supabase: context.supabase, affaire: { tenantId: context.tenantId, projectId: input.projectId },
+    sources, documents, onReferenceIssue: "throw" });
   const revision = record.revision + 1;
   // A metadata edit during the download cannot be confirmed from an older read.
   const latest = await readPreparationSources(context, input.projectId);
@@ -300,6 +506,9 @@ export async function confirmTakeoffPreparation(input: {
       return readPreparationRevision(context, input.projectId, revision, false);
     }
   }
+  // The plans the analysis reads, as the worker reads them at this level.
+  sealed.assertReadPlans(draft, { maxPages: await getPlanSetMaxPdfPages({ supabase: context.supabase, tenantId: context.tenantId,
+    level: draft.processing.level ?? DETAILED_TAKEOFF_PROCESSING.level }) });
   const confirmedAt = new Date().toISOString();
   const snapshot = createTakeoffPreparationSnapshot({ preparation: draft, confirmedBy: context.userId, confirmedAt, revision });
   if (draft.provenance) snapshot.execution_selection = await selectionForConfirmation(context, input.expectedExecutionFingerprint);

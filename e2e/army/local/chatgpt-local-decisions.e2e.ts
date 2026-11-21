@@ -1317,6 +1317,26 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
       job_id: null, recipient_user_id: owner.userId, outcome: "success" })]);
     expect((await readEstimate(browser, ids.versionId)).items).toEqual(before.items);
 
+    // The review of the automatic analysis reads its plan as it reads a confirmed one: its location and its original PDF,
+    // at the bytes the seal attested (those the analysis read).
+    const planHash = createHash("sha256").update(await readFile(path.resolve(".e2e/army/critical/artifacts/fixtures", ids.projectId,
+      `${prefix}-plan-rdc.pdf`))).digest("hex");
+    const [sealedPlan] = request.manifest_plans ?? [];
+    const locations = await apiRequest<{ data: { without_preparation: boolean; plans: Array<{ plan_file_id: string; status: string;
+      revision: { content_hash: string } | null }> } }>(browser, "GET", `/api/takeoff/jobs/${jobs[0].id}/plan-locations`);
+    expect(locations.status).toBe(200);
+    expect({ without: locations.body.data.without_preparation, plans: locations.body.data.plans.map((plan) => ({ id: plan.plan_file_id,
+      status: plan.status, hash: plan.revision?.content_hash ?? null })) })
+      .toEqual({ without: false, plans: [{ id: sealedPlan, status: "current", hash: planHash }] });
+    const original = await browser.evaluate(async ({ job, file }) => {
+      const response = await fetch(`/api/takeoff/jobs/${job}/vector-plans/${file}`);
+      const sha256 = response.ok
+        ? Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await response.arrayBuffer())),
+          (byte) => byte.toString(16).padStart(2, "0")).join("") : null;
+      return { status: response.status, sha256 };
+    }, { job: jobs[0].id, file: sealedPlan });
+    expect(original).toEqual({ status: 200, sha256: planHash });
+
     // The member's identical submission of the revision they confirmed (a second tab, or an answer lost on the way)
     // gets the first one's answer and starts nothing more; a form of any other revision is refused.
     const confirmAction = await serverActionId("confirmAffaireBrief", actionManifest());
@@ -1338,7 +1358,8 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([expect.objectContaining({ id: request.id, state: "closed" })]);
     expect(await planReads() - readsBefore).toBe(1);
     expect(await forbiddenRequests()).toBe(0);
-    await recordEvidence(army, "AUTO01-automatic-start", { ids, request, jobs, planReads: 1, replayedConfirmation: replay, staleConfirmation: stale,
+    await recordEvidence(army, "AUTO01-automatic-start", { ids, request, jobs, planReads: 1, review: { locations: locations.body.data.plans, original },
+      replayedConfirmation: replay, staleConfirmation: stale,
       addedAfterAnalysis: added.map(file => file.id), boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend." });
   } finally {
     // The next journey signs its own account in: leave no session of these owners.

@@ -1,10 +1,10 @@
 import "server-only";
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 
-import { AFFAIRE_INTAKE_BUCKET, getAffaireIntakeFileExtension } from "@/lib/affaires/intake";
+import { getAffaireIntakeFileExtension } from "@/lib/affaires/intake";
 import { findIntakePlansWithoutWorkingCopy, isSameIntakePlanGeneration, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
 import { DOCUMENT_SELECT, normalizeDocumentRow } from "@/lib/affaires/intake-rows";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
@@ -14,8 +14,6 @@ import {
 } from "@/lib/ai/chatgpt-takeoff";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
-import { renderPdfPages } from "@/lib/pdf/page-render-server";
-import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertTakeoffWorkerConfiguration } from "@/lib/takeoff/default-on-flags";
@@ -35,13 +33,13 @@ import {
   createTakeoffPreparationSnapshot, evaluateTakeoffPreparation, TakeoffPreparationNotReadyError,
   type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
 } from "@/lib/takeoff/preparation";
-import { getDeducedPlanCandidates, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
-import { classifyPreparationReferenceFormat } from "@/lib/takeoff/preparation-reference-loader";
+import { reopenDeducedPlanCandidates, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
-import { assertConfirmedTakeoffPreparation, loadPreparation } from "@/lib/takeoff/preparation-server";
-import { readPlanTitleBlock } from "@/lib/takeoff/plan-revision-identity";
+import {
+  assertConfirmedTakeoffPreparation, loadPreparation, PreparationPlanBudgetError, PreparationPlanSealError, sealPreparationSources,
+} from "@/lib/takeoff/preparation-server";
+import { getPlanSetMaxPdfPages } from "@/lib/takeoff/source-loader";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
-import { TAKEOFF_PAGE_TRIAGE_TEXT } from "@/lib/takeoff/page-triage-server";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
@@ -49,9 +47,6 @@ import type { Database, Json } from "@/types/database";
 
 type Service = SupabaseClient<Database>;
 type Context = AuthenticatedTenantContext;
-
-const MAX_REFERENCES = 20;
-const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
 
 function databaseError(error: { code?: string; message: string }, message: string): never {
   throw mapSupabaseError({ ...error, code: error.code ?? "UNKNOWN" }, message);
@@ -239,11 +234,13 @@ type Refusal = { state: "not_eligible" | "blocked"; reason: TakeoffLaunchReason;
 
 /**
  * The automatic snapshot: the preparation deduced from the dossier for its plan set, with the options the members saved
- * (never written over their draft), the bytes of every retained piece read and digested now. A reference that cannot be
- * read or used is left out and named in the coverage; a plan whose bytes cannot be read stops the start and is named.
+ * (never written over their draft), its pieces sealed as a member's confirmation seals them (`sealPreparationSources`):
+ * a reference the worker would not read is left out and named in the coverage; a plan whose bytes cannot be read stops
+ * the start and is named. `documents` are the dossier's rows the evaluation already read, with their recorded sizes.
  */
 async function sealAutomaticSnapshot(service: Service, input: {
   tenantId: string; projectId: string; planSet: DossierPlanSet; payerId: string; selection: TakeoffExecutionSelection; jobId: string;
+  documents: ReadonlyArray<{ id: string; size_bytes: number; upload_id: string | null }>;
   /** Plans of the dossier the analysis cannot read (not PDF): named in the coverage, never read. */
   unsupportedPlans: TakeoffLaunchPiece[];
 }): Promise<Sealed | Refusal> {
@@ -252,75 +249,32 @@ async function sealAutomaticSnapshot(service: Service, input: {
   // The automatic analysis reads the affaire without a version and sends nothing: analysis only, no reviewer.
   draft.destination = { kind: "analysis_only", estimate_version_id: null, reviewer: null, confirmed: true };
   // Every retained version of a plan is read again before the revision choices apply, as a confirmation does.
-  for (const source of getDeducedPlanCandidates(draft.sources)) {
-    source.active = true;
-    source.pages = source.pages_before_deduplication ?? source.pages;
-    delete source.pages_before_deduplication;
-    delete source.alternate_of;
-  }
-  const omittedReferences: TakeoffLaunchManifest["coverage"]["references_omitted"] = [];
+  reopenDeducedPlanCandidates(draft.sources);
   const available = new Map(loaded.availableSources.map((source) => [source.document_id, source]));
-  let references = 0;
-  let referenceBytes = 0;
   for (const source of draft.sources.filter((entry) => entry.active)) {
     // A file uploaded for a former launch is not part of the dossier.
-    if (source.document_id.startsWith("upload:")) {
-      source.active = false;
-      continue;
-    }
+    if (source.document_id.startsWith("upload:")) source.active = false;
     const current = available.get(source.document_id);
     // A piece that changed while the dossier was read: the next pass reads it again.
     if (current && (current.source_version !== source.source_version || current.kind !== source.kind)) {
       return { state: "blocked", reason: "SOURCE_UNREADABLE", pieces: [] };
     }
-    if (!current?.file_path) {
-      // No stored copy to read (a reference linked from Google Drive, a piece gone from the dossier).
-      if (source.kind === "plan") return { state: "blocked", reason: "PLAN_COPY_MISSING", pieces: [{ id: source.document_id, name: source.document_name }] };
-      source.active = false;
-      omittedReferences.push({ id: source.document_id, name: source.document_name, reason: "unreadable" });
-      continue;
-    }
-    if (source.kind !== "plan") {
-      const unsupported = !classifyPreparationReferenceFormat({ file_name: source.document_name, mime_type: source.mime_type });
-      if (unsupported || references >= MAX_REFERENCES) {
-        source.active = false;
-        omittedReferences.push({ id: source.document_id, name: source.document_name, reason: unsupported ? "unsupported_format" : "limit" });
-        continue;
-      }
-    }
-    const { data, error } = await service.storage.from(source.plan_set_id ? PLAN_FILES_BUCKET : AFFAIRE_INTAKE_BUCKET).download(current.file_path);
-    if (error || !data) {
-      if (source.kind === "plan") return { state: "blocked", reason: "PLAN_COPY_MISSING", pieces: [{ id: source.document_id, name: source.document_name }] };
-      source.active = false;
-      omittedReferences.push({ id: source.document_id, name: source.document_name, reason: "unreadable" });
-      continue;
-    }
-    if (source.kind !== "plan") {
-      if (referenceBytes + data.size > MAX_REFERENCE_BYTES) {
-        source.active = false;
-        omittedReferences.push({ id: source.document_id, name: source.document_name, reason: "limit" });
-        continue;
-      }
-      referenceBytes += data.size;
-      references += 1;
-    }
-    const bytes = new Uint8Array(await data.arrayBuffer());
-    const previousHash = source.content_hash;
-    source.content_hash = createHash("sha256").update(bytes).digest("hex");
-    if (source.kind === "plan") {
-      // The title block's index, as a confirmation reads it; a page that cannot be rendered leaves it unread.
-      try {
-        const document = await renderPdfPages(bytes, { ...TAKEOFF_PAGE_TRIAGE_TEXT, pages: [source.pages[0] ?? 1] });
-        source.plan_identity = readPlanTitleBlock(document.pages[0]?.regionText ?? "");
-      } catch {
-        source.plan_identity = null;
-      }
-      const sameBytes = !previousHash || previousHash === source.content_hash;
-      if (!sameBytes) delete source.revision_reading_settled;
-      const reading = source.plan_identity?.revision ?? null;
-      const settled = Boolean(reading && source.revision && source.revision_reading_settled === reading);
-      source.revision = settled ? source.revision : current.revision ?? (sameBytes ? source.revision : null) ?? reading;
-    }
+  }
+  // A plan the analysis could not read (its copy missing or unreadable), or plans past its budget: named, and a dossier
+  // change evaluates the request again.
+  const planRefusal = (error: unknown): Refusal => {
+    if (error instanceof PreparationPlanBudgetError) return { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: error.pieces };
+    if (!(error instanceof PreparationPlanSealError)) throw error;
+    return { state: "blocked", reason: error.reason === "too_large" ? "PLAN_SET_TOO_LARGE" : "PLAN_COPY_MISSING", pieces: [error.piece] };
+  };
+  let sealed: Awaited<ReturnType<typeof sealPreparationSources>>;
+  try {
+    sealed = await sealPreparationSources(draft, { supabase: service, affaire: { tenantId: input.tenantId, projectId: input.projectId },
+      sources: loaded.availableSources,
+      documents: new Map(input.documents.map((document) => [document.id, { size_bytes: document.size_bytes, upload_id: document.upload_id }])),
+      onReferenceIssue: "omit" });
+  } catch (error) {
+    return planRefusal(error);
   }
   const resolved = resolveDeducedPlanVersions(draft);
   const readiness = evaluateTakeoffPreparation(resolved);
@@ -329,6 +283,11 @@ async function sealAutomaticSnapshot(service: Service, input: {
     return { state: "blocked", reason: "PREPARATION_NEEDS_REVIEW", pieces: [...new Set(readiness.blockers
       .map((blocker) => blocker.source_document_id).filter((id): id is string => Boolean(id)))]
       .map((id) => ({ id, name: named.get(id) ?? id })) };
+  }
+  try {
+    sealed.assertReadPlans(resolved, { maxPages: await getPlanSetMaxPdfPages({ supabase: service, tenantId: input.tenantId, level: "C" }) });
+  } catch (error) {
+    return planRefusal(error);
   }
   let snapshot: TakeoffPreparationSnapshot;
   try {
@@ -347,7 +306,7 @@ async function sealAutomaticSnapshot(service: Service, input: {
       jobId: input.jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
   } catch (error) {
     if (error instanceof TakeoffError && error.code === TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE) {
-      return { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: [] };
+      return { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: plans.map((source) => ({ id: source.document_id, name: source.document_name })) };
     }
     throw error;
   }
@@ -359,7 +318,7 @@ async function sealAutomaticSnapshot(service: Service, input: {
     ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
   ];
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
-    omittedPlans, omittedReferences, preparationRevision: snapshot.preparation_revision,
+    omittedPlans, omittedReferences: sealed.omittedReferences, preparationRevision: snapshot.preparation_revision,
     budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
   return { snapshot, manifest, sourceFile };
 }
@@ -418,7 +377,7 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
   assertTakeoffWorkerConfiguration();
   const jobId = deriveDeterministicJobId(claim.tenant_id, `takeoff-request:${claim.request_id}:${TAKEOFF_GROUPED_UNIT_KEY}`);
   const sealed = await sealAutomaticSnapshot(service, { tenantId: claim.tenant_id, projectId: claim.project_id, planSet: planSet!,
-    payerId: claim.payer_id, selection: mandate.selection!, jobId,
+    payerId: claim.payer_id, selection: mandate.selection!, jobId, documents,
     unsupportedPlans: documents.filter((document) => document.document_kind === "plans" && document.upload_status === "uploaded"
       && document.classification_status === "classified" && document.mime_type?.toLowerCase() !== "application/pdf"
       && getAffaireIntakeFileExtension(document.file_name) !== "pdf")

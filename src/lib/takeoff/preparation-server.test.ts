@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
+import { PDFDocument } from "pdf-lib";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getTakeoffExecutionSelection } from "@/lib/ai/chatgpt-takeoff";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
-import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
+import { confirmedPreparationFixture, fictionalPlanPdf } from "@/lib/takeoff/preparation.test-utils";
 import { assertConfirmedTakeoffPreparation as assertConfirmedTakeoffPreparationServer, confirmTakeoffPreparation, loadTakeoffExecutionPreview, loadTakeoffPreparation, saveTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import type { PreparationRecordRow } from "@/lib/takeoff/preparation-repository";
 import { toPreparationPlanSource, toPreparationIntakeSource, type PreparationPlanFile, type PreparationIntakeDocument } from "@/lib/takeoff/preparation-sources";
@@ -29,7 +30,7 @@ function fixture() {
   let missingMigration = false;
   let onDownload = () => {};
   const intake: PreparationIntakeDocument[] = [];
-  const content = Buffer.from("fictitious confirmed source bytes");
+  const content = fictionalPlanPdf("fictitious confirmed source bytes");
   const file: PreparationPlanFile = {
     id: "77777777-7777-4777-8777-777777777777", plan_set_id: M3_PLAN_SET_ID,
     file_name: "Plan fictif.pdf", file_path: `${M3_TENANT_ID}/plan.pdf`, file_size_bytes: content.length,
@@ -37,6 +38,7 @@ function fixture() {
   };
   const files = [file];
   const contents = new Map([[file.file_path!, content]]);
+  const intakeContents = new Map<string, Buffer>();
   const user = createSupabaseFake({
     tables: {
       estimate_projects: (query) => ({ data: filterValue(query, "id") === M3_PROJECT_ID && filterValue(query, "tenant_id") === M3_TENANT_ID ? { id: M3_PROJECT_ID } : null, error: null }),
@@ -52,7 +54,7 @@ function fixture() {
     },
     storage: {
       "plan-files": ({ paths }) => { onDownload(); return { data: new Blob([contents.get(paths[0]) ?? content]), error: null }; },
-      "affaire-intake": () => ({ data: new Blob(["CCTP fictif : lot plomberie."]), error: null }),
+      "affaire-intake": ({ paths }) => ({ data: new Blob([Uint8Array.from(intakeContents.get(paths[0]) ?? Buffer.from(CCTP_TEXT))]), error: null }),
     },
   });
   const server = createSupabaseFake({ tables: {
@@ -73,7 +75,7 @@ function fixture() {
   ready.processing = { level: "B", provider: "auto" };
   ready.sources = [{ ...toPreparationPlanSource(file), active: true, confirmed: true }];
   return {
-    user, server, context, file, files, contents, ready, content, intake, getRecord: () => record,
+    user, server, context, file, files, contents, intakeContents, ready, content, intake, getRecord: () => record,
     seedRecord: (row: PreparationRecordRow) => { record = row; },
     setTargetProject: (id: string) => { targetProjectId = id; },
     setMissingMigration: () => { missingMigration = true; },
@@ -81,6 +83,13 @@ function fixture() {
   };
 }
 
+/** What the dossier's text pieces hold by default; a row records the size of the file it names. */
+const CCTP_TEXT = "CCTP fictif : lot plomberie.";
+const CCTP_SIZE = Buffer.byteLength(CCTP_TEXT);
+/** The upload of the dossier's pieces, and a piece's Storage key as the dossier writes it (tenant/affaire/upload/document/name). */
+const DOSSIER_UPLOAD = "abababab-abab-4bab-8bab-abababababab";
+const dossierKey = (documentId: string, name: string, projectId = M3_PROJECT_ID) =>
+  `${M3_TENANT_ID}/${projectId}/${DOSSIER_UPLOAD}/${documentId}/${name}`;
 const selection = { profileId: "alice", model: "gpt-5.4", reasoningEffort: "medium", hostId: "mac", authorizationId: "connexion-alice" } as const;
 const observedFingerprint = createHash("sha256").update(JSON.stringify([selection.profileId, selection.hostId, selection.model, selection.reasoningEffort,
   selection.authorizationId])).digest("hex");
@@ -92,7 +101,7 @@ function addOtherPlanSet(f: ReturnType<typeof fixture>) {
   const plan = { ...f.file, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", plan_set_id: OTHER_PLAN_SET_ID,
     file_name: "Plan autre jeu.pdf", file_path: `${M3_TENANT_ID}/plan-autre-jeu.pdf`, metadata: { revision: "C" } };
   f.files.push(plan);
-  f.contents.set(plan.file_path, Buffer.from("plan of the other set"));
+  f.contents.set(plan.file_path, fictionalPlanPdf("plan of the other set"));
   return plan;
 }
 
@@ -141,7 +150,7 @@ describe("persisted preparation server boundary", () => {
     const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
     f.files.push({ ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan B.pdf" });
     f.intake.push({ id: "99999999-9999-4999-8999-999999999999", file_name: "CCTP.txt",
-      storage_path: `${M3_TENANT_ID}/CCTP.txt`, document_kind: "cctp", mime_type: "text/plain", size_bytes: 10, updated_at: "2026-11-20T00:00:00Z" });
+      upload_id: DOSSIER_UPLOAD, storage_path: dossierKey("99999999-9999-4999-8999-999999999999", "CCTP.txt"), document_kind: "cctp", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" });
     await expect(saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null })).rejects.toMatchObject({ status: 409 });
     expect(f.getRecord()).toBeNull();
     const refreshed = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
@@ -151,8 +160,9 @@ describe("persisted preparation server boundary", () => {
 
   it.each(["cctp", "dpgf"])("treats an attachment reclassified as %s as a new dossier piece", async (kind) => {
     const f = fixture();
-    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", storage_path: `${M3_TENANT_ID}/piece.txt`,
-      document_kind: "other", mime_type: "text/plain", size_bytes: 10, updated_at: "2026-11-20T00:00:00Z" };
+    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", upload_id: DOSSIER_UPLOAD,
+      storage_path: dossierKey("99999999-9999-4999-8999-999999999999", "piece.txt"),
+      document_kind: "other", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" };
     f.intake.push(attachment);
     const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
     expect(draft.sources.find(({ document_id }) => document_id === attachment.id)).toMatchObject({ kind: "other", active: false });
@@ -173,8 +183,9 @@ describe("persisted preparation server boundary", () => {
 
   it.each(["cctp", "dpgf"])("includes an attachment of an old draft reclassified as %s on its first opening", async (kind) => {
     const f = fixture();
-    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", storage_path: `${M3_TENANT_ID}/piece.txt`,
-      document_kind: "other", mime_type: "text/plain", size_bytes: 10, updated_at: "2026-11-20T00:00:00Z" };
+    const attachment = { id: "99999999-9999-4999-8999-999999999999", file_name: "Pièce jointe.txt", upload_id: DOSSIER_UPLOAD,
+      storage_path: dossierKey("99999999-9999-4999-8999-999999999999", "piece.txt"),
+      document_kind: "other", mime_type: "text/plain", size_bytes: CCTP_SIZE, updated_at: "2026-11-20T00:00:00Z" };
     f.intake.push(attachment);
     // A draft as the previous application saved it: no dossier provenance, the attachment left out.
     const legacy = { ...f.ready, sources: [...f.ready.sources, { ...toPreparationIntakeSource(attachment), active: false }] };
@@ -275,7 +286,7 @@ describe("persisted preparation server boundary", () => {
     const alternative = { ...f.file, id: "88888888-8888-4888-8888-888888888888",
       file_name: "Distribution rev B.pdf", file_path: `${M3_TENANT_ID}/plan-b.pdf`, metadata: { revision: "B" } };
     f.files.push(alternative);
-    f.contents.set(alternative.file_path, Buffer.from("second revision"));
+    f.contents.set(alternative.file_path, fictionalPlanPdf("second revision"));
     const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
     await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
     const unresolved = await confirmTakeoffPreparation(confirmation);
@@ -290,7 +301,7 @@ describe("persisted preparation server boundary", () => {
       preparationRevision: confirmed.revision, level: "C", provider: "chatgpt" } as const;
     expect(confirmed.draft.sources.filter(({ active }) => active)).toHaveLength(1);
     await expect(assertConfirmedTakeoffPreparation(launch)).resolves.toMatchObject({ preparation_revision: confirmed.revision });
-    f.contents.set(alternative.file_path, Buffer.from("replacement bytes"));
+    f.contents.set(alternative.file_path, fictionalPlanPdf("replacement bytes"));
     await expect(assertConfirmedTakeoffPreparation(launch)).rejects.toMatchObject({ status: 409 });
   });
 
@@ -298,7 +309,7 @@ describe("persisted preparation server boundary", () => {
     const f = fixture();
     const second = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan second.pdf", file_path: `${M3_TENANT_ID}/plan-second.pdf` };
     f.files.push(second);
-    f.contents.set(second.file_path, Buffer.from("second plan bytes"));
+    f.contents.set(second.file_path, fictionalPlanPdf("second plan bytes"));
     const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
     const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
     f.files.splice(f.files.indexOf(second), 1);
@@ -326,7 +337,7 @@ describe("persisted preparation server boundary", () => {
       preparationRevision: confirmed.revision, level: "C", provider: "chatgpt" } as const;
     await expect(assertConfirmedTakeoffPreparation(launch)).resolves.toBeTruthy();
     const alternate = confirmed.draft.sources.find(({ alternate_of }) => alternate_of)!;
-    f.contents.set(alternate.file_path!, Buffer.from("different bytes"));
+    f.contents.set(alternate.file_path!, fictionalPlanPdf("different bytes"));
     await expect(assertConfirmedTakeoffPreparation(launch)).rejects.toMatchObject({ status: 409 });
   });
 
@@ -350,7 +361,7 @@ describe("persisted preparation server boundary", () => {
     const back = await confirmPlanSet(M3_PLAN_SET_ID);
     expect(back.draft.sources.filter(({ active, kind }) => active && kind === "plan").map(({ document_id }) => document_id)).toEqual([f.file.id]);
     await expect(launchPlanSet(f, M3_PLAN_SET_ID, back.revision)).resolves.toMatchObject({ preparation_revision: back.revision });
-    f.contents.set(copy.file_path, Buffer.from("different bytes"));
+    f.contents.set(copy.file_path, fictionalPlanPdf("different bytes"));
     await expect(launchPlanSet(f, M3_PLAN_SET_ID, back.revision)).rejects.toMatchObject({ status: 409 });
   });
 
@@ -360,7 +371,7 @@ describe("persisted preparation server boundary", () => {
     const alternative = { ...f.file, id: "88888888-8888-4888-8888-888888888888",
       file_name: "Distribution rev B.pdf", file_path: `${M3_TENANT_ID}/plan-b.pdf`, metadata: { revision: "B" } };
     f.files.push(alternative);
-    f.contents.set(alternative.file_path, Buffer.from("second revision"));
+    f.contents.set(alternative.file_path, fictionalPlanPdf("second revision"));
     const other = addOtherPlanSet(f);
     const unresolved = await confirmPlanSet(M3_PLAN_SET_ID);
     const [left, right] = unresolved.draft.sources.filter(({ plan_set_id }) => plan_set_id === M3_PLAN_SET_ID);
@@ -378,7 +389,7 @@ describe("persisted preparation server boundary", () => {
     expect(switched.draft.sources.filter(({ active, kind }) => active && kind === "plan").map(({ document_id }) => document_id)).toEqual([other.id]);
     await expect(launchPlanSet(f, OTHER_PLAN_SET_ID, switched.revision)).resolves.toMatchObject({ preparation_revision: switched.revision });
     // The discarded revision is no longer part of what this launch measures.
-    f.contents.set(alternative.file_path, Buffer.from("replacement bytes"));
+    f.contents.set(alternative.file_path, fictionalPlanPdf("replacement bytes"));
     await expect(launchPlanSet(f, OTHER_PLAN_SET_ID, switched.revision)).resolves.toMatchObject({ preparation_revision: switched.revision });
 
     // Back on the former set, both revisions are candidates again: nothing is left out unseen.
@@ -394,7 +405,7 @@ describe("persisted preparation server boundary", () => {
     const rechosen = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: back.draft, expectedRevision: back.revision });
     const reconfirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: rechosen.revision! });
     await expect(launchPlanSet(f, M3_PLAN_SET_ID, reconfirmed.revision)).resolves.toMatchObject({ preparation_revision: reconfirmed.revision });
-    f.contents.set(alternative.file_path, Buffer.from("third bytes"));
+    f.contents.set(alternative.file_path, fictionalPlanPdf("third bytes"));
     await expect(launchPlanSet(f, M3_PLAN_SET_ID, reconfirmed.revision)).rejects.toMatchObject({ status: 409 });
   });
 
@@ -509,7 +520,7 @@ describe("persisted preparation server boundary", () => {
     const f = fixture();
     const document: PreparationIntakeDocument = {
       id: "99999999-9999-4999-8999-999999999999", file_name: "Prescriptions.docx",
-      storage_path: `${M3_TENANT_ID}/prescriptions.docx`, size_bytes: 100,
+      upload_id: DOSSIER_UPLOAD, storage_path: dossierKey("99999999-9999-4999-8999-999999999999", "prescriptions.docx"), size_bytes: 100,
       mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       document_kind: "cctp", updated_at: "2026-10-29T00:00:00Z",
     };
@@ -538,5 +549,223 @@ describe("persisted preparation server boundary", () => {
       planSetId: M3_PLAN_SET_ID, preparationRevision: 4, level: "B", provider: "auto" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("réglages de traitement") });
     await expect(assertConfirmedTakeoffPreparation({ context: f.context, estimateVersionId: M3_VERSION_ID,
       planSetId: M3_PLAN_SET_ID, preparationRevision: 4, level: "C", provider: "chatgpt" })).resolves.toMatchObject({ preparation: { processing: { level: "C", provider: "chatgpt" } } });
+  });
+});
+
+/** A CCTP of the dossier with the given bytes: a dossier preparation retains it by default. */
+function addReference(f: ReturnType<typeof fixture>, input: { name: string; mime: string; bytes: Buffer; kind?: "cctp" | "dpgf" }) {
+  const document: PreparationIntakeDocument = {
+    id: `99999999-9999-4999-8999-${String(f.intake.length).padStart(12, "0")}`, file_name: input.name,
+    upload_id: DOSSIER_UPLOAD, storage_path: dossierKey(`99999999-9999-4999-8999-${String(f.intake.length).padStart(12, "0")}`, input.name),
+    size_bytes: input.bytes.byteLength, mime_type: input.mime,
+    document_kind: input.kind ?? "cctp", updated_at: "2026-11-21T00:00:00Z",
+  };
+  f.intake.push(document);
+  f.intakeContents.set(document.storage_path!, input.bytes);
+  return document;
+}
+
+async function pdfOfPages(count: number) {
+  const pdf = await PDFDocument.create();
+  for (let page = 0; page < count; page += 1) pdf.addPage([20, 20]);
+  return Buffer.from(await pdf.save());
+}
+
+// Written before the shared sealing (lot 2, before the automatic start is activated): a confirmation hashed a
+// reference's bytes without reading them as the worker does, so the worker refused, after the launch, what was confirmed.
+describe("the sealing of a member's confirmation", () => {
+  it("tells the member a CCTP of more than 200 selected pages, though under 20 MB, and confirms nothing", async () => {
+    const f = fixture();
+    const cctp = addReference(f, { name: "CCTP lot plomberie.pdf", mime: "application/pdf", bytes: await pdfOfPages(201) });
+    expect(cctp.size_bytes).toBeLessThan(20 * 1024 * 1024);
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringContaining("« CCTP lot plomberie.pdf »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("tells the member a corrupt PDF reference the worker could not open, and confirms nothing", async () => {
+    const f = fixture();
+    addReference(f, { name: "CCTP abîmé.pdf", mime: "application/pdf", bytes: Buffer.from("%PDF-1.4 fichier tronque") });
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_PDF_CORRUPTED",
+      message: expect.stringContaining("« CCTP abîmé.pdf »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("tells the member a workbook the worker could not read, and confirms nothing", async () => {
+    const f = fixture();
+    addReference(f, { name: "DPGF.xlsx", kind: "dpgf", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      bytes: Buffer.from("ceci n'est pas un classeur") });
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TYPE_INVALID",
+      message: expect.stringContaining("« DPGF.xlsx »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("confirms the references the worker reads: a PDF of 200 selected pages and a text", async () => {
+    const f = fixture();
+    addReference(f, { name: "CCTP lot plomberie.pdf", mime: "application/pdf", bytes: await pdfOfPages(200) });
+    addReference(f, { name: "CCTP.txt", mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    const confirmed = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(confirmed.confirmedAt).not.toBeNull();
+    expect(confirmed.draft.sources.filter((source) => source.active).map((source) => source.document_name).sort())
+      .toEqual(["CCTP lot plomberie.pdf", "CCTP.txt", "Plan fictif.pdf"]);
+  });
+
+  // The review serves a plan's locations and its original PDF only for a source the preparation attested.
+  it("attests every piece whose bytes it read, a dossier preparation's included", async () => {
+    const f = fixture();
+    addReference(f, { name: "CCTP.txt", mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    const confirmed = await confirmPlanSet(M3_PLAN_SET_ID);
+    const snapshot = await launchPlanSet(f, M3_PLAN_SET_ID, confirmed.revision);
+    expect(snapshot.preparation.provenance).toBeDefined();
+    expect(snapshot.preparation.sources.filter((source) => source.active)
+      .map(({ document_name, confirmed: attested, content_hash }) => ({ document_name, attested, hashed: Boolean(content_hash) })))
+      .toEqual([{ document_name: "Plan fictif.pdf", attested: true, hashed: true }, { document_name: "CCTP.txt", attested: true, hashed: true }]);
+  });
+
+  // The worker reads a plan without its title block: a page the renderer cannot draw leaves the index unread, as the
+  // automatic start seals it, and never refuses a plan the analysis can read.
+  it("confirms a plan whose title block cannot be rendered, its index left to the dossier", async () => {
+    const f = fixture();
+    vi.mocked(renderPdfPages).mockRejectedValue(new Error("rendu impossible"));
+    const confirmed = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(confirmed.confirmedAt).not.toBeNull();
+    expect(confirmed.draft.sources.find((source) => source.document_id === f.file.id)).toMatchObject({ plan_identity: null, revision: "A" });
+    vi.mocked(renderPdfPages).mockResolvedValue({ status: "failed", pageCount: null, pages: [] } as never);
+    const again = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(again.draft.sources.find((source) => source.document_id === f.file.id)).toMatchObject({ plan_identity: null, revision: "A" });
+  });
+
+  // The sealing's attestation must never stand in for the member's own
+  // confirmation of a source in a preparation that does not come from the dossier.
+  it("never confirms a member's preparation whose source they have not confirmed, though the server read its bytes", async () => {
+    const f = fixture();
+    f.ready.sources = f.ready.sources.map((source) => ({ ...source, confirmed: false }));
+    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: f.ready, expectedRevision: null });
+    await expect(confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 1 }))
+      .rejects.toMatchObject({ name: "TakeoffPreparationNotReadyError" });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // The worker opens every plan with pdf-lib and fails a plan it cannot open.
+  it("tells the member a dossier plan the worker could not open, and confirms nothing", async () => {
+    const f = fixture();
+    f.contents.set(f.file.file_path, Buffer.from("%PDF-1.4 plan tronque"));
+    f.file.file_size_bytes = f.contents.get(f.file.file_path)!.byteLength;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_PDF_CORRUPTED",
+      message: expect.stringContaining("« Plan fictif.pdf »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // The worker never opens a version the revision choices set aside (it only compares
+  // its bytes), so a version it could not open stops a confirmation only once it is retained.
+  it("lets the member set aside a version the worker could not open, and stops on it only when it is retained", async () => {
+    const f = fixture();
+    f.file.file_name = "Distribution rev A.pdf";
+    const broken = { ...f.file, id: "88888888-8888-4888-8888-888888888888",
+      file_name: "Distribution rev B.pdf", file_path: `${M3_TENANT_ID}/plan-b.pdf`, metadata: { revision: "B" } };
+    f.files.push(broken);
+    f.contents.set(broken.file_path, Buffer.from("%PDF-1.4 plan tronque"));
+    broken.file_size_bytes = f.contents.get(broken.file_path)!.byteLength;
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    // Two versions to choose between: the member is asked, nothing is confirmed, both are read and digested.
+    const unresolved = await confirmTakeoffPreparation(confirmation);
+    expect(unresolved.confirmedAt).toBeNull();
+    const choose = async (keep: string, from: typeof unresolved) => {
+      const left = from.draft.sources.find((source) => source.document_id === f.file.id)!;
+      const right = from.draft.sources.find((source) => source.document_id === broken.id)!;
+      from.draft.plan_revision_decisions = [{ left: { document_id: left.document_id, content_hash: left.content_hash! },
+        right: { document_id: right.document_id, content_hash: right.content_hash! }, choice: keep === f.file.id ? "left" : "right" }];
+      const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: from.draft, expectedRevision: from.revision });
+      return confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! });
+    };
+    const kept = await choose(f.file.id, structuredClone(unresolved));
+    expect(kept.confirmedAt).not.toBeNull();
+    expect(kept.draft.sources.filter(({ active }) => active).map(({ document_id }) => document_id)).toEqual([f.file.id]);
+    const reopened = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    await expect(choose(broken.id, structuredClone(reopened))).rejects.toMatchObject({ status: 422, code: "TAKEOFF_PDF_CORRUPTED",
+      message: expect.stringContaining("« Distribution rev B.pdf »") });
+  });
+
+  // An identical copy set aside gives its pages to the plan kept, which the worker reads
+  // with every page so merged.
+  it("tells the member a page an identical copy set aside gives to the plan kept, when the file lacks it", async () => {
+    const f = fixture();
+    f.file.page_count = null;
+    const copy = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan fictif copie.pdf", file_path: `${M3_TENANT_ID}/plan-copie.pdf` };
+    f.files.push(copy);
+    f.contents.set(copy.file_path, f.content);
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    draft.sources = draft.sources.map((source) => source.kind !== "plan" ? source
+      : { ...source, pages: source.document_id === f.file.id ? [1] : [2] });
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    await expect(confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! })).rejects.toMatchObject({
+      status: 422, message: expect.stringContaining("« Plan fictif.pdf »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // A page count the dossier does not know leaves the readiness unable to see it; the worker refuses the page.
+  it("tells the member a plan page selection the file does not have, and confirms nothing", async () => {
+    const f = fixture();
+    f.file.page_count = null;
+    f.ready.sources = [{ ...toPreparationPlanSource(f.file), active: true, confirmed: true, pages: [2] }];
+    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: f.ready, expectedRevision: null });
+    await expect(confirmTakeoffPreparation({ projectId: M3_PROJECT_ID, expectedRevision: 1 })).rejects.toMatchObject({ status: 422,
+      message: expect.stringContaining("« Plan fictif.pdf »") });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // A piece's row belongs to the affaire; its Storage object must be the one the dossier wrote for it in that affaire.
+  it("never reads a reference whose Storage key is another affaire's object, and names it", async () => {
+    const f = fixture();
+    const cctp = addReference(f, { name: "CCTP.txt", mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    const foreign = dossierKey(cctp.id, "CCTP.txt", "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd");
+    f.intakeContents.set(foreign, Buffer.from(CCTP_TEXT));
+    cctp.storage_path = foreign;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("« CCTP.txt »") });
+    expect(f.user.storageCalls.filter((call) => call.paths[0] === foreign)).toEqual([]);
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // The worker refuses plans past its page budget, counted on their real pages: the dossier's copies record none.
+  it("refuses, naming them, retained plans whose real pages pass the analysis's budget, though their count is unknown", async () => {
+    const f = fixture();
+    f.file.page_count = null;
+    f.contents.set(f.file.file_path, await pdfOfPages(101));
+    f.file.file_size_bytes = f.contents.get(f.file.file_path)!.byteLength;
+    const second = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan étage.pdf", file_path: `${M3_TENANT_ID}/plan-etage.pdf` };
+    f.files.push(second);
+    f.contents.set(second.file_path, Buffer.concat([await pdfOfPages(101), Buffer.from("\n% etage\n")]));
+    second.file_size_bytes = f.contents.get(second.file_path)!.byteLength;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringMatching(/« Plan fictif\.pdf ».*« Plan étage\.pdf »|« Plan étage\.pdf ».*« Plan fictif\.pdf »/) });
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("refuses, naming it, a single retained plan whose real pages pass the analysis's budget", async () => {
+    const f = fixture();
+    f.file.page_count = null;
+    f.contents.set(f.file.file_path, await pdfOfPages(201));
+    f.file.file_size_bytes = f.contents.get(f.file.file_path)!.byteLength;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: "Le plan « Plan fictif.pdf » dépasse les limites d’une analyse. Retirez-le des pièces retenues ou réduisez-le avant de confirmer." });
+  });
+
+  it("names the references past the analysis's 20 pieces when it refuses them", async () => {
+    const f = fixture();
+    for (let index = 1; index <= 21; index += 1) {
+      addReference(f, { name: `Pièce ${String(index).padStart(2, "0")}.txt`, mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    }
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringContaining("« Pièce 21.txt »") });
+    expect(f.user.storageCalls.filter((call) => call.bucket === "affaire-intake")).toEqual([]);
+  });
+
+  it("never downloads a reference whose stored file is not the size its row records", async () => {
+    const f = fixture();
+    const cctp = addReference(f, { name: "CCTP.txt", mime: "text/plain", bytes: Buffer.from(CCTP_TEXT) });
+    cctp.size_bytes += 1;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("« CCTP.txt »") });
+    expect(f.user.storageCalls.filter((call) => call.method === "download" && call.paths[0] === cctp.storage_path)).toEqual([]);
   });
 });
