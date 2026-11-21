@@ -1,0 +1,135 @@
+{
+  "date_utc": "2026-11-21",
+  "source_commit": "dff50c2e1d3ea67e57c53e9572f51d80010cbf84",
+  "status": "interrompu_apres_TI_711",
+  "authorized_count": 7,
+  "applied_count": 1,
+  "applied": [
+    {
+      "file": "20261117193734_workbook_supplier_references.sql",
+      "pr": 369,
+      "merge_commit": "aed97d3bfe765e453c444c3770ee3f08a09f3e83",
+      "remote_version": "20261121064149",
+      "applied_at_utc": "2026-11-21T06:41:49Z",
+      "statement_count": 1,
+      "source_and_remote_bytes": 10091,
+      "sha256_source_and_remote": "3d95a24e2400d5a44dc22dd2c42bc877d01079f81dab524760b454a2bf321f45",
+      "sha256_without_final_lf_on_both_sides": "74c8b884d494c779ab0f4e46599c4cc96394c112e7bbd2804b137d62fc9e5bff",
+      "raw_remote_equals_source_without_final_lf": false,
+      "functions": [
+        {
+          "name": "public.import_workbook_supplier_references",
+          "body_md5": "81b504026b28f3b6d6da6d5b25173cc9",
+          "security_definer": true,
+          "execute": {
+            "anon": false,
+            "authenticated": true,
+            "service_role": true
+          }
+        },
+        {
+          "name": "public.protect_pending_supplier_reference",
+          "body_md5": "8359589682676ee290b161fe04a4cc12",
+          "security_definer": false,
+          "execute": {
+            "anon": false,
+            "authenticated": false,
+            "service_role": true
+          }
+        },
+        {
+          "name": "public.save_supplier_catalog_item",
+          "body_md5": "f41de23829b20cb2f61150d2e3fded82",
+          "security_definer": true,
+          "execute": {
+            "anon": false,
+            "authenticated": true,
+            "service_role": true
+          }
+        },
+        {
+          "name": "public.sync_supplier_price_catalog_item",
+          "body_md5": "cc59f7a7e16f8c584decb61da17457bd",
+          "security_definer": false,
+          "execute": {
+            "anon": false,
+            "authenticated": true,
+            "service_role": true
+          }
+        }
+      ]
+    }
+  ],
+  "pending_prs": [
+    370,
+    372,
+    371,
+    413,
+    415,
+    425
+  ],
+  "history": {
+    "before": 408,
+    "after": 409,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "baseline_identical": true
+  },
+  "prechecks": {
+    "supplier_items": 186,
+    "violations": 0,
+    "takeoff_jobs": 0,
+    "inconsistent_jobs": 0,
+    "new_object_checks": 72,
+    "unexpected_objects": 0,
+    "conflicting_sessions": 0
+  },
+  "security_advisors": {
+    "groups_before": [
+      [
+        "rls_enabled_no_policy",
+        26
+      ],
+      [
+        "authenticated_security_definer_function_executable",
+        81
+      ],
+      [
+        "auth_leaked_password_protection",
+        1
+      ]
+    ],
+    "groups_after": [
+      [
+        "rls_enabled_no_policy",
+        26
+      ],
+      [
+        "authenticated_security_definer_function_executable",
+        82
+      ],
+      [
+        "auth_leaked_password_protection",
+        1
+      ]
+    ],
+    "added": [
+      {
+        "category": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable",
+        "detail": "Function `public.import_workbook_supplier_references(p_tenant_id uuid, p_rows jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/import_workbook_supplier_references`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "metadata": {
+          "name": "import_workbook_supplier_references",
+          "schema": "public",
+          "language": "plpgsql",
+          "arguments": "p_tenant_id uuid, p_rows jsonb",
+          "security_definer": true
+        }
+      }
+    ],
+    "removed": []
+  },
+  "activation_table_present": false,
+  "deployment": false
+}
