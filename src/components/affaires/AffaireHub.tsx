@@ -1188,6 +1188,7 @@ export function AffaireHub({
           projectId={summary.project.id}
           intakeDpgfCandidates={intakeDpgfCandidates}
           takeoffEnabled={takeoffEnabled}
+          takeoffLaunchActive={takeoffZone ? takeoffZone.active : null}
           onCancel={() => setShowImportFlow(false)}
           onComplete={handleImportComplete}
         />

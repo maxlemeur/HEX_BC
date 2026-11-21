@@ -45,6 +45,8 @@ export type UnifiedImportFlowProps = {
   projectId: string;
   intakeDpgfCandidates?: IntakeDpgfCandidate[];
   takeoffEnabled?: boolean;
+  /** Whether the takeoff's automatic start is active, as the affaire's page read it (null when unknown): its plans step. */
+  takeoffLaunchActive?: boolean | null;
   onCancel?: () => void;
   onComplete?: (result: ConfirmUnifiedImportFlowResult) => void;
 };
@@ -53,6 +55,7 @@ export function UnifiedImportFlow({
   projectId,
   intakeDpgfCandidates,
   takeoffEnabled = false,
+  takeoffLaunchActive = null,
   onCancel,
   onComplete,
 }: UnifiedImportFlowProps) {
@@ -265,6 +268,7 @@ export function UnifiedImportFlow({
           onSkip={skipPlansStep}
           onContinue={finishPlansStep}
           showSuccessBanner
+          takeoffLaunchActive={takeoffLaunchActive}
         />
       )}
     </div>
