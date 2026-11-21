@@ -87,13 +87,12 @@ function isDrivePlanSource(document: SyncDocument) {
   return document.source_provider === "google_drive" && !document.storage_path && Boolean(document.drive_file_id);
 }
 
-/** A dossier piece that must have a working copy in the affaire's plan set: an uploaded, classified PDF plan. */
-export function isEligiblePlanDocument(document: SyncDocument) {
+/** A plan of the dossier that the takeoff reads: an uploaded, classified PDF plan, whatever its source. */
+function isClassifiedPdfPlan(document: SyncDocument) {
   if (
     document.upload_status !== "uploaded" ||
     document.classification_status !== "classified" ||
-    document.document_kind !== "plans" ||
-    !(document.storage_path || isDrivePlanSource(document))
+    document.document_kind !== "plans"
   ) {
     return false;
   }
@@ -103,6 +102,11 @@ export function isEligiblePlanDocument(document: SyncDocument) {
   }
 
   return getAffaireIntakeFileExtension(document.file_name) === "pdf";
+}
+
+/** A dossier piece that must have a working copy in the affaire's plan set: an uploaded, classified PDF plan. */
+export function isEligiblePlanDocument(document: SyncDocument) {
+  return isClassifiedPdfPlan(document) && Boolean(document.storage_path || isDrivePlanSource(document));
 }
 
 function normalizeMetadata(value: unknown) {
@@ -125,8 +129,9 @@ export function isSameIntakePlanGeneration(file: PlanFileRow, document: SyncDocu
 
 /**
  * The plans of the dossier that the plan set does not hold as working copies of their current generation: a copy not
- * made yet, removed, or skipped because Google Drive could not be read. Nothing analyses them until they have one, so an
- * analysis that starts on its own names them instead of reading the other plans as if they were all.
+ * made yet, removed, skipped because Google Drive could not be read, or a piece with no usable source at all. Nothing
+ * analyses them until they have one, so an analysis that starts on its own names them instead of reading the other
+ * plans as if they were all.
  */
 export function findIntakePlansWithoutWorkingCopy(documents: SyncDocument[], files: PlanFileRow[]) {
   const copies = new Map<string, PlanFileRow[]>();
@@ -134,7 +139,7 @@ export function findIntakePlansWithoutWorkingCopy(documents: SyncDocument[], fil
     const documentId = file.metadata.source === "affaire-intake" ? toIntakeDocumentId(file) : null;
     if (documentId && file.metadata.intake_cleanup_pending !== true) copies.set(documentId, [...(copies.get(documentId) ?? []), file]);
   }
-  return documents.filter((document) => isEligiblePlanDocument(document)
+  return documents.filter((document) => isClassifiedPdfPlan(document)
     && !(copies.get(document.id) ?? []).some((file) => isSameIntakePlanGeneration(file, document)));
 }
 
