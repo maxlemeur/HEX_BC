@@ -14,6 +14,11 @@
 -- 7. With lot 2's activations on and one analysis per plan withdrawn, the hosted recovery against a released worker's
 --    direct claim (the job's row first, then the tenant's admission lock): the recovery takes no lock that claim waits for,
 --    and neither waits for the other.
+-- 8. One analysis per plan active again: a retry of an analysis outside any request, claimed through the Mac's slot, against
+--    a command naming it (20261121193413's restart guard). The claim takes the Mac's lock, the job, the slot, then the
+--    affaire's command key and its automatic request; the command takes the job (a key share), then the key. While a third
+--    process holds the key, the claim waits for it holding the job and the slot, and the command waits for the job holding
+--    nothing: no cycle. The command is answered with the analysis the claim started.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -45,9 +50,6 @@ values ('00000000-0000-0000-0000-000000000000', 'd5200000-0000-4000-8000-0000000
 update public.tenant_memberships set role = 'engineer' where user_id = 'd5200000-0000-4000-8000-000000000001';
 update public.feature_flags set enabled = true where flag_key = 'TAKEOFF_MODULE_ENABLED' and tenant_id = (select m.tenant_id
   from public.tenant_memberships m where m.user_id = 'd5200000-0000-4000-8000-000000000001' and m.is_default);
-insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 hour');
-insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 hour');
-insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 hour');
 insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
 select ('d5200000-0000-4000-8000-0000000000' || (20 + n))::uuid, m.tenant_id, m.user_id, 'Affaire par plan en concurrence ' || n || ' (fictive)', false
 from public.tenant_memberships m cross join generate_series(0, 4) as n
@@ -68,6 +70,11 @@ select ('d5200000-0000-4000-8000-000000000' || (100 + 10 * n + k))::uuid, s.tena
   'application/pdf', 8, 1
 from generate_series(0, 4) as n cross join generate_series(1, 3) as k
 join public.plan_sets s on s.id = ('d5200000-0000-4000-8000-0000000000' || (40 + n))::uuid;
+-- The activations last: the briefs, confirmed before them, reserved no automatic start (one that can still begin is taken
+-- on from the affaire's zone and refuses a command, 20261121193413).
+insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 hour');
+insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 hour');
+insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 hour');
 commit;
 $setup$), 'COMMIT', 'five affaires of three plans each, with the activations');
 
@@ -111,7 +118,7 @@ create function pg_temp.launch_sql(project integer) returns text language sql st
     pg_temp.f(project + 20), (select array_agg(p.id) from plans p))
 $$;
 create function pg_temp.request(project integer) returns uuid language sql stable as $$
-  -- The command's request (the brief, confirmed after activation, also reserved an automatic start the command set aside).
+  -- The command's request.
   select id from public.takeoff_launch_requests where project_id = pg_temp.f(project) and origin = 'manual'
 $$;
 create function pg_temp.claim_sql(job uuid, token integer) returns text language sql stable as $$
@@ -315,6 +322,48 @@ select is((select count(*)::integer from extensions.dblink('race_a', format(
     'select pg_advisory_xact_lock(hashtextextended(%L, 0))', 'takeoff-admission:' || pg_temp.tenant()::text)) as x(locked text)), 1,
   'then the claim''s trigger takes the tenant''s admission lock at once');
 select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'the claim ends');
+
+-- 8. A retry outside any request claimed through the slot, against a command naming it.
+create function pg_temp.retry() returns uuid language sql immutable as $$ select pg_temp.f(2201) $$;
+select is(extensions.dblink_exec('race_setup', format($retry$begin;
+  insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 hour');
+  set local session_replication_role = replica;
+  -- The Mac idle: the leases of the cases above lapsed, its slot free.
+  update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second'
+  where execution_host_id = %1$L and status = 'processing';
+  delete from private.takeoff_host_slots where host_id = %1$L;
+  insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+    execution_host_id, retry_count, next_retry_at, analysis_queued_at, created_at)
+  values (%2$L, %3$L, %4$L, %5$L, 'C', 'failed', %6$L, 'chatgpt_local', %1$L, 0, clock_timestamp() - interval '1 minute',
+    now() - interval '1 hour', now() - interval '1 hour');
+  commit;$retry$, pg_temp.host(), pg_temp.retry(), pg_temp.tenant(), pg_temp.f(22), pg_temp.f(42), pg_temp.f(1))), 'COMMIT',
+  'affaire 22, whose request is closed, has a retry of an analysis launched outside any request');
+insert into race_pids select 'race_setup', (select backend.pid from extensions.dblink('race_setup', 'select pg_backend_pid()') as backend(pid integer));
+select is((select count(*)::integer from extensions.dblink('race_setup', format(
+    'begin; select private.lock_takeoff_launch_commands(%L)', pg_temp.f(22))) as x(locked text)), 1,
+  'a third process holds the affaire''s command key');
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the Mac claims the retry through its slot');
+select is(extensions.dblink_send_query('race_a', format($claim$select count(*) from public.claim_observed_local_takeoff_job(%L, %L, %L,
+    clock_timestamp(), %L, clock_timestamp() + interval '30 minutes', 'modele-fictif', 'fixture', 'failed', 0)$claim$,
+    pg_temp.retry(), pg_temp.tenant(), pg_temp.host(), pg_temp.f(981))), 1, 'its claim is sent');
+select ok(pg_temp.waits_for('race_a', 'race_setup'), 'the claim waits for the command key, holding the job and the slot');
+select is(extensions.dblink_send_query('race_b', replace(replace(pg_temp.launch_sql(22), $$'initial', null$$,
+    format('%L, %L', 'reread_plans', pg_temp.retry())), quote_literal(pg_temp.f(522)), quote_literal(pg_temp.f(622)))), 1,
+  'a command naming the retry is sent meanwhile');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the command waits for the job the claim holds, before the command key');
+select is(extensions.dblink_exec('race_setup', 'commit'), 'COMMIT', 'the third process lets the key go');
+select ok(pg_temp.answered('race_a'), 'the claim goes on');
+select is((select x.claimed from extensions.dblink_get_result('race_a', false) as x(claimed bigint)), 1::bigint, 'and starts the retry');
+select diag(concat('claim: ', extensions.dblink_error_message('race_a')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(claimed bigint)), 0, 'and is done');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the claim commits');
+select ok(pg_temp.answered('race_b'), 'the command goes on');
+select is((select x.outcome from extensions.dblink_get_result('race_b', false) as x(outcome text)), 'already_running',
+  'and is answered with the analysis the claim started: neither deadlocked');
+select diag(concat('command: ', extensions.dblink_error_message('race_b')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text)), 0, 'and is done');
+select results_eq($$select answer, request_id, job_id from private.takeoff_launch_commands where intent_key = pg_temp.f(622)$$,
+  $$values ('already_running'::text, null::uuid, pg_temp.retry())$$, 'its receipt names that analysis and no request');
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
