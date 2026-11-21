@@ -626,9 +626,13 @@ devis, ni version, ni section, ni quantité.
   par défaut d'un premier brouillon, créés sur leur nom ; règles des autres métrés du
   brouillon ; pour une commande de format 1 dont le serveur ne l'a pas écrite, sa ligne
   d'audit) : un essai arrêté entre l'engagement et ces effets ne les laisse pas manquer, et
-  une fois faits ils ne sont pas refaits (un rôle par défaut renommé depuis reste renommé).
-  Seul un membre qui peut encore envoyer sur l'affaire les refait ; un autre lecteur du reçu
-  le reçoit, sans rien de plus ; le
+  une fois faits ils ne sont pas refaits. Les catégories et rôles par défaut sont enregistrés
+  comme faits dès qu'ils le sont, à part : un rôle renommé depuis reste renommé, même si les
+  règles restent à recalculer (seul un arrêt entre leur création et cet enregistrement les
+  laisse à recréer). Les règles ne comptent comme faites que si leur recalcul a écrit chaque
+  ligne lue ; sinon le rejeu suivant les recalcule. Seul un membre qui peut encore envoyer sur
+  l'affaire les refait, d'après son rôle, le tenant et l'affaire tels que la base les tient au
+  moment de les refaire ; un autre lecteur du reçu le reçoit, sans rien de plus ; le
   même identifiant qui confirme autre chose (empreinte, destination, section, décisions de
   pages, forçage) est refusé (`TAKEOFF_SEND_REQUEST_CONFLICT`), et un membre qui ne lit plus
   le métré (l'affaire passée à un autre ingénieur) n'en reçoit pas le reçu

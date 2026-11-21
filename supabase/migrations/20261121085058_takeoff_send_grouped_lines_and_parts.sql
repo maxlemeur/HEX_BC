@@ -17,7 +17,8 @@
 --    (public.stage_takeoff_send refuses a second command of another format under it).
 -- 4. What follows a send's commit (the server's: a first draft's defaults, the rules of the draft's other takeoffs) is
 --    recorded per receipt: the format that ran and the affaire's owner at the send, written with the receipt, and when
---    the server completed it (private.takeoff_send_receipt_effects, public.complete_takeoff_send_effects). A send's answer
+--    the server completed it, a first draft's defaults recorded apart as soon as they are done
+--    (private.takeoff_send_receipt_effects, public.complete_takeoff_send_effects). A send's answer
 --    and a replay's say which format ran and whether it completed; completing a format 1 send writes its audit row when
 --    its server did not.
 -- The previous application (v0.8.0, and main before this change) calls public.apply_takeoff_job_with_page_decisions,
@@ -1101,41 +1102,51 @@ revoke all on function private.takeoff_send_execute(uuid, uuid, public.tenant_ro
 
 -- 5. What follows a send's commit, per receipt: the format of the command that ran (1: the previous application's, whose
 -- server writes the application's audit rows after the commit; 2: the send wrote them), the affaire's owner at the send
--- (whose default labour roles a first draft gets), and when the server completed those effects. Written with the receipt,
--- in its transaction; completed once by public.complete_takeoff_send_effects. No API role reads or writes it; it goes
--- with its receipt. A receipt written before this migration has no row: its command was of format 1, its owner at the
--- send is unknown.
+-- (whose default labour roles a first draft gets), when the server created a first draft's defaults (recorded as soon as
+-- they are done, so that a replay never creates them again, even while the rest is still to do) and when it completed
+-- the rest. Written with the receipt, in its transaction; each step recorded once by public.complete_takeoff_send_effects.
+-- No API role reads or writes it; it goes with its receipt. A receipt written before this migration has no row: its
+-- command was of format 1, its owner at the send is unknown.
 create table private.takeoff_send_receipt_effects (
   receipt_id uuid primary key references public.takeoff_send_receipts(id) on delete cascade,
   command_format smallint not null check (command_format in (1, 2)),
   affaire_owner_id uuid,
+  defaults_completed_at timestamptz,
   completed_at timestamptz
 );
 revoke all on table private.takeoff_send_receipt_effects from public, anon, authenticated, service_role;
 
--- What a send's answer and a replay's say of it: the format that ran, whether the effects are pending, completed, or
--- unrecorded (a receipt from before this migration), and the owner at the send.
+-- What a send's answer and a replay's say of it: the format that ran, whether the effects — and, apart, the first
+-- draft's defaults — are pending, completed, or unrecorded (a receipt from before this migration), and the owner at the
+-- send.
 create function private.takeoff_send_receipt_effects_of(p_receipt_id uuid)
 returns jsonb language sql stable set search_path = '' as $$
   select pg_catalog.jsonb_build_object('command_format', coalesce(recorded.command_format, 1),
     'effects', case when recorded.receipt_id is null then 'unrecorded' when recorded.completed_at is null then 'pending'
       else 'completed' end,
+    'defaults', case when recorded.receipt_id is null then 'unrecorded'
+      when recorded.completed_at is null and recorded.defaults_completed_at is null then 'pending' else 'completed' end,
     'affaire_owner_id', recorded.affaire_owner_id)
   from (select 1) as one
   left join private.takeoff_send_receipt_effects as recorded on recorded.receipt_id = p_receipt_id
 $$;
 revoke all on function private.takeoff_send_receipt_effects_of(uuid) from public, anon, authenticated, service_role;
 
--- The server records the effects of a send completed, once (false when they already were). For a command of format 1 it
--- writes the application's completed audit row unless its server wrote it (the row of that takeoff and that version), as
--- that server writes it: a server of this application that replays such a receipt completes what the other did not.
-create function public.complete_takeoff_send_effects(p_receipt_id uuid)
+-- The server records a step of the effects of a send, once (false when it already was): « defaults », as soon as a first
+-- draft's defaults are created; « all », once the rules of the draft's other takeoffs were computed again (the defaults
+-- with them). For a command of format 1, « all » writes the application's completed audit row unless its server wrote it
+-- (the row of that takeoff and that version), as that server writes it: a server of this application that replays such a
+-- receipt completes what the other did not.
+create function public.complete_takeoff_send_effects(p_receipt_id uuid, p_step text default 'all')
 returns boolean
 language plpgsql security definer set search_path = '' as $$
 declare
   receipt public.takeoff_send_receipts%rowtype;
   recorded private.takeoff_send_receipt_effects%rowtype;
 begin
+  if p_step is null or p_step not in ('defaults', 'all') then
+    raise exception 'TAKEOFF_SEND_EFFECTS_STEP_INVALID' using errcode = '22023';
+  end if;
   select * into receipt from public.takeoff_send_receipts as stored where stored.id = p_receipt_id;
   if not found then
     raise exception 'TAKEOFF_SEND_RECEIPT_NOT_FOUND' using errcode = 'P0002';
@@ -1143,8 +1154,13 @@ begin
   insert into private.takeoff_send_receipt_effects (receipt_id, command_format, affaire_owner_id)
   values (receipt.id, 1, null) on conflict (receipt_id) do nothing;
   select * into recorded from private.takeoff_send_receipt_effects as effects where effects.receipt_id = receipt.id for update;
-  if recorded.completed_at is not null then
+  if recorded.completed_at is not null or (p_step = 'defaults' and recorded.defaults_completed_at is not null) then
     return false;
+  end if;
+  if p_step = 'defaults' then
+    update private.takeoff_send_receipt_effects as effects set defaults_completed_at = pg_catalog.statement_timestamp()
+    where effects.receipt_id = receipt.id;
+    return true;
   end if;
   if recorded.command_format <> 2 and not exists (select 1 from public.audit_logs as audit
     where audit.estimate_version_id = receipt.target_version_id and audit.record_id = receipt.job_id
@@ -1158,13 +1174,14 @@ begin
             + coalesce((receipt.result ->> 'updated_count')::integer, 0),
           'excluded_items_count', coalesce((receipt.result ->> 'ignored_count')::integer, 0))));
   end if;
-  update private.takeoff_send_receipt_effects as effects set completed_at = pg_catalog.statement_timestamp()
+  update private.takeoff_send_receipt_effects as effects set completed_at = pg_catalog.statement_timestamp(),
+    defaults_completed_at = coalesce(effects.defaults_completed_at, pg_catalog.statement_timestamp())
   where effects.receipt_id = receipt.id;
   return true;
 end;
 $$;
-revoke all on function public.complete_takeoff_send_effects(uuid) from public, anon, authenticated;
-grant execute on function public.complete_takeoff_send_effects(uuid) to service_role;
+revoke all on function public.complete_takeoff_send_effects(uuid, text) from public, anon, authenticated;
+grant execute on function public.complete_takeoff_send_effects(uuid, text) to service_role;
 
 -- 6. The staging, the replay and the send. Unchanged but for the format in a request's identity (the staging), and for
 -- the effects record (written with the receipt, said in the answers).

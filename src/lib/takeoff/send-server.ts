@@ -684,6 +684,8 @@ type ReceiptRow = { id: string; job_id: string; project_id: string; request_id: 
   command_format?: number;
   /** whether the server completed it (« unrecorded »: a receipt from before that record), */
   effects?: "pending" | "completed" | "unrecorded";
+  /** whether a first draft's defaults were recorded as done (they are, as soon as they succeed), */
+  defaults?: "pending" | "completed" | "unrecorded";
   /** and the affaire's owner at the send (none for a receipt from before that record). */
   affaire_owner_id?: string | null };
 
@@ -700,26 +702,48 @@ function responseOf(receipt: ReceiptRow, replayed: boolean): TakeoffSendResponse
 
 /**
  * What follows the commit of a send, done by the attempt that committed it and, while it is not recorded as completed, by
- * a replay of its request (a process stopped between the commit and these effects leaves them to the next attempt): a first
- * draft gets the default categories and labour roles « Créer un devis » gives it, for the affaire's owner at the send
- * (upserted on their names: never twice), then the other takeoffs of the draft, which have a new peer, have their rules
- * computed again (their stale state blocks them meanwhile); then the server records them completed — which, for a command
- * of format 1 whose server did not write the application's audit row, writes it (public.complete_takeoff_send_effects).
- * Once recorded, nothing is done again (a default renamed since stays renamed). Only a member who may still send to the
- * affaire (the operator rule of the send) does any of it; any other reader of the receipt gets the receipt and nothing else.
+ * a replay of its request (a process stopped between the commit and these effects leaves them to the next attempt):
+ * - a first draft gets the default categories and labour roles « Créer un devis » gives it, for the affaire's owner at the
+ *   send (upserted on their names), recorded as done as soon as they are: a replay never creates them again, even while
+ *   the rest is pending (a default renamed since stays renamed; only a stop between those upserts and that record leaves
+ *   them to be created again);
+ * - then the other takeoffs of the draft, which have a new peer, have their rules computed again (their stale state blocks
+ *   them meanwhile). Only a recomputation that wrote every line it read completes the effects; otherwise they stay pending
+ *   for the next replay;
+ * - then the server records them completed — which, for a command of format 1 whose server did not write the
+ *   application's audit row, writes it (public.complete_takeoff_send_effects).
+ * Only a member who may still send to the affaire does any of it: the operator rule of the send, on the membership, the
+ * tenant and the affaire as the database holds them now (not as the request read them). Any other reader of the receipt
+ * gets the receipt and nothing else.
  */
 async function afterCommit(ctx: Context, receipt: ReceiptRow) {
   if (receipt.effects === "completed") return;
   const service = createServiceRoleClient();
-  const { data: project, error: projectError } = await service.from("estimate_projects").select("user_id, is_archived")
-    .eq("tenant_id", ctx.tenantId).eq("id", receipt.project_id).maybeSingle();
-  if (projectError) failed(projectError, "Impossible de lire l’affaire du métré.", receipt.job_id);
-  const maySend = !!project && !project.is_archived && (ctx.tenantRole === TAKEOFF_TENANT_ADMIN_ROLE
-    || (ctx.tenantRole === "engineer" && project.user_id === ctx.userId));
+  const [projectRead, membershipRead, tenantRead] = await Promise.all([
+    service.from("estimate_projects").select("user_id, is_archived").eq("tenant_id", ctx.tenantId).eq("id", receipt.project_id)
+      .maybeSingle(),
+    service.from("tenant_memberships").select("role").eq("tenant_id", ctx.tenantId).eq("user_id", ctx.userId).maybeSingle(),
+    service.from("tenants").select("is_active").eq("id", ctx.tenantId).maybeSingle(),
+  ]);
+  const readError = projectRead.error ?? membershipRead.error ?? tenantRead.error;
+  if (readError) failed(readError, "Impossible de vérifier les droits sur l’affaire du métré.", receipt.job_id);
+  const project = projectRead.data as { user_id: string; is_archived: boolean } | null;
+  const role = (membershipRead.data as { role: string } | null)?.role ?? null;
+  const maySend = (tenantRead.data as { is_active: boolean } | null)?.is_active === true && !!project && !project.is_archived
+    && (role === TAKEOFF_TENANT_ADMIN_ROLE || (role === "engineer" && project.user_id === ctx.userId));
   if (!maySend) return;
+
+  const complete = async (step: "defaults" | "all") => {
+    const { error } = await service.rpc("complete_takeoff_send_effects" as never, { p_receipt_id: receipt.id, p_step: step } as never);
+    if (error) {
+      console.error("takeoff.send.effects_completion_failed", { job_id: receipt.job_id, step,
+        code: (error as { code?: string }).code ?? null });
+    }
+    return !error;
+  };
   const result = receipt.result as { version_created?: boolean; source_version_id?: string | null };
   // A receipt from before the record names no owner at the send: its defaults are not guessed from today's owner.
-  if (result.version_created === true && !result.source_version_id && receipt.affaire_owner_id) {
+  if (result.version_created === true && !result.source_version_id && receipt.affaire_owner_id && receipt.defaults !== "completed") {
     try {
       await ensureDefaultEstimateCategories({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId });
       await ensureDefaultLaborRoles({ supabase: ctx.supabase, tenantId: ctx.tenantId, ownerUserId: receipt.affaire_owner_id });
@@ -729,14 +753,15 @@ async function afterCommit(ctx: Context, receipt: ReceiptRow) {
         message: defaultsError instanceof Error ? defaultsError.message.slice(0, 300) : "unknown" });
       return;
     }
+    if (!await complete("defaults")) return;
   }
-  await recomputeTakeoffRulesQuietly({ tenantId: ctx.tenantId, estimateVersionId: receipt.target_version_id, context: "applied" });
-  const { error: completionError } = await service.rpc("complete_takeoff_send_effects" as never,
-    { p_receipt_id: receipt.id } as never);
-  if (completionError) {
-    console.error("takeoff.send.effects_completion_failed", { job_id: receipt.job_id,
-      code: (completionError as { code?: string }).code ?? null });
+  const recomputed = await recomputeTakeoffRulesQuietly({ tenantId: ctx.tenantId, estimateVersionId: receipt.target_version_id,
+    context: "applied" });
+  if (!recomputed || recomputed.skipped > 0) {
+    console.error("takeoff.send.rules_pending", { job_id: receipt.job_id, skipped: recomputed?.skipped ?? null });
+    return;
   }
+  await complete("all");
 }
 
 /**

@@ -13,6 +13,8 @@
 -- of one request under another format was accepted, the answer did not say which format ran, and nothing recorded that
 -- the effects after the commit completed (8); the mapping audit named actions the writer suppressed on the line that
 -- remains (9).
+-- Closing round (red on a36a306b): the first draft's defaults could not be recorded as done apart from the rest of
+-- what follows the commit (8b).
 -- Isolation justified: the choice of a representative between runs, the parts stored on a line and the rows of one
 -- transaction are database contracts no journey can observe deterministically (a run's identifiers are random).
 -- Written before the change: red on 0dcea6a2 (no source in the outcome, a representative by the smallest new identifier,
@@ -808,6 +810,46 @@ select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects(
 reset role;
 select is((select count(*) from public.audit_logs where record_id = pg_temp.fx(86) and action = 'takeoff.apply.completed'), 1::bigint,
   'with the one audit row its send wrote');
+
+-- 8b. The defaults of a first draft are recorded as done as soon as they are, apart from the rest of what follows the
+-- commit: a replay then skips them even while the rules of the draft's other takeoffs are still to compute. Once only;
+-- completing the rest later records both. No other step exists.
+select pg_temp.plan(56, 68, 29, 14);
+select pg_temp.prepare(29, 14, 7, 68, 4);
+select pg_temp.admit(87, 29, 56, 14, 7);
+select pg_temp.measure(112, 87, 14, 68, 'Purgeur', 1, 'u');
+insert into commands values ('defaults-first', pg_temp.command(87, pg_temp.draft(190), pg_temp.existing_section(191), p_format => 2));
+select pg_temp.sign_in(7);
+set local role authenticated;
+create temp table defaults_answer as select pg_temp.confirm('defaults-first') as receipt;
+reset role;
+grant select on defaults_answer to service_role;
+select is((select receipt -> 'defaults' from defaults_answer), '"pending"'::jsonb, 'a new receipt says its defaults are pending');
+set local role service_role;
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from defaults_answer),
+    'defaults'))$$), 'true', 'the server records the defaults done');
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from defaults_answer),
+    'defaults'))$$), 'false', 'once');
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from defaults_answer),
+    'rules'))$$), 'raised TAKEOFF_SEND_EFFECTS_STEP_INVALID', 'no other step');
+reset role;
+select pg_temp.sign_in(7);
+set local role authenticated;
+select is((select jsonb_build_object('effects', answer -> 'effects', 'defaults', answer -> 'defaults')
+    from (select pg_temp.run((select body from commands where name = 'defaults-first')) as answer) as replayed),
+  '{"effects": "pending", "defaults": "completed"}'::jsonb, 'a replay says the defaults are done and the rest is pending');
+reset role;
+set local role service_role;
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from defaults_answer)))$$),
+  'true', 'completing the rest records it');
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from defaults_answer),
+    'defaults'))$$), 'false', 'and the defaults stay done');
+reset role;
+select pg_temp.sign_in(7);
+set local role authenticated;
+select is((select pg_temp.run((select body from commands where name = 'defaults-first')) -> 'defaults'), '"completed"'::jsonb,
+  'a replay says so');
+reset role;
 
 -- 9. The mapping audit names what was applied to the line that remains. A rule classifies the addition D-like of a
 -- washer: it adds to the earlier « Té » line, whose category stays; a rule classifies the re-read of the valve's page,

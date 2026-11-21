@@ -33,6 +33,10 @@ import { createSupabaseFake, servedRows } from "@/lib/takeoff/metre-m3.test-util
 // - a replay redid the effects of a send whose effects had completed (a renamed default labour role came back), and for
 //   the affaire's current owner instead of the owner at the send;
 // - a replay of a receipt of format 1 left its audit row to nobody.
+// Closing round, written before the fix (red on a36a306b):
+// - the member's role was the one read when the request started: demoted meanwhile, they still repaired;
+// - a recompute of the rules that failed, or left lines unwritten, was recorded as completed;
+// - the first draft's defaults were recorded as done only with the rest, so a stop before the rules left them to redo.
 
 vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/job-read-server")>(),
@@ -112,6 +116,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   ownerAtSend?: string;
   /** A request a server of format 1 committed before this one runs. */
   committedBefore?: { request: string; format: number };
+  /** The member's role as the database holds it now (the context may say otherwise). */
+  membershipRole?: string;
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
@@ -119,10 +125,12 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   const history: Array<Record<string, unknown>> = [];
   // The requests whose send committed — their version, the format that ran, whether what follows the commit was
   // recorded as completed —: a later call of the same request replays its receipt.
-  const committed = new Map<string, { version: string; format: number; completed: boolean }>();
+  const committed = new Map<string, { version: string; format: number; completed: boolean; defaults: boolean }>();
   if (options.committedBefore) {
-    committed.set(options.committedBefore.request, { version: DPGF_DRAFT, format: options.committedBefore.format, completed: false });
+    committed.set(options.committedBefore.request, { version: DPGF_DRAFT, format: options.committedBefore.format, completed: false,
+      defaults: false });
   }
+  const membership = { role: options.membershipRole ?? "engineer" };
   const completions: string[] = [];
   const dpgfLines = versions.flatMap((version) => Array.from({ length: typeof version.dpgf === "number" ? version.dpgf : version.dpgf ? 1 : 0 },
     (_, index) => ({ id: `${version.id.slice(0, 24)}${String(index).padStart(12, "0")}`, version_id: version.id, tenant_id: TENANT,
@@ -155,13 +163,13 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
         const replayed = committed.has(request);
         if (!replayed) {
           committed.set(request, { version: (command.destination as { version_payload?: { id?: string } }).version_payload?.id ?? DPGF_DRAFT,
-            format: Number(command.format_version ?? 1), completed: false });
+            format: Number(command.format_version ?? 1), completed: false, defaults: false });
         }
         const sent = committed.get(request)!;
         return { data: { id: request, job_id: JOB, project_id: PROJECT, request_id: request, target_version_id: sent.version,
           result: { version_created: true, source_version_id: null, ...options.sentVersion, created_count: 1, lines_created: [] },
           replayed, command_format: sent.format, effects: sent.completed ? "completed" : "pending",
-          affaire_owner_id: options.ownerAtSend ?? USER }, error: null };
+          defaults: sent.completed || sent.defaults ? "completed" : "pending", affaire_owner_id: options.ownerAtSend ?? USER }, error: null };
       },
     },
   });
@@ -173,16 +181,21 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
       // As PostgREST serves them: never more than its ceiling of rows per response.
       estimate_items: (query) => servedRows(dpgfLines, query),
       takeoff_send_receipts: () => ({ data: null, error: null }),
+      // The member's membership and the tenant as the database holds them now.
+      tenant_memberships: () => ({ data: { role: membership.role }, error: null }),
+      tenants: () => ({ data: { is_active: true }, error: null }),
     },
     rpc: {
       takeoff_mapping_rules_stamp: () => ({ data: "a".repeat(32), error: null }),
-      // The receipt's effects recorded as completed (its id is its request's in this fake), once.
+      // A step of the receipt's effects recorded (its id is its request's in this fake), once: the first draft's defaults,
+      // or all of them.
       complete_takeoff_send_effects: (args) => {
-        const receipt = (args as { p_receipt_id: string }).p_receipt_id;
-        completions.push(receipt);
+        const { p_receipt_id: receipt, p_step: step } = args as { p_receipt_id: string; p_step?: string };
+        completions.push(`${receipt}:${step ?? "all"}`);
         const sent = committed.get(receipt);
-        const first = !!sent && !sent.completed;
-        if (sent) sent.completed = true;
+        const first = !!sent && !sent.completed && (step !== "defaults" || !sent.defaults);
+        if (sent && step === "defaults") sent.defaults = true;
+        else if (sent) sent.completed = true;
         return { data: first, error: null };
       },
       stage_takeoff_send: (args) => {
@@ -207,7 +220,10 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
     transforms: [], results: options.results ?? new Map() } as never);
   // As the comparison loader does for a takeoff not on that version.
   vi.mocked(buildTakeoffPageReplacementProposal).mockRejectedValue(Object.assign(new Error("Comparaison DPGF indisponible."), { status: 409 }));
-  return { staged: () => [...staged.values()], history: () => [...history], completions: () => [...completions] };
+  // A recomputation of the rules that wrote every line it read.
+  vi.mocked(recomputeTakeoffRulesQuietly).mockResolvedValue({ lines: 0, written: 0, skipped: 0, reopened: 0 });
+  return { staged: () => [...staged.values()], history: () => [...history], completions: () => [...completions],
+    setRole: (role: string) => { membership.role = role; } };
 }
 
 beforeEach(() => {
@@ -432,7 +448,7 @@ describe("sendTakeoffJob — the defaults belong to a first draft only, on a rep
     expect(replayed.replayed).toBe(true);
     expect([vi.mocked(ensureDefaultEstimateCategories).mock.calls.length, vi.mocked(ensureDefaultLaborRoles).mock.calls.length,
       vi.mocked(recomputeTakeoffRulesQuietly).mock.calls.length]).toEqual([0, 0, 2]);
-    expect(fake.completions()).toEqual([REQUEST]);
+    expect(fake.completions()).toEqual([`${REQUEST}:all`]);
   });
 });
 
@@ -456,13 +472,13 @@ describe("sendTakeoffJob — a replay repairs only what did not complete, for wh
     const preview = await previewTakeoffSend(JOB, {});
     const payload = { request_id: REQUEST, fingerprint: preview.fingerprint, destination: { kind: "first_draft" }, section: { kind: "new" } };
     await sendTakeoffJob(JOB, payload);
-    expect([effects(), fake.completions()]).toEqual([[1, 1, 1], [REQUEST]]);
+    expect([effects(), fake.completions()]).toEqual([[1, 1, 1], [`${REQUEST}:defaults`, `${REQUEST}:all`]]);
 
     // The owner renamed a default labour role since: a replay must not create it again.
     const replayed = await sendTakeoffJob(JOB, payload);
 
     expect(replayed.replayed).toBe(true);
-    expect([effects(), fake.completions()]).toEqual([[1, 1, 1], [REQUEST]]);
+    expect([effects(), fake.completions()]).toEqual([[1, 1, 1], [`${REQUEST}:defaults`, `${REQUEST}:all`]]);
   });
 
   it("repairs the labour roles of the owner the send recorded, not of the affaire's owner of now", async () => {
@@ -472,7 +488,7 @@ describe("sendTakeoffJob — a replay repairs only what did not complete, for wh
     await sendTakeoffJob(JOB, payload);
 
     expect(ensureDefaultLaborRoles).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: "60000000-0000-4000-8000-000000000009" }));
-    expect(fake.completions()).toEqual([REQUEST]);
+    expect(fake.completions()).toEqual([`${REQUEST}:defaults`, `${REQUEST}:all`]);
   });
 
   it("gives a reader who may no longer send to the affaire the receipt and nothing else", async () => {
@@ -481,6 +497,7 @@ describe("sendTakeoffJob — a replay repairs only what did not complete, for wh
     // The engineer who sent is now a director: they still read the receipt.
     vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ supabase: (await getAuthenticatedTakeoffContext()).supabase,
       tenantId: TENANT, userId: USER, tenantRole: "director" } as never);
+    fake.setRole("director");
 
     const replayed = await sendTakeoffJob(JOB, payload);
 
@@ -495,7 +512,62 @@ describe("sendTakeoffJob — a replay repairs only what did not complete, for wh
       section: { kind: "new" } });
 
     expect(replayed.replayed).toBe(true);
-    expect(fake.completions()).toEqual([REQUEST]);
+    expect(fake.completions()).toEqual([`${REQUEST}:defaults`, `${REQUEST}:all`]);
     expect(logTakeoffAuditEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendTakeoffJob — what follows the commit, decided on what the database holds now", () => {
+  async function previewed() {
+    vi.mocked(prepareCanonicalEstimateCreation).mockResolvedValue({ versionPayload: versionPayload("2026-11-21", 1.3) } as never);
+    const preview = await previewTakeoffSend(JOB, {});
+    return { request_id: REQUEST, fingerprint: preview.fingerprint, destination: { kind: "first_draft" }, section: { kind: "new" } };
+  }
+
+  it("does nothing for a member demoted since the request started, whatever the request's context says", async () => {
+    const fake = setUp([]);
+    const payload = await previewed();
+    vi.mocked(ensureDefaultEstimateCategories).mockImplementationOnce(() => new Promise<void>(() => undefined));
+    void sendTakeoffJob(JOB, payload);
+    await vi.waitFor(() => expect(ensureDefaultEstimateCategories).toHaveBeenCalledTimes(1));
+    // The replay's context was read as an engineer's; the membership is a director's by the time it repairs.
+    fake.setRole("director");
+
+    await sendTakeoffJob(JOB, payload);
+
+    expect([vi.mocked(ensureDefaultLaborRoles).mock.calls.length, vi.mocked(recomputeTakeoffRulesQuietly).mock.calls.length,
+      fake.completions()]).toEqual([0, 0, []]);
+  });
+
+  it.each([
+    ["failed", null],
+    ["left lines unwritten", { lines: 2, written: 1, skipped: 1, reopened: 0 }],
+  ])("leaves the effects pending when the rules' recompute %s, and the next replay completes them", async (_label, outcome) => {
+    const fake = setUp([]);
+    const payload = await previewed();
+    vi.mocked(recomputeTakeoffRulesQuietly).mockResolvedValueOnce(outcome as never);
+
+    await sendTakeoffJob(JOB, payload);
+    expect(fake.completions()).toEqual([`${REQUEST}:defaults`]);
+
+    await sendTakeoffJob(JOB, payload);
+    expect(fake.completions()).toEqual([`${REQUEST}:defaults`, `${REQUEST}:all`]);
+  });
+
+  it("records the defaults as soon as they are done, and a replay after a stop before the rules does not redo them", async () => {
+    const fake = setUp([]);
+    const payload = await previewed();
+    // The first attempt creates the defaults, then stops while the rules are computed again.
+    vi.mocked(recomputeTakeoffRulesQuietly).mockImplementationOnce(() => new Promise(() => undefined));
+    void sendTakeoffJob(JOB, payload);
+    await vi.waitFor(() => expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(1));
+    expect(fake.completions()).toEqual([`${REQUEST}:defaults`]);
+
+    // The owner renames a default labour role, then the member retries.
+    await sendTakeoffJob(JOB, payload);
+
+    expect([vi.mocked(ensureDefaultEstimateCategories).mock.calls.length, vi.mocked(ensureDefaultLaborRoles).mock.calls.length,
+      vi.mocked(recomputeTakeoffRulesQuietly).mock.calls.length]).toEqual([1, 1, 2]);
+    expect(fake.completions()).toEqual([`${REQUEST}:defaults`, `${REQUEST}:all`]);
   });
 });
