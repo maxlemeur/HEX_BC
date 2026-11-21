@@ -30,6 +30,39 @@ function changedSource(job: TakeoffJobProcessingRow, message: string): never {
   });
 }
 
+/** Why the worker would not read a plan's verified bytes: a file pdf-lib cannot open (corrupt, protected), or kept pages it lacks. */
+export class PreparedPlanRefusal extends Error {
+  constructor(readonly reason: "invalid_content" | "invalid_pages") {
+    super(reason);
+    this.name = "PreparedPlanRefusal";
+  }
+}
+
+/** The pages the worker reads of a plan of `pageCount` pages: its selection, or every page; null when one lies outside. */
+export function preparedPlanPages(selectedPages: readonly number[], pageCount: number): number[] | null {
+  const pages = selectedPages.length ? [...selectedPages] : Array.from({ length: pageCount }, (_, i) => i + 1);
+  return pages.some((page) => page < 1 || page > pageCount) ? null : pages;
+}
+
+/**
+ * The worker's opening of a plan from its verified bytes, with the pages it reads (every page without a selection).
+ * Throws a `PreparedPlanRefusal` when the worker would not read it; the sealing of a preparation checks a plan with it.
+ */
+export async function openPreparedPlan(bytes: ArrayBuffer | Uint8Array, selectedPages: readonly number[]) {
+  let pdf: PDFDocument;
+  let pageCount: number;
+  // A truncated file can load and fail only when its pages are counted: both are the opening.
+  try {
+    pdf = await PDFDocument.load(bytes);
+    pageCount = pdf.getPageCount();
+  } catch {
+    throw new PreparedPlanRefusal("invalid_content");
+  }
+  const pages = preparedPlanPages(selectedPages, pageCount);
+  if (!pages) throw new PreparedPlanRefusal("invalid_pages");
+  return { pdf, pages };
+}
+
 /** Reads exact confirmed documents, verifies their bytes, and copies only selected pages. */
 export async function loadPreparedPlanSource(input: {
   supabase: AuthenticatedTenantContext["supabase"]; job: TakeoffJobProcessingRow;
@@ -67,12 +100,13 @@ export async function loadPreparedPlanSource(input: {
     if (!source.content_hash || digest !== source.content_hash) {
       changedSource(input.job, `Le contenu du plan « ${source.document_name} » ne correspond plus au fichier confirmé.`);
     }
-    let pdf: PDFDocument;
-    try { pdf = await PDFDocument.load(bytes); } catch {
+    let opened: Awaited<ReturnType<typeof openPreparedPlan>>;
+    try { opened = await openPreparedPlan(bytes, source.pages); } catch (refusal) {
+      if (!(refusal instanceof PreparedPlanRefusal)) throw refusal;
+      if (refusal.reason === "invalid_pages") changedSource(input.job, "Une page confirmée n'existe plus dans le plan.");
       throw new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED, message: "Un plan confirmé est invalide ou protégé.", retryable: false, jobId: input.job.id });
     }
-    const pages = source.pages.length ? source.pages : Array.from({ length: pdf.getPageCount() }, (_, i) => i + 1);
-    if (pages.some((page) => page < 1 || page > pdf.getPageCount())) changedSource(input.job, "Une page confirmée n'existe plus dans le plan.");
+    const { pdf, pages } = opened;
     actualSizes.push({ file_size_bytes: bytes.byteLength, page_count: pdf.getPageCount() });
     const budget = inspectPlanSetResourceBudget(actualSizes, { maxPages: input.maxPages });
     if (budget.violation) throw new TakeoffError({ status: 413, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, message: "Les plans confirmés dépassent les limites de traitement.", retryable: false, jobId: input.job.id });

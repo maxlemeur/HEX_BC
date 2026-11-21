@@ -149,7 +149,8 @@ function throwPlanSetResourceBudgetError(input: {
   });
 }
 
-async function getPlanSetMaxPdfPages(input: {
+/** The most pages the worker reads from the plans of one job at this level (the plan budget's bound). */
+export async function getPlanSetMaxPdfPages(input: {
   supabase: Supabase;
   tenantId: string;
   level: TakeoffSourceLevel;

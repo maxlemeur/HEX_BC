@@ -19,7 +19,7 @@ export type PreparationPlanFile = {
 };
 
 export type PreparationIntakeDocument = {
-  id: string; file_name: string; storage_path: string | null; size_bytes: number;
+  id: string; upload_id?: string | null; file_name: string; storage_path: string | null; size_bytes: number;
   mime_type: string | null; document_kind: string; updated_at: string;
   extracted_metadata?: Record<string, unknown> | null;
 };

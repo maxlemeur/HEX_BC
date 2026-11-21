@@ -540,6 +540,20 @@ export function sanitizeAffaireIntakeFilename(fileName: string) {
   return normalized.length > 0 ? normalized : "document";
 }
 
+/**
+ * Whether `path` is the Storage key the dossier wrote for this document in this affaire, as the bucket's policy reads
+ * it: the tenant, affaire, upload and document folders, then the file's name (which may have been renamed since).
+ * A privileged read of a dossier piece requires it: the policy that checks it for a member does not apply to the server.
+ */
+export function isAffaireIntakeStorageKey(path: string, document: {
+  tenantId: string; projectId: string; uploadId: string | null; documentId: string;
+}) {
+  // The policy compares the folders with the identifiers' text, which the database writes in lower case.
+  const folders = [document.tenantId, document.projectId, document.uploadId, document.documentId].map((id) => id?.toLowerCase());
+  const parts = path.split("/");
+  return parts.length === 5 && Boolean(document.uploadId) && folders.every((id, index) => parts[index] === id) && parts[4].length > 0;
+}
+
 export function buildAffaireIntakeStoragePath(input: {
   tenantId: string;
   projectId: string;
