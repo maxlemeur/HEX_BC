@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.9.0](https://github.com/maxlemeur/HEX_BC/compare/v0.8.0...v0.9.0) (2026-11-21)
+
+
+### Features
+
+* **material-requests:** one step size and an options menu on the request page ([#432](https://github.com/maxlemeur/HEX_BC/issues/432)) ([4343a80](https://github.com/maxlemeur/HEX_BC/commit/4343a80c57ed8e460c9ec7f2bc9823ddd7a295eb))
+* **takeoff:** add a reproducible count pin benchmark ([#410](https://github.com/maxlemeur/HEX_BC/issues/410)) ([251873e](https://github.com/maxlemeur/HEX_BC/commit/251873e5232348634cd548a4d407d09e9344f9a6))
+* **takeoff:** attach takeoff jobs to the affaire and review them before an estimate exists ([#413](https://github.com/maxlemeur/HEX_BC/issues/413)) ([ab72179](https://github.com/maxlemeur/HEX_BC/commit/ab72179db0920c6b123ec76cbfc12e6a49b0132e))
+* **takeoff:** decide what a member may do with a stopped analysis in one place ([#424](https://github.com/maxlemeur/HEX_BC/issues/424)) ([52b1fa9](https://github.com/maxlemeur/HEX_BC/commit/52b1fa92bded4f182be0812c6adbcb093f3704d7))
+* **takeoff:** derive detailed preparation from the dossier ([#414](https://github.com/maxlemeur/HEX_BC/issues/414)) ([8e2eeae](https://github.com/maxlemeur/HEX_BC/commit/8e2eeae07b283b60206cb9b08636b13fe5bbd613))
+* **takeoff:** preview the affaire item list before estimates ([#411](https://github.com/maxlemeur/HEX_BC/issues/411)) ([dee6b25](https://github.com/maxlemeur/HEX_BC/commit/dee6b25d2429a5cd5e4024821bd5fff69082438d))
+* **takeoff:** read and correct a plan's building and level in one place ([#429](https://github.com/maxlemeur/HEX_BC/issues/429)) ([10859bc](https://github.com/maxlemeur/HEX_BC/commit/10859bcedec33d6e5fdea3c2166c5e2d1dc5e3b3))
+* **takeoff:** record the end of an analysis and notify its requester ([#415](https://github.com/maxlemeur/HEX_BC/issues/415)) ([025226d](https://github.com/maxlemeur/HEX_BC/commit/025226d741d076ea9fd08d6e43f29cc285e51174))
+* **takeoff:** reserve one launch request per affaire and start it automatically when the dossier is confirmed ([#436](https://github.com/maxlemeur/HEX_BC/issues/436)) ([8626301](https://github.com/maxlemeur/HEX_BC/commit/8626301bf3b50e5221f0cebde272d17229eb16c2))
+* **takeoff:** send a reviewed takeoff to its first draft without a prior estimate ([#426](https://github.com/maxlemeur/HEX_BC/issues/426)) ([0dcea6a](https://github.com/maxlemeur/HEX_BC/commit/0dcea6a2f86a0cd9b61058334764eaf2964545cc))
+
+
+### Bug Fixes
+
+* **build:** raise the production build heap floor to 6144 MiB ([#431](https://github.com/maxlemeur/HEX_BC/issues/431)) ([113fcb2](https://github.com/maxlemeur/HEX_BC/commit/113fcb27382a851b679ab3fb34ac2184c3648aef))
+* **e2e:** read each lab launch from its own POST response ([#398](https://github.com/maxlemeur/HEX_BC/issues/398)) ([#409](https://github.com/maxlemeur/HEX_BC/issues/409)) ([c13817e](https://github.com/maxlemeur/HEX_BC/commit/c13817e3e3a07ff50bed138d7b64fbc31803b16c))
+* **e2e:** read only complete records of the witness logs ([#438](https://github.com/maxlemeur/HEX_BC/issues/438)) ([df28240](https://github.com/maxlemeur/HEX_BC/commit/df282408adc66fdf153b07ade57657dc50628242))
+* **e2e:** wait for Team B takeoff pages to hydrate ([#416](https://github.com/maxlemeur/HEX_BC/issues/416)) ([44e5e43](https://github.com/maxlemeur/HEX_BC/commit/44e5e43801d578a49ebce668a847143a2263df81))
+* **imports:** read XLSX cell styles from the sheet column ([#422](https://github.com/maxlemeur/HEX_BC/issues/422)) ([79f8e11](https://github.com/maxlemeur/HEX_BC/commit/79f8e11d2c715c4200daafb591e969d2df00851f))
+* **imports:** read XLSX row styles from the sheet row ([#421](https://github.com/maxlemeur/HEX_BC/issues/421)) ([6b08e20](https://github.com/maxlemeur/HEX_BC/commit/6b08e20acffe4820e6b268004b29673f7befe721))
+* **takeoff:** keep grouped lines, parts and post-send effects consistent across a send ([#434](https://github.com/maxlemeur/HEX_BC/issues/434)) ([0c24ac9](https://github.com/maxlemeur/HEX_BC/commit/0c24ac99ec47f73f7ed93cc25531432c41624502))
+* **takeoff:** keep the plan set and version picked in the launch dialogue ([#428](https://github.com/maxlemeur/HEX_BC/issues/428)) ([dff50c2](https://github.com/maxlemeur/HEX_BC/commit/dff50c2e1d3ea67e57c53e9572f51d80010cbf84))
+* **takeoff:** launch another plan set after one set a copy or a revision aside ([#427](https://github.com/maxlemeur/HEX_BC/issues/427)) ([b7bad31](https://github.com/maxlemeur/HEX_BC/commit/b7bad312fdfc15cc88f69f8ad995b19c2e6bb076))
+* **takeoff:** make the end-of-analysis notices safe to activate ([#425](https://github.com/maxlemeur/HEX_BC/issues/425)) ([089608f](https://github.com/maxlemeur/HEX_BC/commit/089608f046d9a8fc11121c8703d4ac8589959c44))
+* **takeoff:** read the risk radar's alerts with one access check per statement ([#441](https://github.com/maxlemeur/HEX_BC/issues/441)) ([761966a](https://github.com/maxlemeur/HEX_BC/commit/761966a30d45fc3feaa1e6a51a24f014710325d3))
+* **takeoff:** report exact per-family count bench figures under ties ([#417](https://github.com/maxlemeur/HEX_BC/issues/417)) ([f4c2635](https://github.com/maxlemeur/HEX_BC/commit/f4c26352d348147394cfd34f74937c7f7e994681))
+
 ## [0.8.0](https://github.com/maxlemeur/HEX_BC/compare/v0.7.0...v0.8.0) (2026-11-20)
 
 
