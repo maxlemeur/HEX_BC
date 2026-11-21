@@ -679,7 +679,13 @@ function overrideMetadata(blocked: readonly GuardBlockedItem[], payload: { force
 }
 
 type ReceiptRow = { id: string; job_id: string; project_id: string; request_id: string; target_version_id: string;
-  result: Record<string, unknown>; replayed?: boolean };
+  result: Record<string, unknown>; replayed?: boolean;
+  /** What the send and a replay say of what follows the commit: the format that ran (1: the previous application's), */
+  command_format?: number;
+  /** whether the server completed it (« unrecorded »: a receipt from before that record), */
+  effects?: "pending" | "completed" | "unrecorded";
+  /** and the affaire's owner at the send (none for a receipt from before that record). */
+  affaire_owner_id?: string | null };
 
 function responseOf(receipt: ReceiptRow, replayed: boolean): TakeoffSendResponse {
   const result = receipt.result as { version_created?: boolean; created_count?: number; updated_count?: number; removed_count?: number;
@@ -693,26 +699,44 @@ function responseOf(receipt: ReceiptRow, replayed: boolean): TakeoffSendResponse
 }
 
 /**
- * What follows the commit of a send, done by the attempt that committed it and again by every replay of its request: a
- * process stopped between the commit and these effects leaves them to the next attempt, which returns the receipt. A first
- * draft gets the default categories and labour roles « Créer un devis » gives it (upserted on their names: never twice),
- * then the other takeoffs of the draft, which have a new peer, have their rules computed again (their stale state blocks
- * them meanwhile). The application's audit rows are not among them: the send writes them in its transaction.
+ * What follows the commit of a send, done by the attempt that committed it and, while it is not recorded as completed, by
+ * a replay of its request (a process stopped between the commit and these effects leaves them to the next attempt): a first
+ * draft gets the default categories and labour roles « Créer un devis » gives it, for the affaire's owner at the send
+ * (upserted on their names: never twice), then the other takeoffs of the draft, which have a new peer, have their rules
+ * computed again (their stale state blocks them meanwhile); then the server records them completed — which, for a command
+ * of format 1 whose server did not write the application's audit row, writes it (public.complete_takeoff_send_effects).
+ * Once recorded, nothing is done again (a default renamed since stays renamed). Only a member who may still send to the
+ * affaire (the operator rule of the send) does any of it; any other reader of the receipt gets the receipt and nothing else.
  */
 async function afterCommit(ctx: Context, receipt: ReceiptRow) {
+  if (receipt.effects === "completed") return;
+  const service = createServiceRoleClient();
+  const { data: project, error: projectError } = await service.from("estimate_projects").select("user_id, is_archived")
+    .eq("tenant_id", ctx.tenantId).eq("id", receipt.project_id).maybeSingle();
+  if (projectError) failed(projectError, "Impossible de lire l’affaire du métré.", receipt.job_id);
+  const maySend = !!project && !project.is_archived && (ctx.tenantRole === TAKEOFF_TENANT_ADMIN_ROLE
+    || (ctx.tenantRole === "engineer" && project.user_id === ctx.userId));
+  if (!maySend) return;
   const result = receipt.result as { version_created?: boolean; source_version_id?: string | null };
-  if (result.version_created === true && !result.source_version_id) {
+  // A receipt from before the record names no owner at the send: its defaults are not guessed from today's owner.
+  if (result.version_created === true && !result.source_version_id && receipt.affaire_owner_id) {
     try {
-      const { data: owner } = await createServiceRoleClient().from("estimate_projects").select("user_id")
-        .eq("id", receipt.project_id).single();
       await ensureDefaultEstimateCategories({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId });
-      await ensureDefaultLaborRoles({ supabase: ctx.supabase, tenantId: ctx.tenantId, ownerUserId: owner?.user_id ?? ctx.userId });
+      await ensureDefaultLaborRoles({ supabase: ctx.supabase, tenantId: ctx.tenantId, ownerUserId: receipt.affaire_owner_id });
     } catch (defaultsError) {
+      // Left pending: the next replay of the request does them again.
       console.error("takeoff.send.defaults_failed", { job_id: receipt.job_id,
         message: defaultsError instanceof Error ? defaultsError.message.slice(0, 300) : "unknown" });
+      return;
     }
   }
   await recomputeTakeoffRulesQuietly({ tenantId: ctx.tenantId, estimateVersionId: receipt.target_version_id, context: "applied" });
+  const { error: completionError } = await service.rpc("complete_takeoff_send_effects" as never,
+    { p_receipt_id: receipt.id } as never);
+  if (completionError) {
+    console.error("takeoff.send.effects_completion_failed", { job_id: receipt.job_id,
+      code: (completionError as { code?: string }).code ?? null });
+  }
 }
 
 /**

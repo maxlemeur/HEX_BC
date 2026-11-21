@@ -9,6 +9,10 @@
 -- 3. A send whose command is of format 2 writes the application's audit rows (« takeoff.apply.completed » and one
 --    « takeoff.mapping.applied » per mapped line) in its own transaction, once: a replay writes none. A command of
 --    format 1 (the previous application, which writes them after the commit) gets none from the database.
+-- Review of #434 (red on 327516ed): engine 2 did not name the representative's takeoff line (2b, 7); a second staging
+-- of one request under another format was accepted, the answer did not say which format ran, and nothing recorded that
+-- the effects after the commit completed (8); the mapping audit named actions the writer suppressed on the line that
+-- remains (9).
 -- Isolation justified: the choice of a representative between runs, the parts stored on a line and the rows of one
 -- transaction are database contracts no journey can observe deterministically (a run's identifiers are random).
 -- Written before the change: red on 0dcea6a2 (no source in the outcome, a representative by the smallest new identifier,
@@ -139,14 +143,16 @@ create function pg_temp.command(p_job integer, p_destination jsonb, p_section js
     'accumulations', p_accumulations, 'override', null, 'price_rules_ignored', '[]'::jsonb, 'expected_outcome', null)
   from public.takeoff_jobs j where j.id = pg_temp.fx(p_job)
 $$;
-create function pg_temp.first_draft(p_version integer) returns jsonb language sql immutable as $$
+create function pg_temp.first_draft(p_version integer, p_engine integer default 3) returns jsonb language sql immutable as $$
   select jsonb_build_object('kind', 'first_draft', 'version_payload', jsonb_build_object(
     'id', pg_temp.fx(p_version), 'title', null, 'date_devis', '2026-11-21', 'validite_jours', 30, 'margin_multiplier', 1,
     'margin_mode', 'fixed', 'currency', 'EUR', 'margin_bp', 0, 'discount_bp', 0, 'discount_amount_cents', null,
     'discount_mode', 'simple', 'discount_steps', '[]'::jsonb, 'global_coefficient', 1, 'tax_rate_bp', 2000,
     'rounding_mode', 'none', 'rounding_step_cents', 1, 'max_section_depth', 3, 'contractor_role', 'principal',
-    'calc_engine_version', 3, 'total_ht_cents', 0, 'total_tax_cents', 0, 'total_ttc_cents', 0,
-    'gross_ht_cents', 0, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0))
+    'calc_engine_version', p_engine, 'total_ht_cents', 0, 'total_tax_cents', 0, 'total_ttc_cents', 0)
+    -- Engine 2 versions carry none of the engine 3 totals.
+    || case when p_engine = 3 then jsonb_build_object('gross_ht_cents', 0, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0)
+      else '{}'::jsonb end)
 $$;
 create function pg_temp.new_section(p_id integer) returns jsonb language sql immutable as $$
   select jsonb_build_object('kind', 'new', 'id', pg_temp.fx(p_id), 'title', 'Métré — plans fictifs')
@@ -329,7 +335,8 @@ begin
       perform public.apply_takeoff_job_with_page_decisions(pg_temp.fx(66), 'append', pg_temp.fx(121), pg_temp.mapping_plan(66),
         '[]'::jsonb, null);
       select jsonb_build_object('page', i.source_page, 'file', i.source_file_name, 'title', i.title, 'unit', i.description,
-          'quantity', trim_scale(i.quantity), 'price', i.unit_price_ht_cents, 'section', i.parent_id,
+          'quantity', trim_scale(i.quantity), 'price', i.unit_price_ht_cents, 'section', i.parent_id, 'position', i.position,
+          'representative', i.source_metadata #>> '{takeoff_length_rounding,representative_item_id}',
           'lines', (select count(*) from public.estimate_items other where other.version_id = i.version_id and other.item_type = 'line'))
         into written
       from public.estimate_items i where i.version_id = pg_temp.fx(120) and i.item_type = 'line';
@@ -351,8 +358,8 @@ create temp table versioned_applications as select pg_temp.applied_lines(10) as 
 reset role;
 select results_eq($$select distinct written from versioned_applications$$,
   $$values (jsonb_build_object('page', 1, 'file', 'plan-56.pdf', 'title', 'Tube cuivre', 'unit', 'm', 'quantity', 8, 'price', 0,
-    'section', pg_temp.fx(121), 'lines', 1))$$,
-  'ten applications by the previous application''s call store the same line, page 1''s tube its source');
+    'section', pg_temp.fx(121), 'position', 2, 'representative', pg_temp.fx(88)::text, 'lines', 1))$$,
+  'ten applications by the previous application''s call store the same line: page 1''s tube, at its position, named as the line''s source');
 
 -- 3. A (3 washbasins) to a first draft of engine 3 at a typed price, B adds 2, C replaces B's page with 4, D adds 1:
 -- the line's parts tell A and B, then A and C, then A, C and D, as its quantity and its active sources do.
@@ -656,6 +663,205 @@ select is(jsonb_build_array(trim_scale((pg_temp.line(160, 'Siphon')).quantity),
     (pg_temp.line(160, 'Siphon')).source_metadata ? 'takeoff_contributions',
     (pg_temp.line(160, 'Siphon')).source_metadata #>> '{takeoff_page_replacement,job_id}'),
   jsonb_build_array(2, false, pg_temp.fx(76)), 'the line holds the new measure and no parts');
+
+
+-- 7. Engine 2, two equal tubes of one file and one page: the line names no takeoff line of its own, so the outcome names
+-- the representative's (the first by position), recorded by the finalizer; every preview names it, and the line keeps
+-- its position.
+select pg_temp.affaire(28, 12, 6, 'Affaire moteur 2 aux tubes');
+select pg_temp.plan(51, 63, 28, 12);
+select pg_temp.prepare(28, 12, 6, 63, 1);
+select pg_temp.admit(83, 28, 51, 12, 6);
+select pg_temp.measure(105, 83, 12, 63, 'Tube PER', 2.4, 'm');
+select pg_temp.measure(106, 83, 12, 63, 'Tube PER', 2.4, 'm');
+insert into commands values ('tubes-2', pg_temp.command(83, pg_temp.first_draft(180, 2), pg_temp.new_section(181)));
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches,
+  pg_temp._takeoff_apply_unmatched;
+select pg_temp.sign_in(6);
+set local role authenticated;
+create temp table engine2_previews as select pg_temp.previewed_sources('tubes-2', 'Tube PER', 6) as source;
+reset role;
+select results_eq($$select distinct source from engine2_previews$$,
+  $$values (jsonb_build_object('file', 'plan-63.pdf', 'page', 1, 'takeoff_item_id', pg_temp.fx(105)))$$,
+  'on engine 2, every preview names the representative''s takeoff line: the first tube by position');
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches,
+  pg_temp._takeoff_apply_unmatched;
+select pg_temp.sign_in(6);
+set local role authenticated;
+select lives_ok($$select pg_temp.confirm('tubes-2')$$, 'the engine 2 send is confirmed as shown');
+reset role;
+select is((select jsonb_build_object('position', i.position, 'representative', i.source_metadata #>> '{takeoff_length_rounding,representative_item_id}',
+    'quantity', trim_scale(i.quantity), 'lines', (select count(*) from public.estimate_items other where other.version_id = i.version_id
+      and other.item_type = 'line'))
+  from public.estimate_items i where i.version_id = pg_temp.fx(180) and i.item_type = 'line'),
+  jsonb_build_object('position', 1, 'representative', pg_temp.fx(105)::text, 'quantity', 5, 'lines', 1),
+  'the engine 2 line keeps the first tube''s position and names it as its representative');
+
+-- 8. The format of a command is part of its request's identity. The same confirmation staged by a server of format 1
+-- and then by one of format 2, or in the reverse order, is refused at the second staging (the member previews again).
+-- The answer of a send says which format ran and whether what follows the commit was recorded as completed; completing
+-- it writes the application's audit row for a command of format 1 when no server wrote it, once, and nothing more.
+create function pg_temp.answer(p_sql text) returns text language plpgsql as $$
+declare
+  result jsonb;
+begin
+  execute p_sql into result;
+  return coalesce(result::text, 'null');
+exception when others then
+  return 'raised ' || sqlerrm;
+end;
+$$;
+select pg_temp.affaire(29, 14, 7, 'Affaire aux formats');
+select pg_temp.plan(52, 64, 29, 14);
+select pg_temp.plan(53, 65, 29, 14);
+select pg_temp.prepare(29, 14, 7, 64, 1);
+select pg_temp.admit(84, 29, 52, 14, 7);
+select pg_temp.measure(107, 84, 14, 64, 'Raccord', 2, 'u');
+insert into commands values ('format-1', pg_temp.command(84, pg_temp.first_draft(190), pg_temp.new_section(191)));
+select pg_temp.sign_in(7);
+set local role authenticated;
+create temp table format_1_outcome as select pg_temp.dry('format-1') as outcome;
+reset role;
+update commands set body = body || jsonb_build_object('mode', 'send', 'expected_outcome', (select outcome from format_1_outcome))
+where name = 'format-1';
+select pg_temp.sign_in(7);
+set local role authenticated;
+select lives_ok($$select pg_temp.stage_body((select body from commands where name = 'format-1'))$$,
+  'a server of format 1 stages the confirmation');
+select throws_ok($$select pg_temp.stage_body((select body || '{"format_version": 2}'::jsonb from commands where name = 'format-1'))$$,
+  '40001', 'TAKEOFF_SEND_REQUEST_CONFLICT', 'a server of format 2 staging the same confirmation is refused');
+select lives_ok($$select pg_temp.stage_body((select body || jsonb_build_object('format_version', 2, 'request_id', pg_temp.fx(202))
+    from commands where name = 'format-1'))$$, 'a server of format 2 stages another confirmation');
+select throws_ok($$select pg_temp.stage_body((select body || jsonb_build_object('format_version', 1, 'request_id', pg_temp.fx(202))
+    from commands where name = 'format-1'))$$, '40001', 'TAKEOFF_SEND_REQUEST_CONFLICT',
+  'and a server of format 1 staging that one is refused');
+create temp table format_1_answer as select public.send_takeoff_job(pg_temp.request((select body from commands where name = 'format-1')))
+  as receipt;
+reset role;
+select is((select jsonb_build_object('format', receipt -> 'command_format', 'effects', receipt -> 'effects',
+    'owner', receipt -> 'affaire_owner_id') from format_1_answer),
+  jsonb_build_object('format', 1, 'effects', 'pending', 'owner', pg_temp.fx(7)),
+  'the send of format 1 says which format ran, that its effects are pending, and the affaire''s owner at the send');
+select is((select count(*) from public.audit_logs where record_id = pg_temp.fx(84) and action = 'takeoff.apply.completed'), 0::bigint,
+  'the database wrote no audit row for format 1');
+grant select on format_1_answer to service_role;
+select pg_temp.sign_in(7);
+set local role authenticated;
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from format_1_answer)))$$),
+  'raised permission denied for function complete_takeoff_send_effects', 'a member cannot record the effects completed');
+reset role;
+set local role service_role;
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from format_1_answer)))$$),
+  'true', 'the server records them completed');
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from format_1_answer)))$$),
+  'false', 'once');
+reset role;
+select results_eq($$select jsonb_build_object('user', audit.user_id, 'version', audit.estimate_version_id,
+    'metadata', audit.after_data -> 'metadata') from public.audit_logs audit
+  where audit.record_id = pg_temp.fx(84) and audit.action = 'takeoff.apply.completed'$$,
+  $$values (jsonb_build_object('user', pg_temp.fx(7), 'version', pg_temp.fx(190), 'metadata',
+    jsonb_build_object('estimate_version_id', pg_temp.fx(190), 'applied_items_count', 1, 'excluded_items_count', 0)))$$,
+  'completing a format 1 send wrote its audit row once, as its server would have');
+select pg_temp.sign_in(7);
+set local role authenticated;
+select is((select jsonb_build_object('replayed', answer -> 'replayed', 'format', answer -> 'command_format', 'effects', answer -> 'effects')
+    from (select pg_temp.run((select body from commands where name = 'format-1')) as answer) as replayed),
+  '{"replayed": true, "format": 1, "effects": "completed"}'::jsonb, 'a replay says the effects are completed');
+reset role;
+-- A format 1 send whose server wrote its audit row itself: completing it writes none.
+select pg_temp.prepare(29, 14, 7, 65, 2);
+select pg_temp.admit(85, 29, 53, 14, 7);
+select pg_temp.measure(108, 85, 14, 65, 'Raccord', 1, 'u');
+insert into public.draft_locks(version_id, user_id, tenant_id, expires_at, session_id)
+values (pg_temp.fx(190), pg_temp.fx(7), pg_temp.fx(14), now() + interval '30 minutes', gen_random_uuid());
+insert into commands values ('format-1-audited', pg_temp.command(85, pg_temp.draft(190), pg_temp.existing_section(191)));
+select pg_temp.sign_in(7);
+set local role authenticated;
+create temp table format_1_audited as select pg_temp.confirm('format-1-audited') as receipt;
+reset role;
+grant select on format_1_audited to service_role;
+insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
+values (pg_temp.fx(14), pg_temp.fx(7), 'takeoff_jobs', pg_temp.fx(85), pg_temp.fx(190), 'takeoff.apply.completed',
+  '{"schema_version": 1, "action": "takeoff.apply.completed"}');
+set local role service_role;
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from format_1_audited)))$$),
+  'true', 'its effects are recorded completed');
+reset role;
+select is((select count(*) from public.audit_logs where record_id = pg_temp.fx(85) and action = 'takeoff.apply.completed'), 1::bigint,
+  'without a second audit row');
+-- A format 2 send: the answer says so; completing it writes no audit row (the send wrote it).
+select pg_temp.plan(55, 67, 29, 14);
+select pg_temp.prepare(29, 14, 7, 67, 3);
+select pg_temp.admit(86, 29, 55, 14, 7);
+select pg_temp.measure(109, 86, 14, 67, 'Bouchon', 1, 'u');
+insert into commands values ('format-2', pg_temp.command(86, pg_temp.draft(190), pg_temp.existing_section(191), p_format => 2));
+select pg_temp.sign_in(7);
+set local role authenticated;
+create temp table format_2_answer as select pg_temp.confirm('format-2') as receipt;
+reset role;
+grant select on format_2_answer to service_role;
+select is((select jsonb_build_object('format', receipt -> 'command_format', 'effects', receipt -> 'effects') from format_2_answer),
+  '{"format": 2, "effects": "pending"}'::jsonb, 'the send of format 2 says so');
+set local role service_role;
+select is(pg_temp.answer($$select to_jsonb(public.complete_takeoff_send_effects((select (receipt ->> 'id')::uuid from format_2_answer)))$$),
+  'true', 'its effects are recorded completed');
+reset role;
+select is((select count(*) from public.audit_logs where record_id = pg_temp.fx(86) and action = 'takeoff.apply.completed'), 1::bigint,
+  'with the one audit row its send wrote');
+
+-- 9. The mapping audit names what was applied to the line that remains. A rule classifies the addition D-like of a
+-- washer: it adds to the earlier « Té » line, whose category stays; a rule classifies the re-read of the valve's page,
+-- paired with the valve line of category X: the line keeps X. Neither writes a « takeoff.mapping.applied » row.
+insert into public.estimate_categories (id, tenant_id, user_id, name, position) values
+  (pg_temp.fx(301), pg_temp.fx(14), pg_temp.fx(7), 'Catégorie X fictive', 1),
+  (pg_temp.fx(302), pg_temp.fx(14), pg_temp.fx(7), 'Catégorie Y fictive', 2);
+insert into public.takeoff_mapping_rules(id, tenant_id, name, match_pattern, match_type, action, action_params, priority)
+values (pg_temp.fx(95), pg_temp.fx(14), 'Classement Y', 'Té', 'exact', 'set_category',
+  jsonb_build_object('category_id', pg_temp.fx(302)), 40);
+create function pg_temp.classified(p_job integer, p_rule integer) returns jsonb language sql as $$
+  select jsonb_agg(entry || jsonb_build_object('rule_id', pg_temp.fx(p_rule), 'action', 'set_category',
+      'category_id', pg_temp.fx(302)) order by (entry ->> 'source_order')::integer)
+  from jsonb_array_elements(pg_temp.mapping_plan(p_job)) as entry
+$$;
+select pg_temp.plan(54, 66, 25, 14);
+select pg_temp.prepare(25, 14, 7, 66, 4);
+select pg_temp.admit(80, 25, 54, 14, 7);
+select pg_temp.measure(110, 80, 14, 66, 'Té', 1, 'u');
+insert into commands values ('classified-addition', pg_temp.command(80, pg_temp.draft(150), pg_temp.existing_section(151),
+  pg_temp.accumulation(110, 150, 'Té'), p_mapping => pg_temp.classified(80, 95), p_format => 2));
+select pg_temp.sign_in(7);
+set local role authenticated;
+select lives_ok($$select pg_temp.confirm('classified-addition')$$, 'a classified washer adds to the earlier line');
+reset role;
+select is(jsonb_build_array(trim_scale((pg_temp.line(150, 'Té')).quantity), (pg_temp.line(150, 'Té')).category_id,
+    (select count(*) from public.audit_logs where record_id = pg_temp.fx(80) and action = 'takeoff.mapping.applied')),
+  jsonb_build_array(2, null, 0), 'the line holds 2 and keeps its category: no mapping row for a category it did not get');
+
+select set_config('miaouffrage.estimate_v3_writer', pg_temp.fx(150)::text, true);
+update public.estimate_items set category_id = pg_temp.fx(301) where id = (pg_temp.line(150, 'Vanne d''arrêt')).id;
+select public.estimate_v3_complete_entry_for_writer(pg_temp.fx(150), array[(pg_temp.line(150, 'Vanne d''arrêt')).id]);
+select set_config('miaouffrage.estimate_v3_writer', '', true);
+select pg_temp.prepare(25, 14, 7, 59, 5);
+select pg_temp.admit(81, 25, 49, 14, 7);
+select pg_temp.measure(111, 81, 14, 59, 'Vanne d''arrêt', 1, 'u');
+insert into commands select 'classified-replacement', pg_temp.command(81, pg_temp.draft(150), pg_temp.existing_section(151),
+  p_page_decisions => jsonb_build_array(jsonb_build_object(
+    'document', jsonb_build_object('plan_file_id', pg_temp.fx(59), 'content_hash', pg_temp.hash(59), 'logical_document_id', null,
+      'file_name', 'plan-59.pdf'),
+    'source_page', 1, 'earlier_job_ids', jsonb_build_array(pg_temp.fx(74)), 'decision', 'replace', 'reason_code', null, 'note', null,
+    'lines', jsonb_build_array(jsonb_build_object('estimate_item_id', (pg_temp.line(150, 'Vanne d''arrêt')).id,
+      'expected_updated_at', (pg_temp.line(150, 'Vanne d''arrêt')).updated_at, 'action', 'update', 'take', null,
+      'item_ids', jsonb_build_array(pg_temp.fx(98)))),
+    'pairs', jsonb_build_array(jsonb_build_object('takeoff_item_id', pg_temp.fx(111),
+      'estimate_item_id', (pg_temp.line(150, 'Vanne d''arrêt')).id)))),
+  p_mapping => pg_temp.classified(81, 95), p_format => 2);
+select pg_temp.sign_in(7);
+set local role authenticated;
+select lives_ok($$select pg_temp.confirm('classified-replacement')$$, 'a classified re-read replaces the valve''s page');
+reset role;
+select is(jsonb_build_array(trim_scale((pg_temp.line(150, 'Vanne d''arrêt')).quantity), (pg_temp.line(150, 'Vanne d''arrêt')).category_id,
+    (select count(*) from public.audit_logs where record_id = pg_temp.fx(81) and action = 'takeoff.mapping.applied')),
+  jsonb_build_array(3, pg_temp.fx(301), 0), 'the line holds 3 and keeps category X: no mapping row for a category it did not get');
 
 select * from finish();
 rollback;

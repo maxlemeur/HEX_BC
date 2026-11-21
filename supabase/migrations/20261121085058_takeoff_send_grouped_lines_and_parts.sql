@@ -1,6 +1,7 @@
--- Follow-up of lot 2 M2 (…_takeoff_send_receipts.sql): what the reviews of the send left. Forward-only: no table, column,
--- policy or row is created, changed or deleted; four existing functions are replaced with their signatures, owners and
--- grants unchanged, and one private helper is added.
+-- Follow-up of lot 2 M2 (…_takeoff_send_receipts.sql): what the reviews of the send left. Forward-only: no existing
+-- table, column, policy or row is changed or deleted; seven existing functions are replaced with their signatures,
+-- owners and grants unchanged; a private helper, a private table of the receipts' effects and a service function are
+-- added.
 -- 1. The line that represents grouped lengths (private.finalize_takeoff_lengths) is the one whose source comes first in
 --    what the member sees: its page, its position, then its first takeoff line. It was the line with the smallest new
 --    identifier, drawn at each run, so a preview and its confirmation could store another main page and position. The
@@ -12,14 +13,23 @@
 --    not rewritten here: its next accumulation lists its parts again.
 -- 3. A send command of format 2 writes the application's audit rows in its own transaction (once: a replay writes none);
 --    format 1, the command of the previous application, which writes them after the commit itself, gets none.
---    private.takeoff_send_admitted_role admits both formats.
+--    private.takeoff_send_admitted_role admits both formats; the format is part of a request's identity
+--    (public.stage_takeoff_send refuses a second command of another format under it).
+-- 4. What follows a send's commit (the server's: a first draft's defaults, the rules of the draft's other takeoffs) is
+--    recorded per receipt: the format that ran and the affaire's owner at the send, written with the receipt, and when
+--    the server completed it (private.takeoff_send_receipt_effects, public.complete_takeoff_send_effects). A send's answer
+--    and a replay's say which format ran and whether it completed; completing a format 1 send writes its audit row when
+--    its server did not.
 -- The previous application (v0.8.0, and main before this change) calls public.apply_takeoff_job_with_page_decisions,
 -- public.apply_takeoff_job_guarded_atomic, public.stage_takeoff_send and public.send_takeoff_job unchanged: the same
 -- lines, quantities, prices, sections and refusals, except which line represents grouped lengths and which parts a line
 -- lists; its commands (format 1) are compared with the source of each line as well, which their dry run computes the
 -- same way.
--- Replacing a function takes no lock on any table, and a running call keeps the definition it started with: nothing
--- needs to be drained. The lock timeout bounds the wait on the catalog rows of the replaced functions.
+-- Replacing a function takes no lock on any table, and a running call keeps the definition it started with. Creating
+-- private.takeoff_send_receipt_effects, whose foreign key references public.takeoff_send_receipts, takes a SHARE ROW
+-- EXCLUSIVE lock on that table for the statement: a send that inserts its receipt meanwhile makes it wait (at most the
+-- lock timeout, then 55P03 and nothing applied). Draining « Envoyer au tableau de chiffrage » avoids that wait. The
+-- lock timeout bounds every wait.
 begin;
 
 set local lock_timeout = '5s';
@@ -28,6 +38,7 @@ set local lock_timeout = '5s';
 -- the one whose source comes first in what the member sees — its page (none last), its position in the section, then
 -- the first of its takeoff lines (an identifier the takeoff keeps). Each line created here has its own takeoff lines,
 -- so no two lines tie: the order is total, and two runs of one command keep the same line, its page and its position.
+-- The line records that takeoff line (`takeoff_length_rounding.representative_item_id`): an engine 2 line names none.
 -- Only the guarded apply entry points can invoke this finalizer. Raw takeoff
 -- measures are never changed; only this invocation's new duplicate outputs may be removed.
 create or replace function private.finalize_takeoff_lengths(
@@ -77,6 +88,7 @@ begin
   drop table if exists pg_temp._ti681_length_groups;
   create temporary table _ti681_length_groups on commit drop as
   select (array_agg(target.id order by target.page nulls last,target.position nulls last,target.first_source))[1] as representative,
+    (array_agg(target.first_source order by target.page nulls last,target.position nulls last,target.first_source))[1] as representative_source,
     array_agg(target.id order by target.id) as ids,sum(target.raw_quantity) as raw_quantity,min(target.factor) as factor
   from pg_temp._ti681_length_targets target group by target.identity;
   select coalesce(array_agg(g.representative),'{}'::uuid[]) into changed from pg_temp._ti681_length_groups g;
@@ -85,6 +97,8 @@ begin
     update public.estimate_items item set quantity=ceil(g.raw_quantity*g.factor)/g.factor,
       source_metadata=coalesce(item.source_metadata,'{}'::jsonb)||jsonb_build_object('takeoff_length_rounding',
         jsonb_build_object('version',1,'job_id',p_job_id,'raw_quantity',g.raw_quantity,'metres_per_unit',g.factor,
+          -- The takeoff line that represents the group (an engine 2 line names none of its own).
+          'representative_item_id',g.representative_source,
           'item_ids',(select jsonb_agg(link.takeoff_item_id order by link.takeoff_item_id)
             from jsonb_to_recordset(p_links) as link(takeoff_item_id uuid,estimate_item_id uuid)
             where link.estimate_item_id=any(g.ids))))
@@ -428,7 +442,7 @@ end;
 $$;
 revoke all on function private.takeoff_send_admitted_role(jsonb, uuid, uuid, uuid, uuid) from public, anon, authenticated, service_role;
 
--- 4. The send. Unchanged but for three things: the outcome names each line's source (its file, its page and the takeoff
+-- 4. The send. Unchanged but for four things (the fourth: it returns the affaire's owner, recorded with the receipt): the outcome names each line's source (its file, its page and the takeoff
 -- line it names), so that a confirmation that saw another line represent grouped lengths is refused; an addition to an
 -- earlier line lists its parts from the line's active sources (private.takeoff_line_parts) before its own; a command of
 -- format 2 writes the application's audit rows in this transaction, as the server wrote them after the commit.
@@ -675,7 +689,8 @@ begin
       then item.pricing_status::text end as unitless_status,
     item.quantity, item.unit_price_ht_cents, item.source_job_id, item.updated_at,
     pg_catalog.jsonb_build_object('file', item.source_file_name, 'page', item.source_page,
-      'takeoff_item_id', item.source_metadata ->> 'takeoff_item_id') as source
+      'takeoff_item_id', coalesce(item.source_metadata ->> 'takeoff_item_id',
+        item.source_metadata #>> '{takeoff_length_rounding,representative_item_id}')) as source
   from public.estimate_items as item
   where item.version_id = target_version and item.tenant_id = p_tenant and item.item_type = 'line'::public.estimate_item_type;
 
@@ -884,7 +899,8 @@ begin
       where (output.value ->> 'estimate_item_id')::uuid = item.id) as takeoff_item_ids,
     -- The line's own source: for a line that groups equal lengths, the measure that represents it.
     pg_catalog.jsonb_build_object('file', item.source_file_name, 'page', item.source_page,
-      'takeoff_item_id', item.source_metadata ->> 'takeoff_item_id') as source
+      'takeoff_item_id', coalesce(item.source_metadata ->> 'takeoff_item_id',
+        item.source_metadata #>> '{takeoff_length_rounding,representative_item_id}')) as source
   from public.estimate_items as item
   where item.version_id = target_version and item.tenant_id = p_tenant and item.item_type = 'line'::public.estimate_item_type;
   with changes as (
@@ -1045,9 +1061,11 @@ begin
     'accumulated_count', pg_catalog.cardinality(accumulated));
 
   -- A command of format 2: the application's audit rows, written here once, in the transaction of the send (a replay
-  -- returns the receipt and writes nothing), as the server wrote them after the commit — the application completed, and
-  -- each line a mapping rule changed with the line it entered. A command of format 1 comes from the previous application,
-  -- whose server still writes them itself.
+  -- returns the receipt and writes nothing) — the application completed, and each mapping action applied to the line
+  -- that remains: a line set aside by a rule, or a line this send created. An action the page writer suppressed (a line
+  -- paired with an earlier line keeps that line's title and category) or that an addition dropped (the line it created
+  -- was merged into an earlier line) applied to nothing that remains. A command of format 1 comes from the previous
+  -- application, whose server still writes them itself.
   if p_command -> 'format_version' = '2'::jsonb then
     insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
     values (p_tenant, p_actor, 'takeoff_jobs', target_job_id, target_version, 'takeoff.apply.completed',
@@ -1067,12 +1085,266 @@ begin
         output.value -> 'estimate_item_id' as estimate_item_id
       from pg_catalog.jsonb_array_elements(links) as output(value)
       order by output.value ->> 'takeoff_item_id') as written on written.takeoff_item_id = mapped_line.value ->> 'item_id'
+    where mapped_line.value ->> 'action' = 'skip'
+      or exists (select 1 from pg_temp._takeoff_send_after as after_line
+        where after_line.id = private.takeoff_uuid_or_null(written.estimate_item_id)
+          and not exists (select 1 from pg_temp._takeoff_send_before as before_line where before_line.id = after_line.id))
     order by mapped_line.ordinality;
   end if;
-  return pg_catalog.jsonb_build_object('version_id', target_version, 'project_id', job.project_id, 'plan', plan, 'result', result);
+  return pg_catalog.jsonb_build_object('version_id', target_version, 'project_id', job.project_id, 'owner_id', project.user_id,
+    'plan', plan, 'result', result);
 end;
 $$;
 revoke all on function private.takeoff_send_execute(uuid, uuid, public.tenant_role, uuid, jsonb, boolean)
   from public, anon, authenticated, service_role;
+
+
+-- 5. What follows a send's commit, per receipt: the format of the command that ran (1: the previous application's, whose
+-- server writes the application's audit rows after the commit; 2: the send wrote them), the affaire's owner at the send
+-- (whose default labour roles a first draft gets), and when the server completed those effects. Written with the receipt,
+-- in its transaction; completed once by public.complete_takeoff_send_effects. No API role reads or writes it; it goes
+-- with its receipt. A receipt written before this migration has no row: its command was of format 1, its owner at the
+-- send is unknown.
+create table private.takeoff_send_receipt_effects (
+  receipt_id uuid primary key references public.takeoff_send_receipts(id) on delete cascade,
+  command_format smallint not null check (command_format in (1, 2)),
+  affaire_owner_id uuid,
+  completed_at timestamptz
+);
+revoke all on table private.takeoff_send_receipt_effects from public, anon, authenticated, service_role;
+
+-- What a send's answer and a replay's say of it: the format that ran, whether the effects are pending, completed, or
+-- unrecorded (a receipt from before this migration), and the owner at the send.
+create function private.takeoff_send_receipt_effects_of(p_receipt_id uuid)
+returns jsonb language sql stable set search_path = '' as $$
+  select pg_catalog.jsonb_build_object('command_format', coalesce(recorded.command_format, 1),
+    'effects', case when recorded.receipt_id is null then 'unrecorded' when recorded.completed_at is null then 'pending'
+      else 'completed' end,
+    'affaire_owner_id', recorded.affaire_owner_id)
+  from (select 1) as one
+  left join private.takeoff_send_receipt_effects as recorded on recorded.receipt_id = p_receipt_id
+$$;
+revoke all on function private.takeoff_send_receipt_effects_of(uuid) from public, anon, authenticated, service_role;
+
+-- The server records the effects of a send completed, once (false when they already were). For a command of format 1 it
+-- writes the application's completed audit row unless its server wrote it (the row of that takeoff and that version), as
+-- that server writes it: a server of this application that replays such a receipt completes what the other did not.
+create function public.complete_takeoff_send_effects(p_receipt_id uuid)
+returns boolean
+language plpgsql security definer set search_path = '' as $$
+declare
+  receipt public.takeoff_send_receipts%rowtype;
+  recorded private.takeoff_send_receipt_effects%rowtype;
+begin
+  select * into receipt from public.takeoff_send_receipts as stored where stored.id = p_receipt_id;
+  if not found then
+    raise exception 'TAKEOFF_SEND_RECEIPT_NOT_FOUND' using errcode = 'P0002';
+  end if;
+  insert into private.takeoff_send_receipt_effects (receipt_id, command_format, affaire_owner_id)
+  values (receipt.id, 1, null) on conflict (receipt_id) do nothing;
+  select * into recorded from private.takeoff_send_receipt_effects as effects where effects.receipt_id = receipt.id for update;
+  if recorded.completed_at is not null then
+    return false;
+  end if;
+  if recorded.command_format <> 2 and not exists (select 1 from public.audit_logs as audit
+    where audit.estimate_version_id = receipt.target_version_id and audit.record_id = receipt.job_id
+      and audit.action = 'takeoff.apply.completed') then
+    insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
+    values (receipt.tenant_id, receipt.actor_id, 'takeoff_jobs', receipt.job_id, receipt.target_version_id, 'takeoff.apply.completed',
+      pg_catalog.jsonb_build_object('schema_version', 1, 'action', 'takeoff.apply.completed', 'job_id', receipt.job_id,
+        'tenant_id', receipt.tenant_id, 'user_id', receipt.actor_id, 'metadata', pg_catalog.jsonb_build_object(
+          'estimate_version_id', receipt.target_version_id,
+          'applied_items_count', coalesce((receipt.result ->> 'created_count')::integer, 0)
+            + coalesce((receipt.result ->> 'updated_count')::integer, 0),
+          'excluded_items_count', coalesce((receipt.result ->> 'ignored_count')::integer, 0))));
+  end if;
+  update private.takeoff_send_receipt_effects as effects set completed_at = pg_catalog.statement_timestamp()
+  where effects.receipt_id = receipt.id;
+  return true;
+end;
+$$;
+revoke all on function public.complete_takeoff_send_effects(uuid) from public, anon, authenticated;
+grant execute on function public.complete_takeoff_send_effects(uuid) to service_role;
+
+-- 6. The staging, the replay and the send. Unchanged but for the format in a request's identity (the staging), and for
+-- the effects record (written with the receipt, said in the answers).
+create or replace function public.stage_takeoff_send(p_actor_id uuid, p_command jsonb)
+returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  staged_job public.takeoff_jobs%rowtype;
+  hash text;
+begin
+  if p_actor_id is null or pg_catalog.jsonb_typeof(p_command) is distinct from 'object'
+    or coalesce(p_command ->> 'request_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    or coalesce(p_command ->> 'job_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    or coalesce(p_command ->> 'fingerprint', '') !~ '^[0-9a-f]{64}$'
+    or pg_catalog.jsonb_typeof(p_command -> 'client') is distinct from 'object' then
+    raise exception 'TAKEOFF_SEND_COMMAND_INVALID' using errcode = '22023';
+  end if;
+  select * into staged_job from public.takeoff_jobs as candidate where candidate.id = (p_command ->> 'job_id')::uuid;
+  if not found then
+    raise exception 'TAKEOFF_JOB_NOT_FOUND' using errcode = 'P0002';
+  end if;
+  hash := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.jsonb_build_object(
+    'request_id', p_command -> 'request_id', 'job_id', p_command -> 'job_id', 'actor_id', p_actor_id,
+    'client', p_command -> 'client')::text, 'UTF8')), 'hex');
+  delete from private.takeoff_send_commands as expired where expired.expires_at < pg_catalog.statement_timestamp();
+  insert into private.takeoff_send_commands (request_id, tenant_id, job_id, actor_id, fingerprint, payload_hash, command, expires_at)
+  values ((p_command ->> 'request_id')::uuid, staged_job.tenant_id, staged_job.id, p_actor_id, p_command ->> 'fingerprint', hash,
+    p_command, pg_catalog.statement_timestamp() + case when p_command ->> 'mode' = 'dry_run' then interval '1 minute'
+      else interval '15 minutes' end)
+  on conflict (request_id) do nothing;
+  -- The request was staged already: the same submission keeps its first command (a retry after a timeout runs what was
+  -- confirmed then); any other submission under this identity is refused, and so is a command of another format (a
+  -- server of the previous application and one of this application staging the same confirmation): the format decides
+  -- who writes the application's audit rows. A replay's staging, which names no command, is never refused for it.
+  if not found and not exists (select 1 from private.takeoff_send_commands as staged
+    where staged.request_id = (p_command ->> 'request_id')::uuid and staged.actor_id = p_actor_id
+      and staged.job_id = staged_job.id and staged.tenant_id = staged_job.tenant_id and staged.payload_hash = hash
+      and (p_command ->> 'mode' is null or staged.command ->> 'mode' is null
+        or coalesce(staged.command -> 'format_version', '1'::jsonb) = coalesce(p_command -> 'format_version', '1'::jsonb))) then
+    raise exception 'TAKEOFF_SEND_REQUEST_CONFLICT' using errcode = '40001';
+  end if;
+end;
+$$;
+revoke all on function public.stage_takeoff_send(uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.stage_takeoff_send(uuid, jsonb) to service_role;
+
+-- A replay: the receipt of this request, to the member who sent it, for the job and the fingerprint it was confirmed
+-- with and, when this call staged a command, the same inputs; and only while that member may still read the takeoff
+-- (an affaire handed to another engineer takes its receipts with it).
+create or replace function private.takeoff_send_replay(p_receipt public.takeoff_send_receipts, p_actor uuid, p_job_id uuid,
+  p_fingerprint text, p_staged_hash text)
+returns jsonb
+language plpgsql set search_path = '' as $$
+begin
+  if p_receipt.actor_id is distinct from p_actor or p_receipt.job_id is distinct from p_job_id
+    or p_receipt.preview_fingerprint is distinct from p_fingerprint
+    or (p_staged_hash is not null and p_staged_hash is distinct from p_receipt.payload_hash) then
+    raise exception 'TAKEOFF_SEND_REQUEST_CONFLICT' using errcode = '40001';
+  end if;
+  if not private.can_access_takeoff_child(p_receipt.tenant_id, p_receipt.job_id, null, false) then
+    raise exception 'TAKEOFF_SEND_RECEIPT_NOT_READABLE' using errcode = '42501';
+  end if;
+  delete from private.takeoff_send_commands as spent where spent.request_id = p_receipt.request_id and spent.actor_id = p_actor;
+  return pg_catalog.to_jsonb(p_receipt) || pg_catalog.jsonb_build_object('replayed', true)
+    || private.takeoff_send_receipt_effects_of(p_receipt.id);
+end;
+$$;
+revoke all on function private.takeoff_send_replay(public.takeoff_send_receipts, uuid, uuid, text, text)
+  from public, anon, authenticated, service_role;
+
+create or replace function public.send_takeoff_job(p_request jsonb)
+returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  actor uuid := (select auth.uid());
+  tenant uuid := (select public.current_tenant_id());
+  p_command jsonb;
+  staged private.takeoff_send_commands%rowtype;
+  request uuid;
+  target_job_id uuid;
+  receipt public.takeoff_send_receipts%rowtype;
+  actor_role public.tenant_role;
+  dry_run boolean;
+  executed jsonb;
+  failure_code text;
+  failure_message text;
+  failure_detail text;
+begin
+  if actor is null or tenant is null then
+    raise exception 'TAKEOFF_SEND_AUTH_REQUIRED' using errcode = '42501';
+  end if;
+  if pg_catalog.jsonb_typeof(p_request) is distinct from 'object'
+    or p_request - array['request_id', 'job_id', 'fingerprint'] <> '{}'::jsonb
+    or coalesce(p_request ->> 'request_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    or coalesce(p_request ->> 'job_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    or coalesce(p_request ->> 'fingerprint', '') !~ '^[0-9a-f]{64}$' then
+    raise exception 'TAKEOFF_SEND_COMMAND_INVALID' using errcode = '22023';
+  end if;
+  request := (p_request ->> 'request_id')::uuid;
+  target_job_id := (p_request ->> 'job_id')::uuid;
+  select * into staged from private.takeoff_send_commands as command_row
+  where command_row.request_id = request and command_row.tenant_id = tenant and command_row.actor_id = actor
+    and command_row.job_id = target_job_id;
+  -- A preview's command does not outlive the call that answers it: the row read goes (a confirmation staged under the
+  -- same identifier is never this row), and its refusals below are answers.
+  dry_run := staged.command ->> 'mode' is not distinct from 'dry_run';
+  if dry_run then
+    delete from private.takeoff_send_commands as command_row
+    where command_row.request_id = request and command_row.payload_hash = staged.payload_hash
+      and command_row.command ->> 'mode' = 'dry_run';
+    if exists (select 1 from public.takeoff_send_receipts as stored where stored.tenant_id = tenant and stored.request_id = request) then
+      return private.takeoff_send_preview_refusal('40001', 'TAKEOFF_SEND_REQUEST_CONFLICT', null);
+    end if;
+    if staged.fingerprint is distinct from p_request ->> 'fingerprint' or staged.expires_at <= pg_catalog.statement_timestamp() then
+      return private.takeoff_send_preview_refusal('40001', 'TAKEOFF_SEND_PREVIEW_STALE',
+        pg_catalog.jsonb_build_object('reason', 'command_not_staged')::text);
+    end if;
+  end if;
+
+  -- A replay of a committed command returns its receipt, to the member who sent it, for the fingerprint it was confirmed
+  -- with, while that member may still read it; the same request with other inputs is a conflict.
+  select * into receipt from public.takeoff_send_receipts as stored where stored.tenant_id = tenant and stored.request_id = request;
+  if found then
+    return private.takeoff_send_replay(receipt, actor, target_job_id, p_request ->> 'fingerprint', staged.payload_hash);
+  end if;
+  if staged.request_id is null or staged.fingerprint is distinct from p_request ->> 'fingerprint'
+    or staged.expires_at <= pg_catalog.statement_timestamp() then
+    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+      detail = pg_catalog.jsonb_build_object('reason', 'command_not_staged')::text;
+  end if;
+  p_command := staged.command;
+  if dry_run then
+    -- The preview: the very send, in a block rolled back once it computed what it would leave. Its lock waits are short
+    -- (the estimate being saved or another send of it answers « busy »), and each of the send's named refusals is an
+    -- answer: the transaction that answers it deletes its staged command (above), which a raised refusal would keep. Any
+    -- other error aborts the call.
+    begin
+      actor_role := private.takeoff_send_admitted_role(p_command, request, target_job_id, actor, tenant);
+      perform pg_catalog.set_config('lock_timeout', '2s', true);
+      executed := private.takeoff_send_execute(actor, tenant, actor_role, request, p_command, true);
+      raise exception 'TAKEOFF_SEND_DRY_RUN_DONE' using errcode = 'P0001';
+    exception when others then
+      get stacked diagnostics failure_code = returned_sqlstate, failure_message = message_text, failure_detail = pg_exception_detail;
+      if failure_message = 'TAKEOFF_SEND_DRY_RUN_DONE' then
+        return pg_catalog.jsonb_build_object('dry_run', true, 'outcome', executed -> 'outcome');
+      end if;
+      executed := private.takeoff_send_preview_refusal(failure_code, failure_message, failure_detail);
+      if executed is null then
+        raise;
+      end if;
+      return executed;
+    end;
+  end if;
+
+  actor_role := private.takeoff_send_admitted_role(p_command, request, target_job_id, actor, tenant);
+  executed := private.takeoff_send_execute(actor, tenant, actor_role, request, p_command, false);
+  if executed ? 'replay' then
+    select * into receipt from public.takeoff_send_receipts as stored where stored.id = (executed ->> 'replay')::uuid;
+    return private.takeoff_send_replay(receipt, actor, target_job_id, p_request ->> 'fingerprint', staged.payload_hash);
+  end if;
+
+  perform pg_catalog.set_config('mergeone.takeoff_send_receipt', request::text, true);
+  insert into public.takeoff_send_receipts (tenant_id, project_id, job_id, request_id, command_kind, format_version, actor_id,
+    payload_hash, preview_fingerprint, destination, target_version_id, write_plan, result)
+  values (tenant, (executed ->> 'project_id')::uuid, target_job_id, request, 'send', 1, actor, staged.payload_hash,
+    p_command ->> 'fingerprint', executed #> '{plan,destination}', (executed ->> 'version_id')::uuid, executed -> 'plan',
+    executed -> 'result')
+  returning * into receipt;
+  perform pg_catalog.set_config('mergeone.takeoff_send_receipt', '', true);
+  -- What follows the commit is the server's: the format that ran and the affaire's owner at the send are recorded with
+  -- the receipt, its completion by the server (public.complete_takeoff_send_effects).
+  insert into private.takeoff_send_receipt_effects (receipt_id, command_format, affaire_owner_id)
+  values (receipt.id, (p_command ->> 'format_version')::smallint, (executed ->> 'owner_id')::uuid);
+  -- The staged command stays until it expires: from now on the receipt answers every call of this request (a retry
+  -- staged meanwhile must not wait on this transaction's row).
+  return pg_catalog.to_jsonb(receipt) || pg_catalog.jsonb_build_object('replayed', false)
+    || private.takeoff_send_receipt_effects_of(receipt.id);
+end;
+$$;
+revoke all on function public.send_takeoff_job(jsonb) from public, anon, service_role;
+grant execute on function public.send_takeoff_job(jsonb) to authenticated;
 
 commit;

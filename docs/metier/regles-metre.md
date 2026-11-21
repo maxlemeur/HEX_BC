@@ -66,6 +66,8 @@ techniques de matériaux restent en vigueur.
   (une mesure sans page en dernier), sa position dans la section, puis sa ligne de
   métré ; jamais un identifiant tiré à chaque application (suivi de l'envoi, migration
   [`…_takeoff_send_grouped_lines_and_parts.sql`](../../supabase/migrations/20261121085058_takeoff_send_grouped_lines_and_parts.sql)).
+  La ligne nomme cette ligne de métré (`takeoff_length_rounding.representative_item_id`) :
+  sur le moteur 2, où une ligne n'en nomme aucune, c'est ce que l'envoi compare.
 
 Le temps de métré/quantitatif, contrôle et corrections compris, a un objectif de
 division par quatre minimum. La référence de valorisation est 60 € HT/h.
@@ -604,18 +606,29 @@ devis, ni version, ni section, ni quantité.
   au résultat confirmé et enregistre un reçu. Un écart refuse tout
   (`TAKEOFF_SEND_PREVIEW_STALE`) et l'écran recalcule l'aperçu. Une révision d'un repère ou
   d'une preuve rend l'aperçu caduc même si la quantité ne change pas. Les lignes d'audit de
-  l'application (« takeoff.apply.completed », et une « takeoff.mapping.applied » par ligne
-  qu'une règle de correspondance change) sont écrites par l'envoi, dans sa transaction, une
-  fois (commande de format 2 ; le format 1 de l'application précédente les laisse à son
-  serveur). Les catégories et les rôles MO par défaut d'un premier brouillon (ceux que donne
-  « Créer un devis ») sont créés après l'envoi : une confirmation refusée n'écrit rien.
+  l'application (« takeoff.apply.completed », et une « takeoff.mapping.applied » par action
+  d'une règle de correspondance appliquée à la ligne qui reste : une ligne écartée, ou une
+  ligne que l'envoi crée ; pas une catégorie qu'une ligne appariée à une ligne antérieure ne
+  reçoit pas, ni celle d'une ligne qu'un ajout fond dans une ligne antérieure) sont écrites
+  par l'envoi, dans sa transaction, une fois (commande de format 2 ; le format 1 de
+  l'application précédente les laisse à son serveur). Le format fait partie de l'identité
+  d'une commande : la même confirmation déposée par un serveur de l'autre format est
+  refusée (`TAKEOFF_SEND_REQUEST_CONFLICT`, le membre prévisualise à nouveau). Les catégories
+  et les rôles MO par défaut d'un premier brouillon (ceux que donne « Créer un devis ») sont
+  créés après l'envoi, pour le propriétaire de l'affaire au moment de l'envoi : une
+  confirmation refusée n'écrit rien. L'envoi enregistre avec son reçu le format qui a tourné
+  et ce propriétaire ; le serveur enregistre ensuite que ce qui suit l'engagement est fait.
 - **Une fois.** Un métré n'est envoyé qu'une fois (`TAKEOFF_SEND_ALREADY_SENT`). Chaque
   confirmation porte un identifiant de commande gardé par l'écran : après un délai dépassé,
   la même commande rejouée renvoie son reçu, sans seconde version ni seconde application,
   même quand le premier essai s'engage pendant que le second recalcule son aperçu, et refait
-  ce qui suit l'engagement (catégories et rôles MO par défaut d'un premier brouillon, créés sur
-  leur nom, jamais deux fois ; règles des autres métrés du brouillon) : un essai arrêté entre
-  l'engagement et ces effets ne les laisse pas manquer ; le
+  ce qui suit l'engagement tant qu'il n'est pas enregistré comme fait (catégories et rôles MO
+  par défaut d'un premier brouillon, créés sur leur nom ; règles des autres métrés du
+  brouillon ; pour une commande de format 1 dont le serveur ne l'a pas écrite, sa ligne
+  d'audit) : un essai arrêté entre l'engagement et ces effets ne les laisse pas manquer, et
+  une fois faits ils ne sont pas refaits (un rôle par défaut renommé depuis reste renommé).
+  Seul un membre qui peut encore envoyer sur l'affaire les refait ; un autre lecteur du reçu
+  le reçoit, sans rien de plus ; le
   même identifiant qui confirme autre chose (empreinte, destination, section, décisions de
   pages, forçage) est refusé (`TAKEOFF_SEND_REQUEST_CONFLICT`), et un membre qui ne lit plus
   le métré (l'affaire passée à un autre ingénieur) n'en reçoit pas le reçu
