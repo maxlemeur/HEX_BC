@@ -6,11 +6,13 @@ import path from "node:path";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { expect } from "e2e";
 
-import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser } from "../critical/fixtures";
+import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser, type ArmyState } from "../critical/fixtures";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
 import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
-import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadSamplePlan } from "../critical/plans-support";
+import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadPlansUnderNames, uploadSamplePlan } from "../critical/plans-support";
+import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
+import { TAKEOFF_READ_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
 import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import {
   chatGptLocalServer, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
@@ -23,7 +25,8 @@ import { localTakeoffWorkerClient } from "../takeoff/fixtures";
 import { activateOwnedTakeoffNotices, readOwnedTakeoffNotice } from "../takeoff/completion-support";
 
 // The takeoff jobs of the ChatGPT local journeys, on this file's own development server: the local-only provider
-// rules (LOCAL01 to LOCAL06), the profile's OAuth start, the PDF takeoff on the plan, and V3C08.
+// rules (LOCAL01 to LOCAL06), the plan set picked in the launch dialogue (LOCAL08), the profile's OAuth start, the PDF
+// takeoff on the plan, and V3C08.
 // The Decisions, lab, price reuse and intake journeys run in chatgpt-local-decisions.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). The order matters: LOCAL01 and the OAuth start
 // need an owner without a ChatGPT profile, and the PDF takeoff leaves the profile that the private business witness
@@ -294,6 +297,97 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a definitively ended ChatGPT job r
     await setDecisionsControl({});
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
+  }
+});
+
+// Regression: the launch dialogue opened from the link of one plan set went back to that set each time the activity
+// center rendered again (it maps its plan sets into a new array on every render, as when it reads its analyses every
+// 20 s while one is under way), so the member launched a plan set they had not chosen.
+if (!existsSync(liveProbePath)) test("LOCAL08 the plan set picked in the launch dialogue is the one analysed", {
+  tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("LOCAL08 requires a separate temporary ChatGPT profile.");
+  let releaseRead = () => {};
+  const readHeld = new Promise<void>((resolve) => { releaseRead = resolve; });
+  let activityRead: RegExp | undefined;
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-local-plan-set-choice-${Date.now()}`;
+    const army: ArmyState = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Choix du jeu de plans" }, army);
+    const linked = await createPlanSet(ui, army, estimate, `${prefix} plans A`);
+    const linkedFile = await uploadSamplePlan(ui, army, linked);
+    const created = await apiRequest<{ data: { plan_set: { id: string; tenant_id: string } } }>(browser, "POST", "/api/takeoff/plan-sets",
+      { project_id: estimate.projectId, name: `${prefix} plans B` });
+    expect(created.status).toBe(201);
+    const chosen = { ...linked, ...created.body.data.plan_set, name: `${prefix} plans B` };
+    (army.ownedPlanSets ??= []).push({ projectId: estimate.projectId, planSetId: chosen.id, tenantId: chosen.tenant_id });
+    await browser.reload();
+    await waitForHydration(browser);
+    await screen.getByRole("heading", chosen.name, { exact: true }).click();
+    const [chosenFile] = await uploadPlansUnderNames(ui, army, chosen, ["Réseau R+1.pdf"]);
+
+    // The activity center's read of its analyses waits until the member has picked the other set: its answer renders
+    // the page again, with equal plan sets in a new array, while the dialogue stays open.
+    let heldReads = 0;
+    let firstHeldAt = 0;
+    activityRead = new RegExp(`/api/takeoff/activity-center\\?project_id=${estimate.projectId}&`);
+    await browser.route(activityRead, async (route) => {
+      heldReads += 1;
+      firstHeldAt ||= Date.now();
+      await readHeld;
+      await route.fallback();
+    });
+    await ui.app.open(`/dashboard/affaires/${estimate.projectId}/takeoff?launch=1&launchPlanSet=${linked.id}`);
+    const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    const planSet = dialog.getByLabel("Jeu de plans à analyser", { exact: true });
+    await expect(planSet).toHaveValue(linked.id);
+    await expect.poll(() => heldReads, { timeout: 15_000 }).toBeGreaterThan(0);
+    await planSet.selectOption({ value: chosen.id });
+    await expect(planSet).toHaveValue(chosen.id);
+    releaseRead();
+    // A read held past the client's limit would end in an error panel instead of an answer.
+    const heldMs = Date.now() - firstHeldAt;
+    expect(heldMs).toBeLessThan(TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+    // The next step behind the dialogue is drawn from that answer.
+    await expect(screen.getByText(/contient des plans\. Confirmez le périmètre/)).toBeVisible({ timeout: 15_000 });
+    await browser.unroute(activityRead);
+    activityRead = undefined;
+
+    await expect(planSet).toHaveValue(chosen.id);
+    const launch = dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true });
+    await expect(launch).toBeEnabled();
+    await launch.click();
+    await expect(dialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible({ timeout: 45_000 });
+    const { client } = await localClient();
+    const launchedJobs = async () => {
+      const result = await client.from("takeoff_jobs").select("id,plan_set_id,status,error_code,preparation_snapshot")
+        .eq("estimate_version_id", estimate.versionId).order("created_at");
+      expect(result.error).toBeNull();
+      return result.data!;
+    };
+    await expect.poll(async () => (await launchedJobs()).length, { timeout: 45_000 }).toBe(1);
+    const [job] = await launchedJobs();
+    expect(job.plan_set_id).toBe(chosen.id);
+    const sources = (job.preparation_snapshot as unknown as { preparation: TakeoffPreparation }).preparation.sources;
+    expect(sources.filter((source) => source.kind === "plan" && source.active)
+      .map((source) => [source.plan_set_id, source.document_id])).toEqual([[chosen.id, chosenFile.id]]);
+    // The analysis ends before the next journey counts its provider calls.
+    await expect.poll(async () => {
+      const [current] = await launchedJobs();
+      if (current.status === "failed") throw new Error(`Local plan-set fixture failed: ${current.error_code ?? "unknown"}`);
+      return current.status;
+    }, { timeout: 150_000 }).toBe("completed");
+    await recordEvidence(army, "local-plan-set-choice", { estimate, linkedPlanSetId: linked.id, chosenPlanSetId: chosen.id,
+      linkedFileId: linkedFile.id, chosenFileId: chosenFile.id, heldActivityReads: heldReads, heldMs, jobId: job.id, jobPlanSetId: job.plan_set_id,
+      boundary: "Fictional plans and ChatGPT transport fixture on an owned local backend; one activity read held until the member's choice." });
+  } finally {
+    releaseRead();
+    // The profile goes first: the next journeys need an owner without one, even if the page is already gone.
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+    if (activityRead) await browser.unroute(activityRead).catch(() => undefined);
   }
 });
 
