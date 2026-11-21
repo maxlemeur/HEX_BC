@@ -668,6 +668,7 @@ declare
   launch_from timestamptz := (select a.active_from from private.takeoff_launch_activation a);
   admitted_job uuid;
   failure text;
+  violated text;
 begin
   select * into request from public.takeoff_launch_requests r where r.id = p_request_id for update;
   if not found then
@@ -726,6 +727,15 @@ begin
       'job_ids', jsonb_build_array(admitted_job), 'manifest_digest', request.manifest_digest,
       'execution_host_id', request.execution_host_id, 'mandate_kind', request.mandate_kind));
   exception
+    when unique_violation then
+      -- Another request of the affaire was admitted between the check above and this one: it runs, this one waits.
+      get stacked diagnostics violated = constraint_name;
+      if violated is distinct from 'takeoff_launch_requests_running_uidx' then raise; end if;
+      update public.takeoff_launch_requests r set state = 'blocked', reason_code = 'ANOTHER_ANALYSIS_RUNNING',
+        evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(),
+        evaluation_lease_token = null, evaluation_lease_expires_at = null where r.id = p_request_id;
+      return query select 'blocked', null::uuid, 'ANOTHER_ANALYSIS_RUNNING'::text;
+      return;
     when sqlstate '23514' then
       if sqlerrm <> 'TAKEOFF_JOB_ADMISSION_LIMIT' then raise; end if;
       update public.takeoff_launch_requests r set state = 'blocked', reason_code = 'ADMISSION_LIMIT',

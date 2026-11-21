@@ -302,7 +302,44 @@ select results_eq($$select outcome, reason_code from public.admit_takeoff_launch
   $$values ('blocked'::text, 'PAYER_NOT_ELIGIBLE'::text)$$, 'a payer demoted before the admission pays nothing');
 update public.tenant_memberships set role = 'engineer' where user_id = pg_temp.f(1) and tenant_id = pg_temp.f(10);
 
--- 11. Every takeoff action the application writes passes the audit check.
+-- 11. A job of a request that nobody takes is closed by the recovery, and its request with it, as not started.
+select set_config('request.jwt.claim.sub', '', true), set_config('request.jwt.claims', '', true);
+delete from public.takeoff_job_admissions where tenant_id = pg_temp.f(10) and job_id not in (select id from public.takeoff_jobs);
+insert into public.estimate_projects (id, tenant_id, user_id, name) values
+  (pg_temp.f(23), pg_temp.f(10), pg_temp.f(1), 'Affaire dont le Mac est éteint (fictive)');
+insert into public.affaire_intake_uploads (id, project_id, created_by, status) values (pg_temp.f(33), pg_temp.f(23), pg_temp.f(1), 'ready');
+insert into public.affaire_briefs (id, project_id, upload_id, status, summary, project_object, confirmed_at, confirmed_by)
+values (pg_temp.f(38), pg_temp.f(23), pg_temp.f(33), 'confirme', 'Résumé fictif', 'Objet fictif', clock_timestamp(), pg_temp.f(1));
+insert into public.plan_sets (id, tenant_id, project_id, name) values (pg_temp.f(42), pg_temp.f(10), pg_temp.f(23), 'Plans du Mac éteint');
+insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+values (pg_temp.f(52), pg_temp.f(10), pg_temp.f(42), 'plan-sous-sol.pdf',
+  concat_ws('/', pg_temp.f(10), pg_temp.f(42), pg_temp.f(52), 'plan-sous-sol.pdf'), 'application/pdf', 8, 1);
+select is((select state from public.record_takeoff_launch_mandate(pg_temp.f(10), pg_temp.f(23), pg_temp.f(1), 'confirmation',
+  pg_temp.host(), pg_temp.selection())), 'evaluating', 'the confirmer of a third affaire mandates its request');
+update public.takeoff_launch_requests set evaluation_lease_token = null, evaluation_lease_expires_at = null where evaluation_lease_token is not null;
+delete from claimed;
+insert into claimed select * from public.claim_takeoff_launch_evaluations(pg_temp.host(), pg_temp.f(97));
+select results_eq($$select outcome, job_id from public.admit_takeoff_launch_request(pg_temp.request(23), pg_temp.f(97),
+  (select mark from claimed where project_id = pg_temp.f(23)), pg_temp.manifest(52), pg_temp.snapshot(42), pg_temp.job(68, 42))$$,
+  $$values ('admitted'::text, pg_temp.f(68))$$, 'its request is admitted with a pending job');
+update public.takeoff_jobs set status = 'failed', error_code = 'TAKEOFF_WORKER_NOT_STARTED', error_message = 'Aucun Mac fictif',
+  analysis_outcome = 'failure', completed_at = clock_timestamp(), next_retry_at = null
+where id = pg_temp.f(68) and status = 'pending';
+select results_eq($$select state, outcome, units_failed from public.takeoff_launch_requests where id = pg_temp.request(23)$$,
+  $$values ('closed'::text, 'failure'::text, 1)$$, 'an admitted request whose job never started ends visibly');
+select results_eq($$select outcome, plans_read_count, plans_failed_count, plans_not_started_count, recipient_user_id
+  from public.takeoff_completion_notifications where request_id = pg_temp.request(23)$$,
+  $$values ('failure'::text, 0, 0, 1, pg_temp.f(1))$$, 'its notice counts the plan as not started, for its payer');
+
+-- 12. Deleting an affaire removes its requests, their jobs and notices, also through the service role.
+set local role service_role;
+select lives_ok($$delete from public.estimate_projects where id = pg_temp.f(23)$$,
+  'the service role deletes an affaire that holds a request');
+reset role;
+select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.f(23)), 0, 'its request is gone');
+select is((select count(*)::integer from public.takeoff_completion_notifications where project_id = pg_temp.f(23)), 0, 'and its notice');
+
+-- 13. Every takeoff action the application writes passes the audit check.
 select lives_ok(format($$insert into public.audit_logs (tenant_id, user_id, table_name, record_id, action, after_data)
   values (%L, %L, 'takeoff_jobs', gen_random_uuid(), %L, '{}'::jsonb)$$, pg_temp.f(10), pg_temp.f(1), action),
   format('the audit check accepts %s', action))
