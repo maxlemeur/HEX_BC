@@ -224,6 +224,9 @@ describe("Aperçu des postes à mesurer", () => {
     const mapping = await ui.request.post("/api/mappings", { data: { action: "create", import_id: importId,
       mapping: { Designation: "designation", Unite: "unit", Qte: "quantity", Notes: "notes" } } });
     expect(mapping.status()).toBe(201);
+    // The notes did reach the import's mapped row: what follows would prove nothing otherwise.
+    expect(await querySql(`select payload #>> '{mapped_row,notes}' from public.dpgf_rows_mapped
+      where import_id = '${importId}';`)).toContain(notes);
 
     // The administrator records the list the import gives: its entries hold no text of the notes.
     const read = async () => {
