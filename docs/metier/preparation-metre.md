@@ -155,20 +155,33 @@ la base en garantit l’unicité et l’admission (migration
   cours sur l’affaire) sont réessayées par le Mac.
 - **Une seule analyse à la fois par affaire.** Une relance pendant
   l’exécution renvoie l’analyse en cours. Une analyse lancée hors de toute demande
-  (avant l’activation) qui n’est pas finie (en attente, en lecture, ou échouée
-  avec une reprise prévue) compte comme en cours : une relance reçoit cette
-  analyse, sans demande, et un démarrage automatique attend sa fin (« autre
-  analyse en cours », réessayé par le Mac). Une relance admise met de côté, pour
-  de bon (un état final), un démarrage automatique qui n’avait pas commencé : ni
-  une nouvelle confirmation ni une prise en charge ne le réarment ; une nouvelle
-  analyse est une relance, et l’affaire montre la relance, jamais le démarrage mis
-  de côté. Le job d’une demande en cours ne peut pas être supprimé.
+  (avant l’activation) que quelque chose fera encore avancer compte comme en
+  cours : en attente ou en lecture (sa reprise la clôt, un membre peut l’annuler),
+  ou échouée avec une nouvelle tentative que la reprise locale fera ou clora (ce
+  Mac, sans lot, moins de trois tentatives, dans le délai d’attente maximal). Une
+  relance reçoit alors cette analyse, sans demande, et un démarrage automatique
+  attend sa fin (« autre analyse en cours », réessayé par le Mac). Un échec ancien
+  que rien ne relancera (l’ancien fournisseur, un lot, trois tentatives passées ou
+  le délai dépassé) ne bloque rien.
+- **Une relance et le démarrage automatique.** Tant que le démarrage automatique
+  de l’affaire peut encore commencer sans nouveau changement du dossier (son
+  payeur peut encore payer et son Mac l’évalue ou a du travail en attente, ou le
+  membre qui relance peut le prendre en charge ou le reprendre), la base refuse la
+  relance : il se prend en charge depuis la zone du métré. Sinon (il attend un
+  changement du dossier, ou personne ne peut le faire démarrer), une relance admise
+  le met de côté pour de bon (un état final) : ni une nouvelle confirmation ni une
+  prise en charge ne le réarment ; une nouvelle analyse est une relance, et
+  l’affaire montre la relance, jamais le démarrage mis de côté. Le job d’une
+  demande en cours ne peut pas être supprimé.
 - **Une fois le démarrage automatique actif, toute nouvelle analyse est une
   demande.** La base refuse un nouveau job hors demande, par la fonction
   d’admission des lancements sur une version ou sans version comme par une
   écriture directe (`TAKEOFF_JOB_REQUEST_REQUIRED`, dit comme le refus d’un
   lancement sur une version) ; le rejeu d’un lancement fait avant retrouve son
-  job. Avant l’activation, rien ne change
+  job. Une analyse lancée hors demande ne repart (resoumission d’un membre,
+  nouvelle tentative de son Mac) que sous le verrou de lancement de l’affaire et
+  tant qu’aucune demande de l’affaire ne tourne (`TAKEOFF_LAUNCH_REQUEST_RUNNING`,
+  « Une analyse de l’affaire est en cours »). Avant l’activation, rien ne change
   (migration `20261121193413_takeoff_launch_exclusion_and_send_requests.sql`).
 - **Une demande qui attend son Mac** (évaluation à faire, dossier modifié depuis,
   cause passagère à réessayer) depuis plus de quinze minutes peut être reprise
@@ -200,14 +213,15 @@ la base en garantit l’unicité et l’admission (migration
   depuis ; une relance refusée parce qu’une autre analyse tournait reste refusée,
   avec l’analyse qu’elle a trouvée, sans job payant ; la même clé pour une autre
   commande est refusée. Tant que sa réponse n’est pas arrivée (réponse perdue,
-  erreur du serveur), le navigateur garde la clé de cette intention de ce membre
-  (affaire, intention, analyse remplacée, jeu de plans, révision), même après un
-  rechargement : le clic suivant rejoue la commande au lieu de payer une seconde
-  analyse ; une réponse y met fin. La base refuse une relance tant que le
-  démarrage automatique de l’affaire peut encore commencer (il se prend en charge
-  depuis la zone du métré), et une première analyse (« initial ») sur une affaire
-  qui en a déjà une. Le module du métré désactivé refuse la relance,
-  la prise en charge et la reprise.
+  erreur du serveur), le navigateur garde cette commande, une par membre et par
+  affaire, même après un rechargement et pour tous ses onglets : le clic suivant
+  du membre sur l’affaire la renvoie telle quelle (sa clé, l’analyse qu’elle
+  remplaçait, son jeu de plans, sa révision) avant toute nouvelle commande, même si
+  son analyse a fini entre-temps, et en montre la réponse ; seul un clic après
+  cette réponse est une nouvelle commande. Une clé répondue dans un onglet n’est
+  plus jamais renvoyée. La base refuse aussi une première analyse (« initial »)
+  sur une affaire qui en a déjà une. Le module du métré désactivé refuse la
+  relance, la prise en charge et la reprise.
 - **Avant chaque appel payant**, le worker vérifie que le payeur peut toujours
   lancer un métré sur l’affaire. Un membre rétrogradé après avoir mis une analyse
   en file, ou qui n’est plus propriétaire de l’affaire, ne dépense plus rien :
@@ -232,7 +246,7 @@ demande s’évalue, tourne ou attend une cause passagère.
   notification des membres. Un plan ou une pièce n’est nommé qu’au membre qui peut
   lire sa copie ou sa pièce du dossier (le propriétaire de l’affaire et les
   administrateurs les lisent toutes) ; les autres lisent « Plan N » ou « Pièce N »,
-  sans l’identifiant de sa source.
+  sans l’identifiant de sa source, et une analyse sans le nom du plan qu’elle a lu.
   La zone n’affiche que ce que le serveur a lu pour le membre de la page, dans son
   tenant actif : une session changée sans rechargement ne montre jamais la zone
   d’un autre membre.
@@ -260,7 +274,9 @@ demande s’évalue, tourne ou attend une cause passagère.
   version, sur le forfait du membre qui clique (la première analyse de l’affaire,
   ou une relance qui nomme l’analyse de la demande affichée). Elles enregistrent
   seulement, sans rien lancer, tant que la demande automatique peut encore
-  démarrer, qu’une analyse tourne (y compris une analyse lancée hors demande avant
+  démarrer (la règle de la base pour le membre qui lit,
+  `public.takeoff_launch_request_can_start` ; sinon elles lancent, et le démarrage
+  est mis de côté), qu’une analyse tourne (y compris une analyse lancée hors demande avant
   l’activation) ou qu’une affaire sans analyse attend la
   confirmation de son dossier : le démarrage reprend alors les options
   enregistrées. Après l’admission, une
