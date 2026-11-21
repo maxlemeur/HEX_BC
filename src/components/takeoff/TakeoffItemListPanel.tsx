@@ -2,9 +2,15 @@ import Link from "next/link";
 
 import { JourneyPanel } from "@/components/journey/JourneyPage";
 import { TakeoffItemListAddForm, TakeoffItemListProposalForm } from "@/components/takeoff/TakeoffItemListActions";
-import { loadAffaireItemList, loadAffaireItemListSummary, type AffaireItemListView } from "@/lib/takeoff/item-list-server";
+import {
+  loadAffaireItemList,
+  loadAffaireItemListSummary,
+  type AffaireItemListView,
+  type ItemListRevisionOmissions,
+  type ItemListViewPoste as Poste,
+} from "@/lib/takeoff/item-list-server";
 import type { ItemListPrepareReason } from "@/lib/takeoff/item-list-sources-server";
-import type { Poste } from "@/lib/takeoff/poste-list";
+import { workbookRowLabel } from "@/lib/imports/row-location";
 
 const PAGE_SIZE = 25;
 const ISSUE_LABELS = {
@@ -52,9 +58,9 @@ function sourceLocation(origin: {
 }, sourceFormat: string | undefined) {
   const csv = sourceFormat === "csv";
   const line = !csv && origin.sourceRowNumber
-    ? sourceFormat === "xlsx" && origin.sheetRowNumber
-      ? `Ligne ${origin.sheetRowNumber} de la feuille (ligne du tableau ${origin.sourceRowNumber})`
-      : `${sourceFormat === "xlsx" ? "Ligne du tableau" : "Ligne"} ${origin.sourceRowNumber}`
+    ? sourceFormat === "xlsx"
+      ? workbookRowLabel(origin.sourceRowNumber, origin.sheetRowNumber)
+      : `Ligne ${origin.sourceRowNumber}`
     : origin.rowIndex === null ? "Ligne mappée"
       : `${csv ? "Enregistrement importé" : "Ligne importée"} ${origin.rowIndex + 1}`;
   return [origin.sheetName, origin.sourcePage ? `Page ${origin.sourcePage}` : null, line, origin.reference]
@@ -124,6 +130,30 @@ function SourceLine({ list }: { list: AffaireItemListView }) {
         : PREPARE_LABELS[sources.reason]}{" "}
       <Link href={affaireHref} className="underline">Ouvrir le dossier de l’affaire</Link>
     </p>
+  );
+}
+
+/** The rows a revision left out of its DPGF, from its own facts: still there once the import or its mapping is gone. */
+function Omissions({ omissions, sourceFormat, label }: {
+  omissions: ItemListRevisionOmissions | null; sourceFormat: string | undefined; label: string;
+}) {
+  if (!omissions || (!omissions.exclusions.length && !omissions.decisions)) return null;
+  return (
+    <details>
+      <summary className="cursor-pointer text-sm">
+        {label} : {omissions.exclusions.length} ligne{omissions.exclusions.length > 1 ? "s" : ""} écartée
+        {omissions.exclusions.length > 1 ? "s" : ""}, {omissions.decisions} choix de structure appliqué
+        {omissions.decisions > 1 ? "s" : ""}
+      </summary>
+      <ul className="list-disc space-y-1 pl-6 pt-2 text-sm">
+        {omissions.exclusions.map((exclusion) => (
+          <li key={exclusion.rowIndex}>
+            {sourceLocation(exclusion, sourceFormat)} · {ISSUE_LABELS[exclusion.reason as keyof typeof ISSUE_LABELS]
+              ?? "Écartée"}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -198,6 +228,10 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
             non enregistrée
           </p>
         ) : null}
+        {list.current && (
+          <Omissions omissions={list.current.omissions} sourceFormat={sourceFormat}
+            label={`Révision ${list.current.revision}`} />
+        )}
         {proposal && list.current && (
           <section aria-label="Révision proposée" className="space-y-2 rounded-md border p-3">
             <p className="text-sm font-medium">
@@ -308,6 +342,8 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
                   Révision {revision.revision} · {CAUSE_LABELS[revision.cause]} · {revision.item_count} postes · le{" "}
                   {dateFormat.format(new Date(revision.created_at))}
                   {list.names[revision.created_by] ? ` par ${list.names[revision.created_by]}` : ""}
+                  <Omissions omissions={revision.omissions} sourceFormat={sourceFormat}
+                    label={`Ce que la révision ${revision.revision} a écarté`} />
                 </li>
               ))}
               {list.continuities.map((continuity) => (

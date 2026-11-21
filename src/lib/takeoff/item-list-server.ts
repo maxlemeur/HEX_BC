@@ -18,7 +18,9 @@ import {
   type StoredItemListEntry,
 } from "./item-list";
 import { resolveItemListSources, type ItemListSourceState } from "./item-list-sources-server";
-import type { Poste, PosteListScope, PosteQualifiers, PosteRevision } from "./poste-list";
+import type { DpgfPosteProjection } from "./poste-list-dpgf";
+import type { DpgfPosteOrigin, Poste, PosteListScope, PosteOrigin, PosteQualifiers, PosteRevision } from "./poste-list";
+import { asRecord } from "@/lib/value-guards";
 
 type Client = SupabaseClient<Database>;
 
@@ -105,8 +107,12 @@ export function sourcesSummary(sources: ItemListSourceState): Json {
         ...(applied ? { confirmationId: applied.confirmationId, confirmedAt: applied.confirmedAt } : {}),
         structure: {
           decisions: (applied?.decisions ?? []).map(({ rowIndex, kind, level }) => ({ rowIndex, kind, level })),
-          exclusions: sources.projection.issues.flatMap(({ rowIndex, reason }) =>
-            rowIndex !== null && STRUCTURAL_EXCLUSIONS.has(reason) ? [{ rowIndex, reason }] : []),
+          // Where each row left out is, by position only, for a reader to find it once the import is gone.
+          exclusions: sources.projection.issues.flatMap(({ rowIndex, reason, sourceRowNumber, sheetRowNumber, sourcePage }) =>
+            rowIndex !== null && STRUCTURAL_EXCLUSIONS.has(reason)
+              ? [{ rowIndex, reason, sourceRowNumber: sourceRowNumber ?? null, sheetRowNumber: sheetRowNumber ?? null,
+                sourcePage: sourcePage ?? null }]
+              : []),
         } };
     }
     case "template": return { kind: "template", templateKey: sources.template.key, version: sources.template.version,
@@ -130,44 +136,92 @@ async function memberNames(client: Client, ids: Iterable<string>) {
   return names;
 }
 
+/** An item as its readers receive it: without the digests that are the server's own (an import's notes among them). */
+export type ItemListViewPoste = Omit<Poste, "origin"> & {
+  origin: Exclude<PosteOrigin, { kind: "dpgf" }> | Omit<DpgfPosteOrigin, "measurementNotesDigest" | "factsDigest">;
+};
+
+function forReaders(item: Poste): ItemListViewPoste {
+  if (item.origin.kind !== "dpgf") return item as ItemListViewPoste;
+  const { measurementNotesDigest: _notes, factsDigest: _facts, ...origin } = item.origin;
+  void _notes;
+  void _facts;
+  return { ...item, origin };
+}
+
+/** Why a revision left rows of its DPGF out: its own facts, which remain once the import or its mapping is gone. */
+export type ItemListRevisionOmissions = {
+  decisions: number;
+  exclusions: Array<{ rowIndex: number; reason: string; sourceRowNumber: number | null; sheetRowNumber: number | null;
+    sourcePage: number | null }>;
+};
+
+function positiveInteger(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? value : null;
+}
+
+function revisionOmissions(sources: Json): ItemListRevisionOmissions | null {
+  const record = asRecord(sources);
+  const structure = asRecord(record?.structure);
+  if (record?.kind !== "dpgf" || !structure) return null;
+  return {
+    decisions: Array.isArray(structure.decisions) ? structure.decisions.length : 0,
+    exclusions: (Array.isArray(structure.exclusions) ? structure.exclusions : []).flatMap((entry) => {
+      const exclusion = asRecord(entry);
+      return exclusion && typeof exclusion.rowIndex === "number" && typeof exclusion.reason === "string"
+        ? [{ rowIndex: exclusion.rowIndex, reason: exclusion.reason, sourceRowNumber: positiveInteger(exclusion.sourceRowNumber),
+          sheetRowNumber: positiveInteger(exclusion.sheetRowNumber), sourcePage: positiveInteger(exclusion.sourcePage) }]
+        : [];
+    }),
+  };
+}
+
 export type ItemListProposalView = {
   cause: "initial" | "proposal";
   basedOnRevision: number;
   digest: string;
-  items: Poste[];
-  added: Poste[];
-  removed: Poste[];
-  changes: Array<{ previous: Poste; current: Poste; moved: boolean; measurementChanged: boolean; referenceChanged: boolean;
-    targetChanged: boolean }>;
+  items: ItemListViewPoste[];
+  added: ItemListViewPoste[];
+  removed: ItemListViewPoste[];
+  changes: Array<{ previous: ItemListViewPoste; current: ItemListViewPoste; moved: boolean; measurementChanged: boolean;
+    referenceChanged: boolean; targetChanged: boolean }>;
   continuities: Array<{ previousItemId: string; nextItemId: string; ambiguous: boolean }>;
 };
+
+type ProjectionView = Pick<DpgfPosteProjection, "counts" | "issues">;
 
 export type AffaireItemListView = {
   projectId: string;
   canWrite: boolean;
-  current: (Omit<StoredItemListRevisionRow, "sources" | "intent_key"> & { items: Poste[] }) | null;
-  history: Array<Omit<StoredItemListRevisionRow, "sources" | "content_sha256" | "intent_key">>;
+  current: (Omit<StoredItemListRevisionRow, "sources" | "intent_key"> & { items: ItemListViewPoste[];
+    omissions: ItemListRevisionOmissions | null }) | null;
+  history: Array<Omit<StoredItemListRevisionRow, "sources" | "content_sha256" | "intent_key">
+    & { omissions: ItemListRevisionOmissions | null }>;
   continuities: StoredItemList["continuities"];
-  sources: Exclude<ItemListSourceState, { kind: "dpgf" | "template" }> | (Omit<Extract<ItemListSourceState, { kind: "dpgf" }>, "drafts">)
+  // The projection's counts and row reasons only: its items are the proposal's, sent without the server's digests.
+  sources: Extract<ItemListSourceState, { kind: "choose" }>
+    | (Omit<Extract<ItemListSourceState, { kind: "prepare" }>, "projection"> & { projection: ProjectionView | null })
+    | (Omit<Extract<ItemListSourceState, { kind: "dpgf" }>, "drafts" | "projection"> & { projection: ProjectionView })
     | { kind: "template"; template: { key: string; version: number; publicationId: string | null; publishedAt: string | null;
       publishedBy: string | null; title: string } };
   proposal: ItemListProposalView | null;
   names: Record<string, string>;
 };
 
-/** A revision as its readers see it: never its sources' identifiers. */
+/** A revision as its readers see it: never its sources' identifiers, but the rows it left out and why. */
 function revisionView(row: StoredItemListRevisionRow) {
   return { id: row.id, revision: row.revision, cause: row.cause, item_count: row.item_count, created_by: row.created_by,
-    created_at: row.created_at };
+    created_at: row.created_at, omissions: revisionOmissions(row.sources) };
 }
 
 function proposalView(proposal: ReturnType<typeof proposeItemListRevision>, basedOnRevision: number): ItemListProposalView {
   return {
-    cause: proposal.cause, basedOnRevision, digest: proposal.candidate.digest, items: [...proposal.candidate.items],
-    added: proposal.comparison.added, removed: proposal.comparison.removed,
+    cause: proposal.cause, basedOnRevision, digest: proposal.candidate.digest, items: proposal.candidate.items.map(forReaders),
+    added: proposal.comparison.added.map(forReaders), removed: proposal.comparison.removed.map(forReaders),
     changes: proposal.comparison.changes.filter((change) => change.moved || change.measurementChanged || change.referenceChanged
       || change.targetChanged).map(({ previous, current, moved, measurementChanged, referenceChanged, targetChanged }) =>
-      ({ previous, current, moved, measurementChanged, referenceChanged, targetChanged })),
+      ({ previous: forReaders(previous), current: forReaders(current), moved, measurementChanged, referenceChanged,
+        targetChanged })),
     continuities: proposal.comparison.continuities,
   };
 }
@@ -199,17 +253,21 @@ export async function loadAffaireItemList(projectId: string): Promise<AffaireIte
   ];
   const view: AffaireItemListView["sources"] = sources.kind === "dpgf"
     ? { kind: "dpgf", importId: sources.importId, mappingId: sources.mappingId, filename: sources.filename,
-      sourceFormat: sources.sourceFormat, decisions: sources.decisions, projection: sources.projection }
+      sourceFormat: sources.sourceFormat, decisions: sources.decisions,
+      projection: { counts: sources.projection.counts, issues: sources.projection.issues } }
     : sources.kind === "template"
       ? { kind: "template", template: { key: sources.template.key, version: sources.template.version,
         publicationId: sources.template.publicationId, publishedAt: sources.template.publishedAt,
         publishedBy: sources.template.publishedBy, title: sources.template.definition.title } }
-      : sources;
+      : sources.kind === "prepare"
+        ? { ...sources, projection: sources.projection
+          ? { counts: sources.projection.counts, issues: sources.projection.issues } : null }
+        : sources;
   return {
     projectId: project.id,
     canWrite: mayWrite.data === true,
     current: stored ? { ...revisionView(stored.row), content_sha256: stored.row.content_sha256,
-      items: [...stored.revision.items] } : null,
+      items: stored.revision.items.map(forReaders) } : null,
     history: stored?.history.map(revisionView) ?? [],
     continuities: stored?.continuities ?? [],
     sources: view,

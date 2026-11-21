@@ -75,6 +75,17 @@ describe("the sources of an affaire's list", () => {
     expect(state.kind === "dpgf" && state.drafts.map(({ label }) => label)).toContain("Option lavabo");
   });
 
+  it("keys a note's digest by affaire: the same note in two affaires of the tenant never compares", async () => {
+    const noted = { imports: [{ ...importRow, row_count: 1 }], mappings: [mapping], raw: [raw[0]],
+      mapped: [{ id: "m1", raw_row_id: "raw-0", designation: "Lavabo", unit: "u", quantity: 2, notes: "PU négocié 85 € HT" }] };
+    const digest = (state: Awaited<ReturnType<typeof resolveItemListSources>>) =>
+      state.kind === "dpgf" && state.drafts[0]?.origin.kind === "dpgf" ? state.drafts[0].origin.measurementNotesDigest : null;
+    const here = digest(await resolveItemListSources(scope, service(noted)));
+    expect(here).toMatch(/^[0-9a-f]{64}$/);
+    expect(digest(await resolveItemListSources(scope, service(noted)))).toBe(here);
+    expect(digest(await resolveItemListSources({ ...scope, projectId: "project-b" }, service(noted)))).not.toBe(here);
+  });
+
   it("asks to prepare a dossier DPGF that has no import, and to choose between two", async () => {
     expect(await resolveItemListSources(scope, service({ documents: [{ id: "doc" }] })))
       .toMatchObject({ kind: "prepare", reason: "document_without_import" });

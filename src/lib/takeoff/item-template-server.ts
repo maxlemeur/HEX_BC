@@ -117,6 +117,10 @@ function templateWriteFailure(error: { code?: string; message?: string }): never
     throw conflict("Le gabarit a changé depuis votre lecture : rechargez la page avant d’enregistrer.", undefined,
       "TAKEOFF_ITEM_TEMPLATE_STALE");
   }
+  if (message.includes("TAKEOFF_ITEM_TEMPLATE_INTENT_CONFLICT")) {
+    throw conflict("Cette publication a déjà été faite avec un autre brouillon : rechargez la page.", undefined,
+      "TAKEOFF_ITEM_TEMPLATE_INTENT_CONFLICT");
+  }
   if (message.includes("TAKEOFF_ITEM_TEMPLATE_LINE_REUSED")) {
     throw unprocessableEntity("Un poste ajouté reprend l’identifiant d’un poste retiré : donnez-lui un nouvel identifiant.",
       undefined, "TAKEOFF_ITEM_TEMPLATE_LINE_REUSED");

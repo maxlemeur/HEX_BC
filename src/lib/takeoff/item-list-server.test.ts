@@ -61,6 +61,52 @@ describe("the item list of an affaire", () => {
     expect(service.reads).toContain("dpgf_imports");
   });
 
+  it("sends no digest of an import's notes to the browser", async () => {
+    const member = client({ takeoff_list_revisions: [], profiles: [] });
+    const service = client({
+      dpgf_imports: [importRow], affaire_intake_documents: [],
+      dpgf_mappings: [{ id: "mapping", status: "validated", column_mapping: {}, created_at: stamped, updated_at: stamped }],
+      dpgf_rows_raw: [{ id: "raw", row_index: 0, structure: null, provenance: null }],
+      dpgf_rows_mapped: [{ id: "mapped", raw_row_id: "raw", designation: "Lavabo", unit: "u", quantity: 2,
+        notes: "PU négocié 85 € HT" }],
+    }, { read_dpgf_import_confirmation: [], takeoff_item_list_notes_key: "a".repeat(64),
+      takeoff_item_list_may_write: false });
+    vi.mocked(requireAffaireAccess).mockResolvedValue({
+      context: { userId: "director", tenantId: "tenant", tenantRole: "director", supabase: member.client },
+      project: { id: "project", user_id: "engineer" },
+    } as never);
+    vi.mocked(createServiceRoleClient).mockReturnValue(service.client);
+    const list = await loadAffaireItemList("project");
+    expect(list.proposal?.items.map(({ label }) => label)).toEqual(["Lavabo"]);
+    expect(JSON.stringify(list)).not.toMatch(/measurementNotesDigest|factsDigest|négocié/);
+  });
+
+  it("shows why a revision omitted rows from its own facts, once its import is gone", async () => {
+    const omissions = { decisions: 1, exclusions: [
+      { rowIndex: 3, reason: "footer", sourceRowNumber: 4, sheetRowNumber: 6, sourcePage: null },
+    ] };
+    const revision = { id: "rev-1", revision: 1, cause: "initial", item_count: 0, content_sha256: "c".repeat(64),
+      created_by: "engineer", created_at: stamped, intent_key: "8f7c1d9e-0000-4000-8000-000000000002",
+      sources: { kind: "dpgf", importId: "gone", mappingId: "gone", decisions: "applied", confirmationId: "c1",
+        confirmedAt: stamped, structure: { decisions: [{ rowIndex: 0, kind: "section", level: 1 }],
+          exclusions: omissions.exclusions } } };
+    // The import is deleted: the live sources are the shipped template; the revision still says what it left out.
+    const member = client({ takeoff_list_revisions: [revision], takeoff_list_revision_entries: [],
+      takeoff_list_item_sources: [], profiles: [] });
+    const service = client({ dpgf_imports: [], affaire_intake_documents: [], takeoff_item_template_versions: [] },
+      { takeoff_item_list_may_write: false });
+    vi.mocked(requireAffaireAccess).mockResolvedValue({
+      context: { userId: "engineer", tenantId: "tenant", tenantRole: "engineer", supabase: member.client },
+      project: { id: "project", user_id: "engineer" },
+    } as never);
+    vi.mocked(createServiceRoleClient).mockReturnValue(service.client);
+    const list = await loadAffaireItemList("project");
+    expect(list.sources).toMatchObject({ kind: "template" });
+    expect(list.current).toMatchObject({ revision: 1, omissions });
+    expect(list.history).toEqual([expect.objectContaining({ revision: 1, omissions })]);
+    expect(JSON.stringify(list)).not.toContain("gone");
+  });
+
   it("refuses a member who may not write the list before reading any earlier gesture", async () => {
     const service = client({}, { takeoff_item_list_may_write: false });
     vi.mocked(requireAffaireAccess).mockResolvedValue({

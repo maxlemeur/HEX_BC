@@ -250,7 +250,11 @@ describe("what a revision keeps of the decisions it relied on", () => {
       confirmedAt: "2026-11-21T10:00:00.000Z",
       structure: {
         decisions: [{ rowIndex: 0, kind: "section", level: 1 }],
-        exclusions: [{ rowIndex: 2, reason: "footer" }, { rowIndex: 3, reason: "footer" }],
+        // Where each row left out is (positions only): the raw rows of this case name their table row.
+        exclusions: [
+          { rowIndex: 2, reason: "footer", sourceRowNumber: 4, sheetRowNumber: null, sourcePage: null },
+          { rowIndex: 3, reason: "footer", sourceRowNumber: 5, sheetRowNumber: null, sourcePage: null },
+        ],
       },
     });
     // Positions and codes: no designation of the import is copied.

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHmac } from "node:crypto";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { mapSupabaseError } from "@/lib/http/api-response";
@@ -42,6 +44,14 @@ export type ItemListSourceState =
   | { kind: "prepare"; reason: ItemListPrepareReason; filename: string | null; sourceFormat: string | null;
       projection: DpgfPosteProjection | null }
   | { kind: "choose"; imports: number; documents: number };
+
+/**
+ * The key of an affaire's note digests, derived from the tenant's: equal notes compare within one affaire (on the
+ * server, to tell two rows apart), never across the tenant's affaires.
+ */
+function affaireNotesKey(tenantKey: string, projectId: string) {
+  return createHmac("sha256", Buffer.from(tenantKey, "hex")).update(`takeoff-affaire-notes:${projectId}`).digest("hex");
+}
 
 function sourceInteger(value: unknown, minimum: number) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum ? value : null;
@@ -192,7 +202,7 @@ export async function resolveItemListSources(scope: PosteListScope, service: Ser
       quantity: row.quantity ?? row.flat_quantity, notes: row.notes ?? row.flat_notes,
     })),
     columnMapping: asRecord(mapping.column_mapping) ?? {},
-    notesKey: notesKey.data as string,
+    notesKey: affaireNotesKey(notesKey.data as string, projectId),
     decisions: decisions.status === "applied" ? decisions.decisions : undefined,
     exclusions: decisions.status === "applied" ? decisions.exclusions : undefined,
   });
