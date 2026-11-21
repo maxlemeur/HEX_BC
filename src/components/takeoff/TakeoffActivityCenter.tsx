@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { ArrowRight, SlidersHorizontalIcon } from "lucide-react";
 
 import {
@@ -12,7 +12,6 @@ import {
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
-import { takeoffListRefreshInterval } from "@/components/takeoff/takeoff-resume-view";
 import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS } from "@/lib/takeoff/completion-outcome";
 import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
 import {
@@ -34,10 +33,13 @@ import {
 } from "@/components/takeoff/takeoff-job-list-shared";
 
 import TakeoffJobsTable from "./TakeoffJobsTable";
+import { TakeoffRequestActivity } from "./TakeoffRequestActivity";
+import { isTakeoffRequestActivityKey, useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
 import TakeoffExceptionsTab from "./TakeoffExceptionsTab";
 import TakeoffApplicationHistoryTab from "./TakeoffApplicationHistoryTab";
 import {
   resolveTakeoffNextStep,
+  resolveTakeoffRequestStep,
   type TakeoffLatestJobContext,
   type TakeoffNextStepAction,
 } from "./TakeoffActivityNextStep";
@@ -46,6 +48,8 @@ import { NativeSelect } from "@/components/ui/native-select";
 
 type Props = {
   projectId: string;
+  /** The member and their tenant: the page's cached reads belong to them alone. */
+  viewerKey?: string;
   versions: Array<{ id: string; version_number: number }>;
   planSets: Array<{
     id: string;
@@ -127,6 +131,7 @@ function fetchActivityPage([, projectId, version, lot, planSet, status, level, p
 
 export default function TakeoffActivityCenter({
   projectId,
+  viewerKey = "",
   versions,
   planSets,
   launchContext = null,
@@ -154,6 +159,9 @@ export default function TakeoffActivityCenter({
   // A failure link names its job: the list shows that job alone, or its shared end to a reader it is hidden from.
   const rawJob = searchParams.get("job");
   const selectedJob = rawJob && JOB_ID_PATTERN.test(rawJob) ? rawJob.toLowerCase() : null;
+  // The end-of-analysis e-mail names its launch request: the page opens that request.
+  const rawRequest = searchParams.get("request");
+  const linkedRequest = rawRequest && JOB_ID_PATTERN.test(rawRequest) ? rawRequest.toLowerCase() : null;
 
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
   const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(
@@ -191,11 +199,24 @@ export default function TakeoffActivityCenter({
     [searchParams, router, pathname]
   );
 
-  // Queued and running analyses, and stopped ones that wait for their retry or their delay, keep the list read. SWR reads
-  // a function interval once per key, on the empty cache: the interval is state set from each answer instead, so the
-  // first answer that has a waiting row starts the polling and the answer without one stops it.
-  const [summaryRefreshMs, setSummaryRefreshMs] = useState(0);
-  const [listRefreshMs, setListRefreshMs] = useState(0);
+  // The page's one poll: the affaire's latest launch request and its plans (or the request a link names), read again only
+  // while something can change by itself. The analyses below are read again when it reports a transition, on focus and
+  // after an action, never on their own interval.
+  const { mutate: mutateAll } = useSWRConfig();
+  const requestActivity = useTakeoffRequestActivity({
+    viewerKey, projectId, view: linkedRequest ? "request" : "current", target: linkedRequest, poll: true,
+  });
+  const refreshEverything = useCallback(() => {
+    void mutateAll((key: unknown) => (Array.isArray(key) && key[0] === "activity-center") || isTakeoffRequestActivityKey(key));
+  }, [mutateAll]);
+  const activitySignature = requestActivity.data?.signature;
+  const seenSignature = useRef(activitySignature);
+  useEffect(() => {
+    if (activitySignature === undefined || seenSignature.current === activitySignature) return;
+    const first = seenSignature.current === undefined;
+    seenSignature.current = activitySignature;
+    if (!first) void mutateAll((key: unknown) => Array.isArray(key) && key[0] === "activity-center");
+  }, [activitySignature, mutateAll]);
 
   // The next step and the « Repères » read the affaire's newest analyses on every view,
   // whatever the filters; the unfiltered first page of the list is this same request.
@@ -208,7 +229,6 @@ export default function TakeoffActivityCenter({
   } = useSWR(summaryKey, fetchActivityPage, {
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
-    refreshInterval: summaryRefreshMs,
     shouldRetryOnError: false,
   });
   const { data: listData, error: listError, mutate: mutateList } = useSWR(
@@ -232,15 +252,10 @@ export default function TakeoffActivityCenter({
     {
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      refreshInterval: listRefreshMs,
       keepPreviousData: true,
       shouldRetryOnError: false,
     }
   );
-  const summaryWantsRefreshMs = takeoffListRefreshInterval(summaryData);
-  const listWantsRefreshMs = takeoffListRefreshInterval(listData);
-  useEffect(() => { setSummaryRefreshMs(summaryWantsRefreshMs); }, [summaryWantsRefreshMs]);
-  useEffect(() => { setListRefreshMs(listWantsRefreshMs); }, [listWantsRefreshMs]);
   const isSlowLoading = useDelayedLoadingIndicator(isSummaryLoading);
 
   // Derive lot options from project-scoped plan-set metadata so filtering is stable across pages.
@@ -356,7 +371,14 @@ export default function TakeoffActivityCenter({
       ? summaryError.message
       : "Impossible de charger les analyses.";
 
-  const nextStep = summaryData
+  // The latest execution leads when it is a launch request newer than the latest analysis launched without one: its plans,
+  // never the latest job by date, decide the step.
+  const latestJob = summaryData?.jobs[0] ?? null;
+  const currentRequest = linkedRequest ? null : requestActivity.data?.current ?? null;
+  const requestLeads = currentRequest !== null && (!latestJob || latestJob.launchRequestId != null
+    || Date.parse(latestJob.createdAt) <= Date.parse(currentRequest.createdAt));
+  const requestStep = requestLeads ? resolveTakeoffRequestStep({ projectId, request: currentRequest, canLaunch: launchContext !== null }) : null;
+  const nextStep = requestStep ?? (summaryData
     ? resolveTakeoffNextStep({
         projectId,
         latestJob: summaryData.jobs[0] ?? null,
@@ -365,7 +387,7 @@ export default function TakeoffActivityCenter({
         firstUsablePlanSetName: firstUsablePlanSet?.name ?? null,
         planSetCount: planSets.length,
       })
-    : null;
+    : null);
   // Always mounted, so a step that changes by itself (an analysis that ends) is announced.
   const announcement = summaryError
     ? resolveErrorTitle(errorStatus)
@@ -437,6 +459,18 @@ export default function TakeoffActivityCenter({
           {help}
         </JourneyFacts>
       </div>
+
+      <TakeoffRequestActivity
+        projectId={projectId}
+        viewerKey={viewerKey}
+        live={{
+          data: requestActivity.data, error: requestActivity.error, isLoading: requestActivity.isLoading,
+          refreshMs: requestActivity.refreshMs, refresh: refreshEverything,
+        }}
+        linkedRequestId={linkedRequest}
+        onShowLatest={() => updateParams({ request: null })}
+        onChanged={refreshEverything}
+      />
 
       {showTracking ? (
         <section className="journey-panel" aria-labelledby="takeoff-tracking-heading">
@@ -788,10 +822,7 @@ export default function TakeoffActivityCenter({
         <LaunchMetreDialog
           open={isLaunchDialogOpen}
           onOpenChange={handleLaunchDialogOpenChange}
-          onLaunched={() => {
-            void mutateSummary();
-            void mutateList();
-          }}
+          onLaunched={refreshEverything}
           projectId={projectId}
           currentVersion={launchContext.currentVersion}
           plansContext={launchContext.plansContext}

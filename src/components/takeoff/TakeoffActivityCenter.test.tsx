@@ -1,6 +1,7 @@
 import { cleanup,fireEvent,render,screen } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
+import type { TakeoffRequestActivityResponse } from "@/lib/takeoff/request-activity-contracts";
 import type { TakeoffActivityCenterResponse } from "@/lib/takeoff/types";
 
 const useSWRMock = vi.hoisted(() => vi.fn());
@@ -79,8 +80,12 @@ function renderCenter(input?: {
   withPlanSet?: boolean;
   secondaryPlanFileCount?: number;
   defaultPlanSetId?: string | null;
+  requestActivity?: TakeoffRequestActivityResponse;
 }) {
-  useSWRMock.mockImplementation((key: unknown[] | null) => ({
+  useSWRMock.mockImplementation((key: unknown[] | null) => key?.[0] === "takeoff-request-activity" ? {
+    // The launch requests of the affaire: none here (TakeoffRequestActivity.test.tsx covers them).
+    data: input?.requestActivity, error: undefined, isLoading: false, mutate: vi.fn(),
+  } : ({
     // The summary is the unfiltered first page; the list is the request of the current view.
     data: key && JSON.stringify(key) !== JSON.stringify(SUMMARY_KEY) && input?.listResponse
       ? input.listResponse
@@ -248,20 +253,22 @@ describe("TakeoffActivityCenter", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-2");
   });
 
-  // Fix round 1, point 3, then round 2: a row that waits keeps the list read until what it waits for happened. The page
-  // passes SWR an interval set from the data it has (TakeoffActivityCenter.polling.test.tsx runs the real hook).
-  it("asks for polling while a stopped analysis waits for its retry, and not after", () => {
+  // Lot 3 PR 4 changes this on purpose: the list of analyses no longer polls on its own (it was read every 20 s while a row
+  // waited). The page's one poll is the light read of the launch requests, whose interval comes from its own answer; the
+  // list is read again when that answer reports a transition (TakeoffActivityCenter.polling.test.tsx runs the real hook).
+  it("never polls the list of analyses itself, even while a row waits; only the light read polls", () => {
     const waiting = { ...EMPTY_RESPONSE, jobs: [{ jobId: "job-1", statusRaw: "action_required", technicalStatusRaw: "failed",
       resume: { action: "wait_retry", reason: "retry_scheduled", availableAt: "2020-01-01T00:00:00.000Z" } }] } as unknown as TakeoffActivityCenterResponse;
-    const final = { ...EMPTY_RESPONSE, jobs: [{ jobId: "job-1", statusRaw: "action_required", technicalStatusRaw: "failed",
-      resume: { action: "new_analysis", reason: "analysis_closed", availableAt: null } }] } as unknown as TakeoffActivityCenterResponse;
-    const lastIntervals = () => useSWRMock.mock.calls.slice(-2).map(([, , options]) => (options as { refreshInterval: number }).refreshInterval);
-
-    const { rerender } = renderCenter({ response: waiting });
-    expect(lastIntervals()).toEqual([20_000, 20_000]);
-
-    useSWRMock.mockReturnValue({ data: final, error: undefined, isLoading: false });
-    rerender(<TakeoffActivityCenter projectId="project-1" versions={[{ id: "version-1", version_number: 1 }]} planSets={[]} launchContext={null} />);
-    expect(lastIntervals()).toEqual([0, 0]);
+    const lightWaiting = { view: "current", observedAt: "2026-11-21T10:00:00.000Z", live: true, signature: "a", current: null,
+      history: [], historyHasOlder: false, historyOffset: 0, standalone: { running: 0, waiting: 1 } } satisfies TakeoffRequestActivityResponse;
+    renderCenter({ response: waiting, requestActivity: lightWaiting });
+    const intervals = (scope: string, view?: string) => useSWRMock.mock.calls
+      .filter(([key]) => Array.isArray(key) && key[0] === scope && (view === undefined || key[3] === view))
+      .map(([, , options]) => (options as { refreshInterval?: number }).refreshInterval ?? 0);
+    // The counterexample of the former rule: a waiting row no longer gives the list an interval.
+    expect(new Set(intervals("activity-center"))).toEqual(new Set([0]));
+    expect(intervals("takeoff-request-activity", "current").at(-1)).toBe(30_000);
+    // The older requests are never polled.
+    expect(new Set(intervals("takeoff-request-activity", "history"))).toEqual(new Set([0]));
   });
 });

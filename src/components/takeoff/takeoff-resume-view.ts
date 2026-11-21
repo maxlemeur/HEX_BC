@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 
-import { TAKEOFF_LIST_REFRESH_INTERVAL_MS } from "@/components/takeoff/takeoff-job-list-shared";
 import {
   TAKEOFF_RESUME_ACTIONS,
   TAKEOFF_RESUME_REASONS,
@@ -33,18 +32,6 @@ export function takeoffExpectsAutomaticStart(job: TakeoffActivityCenterJobRow) {
  */
 export function takeoffShowsBatchProgress(job: TakeoffActivityCenterJobRow) {
   return job.technicalStatusRaw !== "failed" && job.technicalStatusRaw !== "canceled";
-}
-
-/**
- * How often the list is read again: while an analysis is queued or running, and while a stopped analysis waits for its
- * retry or for the end of its delay (until that happened). Otherwise not at all.
- */
-export function takeoffListRefreshInterval(data?: TakeoffActivityCenterResponse) {
-  if (!data) return 0;
-  const jobs = data.jobs ?? [];
-  const running = data.counters.technicalJobs > 0 || jobs.some((job) => job.statusRaw === "queued");
-  const waiting = jobs.some((job) => job.resume?.action === "wait_retry");
-  return running || waiting ? TAKEOFF_LIST_REFRESH_INTERVAL_MS : 0;
 }
 
 /**

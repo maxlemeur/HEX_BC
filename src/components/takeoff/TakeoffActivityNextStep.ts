@@ -1,6 +1,8 @@
 import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
 import { TAKEOFF_RESUME_RELOAD_TEXT } from "@/components/takeoff/takeoff-resume-view";
-import { describeTakeoffResume } from "@/lib/takeoff/operator-state";
+import { describeTakeoffResume, viewerLaunchAction } from "@/lib/takeoff/operator-state";
+import { describeTakeoffRequestActivityCoverage, reviewableTakeoffRequestUnits } from "@/lib/takeoff/request-activity";
+import type { TakeoffRequestActivity } from "@/lib/takeoff/request-activity-contracts";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
 
@@ -126,4 +128,65 @@ export function resolveTakeoffNextStep({
     description: "Aucune analyse n’attend votre revue. Préparez un nouveau métré quand de nouveaux plans arrivent.",
     action: launchAgain,
   };
+}
+
+/**
+ * The step when the affaire's latest execution is a launch request: it follows the request and its plans, never the latest
+ * job by date (a failure or a wait of one plan never hides the review of another). « Revoir [plan] » from the first plan
+ * read, while the others are still read. Null when there is no request to follow (or only one set aside).
+ */
+export function resolveTakeoffRequestStep({
+  projectId,
+  request,
+  canLaunch,
+}: {
+  projectId: string;
+  request: TakeoffRequestActivity | null;
+  canLaunch: boolean;
+}): TakeoffNextStep | null {
+  if (!request || request.state === "superseded") return null;
+  const launchAgain: TakeoffNextStepAction | null = canLaunch ? { kind: "launch", label: "Préparer un nouveau métré" } : null;
+  const coverage = describeTakeoffRequestActivityCoverage(request);
+  const lead = coverage ? `${coverage}. ` : "";
+  const jobs = new Map(request.jobs.map((job) => [job.jobId, job]));
+  const readable = reviewableTakeoffRequestUnits(request);
+  const first = readable.find((unit) => !jobs.get(unit.jobId)?.applied);
+  const review: TakeoffNextStepAction | null = first ? {
+    kind: "href",
+    label: request.units?.format === "grouped" ? "Ouvrir la revue" : `Revoir ${first.name}`,
+    href: takeoffReviewHref({ projectId, jobId: first.jobId, versionId: jobs.get(first.jobId)?.estimateVersionId ?? null }),
+  } : null;
+
+  switch (request.state) {
+    case "evaluating":
+      return {
+        title: "Métré en préparation",
+        description: "Le Mac autorisé vérifie le dossier avant de lire les plans. Cette page se met à jour toute seule.",
+        action: null,
+      };
+    case "not_eligible":
+    case "blocked":
+      return {
+        title: viewerLaunchAction(null, false, request.state, request.reason?.code ?? null) === "wait" ? "Métré en attente" : "Métré non démarré",
+        description: request.reason?.message ?? "Le métré n’a pas encore démarré.",
+        action: null,
+      };
+    case "admitted":
+      return review
+        ? { title: "Premiers plans prêts à revoir", description: `${lead}Les autres plans sont encore lus : cette page se met à jour toute seule.`, action: review }
+        : { title: "Analyse en cours", description: `${lead}L’IA lit vos plans un par un. Cette page se met à jour toute seule : vous pouvez la quitter et revenir plus tard.`, action: null };
+    case "closed": {
+      if (review) return { title: "Vérifier le métré proposé", description: `${lead}Contrôlez chaque plan avant de le reporter au devis.`, action: review };
+      if (readable.length > 0) {
+        return { title: "Métré reporté au devis", description: "Les plans lus sont dans le devis. Préparez un nouveau métré quand de nouveaux plans arrivent.", action: launchAgain };
+      }
+      // Nothing read: each plan says why, and a new analysis is offered only when a plan's decision offers it to this member.
+      const offersNew = request.jobs.some((job) => job.resume?.action === "new_analysis");
+      return {
+        title: request.outcome === "canceled" ? "Analyse arrêtée" : "Aucun plan n’a pu être lu",
+        description: `${lead}Le motif de chaque plan est indiqué ci-dessous.`,
+        action: offersNew ? launchAgain : null,
+      };
+    }
+  }
 }
