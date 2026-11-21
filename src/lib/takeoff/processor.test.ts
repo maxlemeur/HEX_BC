@@ -1291,6 +1291,23 @@ function createTakeoffProcessorSupabaseMock(
 }
 
 describe("processLevelA", () => {
+  it("keeps the job's private ChatGPT selection out of the snapshot it stores in the result", async () => {
+    const bytes = toArrayBuffer("designation,quantity,unit\nTube fictif,3,u");
+    const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.sources[0] = {
+      ...snapshot.preparation.sources[0], document_id: `upload:${hash}`, source_version: hash, content_hash: hash, document_name: "niveau-a.csv",
+    };
+    const pinned = { ...snapshot, execution_selection: { profileId: "profil-opaque", model: "modele-fictif", reasoningEffort: null, hostId: "urn:uuid:55555555-5555-4555-8555-555555555555" } };
+    const mock = createTakeoffProcessorSupabaseMock({ job: { preparation_snapshot: pinned }, downloadFile: { bytes, mimeType: "text/csv" } });
+    const callProvider = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([
+      { designation: "Tube fictif", quantity: 3, unit: "u", source_page: 1, confidence: 0.9, evidence: "Ligne 2" },
+    ])));
+    await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
+    expect(mock.state.takeoffResults[0].provider_meta.preparation_snapshot).toEqual(snapshot);
+    expect(mock.state.takeoffResults[0].provider_meta.preparation_snapshot).not.toHaveProperty("execution_selection");
+  });
+
   it("passes confirmed exclusions and conventions to the provider and retains the snapshot in the result", async () => {
     const bytes = toArrayBuffer("designation,quantity,unit\nTube fictif,3,u");
     const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");

@@ -26,7 +26,7 @@ import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffExchange, TakeoffItem } from "@/lib/takeoff/types";
 
 // One run of the takeoff bench (TI-660): the production level C reading of each
-// plan, without persistence. Per document, as processor.ts does: chunks of the
+// plan, without persistence. Per document, as level-c-reading.ts does: chunks of the
 // production defaults (buildPdfChunks 15/10/2, createPdfChunkBytes, one call
 // up to 15 pages), the level C prompt with the anonymous id as source, the
 // TakeoffExchangeSchema, the production timeout (callLocalChatGptStructured caps
@@ -263,7 +263,7 @@ export async function runTakeoffBench(input: {
           context: { level: "C", promptVersion },
         }, couple);
         endedAt = clock();
-        // As processor.ts does: the answer is parsed again before its pages are put back; a failure is the answer's.
+        // As level-c-reading.ts does: the answer is parsed again before its pages are put back; a failure is the answer's.
         const parsed = TakeoffExchangeSchema.safeParse(answer.data);
         if (!parsed.success) throw Object.assign(parsed.error, { usage: answer.tokenUsage });
         outcome = { result: answer, exchange: parsed.data };

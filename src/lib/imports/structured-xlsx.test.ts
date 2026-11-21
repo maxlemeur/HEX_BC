@@ -1,5 +1,6 @@
 import { Workbook } from "exceljs";
 import { describe, expect, it } from "vitest";
+import * as XLSX from "xlsx";
 
 import { parseImportFile } from "@/lib/imports/parser";
 import { readImportRowStructure } from "@/lib/imports/payload";
@@ -42,11 +43,11 @@ async function createStructuredWorkbookBuffer() {
 }
 
 /**
- * One fictional DPGF table written from the sheet row `firstRowNumber`: rows above it stay empty, so
- * the sheet's used range (its `<dimension>`) starts there and the value matrix both parsers read
- * starts at that row, not at row 1.
+ * One fictional DPGF table written from the sheet cell (`firstRowNumber`, `firstColumnNumber`): rows above
+ * it and columns left of it stay empty, so the sheet's used range (its `<dimension>`) starts there and the
+ * value matrix both parsers read starts at that row and that column, not at A1.
  */
-async function createSectionedWorkbookBuffer(firstRowNumber: number) {
+async function createSectionedWorkbookBuffer(firstRowNumber: number, firstColumnNumber = 1) {
   const workbook = new Workbook();
   const worksheet = workbook.addWorksheet("DPGF");
   const table = [
@@ -59,18 +60,21 @@ async function createSectionedWorkbookBuffer(firstRowNumber: number) {
   ];
   table.forEach((values, offset) => {
     values.forEach((value, column) => {
-      worksheet.getCell(firstRowNumber + offset, column + 1).value = value;
+      worksheet.getCell(firstRowNumber + offset, firstColumnNumber + column).value = value;
     });
   });
 
+  const lastColumnNumber = firstColumnNumber + 3;
   const headerRow = worksheet.getRow(firstRowNumber);
-  for (let column = 1; column <= 4; column += 1) headerRow.getCell(column).font = { bold: true };
+  for (let column = firstColumnNumber; column <= lastColumnNumber; column += 1) {
+    headerRow.getCell(column).font = { bold: true };
+  }
   const sectionRow = worksheet.getRow(firstRowNumber + 1);
-  sectionRow.getCell(1).font = { bold: true };
+  sectionRow.getCell(firstColumnNumber).font = { bold: true };
   sectionRow.outlineLevel = 1;
-  worksheet.mergeCells(firstRowNumber + 1, 1, firstRowNumber + 1, 4);
+  worksheet.mergeCells(firstRowNumber + 1, firstColumnNumber, firstRowNumber + 1, lastColumnNumber);
   const subsectionRow = worksheet.getRow(firstRowNumber + 4);
-  subsectionRow.getCell(1).font = { bold: true };
+  subsectionRow.getCell(firstColumnNumber).font = { bold: true };
   subsectionRow.outlineLevel = 2;
 
   const content = await workbook.xlsx.writeBuffer();
@@ -82,7 +86,9 @@ async function parseWithBothParsers(buffer: ArrayBuffer) {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
   const [serverResult, workerRows] = await Promise.all([parseImportFile(file), parseWorkbook(buffer)]);
-  return { serverRows: serverResult.rows, workerRows };
+  // The used range both parsers read the values from, so a fixture cannot silently start at A1.
+  const usedRange = XLSX.read(new Uint8Array(buffer), { type: "array" }).Sheets.DPGF?.["!ref"];
+  return { serverRows: serverResult.rows, workerRows, usedRange };
 }
 
 describe("structured XLSX parsing", () => {
@@ -148,6 +154,81 @@ describe("structured XLSX parsing", () => {
       ["Réseau d'eau froide", { kind: "section", level: 2 }],
       ["Robinet d'arrêt", { kind: "line" }],
     ]);
+  });
+
+  it("reads each cell's styles from its own sheet column when the table does not start in column A", async () => {
+    const [atA1, atB1, atB3] = await Promise.all([
+      createSectionedWorkbookBuffer(1).then(parseWithBothParsers),
+      createSectionedWorkbookBuffer(1, 2).then(parseWithBothParsers),
+      createSectionedWorkbookBuffer(3, 2).then(parseWithBothParsers),
+    ]);
+    expect([atA1.usedRange, atB1.usedRange, atB3.usedRange]).toEqual(["A1:D6", "B1:E6", "B3:E8"]);
+
+    // Parity: the browser worker and the server parser return the same rows for each workbook.
+    expect(atB1.workerRows).toEqual(atB1.serverRows);
+    expect(atB3.workerRows).toEqual(atB3.serverRows);
+
+    // The bold and merged cells of column B belong to « Désignation », the first column of the table, not to
+    // the next header; the merged heading covers the four columns of the table and nothing beyond.
+    const allColumns = ["Designation", "Qte", "U", "PU_HT"];
+    const stylesOf = (rows: typeof atB1.serverRows) => rows.map((row) => {
+      const structure = readImportRowStructure(row);
+      return [row.Designation, structure?.bold_columns, structure?.merged_columns, structure?.outline_level];
+    });
+    const expectedStyles = [
+      ["Plomberie sanitaire", allColumns, allColumns, 1],
+      ["Tube cuivre 16 mm", [], [], null],
+      ["Essais d'étanchéité", [], [], null],
+      ["Réseau d'eau froide", ["Designation"], [], 2],
+      ["Robinet d'arrêt", [], [], null],
+    ];
+    expect(stylesOf(atB1.serverRows)).toEqual(expectedStyles);
+    expect(stylesOf(atB3.serverRows)).toEqual(expectedStyles);
+    // Moving the table to column B, or to column B and row 3, changes nothing in what an import stores:
+    // same values, same headers, same styles, same `source_row_number` as the table written from A1.
+    expect(atB1.serverRows).toEqual(atA1.serverRows);
+    expect(atB3.serverRows).toEqual(atA1.serverRows);
+
+    // The import's structure review proposes the two bold headings as sections again.
+    const preview = analyzeImportStructure(
+      atB1.serverRows.map((row, rowIndex) => ({
+        id: `row-${rowIndex}`,
+        rowIndex,
+        rawRow: row,
+        mappedRow: { designation: row.Designation, quantity: row.Qte, unit: row.U, unit_price_ht: row.PU_HT },
+      })),
+    );
+    expect(preview.candidates.map((candidate) => [candidate.title, candidate.suggested_kind, candidate.confidence]))
+      .toEqual([
+        ["Plomberie sanitaire", "section", "high"],
+        ["Essais d'étanchéité", "line", "medium"],
+        ["Réseau d'eau froide", "section", "high"],
+      ]);
+
+    // The takeoff's item list reads the same structure: the two headings are sections, not items to measure.
+    const classify = createDpgfPosteClassifier({ Designation: "designation", Qte: "quantity", U: "unit" });
+    expect(atB1.serverRows.map((row) => [
+      row.Designation,
+      classify({ designation: row.Designation, quantity: row.Qte, unit: row.U }, readImportRowStructure(row)),
+    ])).toEqual([
+      ["Plomberie sanitaire", { kind: "section", level: 1 }],
+      ["Tube cuivre 16 mm", { kind: "line" }],
+      ["Essais d'étanchéité", { kind: "ambiguous" }],
+      ["Réseau d'eau froide", { kind: "section", level: 2 }],
+      ["Robinet d'arrêt", { kind: "line" }],
+    ]);
+  });
+
+  it("reads a table's styles up to its last column only, even when it ends in the sheet's last column", async () => {
+    // Columns XFA to XFD: reading a cell beyond the table's last column goes past XFD, where ExcelJS throws.
+    const [atA1, atLastColumns] = await Promise.all([
+      createSectionedWorkbookBuffer(1).then(parseWithBothParsers),
+      createSectionedWorkbookBuffer(1, 16381).then(parseWithBothParsers),
+    ]);
+    expect(atLastColumns.usedRange).toBe("XFA1:XFD6");
+
+    expect(atLastColumns.workerRows).toEqual(atLastColumns.serverRows);
+    expect(atLastColumns.serverRows).toEqual(atA1.serverRows);
   });
 
   it("selects the DPGF sheet and keeps identical structure metadata in both parsers", async () => {
