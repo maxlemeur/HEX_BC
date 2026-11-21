@@ -742,6 +742,15 @@ describe("the sealing of a member's confirmation", () => {
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
   });
 
+  it("refuses, naming it, a single retained plan whose real pages pass the analysis's budget", async () => {
+    const f = fixture();
+    f.file.page_count = null;
+    f.contents.set(f.file.file_path, await pdfOfPages(201));
+    f.file.file_size_bytes = f.contents.get(f.file.file_path)!.byteLength;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: "Le plan « Plan fictif.pdf » dépasse les limites d’une analyse. Retirez-le des pièces retenues ou réduisez-le avant de confirmer." });
+  });
+
   it("names the references past the analysis's 20 pieces when it refuses them", async () => {
     const f = fixture();
     for (let index = 1; index <= 21; index += 1) {

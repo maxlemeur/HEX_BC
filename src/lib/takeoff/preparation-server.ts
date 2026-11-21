@@ -199,8 +199,10 @@ export class PreparationPlanSealError extends TakeoffError {
 /** The plans an analysis would read pass the worker's plan budget (their number, size or real pages): they are named. */
 export class PreparationPlanBudgetError extends TakeoffError {
   constructor(readonly pieces: Array<{ id: string; name: string }>) {
-    super({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
-      message: `Les plans ${pieces.map((piece) => `« ${piece.name} »`).join(", ")} dépassent ensemble les limites d’une analyse. Retirez des plans des pièces retenues avant de confirmer.` });
+    const names = pieces.map((piece) => `« ${piece.name} »`).join(", ");
+    super({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false, message: pieces.length === 1
+      ? `Le plan ${names} dépasse les limites d’une analyse. Retirez-le des pièces retenues ou réduisez-le avant de confirmer.`
+      : `Les plans ${names} dépassent ensemble les limites d’une analyse. Retirez des plans des pièces retenues avant de confirmer.` });
   }
 }
 

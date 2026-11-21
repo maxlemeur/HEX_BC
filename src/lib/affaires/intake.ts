@@ -548,9 +548,10 @@ export function sanitizeAffaireIntakeFilename(fileName: string) {
 export function isAffaireIntakeStorageKey(path: string, document: {
   tenantId: string; projectId: string; uploadId: string | null; documentId: string;
 }) {
+  // The policy compares the folders with the identifiers' text, which the database writes in lower case.
+  const folders = [document.tenantId, document.projectId, document.uploadId, document.documentId].map((id) => id?.toLowerCase());
   const parts = path.split("/");
-  return parts.length === 5 && Boolean(document.uploadId) && parts[0] === document.tenantId && parts[1] === document.projectId
-    && parts[2] === document.uploadId && parts[3] === document.documentId && parts[4].length > 0;
+  return parts.length === 5 && Boolean(document.uploadId) && folders.every((id, index) => parts[index] === id) && parts[4].length > 0;
 }
 
 export function buildAffaireIntakeStoragePath(input: {
