@@ -19,6 +19,8 @@ type ParseWorkerSuccessResponse = {
   rows: ParsedImportRow[];
   rowLineNumbers?: number[];
   detectedEncoding?: ParsedCsvEncoding;
+  /** A workbook: the worksheet row where the table read starts. */
+  sheetFirstRow?: number | null;
 };
 
 type ParseWorkerErrorResponse = {
@@ -39,6 +41,7 @@ export type FileParseResult = {
   rows: ParsedImportRow[];
   rowLineNumbers?: number[];
   detectedEncoding?: ParsedCsvEncoding;
+  sheetFirstRow?: number | null;
 };
 
 const CSV_EXTENSIONS = new Set(["csv"]);
@@ -95,6 +98,7 @@ function runWorkerParser(
   rows: ParsedImportRow[];
   rowLineNumbers?: number[];
   detectedEncoding?: ParsedCsvEncoding;
+  sheetFirstRow?: number | null;
 }> {
   return new Promise((resolve, reject) => {
     const worker = createParserWorker(parser);
@@ -125,6 +129,7 @@ function runWorkerParser(
           rows: response.rows,
           rowLineNumbers: response.rowLineNumbers,
           detectedEncoding: response.detectedEncoding,
+          sheetFirstRow: response.sheetFirstRow ?? null,
         });
         return;
       }
@@ -158,7 +163,7 @@ export function useFileParser() {
       }
 
       const buffer = await file.arrayBuffer();
-      const { rows, rowLineNumbers, detectedEncoding } = await runWorkerParser(
+      const { rows, rowLineNumbers, detectedEncoding, sheetFirstRow } = await runWorkerParser(
         parser,
         buffer,
         options
@@ -170,6 +175,7 @@ export function useFileParser() {
         rows,
         rowLineNumbers,
         detectedEncoding,
+        sheetFirstRow: parser === "xlsx" ? sheetFirstRow ?? null : null,
       };
     },
     []

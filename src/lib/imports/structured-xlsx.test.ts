@@ -6,7 +6,7 @@ import { parseImportFile } from "@/lib/imports/parser";
 import { readImportRowStructure } from "@/lib/imports/payload";
 import { analyzeImportStructure } from "@/lib/imports/structure";
 import { createDpgfPosteClassifier } from "@/lib/takeoff/poste-list-dpgf-structure";
-import { parseWorkbook } from "@/workers/xlsx-parser.worker";
+import { parseWorkbook, parseWorkbookWithOrigin } from "@/workers/xlsx-parser.worker";
 
 async function createStructuredWorkbookBuffer() {
   const workbook = new Workbook();
@@ -154,6 +154,24 @@ describe("structured XLSX parsing", () => {
       ["Réseau d'eau froide", { kind: "section", level: 2 }],
       ["Robinet d'arrêt", { kind: "line" }],
     ]);
+  });
+
+  it("gives the sheet row where the table starts, so a row is found in Excel by its own number", async () => {
+    // The table starts on sheet row 3 and column B: the table's row 3 (« Tube cuivre 16 mm ») is sheet row 5.
+    const buffer = await createSectionedWorkbookBuffer(3, 2);
+    const file = new File([buffer], "fixture-dpgf.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const [server, worker] = await Promise.all([parseImportFile(file), parseWorkbookWithOrigin(buffer)]);
+    expect(server.sheetFirstRow).toBe(3);
+    expect(worker.sheetFirstRow).toBe(3);
+    // The row of the table each row stores keeps its meaning (from the first row of the range read).
+    const tube = server.rows.find((row) => row.Designation === "Tube cuivre 16 mm");
+    expect(readImportRowStructure(tube ?? {})?.source_row_number).toBe(3);
+    expect(worker.rows).toEqual(server.rows);
+    // A sheet whose table starts at A1 gives 1: the table's row is the sheet's.
+    const atOne = await parseWorkbookWithOrigin(await createSectionedWorkbookBuffer(1));
+    expect(atOne.sheetFirstRow).toBe(1);
   });
 
   it("reads each cell's styles from its own sheet column when the table does not start in column A", async () => {

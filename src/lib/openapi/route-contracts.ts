@@ -357,6 +357,8 @@ const importJsonSchema = z
     projectId: uuidSchema.nullable().optional(),
     storagePath: z.string().nullable().optional(),
     fileSizeBytes: z.number().int().min(0).nullable().optional(),
+    // A workbook parsed in the browser: the worksheet row where its table starts (a value out of range is dropped).
+    sheetFirstRow: z.number().int().min(1).max(1_048_576).nullable().optional(),
     validation: jsonRecordSchema.optional(),
   })
   .passthrough()
