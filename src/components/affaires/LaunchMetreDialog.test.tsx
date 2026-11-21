@@ -130,4 +130,117 @@ describe("LaunchMetreDialog", () => {
     expect(screen.queryByText("Analyse transmise au traitement")).not.toBeInTheDocument();
   });
 
+  describe("the member's choice against a caller that renders again", () => {
+    const linkSetId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const otherSetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const thirdSetId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const draftId = defaultProps.currentVersion.id;
+    const sourceId = "22222222-2222-4222-8222-222222222222";
+    // A caller such as the activity centre maps its list on every render: each call builds equal options in a new array.
+    const planSets = (counts: { link?: number; other?: number; third?: number } = {}) => [
+      { id: linkSetId, name: "Plans import", source: "affaire-intake", fileCount: counts.link ?? 5 },
+      { id: otherSetId, name: "Plans R+1", source: null, fileCount: counts.other ?? 3 },
+      ...(counts.third === undefined ? [] : [{ id: thirdSetId, name: "Plans R+2", source: null, fileCount: counts.third }]),
+    ];
+    const versions = () => defaultProps.availableVersions.map((version) => ({ ...version }));
+    const props = (overrides: Partial<Parameters<typeof LaunchMetreDialog>[0]> = {}) => ({
+      ...defaultProps,
+      currentVersion: { ...defaultProps.currentVersion },
+      availableVersions: versions(),
+      availablePlanSets: planSets(),
+      initialPlanSetId: linkSetId,
+      ...overrides,
+    });
+    const planSetSelect = () => screen.findByLabelText("Jeu de plans à analyser");
+    const versionSelect = () => screen.findByLabelText("Version cible");
+
+    it("keeps the plan set picked in the select and launches it", async () => {
+      const user = userEvent.setup();
+      launchTakeoffFromPlanSetMock.mockResolvedValue({ ok: true, data: { jobId: "job-other", dispatch: { status: "running", persisted: true } } });
+      const { rerender } = render(<LaunchMetreDialog {...props()} />);
+      expect(await planSetSelect()).toHaveValue(linkSetId);
+
+      await user.selectOptions(await planSetSelect(), otherSetId);
+      expect(await planSetSelect()).toHaveValue(otherSetId);
+
+      rerender(<LaunchMetreDialog {...props()} />);
+      expect(await planSetSelect()).toHaveValue(otherSetId);
+      // The list read again: another set appeared and the set of the link changed its file count.
+      rerender(<LaunchMetreDialog {...props({ availablePlanSets: planSets({ link: 6, third: 2 }) })} />);
+      expect(await planSetSelect()).toHaveValue(otherSetId);
+
+      await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+      await screen.findByText("Analyse transmise au traitement");
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledTimes(1);
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith(expect.objectContaining({ planSetId: otherSetId, versionId: draftId }));
+    });
+
+    it("keeps the target version picked in the select and launches on it", async () => {
+      const user = userEvent.setup();
+      launchTakeoffFromSourceVersionPlanSetMock.mockResolvedValue({ ok: true, data: {
+        jobId: "job-source", versionId: "44444444-4444-4444-8444-444444444444", dispatch: { status: "running", persisted: true },
+      } });
+      const { rerender } = render(<LaunchMetreDialog {...props()} />);
+      expect(await versionSelect()).toHaveValue(draftId);
+
+      await user.selectOptions(await versionSelect(), sourceId);
+      rerender(<LaunchMetreDialog {...props()} />);
+      expect(await versionSelect()).toHaveValue(sourceId);
+
+      await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+      await screen.findByText("Analyse transmise au traitement");
+      expect(launchTakeoffFromPlanSetMock).not.toHaveBeenCalled();
+      expect(launchTakeoffFromSourceVersionPlanSetMock).toHaveBeenCalledWith(expect.objectContaining({ planSetId: linkSetId, sourceVersionId: sourceId }));
+    });
+
+    it("falls back when the picked set loses its files, and does not return to it by itself", async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<LaunchMetreDialog {...props()} />);
+      await user.selectOptions(await planSetSelect(), otherSetId);
+      expect(await planSetSelect()).toHaveValue(otherSetId);
+
+      rerender(<LaunchMetreDialog {...props({ availablePlanSets: planSets({ other: 0 }) })} />);
+      expect(await planSetSelect()).toHaveValue(linkSetId);
+      rerender(<LaunchMetreDialog {...props()} />);
+      expect(await planSetSelect()).toHaveValue(linkSetId);
+    });
+
+    it("falls back when the picked version disappears", async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<LaunchMetreDialog {...props()} />);
+      await user.selectOptions(await versionSelect(), sourceId);
+      expect(await versionSelect()).toHaveValue(sourceId);
+
+      rerender(<LaunchMetreDialog {...props({ availableVersions: versions().filter((version) => version.id !== sourceId) })} />);
+      expect(await versionSelect()).toHaveValue(draftId);
+    });
+
+    it("applies the set or the version of the link again when the link names another one", async () => {
+      const user = userEvent.setup();
+      const firstId = "11111111-1111-4111-8111-111111111111";
+      const linked = (initialPlanSetId: string, initialVersionId: string) => props({
+        availablePlanSets: planSets({ third: 2 }),
+        availableVersions: [...versions(), { id: firstId, versionNumber: 1 }],
+        initialPlanSetId,
+        initialVersionId,
+      });
+      const { rerender } = render(<LaunchMetreDialog {...linked(linkSetId, draftId)} />);
+      await user.selectOptions(await planSetSelect(), otherSetId);
+      await user.selectOptions(await versionSelect(), sourceId);
+      expect(await planSetSelect()).toHaveValue(otherSetId);
+      expect(await versionSelect()).toHaveValue(sourceId);
+
+      // The link names another set: that set is applied, and the version picked stands while the link names the same one.
+      rerender(<LaunchMetreDialog {...linked(thirdSetId, draftId)} />);
+      expect(await planSetSelect()).toHaveValue(thirdSetId);
+      expect(await versionSelect()).toHaveValue(sourceId);
+      rerender(<LaunchMetreDialog {...linked(thirdSetId, firstId)} />);
+      expect(await planSetSelect()).toHaveValue(thirdSetId);
+      expect(await versionSelect()).toHaveValue(firstId);
+      // Back to the first link: its set and its version are applied again, the earlier picks no longer stand.
+      rerender(<LaunchMetreDialog {...linked(linkSetId, draftId)} />);
+      expect(await planSetSelect()).toHaveValue(linkSetId);
+      expect(await versionSelect()).toHaveValue(draftId);
+    });
+  });
 });

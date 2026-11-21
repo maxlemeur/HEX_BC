@@ -190,6 +190,12 @@ function LaunchMetreDialogContent({
   const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
     initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
   );
+  // The set and the version the link names are applied when the dialogue opens, and again when the link names another
+  // one. Once the member picks in a select, that choice stands while the set still has files or the version is still
+  // offered, however often the caller renders with new arrays. Each choice records the link it was made under and the
+  // id picked: a fallback or a later link ends it.
+  const memberPlanSetChoiceRef = useRef<{ linkPlanSetId: string | null; planSetId: string } | null>(null);
+  const memberVersionChoiceRef = useRef<{ linkVersionId: string | null; versionId: string } | null>(null);
   const shouldFetchPlanSets = availablePlanSets === undefined;
   const {
     data: fetchedPlanSets,
@@ -261,11 +267,14 @@ function LaunchMetreDialogContent({
     : null;
 
   useEffect(() => {
+    const memberChoice = memberPlanSetChoiceRef.current;
+    const memberChoiceId = memberChoice?.linkPlanSetId === initialPlanSetId ? memberChoice.planSetId : null;
     setSelectedPlanSetId((currentId) => {
       const byId = new Map(planSetOptions.map((option) => [option.id, option]));
       const isUsable = (id: string | null | undefined) =>
         Boolean(id && (byId.get(id)?.fileCount ?? 0) > 0);
 
+      if (memberChoiceId !== null && currentId === memberChoiceId && isUsable(currentId)) return currentId;
       if (isUsable(initialPlanSetId)) return initialPlanSetId;
       if (isUsable(currentId)) return currentId;
       if (isUsable(plansContext?.defaultPlanSetId)) {
@@ -282,7 +291,14 @@ function LaunchMetreDialogContent({
 
 
   useEffect(() => {
-    setSelectedVersionId(versionOptions.find((option) => option.id === initialVersionId)?.id ?? versionOptions[0]?.id ?? null);
+    const memberChoice = memberVersionChoiceRef.current;
+    const memberChoiceId = memberChoice?.linkVersionId === initialVersionId ? memberChoice.versionId : null;
+    setSelectedVersionId((currentId) => {
+      if (memberChoiceId !== null && currentId === memberChoiceId && versionOptions.some((option) => option.id === currentId)) {
+        return currentId;
+      }
+      return versionOptions.find((option) => option.id === initialVersionId)?.id ?? versionOptions[0]?.id ?? null;
+    });
   }, [initialVersionId, versionOptions]);
 
   const handleOpenChange = useCallback(
@@ -464,8 +480,12 @@ function LaunchMetreDialogContent({
                     <label className="block text-sm font-medium" htmlFor="launch-metre-plan-set">Jeu de plans à analyser</label>
                     <NativeSelect id="launch-metre-plan-set" value={selectedPlanSet.id} onChange={(event) => {
                       const next = event.target.value;
+                      const linkPlanSetId = initialPlanSetId;
                       setErrorMessage(null);
-                      void Promise.resolve(savePreparationRef.current?.()).then(() => setSelectedPlanSetId(next))
+                      void Promise.resolve(savePreparationRef.current?.()).then(() => {
+                        memberPlanSetChoiceRef.current = { linkPlanSetId, planSetId: next };
+                        setSelectedPlanSetId(next);
+                      })
                         .catch((cause) => setErrorMessage(cause instanceof TakeoffActionError ? cause.message : "Impossible d’enregistrer les options du métré."));
                     }} disabled={isSubmitting}>
                       {planSetOptions.map((option) => <option key={option.id} value={option.id} disabled={option.fileCount === 0}>{option.name} — {option.fileCount} fichier{option.fileCount > 1 ? "s" : ""}{option.fileCount === 0 ? " · vide" : ""}</option>)}
@@ -475,7 +495,11 @@ function LaunchMetreDialogContent({
                   </div>}
                   destinationControls={<div className="space-y-2">
                     <label className="block text-sm font-medium" htmlFor="launch-metre-target-version">Version cible</label>
-                    <NativeSelect id="launch-metre-target-version" value={selectedVersionOption?.id ?? ""} onChange={(event) => { setSelectedVersionId(event.target.value); }} disabled={isSubmitting || !hasTargetVersion}>
+                    <NativeSelect id="launch-metre-target-version" value={selectedVersionOption?.id ?? ""} onChange={(event) => {
+                      const next = event.target.value;
+                      memberVersionChoiceRef.current = { linkVersionId: initialVersionId, versionId: next };
+                      setSelectedVersionId(next);
+                    }} disabled={isSubmitting || !hasTargetVersion}>
                       {versionOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                     </NativeSelect>
                     <p className="text-xs text-muted-foreground">{selectedVersionOption?.helper ?? "Aucune version cible disponible."}</p>
