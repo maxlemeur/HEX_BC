@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 
 import { canAccessAffaire } from "@/lib/affaires/access-server";
 import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import { getChatGptHostId, readChatGptStore } from "@/lib/ai/chatgpt-local-store";
+import { readChatGptHostId, readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -23,13 +23,15 @@ const KNOWN_ROLES = new Set<string>(["admin", "director", "engineer", "viewer"] 
  */
 export async function readTakeoffExecution(member: Pick<Member, "userId" | "tenantId">): Promise<Execution> {
   if (!isLocalChatGptEnabled()) return { hostId: null, planStatus: null };
-  let hostId: string;
+  let hostId: string | null;
   try {
     assertLocalChatGptHost((await headers()).get("host"));
-    hostId = await getChatGptHostId();
+    // Never created by a read: a Mac without its identifier has run no local analysis, so none of its jobs is here.
+    hostId = await readChatGptHostId();
   } catch {
     return { hostId: null, planStatus: null };
   }
+  if (!hostId) return { hostId: null, planStatus: null };
   return { hostId, planStatus: await readPlanStatus(member) };
 }
 

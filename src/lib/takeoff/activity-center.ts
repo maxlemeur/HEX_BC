@@ -48,6 +48,7 @@ type SupabaseClient = AuthenticatedTakeoffContext["supabase"];
 
 type JobRow = {
   id: string;
+  launch_request_id?: string | null;
   estimate_version_id: string | null;
   plan_set_id: string | null;
   source_file_name: string | null;
@@ -153,7 +154,7 @@ async function listMatchingJobs(
       supabase
         .from("takeoff_jobs" as never)
         .select(
-          "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, execution_host_id, created_by, completed_at, error_code, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
+          "id, estimate_version_id, plan_set_id, launch_request_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, execution_host_id, created_by, completed_at, error_code, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
         )
         .eq("tenant_id" as never, tenantId as never),
       {
@@ -751,6 +752,7 @@ export async function listActivityCenterJobs(
 
     return {
       jobId: row.id,
+      launchRequestId: row.launch_request_id ?? null,
       analysisCompletion,
       estimateVersionId: row.estimate_version_id,
       versionLabel: versionNumber != null ? `V${versionNumber}` : row.estimate_version_id ?? "Sans devis",

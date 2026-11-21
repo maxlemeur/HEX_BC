@@ -25,7 +25,7 @@ type Props = {
 };
 
 export default async function AffaireTakeoffPage({ params, searchParams }: Props) {
-  const [{ projectId }, { tenantId }] = await Promise.all([
+  const [{ projectId }, { tenantId, profile }] = await Promise.all([
     params,
     getUserContext(),
   ]);
@@ -102,6 +102,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
   return (
     <TakeoffActivityCenter
       projectId={projectId}
+      viewerKey={`${tenantId}:${profile?.id ?? ""}`}
       header={
         <>
           <JourneyPageHeader

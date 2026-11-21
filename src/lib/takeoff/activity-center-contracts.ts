@@ -13,6 +13,7 @@ const outcome = z.enum(["success", "failure", "canceled"]);
 /** A row of the affaire's activity, as GET /api/takeoff/activity-center returns it. */
 export const takeoffActivityCenterJobRowSchema = z.object({
   jobId: uuid,
+  launchRequestId: uuid.nullable().optional().describe("La demande de lancement dont cette analyse est une unité ; null sans demande."),
   analysisCompletion: z.object({ eventId: uuid.nullable(), outcome, finishedAt: timestamp }).nullable().optional(),
   estimateVersionId: uuid.nullable(),
   versionLabel: z.string(),

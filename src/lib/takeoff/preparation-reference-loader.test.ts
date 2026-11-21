@@ -17,6 +17,7 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const DOCUMENT_ID = "55555555-5555-4555-8555-555555555555";
+const UPLOAD_ID = "77777777-7777-4777-8777-777777777777";
 const job = {
   id: "66666666-6666-4666-8666-666666666666", tenant_id: TENANT_ID,
   estimate_version_id: VERSION_ID,
@@ -30,7 +31,7 @@ type Document = PreparationIntakeDocument & {
 function fixture(bytes: Buffer, overrides: Partial<Document> = {}) {
   const document: Document = {
     id: DOCUMENT_ID, tenant_id: TENANT_ID, project_id: PROJECT_ID,
-    file_name: "CCTP plomberie.pdf", storage_path: `${TENANT_ID}/${PROJECT_ID}/cctp.pdf`,
+    file_name: "CCTP plomberie.pdf", upload_id: UPLOAD_ID, storage_path: `${TENANT_ID}/${PROJECT_ID}/${UPLOAD_ID}/${DOCUMENT_ID}/cctp.pdf`,
     size_bytes: bytes.byteLength, mime_type: "application/pdf", document_kind: "cctp",
     updated_at: "2026-10-29T09:00:00.000Z", upload_status: "uploaded",
     deleted_at: null, deletion_token: null, ...overrides,
@@ -183,6 +184,18 @@ describe("confirmed preparation reference contents", () => {
     Object.assign(document, { [field]: "changed" });
     const db = database([document], bytes);
     await expect(loadPreparationReferenceFiles({ ...db, job, snapshot: snapshot([source]) })).rejects.toMatchObject({ code: TakeoffErrorCode.CONFLICT, retryable: false });
+    expect(db.download).not.toHaveBeenCalled();
+  });
+
+  // The worker reads with the server's own client: a row of this affaire pointing to another affaire's object is
+  // refused before any download, never attached.
+  it("refuses, before any download, a reference whose Storage key is not this piece's in this affaire", async () => {
+    const bytes = Buffer.from("CCTP d'une autre affaire");
+    const foreign = `${TENANT_ID}/99999999-9999-4999-8999-999999999999/${UPLOAD_ID}/${DOCUMENT_ID}/cctp.txt`;
+    const { document, source } = fixture(bytes, { file_name: "CCTP.txt", mime_type: "text/plain", storage_path: foreign });
+    const db = database([document], bytes);
+    await expect(loadPreparationReferenceFiles({ supabase: db.supabase as never, job, snapshot: snapshot([source]) }))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("« CCTP.txt »") });
     expect(db.download).not.toHaveBeenCalled();
   });
 

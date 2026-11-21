@@ -2,7 +2,7 @@ import "server-only";
 
 import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
-import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
+import { toTakeoffNoticeOutcome } from "@/lib/takeoff/completion-outcome";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 const PAGE_SIZE = 30;
@@ -20,7 +20,8 @@ export async function listTakeoffCompletionNotifications(page: number) {
   if (error) throw mapSupabaseError(error, "Impossible de charger vos notifications.");
   const rows = data ?? [];
   const notifications = rows.slice(0, PAGE_SIZE).flatMap((row) => {
-    const outcome = toTakeoffAnalysisOutcome(row.outcome);
+    // A launch request's end may be partial: some of its plans were read.
+    const outcome = toTakeoffNoticeOutcome(row.outcome);
     return outcome ? [{ ...row, outcome }] : [];
   });
   return { notifications, hasOlder: rows.length > PAGE_SIZE, takeoffEnabled: await isTakeoffEnabled(tenantId) };

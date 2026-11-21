@@ -133,12 +133,17 @@ la base en garantit l’unicité et l’admission (migration
   préparation déduite du dossier (avec les options enregistrées, sans écrire sur
   le brouillon des membres), les empreintes des octets lus et le manifeste, puis
   admet la demande : son job et les deux traces de création sont écrits dans la
-  même transaction. Lire une page ne dépense rien : seules les transitions du
-  dossier et les gestes le font.
+  même transaction. Le scellement est celui de la confirmation d’un membre
+  (voir « Sources et instantané de lancement ») : une pièce de référence que
+  l’analyse ne lirait pas est laissée de côté et nommée, avec son motif, dans la
+  couverture du manifeste, et l’analyse se fait sans elle ; elle ne consomme
+  jamais le seul démarrage automatique de l’affaire. Lire une page ne dépense
+  rien : seules les transitions du dossier et les gestes le font.
 - **Ce qui empêche de démarrer** est un état visible, avec son motif, jamais un
   job présenté comme lancé ni un changement de mode de paiement : dossier non
-  confirmé ou sans plan exploitable ; plan sans copie de travail (la pièce est
-  nommée) ; choix d’indice à faire ; forfait non connecté, partage révoqué ou
+  confirmé ou sans plan exploitable ; plan sans copie de travail ou que l’analyse
+  ne pourrait pas ouvrir (la pièce est nommée) ; choix d’indice à faire ;
+  forfait non connecté, partage révoqué ou
   connexion expirée, modèle absent, sélection changée depuis la confirmation,
   adresse non autorisée ou application hébergée ; payeur qui n’a plus le droit
   de lancer. Ces blocages du mandat ne se lèvent que par le geste « Reprendre avec
@@ -226,7 +231,8 @@ demande s’évalue, tourne ou attend une cause passagère.
   analysé, et la dernière fin d’analyse de l’affaire, le même événement que la
   notification des membres. Un plan ou une pièce n’est nommé qu’au membre qui peut
   lire sa copie ou sa pièce du dossier (le propriétaire de l’affaire et les
-  administrateurs les lisent toutes) ; les autres lisent « Plan N » ou « Pièce N ».
+  administrateurs les lisent toutes) ; les autres lisent « Plan N » ou « Pièce N »,
+  sans l’identifiant de sa source.
   La zone n’affiche que ce que le serveur a lu pour le membre de la page, dans son
   tenant actif : une session changée sans rechargement ne montre jamais la zone
   d’un autre membre.
@@ -270,6 +276,81 @@ demande s’évalue, tourne ou attend une cause passagère.
   (`launch=1`, anciens favoris de version) ouvrent ces options, et cette page ne
   lance plus rien elle-même. La fin d’une demande ouvre la zone depuis les
   notifications. Il n’y a plus de proposition masquable ni de rappel à 24 h.
+
+## Suivi d’une demande dans le centre d’activité
+
+La page Métrés de l’affaire (`/dashboard/affaires/{affaire}/takeoff`) montre la
+dernière exécution de l’affaire au-dessus de la liste des analyses : son origine
+(démarrage automatique ou relance), son état et son motif, puis ses plans dans
+l’ordre que son manifeste a enregistré. Une demande du lot 2 n’a qu’une unité
+groupée : elle reste une seule « analyse groupée de N plans », avec les pages de
+chaque plan, jamais N analyses ni N lectures réussies. Avec une analyse par plan,
+chaque plan est dans un seul état (en attente, en lecture, lu, en échec, arrêté,
+non démarré) et l’en-tête le résume : « 1 plan lu sur 3 · 1 en lecture · 1 en
+attente ». La règle des états, la couverture et sa formulation sont celles du
+répartiteur ([`launch-request-coverage.ts`](../../src/lib/takeoff/launch-request-coverage.ts)
+et sa fonction SQL `private.takeoff_unit_state`) ; en attendant que son lecteur
+des unités soit livré, le serveur dérive les unités du manifeste scellé et des
+jobs selon cette même règle. Aucune avancée n’est estimée en pourcentage de
+pages ou de temps.
+
+- **Revue anticipée.** Dès qu’un plan est lu, « Revoir [plan] » ouvre ses revues
+  (complète et ciblée), avec leur propre pagination et leurs preuves, pendant que
+  les autres plans sont lus. Un plan lu sans ligne retenue reste consultable et le
+  dit ; rien n’est alors à envoyer. La revue d’un plan nomme les autres plans de
+  sa demande, ceux qui manquent encore, et mène au plan précédent ou suivant lu.
+- **Ce que chacun voit.** Les lecteurs de l’affaire voient les états, les motifs
+  et ouvrent les revues qu’ils peuvent lire. Le nom et les pages d’un plan (et
+  d’une pièce du dossier) ne sont montrés qu’au membre qui peut lire sa source,
+  selon les règles des plans et des pièces évaluées pour lui (le propriétaire de
+  l’affaire et un administrateur lisent tous ses plans) ; les autres lisent
+  « Plan N », sans l’identifiant de sa source. Seul le membre qu’une décision y
+  autorise voit une action : pour une analyse arrêtée, la politique de reprise
+  ([`operator-state.ts`](../../src/lib/takeoff/operator-state.ts), la même que le
+  détail et la commande) ; pour une demande qui n’a pas démarré, le geste que la
+  base lui permet (`public.takeoff_launch_request_action` : « Prendre en charge »
+  ou « Reprendre avec mon forfait », ou ouvrir MergeOne sur le Mac connecté). Le
+  serveur relit tout au moment du geste.
+- **Bâtiment et niveau.** Chaque plan ouvre le même formulaire que le centre des
+  plans (section « Bâtiment et niveau d’un plan »).
+- **Ce que la demande n’a pas lu.** Les plans écartés à son scellement (autre
+  indice retenu, copie identique, format non lu) sont nommés ; une fois ses plans
+  lus, les plans ajoutés, remplacés ou retirés du dossier depuis sont signalés,
+  sans rien relancer.
+- **Historique et liens.** Les demandes précédentes sont listées repliées, cinq
+  par page. Un lien vers une demande (`?request=`) ouvre cette demande ; un lien
+  vers une analyse (`?job=`, celui de l’avis de fin d’analyse) ouvre aussi la
+  demande dont elle fait partie. La page suit alors aussi la dernière exécution
+  de l’affaire et ses analyses lancées sans demande ; « Voir la dernière analyse
+  de l’affaire » y revient.
+- **Mise à jour.** La page lit une projection légère
+  (`GET /api/takeoff/activity-center/requests`, [`request-activity-server.ts`](../../src/lib/takeoff/request-activity-server.ts))
+  dont le nombre de lectures ne dépend ni du nombre de plans ni du nombre
+  d’échecs, sans octet de PDF. C’est la seule lecture répétée de la page : toutes
+  les 5 secondes pendant la lecture d’un plan (ou juste après la fin du
+  précédent, ou d’une analyse sans demande mise en file à l’instant), toutes les
+  30 secondes dans tout autre état qui peut encore bouger (le Mac, une nouvelle
+  tentative ou la clôture attendue, une demande pas encore démarrée), plus du
+  tout quand tout est clos. Une lecture qui échoue (réseau, serveur, délai
+  dépassé, y compris la lecture du module ou de la session) est retentée
+  30 secondes plus tard, la page indiquant entre-temps le dernier état connu ;
+  seul un refus d’accès arrête les lectures et retire tout ce qui était affiché
+  (la demande, le résumé et la liste), quelle que soit la lecture refusée. L’écart du dossier n’est recalculé que si le dossier a
+  bougé depuis la lecture précédente, et le geste avant admission n’est relu
+  qu’au rythme lent. Un
+  onglet masqué ou hors ligne la suspend ; le retour sur l’onglet, la reconnexion
+  et chaque geste la relisent aussitôt. La liste des analyses, l’historique des
+  demandes et les fins d’analyse ne sont relus que lorsqu’elle signale une
+  transition (jamais au renouvellement du bail d’une lecture), ou après un geste
+  fait dans la liste. Le cache de cette projection est propre au membre et à son
+  entreprise ; un autre membre repart d’une page vide. Une analyse que la liste
+  montre en cours et que la projection ne voit plus en cours fait relire les
+  deux. Une arrivée en arrière-plan ne déplace ni le
+  focus, ni la sélection, ni une saisie en cours.
+- **Étape suivante.** Quand la dernière exécution est une demande, plus récente
+  que la dernière analyse lancée sans demande, l’étape suivante suit ses plans,
+  jamais le dernier job créé : un plan en échec ou en attente ne cache pas la
+  revue d’un autre.
 
 ## Contenu de la fiche
 
@@ -401,11 +482,48 @@ leurs identités sont conservées dans l’instantané. Les pièces DPGF et CCTP
 disponibles complètent le contexte dans les limites de format et de volume.
 La préparation signale une pièce retenue que le serveur ne peut pas lire.
 
+Le scellement des sources est le même pour la confirmation d’un membre et pour
+le démarrage automatique
+([`sealPreparationSources`](../../src/lib/takeoff/preparation-server.ts)). Avant
+tout téléchargement, il vérifie, depuis les lignes du dossier, le format et la
+taille enregistrée des pièces de référence, et que le fichier stocké est celui
+que le dossier a enregistré pour cette pièce dans cette affaire (sa clé nomme
+l’entreprise, l’affaire, le dépôt et la pièce) : le serveur et le traitement
+lisent avec leur propre accès, que la règle de stockage des membres ne borne
+pas, et une pièce dont la clé ne correspond pas n’est jamais lue (elle est
+nommée). Le fichier stocké doit ensuite avoir la taille enregistrée (un plan, au
+plus la taille d’un plan). Il lit chaque pièce de référence comme le traitement
+la lira
+([`readPreparationReference`](../../src/lib/takeoff/preparation-reference-loader.ts)),
+dans les mêmes limites : 20 pièces, 20 Mo de fichiers, 200 pages retenues et 20
+Mo joints ; une pièce n’y compte qu’une fois lue et gardée. Une pièce que le
+traitement refuserait (un PDF abîmé ou protégé, un classeur invalide, des pages
+retenues au-delà des limites) est montrée au membre avant sa confirmation, qui
+n’a pas lieu ; le démarrage automatique la laisse de côté et la nomme. Chaque
+plan est ouvert comme le traitement l’ouvre
+([`openPreparedPlan`](../../src/lib/takeoff/preparation-source-loader.ts)) : un
+plan invalide ou protégé, ou des pages retenues que le fichier n’a pas, arrêtent
+la confirmation comme le démarrage automatique, en nommant le plan ; une version
+que les choix d’indices écartent n’est jamais ouverte par le traitement et
+n’arrête rien. Les plans lus, une fois les choix d’indices appliqués, doivent
+tenir ensemble dans le budget de plans du traitement (nombre, taille et pages
+réelles, au niveau de l’analyse) : une copie de travail du dossier n’enregistre
+pas son nombre de pages, il est compté sur le fichier. Sinon la confirmation et
+le démarrage automatique s’arrêtent en nommant les plans. Le cartouche d’un plan
+du dossier donne son indice ; une page que le rendu ne peut pas dessiner laisse
+cet indice non lu (le dossier ou le nom du fichier le donnent alors), sans
+écarter le plan : le traitement lit le plan sans son cartouche.
+
 L'instantané contient la préparation complète, sa révision enregistrée, l'auteur,
 la date et l'état de préparation calculé. Les références et les valeurs copiées
 ne sont plus liées en mémoire au brouillon. Le serveur confirme également le
 SHA-256 des octets des plans, y compris pour les anciens imports sans empreinte
-fiable. Le traitement doit vérifier ce contenu avant de l'utiliser.
+fiable. Pour une préparation déduite du dossier, il marque comme attestée chaque
+pièce dont il a lu les octets : la revue ne sert la localisation et le PDF
+d’origine d’un plan que pour une pièce attestée, qu’un membre ou le démarrage
+automatique l’ait scellée. Les pièces d’une autre préparation restent attestées
+par le membre, une à une, comme sa préparation l’exige. Le traitement
+doit vérifier ce contenu avant de l'utiliser.
 
 Les sources, pages et conventions sont des contraintes d'entrée. Les lots,
 réseaux, niveaux et exclusions exprimés en texte guident l'analyse ; ils ne
