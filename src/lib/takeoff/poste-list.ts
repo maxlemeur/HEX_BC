@@ -34,6 +34,8 @@ export type PosteOrigin = DpgfPosteOrigin | Readonly<{
   kind: "template";
   templateId: string;
   version: number;
+  /** The tenant's published version the line was read from; absent for the definition shipped with the application. */
+  publicationId?: string;
   familyId: string;
   lineId: string;
 }> | Readonly<{
@@ -82,6 +84,11 @@ function canonical(value: unknown): string {
 
 export function digestPosteFacts(facts: unknown): string {
   return createHash("sha256").update(canonical(facts)).digest("hex");
+}
+
+/** The key of an item's origin in its affaire: what the database's registry keeps unique (migration A). */
+export function posteOriginKey(origin: PosteOrigin): string {
+  return sourceKey(origin);
 }
 
 function sourceKey(origin: PosteOrigin): string {
@@ -154,7 +161,7 @@ export function createPosteRevision(
     return { ...item, id };
   });
   const aliases = acceptedSources.size ? { acceptedSources: Object.fromEntries(acceptedSources) } : {};
-  const digest = digestPosteFacts({ contract: 1, scope, items: resolvedItems, ...aliases });
+  const digest = digestPosteRevision(scope, resolvedItems, aliases.acceptedSources);
   return {
     scope: { ...scope },
     revision: previous ? previous.revision + Number(previous.digest !== digest) : 1,
@@ -162,6 +169,14 @@ export function createPosteRevision(
     items: resolvedItems,
     ...aliases,
   };
+}
+
+/** The digest of a revision's facts: its scope, its items in order and its accepted source aliases. */
+export function digestPosteRevision(
+  scope: PosteListScope, items: readonly Poste[], acceptedSources?: Readonly<Record<string, string>>,
+): string {
+  const aliases = acceptedSources && Object.keys(acceptedSources).length ? { acceptedSources } : {};
+  return digestPosteFacts({ contract: 1, scope, items, ...aliases });
 }
 
 function textKey(text: string) {
@@ -191,6 +206,11 @@ function addCandidate(index: Map<string, Poste[]>, key: string, item: Poste) {
   const candidates = index.get(key);
   if (candidates) candidates.push(item);
   else index.set(key, [item]);
+}
+
+/** Items of a previous list an operator may confirm as the same item as an added one (never applied on their own). */
+export function findPosteContinuities(removed: readonly Poste[], added: readonly Poste[]) {
+  return findContinuities(removed, added);
 }
 
 function findContinuities(removed: readonly Poste[], added: readonly Poste[]) {

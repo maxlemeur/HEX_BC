@@ -7,6 +7,8 @@ export type PosteTemplate = Readonly<{
   id: string;
   title: string;
   version: number;
+  /** The tenant's published version this is (migration A); absent for the definition shipped with the application. */
+  publicationId?: string;
   families: readonly TemplateFamily[];
 }>;
 
@@ -38,7 +40,11 @@ function valve(id: string, network: string, diameter: string): TemplateLine {
   };
 }
 
-/** Première nomenclature générique à corriger par le métreur avant publication. */
+/**
+ * Première nomenclature générique à corriger par le métreur : la définition livrée avec l'application, lue par une
+ * entreprise qui n'a encore publié aucune version (item-template-server.ts). Les identifiants de familles et de postes
+ * ne changent jamais : un poste instancié garde le sien d'une version à l'autre.
+ */
 export const PLUMBING_TEMPLATE: PosteTemplate = {
   id: "plomberie",
   title: "Plomberie",
@@ -84,6 +90,9 @@ export function templatePosteDrafts(template: PosteTemplate): PosteDraft[] {
     ...line.definition,
     sections: [root, { id: family.id, title: family.title, order }],
     referenceQuantity: null,
-    origin: { kind: "template", templateId: template.id, version: template.version, familyId: family.id, lineId: line.id },
+    origin: {
+      kind: "template", templateId: template.id, version: template.version,
+      ...(template.publicationId ? { publicationId: template.publicationId } : {}), familyId: family.id, lineId: line.id,
+    },
   })));
 }

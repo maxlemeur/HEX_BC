@@ -1,4 +1,5 @@
 import type { ImportRowStructure } from "@/lib/imports/payload";
+import type { ImportStructureDecision } from "@/lib/imports/structure";
 import { resolveImportRowTitle } from "@/lib/imports/structure";
 import { parseQuantity } from "@/lib/numeric-input/parsers";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
@@ -28,7 +29,7 @@ type RowIssue = {
   sourceRowNumber?: number | null;
   sourcePage?: number | null;
   reason: "missing_mapping" | "multiple_mappings" | "unattested_mapping" | "invalid_quantity" |
-    "ambiguous" | "section" | "footer" | "empty" | "header" | "unreadable_designation";
+    "ambiguous" | "section" | "footer" | "empty" | "header" | "unreadable_designation" | "ignored";
   title?: string;
 };
 
@@ -43,9 +44,24 @@ export function projectDpgfPostes(input: {
   rawRows: readonly RawDpgfPosteRow[];
   mappedRows: readonly MappedDpgfPosteRow[];
   columnMapping: Readonly<Record<string, unknown>>;
+  /**
+   * The structure decisions recorded at the confirmation of the import, when its proof still holds: a row made a
+   * section and its level, kept as a line, or ignored. They decide over the reading of a row that could be either;
+   * a total, an empty, unreadable or repeated header row is never an item, whatever was decided.
+   */
+  decisions?: readonly ImportStructureDecision[];
 }) {
   const { importId, mappingId } = input;
-  const classifyRow = createDpgfPosteClassifier(input.columnMapping);
+  const read = createDpgfPosteClassifier(input.columnMapping);
+  const decided = new Map((input.decisions ?? []).map((decision) => [decision.rowIndex, decision]));
+  const classifyRow = (row: Parameters<typeof read>[0], structure: Parameters<typeof read>[1], rowIndex: number) => {
+    const classification = read(row, structure);
+    const decision = decided.get(rowIndex);
+    if (!decision || !["line", "section", "ambiguous"].includes(classification.kind)) return classification;
+    if (decision.kind === "ignore") return { kind: "ignored" } as const;
+    if (decision.kind === "section") return { kind: "section", level: decision.level } as const;
+    return { kind: "line" } as const;
+  };
   const items: (PosteDraft & { origin: DpgfPosteOrigin })[] = [];
   const unattestedMappingIds: string[] = [];
   const rawIds = new Set(input.rawRows.map(({ id }) => id));
@@ -87,7 +103,7 @@ export function projectDpgfPostes(input: {
       continue;
     }
 
-    const classification = classifyRow(row, structure);
+    const classification = classifyRow(row, structure, source.rowIndex);
     const title = resolveImportRowTitle(row);
     if (classification.kind === "ambiguous") {
       counts.ambiguous++;
