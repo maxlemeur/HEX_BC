@@ -1,6 +1,8 @@
 "use client";
 
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
+import { settleTakeoffLaunchIntentKey, takeTakeoffLaunchIntentKey } from "@/lib/takeoff/launch-intent-key";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
@@ -193,9 +195,10 @@ function LaunchMetreDialogContent({
 }: LaunchMetreDialogProps) {
   const toast = useToast();
   const versionMode = launchMode.kind === "version";
-  // One key per click of a request launch, kept when its answer was lost (a timeout, a network failure) so that the next
-  // click replays it; a new click after an answer is a new command.
-  const intentKeyRef = useRef<string | null>(null);
+  // The member of the page: a request launch's key is kept for their intention while its answer is unknown (a timeout, a
+  // network failure, a server error), across a reload too, so that the next click replays it; after an answer a new click
+  // is a new command.
+  const user = useOptionalUserContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
   const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
@@ -342,13 +345,14 @@ function LaunchMetreDialogContent({
     if (!selectedPlanSet || !hasPlanFiles || launchMode.kind !== "request") return;
     setIsSubmitting(true);
     setErrorMessage(null);
-    const intentKey = intentKeyRef.current ?? crypto.randomUUID();
-    intentKeyRef.current = intentKey;
+    const intention = { tenantId: user?.tenantId ?? null, userId: user?.profile?.id ?? null, projectId,
+      predecessorJobId: launchMode.predecessorJobId, planSetId: selectedPlanSet.id, preparationRevision };
+    const intentKey = takeTakeoffLaunchIntentKey(intention);
     try {
       const result = unwrapTakeoffActionResult(await relaunchTakeoffAction({
         projectId, planSetId: selectedPlanSet.id, preparationRevision, intentKey, predecessorJobId: launchMode.predecessorJobId,
       }));
-      intentKeyRef.current = null;
+      settleTakeoffLaunchIntentKey(intention);
       const label = "Sans devis : la destination se choisit à l’envoi";
       const title = result.outcome === "already_running" ? "Une analyse de l’affaire est déjà en cours"
         : result.outcome === "replayed" ? "Analyse existante retrouvée" : "Analyse transmise au traitement";
@@ -368,12 +372,12 @@ function LaunchMetreDialogContent({
     } catch (error) {
       // A refusal the server named decides the command: a new click is a new one. After a server error or a lost answer
       // the command may have been recorded: the next click replays it with the same key.
-      if (error instanceof TakeoffActionError && error.status < 500) intentKeyRef.current = null;
+      if (error instanceof TakeoffActionError && error.status < 500) settleTakeoffLaunchIntentKey(intention);
       setErrorMessage(error instanceof TakeoffActionError ? error.message : "Impossible de lancer l'analyse.");
     } finally {
       setIsSubmitting(false);
     }
-  }, [hasPlanFiles, launchMode, onLaunched, projectId, selectedPlanSet, toast]);
+  }, [hasPlanFiles, launchMode, onLaunched, projectId, selectedPlanSet, toast, user]);
 
   const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
     if (!selectedPlanSet || !hasPlanFiles) return;

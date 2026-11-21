@@ -2,6 +2,8 @@ import { cleanup,render,screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
+import { UserProvider, type UserProfile } from "@/lib/auth/user-context";
+
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
@@ -80,9 +82,21 @@ const defaultProps = {
   },
 };
 
+const TENANT = "66666666-6666-4666-8666-666666666666";
+const MEMBER = "77777777-7777-4777-8777-777777777771";
+const OTHER_MEMBER = "77777777-7777-4777-8777-777777777772";
+
+/** The dialogue as a member of the tenant opens it (the page's user context). */
+function as(userId: string, element: React.ReactElement) {
+  const profile = { id: userId, full_name: "Membre fictif", phone: null, job_title: null, work_email: null, role: "admin",
+    ui_mode: "expert", tenant_id: TENANT, tenant_role: "engineer" } as unknown as UserProfile;
+  return <UserProvider initialUserEmail="membre@example.test" initialProfile={profile}>{element}</UserProvider>;
+}
+
 describe("LaunchMetreDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -173,6 +187,35 @@ describe("LaunchMetreDialog", () => {
       expect(keys[2]).toBe(keys[0]);
       expect(keys[3]).not.toBe(keys[2]);
       expect(await screen.findByText("Une analyse de l’affaire est déjà en cours")).toBeInTheDocument();
+    });
+
+    // A lost answer, then a reload (the dialogue mounted again): the same intention of the same member (affaire, intent,
+    // analysis replaced, plan set, preparation revision) sends the key the lost command used, so its replay finds its
+    // receipt instead of paying a second analysis. Another intention, another member or an answer received ends it.
+    it("replays a command whose answer was lost with the same key after a reload", async () => {
+      const user = userEvent.setup();
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValueOnce({ ok: true, data: { outcome: "replayed", requestId: "r1", jobId: "j1" } })
+        .mockResolvedValue({ ok: true, data: { outcome: "admitted", requestId: "r2", jobId: "j2" } });
+      const keys = () => relaunchTakeoffMock.mock.calls.map(([input]) => (input as { intentKey: string }).intentKey);
+      const clickOnce = async (element: React.ReactElement) => {
+        const view = render(element);
+        await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+        await screen.findByText(/Impossible de lancer|Analyse existante retrouvée|Analyse transmise/);
+        view.unmount();
+      };
+      await clickOnce(as(MEMBER, request()));
+      await clickOnce(as(MEMBER, request()));
+      expect(keys()[1]).toBe(keys()[0]);
+      // The answer came: the same intention again is a new command.
+      await clickOnce(as(MEMBER, request()));
+      expect(keys()[2]).not.toBe(keys()[0]);
+      // A lost answer for one analysis replaced, then another intention, or another member of the same browser.
+      relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"));
+      await clickOnce(as(MEMBER, request()));
+      await clickOnce(as(MEMBER, request({ launchMode: { kind: "request", predecessorJobId: "55555555-5555-4555-8555-555555555555" } })));
+      await clickOnce(as(OTHER_MEMBER, request()));
+      expect(new Set(keys().slice(3)).size).toBe(3);
     });
 
     it("launches nothing from options shown while another analysis waits or runs, and says why", async () => {
