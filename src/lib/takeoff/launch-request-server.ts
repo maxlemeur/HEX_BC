@@ -259,15 +259,18 @@ async function sealAutomaticSnapshot(service: Service, input: {
       return { state: "blocked", reason: "SOURCE_UNREADABLE", pieces: [] };
     }
   }
-  let omittedReferences: TakeoffLaunchManifest["coverage"]["references_omitted"];
-  try {
-    ({ omittedReferences } = await sealPreparationSources(draft, { supabase: service, sources: loaded.availableSources,
-      recordedSizes: new Map(input.documents.map((document) => [document.id, document.size_bytes])),
-      onReferenceIssue: "omit" }));
-  } catch (error) {
+  // A plan the analysis could not read: its copy is missing or unreadable, a dossier change evaluates it again.
+  const planRefusal = (error: unknown): Refusal => {
     if (!(error instanceof PreparationPlanSealError)) throw error;
-    // A plan the analysis could not read: its copy is missing or unreadable, a dossier change evaluates it again.
     return { state: "blocked", reason: error.reason === "too_large" ? "PLAN_SET_TOO_LARGE" : "PLAN_COPY_MISSING", pieces: [error.piece] };
+  };
+  let sealed: Awaited<ReturnType<typeof sealPreparationSources>>;
+  try {
+    sealed = await sealPreparationSources(draft, { supabase: service, sources: loaded.availableSources,
+      recordedSizes: new Map(input.documents.map((document) => [document.id, document.size_bytes])),
+      onReferenceIssue: "omit" });
+  } catch (error) {
+    return planRefusal(error);
   }
   const resolved = resolveDeducedPlanVersions(draft);
   const readiness = evaluateTakeoffPreparation(resolved);
@@ -276,6 +279,11 @@ async function sealAutomaticSnapshot(service: Service, input: {
     return { state: "blocked", reason: "PREPARATION_NEEDS_REVIEW", pieces: [...new Set(readiness.blockers
       .map((blocker) => blocker.source_document_id).filter((id): id is string => Boolean(id)))]
       .map((id) => ({ id, name: named.get(id) ?? id })) };
+  }
+  try {
+    sealed.assertReadPlansOpen(resolved);
+  } catch (error) {
+    return planRefusal(error);
   }
   let snapshot: TakeoffPreparationSnapshot;
   try {
@@ -306,7 +314,7 @@ async function sealAutomaticSnapshot(service: Service, input: {
     ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
   ];
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
-    omittedPlans, omittedReferences, preparationRevision: snapshot.preparation_revision,
+    omittedPlans, omittedReferences: sealed.omittedReferences, preparationRevision: snapshot.preparation_revision,
     budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
   return { snapshot, manifest, sourceFile };
 }

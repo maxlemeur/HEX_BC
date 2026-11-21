@@ -234,8 +234,9 @@ function referenceIssue(source: TakeoffPreparationSource, issue: PreparationRefe
  * number and recorded size of the references) and its stored file must be the size its row records; a plan's stored
  * file must fit what a plan may be. A reference is then read as the worker reads it (`readPreparationReference`), within
  * the same bounds: one the worker would refuse stops a confirmation, told to the member (`throw`), or is left out of an
- * automatic start, named with its reason (`omit`). A plan is opened as the worker opens it (`openPreparedPlan`); one
- * that cannot be read or opened stops both (`PreparationPlanSealError`). The title block of a dossier plan gives its
+ * automatic start, named with its reason (`omit`). A plan that cannot be read stops both (`PreparationPlanSealError`);
+ * a plan is opened as the worker opens it (`openPreparedPlan`), and one it would not open stops both once the caller,
+ * its revision choices applied, finds it still read (`assertReadPlansOpen`). The title block of a dossier plan gives its
  * index; a page the renderer cannot draw leaves it unread, as the worker reads a plan without it. `sources` and `recordedSizes` are the dossier as the caller read it; the draft is changed in
  * place.
  */
@@ -246,9 +247,10 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
   /** The size each dossier document's row records for its stored file: a reference is bounded by it before any download. */
   recordedSizes: ReadonlyMap<string, number>;
   onReferenceIssue: "throw" | "omit";
-}): Promise<{ omittedReferences: PreparationSealOmission[] }> {
+}): Promise<{ omittedReferences: PreparationSealOmission[]; assertReadPlansOpen: (read: TakeoffPreparation) => void }> {
   const available = new Map(options.sources.map((source) => [source.document_id, source]));
   const omittedReferences: PreparationSealOmission[] = [];
+  const unopenedPlans: PreparationPlanSealError[] = [];
   const leaveOut = (source: TakeoffPreparationSource, issue: Parameters<typeof referenceIssue>[1]) => {
     const { reason, error } = referenceIssue(source, issue);
     if (options.onReferenceIssue === "throw") throw error;
@@ -304,12 +306,13 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
         continue;
       }
     } else {
-      // Opened as the worker opens it: a plan it would not read stops the sealing, named.
+      // Opened as the worker opens it. The worker never opens a version the revision choices set aside (it only
+      // compares its bytes): such a plan stops the sealing only once the choices retain it (`assertReadPlansOpen`).
       try {
         await openPreparedPlan(bytes, source.pages);
       } catch (refusal) {
         if (!(refusal instanceof PreparedPlanRefusal)) throw refusal;
-        throw new PreparationPlanSealError(piece, refusal.reason === "invalid_pages" ? "invalid_pages" : "invalid");
+        unopenedPlans.push(new PreparationPlanSealError(piece, refusal.reason === "invalid_pages" ? "invalid_pages" : "invalid"));
       }
     }
     if (plan && draft.provenance) {
@@ -329,7 +332,18 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
     // attested by its member, which its readiness requires: never in their place.
     if (draft.provenance) source.confirmed = true;
   }
-  return { omittedReferences };
+  return {
+    omittedReferences,
+    /**
+     * Throws, naming it, for a plan the worker would not open that `read` (the preparation as the analysis reads it,
+     * once the revision choices apply) still retains.
+     */
+    assertReadPlansOpen: (read) => {
+      const active = new Set(read.sources.filter((source) => source.active).map((source) => source.document_id));
+      const refused = unopenedPlans.find((error) => active.has(error.piece.id));
+      if (refused) throw refused;
+    },
+  };
 }
 
 export async function saveTakeoffPreparation(input: {
@@ -416,7 +430,7 @@ export async function confirmTakeoffPreparation(input: {
   assertDossierSourcesReviewed(draft, sources);
   validateCanonicalSources(draft, sources);
   // Confirm the actual bytes, including historical imports without a trustworthy hash, as the worker will read them.
-  await sealPreparationSources(draft, { supabase: context.supabase, sources, recordedSizes, onReferenceIssue: "throw" });
+  const sealed = await sealPreparationSources(draft, { supabase: context.supabase, sources, recordedSizes, onReferenceIssue: "throw" });
   const revision = record.revision + 1;
   // A metadata edit during the download cannot be confirmed from an older read.
   const latest = await readPreparationSources(context, input.projectId);
@@ -432,6 +446,7 @@ export async function confirmTakeoffPreparation(input: {
       return readPreparationRevision(context, input.projectId, revision, false);
     }
   }
+  sealed.assertReadPlansOpen(draft);
   const confirmedAt = new Date().toISOString();
   const snapshot = createTakeoffPreparationSnapshot({ preparation: draft, confirmedBy: context.userId, confirmedAt, revision });
   if (draft.provenance) snapshot.execution_selection = await selectionForConfirmation(context, input.expectedExecutionFingerprint);

@@ -322,6 +322,33 @@ describe("the automatic seal of the dossier's pieces", () => {
     expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
   });
 
+  // Written after the second reading: a version the members' revision choice set aside is never opened by the worker.
+  it("starts on the retained version when the version set aside could not be opened", async () => {
+    const { admitted, fake } = dossier();
+    const BROKEN = "aaaaaaaa-0000-4000-8000-000000000051";
+    const brokenPath = `${TENANT}/${PLAN_SET}/${BROKEN}/distribution-rev-b.pdf`;
+    const corrupt = new TextEncoder().encode("%PDF-1.4 plan tronque");
+    const retained = takeoffPreparationSourceSchema.parse({ document_id: PLAN_FILE, document_name: "Distribution rev A.pdf", kind: "plan",
+      revision: "A", source_version: "fixture-version", pages: [], active: true, confirmed: false, plan_set_id: PLAN_SET,
+      file_path: FILE_PATH, page_count: 1, source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf" });
+    const setAside = { ...retained, document_id: BROKEN, document_name: "Distribution rev B.pdf", revision: "B", file_path: brokenPath,
+      source_version: "fixture-version-b" };
+    const draft = buildDeducedTakeoffPreparation({ sources: [retained, setAside], planSetId: PLAN_SET });
+    draft.plan_revision_decisions = [{ left: { document_id: PLAN_FILE, content_hash: createHash("sha256").update(BYTES).digest("hex") },
+      right: { document_id: BROKEN, content_hash: createHash("sha256").update(corrupt).digest("hex") }, choice: "left" }];
+    vi.mocked(loadPreparation).mockResolvedValue({ draft, revision: 3, availableSources: [retained, setAside] } as never);
+    const bytesOf = (path: string) => (path === brokenPath ? corrupt : BYTES);
+    const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
+    vi.spyOn(plans, "info").mockImplementation(async (path: string) => ({ data: { size: bytesOf(path).byteLength }, error: null }) as never);
+    vi.spyOn(plans, "download").mockImplementation(async (path: string) => ({ data: new Blob([Uint8Array.from(bytesOf(path))]), error: null }) as never);
+    vi.mocked(fake.client.storage.from).mockReturnValue(plans as never);
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.plans.map((plan) => plan.plan_file_id)).toEqual([PLAN_FILE]);
+    expect(call.p_manifest.coverage.plans_omitted).toEqual([{ id: BROKEN, name: "Distribution rev B.pdf", reason: "alternate" }]);
+  });
+
   it("names the plan larger than a plan may be when it stops on it, and never downloads it", async () => {
     const { admitted, recorded, fake } = dossier();
     const plans = fake.client.storage.from(PLAN_FILES_BUCKET);

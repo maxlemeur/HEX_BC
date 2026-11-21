@@ -649,6 +649,37 @@ describe("the sealing of a member's confirmation", () => {
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
   });
 
+  // Written after the second reading: the worker never opens a version the revision choices set aside (it only compares
+  // its bytes), so a version it could not open stops a confirmation only once it is retained.
+  it("lets the member set aside a version the worker could not open, and stops on it only when it is retained", async () => {
+    const f = fixture();
+    f.file.file_name = "Distribution rev A.pdf";
+    const broken = { ...f.file, id: "88888888-8888-4888-8888-888888888888",
+      file_name: "Distribution rev B.pdf", file_path: `${M3_TENANT_ID}/plan-b.pdf`, metadata: { revision: "B" } };
+    f.files.push(broken);
+    f.contents.set(broken.file_path, Buffer.from("%PDF-1.4 plan tronque"));
+    broken.file_size_bytes = f.contents.get(broken.file_path)!.byteLength;
+    const { draft } = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft, expectedRevision: null });
+    // Two versions to choose between: the member is asked, nothing is confirmed, both are read and digested.
+    const unresolved = await confirmTakeoffPreparation(confirmation);
+    expect(unresolved.confirmedAt).toBeNull();
+    const choose = async (keep: string, from: typeof unresolved) => {
+      const left = from.draft.sources.find((source) => source.document_id === f.file.id)!;
+      const right = from.draft.sources.find((source) => source.document_id === broken.id)!;
+      from.draft.plan_revision_decisions = [{ left: { document_id: left.document_id, content_hash: left.content_hash! },
+        right: { document_id: right.document_id, content_hash: right.content_hash! }, choice: keep === f.file.id ? "left" : "right" }];
+      const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: from.draft, expectedRevision: from.revision });
+      return confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! });
+    };
+    const kept = await choose(f.file.id, structuredClone(unresolved));
+    expect(kept.confirmedAt).not.toBeNull();
+    expect(kept.draft.sources.filter(({ active }) => active).map(({ document_id }) => document_id)).toEqual([f.file.id]);
+    const reopened = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    await expect(choose(broken.id, structuredClone(reopened))).rejects.toMatchObject({ status: 422, code: "TAKEOFF_PDF_CORRUPTED",
+      message: expect.stringContaining("« Distribution rev B.pdf »") });
+  });
+
   // A page count the dossier does not know leaves the readiness unable to see it; the worker refuses the page.
   it("tells the member a plan page selection the file does not have, and confirms nothing", async () => {
     const f = fixture();

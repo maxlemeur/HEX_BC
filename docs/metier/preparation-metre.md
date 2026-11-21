@@ -140,7 +140,8 @@ la base en garantit l’unicité et l’admission (migration
 - **Ce qui empêche de démarrer** est un état visible, avec son motif, jamais un
   job présenté comme lancé ni un changement de mode de paiement : dossier non
   confirmé ou sans plan exploitable ; plan sans copie de travail ou que l’analyse
-  ne pourrait pas ouvrir (la pièce est nommée) ; choix d’indice à faire ; forfait non connecté, partage révoqué ou
+  ne pourrait pas ouvrir (la pièce est nommée) ; choix d’indice à faire ;
+  forfait non connecté, partage révoqué ou
   connexion expirée, modèle absent, sélection changée depuis la confirmation,
   adresse non autorisée ou application hébergée ; payeur qui n’a plus le droit
   de lancer. Ces blocages du mandat ne se lèvent que par le geste « Reprendre avec
@@ -336,7 +337,9 @@ membre avant sa confirmation, qui n’a pas lieu ; le démarrage automatique la
 laisse de côté et la nomme. Chaque plan est ouvert comme le traitement l’ouvre
 ([`openPreparedPlan`](../../src/lib/takeoff/preparation-source-loader.ts)) : un
 plan invalide ou protégé, ou des pages retenues que le fichier n’a pas, arrêtent
-la confirmation comme le démarrage automatique, en nommant le plan. Le cartouche d’un plan du dossier donne son indice ;
+la confirmation comme le démarrage automatique, en nommant le plan ; une version
+que les choix d’indices écartent n’est jamais ouverte par le traitement et
+n’arrête rien. Le cartouche d’un plan du dossier donne son indice ;
 une page que le rendu ne peut pas dessiner laisse cet indice non lu (le dossier
 ou le nom du fichier le donnent alors), sans écarter le plan : le traitement lit
 le plan sans son cartouche.
