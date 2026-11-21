@@ -330,15 +330,18 @@ armyTest("TKPL01 a plan's building and level show their source, are corrected on
   // Pinned: the origin and the generation it was offered at, and each field carried from it.
   expect(generations[2]).toMatchObject({ carried_from_id: origin.id, carried_from_revision: 2, building_carried: true, level_carried: true });
   await closeLocation();
-  // The other plan with no decision on it (B) receives nothing from A.
+  // The other plan with no decision on it (B) receives nothing from A: no proposal, and its own choices of 4b, never A's
+  // values (its annotation was null before 4b marked its level « À préciser »).
   const untouched = await apiRequest<{ data: TakeoffPlanFileLocation }>(ui.browser, "GET", `/api/takeoff/plan-sets/${planSetId}/files/${ids.b}/location`);
-  expect(untouched.body.data).toMatchObject({ annotation: null, carry_over: null });
+  expect(untouched.body.data).toMatchObject({ carry_over: null, annotation: { revision: 1, carried_from_id: null,
+    building: { choice: "reading", value: null }, level: { choice: "unknown", value: null } },
+    location: { level: { value: null, state: "unknown", origin: "operator" } } });
   // The first analysis read A: its review keeps A's own correction and offers nothing from the newer revision.
   const history = await apiRequest<{ data: TakeoffJobPlanLocations }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/plan-locations`);
   expect(history.body.data.plans.find((plan) => plan.plan_file_id === ids.a)).toMatchObject({ status: "current", reading_issue: null,
     revision: { content_hash: sha256(bytes.a) }, annotation: { revision: 2, level: { value: "L02" } }, carry_over: null });
-  // The corrections made after the analysis (B's, D's) leave the worker's own reading as it was persisted, still the
-  // value known before any correction.
+  // A's correction existed when the worker ran, and D's was made since: the worker's own reading is as it was persisted,
+  // still the value known before any correction.
   const unchangedVector = await apiRequest<{ data: TakeoffVectorReadingResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}/vector-pages`);
   const unchangedPage = unchangedVector.body.data.pages.find((page) => page.plan_file_id === ids.a);
   expect(unchangedPage?.reading).toEqual(rawPage?.reading);
