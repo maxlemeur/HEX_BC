@@ -35,6 +35,7 @@ import {
   createTakeoffPreparationSnapshot, evaluateTakeoffPreparation, TakeoffPreparationNotReadyError,
   type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
 } from "@/lib/takeoff/preparation";
+import { sealedMeasuringOrder } from "@/lib/takeoff/item-list-seal-server";
 import { getDeducedPlanCandidates, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
 import { classifyPreparationReferenceFormat } from "@/lib/takeoff/preparation-reference-loader";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
@@ -358,9 +359,12 @@ async function sealAutomaticSnapshot(service: Service, input: {
         reason: (source.alternate_of && plans.some((plan) => plan.content_hash && plan.content_hash === source.content_hash) ? "identical_copy" : "alternate") as "alternate" | "identical_copy" })),
     ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
   ];
+  // Lot 4: the list of items the request seals, behind the second order's activation (the free extraction before it).
+  const order = await sealedMeasuringOrder(service, { tenantId: input.tenantId, projectId: input.projectId, payerId: input.payerId });
+  if ("blocked" in order) return { state: "blocked", reason: order.blocked, pieces: [] };
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
     omittedPlans, omittedReferences, preparationRevision: snapshot.preparation_revision,
-    budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
+    budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents }, order: order.order });
   return { snapshot, manifest, sourceFile };
 }
 
@@ -558,10 +562,17 @@ export async function launchTakeoffRelaunch(input: {
   const files = await readAllRows(() => context.supabase.from("plan_files").select("id, metadata", { count: "exact" })
     .eq("tenant_id", context.tenantId).eq("plan_set_id", input.planSetId).order("id"));
   if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
+  // Lot 4: the list of items the command seals, behind the second order's activation (the free extraction before it).
+  const order = await sealedMeasuringOrder(service, { tenantId: context.tenantId, projectId: input.projectId,
+    payerId: context.userId });
+  if ("blocked" in order) {
+    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+      message: "La liste des postes est à préparer : importez ou choisissez la DPGF de l’affaire, puis relancez." });
+  }
   const manifest = buildTakeoffLaunchManifest({ intent: "reread_plans", sources: snapshot.preparation.sources,
     intakeDocumentByPlanFile: intakeDocumentsByPlanFile(files.data ?? []),
     omittedPlans: [], omittedReferences: [], preparationRevision: snapshot.preparation_revision,
-    budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
+    budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents }, order: order.order });
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
     ...command, p_host: owner.execution_host_id, p_selection: selection as unknown as Json,
     p_manifest: manifest as unknown as Json, p_snapshot: snapshot as unknown as Json,
