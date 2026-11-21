@@ -1253,14 +1253,21 @@ async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: s
       : doc.classification_status === "classified" && doc.document_kind === "plans"));
   }, DEV_SERVER_WORK).toBe(true);
 }
-/** Opens the affaire until its brief's button shows (the brief is written once the dossier's analysis ends). */
+/**
+ * Opens the affaire until its brief's button shows. The brief is written once the dossier's analysis ends and the page
+ * does not always show it by itself: it is read again until the button is there. The hub opens the brief's section from
+ * the page's address once hydrated, and `next dev` hydrates only after the `load` a reload waits for: each reload is
+ * read once hydrated (a check before it never sees the section, and a reload after it starts over: CI run 44917281697).
+ * Opening the address of the page already shown only moves to its fragment.
+ */
 async function openBriefConfirmation(ui: ReturnType<typeof hydratedUi>, projectId: string) {
   const confirm = ui.screen.getByRole("button", "Confirmer le brief", { exact: true });
   await ui.app.open(`/dashboard/affaires/${projectId}#brief`);
   await expect.poll(async () => {
     if (await confirm.isVisible()) return true;
     await ui.browser.reload();
-    return false;
+    await waitForHydration(ui.browser);
+    return confirm.isVisible();
   }, DEV_SERVER_WORK).toBe(true);
   return confirm;
 }
@@ -1290,16 +1297,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
     const readsBefore = await planReads();
 
     // The member who confirms is told who pays, at the gesture.
-    // The brief is written once the dossier's analysis ends, and the page does not always show it by itself: it is
-    // reloaded until the brief's button is there (its section opens with the page's hydration). Opening the same
-    // address again would only move to its fragment, without reading the page anew.
-    const confirm = screen.getByRole("button", "Confirmer le brief", { exact: true });
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}#brief`);
-    await expect.poll(async () => {
-      if (await confirm.isVisible()) return true;
-      await browser.reload();
-      return false;
-    }, DEV_SERVER_WORK).toBe(true);
+    const confirm = await openBriefConfirmation(ui, ids.projectId);
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText("Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.");
