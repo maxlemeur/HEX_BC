@@ -1060,10 +1060,13 @@ begin
       pg_catalog.jsonb_build_object('schema_version', 1, 'action', 'takeoff.mapping.applied', 'job_id', target_job_id,
         'tenant_id', p_tenant, 'user_id', p_actor, 'metadata', pg_catalog.jsonb_build_object('job_id', target_job_id,
           'item_id', mapped_line.value -> 'item_id', 'rule_id', mapped_line.value -> 'rule_id',
-          'action', mapped_line.value -> 'action',
-          'estimate_item_id', (select output.value -> 'estimate_item_id' from pg_catalog.jsonb_array_elements(links) as output(value)
-            where output.value ->> 'takeoff_item_id' = mapped_line.value ->> 'item_id' limit 1)))
+          'action', mapped_line.value -> 'action', 'estimate_item_id', written.estimate_item_id))
     from pg_catalog.jsonb_array_elements(mapped) with ordinality as mapped_line(value, ordinality)
+    -- The line each one entered (none for a line a rule set aside), read once from the final links.
+    left join (select distinct on (output.value ->> 'takeoff_item_id') output.value ->> 'takeoff_item_id' as takeoff_item_id,
+        output.value -> 'estimate_item_id' as estimate_item_id
+      from pg_catalog.jsonb_array_elements(links) as output(value)
+      order by output.value ->> 'takeoff_item_id') as written on written.takeoff_item_id = mapped_line.value ->> 'item_id'
     order by mapped_line.ordinality;
   end if;
   return pg_catalog.jsonb_build_object('version_id', target_version, 'project_id', job.project_id, 'plan', plan, 'result', result);

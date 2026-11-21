@@ -485,20 +485,29 @@ select is(jsonb_build_array(trim_scale((pg_temp.line(130, 'Lavabo')).quantity), 
 select is(pg_temp.stale_part_lines(10), 0::bigint, 'the count finds none');
 
 -- 5. The application's audit rows, in the send's transaction for a command of format 2: one « takeoff.apply.completed »
--- and one « takeoff.mapping.applied » per line a mapping rule changed, as the server wrote them after the commit; a
--- replay writes none. A command of format 1 gets none from the database.
+-- (its counts as the server read them from the receipt) and one « takeoff.mapping.applied » per line a mapping rule
+-- changed — renamed, or set aside (no estimate line), two equal lengths renamed naming the one line that represents them
+-- —, as the server wrote them after the commit; a replay writes none; an addition to an earlier line counts as updated.
+-- A command of format 1 gets none from the database.
 select pg_temp.affaire(25, 14, 7, 'Affaire aux règles');
-select pg_temp.plan(47, 57, 25, 14);
+select pg_temp.plan(47, 57, 25, 14, 2);
 select pg_temp.plan(48, 58, 25, 14);
+select pg_temp.plan(49, 59, 25, 14);
 select pg_temp.prepare(25, 14, 7, 57, 1);
 select pg_temp.admit(72, 25, 47, 14, 7);
 select pg_temp.measure(93, 72, 14, 57, 'Vanne', 2, 'u');
 select pg_temp.measure(94, 72, 14, 57, 'Coude', 4, 'u');
-insert into public.takeoff_mapping_rules(id, tenant_id, name, match_pattern, match_type, action, action_params, priority)
-values (pg_temp.fx(91), pg_temp.fx(14), 'Vannes renommées', 'Vanne', 'exact', 'rename', '{"designation":"Vanne d''arrêt"}', 10);
+select pg_temp.measure(96, 72, 14, 57, 'Tube PER', 2.4, 'm', 1);
+select pg_temp.measure(97, 72, 14, 57, 'Tube PER', 2.4, 'm', 2);
+insert into public.takeoff_mapping_rules(id, tenant_id, name, match_pattern, match_type, action, action_params, priority) values
+  (pg_temp.fx(91), pg_temp.fx(14), 'Vannes renommées', 'Vanne', 'exact', 'rename', '{"designation":"Vanne d''arrêt"}', 10),
+  (pg_temp.fx(92), pg_temp.fx(14), 'Coudes écartés', 'Coude', 'exact', 'skip', '{}', 20),
+  (pg_temp.fx(93), pg_temp.fx(14), 'Tubes renommés', 'Tube PER', 'exact', 'rename', '{"designation":"Tube PER 16"}', 30);
 insert into commands values ('audited', pg_temp.command(72, pg_temp.first_draft(150), pg_temp.new_section(151),
-  p_mapping => (select jsonb_agg(case when entry ->> 'item_id' = pg_temp.fx(93)::text
-      then entry || jsonb_build_object('rule_id', pg_temp.fx(91), 'action', 'rename', 'designation', 'Vanne d''arrêt') else entry end
+  p_mapping => (select jsonb_agg(case entry ->> 'item_id'
+      when pg_temp.fx(93)::text then entry || jsonb_build_object('rule_id', pg_temp.fx(91), 'action', 'rename', 'designation', 'Vanne d''arrêt')
+      when pg_temp.fx(94)::text then entry || jsonb_build_object('rule_id', pg_temp.fx(92), 'action', 'skip')
+      else entry || jsonb_build_object('rule_id', pg_temp.fx(93), 'action', 'rename', 'designation', 'Tube PER 16') end
       order by (entry ->> 'source_order')::integer) from jsonb_array_elements(pg_temp.mapping_plan(72)) as entry),
   p_format => 2));
 create function pg_temp.attempt(p_name text) returns jsonb language plpgsql as $$
@@ -508,30 +517,53 @@ exception when others then
   return jsonb_build_object('raised', sqlerrm);
 end;
 $$;
+create function pg_temp.lines(p_version integer) returns jsonb language sql as $$
+  select coalesce(jsonb_agg(jsonb_build_array(i.title, trim_scale(i.quantity), i.unit_code, i.unit_price_ht_cents)
+    order by i.title collate "C", i.quantity), '[]'::jsonb)
+  from public.estimate_items i where i.version_id = pg_temp.fx(p_version) and i.item_type = 'line'
+$$;
+-- The completed row as the server wrote it: the counts of the receipt of that send.
+create function pg_temp.completed_row(p_job integer) returns jsonb language sql as $$
+  select jsonb_build_object('table', 'takeoff_jobs', 'record', pg_temp.fx(p_job), 'version', receipt.target_version_id,
+    'user', pg_temp.fx(7), 'after_data', jsonb_build_object('schema_version', 1, 'action', 'takeoff.apply.completed',
+      'job_id', pg_temp.fx(p_job), 'tenant_id', pg_temp.fx(14), 'user_id', pg_temp.fx(7),
+      'metadata', jsonb_build_object('estimate_version_id', receipt.target_version_id,
+        'applied_items_count', (receipt.result ->> 'created_count')::integer + (receipt.result ->> 'updated_count')::integer,
+        'excluded_items_count', (receipt.result ->> 'ignored_count')::integer)))
+  from public.takeoff_send_receipts receipt where receipt.job_id = pg_temp.fx(p_job)
+$$;
+create function pg_temp.completed_rows(p_job integer) returns setof jsonb language sql as $$
+  select jsonb_build_object('table', audit.table_name, 'record', audit.record_id, 'version', audit.estimate_version_id,
+    'user', audit.user_id, 'after_data', audit.after_data)
+  from public.audit_logs audit where audit.record_id = pg_temp.fx(p_job) and audit.action = 'takeoff.apply.completed'
+$$;
 select pg_temp.sign_in(7);
 set local role authenticated;
 create temp table audited_receipt as select pg_temp.attempt('audited') as receipt;
 reset role;
 select is((select receipt ->> 'raised' from audited_receipt), null, 'the send of format 2 is admitted');
-select results_eq($$select audit.table_name, audit.record_id, audit.estimate_version_id, audit.user_id, audit.after_data
-  from public.audit_logs audit where audit.tenant_id = pg_temp.fx(14) and audit.action = 'takeoff.apply.completed'$$,
-  $$values ('takeoff_jobs'::text, pg_temp.fx(72), pg_temp.fx(150), pg_temp.fx(7), jsonb_build_object('schema_version', 1,
-    'action', 'takeoff.apply.completed', 'job_id', pg_temp.fx(72), 'tenant_id', pg_temp.fx(14), 'user_id', pg_temp.fx(7),
-    'metadata', jsonb_build_object('estimate_version_id', pg_temp.fx(150), 'applied_items_count', 2, 'excluded_items_count', 0)))$$,
-  'the send of format 2 wrote the application''s audit row in its transaction');
-select results_eq($$select audit.table_name, audit.record_id, audit.estimate_version_id, audit.after_data
-  from public.audit_logs audit where audit.tenant_id = pg_temp.fx(14) and audit.action = 'takeoff.mapping.applied'$$,
-  $$values ('takeoff_items'::text, pg_temp.fx(72), pg_temp.fx(150), jsonb_build_object('schema_version', 1,
-    'action', 'takeoff.mapping.applied', 'job_id', pg_temp.fx(72), 'tenant_id', pg_temp.fx(14), 'user_id', pg_temp.fx(7),
-    'metadata', jsonb_build_object('job_id', pg_temp.fx(72), 'item_id', pg_temp.fx(93), 'rule_id', pg_temp.fx(91),
-      'action', 'rename', 'estimate_item_id', (pg_temp.line(150, 'Vanne d''arrêt')).id)))$$,
-  'and one row for the line its mapping rule renamed, naming the line it wrote');
+select is(jsonb_build_array(pg_temp.lines(150), (select receipt.result -> 'created_count' from public.takeoff_send_receipts receipt
+    where receipt.job_id = pg_temp.fx(72))),
+  '[[["Tube PER 16", 5, "ml", 0], ["Vanne d''arrêt", 2, "u", 0]], 2]'::jsonb,
+  'it wrote the renamed valve and one line for the two renamed tubes; the elbow was set aside');
+select results_eq($$select pg_temp.completed_rows(72)$$, $$select pg_temp.completed_row(72)$$,
+  'it wrote the application''s audit row in its transaction, with the counts of its receipt');
+select results_eq($$select audit.table_name, audit.record_id, audit.estimate_version_id, audit.after_data - 'metadata',
+    audit.after_data -> 'metadata' from public.audit_logs audit
+  where audit.record_id = pg_temp.fx(72) and audit.action = 'takeoff.mapping.applied' order by audit.after_data #>> '{metadata,item_id}'$$,
+  $$select 'takeoff_items'::text, pg_temp.fx(72), pg_temp.fx(150), jsonb_build_object('schema_version', 1,
+      'action', 'takeoff.mapping.applied', 'job_id', pg_temp.fx(72), 'tenant_id', pg_temp.fx(14), 'user_id', pg_temp.fx(7)),
+    jsonb_build_object('job_id', pg_temp.fx(72), 'item_id', pg_temp.fx(item_no), 'rule_id', pg_temp.fx(rule_no), 'action', action,
+      'estimate_item_id', (pg_temp.line(150, title)).id)
+  from (values (93, 91, 'rename', 'Vanne d''arrêt'), (94, 92, 'skip', null), (96, 93, 'rename', 'Tube PER 16'),
+    (97, 93, 'rename', 'Tube PER 16')) as expected(item_no, rule_no, action, title) order by pg_temp.fx(item_no)::text$$,
+  'and one row per line a mapping rule changed: the line it entered, none for the elbow set aside, the one tube line for both tubes');
 select pg_temp.sign_in(7);
 set local role authenticated;
 select is((select pg_temp.run((select body from commands where name = 'audited')) ->> 'replayed'), 'true', 'the same request replays');
 reset role;
-select is((select count(*) from public.audit_logs audit where audit.tenant_id = pg_temp.fx(14)
-    and audit.action in ('takeoff.apply.completed', 'takeoff.mapping.applied')), 2::bigint, 'a replay writes no audit row again');
+select is((select count(*) from public.audit_logs audit where audit.record_id = pg_temp.fx(72)
+    and audit.action in ('takeoff.apply.completed', 'takeoff.mapping.applied')), 5::bigint, 'a replay writes no audit row again');
 
 select pg_temp.prepare(25, 14, 7, 58, 2);
 select pg_temp.admit(73, 25, 48, 14, 7);
@@ -546,6 +578,57 @@ reset role;
 select is((select count(*) from public.audit_logs audit where audit.tenant_id = pg_temp.fx(14) and audit.record_id = pg_temp.fx(73)
     and audit.action in ('takeoff.apply.completed', 'takeoff.mapping.applied')), 0::bigint,
   'and gets no audit row from the database: the previous application writes it after the commit');
+
+-- An addition of format 2 to the renamed valve's line: 2 + 1, counted as one line updated and none created.
+select pg_temp.prepare(25, 14, 7, 59, 3);
+select pg_temp.admit(74, 25, 49, 14, 7);
+select pg_temp.measure(98, 74, 14, 59, 'Vanne d''arrêt', 1, 'u');
+insert into commands values ('added', pg_temp.command(74, pg_temp.draft(150), pg_temp.existing_section(151),
+  pg_temp.accumulation(98, 150, 'Vanne d''arrêt'), p_format => 2));
+select pg_temp.sign_in(7);
+set local role authenticated;
+select lives_ok($$select pg_temp.confirm('added')$$, 'the addition of format 2 is sent');
+reset role;
+select is((pg_temp.line(150, 'Vanne d''arrêt')).quantity, 3::numeric, 'the valve line holds 3');
+select results_eq($$select pg_temp.completed_rows(74)$$, $$select pg_temp.completed_row(74)$$,
+  'its audit row counts the line it updated');
+select is((select (after_data #>> '{metadata,applied_items_count}')::integer from public.audit_logs
+    where record_id = pg_temp.fx(74) and action = 'takeoff.apply.completed'), 1, 'one line updated, none created');
+
+-- 6. A page replacement on a line no send fed twice: it gets no `takeoff_contributions` (no parts appear on it).
+select pg_temp.affaire(26, 10, 1, 'Affaire remesurée sans parts');
+select pg_temp.plan(50, 60, 26, 10);
+select pg_temp.prepare(26, 10, 1, 60, 1);
+select pg_temp.admit(75, 26, 50, 10, 1);
+select pg_temp.measure(99, 75, 10, 60, 'Siphon', 1, 'u');
+insert into commands values ('siphon', pg_temp.command(75, pg_temp.first_draft(160), pg_temp.new_section(161)));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select lives_ok($$select pg_temp.confirm('siphon')$$, 'the first takeoff of the page is sent');
+reset role;
+select pg_temp.prepare(26, 10, 1, 60, 2);
+select pg_temp.admit(76, 26, 50, 10, 1);
+select pg_temp.measure(100, 76, 10, 60, 'Siphon', 2, 'u');
+insert into public.draft_locks(version_id, user_id, tenant_id, expires_at, session_id)
+values (pg_temp.fx(160), pg_temp.fx(1), pg_temp.fx(10), now() + interval '30 minutes', gen_random_uuid());
+insert into commands select 'siphon-again', pg_temp.command(76, pg_temp.draft(160), pg_temp.existing_section(161),
+  p_page_decisions => jsonb_build_array(jsonb_build_object(
+    'document', jsonb_build_object('plan_file_id', pg_temp.fx(60), 'content_hash', pg_temp.hash(60), 'logical_document_id', null,
+      'file_name', 'plan-60.pdf'),
+    'source_page', 1, 'earlier_job_ids', jsonb_build_array(pg_temp.fx(75)), 'decision', 'replace', 'reason_code', null, 'note', null,
+    'lines', jsonb_build_array(jsonb_build_object('estimate_item_id', (pg_temp.line(160, 'Siphon')).id,
+      'expected_updated_at', (pg_temp.line(160, 'Siphon')).updated_at, 'action', 'update', 'take', null,
+      'item_ids', jsonb_build_array(pg_temp.fx(99)))),
+    'pairs', jsonb_build_array(jsonb_build_object('takeoff_item_id', pg_temp.fx(100),
+      'estimate_item_id', (pg_temp.line(160, 'Siphon')).id)))));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select lives_ok($$select pg_temp.confirm('siphon-again')$$, 'the page is replaced');
+reset role;
+select is(jsonb_build_array(trim_scale((pg_temp.line(160, 'Siphon')).quantity),
+    (pg_temp.line(160, 'Siphon')).source_metadata ? 'takeoff_contributions',
+    (pg_temp.line(160, 'Siphon')).source_metadata #>> '{takeoff_page_replacement,job_id}'),
+  jsonb_build_array(2, false, pg_temp.fx(76)), 'the line holds the new measure and no parts');
 
 select * from finish();
 rollback;

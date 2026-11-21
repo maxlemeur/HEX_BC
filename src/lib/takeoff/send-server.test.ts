@@ -101,6 +101,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   dryRunError?: Record<string, unknown>;
   /** false: the session reads no receipt, as a retry that raced the first attempt's commit. */
   receiptsVisible?: boolean;
+  /** What the receipt says of the version the send wrote to (a first draft by default). */
+  sentVersion?: { version_created: boolean; source_version_id: string | null };
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
@@ -142,7 +144,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
         }
         return { data: { id: "a0000000-0000-4000-8000-000000000001", job_id: JOB, project_id: PROJECT, request_id: request,
           target_version_id: committed.get(request),
-          result: { version_created: true, source_version_id: null, created_count: 1, lines_created: [] }, replayed }, error: null };
+          result: { version_created: true, source_version_id: null, ...options.sentVersion, created_count: 1, lines_created: [] },
+          replayed }, error: null };
       },
     },
   });
@@ -313,6 +316,11 @@ describe("sendTakeoffJob — a first draft is created with the settings of its p
     const sent = fake.staged().find((command) => command.mode === "send");
     expect((sent?.destination as { version_payload: Record<string, unknown> }).version_payload)
       .toMatchObject({ date_devis: "2026-11-22", sale_coefficient_fo: 1.3 });
+    // After the commit: the first draft's defaults and the draft's rules, once; the audit rows are the send's own.
+    expect([vi.mocked(ensureDefaultEstimateCategories).mock.calls.length, vi.mocked(ensureDefaultLaborRoles).mock.calls.length,
+      vi.mocked(recomputeTakeoffRulesQuietly).mock.calls.length]).toEqual([1, 1, 1]);
+    expect(logTakeoffAuditEvent).not.toHaveBeenCalled();
+    expect(logTakeoffMappingApplyAuditEvents).not.toHaveBeenCalled();
   });
 });
 
@@ -378,5 +386,23 @@ describe("sendTakeoffJob — what follows the commit, on a replay too", () => {
     expect(replayed.replayed).toBe(true);
     expect(ensureDefaultLaborRoles).toHaveBeenCalledTimes(1);
     expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sendTakeoffJob — the defaults belong to a first draft only, on a replay too", () => {
+  it.each([
+    ["a copy of an issued version", { version_created: true, source_version_id: "30000000-0000-4000-8000-000000000009" }],
+    ["an existing draft", { version_created: false, source_version_id: null }],
+  ])("replays a send to %s without creating defaults, and recomputes its rules", async (_label, sentVersion) => {
+    setUp([], { sentVersion });
+    vi.mocked(prepareCanonicalEstimateCreation).mockResolvedValue({ versionPayload: versionPayload("2026-11-21", 1.3) } as never);
+    const preview = await previewTakeoffSend(JOB, {});
+    const payload = { request_id: REQUEST, fingerprint: preview.fingerprint, destination: { kind: "first_draft" }, section: { kind: "new" } };
+    await sendTakeoffJob(JOB, payload);
+    const replayed = await sendTakeoffJob(JOB, payload);
+
+    expect(replayed.replayed).toBe(true);
+    expect([vi.mocked(ensureDefaultEstimateCategories).mock.calls.length, vi.mocked(ensureDefaultLaborRoles).mock.calls.length,
+      vi.mocked(recomputeTakeoffRulesQuietly).mock.calls.length]).toEqual([0, 0, 2]);
   });
 });

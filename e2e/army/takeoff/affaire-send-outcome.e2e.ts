@@ -356,11 +356,20 @@ armyTest("TKAW05 a PE gas line accepted on its own is blocked again by the overl
     await expect(dialog.getByRole("button", "Confirmer l'envoi", { exact: true })).toBeDisabled();
     const refusedShown = await ui.app.screenshot("takeoff-affaire-send-gas-engineer-refused");
     // Asked directly, the server refuses it with the same reason, and writes nothing.
-    const previewed = await apiRequest<{ data: { fingerprint: string; section: { kind: "new" } | { kind: "existing"; id: string } } }>(
+    const previewed = await apiRequest<{ data: { fingerprint: string; section: { kind: "new" } | { kind: "existing"; id: string };
+      outcome_pending: string | null; controls: { cross_takeoff: { duplicates: string } | null;
+        blocked_items: Array<{ item_id: string; is_verified: boolean; reasons: string[]; rule_failures?: Array<{ rule: string; code: string }> }>;
+        medium_items: Array<{ item_id: string }> } } }>(
       ui.browser, "POST", `/api/takeoff/jobs/${b.jobId}/send-to-estimate/preview`,
       { destination: { kind: "existing_draft", version_id: copyId } });
     expect(previewed.status).toBe(200);
     const shownSection = previewed.body.data.section;
+    // What blocks it is its PE gas failure alone, no longer accepted: the overlap, evaluated for this copy, is not among
+    // the failures that block it.
+    expect(previewed.body.data).toMatchObject({ outcome_pending: "blocked", controls: { cross_takeoff: { duplicates: "evaluated" } } });
+    expect(previewed.body.data.controls.blocked_items.map((item) => [item.item_id, item.is_verified, item.reasons,
+      item.rule_failures?.map((entry) => [entry.rule, entry.code])]))
+      .toEqual([[runB.id, false, ["rule_failed"], [["dn_network", "DN_NETWORK_GAS_PE_REQUIRES_JUSTIFICATION"]]]]);
     const forcedByEngineer = await apiRequest<{ error: { code: string; details?: { blocked_items?: Array<{ item_id: string;
       reasons: string[] }> } } }>(ui.browser, "POST", `/api/takeoff/jobs/${b.jobId}/send-to-estimate`, {
       request_id: randomUUID(), fingerprint: previewed.body.data.fingerprint, destination: { kind: "existing_draft", version_id: copyId },
