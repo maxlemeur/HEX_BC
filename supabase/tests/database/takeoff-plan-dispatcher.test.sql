@@ -28,21 +28,21 @@ update public.feature_flags set enabled = true where tenant_id = pg_temp.f(10) a
 insert into public.tenant_memberships (tenant_id, user_id, role, is_default, created_at) values
   (pg_temp.f(10), pg_temp.f(1), 'engineer', true, '2020-01-01'),
   (pg_temp.f(10), pg_temp.f(3), 'director', true, '2020-01-01');
--- Affaires 20 to 26, each with its dossier's plan set (40 + n) of plans (named so that their order is not their identifier's).
+-- Affaires 20 to 27, each with its dossier's plan set (40 + n) of plans (named so that their order is not their identifier's).
 insert into public.estimate_projects (id, tenant_id, user_id, name)
-select pg_temp.f(20 + n), pg_temp.f(10), pg_temp.f(1), 'Affaire par plan ' || n || ' (fictive)' from generate_series(0, 6) as n;
+select pg_temp.f(20 + n), pg_temp.f(10), pg_temp.f(1), 'Affaire par plan ' || n || ' (fictive)' from generate_series(0, 7) as n;
 insert into public.affaire_intake_uploads (id, project_id, created_by, status)
-select pg_temp.f(30 + n), pg_temp.f(20 + n), pg_temp.f(1), 'ready' from generate_series(0, 6) as n;
+select pg_temp.f(30 + n), pg_temp.f(20 + n), pg_temp.f(1), 'ready' from generate_series(0, 7) as n;
 insert into public.affaire_briefs (id, project_id, upload_id, status, summary, project_object, confirmed_at, confirmed_by)
 select pg_temp.f(60 + n), pg_temp.f(20 + n), pg_temp.f(30 + n), 'confirme', 'Résumé fictif', 'Objet fictif', now(), pg_temp.f(1)
-from generate_series(0, 6) as n;
+from generate_series(0, 7) as n;
 insert into public.plan_sets (id, tenant_id, project_id, name)
-select pg_temp.f(40 + n), pg_temp.f(10), pg_temp.f(20 + n), 'Plans du dossier' from generate_series(0, 6) as n;
--- Plan files 100 + 10 n + k (k = 1..3; affaire 26 holds 7 plans).
+select pg_temp.f(40 + n), pg_temp.f(10), pg_temp.f(20 + n), 'Plans du dossier' from generate_series(0, 7) as n;
+-- Plan files 100 + 10 n + k (k = 1..3; affaire 26 holds 7 plans, 161 to 167).
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 select pg_temp.f(100 + 10 * n + k), pg_temp.f(10), pg_temp.f(40 + n), 'plan-' || (4 - k) || '.pdf',
   concat_ws('/', pg_temp.f(10), pg_temp.f(40 + n), pg_temp.f(100 + 10 * n + k), 'plan-' || (4 - k) || '.pdf'), 'application/pdf', 8, 9
-from generate_series(0, 5) as n cross join generate_series(1, 3) as k
+from (select n from generate_series(0, 7) as n where n <> 6) as n cross join generate_series(1, 3) as k
 union all
 select pg_temp.f(160 + k), pg_temp.f(10), pg_temp.f(46), 'plan-' || k || '.pdf',
   concat_ws('/', pg_temp.f(10), pg_temp.f(46), pg_temp.f(160 + k), 'plan-' || k || '.pdf'), 'application/pdf', 8, 1
@@ -174,12 +174,15 @@ select results_eq($$select outcome from public.launch_manual_takeoff_plan_reques
   pg_temp.f(46), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(46)))$$,
   $$values ('admitted'::text)$$, 'a request of seven plans is admitted: its units count as one analysis');
 select is((select count(*)::integer from public.takeoff_jobs where launch_request_id = pg_temp.request(26)), 7, 'with its seven jobs');
+-- Ten jobs of this member now wait (three requests' worth would be counted eleven by jobs): a third request is admitted.
+select results_eq($$select outcome from pg_temp.launch(27)$$, $$values ('admitted'::text)$$,
+  'with ten jobs waiting in two requests, a third request is still admitted: requests are counted, not their units');
 -- Its units are set aside here (without their triggers) so that the next sections start from an idle Mac.
 set local session_replication_role = replica;
 update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now(),
-  next_retry_at = null where launch_request_id = pg_temp.request(26);
+  next_retry_at = null where launch_request_id in (pg_temp.request(26), pg_temp.request(27));
 update public.takeoff_launch_requests set state = 'closed', outcome = 'canceled', closed_at = now(), completion_event_id = gen_random_uuid(),
-  units_canceled = 7 where id = pg_temp.request(26);
+  units_canceled = units_expected where id in (pg_temp.request(26), pg_temp.request(27));
 set local session_replication_role = origin;
 
 -- The seal refuses a manifest that does not match its snapshot or the recorded rules.
@@ -319,6 +322,16 @@ select pg_temp.complete(pg_temp.unit(22, 2));
 select is((select status::text from public.takeoff_jobs where id = pg_temp.unit(22, 2)), 'canceled', 'it stays cancelled');
 select is((select count(*)::integer from public.audit_logs where action = 'takeoff.job.canceled'
   and after_data #>> '{metadata,launch_request_id}' = pg_temp.request(22)::text), 2, 'each cancellation is traced');
+-- A stop after a plan failed and before any was read: a failure, not a partial end (nothing was read).
+select results_eq($$select outcome from pg_temp.launch(21)$$, $$values ('admitted'::text)$$, 'a request whose first plan fails');
+select is(pg_temp.claim(pg_temp.unit(21, 1), 941), 1, 'its first plan is claimed');
+select pg_temp.fail(pg_temp.unit(21, 1), 'TAKEOFF_PDF_NOT_INTERPRETABLE');
+select results_eq($$select request_state from public.stop_takeoff_launch_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
+  pg_temp.request(21))$$, $$values ('closed'::text)$$, 'the rest of it is stopped');
+select results_eq($$select r.outcome, r.units_failed, r.units_canceled, n.outcome, n.reason_code from public.takeoff_launch_requests r
+    join public.takeoff_completion_notifications n on n.request_id = r.id where r.id = pg_temp.request(21)$$,
+  $$values ('failure'::text, 1, 2, 'failure'::text, 'TAKEOFF_PDF_NOT_INTERPRETABLE'::text)$$,
+  'no plan read and one failed: the request failed, with the failure''s public reason');
 -- A full stop before any plan is read: cancelled, no e-mail.
 select results_eq($$select outcome from pg_temp.launch(23)$$, $$values ('admitted'::text)$$, 'a third request');
 select results_eq($$select request_state, canceled_units from public.stop_takeoff_launch_request(pg_temp.f(10), pg_temp.f(23),
