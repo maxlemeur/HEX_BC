@@ -391,6 +391,13 @@ globalThis.fetch = async (input, init) => {
       detectedLots: ["Plomberie"], detectedVariants: [], documentNature: word ? "Notice technique" : "Vue isométrique",
     } };
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), inputKind: "intake-classification", sourceFormat: word ? "word-text" : image ? "image" : "pdf" }) + "\n");
+    // `holdClassification` (AUTO05) keeps a dossier piece being classified, so that the brief is confirmed before the
+    // dossier is ready; the journey releases it within its own waits.
+    const classificationDeadline = Date.now() + 240_000;
+    while (JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).holdClassification) {
+      if (Date.now() >= classificationDeadline) throw new Error("The controlled classification response was not released.");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     return new Response([
       { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify(output) },
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },

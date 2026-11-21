@@ -92,7 +92,11 @@ la base en garantit l’unicité et l’admission (migration
 `20261121111238_takeoff_launch_requests.sql`).
 
 - **Une seule fois par affaire.** La confirmation du brief réserve la demande
-  automatique de l’affaire ; l’analyse démarre quand le dossier est « Dossier
+  automatique de l’affaire, dans la transaction qui confirme le brief : celle du
+  serveur (qui écrit aussi l’événement du brief et le mandat), ou toute autre
+  confirmation, qui la réserve sans mandat, en attente d’un geste. L’activation
+  demande les deux dates (démarrage automatique et avis de fin d’analyse) : avec
+  une seule, rien de nouveau n’est écrit. L’analyse démarre quand le dossier est « Dossier
   confirmé » (même règle que le titre du parcours : pièces présentes, aucune à
   revoir ni en classement, brief confirmé), que le classement finisse avant ou
   après la confirmation. Il n’y a qu’une demande automatique, pour toute la vie
@@ -104,8 +108,14 @@ la base en garantit l’unicité et l’admission (migration
   lancer un métré sur l’affaire (administrateur, ou ingénieur propriétaire de
   l’affaire). Il en est averti dans la confirmation : « Une fois les plans prêts,
   le métré utilisera votre forfait ChatGPT et les réglages de Mon profil. » Le
-  mandat porte sur cette demande, cette affaire, ce membre, la sélection de son
-  profil et le Mac du geste. Un lecteur qui confirme ne paie pas : « Métré non
+  mandat n’est payable que si la confirmation porte cette mention telle qu’elle a
+  été montrée (ce membre, ce forfait et ces réglages, cette activation) ; un
+  formulaire ouvert avant l’activation ou montré sans la mention confirme le brief
+  et n’engage personne (« Métré non démarré — la confirmation du dossier n’a
+  engagé aucun forfait ChatGPT »). Le mandat porte sur cette demande, cette
+  affaire, ce membre, la sélection de son profil, la connexion ChatGPT en cours et
+  le Mac du geste ; une déconnexion ou une reconnexion le retire (« partage
+  révoqué ») quel que soit l’état du dossier, jusqu’au geste du payeur. Un lecteur qui confirme ne paie pas : « Métré non
   démarré — prise en charge par un métreur requise » ; un opérateur peut alors
   la prendre en charge sur son propre forfait par un geste explicite, et reçoit
   sa fin.
@@ -124,7 +134,10 @@ la base en garantit l’unicité et l’admission (migration
   connexion expirée, modèle absent, sélection changée depuis la confirmation,
   adresse non autorisée ou application hébergée ; payeur qui n’a plus le droit
   de lancer. Ces blocages du mandat ne se lèvent que par le geste « Reprendre avec
-  mon forfait » du payeur, ou « Prendre en charge » d’un autre opérateur. Les
+  mon forfait » du payeur, ou « Prendre en charge » d’un autre opérateur. Le geste
+  porte la révision du mandat et l’action que l’affaire lui proposait : si l’une
+  a changé entre-temps (un autre geste, une nouvelle confirmation), il est refusé.
+  Le rejeu d’une confirmation renvoie la demande telle qu’elle est. Les
   causes passagères (limite d’admission, lecture d’une pièce, autre analyse en
   cours sur l’affaire) sont réessayées par le Mac.
 - **Une seule demande admise à la fois par affaire.** Une relance pendant
@@ -136,9 +149,13 @@ la base en garantit l’unicité et l’admission (migration
   cause passagère à réessayer) depuis plus de quinze minutes peut être reprise
   par son payeur ou prise en charge par un autre opérateur. Trois vérifications
   du dossier qui échouent de suite la bloquent avec ce motif jusqu’à un geste.
-- **Budget.** Les jetons et le coût observés de toutes les tentatives sont
-  cumulés sur la demande ; le contrôle d’un budget de demande avant une nouvelle
-  tentative n’est pas encore appliqué (lot 3, avec le journal des appels).
+- **Budget.** La demande scelle à son admission le budget par job de la lecture
+  détaillée de l’entreprise (jetons et coût). Les jetons et le coût de chaque
+  tentative de ses jobs, échouées comprises, sont cumulés sur la demande ; chaque
+  tentative payante n’a que ce qui reste, et une demande dont le budget est épuisé
+  s’arrête avant tout appel et se ferme avec ce motif (« Métré arrêté — le budget
+  de cette analyse est épuisé »). Le lot 3 le répartira par plan. Les appels des
+  groupes vectoriels ne sont pas encore comptés.
 - **Fin.** La fin enregistrée du job ferme la demande et publie un seul avis et
   un seul courriel à son payeur ; les jobs d’une demande ne publient pas d’avis
   propre. Un job jamais pris en charge est clos par la reprise des métrés en attente, et la
@@ -146,9 +163,13 @@ la base en garantit l’unicité et l’admission (migration
 - **Dossier modifié depuis l’analyse.** Un plan ajouté, remplacé ou retiré après
   l’admission est signalé sur l’affaire ; rien n’est relancé sans un geste.
 - **Relancer** crée une nouvelle demande manuelle, un nouveau job et un lien vers
-  le précédent, sur le forfait du membre qui clique, qui en reçoit la fin. Sa clé
-  survit au double clic et au rejeu ; la même clé avec un autre contenu est
-  refusée.
+  l’analyse qu’elle remplace (obligatoire), sur le forfait du membre qui clique,
+  qui en reçoit la fin. Sa clé est enregistrée avec chaque réponse et répondue
+  avant toute autre vérification : un double clic ou un rejeu reçoit la même
+  réponse, même si la préparation a changé depuis ; une relance refusée parce
+  qu’une autre analyse tournait reste refusée, sans job payant ; la même clé pour
+  une autre commande est refusée. Le module du métré désactivé refuse la relance,
+  la prise en charge et la reprise.
 - **Avant chaque appel payant**, le worker vérifie que le payeur peut toujours
   lancer un métré sur l’affaire. Un membre rétrogradé après avoir mis une analyse
   en file, ou qui n’est plus propriétaire de l’affaire, ne dépense plus rien :

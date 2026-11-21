@@ -12,7 +12,10 @@ const POLL_INTERVAL_MS = 15_000;
  * the owner's activation the database hands it nothing.
  */
 export function startLocalTakeoffLaunchConsumer() {
-  if (!isLocalChatGptEnabled() || process.env.E2E_ARMY_BLOCK_WORKERS === "1" || !createOptionalServiceRoleClient()) return;
+  // A campaign blocks the background workers; one that tests this consumer runs it (E2E_ARMY_LAUNCH_CONSUMER): it acts
+  // only on the requests of the automatic start, which exist only while a journey sets both cut-offs.
+  const blocked = process.env.E2E_ARMY_BLOCK_WORKERS === "1" && process.env.E2E_ARMY_LAUNCH_CONSUMER !== "1";
+  if (!isLocalChatGptEnabled() || blocked || !createOptionalServiceRoleClient()) return;
   let running = false;
   const pass = async () => {
     if (running) return;
