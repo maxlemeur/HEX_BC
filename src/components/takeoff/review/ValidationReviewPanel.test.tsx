@@ -36,7 +36,7 @@ describe("ValidationReviewPanel", () => {
 
   it("does not say all controls passed when the estimate comparison is deferred", () => {
     render(<ValidationReviewPanel items={[makeItem()]}
-      readiness={{ state: "blocked", blockers: ["no_destination"], canOpen: false, message: "", guidance: null }} />);
+      readiness={{ state: "ready", blockers: [], canOpen: true, message: "", guidance: null, comparisonDeferred: true }} />);
     expect(screen.queryByText(/Tous les items sont conformes/)).toBeNull();
     expect(screen.getByText("Comparaison au devis disponible à l’envoi.")).toBeTruthy();
   });

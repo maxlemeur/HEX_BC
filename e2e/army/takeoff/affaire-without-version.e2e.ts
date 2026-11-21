@@ -224,3 +224,161 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
     screenshots: [fullScreenshot, targetedScreenshot],
     versionCount: 0, estimateLineCount: 0, foreign: foreign.status, readOnlyWrite: rejected.status });
 });
+
+armyTest("TKAW02 the takeoff of an affaire without a version creates its first draft at the confirmation only, once", {
+  session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 240_000,
+}, async (ui) => {
+  await ui.app.open("/dashboard/affaires");
+  const owner = await signUpWorkerOwner(ui, "AWS");
+  const { tenantId, userId } = owner;
+  const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+  const workerKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || !["localhost", "127.0.0.1", "[::1]"].includes(backend.hostname)
+    || backend.hostname !== process.env.E2E_ALLOWED_SUPABASE_HOST || !workerKey) {
+    throw new Error("An owned local worker stack is required.");
+  }
+  const setup = createClient(backend.origin, workerKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const projectId = randomUUID();
+  const planSetId = randomUUID();
+  const planFileId = randomUUID();
+  const name = "plan-fictif-envoi-R-1.pdf";
+  const filePath = `${tenantId}/${planSetId}/${planFileId}/${name}`;
+  const bytes = await buildVectorPlanPdf();
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  expect((await setup.from("estimate_projects").insert({ id: projectId, tenant_id: tenantId, user_id: userId,
+    name: `${ui.army.runPrefix} envoi sans devis` })).error).toBeNull();
+  expect((await setup.from("plan_sets").insert({ id: planSetId, tenant_id: tenantId, project_id: projectId, name: "Plans fictifs" })).error).toBeNull();
+  expect((await setup.storage.from("plan-files").upload(filePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
+  const plan = await setup.from("plan_files").insert({ id: planFileId, tenant_id: tenantId, plan_set_id: planSetId, file_name: name,
+    file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length, page_count: 1 })
+    .select("id,plan_set_id,file_path,file_name,file_size_bytes,file_hash,page_count,updated_at").single();
+  expect(plan.error).toBeNull();
+  (ui.army.ownedPlanSets ??= []).push({ projectId, planSetId, tenantId });
+  (ui.army.ownedTakeoffAffaires ??= []).push(projectId);
+  const preparation = createEmptyTakeoffPreparation({ estimateVersionId: null });
+  preparation.objective = "measure_length";
+  preparation.objective_confirmed = true;
+  preparation.scope = { ...preparation.scope, lots: ["Plomberie"], networks: ["EF"], confirmed: true };
+  preparation.sources = [{ document_id: planFileId, document_name: name, kind: "plan", revision: "A", source_version: getPreparationPlanSourceVersion(plan.data!),
+    content_hash: hash, pages: [1], active: true, confirmed: true, plan_set_id: planSetId, file_path: filePath, page_count: 1,
+    logical_document_id: null, source_updated_at: plan.data!.updated_at, mime_type: "application/pdf", page_triage: null }];
+  preparation.conventions = { unit: "m", measurement_basis: "dimensioned", calibration: null, purchase: null, confirmed: true };
+  preparation.destination = { kind: "analysis_only", estimate_version_id: null, reviewer: null, confirmed: true };
+  preparation.processing = { level: "C", provider: "chatgpt" };
+  const confirmedAt = new Date().toISOString();
+  const snapshot = createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedAt, confirmedBy: userId });
+  expect((await setup.from("takeoff_preparations").insert({ tenant_id: tenantId, project_id: projectId, revision: 1, draft: preparation,
+    confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId })).error).toBeNull();
+  const launched = await startOwnedTakeoffAdmission(owner, ui.army.runPrefix, projectId, planSetId, randomUUID()).done;
+  const jobId = launched.receipt!.id;
+  const completed = await startOwnedWorker(ui, { projectId, versionId: null }, jobId, "success", {
+    owner, vectors: true, rules: true, providerItems: [
+      { designation: "ARMY envoi tube", quantity: 12.5, unit: "m", source_page: 1, confidence: 0.99, evidence: "Tube row, page 1" },
+      { designation: "ARMY envoi vanne", quantity: 3, unit: "u", source_page: 1, confidence: 0.99, evidence: "Valve row, page 1" },
+    ],
+  }).done;
+  const state = () => querySql(`select count(*) from public.estimate_versions where project_id = '${projectId}';
+    select count(*) from public.estimate_items i join public.estimate_versions v on v.id = i.version_id
+      where v.project_id = '${projectId}' and i.item_type = 'line';
+    select count(*) from public.takeoff_send_receipts where job_id = '${jobId}';`);
+  const full = takeoffReviewHref({ projectId, jobId });
+
+  // The preview writes nothing: opened, closed, the page reloaded and opened again, the affaire still has no estimate.
+  await ui.app.open(full);
+  const openSend = async () => {
+    await ui.screen.getByRole("button", "Envoyer au tableau de chiffrage", { exact: true }).click();
+    const dialog = ui.screen.getByRole("dialog", "Envoyer au tableau de chiffrage", { exact: true });
+    await expect(dialog.getByText("Créer le premier brouillon et y envoyer 2 lignes", { exact: true })).toBeVisible({ timeout: 30_000 });
+    return dialog;
+  };
+  let dialog = await openSend();
+  await expect(dialog.getByText("Section proposée : « Métré — Plans fictifs », créée à la confirmation.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/vérifiés pour ce nouveau devis, qui ne porte encore aucun autre métré/)).toBeVisible();
+  await expect(dialog.getByRole("list", "Lignes envoyées", { exact: true })).toContainText("ARMY envoi vanne");
+  const previewScreenshot = await ui.app.screenshot("takeoff-affaire-send-preview");
+  await dialog.getByRole("button", "Annuler", { exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await state()).toEqual(["0", "0", "0"]);
+  // The targeted review offers the same send, from the same preview.
+  await ui.app.open(takeoffReviewHref({ projectId, jobId, targeted: true }));
+  await expect(ui.screen.getByRole("heading", "Revue ciblée", { exact: true })).toBeVisible();
+  dialog = await openSend();
+  await dialog.getByRole("button", "Annuler", { exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await state()).toEqual(["0", "0", "0"]);
+  await ui.app.open(full);
+  await ui.browser.reload();
+  dialog = await openSend();
+  expect(await state()).toEqual(["0", "0", "0"]);
+
+  // A line's evidence revised between the preview and the confirmation, its quantity unchanged: refused, previewed again.
+  const valve = completed.items.find((item) => item.designation === "ARMY envoi vanne");
+  if (!valve) throw new Error("The controlled measure was not persisted.");
+  const before = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  const line = before.body.data.items.data.find((item) => item.id === valve.id)!;
+  const revised = await apiRequest<{ data: { succeeded: number } }>(ui.browser, "PATCH", `/api/takeoff/jobs/${jobId}/items`, {
+    items: [{ item_id: line.id, updated_at: line.updated_at, fields: { evidence: "Valve row, page 1 (repère revu)" } }] });
+  expect(revised.status).toEqual(200);
+  await dialog.getByRole("button", "Créer le brouillon et envoyer", { exact: true }).click();
+  await expect(dialog.getByText(/depuis l’aperçu/).first()).toBeVisible({ timeout: 30_000 });
+  expect(await state()).toEqual(["0", "0", "0"]);
+
+  // Confirmed on the new preview: V1 of the tenant's engine, its section, the two lines without price, the job sent.
+  await expect(dialog.getByText("Créer le premier brouillon et y envoyer 2 lignes", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await dialog.getByRole("button", "Créer le brouillon et envoyer", { exact: true }).click();
+  await expect(ui.browser).toHaveURL(/\/dashboard\/estimates\/[0-9a-f-]{36}\/edit/, { timeout: 60_000 });
+  expect(await state()).toEqual(["1", "2", "1"]);
+  const [created] = await querySql(`select jsonb_build_object('version', v.id, 'number', v.version_number, 'status', v.status,
+      'engine', v.calc_engine_version, 'policy', coalesce((select p.new_estimate_calc_engine from public.tenant_calc_policies p
+        where p.tenant_id = v.tenant_id), 3),
+      -- Each line's takeoff line, as the receipt links them (an engine 2 line carries no takeoff_item_id of its own).
+      'lines', (select jsonb_agg(jsonb_build_array(i.title, i.quantity::float8, i.unit_price_ht_cents, i.source_job_id,
+        (select link ->> 'takeoff_item_id' from public.takeoff_send_receipts r cross join jsonb_array_elements(r.result -> 'item_links') link
+          where r.job_id = i.source_job_id and link ->> 'estimate_item_id' = i.id::text)) order by i.title)
+        from public.estimate_items i where i.version_id = v.id and i.item_type = 'line'),
+      'section', (select s.title from public.estimate_items s where s.version_id = v.id and s.item_type = 'section'),
+      'job', (select jsonb_build_array(j.estimate_version_id, j.status) from public.takeoff_jobs j where j.id = '${jobId}'),
+      'receipt', (select jsonb_build_object('request_id', r.request_id, 'fingerprint', r.preview_fingerprint, 'version', r.target_version_id,
+        'parts', jsonb_array_length(r.write_plan -> 'parts')) from public.takeoff_send_receipts r where r.job_id = '${jobId}'))
+    from public.estimate_versions v where v.project_id = '${projectId}';`);
+  const sent = JSON.parse(created) as { version: string; number: number; status: string; engine: number; policy: number;
+    lines: Array<[string, number, number, string, string]>; section: string; job: [string, string];
+    receipt: { request_id: string; fingerprint: string; version: string; parts: number } };
+  const pipe = completed.items.find((item) => item.designation === "ARMY envoi tube")!;
+  expect(sent).toMatchObject({ number: 1, status: "draft", section: "Métré — Plans fictifs", job: [sent.version, "applied"],
+    receipt: { version: sent.version, parts: 2 } });
+  expect(sent.engine).toEqual(sent.policy);
+  expect(sent.lines).toEqual([["ARMY envoi tube", 13, 0, jobId, pipe.id], ["ARMY envoi vanne", 3, 0, jobId, valve.id]]);
+
+  // A timeout after the commit, then « Réessayer »: the same request returns the receipt; nothing is created again.
+  const replay = await apiRequest<{ data: { replayed: boolean; version_id: string } }>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/send-to-estimate`, {
+    request_id: sent.receipt.request_id, fingerprint: sent.receipt.fingerprint, destination: { kind: "first_draft" }, section: { kind: "new" } });
+  expect([replay.status, replay.body.data.replayed, replay.body.data.version_id]).toEqual([200, true, sent.version]);
+  const again = await apiRequest<{ error: { code: string } }>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/send-to-estimate`, {
+    request_id: randomUUID(), fingerprint: sent.receipt.fingerprint, destination: { kind: "first_draft" }, section: { kind: "new" } });
+  expect(again.status).toEqual(409);
+  expect(await state()).toEqual(["1", "2", "1"]);
+  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(detail.body.data.job).toMatchObject({ id: jobId, estimate_version_id: sent.version, status: "applied" });
+
+  // A director who read the takeoff before the send keeps it after: its lines, and the plan it attested (drawn from
+  // the verified bytes, a director reading no plan object directly).
+  const director = await signUpWorkerOwner(ui, "AWSR");
+  await querySql(`update public.tenant_memberships set is_default = false where user_id = '${director.userId}';
+    insert into public.tenant_memberships (tenant_id,user_id,role,is_default) values ('${tenantId}','${director.userId}','director',true);`);
+  const directorDetail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect([directorDetail.status, directorDetail.body.data.job.estimate_version_id, directorDetail.body.data.items.data.length])
+    .toEqual([200, sent.version, detail.body.data.items.data.length]);
+  const directorPlan = await ui.browser.evaluate(async ({ job, file }) => {
+    const response = await fetch(`/api/takeoff/jobs/${job}/vector-plans/${file}`);
+    return { status: response.status, sha256: response.ok ? Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
+      await response.arrayBuffer())), (byte) => byte.toString(16).padStart(2, "0")).join("") : null };
+  }, { job: jobId, file: planFileId });
+  expect(directorPlan).toEqual({ status: 200, sha256: hash });
+  await ui.app.open(full);
+  await expect(ui.screen.getByRole("heading", "Revue des exceptions & preuves", { exact: true })).toBeVisible();
+  await expect(ui.screen.getByRole("region", "Lecture vectorielle du plan")).toBeVisible();
+  expect((await readVectorViewerDrawing(ui)).inked).toBeGreaterThan(0);
+  await recordEvidence(ui.army, "TKAW02-affaire-first-draft-send", { projectId, jobId, sent, replay: replay.body.data,
+    again: again.status, director: { detail: directorDetail.status, plan: directorPlan.status }, screenshots: [previewScreenshot] });
+});

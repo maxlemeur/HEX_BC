@@ -299,7 +299,8 @@ select results_eq(
     ('A'::text, 'ok created=3 updated=0 ignored=1 scope=section links=3'::text),
     ('A-replay', 'P0001 TAKEOFF_JOB_COMPLETED_REQUIRED'),
     ('A-root', 'P0001 Une ligne doit etre rattachee a une section.'),
-    ('M', 'ok created=1 updated=1 ignored=0 scope=section links=2'),
+    -- Lot 2 M2: « Fusionner » onto a hand-typed line (122, typed in the seed above) is refused by the writer, naming it.
+    ('M', '22023 TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT | {"unit": "ml", "title": "M2 Tube cuivre 22", "reason": "merge_overwrites_ordinary_line", "quantity": 1, "section_id": "8d000000-0000-4000-8000-000000000112", "designation": "m2  tube CUIVRE 22", "takeoff_unit": "m", "takeoff_item_id": "8d000000-0000-4000-8000-000000000311", "estimate_item_id": "8d000000-0000-4000-8000-000000000122", "takeoff_quantity": 7}'),
     ('MU', 'ok created=1 updated=0 ignored=0 scope=section links=1'),
     ('O', 'ok created=2 updated=0 ignored=0 scope=section links=0'),
     ('R', 'ok created=1 updated=0 ignored=0 scope=section links=1'),
@@ -308,7 +309,7 @@ select results_eq(
     ('S-archived', 'P0001 TAKEOFF_TARGET_VERSION_DRAFT_REQUIRED'),
     ('U', '22023 TAKEOFF_V3_UNIT_UNRESOLVED | {"items": [{"unit": "barre", "designation": "M2 Tube acier", "takeoff_item_id": "8d000000-0000-4000-8000-000000000331"}]}'),
     ('X-other-tenant', '42501 TAKEOFF_APPLY_OPERATOR_REQUIRED')$$,
-  'a v3 draft takes a reviewed takeoff (append, merge, section replace, ouvrage); a replay, a root replacement or append (a line needs a section, as for every engine), an archived v3, an unknown unit and another tenant are refused by name'
+  'a v3 draft takes a reviewed takeoff (append, merge onto no hand-typed line, section replace, ouvrage); a replay, a merge onto a hand-typed line, a root replacement or append (a line needs a section, as for every engine), an archived v3, an unknown unit and another tenant are refused by name'
 );
 
 -- A : lignes v3, unité par le référentiel partagé, provenance et lien item → ligne -------------------
@@ -385,9 +386,10 @@ select results_eq(
 select results_eq(
   $$select job.status::text from public.takeoff_jobs job
     where job.id in ('8d000000-0000-4000-8000-000000000201', '8d000000-0000-4000-8000-000000000202',
-      '8d000000-0000-4000-8000-000000000203', '8d000000-0000-4000-8000-000000000205')$$,
-  $$values ('applied'::text), ('applied'), ('applied'), ('applied')$$,
-  'each applied job becomes applied in the transaction of its lines'
+      '8d000000-0000-4000-8000-000000000203', '8d000000-0000-4000-8000-000000000205')
+    order by job.id$$,
+  $$values ('applied'::text), ('completed'), ('applied'), ('applied')$$,
+  'each applied job becomes applied in the transaction of its lines; the refused merge leaves its job completed'
 );
 
 select is(
@@ -397,7 +399,7 @@ select is(
   'the replay adds no line'
 );
 
--- M : la fusion garde le chiffrage de la ligne existante ---------------------------------------------
+-- M : la fusion n'écrase pas une ligne saisie à la main (lot 2, M2) ; avant, elle prenait sa quantité et sa désignation.
 
 select results_eq(
   $$select item.id = '8d000000-0000-4000-8000-000000000122', item.title, item.quantity, item.unit_code, item.unit_price_ht_cents, item.h_mo_per_unit, item.h_mo,
@@ -406,11 +408,9 @@ select results_eq(
     where item.version_id = '8d000000-0000-4000-8000-000000000102' and item.item_type = 'line'
     order by item.position$$,
   $$values
-    (true, 'm2  tube CUIVRE 22'::text, 7::numeric, 'ml'::text, 1000, 0.5::numeric,
-     3.5::numeric, '8d000000-0000-4000-8000-000000000202'::text, '8d000000-0000-4000-8000-000000000311'::text),
-    (false, 'M2 Vanne 1/4 tour', 2::numeric, 'u', 0, null::numeric,
-     0::numeric, '8d000000-0000-4000-8000-000000000202', '8d000000-0000-4000-8000-000000000312')$$,
-  'merge matches the existing line by designation and resolved unit, keeps its price and hours per unit, takes the quantity (hours follow it) and adds the other line'
+    (true, 'M2 Tube cuivre 22'::text, 1::numeric, 'ml'::text, 1000, 0.5::numeric,
+     0.5::numeric, null::text, null::text)$$,
+  'a merge matched onto a hand-typed line by designation and resolved unit is refused whole: the line keeps its quantity, title and price, and no other line is added'
 );
 
 select is(

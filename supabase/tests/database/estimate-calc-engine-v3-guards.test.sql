@@ -82,7 +82,7 @@ values
   ('public.insert_estimate_assembly_into_version', 'branche v3 sous contrat d''écrivain, montants par le pont d''entrée (M6)'),
   ('public.estimate_v3_complete_entry_for_writer', 'pont d''entrée (M6) : refuse tout moteur autre que 3'),
   ('public.recalculate_takeoff_estimate_version', 'métré v1/v2 inchangé ; le contrat d''écrivain refuse la v3 (P-19), que l''application du métré n''y envoie plus (M2 v0.1)'),
-  ('public.apply_takeoff_job_atomic', 'métré M2 v0.1 : v1/v2 inchangés ; une v3 (brouillon seulement) passe par private.takeoff_apply_v3_lines sous contrat d''écrivain, montants par le pont d''entrée'),
+  ('private.takeoff_apply_atomic_writer', 'métré M2 v0.1 : v1/v2 inchangés ; une v3 (brouillon seulement) passe par private.takeoff_apply_v3_lines sous contrat d''écrivain, montants par le pont d''entrée (corps de public.apply_takeoff_job_atomic jusqu''au lot 2 M2, qui le garde derrière le refus des lignes ordinaires)'),
   ('private.takeoff_apply_v3_lines', 'métré M2 v0.1 : refuse tout moteur autre que 3 et toute version autre que celle du contrat d''écrivain'),
   ('public.apply_estimate_structure_draft', 'structure IA (lot 3.2, entrée 2) : v1/v2 inchangés ; une v3 écrit ses sections sous contrat d''écrivain, montants par le pont d''entrée'),
   ('public.guard_estimate_item_engine_columns', 'contrat d''écrivain v3 sur les lignes (M1)'),

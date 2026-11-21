@@ -456,8 +456,14 @@ confirmation) n'existe plus
   administrateur attendent. Là où la locale de la base décide (majuscule ou espace
   hors ASCII), toutes les lignes de cette désignation comptent, jamais moins que
   l'écrivain ; l'écran ne connaissant pas le moteur de la version, le rapprochement de
-  l'un ou l'autre écrivain compte. Le serveur ne revérifie pas encore ce rapprochement
-  sous le verrou de brouillon.
+  l'un ou l'autre écrivain compte. Depuis le lot 2 (M2), l'écrivain le refuse aussi sous
+  le verrou de la version, pour toute entrée de l'application (la route et les deux
+  surcharges de `apply_takeoff_job_guarded_atomic`) : une ligne de la section que la
+  fusion a rapprochée n'est réécrite que si c'est une ligne DPGF (ses propres refus
+  décident) ou une ligne antérieure d'une page que ce métré relit (sa décision de page
+  décide). Sinon `TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT` nomme la ligne, sa quantité et la
+  ligne du métré, et rien n'est appliqué. Un forçage administrateur ne vaut jamais
+  consentement à écraser une ligne ordinaire.
 - **Lignes envoyées** : la liste ne montre que ce qui part (une ligne remplacée par un
   ouvrage part comme cet ouvrage) ; les lignes qu'une règle laisse de côté sont
   listées à part, avec la règle. Sur une version DPGF, l'aperçu ne calcule pas les
@@ -485,6 +491,85 @@ confirmation) n'existe plus
   sur la même ligne la met de nouveau en évidence. Les sorties du panneau des lignes bloquées
   sont désactivées pendant l'envoi, et deux clics dans la même image n'envoient qu'une
   fois.
+
+## Envoyer un métré d'affaire sans devis préalable (lot 2, M2)
+
+Un métré admis sur l'affaire sans version de devis (lot 2, M1) s'envoie aussi par
+« Envoyer au tableau de chiffrage », depuis la revue complète ou ciblée. L'écran
+([`TakeoffSendDialog.tsx`](../../src/components/takeoff/takeoff-send/TakeoffSendDialog.tsx))
+commence par l'aperçu de la destination ; rien n'est écrit avant la confirmation : ni
+devis, ni version, ni section, ni quantité.
+
+- **Destination** ([`send-plan.ts`](../../src/lib/takeoff/send-plan.ts)). Sans version :
+  « Créer le premier brouillon et y envoyer N lignes », la section proposée
+  « Métré — <jeu de plans> » créée avec lui. Un seul brouillon : il est proposé. Plusieurs
+  brouillons : l'écran demande lequel. Seulement des versions émises : la copie de la plus
+  récente est annoncée, créée à la confirmation, et l'original n'est jamais modifié. Un
+  brouillon qui tient une ligne DPGF reste proposé mais bloqué : son rapprochement exige
+  le métré sur la version, ce que seul l'envoi fait (à faire dans un lot suivant).
+- **Ce qui part.** Les lignes que la revue retient, renommées ou classées par les règles
+  de correspondance de l'administrateur. Une règle qui fixe un prix ou intègre un ouvrage
+  est sans effet dans ce parcours et l'aperçu le dit : les prix ne sont jamais touchés, et
+  la base refuse un plan qui le ferait (`TAKEOFF_SEND_PRICE_RULE_REFUSED`).
+- **Plan A puis plan B.** Envoyé dans la section où une ligne d'un autre métré porte déjà la
+  même désignation et la même unité, un comptage s'ajoute à cette ligne au lieu d'en créer
+  une seconde (3 lavabos, puis 2 : une ligne de 5, son prix inchangé). Seulement sur un
+  brouillon du moteur 3, sur une ligne alimentée par des métrés seuls dont la quantité est
+  encore la somme de leurs lignes (une quantité saisie à la main n'est jamais modifiée par
+  un envoi), sans longueur arrondie ni hypothèse d'un côté ou de l'autre, et quand la
+  désignation ne nomme qu'une ligne de la section (deux homonymes restent deux lignes). La
+  ligne nomme chaque envoi qui l'alimente (`takeoff_contributions` : ses lignes de métré,
+  lues par la règle « une page entre une fois » comme les autres clés de provenance).
+- **Contrôles.** Les doublons et la couverture entre métrés, marqués « Comparaison au devis
+  disponible à l'envoi » dans les revues, sont évalués pour la destination choisie : avec
+  les métrés du brouillon, avec ceux de la version copiée pour une copie (ses lignes sont
+  celles de la copie), ou sans autre métré pour un premier brouillon. Une ligne qui en
+  sort bloquée est montrée avant la confirmation, avec le forçage réservé aux
+  administrateurs (motif codé et justification). Les pages déjà au devis demandent la
+  même décision qu'à l'envoi d'un métré de version.
+- **Confirmation** ([`send-server.ts`](../../src/lib/takeoff/send-server.ts), migration
+  [`…_takeoff_send_receipts.sql`](../../supabase/migrations/20261121012928_takeoff_send_receipts.sql)).
+  Le serveur recalcule l'aperçu et refuse (409) s'il diffère de celui confirmé. Il dépose
+  ce qu'il a calculé (contrôles évalués pour la destination, plan d'écriture, impact
+  attendu) par `public.stage_takeoff_send`, réservée au service ; la session de
+  l'utilisateur n'envoie ensuite que l'identité de sa commande (identifiant, métré,
+  empreinte) : un client qui appelle la base directement ne peut ni écrire ses propres
+  contrôles ni contourner le forçage. Puis, dans
+  une seule transaction, `public.send_takeoff_job` relit sous ses verrous l'état dont
+  l'aperçu vient (les versions de l'affaire, le métré, ses repères et ses lignes, le
+  devis), crée le brouillon par la création canonique ou la copie par la duplication,
+  rattache le métré par un permis à usage unique, écrit ses contrôles pour cette
+  destination, applique les lignes par l'application gardée, ajoute les parts aux lignes
+  antérieures et enregistre un reçu. Un écart refuse tout (`TAKEOFF_SEND_PREVIEW_STALE`) et
+  l'écran recalcule l'aperçu. Une révision d'un repère ou d'une preuve rend l'aperçu
+  caduc même si la quantité ne change pas.
+- **Une fois.** Un métré n'est envoyé qu'une fois (`TAKEOFF_SEND_ALREADY_SENT`). Chaque
+  confirmation porte un identifiant de commande gardé par l'écran : après un délai dépassé,
+  la même commande rejouée renvoie son reçu, sans seconde version ni seconde application ;
+  le même identifiant qui confirme autre chose (destination, section, décisions de pages,
+  forçage) est refusé (`TAKEOFF_SEND_REQUEST_CONFLICT`).
+  Deux métrés de l'affaire qui ont prévisualisé un premier brouillon : le premier confirmé
+  le crée, l'autre est renvoyé à l'aperçu sur ce brouillon. Un autre métré du même
+  lancement (même jeu, même révision de préparation) est refusé par son nom
+  (`TAKEOFF_SEND_PREPARATION_ALREADY_SENT`) tant que les demandes de lancement du lot
+  suivant ne distinguent pas leurs métrés.
+- **Ordre des verrous**, commun à l'import et à la création d'une version : la politique de
+  calcul du tenant (partagée) puis la ligne de l'affaire, seulement quand l'envoi crée une
+  version ; puis le verrou de règles de la version (`takeoff-rules:<version>`), la ligne de
+  la version, le métré et ses lignes. Jamais l'inverse.
+- **Reçu** (`takeoff_send_receipts`, format 1) : la destination, la section, chaque part
+  (sa ligne de métré, sa cible : nouvelle ligne ou ligne antérieure et sa quantité avant,
+  la page, l'empreinte du plan attesté, la source de la quantité : mesurée, saisie ou
+  hypothèse et sa cause, la révision de sa preuve) et, à part, les sections et les lignes
+  réellement créées ou modifiées. Lisible par les lecteurs du métré, jamais écrit par un
+  client ; il ne part qu'avec son métré, sa version ou son affaire. Les commandes dérivées d'un reçu (redistribuer, réviser une part)
+  sont réservées aux lots suivants.
+- **Lecteurs.** Avant l'envoi, le propriétaire de l'affaire, un administrateur et un
+  directeur lisent le métré, ses lignes et les plans qu'il atteste. Après, le métré suit la
+  règle de sa version (propriétaire, administrateur) et garde ses lecteurs d'avant : un
+  directeur ne le perd pas par l'envoi. Ses repères restent dessinés sur les plans qu'il a
+  attestés (la lecture vectorielle le signale par `attested_plans`), jamais sur le fichier
+  actuel du centre de plans.
 
 ## Entrées
 

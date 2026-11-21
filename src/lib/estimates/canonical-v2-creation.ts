@@ -959,13 +959,13 @@ async function prepareCanonicalV2Creation(input: PersistCanonicalEstimateV2Input
 }
 
 /**
- * Unique seam for every non-duplication estimate creation path. It owns source
- * normalization, hierarchy remapping, v2 calculation and the protected atomic
- * persistence contract; callers only provide authenticated domain context.
+ * The canonical payload of a creation, computed as persistCanonicalEstimateV2 persists it: the engine of the tenant
+ * policy (compared with the one the caller expects), the version settings and totals of that engine, and the items.
+ * Lot 2 M2: the send of a takeoff creates its first draft with this same payload, inside its own transaction
+ * (public.send_takeoff_job calls persist_estimate_creation_atomic), so that a first draft created by a send is the one
+ * « Créer un devis » would create.
  */
-export async function persistCanonicalEstimateV2(
-  input: PersistCanonicalEstimateV2Input
-): Promise<PersistCanonicalEstimateV2Result> {
+export async function prepareCanonicalEstimateCreation(input: PersistCanonicalEstimateV2Input) {
   const existingContext =
     input.project.kind === "existing"
       ? await loadExistingProjectContext({
@@ -1079,6 +1079,19 @@ export async function persistCanonicalEstimateV2(
       return assertNever(engine);
   }
   const { versionPayload, persistedItems } = prepared;
+  return { versionPayload, persistedItems, engine, sourceResult, droppedSettings };
+}
+
+/**
+ * Unique seam for every non-duplication estimate creation path. It owns source
+ * normalization, hierarchy remapping, v2 calculation and the protected atomic
+ * persistence contract; callers only provide authenticated domain context.
+ */
+export async function persistCanonicalEstimateV2(
+  input: PersistCanonicalEstimateV2Input
+): Promise<PersistCanonicalEstimateV2Result> {
+  const { versionPayload, persistedItems, engine, sourceResult, droppedSettings } =
+    await prepareCanonicalEstimateCreation(input);
 
   const projectId =
     input.project.kind === "existing" ? input.project.id : input.project.id ?? randomUUID();

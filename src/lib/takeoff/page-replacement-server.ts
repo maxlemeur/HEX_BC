@@ -99,7 +99,6 @@ async function readJobs(context: Context, ids: readonly string[]) {
  */
 export async function getTakeoffJobPageReplacement(jobId: string, body: unknown): Promise<TakeoffPageReplacementResponse> {
   const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
-  const context = { supabase, tenantId };
   const normalizedJobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant job invalide.");
   const request = parseWithSchema(takeoffPageReplacementRequestSchema, body, "Proposition des pages déjà au devis invalide.");
   const applyRequest = parseApplyTakeoffPayload({ strategy: request.strategy, target_section_id: request.target_section_id ?? null,
@@ -111,11 +110,32 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
       message: "Aucun devis n’est rattaché à ce métré.", retryable: false, jobId: normalizedJobId });
   }
+  return buildTakeoffPageReplacementProposal({ supabase, tenantId, userId, jobId: normalizedJobId, versionId, applyRequest });
+}
 
+/**
+ * The proposal of the pages already in a version, for this takeoff applied with that request. Lot 2 M2: a takeoff of an
+ * affaire previews its send against the draft it would join, before it is attached to it; the caller has checked that
+ * the job and the version belong to the same affaire, and the RLS of the user's session bounds every read.
+ */
+export async function buildTakeoffPageReplacementProposal(input: {
+  supabase: Awaited<ReturnType<typeof getAuthenticatedTakeoffContext>>["supabase"];
+  tenantId: string;
+  userId: string;
+  jobId: string;
+  versionId: string;
+  applyRequest: ReturnType<typeof parseApplyTakeoffPayload>;
+  /** The impact preview the send computed (its price rules without effect), instead of computing it again. */
+  mappingPreview?: Awaited<ReturnType<typeof buildTakeoffMappingPreviewForJob>>;
+}): Promise<TakeoffPageReplacementResponse> {
+  const { supabase, tenantId, userId, versionId, applyRequest } = input;
+  const normalizedJobId = input.jobId;
+  const context = { supabase, tenantId };
   // The lines that reach the estimate, as the application computes them: the plan's skips and assemblies, and on a DPGF
   // version the lines its reconciliation decided out of scope.
   const mergeRequired = await hasTakeoffDpgfTargetLines({ supabase, tenantId, versionId });
-  const mappingPreview = await buildTakeoffMappingPreviewForJob({ supabase, tenantId, jobId: normalizedJobId, request: applyRequest });
+  const mappingPreview = input.mappingPreview
+    ?? await buildTakeoffMappingPreviewForJob({ supabase, tenantId, jobId: normalizedJobId, request: applyRequest });
   const comparisonContext = mergeRequired ? await loadTakeoffDpgfComparisonContext({
     auth: { supabase, tenantId, userId }, jobId: normalizedJobId, versionId }) : null;
   excludeDpgfOutOfScope(mappingPreview, comparisonContext);

@@ -105,7 +105,7 @@ async function readJson(url: string) {
  * of the first of those lines and draws them over the others, dimmed; `fill` lets the viewer take the height of a
  * tool layout panel instead of its fixed frame.
  */
-export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = false, attestedPlan = false }: {
+export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = false, attestedPlan: attestedByScreen = false }: {
   jobId: string; planSetId: string | null; focusItemIds?: readonly string[]; fill?: boolean; attestedPlan?: boolean;
 }) {
   const [reading, setReading] = useState<TakeoffVectorReadingResponse | null>(null);
@@ -171,6 +171,8 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
   const surfaces = useMemo(() => (page?.items ?? []).filter((item) => item.geometry.kind === "surface"), [page]);
   const sources = useMemo(() => networkSources(page), [page]);
 
+  // The screen knows a takeoff of an affaire; the reading also says so for one sent since (lot 2 M2).
+  const attestedPlan = attestedByScreen || reading?.attested_plans === true;
   const hasPage = page !== null;
   const planFileId = page?.plan_file_id ?? null;
   const uploadUrl = page && !planFileId ? reading?.source_download_url ?? null : null;

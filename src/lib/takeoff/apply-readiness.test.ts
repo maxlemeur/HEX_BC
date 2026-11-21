@@ -20,6 +20,22 @@ const READY: TakeoffApplyReadinessInput = {
 };
 
 describe("takeoffApplyReadiness", () => {
+  // Lot 2 M2: a takeoff of an affaire without a version may be sent (the preview chooses the destination); its
+  // comparison with an estimate stays deferred until then, and the review says so instead of an all-clear.
+  it("opens the send of a takeoff without a version, its comparison with the estimate deferred", () => {
+    expect(takeoffApplyReadiness({ ...READY, hasDestination: false })).toEqual({
+      state: "ready",
+      canOpen: true,
+      blockers: [],
+      message: "Comparaison au devis disponible à l’envoi. L’aperçu de l’envoi choisit la destination et y vérifie les doublons et "
+        + "la couverture entre métrés avant que vous confirmiez.",
+      guidance: null,
+      comparisonDeferred: true,
+    });
+    expect(takeoffApplyReadiness({ ...READY, hasDestination: false, canEdit: false })).toMatchObject({
+      state: "blocked", canOpen: false, blockers: ["read_only"], comparisonDeferred: true });
+  });
+
   it("is ready when every condition is met and the guard passes", () => {
     expect(takeoffApplyReadiness(READY)).toEqual({
       state: "ready",
@@ -27,6 +43,7 @@ describe("takeoffApplyReadiness", () => {
       blockers: [],
       message: "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact avant de confirmer.",
       guidance: null,
+      comparisonDeferred: false,
     });
   });
 
@@ -78,6 +95,7 @@ describe("takeoffApplyReadiness", () => {
       message:
         "Le contrôle de 2 ligne(s) reste incomplet : complétez les preuves localisées, tranchez les règles en échec ou validez les lignes avant l'application.",
       guidance: null,
+      comparisonDeferred: false,
     });
   });
 
@@ -89,6 +107,7 @@ describe("takeoffApplyReadiness", () => {
       blockers: [],
       message: "1 ligne reste à trancher. Vous pouvez la traiter dans la revue ciblée ou la justifier à l’envoi.",
       guidance: "1 ligne reste à trancher. Vous pouvez la traiter dans la revue ciblée ou la justifier à l’envoi.",
+      comparisonDeferred: false,
     });
     expect(takeoffApplyReadiness({ ...READY, guardBlockedCount: 3, isAdmin: true }).guidance).toBe(
       "3 lignes restent à trancher. Vous pouvez les traiter dans la revue ciblée ou les justifier une par une à l’envoi."

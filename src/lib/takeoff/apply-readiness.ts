@@ -5,7 +5,6 @@
 
 /** A condition that keeps the takeoff away from the send dialog, in the order the review names them. */
 export type TakeoffApplyBlocker =
-  | "no_destination"
   | "read_only"
   | "already_applied"
   | "no_included_line"
@@ -46,6 +45,11 @@ export type TakeoffApplyReadiness = {
   message: string;
   /** The admin's advice while the guard blocks lines (`admin_may_force`), else null. */
   guidance: string | null;
+  /**
+   * Lot 2: a takeoff of an affaire without a version compared nothing with an estimate yet; the send's preview does it
+   * for the destination chosen. Never shown as passed meanwhile.
+   */
+  comparisonDeferred: boolean;
 };
 
 export const TAKEOFF_NO_INCLUDED_LINE_MESSAGE =
@@ -55,7 +59,6 @@ export const TAKEOFF_COMPARISON_DEFERRED = "Comparaison au devis disponible à l
 export const TAKEOFF_CROSS_JOB_COMPARISON_LABEL = "Doublons et couverture entre métrés";
 
 const BLOCKER_MESSAGES: Record<TakeoffApplyBlocker, string> = {
-  no_destination: TAKEOFF_COMPARISON_DEFERRED,
   read_only: "Ce métré est accessible en lecture seule.",
   already_applied: "Ce métré a déjà été appliqué au chiffrage.",
   no_included_line: TAKEOFF_NO_INCLUDED_LINE_MESSAGE,
@@ -76,12 +79,12 @@ function forceGuidance(blockedCount: number): string {
 }
 
 export function takeoffApplyReadiness(input: TakeoffApplyReadinessInput): TakeoffApplyReadiness {
-  if (input.hasDestination === false || input.canEdit === false) {
-    const blocker = input.hasDestination === false ? "no_destination" : "read_only";
-    return { state: "blocked", canOpen: false, blockers: [blocker], message: BLOCKER_MESSAGES[blocker], guidance: null };
+  const comparisonDeferred = input.hasDestination === false;
+  if (input.canEdit === false) {
+    return { state: "blocked", canOpen: false, blockers: ["read_only"], message: BLOCKER_MESSAGES.read_only, guidance: null,
+      comparisonDeferred };
   }
   const conditions: Record<TakeoffApplyBlocker, boolean> = {
-    no_destination: false,
     read_only: false,
     already_applied: input.jobStatus === "applied",
     no_included_line: input.includedCount === 0,
@@ -104,7 +107,9 @@ export function takeoffApplyReadiness(input: TakeoffApplyReadinessInput): Takeof
     : guidance ??
       (guardBlocked
         ? `Le contrôle de ${input.guardBlockedCount} ligne(s) reste incomplet : complétez les preuves localisées, tranchez les règles en échec ou validez les lignes avant l'application.`
-        : "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact avant de confirmer.");
+        : comparisonDeferred
+          ? `${TAKEOFF_COMPARISON_DEFERRED} L’aperçu de l’envoi choisit la destination et y vérifie les doublons et la couverture entre métrés avant que vous confirmiez.`
+          : "Prêt pour l'envoi au tableau de chiffrage : vérifiez l'aperçu d'impact avant de confirmer.");
 
   return {
     state,
@@ -112,5 +117,6 @@ export function takeoffApplyReadiness(input: TakeoffApplyReadinessInput): Takeof
     blockers,
     message,
     guidance,
+    comparisonDeferred,
   };
 }

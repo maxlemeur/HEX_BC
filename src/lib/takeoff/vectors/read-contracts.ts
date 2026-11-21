@@ -17,6 +17,12 @@ export const takeoffVectorReadingResponseSchema = z.object({
    * pages go through their plan files, or when the file is unavailable.
    */
   source_download_url: z.string().url().nullable(),
+  /**
+   * The plan pages are drawn from the bytes the takeoff attested (GET
+   * /api/takeoff/jobs/{jobId}/vector-plans/{fileId}), never from the plan
+   * centre's current file: a takeoff of an affaire, before and after its send.
+   */
+  attested_plans: z.boolean().default(false),
   pages: z.array(z.object({
     id: z.string().uuid(),
     plan_file_id: z.string().uuid().nullable(),

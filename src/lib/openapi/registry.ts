@@ -4,6 +4,7 @@ import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/li
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
 import { takeoffPageReplacementRequestSchema, takeoffPageReplacementResponseSchema } from "@/lib/takeoff/page-replacement-contracts";
+import { takeoffSendPreviewRequestSchema, takeoffSendPreviewResponseSchema, takeoffSendRequestSchema, takeoffSendResponseSchema } from "@/lib/takeoff/send-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobActionResponseSchema as sharedTakeoffJobActionDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1918,6 +1919,21 @@ const apiTakeoffPageReplacementSchemaDefinition = successResponseSchemaDefinitio
   "ApiTakeoffPageReplacementResponse",
   takeoffPageReplacementResponseSchema
 );
+const apiTakeoffSendPreviewSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffSendPreviewResponse",
+  takeoffSendPreviewResponseSchema
+);
+const takeoffSendPreviewBody = jsonBody({
+  name: "TakeoffSendPreviewRequest",
+  description: "Destination et section choisies pour l'aperçu ; absentes, celles que l'aperçu propose.",
+  schema: takeoffSendPreviewRequestSchema,
+});
+const apiTakeoffSendSchemaDefinition = successResponseSchemaDefinition("ApiTakeoffSendResponse", takeoffSendResponseSchema);
+const takeoffSendBody = jsonBody({
+  name: "TakeoffSendRequest",
+  description: "Confirmation de l'envoi : identifiant de la commande, empreinte de l'aperçu, destination, section et décisions.",
+  schema: takeoffSendRequestSchema,
+});
 const takeoffPageReplacementBody = jsonBody({
   name: "TakeoffPageReplacementRequest",
   description: "Strategie, section cible et ajustements de mapping de l'assistant d'application.",
@@ -3184,6 +3200,34 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     requestBody: takeoffPageReplacementBody,
     responses: {
       "200": jsonResponse("Proposition par page.", apiTakeoffPageReplacementSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/send-to-estimate/preview",
+    summary: "Apercu de l'envoi d'un metre d'affaire au tableau de chiffrage",
+    description:
+      "Lecture seule (lot 2, M2) : destination proposee (premier brouillon a creer, brouillon de l'affaire, copie d'une version emise), section, lignes envoyees, lignes deja au devis qui recoivent une part, regles sans effet sur les prix, reserves, controles evalues pour cette destination (doublons et couverture entre metres, plus differes) et pages deja au devis. L'empreinte est renvoyee a la confirmation. N'ecrit rien : ni devis, ni version, ni section, ni quantite.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: takeoffSendPreviewBody,
+    responses: {
+      "200": jsonResponse("Apercu de l'envoi.", apiTakeoffSendPreviewSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/send-to-estimate",
+    summary: "Envoyer un metre d'affaire au tableau de chiffrage",
+    description:
+      "Lot 2, M2 : recalcule l'apercu, le refuse (409) si son empreinte differe de celle confirmee, puis cree le premier brouillon ou la copie, rattache le metre, ecrit ses controles pour cette destination, applique les lignes et enregistre un recu, dans une seule transaction (public.send_takeoff_job). Le rejeu d'une meme commande (request_id) renvoie son recu sans rien ecrire de nouveau.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: takeoffSendBody,
+    responses: {
+      "200": jsonResponse("Recu de l'envoi.", apiTakeoffSendSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },

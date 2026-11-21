@@ -141,7 +141,7 @@ async function recomputeTakeoffRules(input: TakeoffRuleRecomputeInput): Promise<
   if (typeof stamp !== "string") failed("Impossible de lire l’état du métré pour les règles.", null);
 
   const jobQuery = supabase.from("takeoff_jobs" as never)
-    .select("id, status, created_at, sources:preparation_snapshot->preparation->sources" as never)
+    .select(JOB_SELECT as never)
     .eq("tenant_id" as never, tenantId as never);
   const { data: jobData, error: jobError } = await (estimateVersionId === undefined
     ? jobQuery.eq("id" as never, input.jobId as never).eq("project_id" as never, input.projectId as never)
@@ -149,80 +149,10 @@ async function recomputeTakeoffRules(input: TakeoffRuleRecomputeInput): Promise<
     : jobQuery.eq("estimate_version_id" as never, estimateVersionId as never))
     .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true });
   if (jobError) failed("Impossible de lire les jobs de la version pour les règles.", jobError);
-  const jobs = (jobData ?? []) as unknown as JobRow[];
-  if (jobs.length === 0) return { lines: 0, written: 0, skipped: 0, reopened: 0 };
-  const jobIds = jobs.map((job) => job.id);
-
-  const { data: itemData, error: itemError } = await readAllRows(() => supabase.from("takeoff_items" as never)
-    .select(("id, job_id, designation, unit, quantity, is_excluded, exclusion_reason, updated_at, metadata, source_file_name, source_page, "
-      + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entry_category, is_verified") as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never).in("job_id" as never, jobIds as never));
-  if (itemError) failed("Impossible de lire les lignes de la version pour les règles.", itemError as { message?: string });
-  const items = ((itemData ?? []) as unknown as ItemRow[]).map((item) => ({ item, inputs: readRuleInputs(item.metadata) }));
-  if (!items.some(({ inputs }) => inputs !== null)) return { lines: 0, written: 0, skipped: 0, reopened: 0 };
-
-  const jobOrder = new Map(jobs.map((job, index) => [job.id, index]));
-  const status = new Map(jobs.map((job) => [job.id, job.status]));
-  const sources = new Map(jobs.map((job): [string, PageDocumentSource[] | null] => {
-    const parsed = SourcesSchema.safeParse(job.sources);
-    return [job.id, parsed.success ? parsed.data : null];
-  }));
-  const vectorJobs = [...new Set(items.filter(({ inputs }) => inputs !== null).map(({ item }) => item.job_id))];
-  const { data: pageData, error: pageError } = await readAllRows(() => supabase.from("takeoff_vector_pages" as never)
-    .select("id, job_id, plan_file_id, source_file_name, source_page, reading, rule_anchors" as never, { count: "exact" })
-    .eq("tenant_id" as never, input.tenantId as never).in("job_id" as never, vectorJobs as never));
-  if (pageError) failed("Impossible de lire les pages vectorielles pour les règles.", pageError as { message?: string });
-  const geometries = new Map((await readGeometries(supabase, input.tenantId, vectorJobs)).flatMap((row) => {
-    const geometry = VectorItemGeometrySchema.safeParse(row.geometry);
-    return geometry.success ? [[row.takeoff_item_id, { page: row.vector_page_id, geometry: geometry.data }] as const] : [];
-  }));
-
-  const pages: RulePage[] = [];
-  const candidates: RulePageCandidate[] = [];
-  for (const row of (pageData ?? []) as unknown as PageRow[]) {
-    const reading = VectorPageRecordSchema.safeParse(row.reading);
-    const anchors = AnchorsSchema.safeParse(row.rule_anchors);
-    pages.push({
-      key: row.id, job_id: row.job_id, order: (jobOrder.get(row.job_id) ?? 0) * 10_000 + row.source_page,
-      level: reading.success ? reading.data.location.level : null, zone: reading.success ? reading.data.location.zone : null,
-      scale: reading.success ? { status: reading.data.scale.status, reason: reading.data.scale.reason } : null,
-      denominator: reading.success ? reading.data.scale.denominator : null, anchors: anchors.success ? anchors.data : null,
-      // TI-682 (lot D): the plan page it reads, by its document (a plan file, or the job's upload) and its job's preparation.
-      identity: takeoffLinePageIdentity({ source_file_name: row.source_file_name, source_page: row.source_page,
-        source_document: row.plan_file_id ? { kind: "plan_file", plan_file_id: row.plan_file_id } : { kind: "job_upload", job_id: row.job_id } },
-      sources.get(row.job_id)),
-    });
-    candidates.push({ id: row.id, job_id: row.job_id, plan_file_id: row.plan_file_id ?? null, source_file_name: row.source_file_name,
-      source_page: row.source_page, scale_mismatch: reading.success && reading.data.scale.reason === "dimension_mismatch" });
-  }
-
-  const lines: RuleLine[] = items.filter(({ inputs }) => inputs !== null).map(({ item, inputs }) => {
-    const stored = geometries.get(item.id);
-    return {
-      id: item.id, job_id: item.job_id, designation: item.designation, unit: item.unit, quantity: Number(item.quantity),
-      is_excluded: item.is_excluded, unselected_vector: Boolean(stored) && isUnselectedVectorReading(item), frozen: status.get(item.job_id) === "applied",
-      // TI-686 D12: an entry is a quantity attested with its category, which survives the deletion of its author.
-      quantity_entered: item.quantity_entry_category != null,
-      inputs,
-      // A line read by the model belongs to the vector page of its own document and page, when the job read one (scale rule).
-      page_key: stored?.page ?? ruleLinePage(item, candidates),
-      geometry: stored ? { segments_m: stored.geometry.segments_m, polygon_m: stored.geometry.polygon_m, holes_m: stored.geometry.holes_m ?? null,
-        length_m: stored.geometry.length_m, area_m2: stored.geometry.area_m2 } : null,
-    };
-  });
-  let quantityLines = lines;
-  if (estimateVersionId !== undefined && lines.some(line => line.inputs?.kind === "surface")) {
-    const [targets, links] = await Promise.all([
-      readAllRows(() => supabase.from("estimate_items").select("id,title,description,source_metadata", { count: "exact" })
-        .eq("tenant_id", input.tenantId).eq("version_id", estimateVersionId).eq("source_provider", "dpgf").eq("item_type", "line")),
-      readAllRows(() => supabase.from("takeoff_dpgf_links").select("takeoff_item_id,estimate_item_id", { count: "exact" })
-        .eq("tenant_id", input.tenantId).eq("version_id", estimateVersionId)),
-    ]);
-    if (targets.error) failed("Impossible de lire les lignes de prix pour le contrôle des surfaces.", targets.error);
-    if (links.error) failed("Impossible de lire les rattachements des surfaces.", links.error);
-    quantityLines = withQuantityLineGroups(lines, (targets.data ?? []) as QuantityTargetLine[], (links.data ?? []) as QuantityLineLink[]);
-  }
-  const evaluation = evaluateTakeoffRules({ lines: quantityLines, pages });
+  const evaluated = await evaluateRulesOfJobs({ supabase, tenantId, jobs: (jobData ?? []) as unknown as JobRow[],
+    surfaceVersionId: estimateVersionId ?? null });
+  if (!evaluated) return EMPTY_RECOMPUTATION;
+  const { items, geometries, evaluation, status, lines } = evaluated;
 
   // Each line as read: its updated_at and when it was last made stale (a partner's later edit keeps it stale).
   const writes: RuleResultWrite[] = [];
@@ -264,7 +194,93 @@ async function recomputeTakeoffRules(input: TakeoffRuleRecomputeInput): Promise<
   return { lines: lines.length, written, skipped: writes.length - written, reopened };
 }
 
-type RuleResultWrite = { id: string; results: TakeoffRuleResult[]; complete_failure_keys?: string[]; expected_updated_at: string; expected_stale_at: string | null };
+const JOB_SELECT = "id, status, created_at, sources:preparation_snapshot->preparation->sources";
+
+/**
+ * Reads the lines, vector pages and geometries of these jobs (and, for a version, its DPGF lines for the surface
+ * control) and evaluates the fixed rules on them together. Null when no line carries rule inputs.
+ */
+async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: string; jobs: JobRow[]; surfaceVersionId: string | null }) {
+  const { supabase, tenantId, jobs } = input;
+  if (jobs.length === 0) return null;
+  const jobIds = jobs.map((job) => job.id);
+
+  const { data: itemData, error: itemError } = await readAllRows(() => supabase.from("takeoff_items" as never)
+    .select(("id, job_id, designation, unit, quantity, is_excluded, exclusion_reason, updated_at, metadata, source_file_name, source_page, "
+      + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entry_category, is_verified") as never, { count: "exact" })
+    .eq("tenant_id" as never, tenantId as never).in("job_id" as never, jobIds as never));
+  if (itemError) failed("Impossible de lire les lignes de la version pour les règles.", itemError as { message?: string });
+  const items = ((itemData ?? []) as unknown as ItemRow[]).map((item) => ({ item, inputs: readRuleInputs(item.metadata) }));
+  if (!items.some(({ inputs }) => inputs !== null)) return null;
+
+  const jobOrder = new Map(jobs.map((job, index) => [job.id, index]));
+  const status = new Map(jobs.map((job) => [job.id, job.status]));
+  const sources = new Map(jobs.map((job): [string, PageDocumentSource[] | null] => {
+    const parsed = SourcesSchema.safeParse(job.sources);
+    return [job.id, parsed.success ? parsed.data : null];
+  }));
+  const vectorJobs = [...new Set(items.filter(({ inputs }) => inputs !== null).map(({ item }) => item.job_id))];
+  const { data: pageData, error: pageError } = await readAllRows(() => supabase.from("takeoff_vector_pages" as never)
+    .select("id, job_id, plan_file_id, source_file_name, source_page, reading, rule_anchors" as never, { count: "exact" })
+    .eq("tenant_id" as never, tenantId as never).in("job_id" as never, vectorJobs as never));
+  if (pageError) failed("Impossible de lire les pages vectorielles pour les règles.", pageError as { message?: string });
+  const geometries = new Map((await readGeometries(supabase, tenantId, vectorJobs)).flatMap((row) => {
+    const geometry = VectorItemGeometrySchema.safeParse(row.geometry);
+    return geometry.success ? [[row.takeoff_item_id, { page: row.vector_page_id, geometry: geometry.data }] as const] : [];
+  }));
+
+  const pages: RulePage[] = [];
+  const candidates: RulePageCandidate[] = [];
+  for (const row of (pageData ?? []) as unknown as PageRow[]) {
+    const reading = VectorPageRecordSchema.safeParse(row.reading);
+    const anchors = AnchorsSchema.safeParse(row.rule_anchors);
+    pages.push({
+      key: row.id, job_id: row.job_id, order: (jobOrder.get(row.job_id) ?? 0) * 10_000 + row.source_page,
+      level: reading.success ? reading.data.location.level : null, zone: reading.success ? reading.data.location.zone : null,
+      scale: reading.success ? { status: reading.data.scale.status, reason: reading.data.scale.reason } : null,
+      denominator: reading.success ? reading.data.scale.denominator : null, anchors: anchors.success ? anchors.data : null,
+      // TI-682 (lot D): the plan page it reads, by its document (a plan file, or the job's upload) and its job's preparation.
+      identity: takeoffLinePageIdentity({ source_file_name: row.source_file_name, source_page: row.source_page,
+        source_document: row.plan_file_id ? { kind: "plan_file", plan_file_id: row.plan_file_id } : { kind: "job_upload", job_id: row.job_id } },
+      sources.get(row.job_id)),
+    });
+    candidates.push({ id: row.id, job_id: row.job_id, plan_file_id: row.plan_file_id ?? null, source_file_name: row.source_file_name,
+      source_page: row.source_page, scale_mismatch: reading.success && reading.data.scale.reason === "dimension_mismatch" });
+  }
+
+  const lines: RuleLine[] = items.filter(({ inputs }) => inputs !== null).map(({ item, inputs }) => {
+    const stored = geometries.get(item.id);
+    return {
+      id: item.id, job_id: item.job_id, designation: item.designation, unit: item.unit, quantity: Number(item.quantity),
+      is_excluded: item.is_excluded, unselected_vector: Boolean(stored) && isUnselectedVectorReading(item), frozen: status.get(item.job_id) === "applied",
+      // TI-686 D12: an entry is a quantity attested with its category, which survives the deletion of its author.
+      quantity_entered: item.quantity_entry_category != null,
+      inputs,
+      // A line read by the model belongs to the vector page of its own document and page, when the job read one (scale rule).
+      page_key: stored?.page ?? ruleLinePage(item, candidates),
+      geometry: stored ? { segments_m: stored.geometry.segments_m, polygon_m: stored.geometry.polygon_m, holes_m: stored.geometry.holes_m ?? null,
+        length_m: stored.geometry.length_m, area_m2: stored.geometry.area_m2 } : null,
+    };
+  });
+  let quantityLines = lines;
+  const estimateVersionId = input.surfaceVersionId;
+  if (estimateVersionId !== null && lines.some(line => line.inputs?.kind === "surface")) {
+    const [targets, links] = await Promise.all([
+      readAllRows(() => supabase.from("estimate_items").select("id,title,description,source_metadata", { count: "exact" })
+        .eq("tenant_id", tenantId).eq("version_id", estimateVersionId).eq("source_provider", "dpgf").eq("item_type", "line")),
+      readAllRows(() => supabase.from("takeoff_dpgf_links").select("takeoff_item_id,estimate_item_id", { count: "exact" })
+        .eq("tenant_id", tenantId).eq("version_id", estimateVersionId)),
+    ]);
+    if (targets.error) failed("Impossible de lire les lignes de prix pour le contrôle des surfaces.", targets.error);
+    if (links.error) failed("Impossible de lire les rattachements des surfaces.", links.error);
+    quantityLines = withQuantityLineGroups(lines, (targets.data ?? []) as QuantityTargetLine[], (links.data ?? []) as QuantityLineLink[]);
+  }
+  const evaluation = evaluateTakeoffRules({ lines: quantityLines, pages });
+
+  return { items, geometries, evaluation, status, lines };
+}
+
+export type RuleResultWrite = { id: string; results: TakeoffRuleResult[]; complete_failure_keys?: string[]; expected_updated_at: string; expected_stale_at: string | null };
 
 /**
  * Writes a computation's results by chunks. A chunk whose write moves a line (a verified line reopened, failures that
@@ -330,4 +346,74 @@ export async function recomputeTakeoffRulesQuietly(input: TakeoffRuleRecomputeIn
     }
   }
   return null;
+}
+
+/**
+ * Lot 2 M2: the rules of a takeoff of an affaire evaluated against the destination it is about to be sent to, without
+ * writing anything. The cross-job controls (zone overlap, coverage) read the takeoffs the destination version already
+ * holds, the surface control its DPGF lines; a first draft holds none, so the evaluation is complete, never deferred.
+ * The stamps are read before the lines: the send command compares them again under its locks, so a change after this
+ * reading refuses the send instead of writing results computed from an older state. Every line with rule inputs gets
+ * its results (written by the send command in its transaction), whether or not they differ from the stored ones.
+ */
+export async function evaluateTakeoffRulesForDestination(input: {
+  tenantId: string;
+  projectId: string;
+  jobId: string;
+  destinationVersionId: string | null;
+  supabase?: ServiceClient;
+}): Promise<{
+  jobStamp: string | null;
+  versionStamp: string | null;
+  writes: RuleResultWrite[];
+  transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }>;
+  results: Map<string, TakeoffRuleResult[]>;
+}> {
+  const supabase = input.supabase ?? createServiceRoleClient();
+  const { data: jobStamp, error: jobStampError } = await supabase.rpc("takeoff_rule_job_stamp" as never,
+    { p_tenant_id: input.tenantId, p_project_id: input.projectId, p_job_id: input.jobId } as never);
+  if (jobStampError || (jobStamp !== null && typeof jobStamp !== "string")) {
+    failed("Impossible de lire l’état du métré pour les règles.", jobStampError);
+  }
+  let versionStamp: string | null = null;
+  if (input.destinationVersionId) {
+    const { data, error } = await supabase.rpc("takeoff_rule_version_stamp" as never,
+      { p_tenant_id: input.tenantId, p_estimate_version_id: input.destinationVersionId } as never);
+    if (error || typeof data !== "string") failed("Impossible de lire l’état du devis pour les règles.", error);
+    versionStamp = data;
+  }
+  const empty = { jobStamp: jobStamp as string | null, versionStamp, writes: [], transforms: [], results: new Map() };
+  if (jobStamp === null) return empty;
+
+  const own = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never).eq("id" as never, input.jobId as never)
+    .eq("project_id" as never, input.projectId as never).is("estimate_version_id" as never, null)
+    .eq("status" as never, "completed" as never);
+  if (own.error) failed("Impossible de lire le métré pour les règles.", own.error);
+  const peers = input.destinationVersionId ? await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never).eq("estimate_version_id" as never, input.destinationVersionId as never)
+    .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true })
+    : { data: [], error: null };
+  if (peers.error) failed("Impossible de lire les métrés du devis pour les règles.", peers.error);
+  const jobs = [...((peers.data ?? []) as unknown as JobRow[]), ...((own.data ?? []) as unknown as JobRow[])];
+  const evaluated = await evaluateRulesOfJobs({ supabase, tenantId: input.tenantId, jobs, surfaceVersionId: input.destinationVersionId });
+  if (!evaluated) return empty;
+  const { items, geometries, evaluation } = evaluated;
+  const writes: RuleResultWrite[] = [];
+  const transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }> = [];
+  const results = new Map<string, TakeoffRuleResult[]>();
+  for (const { item, inputs } of items) {
+    if (inputs === null || item.job_id !== input.jobId) continue;
+    const stored = geometries.get(item.id);
+    if (stored) {
+      const transform = evaluation.transforms.get(stored.page) ?? null;
+      if (!sameJson(stored.geometry.transform, transform)) transforms.push({ item_id: item.id, transform });
+    }
+    // Unlike a recomputation, a line whose results cannot be bounded is not left as it was: its stored, deferred
+    // results would then pass for an evaluation of this destination. The send is refused instead.
+    const payload = prepareRuleResultWrite(evaluation.results.get(item.id) ?? []);
+    results.set(item.id, payload.results);
+    writes.push({ id: item.id, ...payload, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
+  }
+  return { jobStamp: jobStamp as string, versionStamp, writes, transforms, results };
 }

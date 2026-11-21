@@ -337,7 +337,7 @@ export function ValidationReviewPanel({
 
   const isApplyReady = readiness?.state === "ready";
   const adminMayForce = readiness?.state === "admin_may_force";
-  const comparisonDeferred = readiness?.blockers.includes("no_destination")
+  const comparisonDeferred = readiness?.comparisonDeferred === true
     || includedItems.some(item => item.rule_results?.some(result => result.details?.cross_job_comparison === "deferred"));
   const statusMessage = comparisonDeferred ? TAKEOFF_COMPARISON_DEFERRED
     : buildStatusMessage({ blockers: readiness?.blockers ?? [], summary, isApplyReady });

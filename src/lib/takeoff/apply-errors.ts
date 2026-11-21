@@ -288,6 +288,29 @@ function dpgfSectionReplaceMessage(parsed: z.infer<typeof dpgfSectionReplaceSche
     + `un geste qui la nomme : rien n’est appliqué. Choisissez « Fusionner » : ${way} Puis appliquez à nouveau.`;
 }
 
+const ordinaryLineSchema = z.object({
+  reason: z.literal("merge_overwrites_ordinary_line"),
+  estimate_item_id: z.string().optional(),
+  title: z.string().nullable().optional(),
+  quantity: z.number().nullable().optional(),
+  unit: z.string().nullable().optional(),
+  takeoff_item_id: z.string().nullable().optional(),
+  designation: z.string().nullable().optional(),
+  takeoff_quantity: z.number().nullable().optional(),
+  takeoff_unit: z.string().nullable().optional(),
+});
+
+/** Lot 2 M2: the ordinary line « Fusionner » would have overwritten, as the writer named it under the version's lock. */
+function parseOrdinaryLine(detail: string | null | undefined) {
+  if (!detail) return null;
+  try {
+    const parsed = ordinaryLineSchema.safeParse(JSON.parse(detail));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Why the database refused a page decision (TAKEOFF_PAGE_DECISION_INVALID). */
 const PAGE_DECISION_MESSAGES: Record<string, string> = {
   remove_other_pages: "Une ligne à retirer porte aussi d’autres pages du plan : la retirer les retirerait. Gardez-la, ou corrigez-la dans le devis.",
@@ -383,6 +406,17 @@ export function mapApplyTakeoffRpcError(
     return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
       message: PAGE_DECISION_MESSAGES[page?.reason ?? ""] ?? PAGE_DECISION_MESSAGES.shape,
       details: { ...guardDetails, guard: "page_decision" }, retryable: false, jobId: input.jobId });
+  }
+
+  if (error.message === "TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT") {
+    // Lot 2 M2: the writer refuses, under the version's lock, what the screen refused before sending (merge-overwrites.ts).
+    const line = parseOrdinaryLine(error.details);
+    const kept = line?.title?.trim() ? `« ${line.title.trim()} »${measureOf(line.quantity, line.unit)}` : "une ligne de la section";
+    const sent = line?.designation?.trim() ? ` par « ${line.designation.trim()} »${measureOf(line.takeoff_quantity, line.takeoff_unit)}` : "";
+    return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+      message: `La fusion par désignation écraserait ${kept}, qui ne vient pas de ce métré${sent ? `,${sent}` : ""}. Une quantité saisie n’est jamais `
+        + "remplacée sans votre choix : rien n’est appliqué. Choisissez une autre section.",
+      details: { ...details, ...(line ?? {}), guard: "ordinary_line_overwrite" }, retryable: false, jobId: input.jobId });
   }
 
   if (normalized.includes("takeoff_dpgf_quantity_")) {
