@@ -306,7 +306,7 @@ describe("the automatic seal of the dossier's pieces", () => {
       .toMatchObject({ plan_identity: null, active: true });
   });
 
-  // Written after the independent review: the worker opens every plan with pdf-lib and fails a plan it cannot open.
+  // The worker opens every plan with pdf-lib and fails a plan it cannot open.
   it("stops, naming it, on a dossier plan the worker could not open, and spends nothing", async () => {
     const { admitted, recorded, fake } = dossier();
     const corrupt = new TextEncoder().encode("%PDF-1.4 plan tronque");
@@ -322,7 +322,7 @@ describe("the automatic seal of the dossier's pieces", () => {
     expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
   });
 
-  // Written after the second reading: a version the members' revision choice set aside is never opened by the worker.
+  // A version the members' revision choice set aside is never opened by the worker.
   it("starts on the retained version when the version set aside could not be opened", async () => {
     const { admitted, fake } = dossier();
     const BROKEN = "aaaaaaaa-0000-4000-8000-000000000051";

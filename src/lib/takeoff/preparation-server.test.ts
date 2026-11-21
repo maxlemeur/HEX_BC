@@ -628,7 +628,7 @@ describe("the sealing of a member's confirmation", () => {
     expect(again.draft.sources.find((source) => source.document_id === f.file.id)).toMatchObject({ plan_identity: null, revision: "A" });
   });
 
-  // Written after the independent review: the sealing's attestation must never stand in for the member's own
+  // The sealing's attestation must never stand in for the member's own
   // confirmation of a source in a preparation that does not come from the dossier.
   it("never confirms a member's preparation whose source they have not confirmed, though the server read its bytes", async () => {
     const f = fixture();
@@ -639,7 +639,7 @@ describe("the sealing of a member's confirmation", () => {
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
   });
 
-  // Written after the independent review: the worker opens every plan with pdf-lib and fails a plan it cannot open.
+  // The worker opens every plan with pdf-lib and fails a plan it cannot open.
   it("tells the member a dossier plan the worker could not open, and confirms nothing", async () => {
     const f = fixture();
     f.contents.set(f.file.file_path, Buffer.from("%PDF-1.4 plan tronque"));
@@ -649,7 +649,7 @@ describe("the sealing of a member's confirmation", () => {
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
   });
 
-  // Written after the second reading: the worker never opens a version the revision choices set aside (it only compares
+  // The worker never opens a version the revision choices set aside (it only compares
   // its bytes), so a version it could not open stops a confirmation only once it is retained.
   it("lets the member set aside a version the worker could not open, and stops on it only when it is retained", async () => {
     const f = fixture();
@@ -680,7 +680,7 @@ describe("the sealing of a member's confirmation", () => {
       message: expect.stringContaining("« Distribution rev B.pdf »") });
   });
 
-  // Written after the third reading: an identical copy set aside gives its pages to the plan kept, which the worker reads
+  // An identical copy set aside gives its pages to the plan kept, which the worker reads
   // with every page so merged.
   it("tells the member a page an identical copy set aside gives to the plan kept, when the file lacks it", async () => {
     const f = fixture();
