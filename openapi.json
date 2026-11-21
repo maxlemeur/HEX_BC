@@ -24384,6 +24384,33 @@
             "schema": {
               "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsLimitParameter"
             }
+          },
+          {
+            "name": "dossierSeen",
+            "in": "query",
+            "description": "Position du dossier lue la fois précédente : son écart n’est recalculé que s’il a bougé.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsDossierSeenParameter"
+            }
+          },
+          {
+            "name": "actionSeen",
+            "in": "query",
+            "description": "Clé du geste lu la fois précédente.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsActionSeenParameter"
+            }
+          },
+          {
+            "name": "actionSeenAt",
+            "in": "query",
+            "description": "Heure du serveur de cette lecture : le geste est relu après 30 s.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterRequestsActionSeenAtParameter"
+            }
           }
         ],
         "responses": {
@@ -83899,6 +83926,18 @@
         "minimum": 1,
         "maximum": 20
       },
+      "GetTakeoffActivityCenterRequestsDossierSeenParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "GetTakeoffActivityCenterRequestsActionSeenParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "GetTakeoffActivityCenterRequestsActionSeenAtParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
       "ApiTakeoffRequestActivityResponse": {
         "type": "object",
         "properties": {
@@ -84308,17 +84347,25 @@
                               ],
                               "description": "La version sur laquelle s’ouvre sa revue, une fois envoyée."
                             },
+                            "lastTransitionAt": {
+                              "description": "Dernière transition de l’analyse (création, début, fin), jamais un renouvellement de bail.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
                             "itemCount": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 9007199254740991
+                              "maximum": 9007199254740991,
+                              "description": "Lignes retenues, c’est-à-dire non exclues."
                             },
                             "applied": {
                               "type": "boolean",
                               "description": "Ses lignes sont envoyées au devis ; la lecture reste réussie."
                             },
                             "errorCode": {
-                              "description": "Code de diagnostic ; l’écran affiche son motif en français, jamais le code.",
+                              "description": "Code de diagnostic s’il a un motif public en français, sinon OTHER ; l’écran affiche le motif, jamais le code.",
                               "type": [
                                 "string",
                                 "null"
@@ -84399,6 +84446,7 @@
                             "jobId",
                             "planSetId",
                             "estimateVersionId",
+                            "lastTransitionAt",
                             "itemCount",
                             "applied",
                             "errorCode",
@@ -84936,17 +84984,25 @@
                             ],
                             "description": "La version sur laquelle s’ouvre sa revue, une fois envoyée."
                           },
+                          "lastTransitionAt": {
+                            "description": "Dernière transition de l’analyse (création, début, fin), jamais un renouvellement de bail.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "itemCount": {
                             "type": "integer",
                             "minimum": 0,
-                            "maximum": 9007199254740991
+                            "maximum": 9007199254740991,
+                            "description": "Lignes retenues, c’est-à-dire non exclues."
                           },
                           "applied": {
                             "type": "boolean",
                             "description": "Ses lignes sont envoyées au devis ; la lecture reste réussie."
                           },
                           "errorCode": {
-                            "description": "Code de diagnostic ; l’écran affiche son motif en français, jamais le code.",
+                            "description": "Code de diagnostic s’il a un motif public en français, sinon OTHER ; l’écran affiche le motif, jamais le code.",
                             "type": [
                               "string",
                               "null"
@@ -85027,6 +85083,7 @@
                           "jobId",
                           "planSetId",
                           "estimateVersionId",
+                          "lastTransitionAt",
                           "itemCount",
                           "applied",
                           "errorCode",
@@ -85213,15 +85270,66 @@
               "elsewhere": {
                 "type": "object",
                 "properties": {
+                  "running": {
+                    "type": "boolean"
+                  },
                   "waiting": {
                     "type": "boolean"
                   }
                 },
                 "required": [
+                  "running",
                   "waiting"
                 ],
                 "additionalProperties": false,
-                "description": "Vues request et job : la dernière exécution de l’affaire, quand ce n’est pas celle affichée, peut encore changer."
+                "description": "Vues request et job : la dernière exécution de l’affaire, quand ce n’est pas celle affichée, lit un plan (running) ou peut encore changer (waiting)."
+              },
+              "currentIsLatest": {
+                "type": "boolean",
+                "description": "La demande affichée est la dernière exécution de l’affaire."
+              },
+              "inFlightJobIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "description": "Analyses de l’affaire que cette lecture voit encore en file, en cours ou en attente de reprise : une analyse que la liste montre ainsi et qui n’y figure pas a changé depuis la liste."
+              },
+              "reused": {
+                "type": "object",
+                "properties": {
+                  "dossierPosition": {
+                    "description": "Position du dossier de la demande affichée ; à renvoyer en dossierSeen.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dossier": {
+                    "type": "boolean",
+                    "description": "Le dossier n’a pas bougé depuis dossierSeen : son écart n’a pas été recalculé (dossierChanged nul)."
+                  },
+                  "actionKey": {
+                    "description": "Clé du geste lu ; à renvoyer en actionSeen avec observedAt en actionSeenAt.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "action": {
+                    "type": "boolean",
+                    "description": "Le geste n’a pas été relu (lu il y a moins de 30 s pour la même demande) : action nulle."
+                  }
+                },
+                "required": [
+                  "dossierPosition",
+                  "dossier",
+                  "actionKey",
+                  "action"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -85234,7 +85342,10 @@
               "historyHasOlder",
               "historyOffset",
               "standalone",
-              "elsewhere"
+              "elsewhere",
+              "currentIsLatest",
+              "inFlightJobIds",
+              "reused"
             ],
             "additionalProperties": false
           }

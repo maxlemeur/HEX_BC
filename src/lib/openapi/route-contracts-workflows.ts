@@ -603,6 +603,9 @@ const takeoffOperationsContracts: RouteContract[] = [
       { name: "jobId", schema: uuidSchema, description: "Analyse dont la demande est affichée (vue job), depuis sa revue." },
       { name: "offset", schema: z.number().int().min(0), description: "Décalage de la page des demandes précédentes (vue history)." },
       { name: "limit", schema: z.number().int().min(1).max(20), description: "Nombre de demandes précédentes par page (5 par défaut)." },
+      { name: "dossierSeen", schema: z.string().max(200), description: "Position du dossier lue la fois précédente : son écart n’est recalculé que s’il a bougé." },
+      { name: "actionSeen", schema: z.string().max(200), description: "Clé du geste lu la fois précédente." },
+      { name: "actionSeenAt", schema: z.string().max(200), description: "Heure du serveur de cette lecture : le geste est relu après 30 s." },
     ],
     success: [{ status: "200", description: "Demandes de l’affaire, leurs unités et ce que le membre peut faire de chaque analyse.", schema: {
       schemaName: "ApiTakeoffRequestActivityResponse", schema: z.object({ ok: z.literal(true), data: takeoffRequestActivityResponseSchema }), io: "output",

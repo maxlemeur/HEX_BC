@@ -210,7 +210,11 @@ pages ou de temps.
   dit ; rien n’est alors à envoyer. La revue d’un plan nomme les autres plans de
   sa demande, ceux qui manquent encore, et mène au plan précédent ou suivant lu.
 - **Ce que chacun voit.** Les lecteurs de l’affaire voient les états, les motifs
-  et ouvrent les revues qu’ils peuvent lire. Seul le membre qu’une décision y
+  et ouvrent les revues qu’ils peuvent lire. Le nom et les pages d’un plan (et
+  d’une pièce du dossier) ne sont montrés qu’au membre qui peut lire sa source,
+  selon les règles des plans et des pièces évaluées pour lui (le propriétaire de
+  l’affaire et un administrateur lisent tous ses plans) ; les autres lisent
+  « Plan N ». Seul le membre qu’une décision y
   autorise voit une action : pour une analyse arrêtée, la politique de reprise
   ([`operator-state.ts`](../../src/lib/takeoff/operator-state.ts), la même que le
   détail et la commande) ; pour une demande qui n’a pas démarré, le geste que la
@@ -235,16 +239,22 @@ pages ou de temps.
   d’échecs, sans octet de PDF. C’est la seule lecture répétée de la page : toutes
   les 5 secondes pendant la lecture d’un plan (ou juste après la fin du
   précédent, ou d’une analyse sans demande mise en file à l’instant), toutes les
-  30 secondes quand seul le Mac, une nouvelle tentative ou la clôture est
-  attendue, plus du tout quand rien ne peut changer de lui-même. Une lecture qui
-  échoue (réseau, serveur) est retentée 30 secondes plus tard, la page indiquant
-  entre-temps le dernier état connu ; un refus ne l’est pas. Un
+  30 secondes dans tout autre état qui peut encore bouger (le Mac, une nouvelle
+  tentative ou la clôture attendue, une demande pas encore démarrée), plus du
+  tout quand tout est clos. Une lecture qui échoue (réseau, serveur, délai
+  dépassé) est retentée 30 secondes plus tard, la page indiquant entre-temps le
+  dernier état connu ; seul un refus d’accès arrête les lectures et retire ce
+  qui était affiché. L’écart du dossier n’est recalculé que si le dossier a
+  bougé depuis la lecture précédente, et le geste avant admission n’est relu
+  qu’au rythme lent. Un
   onglet masqué ou hors ligne la suspend ; le retour sur l’onglet, la reconnexion
   et chaque geste la relisent aussitôt. La liste des analyses, l’historique des
   demandes et les fins d’analyse ne sont relus que lorsqu’elle signale une
   transition (jamais au renouvellement du bail d’une lecture), ou après un geste
   fait dans la liste. Le cache de cette projection est propre au membre et à son
-  entreprise. Une arrivée en arrière-plan ne déplace ni le
+  entreprise ; un autre membre repart d’une page vide. Une analyse que la liste
+  montre en cours et que la projection ne voit plus en cours fait relire les
+  deux. Une arrivée en arrière-plan ne déplace ni le
   focus, ni la sélection, ni une saisie en cours.
 - **Étape suivante.** Quand la dernière exécution est une demande, plus récente
   que la dernière analyse lancée sans demande, l’étape suivante suit ses plans,
