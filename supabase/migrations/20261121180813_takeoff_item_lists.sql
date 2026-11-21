@@ -7,33 +7,36 @@
 --
 -- What the previous application version sees while this is applied: nothing changes in its writes.
 --   - Every new relation is read and written only by the new server (service role functions) or read through RLS.
---   - The one trigger on an existing table (dpgf_rows_mapped, after insert, per statement) copies the identities of the
---     inserted rows into a private lineage table; it refuses nothing and changes no column of the inserted rows.
+--   - The one trigger on an existing table (dpgf_rows_mapped, after delete, per statement) records the identities of the
+--     deleted rows in a private lineage table; it refuses nothing and changes no row of the import.
+--   - The imports gain a nullable column (the worksheet's first row), written only by the new server.
 --   - The launch requests gain a nullable column, set only by the seal of the second measuring order, behind its own
---     activation (private.takeoff_item_list_order_activation, empty): the seal of the first order is unchanged.
+--     activation (private.takeoff_item_list_order_activation, empty): the seal of the free extraction is unchanged.
 --   - The import confirmation of the previous version calls public.persist_estimate_creation_atomic as before and records
---     no structure decision; a later reading of the list then finds no valid proof for that confirmation (section 4).
+--     no structure decision; the list then does not hold an earlier record as established (section 4).
 --
--- Locks. Section 0 copies the identities of every mapped row while it holds public.dpgf_rows_mapped (SHARE ROW
--- EXCLUSIVE, from its trigger's creation to the commit): mapping creations and the catalogue linking wait for the copy
--- (the only scan of this migration). Everything after it is DDL on new tables; the foreign keys it creates hold the
--- referenced tables (tenants, estimate_projects, estimate_versions, dpgf_imports, dpgf_mappings) against writes from
--- their creation to the commit, which follows within milliseconds, and the launch requests are altered last. To apply
--- outside an import being mapped; nothing else to drain.
+-- Locks: every lock this migration needs is taken first, in one fixed order, under the lock timeout, so that a busy
+-- table refuses the migration before any work. Nothing is copied or scanned: they are held for the DDL only, until the
+-- commit (measured on a local stack, see the pull request).
 begin;
 
--- Every statement takes a short lock: give up instead of queueing the import, mapping and launch writers.
+-- Every statement takes a short lock: give up instead of queueing the import, mapping, estimate and launch writers.
 set local lock_timeout = '5s';
 
--- 0. The link of an estimate line to its raw DPGF row, first: during its copy only the mapped rows are held. A line
---    made from an import carries its import and its mapped row in its source metadata (unchanged); a remapping deletes
---    the mapped rows. The database records, when a mapped
---    row is inserted, which raw row of which import it was made from: the join line → mapped row → raw row stays proven
---    after a remapping, for the line and for its copies, without a byte more in the line's metadata.
+lock table public.tenants, public.estimate_projects, public.estimate_versions, public.dpgf_mappings,
+  public.dpgf_rows_mapped in share row exclusive mode;
+lock table public.dpgf_imports, public.takeoff_launch_requests in access exclusive mode;
+
+-- 0. The link of an estimate line to its raw DPGF row. A line made from an import carries its import and its mapped
+--    row in its source metadata (unchanged). A live mapped row names its raw row; a remapping deletes the mapped rows,
+--    and the database records, as they are deleted, which raw row of which import each one was made from: the join
+--    line → mapped row → raw row stays proven after a remapping, for the line and for its copies, without a byte more
+--    in the line's metadata. Nothing is copied when this is applied: a live row needs no record, and a row deleted
+--    before it was not recoverable either.
 create table private.dpgf_mapped_row_lineage (
   mapped_row_id uuid primary key,
   tenant_id uuid not null,
-  -- No foreign key: identifiers only, kept as a journal when an import is deleted, and no lock on the imports here.
+  -- No foreign key: identifiers only, kept as a journal when an import is deleted.
   import_id uuid not null,
   raw_row_id uuid not null,
   recorded_at timestamptz not null default pg_catalog.clock_timestamp()
@@ -45,33 +48,19 @@ create function private.record_dpgf_mapped_row_lineage()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   insert into private.dpgf_mapped_row_lineage (mapped_row_id, tenant_id, import_id, raw_row_id)
-  select n.id, n.tenant_id, n.import_id, n.raw_row_id from inserted_rows n where n.raw_row_id is not null
+  select d.id, d.tenant_id, d.import_id, d.raw_row_id from deleted_rows d where d.raw_row_id is not null
   on conflict (mapped_row_id) do nothing;
   return null;
 end;
 $$;
 revoke all on function private.record_dpgf_mapped_row_lineage() from public, anon, authenticated, service_role;
--- Created before the copy of the existing rows: from here until the commit, no mapped row is inserted unseen.
-create trigger zz_record_dpgf_mapped_row_lineage after insert on public.dpgf_rows_mapped
-  referencing new table as inserted_rows for each statement execute function private.record_dpgf_mapped_row_lineage();
+create trigger zz_record_dpgf_mapped_row_lineage after delete on public.dpgf_rows_mapped
+  referencing old table as deleted_rows for each statement execute function private.record_dpgf_mapped_row_lineage();
 
--- The rows that exist now. A mapped row without its raw row is not copied (no proof); the count is checked.
-insert into private.dpgf_mapped_row_lineage (mapped_row_id, tenant_id, import_id, raw_row_id)
-select m.id, m.tenant_id, m.import_id, m.raw_row_id from public.dpgf_rows_mapped m where m.raw_row_id is not null
-on conflict (mapped_row_id) do nothing;
-do $$
-declare
-  missing bigint;
-begin
-  select count(*) into missing from public.dpgf_rows_mapped m
-  where m.raw_row_id is not null
-    and not exists (select 1 from private.dpgf_mapped_row_lineage l where l.mapped_row_id = m.id);
-  if missing <> 0 then
-    raise exception 'DPGF_MAPPED_ROW_LINEAGE_INCOMPLETE: % mapped rows without lineage', missing;
-  end if;
-end;
-$$;
-
+-- The worksheet row where an imported table starts (1 for a sheet read from its first row), for an import parsed from
+-- now on: the item list shows the worksheet's own row (« ligne N de la feuille ») beside the table's
+-- (_timax_structure.source_row_number, unchanged). Null for an import made before, which shows the table's row alone.
+alter table public.dpgf_imports add column sheet_first_row integer check (sheet_first_row >= 1);
 
 -- 1. The takeoff operator of an affaire, for every write below: the rule of who may launch an analysis on it
 --    (private.takeoff_launch_payer_eligible: an active tenant, the affaire not archived, an administrator of the tenant
@@ -202,8 +191,10 @@ revoke all on function private.refuse_takeoff_item_list_direct_write() from publ
 
 -- 2. The item templates. The definition shipped with the application is the reading fallback of a tenant that has
 --    published none; a tenant's published versions are numbered after the version they were based on (the first one
---    after the shipped definition's). A published version is immutable. One draft per tenant and template, written
---    and read by its administrators only, compared on its revision.
+--    after the shipped definition's). A published version is immutable and records every line identifier the template
+--    ever used: a line retired then added again is a new line, never one of its old identifiers (an item made from a
+--    line keeps the line's identifier in every affaire). One draft per tenant and template, written and read by its
+--    administrators only, compared on a token renewed at each save and never reused.
 create table public.takeoff_item_template_versions (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants (id) on delete cascade,
@@ -213,6 +204,8 @@ create table public.takeoff_item_template_versions (
   definition jsonb not null,
   digest text not null check (digest ~ '^[0-9a-f]{64}$'),
   line_count integer not null check (line_count between 1 and 1000),
+  -- Every line identifier of this version and of the versions before it, the shipped one included.
+  used_line_ids text[] not null check (pg_catalog.cardinality(used_line_ids) between 1 and 100000),
   intent_key uuid not null,
   published_by uuid not null,
   published_at timestamptz not null default pg_catalog.clock_timestamp(),
@@ -238,6 +231,9 @@ create table public.takeoff_item_template_drafts (
   base_version integer not null check (base_version >= 1),
   definition jsonb not null,
   revision integer not null check (revision >= 1),
+  -- What a later save, discard or publication names: renewed at each save, so that a tab that saw another draft (one
+  -- discarded and saved again since) never acts on this one.
+  token uuid not null,
   updated_by uuid not null,
   updated_at timestamptz not null default pg_catalog.clock_timestamp(),
   primary key (tenant_id, template_key)
@@ -263,14 +259,56 @@ returns integer language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.latest_takeoff_item_template_version(uuid, text) from public, anon, authenticated, service_role;
 
--- Save the draft: the revision it replaces (0 for none), the version it is based on (the latest published, or the
--- shipped definition's when the tenant published none, which the server names). Returns the new revision.
-create function public.save_takeoff_item_template_draft(p_tenant_id uuid, p_actor uuid, p_template_key text,
-  p_expected_revision integer, p_base_version integer, p_definition jsonb)
-returns integer language plpgsql security definer set search_path = '' as $$
+create function private.takeoff_item_template_line_ids(p_definition jsonb)
+returns text[] language sql immutable set search_path = '' as $$
+  select coalesce(array_agg(l.value ->> 'id'), '{}')
+  from jsonb_array_elements(p_definition -> 'families') f(value), jsonb_array_elements(f.value -> 'lines') l(value)
+$$;
+revoke all on function private.takeoff_item_template_line_ids(jsonb) from public, anon, authenticated, service_role;
+
+-- A definition on the latest version (or the shipped one, whose line identifiers the server names): a line it keeps
+-- keeps its identifier; a line it adds never takes one the template ever used. Returns every identifier used so far.
+create function private.assert_takeoff_item_template_lines(p_tenant_id uuid, p_template_key text, p_definition jsonb,
+  p_shipped_line_ids text[])
+returns text[] language plpgsql stable security definer set search_path = '' as $$
 declare
-  current_revision integer;
+  latest public.takeoff_item_template_versions%rowtype;
+  base_ids text[];
+  used text[];
+  lines text[] := private.takeoff_item_template_line_ids(p_definition);
+begin
+  select * into latest from public.takeoff_item_template_versions v
+  where v.tenant_id = p_tenant_id and v.template_key = p_template_key order by v.version desc limit 1;
+  if found then
+    base_ids := private.takeoff_item_template_line_ids(latest.definition);
+    used := latest.used_line_ids;
+  else
+    if p_shipped_line_ids is null or pg_catalog.cardinality(p_shipped_line_ids) = 0 then
+      raise exception 'TAKEOFF_ITEM_TEMPLATE_INVALID' using errcode = '22023';
+    end if;
+    base_ids := p_shipped_line_ids;
+    used := p_shipped_line_ids;
+  end if;
+  if exists (select 1 from unnest(lines) id where not (id = any (base_ids)) and id = any (used)) then
+    raise exception 'TAKEOFF_ITEM_TEMPLATE_LINE_REUSED' using errcode = '22023';
+  end if;
+  return array(select distinct id from unnest(used || lines) id order by id);
+end;
+$$;
+revoke all on function private.assert_takeoff_item_template_lines(uuid, text, jsonb, text[])
+  from public, anon, authenticated, service_role;
+
+-- Save the draft: the token of the draft it replaces (null for none), the version it is based on (the latest
+-- published, or the shipped definition's when the tenant published none, which the server names with its lines).
+-- Returns the draft's revision and its new token.
+create function public.save_takeoff_item_template_draft(p_tenant_id uuid, p_actor uuid, p_template_key text,
+  p_expected_token uuid, p_base_version integer, p_definition jsonb, p_shipped_line_ids text[])
+returns table (revision integer, token uuid) language plpgsql security definer set search_path = '' as $$
+#variable_conflict use_column
+declare
+  current public.takeoff_item_template_drafts%rowtype;
   latest integer;
+  saved public.takeoff_item_template_drafts%rowtype;
 begin
   perform private.lock_takeoff_item_template(p_tenant_id, p_template_key);
   if not private.takeoff_item_template_publisher(p_tenant_id, p_actor) then
@@ -281,26 +319,28 @@ begin
   if p_base_version is null or p_base_version < 1 or (latest is not null and p_base_version <> latest) then
     raise exception 'TAKEOFF_ITEM_TEMPLATE_STALE' using errcode = '40001';
   end if;
-  select d.revision into current_revision from public.takeoff_item_template_drafts d
+  perform private.assert_takeoff_item_template_lines(p_tenant_id, p_template_key, p_definition, p_shipped_line_ids);
+  select * into current from public.takeoff_item_template_drafts d
   where d.tenant_id = p_tenant_id and d.template_key = p_template_key for update;
-  if coalesce(current_revision, 0) is distinct from p_expected_revision then
+  if current.token is distinct from p_expected_token then
     raise exception 'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE' using errcode = '40001';
   end if;
-  insert into public.takeoff_item_template_drafts as d (tenant_id, template_key, base_version, definition, revision, updated_by)
-  values (p_tenant_id, p_template_key, p_base_version, p_definition, 1, p_actor)
+  insert into public.takeoff_item_template_drafts as d (tenant_id, template_key, base_version, definition, revision, token,
+    updated_by)
+  values (p_tenant_id, p_template_key, p_base_version, p_definition, 1, gen_random_uuid(), p_actor)
   on conflict (tenant_id, template_key) do update set base_version = excluded.base_version,
-    definition = excluded.definition, revision = d.revision + 1, updated_by = excluded.updated_by,
+    definition = excluded.definition, revision = d.revision + 1, token = excluded.token, updated_by = excluded.updated_by,
     updated_at = pg_catalog.clock_timestamp()
-  returning d.revision into current_revision;
-  return current_revision;
+  returning * into saved;
+  return query select saved.revision, saved.token;
 end;
 $$;
-revoke all on function public.save_takeoff_item_template_draft(uuid, uuid, text, integer, integer, jsonb)
+revoke all on function public.save_takeoff_item_template_draft(uuid, uuid, text, uuid, integer, jsonb, text[])
   from public, anon, authenticated;
-grant execute on function public.save_takeoff_item_template_draft(uuid, uuid, text, integer, integer, jsonb) to service_role;
+grant execute on function public.save_takeoff_item_template_draft(uuid, uuid, text, uuid, integer, jsonb, text[]) to service_role;
 
 create function public.discard_takeoff_item_template_draft(p_tenant_id uuid, p_actor uuid, p_template_key text,
-  p_expected_revision integer)
+  p_expected_token uuid)
 returns void language plpgsql security definer set search_path = '' as $$
 begin
   perform private.lock_takeoff_item_template(p_tenant_id, p_template_key);
@@ -308,19 +348,19 @@ begin
     raise exception 'TAKEOFF_ITEM_TEMPLATE_FORBIDDEN' using errcode = '42501';
   end if;
   delete from public.takeoff_item_template_drafts d
-  where d.tenant_id = p_tenant_id and d.template_key = p_template_key and d.revision = p_expected_revision;
+  where d.tenant_id = p_tenant_id and d.template_key = p_template_key and d.token = p_expected_token;
   if not found then
     raise exception 'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE' using errcode = '40001';
   end if;
 end;
 $$;
-revoke all on function public.discard_takeoff_item_template_draft(uuid, uuid, text, integer) from public, anon, authenticated;
-grant execute on function public.discard_takeoff_item_template_draft(uuid, uuid, text, integer) to service_role;
+revoke all on function public.discard_takeoff_item_template_draft(uuid, uuid, text, uuid) from public, anon, authenticated;
+grant execute on function public.discard_takeoff_item_template_draft(uuid, uuid, text, uuid) to service_role;
 
--- Publish the draft the administrator saw (its revision), on the version it was based on: a new immutable version, the
+-- Publish the draft the administrator saw (its token), on the version it was based on: a new immutable version, the
 -- draft removed. The same intention key returns the version it published.
 create function public.publish_takeoff_item_template(p_tenant_id uuid, p_actor uuid, p_template_key text,
-  p_expected_revision integer, p_intent_key uuid)
+  p_expected_token uuid, p_intent_key uuid, p_shipped_line_ids text[])
 returns table (version_id uuid, version integer, replayed boolean)
 language plpgsql security definer set search_path = '' as $$
 #variable_conflict use_column
@@ -329,6 +369,7 @@ declare
   published public.takeoff_item_template_versions%rowtype;
   latest integer;
   lines integer;
+  used text[];
 begin
   if p_intent_key is null then
     raise exception 'TAKEOFF_ITEM_TEMPLATE_INVALID' using errcode = '22023';
@@ -345,7 +386,7 @@ begin
   end if;
   select * into draft from public.takeoff_item_template_drafts d
   where d.tenant_id = p_tenant_id and d.template_key = p_template_key for update;
-  if not found or draft.revision is distinct from p_expected_revision then
+  if not found or draft.token is distinct from p_expected_token then
     raise exception 'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE' using errcode = '40001';
   end if;
   latest := private.latest_takeoff_item_template_version(p_tenant_id, p_template_key);
@@ -353,18 +394,19 @@ begin
     raise exception 'TAKEOFF_ITEM_TEMPLATE_STALE' using errcode = '40001';
   end if;
   lines := private.assert_takeoff_item_template_definition(draft.definition);
+  used := private.assert_takeoff_item_template_lines(p_tenant_id, p_template_key, draft.definition, p_shipped_line_ids);
   insert into public.takeoff_item_template_versions (tenant_id, template_key, version, based_on_version, definition, digest,
-    line_count, intent_key, published_by)
+    line_count, used_line_ids, intent_key, published_by)
   values (p_tenant_id, p_template_key, draft.base_version + 1, draft.base_version, draft.definition,
-    private.takeoff_sha256(draft.definition), lines, p_intent_key, p_actor)
+    private.takeoff_sha256(draft.definition), lines, used, p_intent_key, p_actor)
   returning * into published;
   -- The version row is the trace: who published, when, on which version, its digest and size.
   delete from public.takeoff_item_template_drafts d where d.tenant_id = p_tenant_id and d.template_key = p_template_key;
   return query select published.id, published.version, false;
 end;
 $$;
-revoke all on function public.publish_takeoff_item_template(uuid, uuid, text, integer, uuid) from public, anon, authenticated;
-grant execute on function public.publish_takeoff_item_template(uuid, uuid, text, integer, uuid) to service_role;
+revoke all on function public.publish_takeoff_item_template(uuid, uuid, text, uuid, uuid, text[]) from public, anon, authenticated;
+grant execute on function public.publish_takeoff_item_template(uuid, uuid, text, uuid, uuid, text[]) to service_role;
 
 -- 3. The list. The registry of items (their identity in the affaire), the origin keys each answered to, the immutable
 --    revisions and their entries. Readers of the affaire read all of it; only the function of section 3 writes.
@@ -408,13 +450,16 @@ create table public.takeoff_list_revisions (
   -- initial: the first list of the affaire (from its DPGF or its template); proposal: a revision proposed after a change
   -- of the dossier or of the template, accepted by an operator; item_added: one item added by hand.
   cause text not null check (cause in ('initial', 'proposal', 'item_added')),
-  -- What the revision was made from (the import, its mapping and confirmation, or the template version): identifiers only.
-  sources jsonb not null check (jsonb_typeof(sources) = 'object' and pg_catalog.octet_length(sources::text) <= 16384),
+  -- What the revision was made from and relied on, its own copy: the import, its mapping and confirmation, or the
+  -- template version, and for a DPGF the structure decisions it applied and every source row it left out with its
+  -- reason (identifiers, positions and codes only, never a row's text). A deleted import leaves these readable.
+  sources jsonb not null check (jsonb_typeof(sources) = 'object' and pg_catalog.octet_length(sources::text) <= 4194304),
   item_count integer not null check (item_count between 0 and 10000),
   -- The digest of the stored entries, computed by the database over what it stored (section 3, the write function).
   content_sha256 text not null check (content_sha256 ~ '^[0-9a-f]{64}$'),
-  -- The digest of what the gesture submitted: the same intention key with another submission is a conflict.
-  submitted_sha256 text not null check (submitted_sha256 ~ '^[0-9a-f]{64}$'),
+  -- The digest of the gesture as the server received it (the revision read, the proposal or the item added, the
+  -- continuities chosen): the same intention key with another gesture is a conflict, never its receipt.
+  gesture_sha256 text not null check (gesture_sha256 ~ '^[0-9a-f]{64}$'),
   intent_key uuid not null,
   created_by uuid not null,
   created_at timestamptz not null default pg_catalog.clock_timestamp(),
@@ -506,15 +551,16 @@ revoke all on function private.takeoff_list_revision_content_sha256(uuid, uuid, 
 
 -- Record a revision of an affaire's list, made by the server from the affaire's sources and its previous revision:
 --   p_expected_revision  the latest revision the server read (0 when the affaire has none): a later one refuses;
---   p_intent_key         the identity of the gesture: the same key with the same submission returns the revision it
---                        recorded; another submission under the same key is a conflict;
+--   p_intent_key         the identity of the gesture: the same key with the same gesture (p_gesture_sha256, the
+--                        server's digest of what the member asked) returns the revision it recorded; another gesture
+--                        under the same key is a conflict;
 --   p_entries            the entries in order: {item_id, source_key, label, expected_unit, measurement_basis,
 --                        qualifiers, sections, synonyms, origin, reference_quantity};
 --   p_continuities       the origin keys an operator accepted as the same item as an existing one: {source_key, item_id}.
 -- The identity rule, enforced here: an origin key already known in the affaire keeps its item; a new key makes a new
 -- item unless it is an accepted continuity of an item the affaire already has; an item is never another affaire's.
 create function public.record_takeoff_list_revision(p_tenant_id uuid, p_project_id uuid, p_actor uuid,
-  p_expected_revision integer, p_intent_key uuid, p_cause text, p_sources jsonb, p_entries jsonb,
+  p_expected_revision integer, p_intent_key uuid, p_gesture_sha256 text, p_cause text, p_sources jsonb, p_entries jsonb,
   p_continuities jsonb default '[]'::jsonb)
 returns table (revision_id uuid, revision integer, content_sha256 text, replayed boolean)
 language plpgsql security definer set search_path = '' as $$
@@ -525,7 +571,6 @@ declare
   latest integer;
   next_revision integer;
   created uuid := gen_random_uuid();
-  submitted text;
   digest text;
   violation text;
 begin
@@ -533,7 +578,7 @@ begin
     or p_expected_revision is null or p_expected_revision < 0 or jsonb_typeof(p_entries) is distinct from 'array'
     or jsonb_array_length(p_entries) > 10000 or pg_catalog.octet_length(p_entries::text) > 16777216
     or jsonb_typeof(continuities) <> 'array' or jsonb_array_length(continuities) > 10000
-    or jsonb_typeof(p_sources) is distinct from 'object'
+    or jsonb_typeof(p_sources) is distinct from 'object' or coalesce(p_gesture_sha256, '') !~ '^[0-9a-f]{64}$'
     or (p_cause = 'initial') <> (p_expected_revision = 0) then
     raise exception 'TAKEOFF_ITEM_LIST_INVALID' using errcode = '22023';
   end if;
@@ -542,12 +587,10 @@ begin
   if not private.takeoff_item_list_writer(p_tenant_id, p_project_id, p_actor) then
     raise exception 'TAKEOFF_ITEM_LIST_FORBIDDEN' using errcode = '42501';
   end if;
-  submitted := private.takeoff_sha256(jsonb_build_object('entries', p_entries, 'continuities', continuities,
-    'cause', p_cause, 'sources', p_sources, 'expected_revision', p_expected_revision));
   select * into existing from public.takeoff_list_revisions r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.intent_key = p_intent_key;
   if found then
-    if existing.submitted_sha256 is distinct from submitted then
+    if existing.gesture_sha256 is distinct from p_gesture_sha256 then
       raise exception 'TAKEOFF_ITEM_LIST_INTENT_CONFLICT' using errcode = '23505';
     end if;
     return query select existing.id, existing.revision, existing.content_sha256, true;
@@ -665,23 +708,26 @@ begin
   -- The certified digest: computed over the rows just stored, then the revision row that carries it.
   digest := private.takeoff_list_revision_content_sha256(created, p_tenant_id, p_project_id);
   insert into public.takeoff_list_revisions (id, tenant_id, project_id, revision, cause, sources, item_count,
-    content_sha256, submitted_sha256, intent_key, created_by)
+    content_sha256, gesture_sha256, intent_key, created_by)
   values (created, p_tenant_id, p_project_id, next_revision, p_cause, p_sources, jsonb_array_length(p_entries), digest,
-    submitted, p_intent_key, p_actor);
+    p_gesture_sha256, p_intent_key, p_actor);
   return query select created, next_revision, digest, false;
 end;
 $$;
-revoke all on function public.record_takeoff_list_revision(uuid, uuid, uuid, integer, uuid, text, jsonb, jsonb, jsonb)
+revoke all on function public.record_takeoff_list_revision(uuid, uuid, uuid, integer, uuid, text, text, jsonb, jsonb, jsonb)
   from public, anon, authenticated;
-grant execute on function public.record_takeoff_list_revision(uuid, uuid, uuid, integer, uuid, text, jsonb, jsonb, jsonb)
+grant execute on function public.record_takeoff_list_revision(uuid, uuid, uuid, integer, uuid, text, text, jsonb, jsonb, jsonb)
   to service_role;
 
--- 4. The structure decisions taken when an import is confirmed (a row made a section and its level, a row kept as a
---    line, a row ignored), stored as a fact of their own, never in the payload of a mapped row (the catalogue linking
---    rewrites that payload whole). The proof covers the decisions, the order of the rows and their measured fields
---    (designation, reference, code, unit, quantity, notes, the row's source structure) and the column mapping: a
---    confirmation of the previous version recreates the mapped rows (new identities), so the proof of an earlier
---    confirmation no longer matches what the import holds and its decisions are not applied.
+-- 4. The structure of an import as its confirmation established it: the decisions the member took (a row made a
+--    section and its level, a row kept as a line, a row ignored) and the rows the import itself left out with its own
+--    reason (a total and the options after it, a row of workbook parameters, a row the member ignored). A fact of its
+--    own, never in the payload of a mapped row (the catalogue linking rewrites that payload whole). The confirmation
+--    names the exact mapped rows it read and is refused, under its import's lock, when the import holds others (a
+--    mapping written meanwhile from another tab). The proof covers the structure, the order of the rows, their measured
+--    fields (designation, reference, code, unit, quantity, notes, the row's source structure) and the column mapping:
+--    a later confirmation that recreates the mapped rows (new identities) leaves it unproven. An estimate created from
+--    the import afterwards by a path that records nothing (the previous application version) supersedes it too.
 create table public.dpgf_import_confirmations (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null,
@@ -691,6 +737,8 @@ create table public.dpgf_import_confirmations (
   -- The version the confirmation created, when it created one (in the same transaction).
   estimate_version_id uuid references public.estimate_versions (id) on delete set null,
   decisions jsonb not null check (jsonb_typeof(decisions) = 'array' and jsonb_array_length(decisions) <= 10000),
+  -- [{rowIndex, reason}]: reason footer, user_ignored or parameters, as the import's own normalization decided.
+  exclusions jsonb not null check (jsonb_typeof(exclusions) = 'array' and jsonb_array_length(exclusions) <= 100000),
   row_count integer not null check (row_count >= 0),
   proof_sha256 text not null check (proof_sha256 ~ '^[0-9a-f]{64}$'),
   confirmed_by uuid not null,
@@ -700,6 +748,8 @@ create table public.dpgf_import_confirmations (
 );
 create index dpgf_import_confirmations_import_idx on public.dpgf_import_confirmations (tenant_id, import_id,
   confirmed_at desc, id desc);
+create index dpgf_import_confirmations_version_idx on public.dpgf_import_confirmations (estimate_version_id)
+  where estimate_version_id is not null;
 -- A fact, except that the deletion of the version it created clears that reference (the foreign key's action).
 create function private.guard_dpgf_import_confirmation_update()
 returns trigger language plpgsql set search_path = pg_catalog as $$
@@ -720,9 +770,9 @@ grant select, insert, update, delete on public.dpgf_import_confirmations to serv
 create trigger dpgf_import_confirmations_writer before insert or delete on public.dpgf_import_confirmations
   for each row execute function private.refuse_takeoff_item_list_direct_write();
 
--- The proof of what an import holds now under a mapping, with these decisions.
+-- The proof of what an import holds now under a mapping, with this structure.
 create function private.dpgf_import_confirmation_proof(p_tenant_id uuid, p_import_id uuid, p_mapping_id uuid,
-  p_decisions jsonb)
+  p_decisions jsonb, p_exclusions jsonb)
 returns table (proof_sha256 text, row_count integer)
 language sql stable security definer set search_path = '' as $$
   with mapped as (
@@ -738,15 +788,18 @@ language sql stable security definer set search_path = '' as $$
     join public.dpgf_rows_raw r on r.id = m.raw_row_id and r.import_id = m.import_id
     where m.tenant_id = p_tenant_id and m.import_id = p_import_id and m.status = 'mapped'
   )
-  select private.takeoff_sha256(jsonb_build_object('contract', 1, 'import_id', p_import_id, 'mapping_id', p_mapping_id,
+  select private.takeoff_sha256(jsonb_build_object('contract', 2, 'import_id', p_import_id, 'mapping_id', p_mapping_id,
       'column_mapping', (select g.column_mapping from public.dpgf_mappings g where g.id = p_mapping_id),
       'decisions', coalesce((select jsonb_agg(d.value order by (d.value ->> 'rowIndex')::integer)
         from jsonb_array_elements(coalesce(p_decisions, '[]'::jsonb)) d(value)), '[]'::jsonb),
+      'exclusions', coalesce((select jsonb_agg(e.value order by (e.value ->> 'rowIndex')::integer)
+        from jsonb_array_elements(coalesce(p_exclusions, '[]'::jsonb)) e(value)), '[]'::jsonb),
       'rows', coalesce((select jsonb_agg(jsonb_build_array(x.id, x.raw_row_id, x.row_index, x.facts)
         order by x.row_index, x.id) from mapped x), '[]'::jsonb))),
     (select count(*)::integer from mapped)
 $$;
-revoke all on function private.dpgf_import_confirmation_proof(uuid, uuid, uuid, jsonb) from public, anon, authenticated, service_role;
+revoke all on function private.dpgf_import_confirmation_proof(uuid, uuid, uuid, jsonb, jsonb)
+  from public, anon, authenticated, service_role;
 
 -- The latest mapping of an import: the one its rows were made from.
 create function private.latest_dpgf_mapping_id(p_tenant_id uuid, p_import_id uuid)
@@ -756,17 +809,21 @@ returns uuid language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.latest_dpgf_mapping_id(uuid, uuid) from public, anon, authenticated, service_role;
 
--- Record a confirmation of an import: its decisions, bound to the latest mapping and to what the import holds now. The
--- caller's transaction is the confirmation's: the estimate's creation (public.persist_dpgf_import_estimate_atomic), or
--- the mapping alone (the server, right after the mapping it created).
+-- Record a confirmation of an import: its structure, bound to the latest mapping and to the exact mapped rows the
+-- server read and checked against it (p_mapped_row_ids). The import's row is locked first (the creation of an estimate
+-- from it locks it the same way); rows written meanwhile from another tab refuse the record, nothing is written.
+-- The caller's transaction is the confirmation's: the estimate's creation (public.persist_dpgf_import_estimate_atomic),
+-- or the mapping alone (the server, right after the mapping it created; the action fails while this is missing).
 create function public.record_dpgf_import_confirmation(p_tenant_id uuid, p_actor uuid, p_import_id uuid, p_mapping_id uuid,
-  p_project_id uuid, p_estimate_version_id uuid, p_decisions jsonb)
+  p_project_id uuid, p_estimate_version_id uuid, p_decisions jsonb, p_exclusions jsonb, p_mapped_row_ids uuid[])
 returns uuid language plpgsql security definer set search_path = '' as $$
 declare
   proof record;
   created uuid;
 begin
-  if p_actor is null or jsonb_typeof(p_decisions) is distinct from 'array' or jsonb_array_length(p_decisions) > 10000
+  if p_actor is null or p_mapped_row_ids is null
+    or jsonb_typeof(p_decisions) is distinct from 'array' or jsonb_array_length(p_decisions) > 10000
+    or jsonb_typeof(p_exclusions) is distinct from 'array' or jsonb_array_length(p_exclusions) > 100000
     or exists (
       select 1 from jsonb_array_elements(p_decisions) d(value)
       where jsonb_typeof(d.value) <> 'object' or (d.value - array['rowIndex', 'kind', 'level']) <> '{}'::jsonb
@@ -774,32 +831,52 @@ begin
         or not ((d.value ->> 'kind' = 'section' and d.value -> 'level' in ('1'::jsonb, '2'::jsonb))
           or (d.value ->> 'kind' in ('line', 'ignore') and d.value -> 'level' = 'null'::jsonb))
     ) or (select count(distinct d.value ->> 'rowIndex') from jsonb_array_elements(p_decisions) d(value))
-      <> jsonb_array_length(p_decisions) then
+      <> jsonb_array_length(p_decisions)
+    or exists (
+      select 1 from jsonb_array_elements(p_exclusions) e(value)
+      where jsonb_typeof(e.value) <> 'object' or (e.value - array['rowIndex', 'reason']) <> '{}'::jsonb
+        or jsonb_typeof(e.value -> 'rowIndex') <> 'number' or (e.value ->> 'rowIndex') !~ '^[0-9]{1,9}$'
+        or (e.value ->> 'reason') is null or (e.value ->> 'reason') not in ('footer', 'user_ignored', 'parameters')
+    ) or (select count(distinct e.value ->> 'rowIndex') from jsonb_array_elements(p_exclusions) e(value))
+      <> jsonb_array_length(p_exclusions) then
     raise exception 'DPGF_IMPORT_CONFIRMATION_INVALID' using errcode = '22023';
   end if;
-  if not exists (select 1 from public.dpgf_imports i where i.id = p_import_id and i.tenant_id = p_tenant_id
+  perform 1 from public.dpgf_imports i where i.id = p_import_id and i.tenant_id = p_tenant_id for update;
+  if not found or not exists (select 1 from public.dpgf_imports i where i.id = p_import_id
       and (p_project_id is null or i.project_id is not distinct from p_project_id))
     or private.latest_dpgf_mapping_id(p_tenant_id, p_import_id) is distinct from p_mapping_id
     or not exists (select 1 from public.tenant_memberships m where m.tenant_id = p_tenant_id and m.user_id = p_actor) then
     raise exception 'DPGF_IMPORT_CONFIRMATION_STALE' using errcode = '40001';
   end if;
-  select * into proof from private.dpgf_import_confirmation_proof(p_tenant_id, p_import_id, p_mapping_id, p_decisions);
+  -- The rows the server read and checked (all of the import's, whatever their status) are exactly its rows now.
+  if (select count(distinct x) from unnest(p_mapped_row_ids) x) <> pg_catalog.cardinality(p_mapped_row_ids)
+    or exists (select 1 from public.dpgf_rows_mapped m where m.tenant_id = p_tenant_id and m.import_id = p_import_id
+      and not (m.id = any (p_mapped_row_ids)))
+    or (select count(*) from public.dpgf_rows_mapped m where m.tenant_id = p_tenant_id and m.import_id = p_import_id
+      and m.id = any (p_mapped_row_ids)) <> pg_catalog.cardinality(p_mapped_row_ids) then
+    raise exception 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED' using errcode = '40001';
+  end if;
+  select * into proof from private.dpgf_import_confirmation_proof(p_tenant_id, p_import_id, p_mapping_id, p_decisions,
+    p_exclusions);
   insert into public.dpgf_import_confirmations (tenant_id, import_id, mapping_id, project_id, estimate_version_id, decisions,
-    row_count, proof_sha256, confirmed_by)
-  values (p_tenant_id, p_import_id, p_mapping_id, p_project_id, p_estimate_version_id, p_decisions, proof.row_count,
-    proof.proof_sha256, p_actor)
+    exclusions, row_count, proof_sha256, confirmed_by)
+  values (p_tenant_id, p_import_id, p_mapping_id, p_project_id, p_estimate_version_id, p_decisions, p_exclusions,
+    proof.row_count, proof.proof_sha256, p_actor)
   returning id into created;
   return created;
 end;
 $$;
-revoke all on function public.record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb)
+revoke all on function public.record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[])
   from public, anon, authenticated;
-grant execute on function public.record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb) to service_role;
+grant execute on function public.record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[])
+  to service_role;
 
--- The estimate created from an import and the confirmation's decisions, in one transaction: the existing creation,
--- unchanged, then the record. The previous application version keeps calling the creation alone.
+-- The estimate created from an import and the confirmation's structure, in one transaction: the existing creation,
+-- unchanged (it locks the import first), then the record. The previous application version keeps calling the creation
+-- alone.
 create function public.persist_dpgf_import_estimate_atomic(p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid,
-  p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid, p_mapping_id uuid, p_decisions jsonb)
+  p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid, p_mapping_id uuid, p_decisions jsonb,
+  p_exclusions jsonb, p_mapped_row_ids uuid[])
 returns jsonb language plpgsql security invoker set search_path = '' as $$
 declare
   created jsonb;
@@ -810,25 +887,36 @@ begin
   created := public.persist_estimate_creation_atomic(p_tenant_id, p_actor_user_id, p_project_id, p_project_payload,
     p_version_payload, p_items, p_import_id);
   perform public.record_dpgf_import_confirmation(p_tenant_id, p_actor_user_id, p_import_id, p_mapping_id,
-    (created #>> '{project,id}')::uuid, (created #>> '{version,id}')::uuid, p_decisions);
+    (created #>> '{project,id}')::uuid, (created #>> '{version,id}')::uuid, p_decisions, p_exclusions, p_mapped_row_ids);
   return created;
 end;
 $$;
-revoke all on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb)
+revoke all on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[])
   from public, anon, authenticated;
-grant execute on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb)
+grant execute on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[])
   to service_role;
 
--- The latest confirmation of an import, and whether its proof still matches what the import holds under its latest
--- mapping. No row: the import was never confirmed by this version.
+-- The latest confirmation of an import and whether its structure is established: its proof still matches what the
+-- import holds under its latest mapping (proof_current), and no estimate was created from the import after it by a
+-- path that recorded nothing (superseded: a version of the affaire created since, not a copy of another, not created by
+-- a recorded confirmation, holding lines of this import). No row: the import was never confirmed by this version.
 create function public.read_dpgf_import_confirmation(p_tenant_id uuid, p_import_id uuid)
-returns table (confirmation_id uuid, mapping_id uuid, estimate_version_id uuid, decisions jsonb, row_count integer,
-  confirmed_at timestamptz, proof_current boolean)
+returns table (confirmation_id uuid, mapping_id uuid, estimate_version_id uuid, decisions jsonb, exclusions jsonb,
+  row_count integer, confirmed_at timestamptz, proof_current boolean, superseded boolean)
 language sql stable security definer set search_path = '' as $$
-  select c.id, c.mapping_id, c.estimate_version_id, c.decisions, c.row_count, c.confirmed_at,
+  select c.id, c.mapping_id, c.estimate_version_id, c.decisions, c.exclusions, c.row_count, c.confirmed_at,
     c.mapping_id = private.latest_dpgf_mapping_id(c.tenant_id, c.import_id)
       and c.proof_sha256 = (select p.proof_sha256
-        from private.dpgf_import_confirmation_proof(c.tenant_id, c.import_id, c.mapping_id, c.decisions) p)
+        from private.dpgf_import_confirmation_proof(c.tenant_id, c.import_id, c.mapping_id, c.decisions, c.exclusions) p),
+    exists (
+      select 1 from public.dpgf_imports i
+      join public.estimate_versions v on v.tenant_id = i.tenant_id and v.project_id = i.project_id
+      where i.id = c.import_id and i.tenant_id = c.tenant_id and v.created_at > c.confirmed_at
+        and v.parent_version_id is null
+        and not exists (select 1 from public.dpgf_import_confirmations o where o.estimate_version_id = v.id)
+        and exists (select 1 from public.estimate_items it where it.version_id = v.id
+          and it.source_metadata ->> 'import_id' = c.import_id::text)
+    )
   from public.dpgf_import_confirmations c
   where c.tenant_id = p_tenant_id and c.import_id = p_import_id
   order by c.confirmed_at desc, c.id desc limit 1
@@ -840,13 +928,21 @@ grant execute on function public.read_dpgf_import_confirmation(uuid, uuid) to se
 create function public.read_estimate_dpgf_raw_rows(p_tenant_id uuid, p_version_id uuid)
 returns table (estimate_item_id uuid, import_id uuid, mapped_row_id uuid, raw_row_id uuid)
 language sql stable security definer set search_path = '' as $$
-  select i.id, l.import_id, l.mapped_row_id, l.raw_row_id
-  from public.estimate_items i
-  join private.dpgf_mapped_row_lineage l
-    on l.mapped_row_id = (case when i.source_metadata ->> 'mapped_row_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-      then (i.source_metadata ->> 'mapped_row_id')::uuid end)
-    and l.import_id::text = i.source_metadata ->> 'import_id' and l.tenant_id = i.tenant_id
-  where i.tenant_id = p_tenant_id and i.version_id = p_version_id and i.source_metadata ? 'mapped_row_id'
+  with lines as (
+    select i.id, i.tenant_id, i.source_metadata ->> 'import_id' as import_id,
+      case when i.source_metadata ->> 'mapped_row_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then (i.source_metadata ->> 'mapped_row_id')::uuid end as mapped_row_id
+    from public.estimate_items i
+    where i.tenant_id = p_tenant_id and i.version_id = p_version_id and i.source_metadata ? 'mapped_row_id'
+  )
+  -- A live mapped row names its raw row; a deleted one was recorded as it was deleted.
+  select l.id, coalesce(m.import_id, g.import_id), l.mapped_row_id, coalesce(m.raw_row_id, g.raw_row_id)
+  from lines l
+  left join public.dpgf_rows_mapped m on m.id = l.mapped_row_id and m.import_id::text = l.import_id
+    and m.tenant_id = l.tenant_id
+  left join private.dpgf_mapped_row_lineage g on g.mapped_row_id = l.mapped_row_id and g.import_id::text = l.import_id
+    and g.tenant_id = l.tenant_id
+  where coalesce(m.raw_row_id, g.raw_row_id) is not null
 $$;
 revoke all on function public.read_estimate_dpgf_raw_rows(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.read_estimate_dpgf_raw_rows(uuid, uuid) to service_role;

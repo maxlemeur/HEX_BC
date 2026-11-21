@@ -46,12 +46,12 @@ from unnest(array['takeoff_list_items', 'takeoff_list_item_sources', 'takeoff_li
 select is(has_function_privilege('authenticated', format('public.%s', fn), 'EXECUTE'), false,
   fn || ': not callable by a member''s session')
 from unnest(array[
-  'record_takeoff_list_revision(uuid, uuid, uuid, integer, uuid, text, jsonb, jsonb, jsonb)',
-  'save_takeoff_item_template_draft(uuid, uuid, text, integer, integer, jsonb)',
-  'publish_takeoff_item_template(uuid, uuid, text, integer, uuid)',
-  'discard_takeoff_item_template_draft(uuid, uuid, text, integer)',
-  'record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb)',
-  'persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb)',
+  'record_takeoff_list_revision(uuid, uuid, uuid, integer, uuid, text, text, jsonb, jsonb, jsonb)',
+  'save_takeoff_item_template_draft(uuid, uuid, text, uuid, integer, jsonb, text[])',
+  'publish_takeoff_item_template(uuid, uuid, text, uuid, uuid, text[])',
+  'discard_takeoff_item_template_draft(uuid, uuid, text, uuid)',
+  'record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[])',
+  'persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[])',
   'read_dpgf_import_confirmation(uuid, uuid)', 'read_estimate_dpgf_raw_rows(uuid, uuid)',
   'takeoff_item_list_order_is_active()', 'takeoff_item_list_may_write(uuid, uuid, uuid)']) as fn;
 select is(has_table_privilege('authenticated', 'private.dpgf_mapped_row_lineage', 'SELECT'), false,
@@ -74,40 +74,69 @@ insert into public.estimate_projects(id, tenant_id, user_id, name) values
   (pg_temp.fx(20), pg_temp.fx(10), pg_temp.fx(1), 'Liste de postes (fictive)'),
   (pg_temp.fx(21), pg_temp.fx(10), pg_temp.fx(2), 'Autre affaire (fictive)');
 
--- 2. Templates.
-create function pg_temp.template(label text, extra_id text default null) returns jsonb language sql immutable as $$
+-- 2. Templates. The shipped definition is named by the server: here its lines « lavabo » and « baignoire ».
+create function pg_temp.lines(variadic ids text[]) returns jsonb language sql immutable as $$
   select jsonb_build_object('contract', 1, 'title', 'Plomberie', 'families', jsonb_build_array(jsonb_build_object(
-    'id', 'sanitaires', 'title', 'Appareils sanitaires', 'lines', jsonb_build_array(
-      jsonb_build_object('id', 'lavabo', 'label', label, 'expectedUnit', 'u', 'measurementBasis', 'Comptage',
-        'qualifiers', '{}'::jsonb, 'synonyms', jsonb_build_array('Vasque'))
-    ) || case when extra_id is null then '[]'::jsonb else jsonb_build_array(jsonb_build_object('id', extra_id,
-      'label', 'WC', 'expectedUnit', 'u', 'measurementBasis', null, 'qualifiers', '{}'::jsonb, 'synonyms', '[]'::jsonb)) end)))
+    'id', 'sanitaires', 'title', 'Appareils sanitaires', 'lines', (select jsonb_agg(jsonb_build_object('id', id,
+      'label', initcap(id), 'expectedUnit', 'u', 'measurementBasis', 'Comptage', 'qualifiers', '{}'::jsonb,
+      'synonyms', '[]'::jsonb) order by ordinality) from unnest(ids) with ordinality id))))
 $$;
-select throws_ok($$ select public.save_takeoff_item_template_draft(pg_temp.fx(10), pg_temp.fx(1), 'plomberie', 0, 1,
-  pg_temp.template('Lavabo')) $$, '42501', 'TAKEOFF_ITEM_TEMPLATE_FORBIDDEN', 'an engineer does not edit the template');
-select throws_ok($$ select public.save_takeoff_item_template_draft(pg_temp.fx(11), pg_temp.fx(5), 'plomberie', 0, 1,
-  pg_temp.template('Lavabo')) $$, '42501', 'TAKEOFF_ITEM_TEMPLATE_FORBIDDEN', 'an administrator of another tenant neither');
-select throws_ok($$ select public.save_takeoff_item_template_draft(pg_temp.fx(10), pg_temp.fx(5), 'plomberie', 0, 1,
-  pg_temp.template('Lavabo', 'lavabo')) $$, '22023', 'TAKEOFF_ITEM_TEMPLATE_INVALID',
-  'two lines of one template never share an identifier');
-select is(public.save_takeoff_item_template_draft(pg_temp.fx(10), pg_temp.fx(5), 'plomberie', 0, 1,
-  pg_temp.template('Lavabo sur colonne')), 1, 'the administrator saves a first draft on the shipped version');
-select throws_ok($$ select public.save_takeoff_item_template_draft(pg_temp.fx(10), pg_temp.fx(5), 'plomberie', 0, 1,
-  pg_temp.template('Lavabo')) $$, '40001', 'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE', 'a draft saved from an older view refuses');
-select is(public.save_takeoff_item_template_draft(pg_temp.fx(10), pg_temp.fx(5), 'plomberie', 1, 1,
-  pg_temp.template('Lavabo sur colonne', 'wc')), 2, 'the next save names the revision it replaces');
-select throws_ok($$ select * from public.publish_takeoff_item_template(pg_temp.fx(10), pg_temp.fx(5), 'plomberie', 1,
-  pg_temp.fx(900)) $$, '40001', 'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE', 'publishing a draft not seen refuses');
-select results_eq($$ select version, replayed from public.publish_takeoff_item_template(pg_temp.fx(10), pg_temp.fx(5),
-  'plomberie', 2, pg_temp.fx(900)) $$, $$ values (2, false) $$, 'the draft becomes version 2, after the shipped version 1');
-select results_eq($$ select version, replayed from public.publish_takeoff_item_template(pg_temp.fx(10), pg_temp.fx(5),
-  'plomberie', 2, pg_temp.fx(900)) $$, $$ values (2, true) $$, 'the same gesture again returns the same version');
+create function pg_temp.save(actor integer, expected uuid, definition jsonb, base integer default 1, tenant integer default 10)
+returns table (revision integer, token uuid) language sql as $$
+  select * from public.save_takeoff_item_template_draft(pg_temp.fx(tenant), pg_temp.fx(actor), 'plomberie', expected, base,
+    definition, array['lavabo', 'baignoire'])
+$$;
+create function pg_temp.publish(expected uuid, intent integer) returns table (version_id uuid, version integer,
+  replayed boolean) language sql as $$
+  select * from public.publish_takeoff_item_template(pg_temp.fx(10), pg_temp.fx(5), 'plomberie', expected, pg_temp.fx(intent),
+    array['lavabo', 'baignoire'])
+$$;
+create temp table tokens (label text primary key, token uuid);
+select throws_ok($$ select * from pg_temp.save(1, null, pg_temp.lines('lavabo')) $$, '42501', 'TAKEOFF_ITEM_TEMPLATE_FORBIDDEN',
+  'an engineer does not edit the template');
+select throws_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo'), tenant => 11) $$, '42501',
+  'TAKEOFF_ITEM_TEMPLATE_FORBIDDEN', 'an administrator of another tenant neither');
+select throws_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo', 'lavabo')) $$, '22023',
+  'TAKEOFF_ITEM_TEMPLATE_INVALID', 'two lines of one template never share an identifier');
+insert into tokens select 'first', token from pg_temp.save(5, null, pg_temp.lines('lavabo', 'baignoire'));
+select is((select revision from public.takeoff_item_template_drafts where tenant_id = pg_temp.fx(10)), 1,
+  'the administrator saves a first draft on the shipped version');
+select throws_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo')) $$, '40001',
+  'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE', 'a draft saved from an older view refuses');
+insert into tokens select 'second', token from pg_temp.save(5, (select token from tokens where label = 'first'),
+  pg_temp.lines('lavabo', 'baignoire', 'wc'));
+select isnt((select token from tokens where label = 'second'), (select token from tokens where label = 'first'),
+  'each save gives the draft a new token');
+select throws_ok($$ select * from pg_temp.publish((select token from tokens where label = 'first'), 900) $$, '40001',
+  'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE', 'publishing a draft not seen refuses');
+-- A stale tab: A saw the second draft; B discards it and saves another first revision; A's publication refuses.
+select lives_ok($$ select public.discard_takeoff_item_template_draft(pg_temp.fx(10), pg_temp.fx(5), 'plomberie',
+  (select token from tokens where label = 'second')) $$, 'B discards the draft A is looking at');
+insert into tokens select 'other', token from pg_temp.save(5, null, pg_temp.lines('lavabo', 'wc'));
+select is((select revision from public.takeoff_item_template_drafts where tenant_id = pg_temp.fx(10)), 1,
+  'B''s new draft is a first revision again');
+select throws_ok($$ select * from pg_temp.publish((select token from tokens where label = 'second'), 901) $$, '40001',
+  'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE', 'A''s tab never publishes B''s draft');
+select throws_ok($$ select public.discard_takeoff_item_template_draft(pg_temp.fx(10), pg_temp.fx(5), 'plomberie',
+  (select token from tokens where label = 'second')) $$, '40001', 'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE',
+  'nor discards it');
+select throws_ok($$ select * from pg_temp.save(5, (select token from tokens where label = 'second'), pg_temp.lines('lavabo')) $$,
+  '40001', 'TAKEOFF_ITEM_TEMPLATE_DRAFT_STALE', 'nor overwrites it');
+select results_eq($$ select version, replayed from pg_temp.publish((select token from tokens where label = 'other'), 900) $$,
+  $$ values (2, false) $$, 'B publishes version 2, after the shipped version 1, without « baignoire »');
+select results_eq($$ select version, replayed from pg_temp.publish((select token from tokens where label = 'other'), 900) $$,
+  $$ values (2, true) $$, 'the same gesture again returns the same version');
 select is((select count(*)::integer from public.takeoff_item_template_drafts where tenant_id = pg_temp.fx(10)), 0,
   'the published draft is gone');
-select is((select line_count from public.takeoff_item_template_versions where tenant_id = pg_temp.fx(10)), 2,
-  'the version counts its lines');
-select throws_ok($$ select public.save_takeoff_item_template_draft(pg_temp.fx(10), pg_temp.fx(5), 'plomberie', 0, 1,
-  pg_temp.template('Lavabo')) $$, '40001', 'TAKEOFF_ITEM_TEMPLATE_STALE', 'a draft on a version no longer the latest refuses');
+select results_eq($$ select line_count, used_line_ids from public.takeoff_item_template_versions where tenant_id = pg_temp.fx(10) $$,
+  $$ values (2, array['baignoire', 'lavabo', 'wc']) $$, 'the version counts its lines and every identifier ever used');
+-- A retired line never comes back under its identifier: a new « Baignoire » is a new line.
+select throws_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo', 'wc', 'baignoire'), base => 2) $$, '22023',
+  'TAKEOFF_ITEM_TEMPLATE_LINE_REUSED', 'a line added never takes the identifier of a retired one');
+select lives_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo', 'wc', 'baignoire-2'), base => 2) $$,
+  'under a new identifier it is saved');
+select throws_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo'), base => 1) $$, '40001',
+  'TAKEOFF_ITEM_TEMPLATE_STALE', 'a draft on a version no longer the latest refuses');
 select throws_ok($$ update public.takeoff_item_template_versions set line_count = 1 where tenant_id = pg_temp.fx(10) $$,
   '42501', 'TAKEOFF_ITEM_LIST_IMMUTABLE', 'a published version is never changed');
 select pg_temp.sign_in(1);
@@ -131,11 +160,18 @@ $$;
 create function pg_temp.dpgf(row_id integer) returns jsonb language sql immutable as $$
   select jsonb_build_object('kind', 'dpgf', 'importId', pg_temp.fx(60), 'rawRowId', pg_temp.fx(row_id))
 $$;
+-- The server's digest of a gesture, here the submission itself: the same submission is the same gesture.
+create function pg_temp.gesture(expected integer, cause text, entries jsonb, continuities jsonb) returns text
+language sql immutable as $$
+  select encode(sha256(convert_to(jsonb_build_object('expected', expected, 'cause', cause, 'entries', entries,
+    'continuities', continuities)::text, 'UTF8')), 'hex')
+$$;
 create function pg_temp.record(actor integer, expected integer, intent integer, cause text, entries jsonb,
   continuities jsonb default '[]'::jsonb, project integer default 20, tenant integer default 10)
 returns table (revision_id uuid, revision integer, content_sha256 text, replayed boolean) language sql as $$
   select * from public.record_takeoff_list_revision(pg_temp.fx(tenant), pg_temp.fx(project), pg_temp.fx(actor), expected,
-    pg_temp.fx(intent), cause, '{"dpgf":{"importId":"fictif"}}'::jsonb, entries, continuities)
+    pg_temp.fx(intent), pg_temp.gesture(expected, cause, entries, continuities), cause,
+    '{"dpgf":{"importId":"fictif"}}'::jsonb, entries, continuities)
 $$;
 create temp table first_list as select pg_temp.entry(100, '["dpgf","i","r1"]', 'Lavabo en céramique', pg_temp.dpgf(61), 2)
   || '{}'::jsonb as a, pg_temp.entry(101, '["dpgf","i","r2"]', 'Lavabo en céramique', pg_temp.dpgf(62), 3) as b;
@@ -242,18 +278,27 @@ insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, paylo
   (pg_temp.fx(71), pg_temp.fx(10), pg_temp.fx(60), pg_temp.fx(61), '{"mapped_row":{"designation":"Bâtiment A"}}', 'mapped'),
   (pg_temp.fx(72), pg_temp.fx(10), pg_temp.fx(60), pg_temp.fx(62),
     '{"mapped_row":{"designation":"Lavabo","quantity":"2"}}', 'mapped');
-select throws_ok($$ select public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(60),
-  pg_temp.fx(70), pg_temp.fx(20), null, '[{"rowIndex":0,"kind":"section","level":3}]') $$, '22023',
-  'DPGF_IMPORT_CONFIRMATION_INVALID', 'a decision names a level 1 or 2');
-select throws_ok($$ select public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(60),
-  pg_temp.fx(99), pg_temp.fx(20), null, '[]') $$, '40001', 'DPGF_IMPORT_CONFIRMATION_STALE',
+create function pg_temp.confirm(mapping integer, decisions jsonb, exclusions jsonb, rows integer[],
+  version integer default null) returns uuid language sql as $$
+  select public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(60), pg_temp.fx(mapping),
+    pg_temp.fx(20), case when version is null then null else pg_temp.fx(version) end, decisions, exclusions,
+    array(select pg_temp.fx(n) from unnest(rows) n))
+$$;
+select throws_ok($$ select pg_temp.confirm(70, '[{"rowIndex":0,"kind":"section","level":3}]', '[]', array[71, 72]) $$,
+  '22023', 'DPGF_IMPORT_CONFIRMATION_INVALID', 'a decision names a level 1 or 2');
+select throws_ok($$ select pg_temp.confirm(70, '[]', '[{"rowIndex":1,"reason":"prix"}]', array[71, 72]) $$,
+  '22023', 'DPGF_IMPORT_CONFIRMATION_INVALID', 'an exclusion names one of the import''s own reasons');
+select throws_ok($$ select pg_temp.confirm(99, '[]', '[]', array[71, 72]) $$, '40001', 'DPGF_IMPORT_CONFIRMATION_STALE',
   'a confirmation binds to the latest mapping of its import');
-select isnt(public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(60), pg_temp.fx(70),
-  pg_temp.fx(20), null, '[{"rowIndex":0,"kind":"section","level":1},{"rowIndex":1,"kind":"ignore","level":null}]'), null,
-  'a confirmation records its decisions');
-select results_eq($$ select proof_current, row_count, decisions -> 1 ->> 'kind'
+select throws_ok($$ select pg_temp.confirm(70, '[]', '[]', array[71]) $$, '40001', 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED',
+  'a confirmation names every row the import holds, never a part of them');
+select throws_ok($$ select pg_temp.confirm(70, '[]', '[]', array[71, 72, 79]) $$, '40001',
+  'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED', 'nor a row the import no longer holds');
+select isnt(pg_temp.confirm(70, '[{"rowIndex":0,"kind":"section","level":1}]', '[{"rowIndex":1,"reason":"user_ignored"}]',
+  array[71, 72]), null, 'a confirmation records its decisions and what the import left out');
+select results_eq($$ select proof_current, superseded, row_count, exclusions -> 0 ->> 'reason'
   from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60)) $$,
-  $$ values (true, 2, 'ignore'::text) $$, 'its proof matches what the import holds');
+  $$ values (true, false, 2, 'user_ignored'::text) $$, 'its proof matches what the import holds');
 -- The catalogue linking rewrites the payload with keys of its own: the proof holds.
 update public.dpgf_rows_mapped set payload = payload || '{"catalogue_product_id":"fictif"}' where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), true,
@@ -264,7 +309,7 @@ select is((select proof_current from public.read_dpgf_import_confirmation(pg_tem
 update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,quantity}', '"2"') where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), true,
   'the same facts again: proven again');
--- A confirmation of the previous version: a new mapping and new mapped rows, no decision recorded.
+-- A confirmation of the previous version with a mapping: a new mapping and new mapped rows, no decision recorded.
 insert into public.dpgf_mappings (id, tenant_id, import_id, status, column_mapping)
 values (pg_temp.fx(73), pg_temp.fx(10), pg_temp.fx(60), 'validated', '{"Designation":"designation","Qte":"quantity"}');
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), false,
@@ -274,29 +319,29 @@ insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, paylo
   (pg_temp.fx(74), pg_temp.fx(10), pg_temp.fx(60), pg_temp.fx(61), '{"mapped_row":{"designation":"Bâtiment A"}}', 'mapped'),
   (pg_temp.fx(75), pg_temp.fx(10), pg_temp.fx(60), pg_temp.fx(62),
     '{"mapped_row":{"designation":"Lavabo","quantity":"2"}}', 'mapped');
-select isnt(public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(60), pg_temp.fx(73),
-  pg_temp.fx(20), null, '[]'), null, 'a new confirmation records the new decisions');
+select isnt(pg_temp.confirm(73, '[]', '[]', array[74, 75]), null, 'a new confirmation records the new structure');
 select results_eq($$ select proof_current, jsonb_array_length(decisions) from public.read_dpgf_import_confirmation(
   pg_temp.fx(10), pg_temp.fx(60)) $$, $$ values (true, 0) $$, 'the latest confirmation is the one read');
 
--- 5. Lineage: every mapped row inserted is linked to its raw row, and stays linked after a remapping. (The copy of the
---    rows that existed before the migration runs in the migration itself, with its count check; it is not replayed here.)
+-- 5. Lineage: a deleted mapped row is recorded with its raw row as it is deleted; a live one needs no record.
 select results_eq($$ select mapped_row_id, raw_row_id from private.dpgf_mapped_row_lineage
   where import_id = pg_temp.fx(60) order by mapped_row_id $$,
-  $$ values (pg_temp.fx(71), pg_temp.fx(61)), (pg_temp.fx(72), pg_temp.fx(62)), (pg_temp.fx(74), pg_temp.fx(61)),
-    (pg_temp.fx(75), pg_temp.fx(62)) $$, 'each mapped row is linked to its raw row when it is inserted, and stays linked');
+  $$ values (pg_temp.fx(71), pg_temp.fx(61)), (pg_temp.fx(72), pg_temp.fx(62)) $$,
+  'the rows a remapping deleted are recorded, the live ones are not');
 set local session_replication_role = replica;
-insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, title)
-values (pg_temp.fx(80), pg_temp.fx(10), pg_temp.fx(20), 1, 'draft', 'Devis fictif');
-insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title, fo_provision, source_metadata)
-values (pg_temp.fx(81), pg_temp.fx(10), pg_temp.fx(80), 'section', 0, 'Lavabo', 1,
-  jsonb_build_object('import_id', pg_temp.fx(60), 'mapped_row_id', pg_temp.fx(72), 'row_index', 1));
+insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, title, parent_version_id)
+values (pg_temp.fx(80), pg_temp.fx(10), pg_temp.fx(20), 1, 'draft', 'Devis fictif', null);
+insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title, fo_provision, source_metadata) values
+  (pg_temp.fx(81), pg_temp.fx(10), pg_temp.fx(80), 'section', 0, 'Lavabo', 1,
+    jsonb_build_object('import_id', pg_temp.fx(60), 'mapped_row_id', pg_temp.fx(72), 'row_index', 1)),
+  (pg_temp.fx(85), pg_temp.fx(10), pg_temp.fx(80), 'section', 1, 'Lavabo', 1,
+    jsonb_build_object('import_id', pg_temp.fx(60), 'mapped_row_id', pg_temp.fx(75), 'row_index', 1));
 set local session_replication_role = origin;
-select results_eq($$ select estimate_item_id, raw_row_id from public.read_estimate_dpgf_raw_rows(pg_temp.fx(10), pg_temp.fx(80)) $$,
-  $$ values (pg_temp.fx(81), pg_temp.fx(62)) $$, 'a line made before the remapping still reaches its raw row');
+select results_eq($$ select estimate_item_id, raw_row_id from public.read_estimate_dpgf_raw_rows(pg_temp.fx(10), pg_temp.fx(80))
+  order by estimate_item_id $$, $$ values (pg_temp.fx(81), pg_temp.fx(62)), (pg_temp.fx(85), pg_temp.fx(62)) $$,
+  'a line reaches its raw row, through its live mapped row or the record of a deleted one');
 
-select isnt(public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(60), pg_temp.fx(73),
-  pg_temp.fx(20), pg_temp.fx(80), '[]'), null, 'a confirmation names the version it created');
+select isnt(pg_temp.confirm(73, '[]', '[]', array[74, 75], version => 80), null, 'a confirmation names the version it created');
 set local session_replication_role = replica;
 delete from public.estimate_items where version_id = pg_temp.fx(80);
 set local session_replication_role = origin;
@@ -310,25 +355,32 @@ select is((select count(*)::integer from public.dpgf_import_confirmations where 
 select public.set_tenant_calc_policy(p_tenant_id => pg_temp.fx(10), p_new_estimate_calc_engine => 2::smallint,
   p_default_sale_coefficient_fo => null, p_default_sale_coefficient_mo => null, p_allowed_tax_rates_bp => null,
   p_change_reason => 'Fixture: liste de postes (lot 4)', p_actor_user_id => pg_temp.fx(5));
-create function pg_temp.import_estimate(version integer, mapping integer) returns jsonb language sql as $$
+create function pg_temp.version_payload(version integer) returns jsonb language sql immutable as $$
+  select jsonb_build_object('id', pg_temp.fx(version), 'title', 'Import DPGF fictif', 'date_devis', '2026-11-21',
+    'validite_jours', 30, 'margin_multiplier', 1, 'margin_mode', 'fixed', 'currency', 'EUR', 'margin_bp', 0,
+    'discount_bp', 0, 'discount_mode', 'simple', 'discount_steps', '[]'::jsonb, 'global_coefficient', 1,
+    'tax_rate_bp', 2000, 'rounding_mode', 'none', 'rounding_step_cents', 1, 'max_section_depth', 3, 'total_ht_cents', 0,
+    'total_tax_cents', 0, 'total_ttc_cents', 0)
+$$;
+create function pg_temp.import_estimate(version integer, mapping integer, rows integer[]) returns jsonb language sql as $$
   select public.persist_dpgf_import_estimate_atomic(pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(20), null,
-    jsonb_build_object('id', pg_temp.fx(version), 'title', 'Import DPGF fictif', 'date_devis', '2026-11-21', 'validite_jours', 30,
-      'margin_multiplier', 1, 'margin_mode', 'fixed', 'currency', 'EUR', 'margin_bp', 0, 'discount_bp', 0,
-      'discount_mode', 'simple', 'discount_steps', '[]'::jsonb, 'global_coefficient', 1, 'tax_rate_bp', 2000,
-      'rounding_mode', 'none', 'rounding_step_cents', 1, 'max_section_depth', 3, 'total_ht_cents', 0, 'total_tax_cents', 0,
-      'total_ttc_cents', 0), '[]'::jsonb, pg_temp.fx(60), pg_temp.fx(mapping),
-    '[{"rowIndex":0,"kind":"section","level":1}]'::jsonb)
+    pg_temp.version_payload(version), '[]'::jsonb, pg_temp.fx(60), pg_temp.fx(mapping),
+    '[{"rowIndex":0,"kind":"section","level":1}]'::jsonb, '[{"rowIndex":1,"reason":"footer"}]'::jsonb,
+    array(select pg_temp.fx(n) from unnest(rows) n))
 $$;
 set local role service_role;
-select throws_ok($$ select pg_temp.import_estimate(82, 70) $$, '40001', 'DPGF_IMPORT_CONFIRMATION_STALE',
+select throws_ok($$ select pg_temp.import_estimate(82, 70, array[74, 75]) $$, '40001', 'DPGF_IMPORT_CONFIRMATION_STALE',
   'a confirmation on a mapping that is no longer the latest refuses');
+select throws_ok($$ select pg_temp.import_estimate(82, 73, array[74]) $$, '40001', 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED',
+  'a confirmation on rows other than the import''s refuses');
 select is((select count(*)::integer from public.estimate_versions where id = pg_temp.fx(82)), 0,
   'and its estimate was not created: one transaction');
-select isnt(pg_temp.import_estimate(83, 73), null, 'on the latest mapping, the estimate is created');
+select isnt(pg_temp.import_estimate(83, 73, array[74, 75]), null, 'on the latest mapping and its rows, the estimate is created');
 reset role;
-select results_eq($$ select estimate_version_id, decisions from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60)) $$,
-  $$ values (pg_temp.fx(83), '[{"rowIndex":0,"kind":"section","level":1}]'::jsonb) $$,
-  'and the confirmation that created it records its decisions and names it');
+select results_eq($$ select estimate_version_id, decisions, exclusions, superseded
+  from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60)) $$,
+  $$ values (pg_temp.fx(83), '[{"rowIndex":0,"kind":"section","level":1}]'::jsonb, '[{"rowIndex":1,"reason":"footer"}]'::jsonb,
+    false) $$, 'and the confirmation that created it records its structure and names it');
 
 -- 6. Two writers at once, and an admission against a writer (before this session activates the second order).
 create temp table race_connection as select format('host=%s port=%s dbname=%s user=postgres password=postgres',
@@ -345,8 +397,8 @@ commit;
 $setup$, pg_temp.fx(6), pg_temp.fx(6), pg_temp.fx(22), pg_temp.fx(6))), 'COMMIT', 'an affaire whose list two members write');
 create function pg_temp.race_call(intent integer, label text, expected integer default 0) returns text language sql stable as $$
   select format($call$select revision from public.record_takeoff_list_revision(
-    (select tenant_id from public.estimate_projects where id = %L), %L, %L, %s, %L, %L, '{}', %L)$call$,
-    pg_temp.fx(22), pg_temp.fx(22), pg_temp.fx(6), expected, pg_temp.fx(intent),
+    (select tenant_id from public.estimate_projects where id = %L), %L, %L, %s, %L, %L, %L, '{}', %L)$call$,
+    pg_temp.fx(22), pg_temp.fx(22), pg_temp.fx(6), expected, pg_temp.fx(intent), repeat(to_hex(intent % 16), 64),
     case when expected = 0 then 'initial' else 'item_added' end,
     jsonb_build_array(jsonb_build_object('item_id', pg_temp.fx(intent), 'source_key', '["manual","' || intent || '"]',
       'label', label, 'expected_unit', null, 'measurement_basis', null, 'qualifiers', '{}'::jsonb, 'sections', '[]'::jsonb,
@@ -412,6 +464,67 @@ select throws_ok($$ select * from extensions.dblink_get_result('race_b') as t(se
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as t(sealed boolean)), 0,
   'its seal is over');
 select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'the admission ends, nothing sealed');
+-- Two tabs and the previous application version, on committed rows of that affaire: an import whose mapping B read.
+select is(extensions.dblink_exec('race_setup', format($setup$
+begin;
+insert into public.dpgf_imports (id, tenant_id, user_id, project_id, filename, source_format, status, row_count, parse_mode)
+select %1$L, tenant_id, user_id, id, 'dpgf-onglets.csv', 'csv', 'completed', 2, 'server' from public.estimate_projects where id = %2$L;
+insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload)
+select x.id, i.tenant_id, i.id, x.row_index, x.payload from public.dpgf_imports i
+cross join (values (%3$L::uuid, 0, '{"Designation":"Lavabo","Qte":"2"}'::jsonb),
+  (%4$L::uuid, 1, '{"Designation":"Option vasque","Qte":"1"}'::jsonb)) as x(id, row_index, payload) where i.id = %1$L;
+insert into public.dpgf_mappings (id, tenant_id, import_id, status, column_mapping)
+select %5$L, tenant_id, id, 'validated', '{"Designation":"designation","Qte":"quantity"}' from public.dpgf_imports where id = %1$L;
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status)
+select x.id, i.tenant_id, i.id, x.raw, x.payload, 'mapped' from public.dpgf_imports i
+cross join (values (%6$L::uuid, %3$L::uuid, '{"mapped_row":{"designation":"Lavabo","quantity":"2"}}'::jsonb),
+  (%7$L::uuid, %4$L::uuid, '{"mapped_row":{"designation":"Option vasque","quantity":"1"}}'::jsonb)) as x(id, raw, payload)
+where i.id = %1$L;
+select public.set_tenant_calc_policy(p_tenant_id => (select tenant_id from public.estimate_projects where id = %2$L),
+  p_new_estimate_calc_engine => 2::smallint, p_default_sale_coefficient_fo => null, p_default_sale_coefficient_mo => null,
+  p_allowed_tax_rates_bp => null, p_change_reason => 'Fixture: liste de postes (lot 4)', p_actor_user_id => %8$L);
+commit;
+$setup$, pg_temp.fx(160), pg_temp.fx(22), pg_temp.fx(161), pg_temp.fx(162), pg_temp.fx(170), pg_temp.fx(171),
+  pg_temp.fx(172), pg_temp.fx(6))), 'COMMIT', 'an import of that affaire, mapped, its rows committed');
+create function pg_temp.race_confirm(rows integer[]) returns text language sql stable as $$
+  select format($call$select public.record_dpgf_import_confirmation((select tenant_id from public.dpgf_imports where id = %L),
+    %L, %L, %L, %L, null, '[{"rowIndex":1,"kind":"ignore","level":null}]', '[{"rowIndex":1,"reason":"user_ignored"}]',
+    %L::uuid[])$call$, pg_temp.fx(160), pg_temp.fx(6), pg_temp.fx(160), pg_temp.fx(170), pg_temp.fx(22),
+    array(select pg_temp.fx(n) from unnest(rows) n))
+$$;
+create function pg_temp.race_read() returns table (proof_current boolean, superseded boolean) language sql as $$
+  select r.proof_current, r.superseded from extensions.dblink('race_setup', format(
+    'select proof_current, superseded from public.read_dpgf_import_confirmation((select tenant_id from public.dpgf_imports
+      where id = %L), %L)', pg_temp.fx(160), pg_temp.fx(160))) as r(proof_current boolean, superseded boolean)
+$$;
+select is(extensions.dblink_exec('race_b', 'begin; ' || pg_temp.race_confirm(array[171, 172]) || '; commit;'), 'COMMIT',
+  'B confirms the rows it read: « ignore the option »');
+select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, false) $$, 'B''s structure is established');
+-- The previous application version, with an empty mapping, creates an estimate on the same mapping and rows: it records
+-- nothing, its estimate keeps the option (its own choice). B's record no longer establishes the structure.
+select is(extensions.dblink_exec('race_a', format($previous$
+begin;
+select public.persist_estimate_creation_atomic((select tenant_id from public.dpgf_imports where id = %1$L), %2$L, %3$L, null,
+  %4$L::jsonb, jsonb_build_array(jsonb_build_object('id', %5$L, 'parent_id', null, 'item_type', 'section', 'position', 1,
+    'title', 'Import DPGF', 'source_provider', 'dpgf', 'source_metadata', jsonb_build_object('import_id', %1$L,
+    'mapping_id', %6$L))), %1$L);
+commit;
+$previous$, pg_temp.fx(160), pg_temp.fx(6), pg_temp.fx(22), pg_temp.version_payload(184), pg_temp.fx(185),
+  pg_temp.fx(170))), 'COMMIT', 'the previous version creates an estimate from the import, without a record');
+select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, true) $$,
+  'B''s structure is no longer established: the list says so');
+-- Two tabs: A's mapping writer inserts a late row after B read the import's rows; B's confirmation refuses.
+select is(extensions.dblink_exec('race_a', format($late$
+begin;
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status)
+select %L, tenant_id, id, %L, '{"mapped_row":{"designation":"Option vasque","quantity":"9"}}', 'mapped'
+from public.dpgf_imports where id = %L;
+commit;
+$late$, pg_temp.fx(173), pg_temp.fx(162), pg_temp.fx(160))), 'COMMIT', 'A writes a row of its own mapping');
+select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'B confirms again what it read');
+select throws_ok(format('select * from extensions.dblink(%L, %L) as t(id uuid)', 'race_b', pg_temp.race_confirm(array[171, 172])),
+  '40001', 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED', 'B never certifies rows it did not read');
+select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'nothing of B''s is written');
 select is(extensions.dblink_exec('race_setup', format($cleanup$
 begin;
 delete from public.takeoff_launch_requests where id = %L;
