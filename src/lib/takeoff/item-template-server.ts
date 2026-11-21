@@ -86,8 +86,11 @@ export async function loadItemTemplateAdministration(key: ItemTemplateKey): Prom
     revision: draftRead.data.revision, baseVersion: draftRead.data.base_version, definition: parsed.data,
     updatedAt: draftRead.data.updated_at,
   } : null;
-  const { template: _template, ...publishedView } = published;
-  return { published: publishedView, draft, diff: draft ? diffItemTemplateDefinitions(published.definition, draft.definition) : null };
+  return {
+    published: { key: published.key, version: published.version, publicationId: published.publicationId,
+      publishedAt: published.publishedAt, publishedBy: published.publishedBy, definition: published.definition },
+    draft, diff: draft ? diffItemTemplateDefinitions(published.definition, draft.definition) : null,
+  };
 }
 
 /** The refusals of the template's functions, by their own code: a fixed French answer, never the database's text. */

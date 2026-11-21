@@ -134,6 +134,12 @@ export type AffaireItemListView = {
   names: Record<string, string>;
 };
 
+/** A revision as its readers see it: never its sources' identifiers. */
+function revisionView(row: StoredItemListRevisionRow) {
+  return { id: row.id, revision: row.revision, cause: row.cause, item_count: row.item_count, created_by: row.created_by,
+    created_at: row.created_at };
+}
+
 function proposalView(proposal: ReturnType<typeof proposeItemListRevision>, basedOnRevision: number): ItemListProposalView {
   return {
     cause: proposal.cause, basedOnRevision, digest: proposal.candidate.digest, items: [...proposal.candidate.items],
@@ -170,7 +176,8 @@ export async function loadAffaireItemList(projectId: string): Promise<AffaireIte
     ...(sources.kind === "template" && sources.template.publishedBy ? [sources.template.publishedBy] : []),
   ];
   const view: AffaireItemListView["sources"] = sources.kind === "dpgf"
-    ? (({ drafts: _drafts, ...rest }) => rest)(sources)
+    ? { kind: "dpgf", importId: sources.importId, mappingId: sources.mappingId, filename: sources.filename,
+      sourceFormat: sources.sourceFormat, decisions: sources.decisions, projection: sources.projection }
     : sources.kind === "template"
       ? { kind: "template", template: { key: sources.template.key, version: sources.template.version,
         publicationId: sources.template.publicationId, publishedAt: sources.template.publishedAt,
@@ -179,8 +186,9 @@ export async function loadAffaireItemList(projectId: string): Promise<AffaireIte
   return {
     projectId: project.id,
     canWrite: mayWrite.data === true,
-    current: stored ? { ...(({ sources: _sources, ...row }) => row)(stored.row), items: [...stored.revision.items] } : null,
-    history: stored?.history.map(({ sources: _s, content_sha256: _c, ...row }) => row) ?? [],
+    current: stored ? { ...revisionView(stored.row), content_sha256: stored.row.content_sha256,
+      items: [...stored.revision.items] } : null,
+    history: stored?.history.map(revisionView) ?? [],
     continuities: stored?.continuities ?? [],
     sources: view,
     proposal: proposal?.changed ? proposalView(proposal, stored?.row.revision ?? 0) : null,

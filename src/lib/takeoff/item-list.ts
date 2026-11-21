@@ -51,8 +51,8 @@ function normalized(draft: PosteDraft): PosteDraft {
   };
 }
 
-function asDraft({ id: _id, ...draft }: Poste): PosteDraft {
-  return normalized(draft);
+function asDraft(item: Poste): PosteDraft {
+  return normalized(item);
 }
 
 export function posteFromStoredEntry(entry: StoredItemListEntry): Poste {
