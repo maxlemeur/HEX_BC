@@ -16,6 +16,15 @@ Pour exécuter un parcours, commencer par [le guide des tests](../../e2e/README.
 | [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC, PR vers `main` (phases atteintes) et [après un push `main`](#campagnes-de-main-après-un-push) ; phases du [guide calc-v3](tester-army-calc-v3.md), réparties en [groupes](#jobs-parallèles), check `army-calc-v3` |
 | [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 de `main` (planifiée ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
 
+Le job **Build** exécute `npm run verify:production` sur les PR, sur `main` et
+sur demande. Il compile avec Webpack, vérifie les types Next.js, les budgets et
+les composants PDF, Excel et Word du paquet, puis démarre le serveur pour les
+vérifications HTTP. Le contrôle requis `quality-gate` échoue si ce job n'aboutit
+pas. La commande de Vercel exécute `npm run build:compile` avec
+`MERGEONE_SKIP_BUILD_TYPECHECK=1` pour assembler le déploiement. GitHub Actions
+garde la vérification des types Next.js. Avant un déploiement
+manuel, vérifier le succès de `quality-gate` sur le commit déployé.
+
 Les commandes locales ne modifient ni les règles de protection de `main` ni
 les vérifications obligatoires. Un check agrégé réussi avec sélection `none`
 indique qu'aucun parcours n'était requis ; ce n'est pas une exécution E2E.

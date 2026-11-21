@@ -1,5 +1,5 @@
-// Shared launcher for every production `next build`: npm run build (local,
-// Vercel, verify:production / Quality Gate). It runs `next build <args>` with
+// Shared launcher for production `next build` via npm run build:compile
+// (local builds, Vercel and the Quality Gate). It runs `next build <args>` with
 // the current Node, without a shell, from the repository root, so the command
 // is the same on Windows, macOS, Linux, CI and Vercel. Its environment comes
 // from withNextBuildHeap(): NODE_OPTIONS is the only channel that gives Next's

@@ -1,5 +1,5 @@
 // Heap floor shared by every production `next build`: scripts/next-build.mjs
-// (npm run build: local, Vercel, verify:production / Quality Gate) and the
+// (npm run build:compile in local builds, Vercel and the Quality Gate) and the
 // TesterArmy recipe scripts/tester-army/build-local.mjs. No side effects:
 // importing this module never starts a build.
 //
