@@ -51,7 +51,7 @@ import { createTakeoffJobFromPlanSet } from "@/lib/takeoff/server";
 const OTHER_UPLOAD = `${M3_TENANT_ID}/${M3_JOB_ID}/existing-upload.csv`;
 const SHARED_PLAN = `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/shared-plan.pdf`;
 
-function createFixture(options: { admissionRejected?: boolean } = {}) {
+function createFixture(options: { admissionRejected?: boolean; requestRequired?: boolean } = {}) {
   const effects: string[] = [];
   const files = new Set([OTHER_UPLOAD, SHARED_PLAN]);
   const jobs = new Set([M3_JOB_ID]);
@@ -77,9 +77,10 @@ function createFixture(options: { admissionRejected?: boolean } = {}) {
     rpc: {
       admit_prepared_takeoff_job: () => {
         effects.push("admission");
-        return { data: null, error: options.admissionRejected
-          ? { code: "23514", message: "TAKEOFF_JOB_ADMISSION_LIMIT" }
-          : { code: "P0001", message: "TAKEOFF_JOB_CREATION_AUDIT_FAILED" } };
+        return { data: null, error: options.requestRequired ? { code: "55000", message: "TAKEOFF_JOB_REQUEST_REQUIRED" }
+          : options.admissionRejected
+            ? { code: "23514", message: "TAKEOFF_JOB_ADMISSION_LIMIT" }
+            : { code: "P0001", message: "TAKEOFF_JOB_CREATION_AUDIT_FAILED" } };
       },
     },
   });
@@ -151,6 +152,19 @@ describe("prepared takeoff admission", () => {
     expect(admin.storageCalls).toEqual([]);
     expect(files).toEqual(new Set([OTHER_UPLOAD, SHARED_PLAN]));
     expect(jobs).toEqual(new Set([M3_JOB_ID]));
+  });
+
+  // Once the automatic start is active, the database registers no job outside a launch request (a tab opened before the
+  // activation, or a launch that crossed it): the member is sent to the affaire's options, and nothing is stored.
+  it("refuses, in French, a job the database refuses outside a launch request", async () => {
+    const { fake, admin, effects } = createFixture({ requestRequired: true });
+    await expect(createTakeoffJobFromPlanSet({
+      projectId: M3_PROJECT_ID, planSetId: M3_PLAN_SET_ID, estimateVersionId: M3_VERSION_ID, level: "C", provider: "chatgpt",
+    })).rejects.toMatchObject({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+      message: "Le métré de l’affaire se lance désormais depuis ses options, sans version : rechargez l’affaire et ouvrez « Options du métré »." });
+    expect(effects).toEqual(["admission"]);
+    expect(fake.storageCalls).toEqual([]);
+    expect(admin.storageCalls).toEqual([]);
   });
 
   it("reports audit failure from the atomic admission and preserves all shared plan storage", async () => {

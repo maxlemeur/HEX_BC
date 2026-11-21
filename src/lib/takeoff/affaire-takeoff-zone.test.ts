@@ -33,7 +33,7 @@ function request(overrides: Partial<AffaireTakeoffZoneRequest> = {}): AffaireTak
 
 function data(overrides: Partial<AffaireTakeoffZoneData> = {}): AffaireTakeoffZoneData {
   return { active: true, canOperate: true, confirmedBeforeActivation: false, request: null, dossierChangedSinceAnalysis: null,
-    latestJob: null, latestReview: null, latestEnd: null, ...overrides };
+    latestJob: null, latestReview: null, latestEnd: null, unrequestedRunning: false, ...overrides };
 }
 
 function zone(overrides: Partial<AffaireTakeoffZoneInput> = {}) {
@@ -189,6 +189,22 @@ describe("buildAffaireTakeoffZone", () => {
       expect(zone({ data: data({ active: false, latestJob: failed }) })).toMatchObject({
         status: "Échoué", message: "L’analyse s’est arrêtée : Le PDF est invalide ou protégé.", options: { mode: "version" } });
       expect(zone({ data: data({ latestJob: failed }) })).toMatchObject({ options: { mode: "request", predecessorJobId: failed.id } });
+    });
+
+    // An analysis launched before the activation, outside any request, that has not ended (waiting, read, or failed with a
+    // retry due): the database answers a launch with it, so the options only save while it runs, and the zone follows it.
+    it("only saves the options while an analysis launched outside any request runs", () => {
+      const legacy = job({ status: "processing", reviewHref: null, finishedAt: null });
+      expect(zone({ data: data({ latestJob: legacy, unrequestedRunning: true }) })).toMatchObject({
+        status: "En cours", live: true,
+        options: { mode: "save_only", reason: "Une analyse de l’affaire est en cours : vos options s’appliqueront à la prochaine analyse." } });
+      const closed = request({ state: "closed", reason: null, admittedAt: "2026-11-21T08:05:00.000Z", closedAt: "2026-11-21T08:30:00.000Z",
+        outcome: "success", jobs: [job()] });
+      expect(zone({ data: data({ request: closed, latestJob: legacy, unrequestedRunning: true }) })).toMatchObject({
+        live: true, options: { mode: "save_only" } });
+      // Once it ended, a relaunch names it again.
+      expect(zone({ data: data({ latestJob: job(), unrequestedRunning: false }) }))
+        .toMatchObject({ options: { mode: "request", predecessorJobId: job().id } });
     });
 
     it("asks for plans when the affaire has none", () => {

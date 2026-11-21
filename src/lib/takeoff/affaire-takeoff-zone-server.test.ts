@@ -63,14 +63,18 @@ describe("readAffaireTakeoffZone", () => {
     vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
   });
 
-  function zone(rights: { owner?: boolean; readable?: string[] }) {
+  function zone(rights: { owner?: boolean; readable?: string[] }, jobs: (query: FakeQuery) => unknown[] = () => []) {
+    return read(rights, jobs).then((data) => data.request?.coverage);
+  }
+
+  function read(rights: { owner?: boolean; readable?: string[] }, jobs: (query: FakeQuery) => unknown[] = () => []) {
     const readable = new Set(rights.readable ?? []);
     const rows = (query: FakeQuery) => ({ data: ((filterValue(query, "id") as string[] | undefined) ?? [])
       .filter((id) => readable.has(id)).map((id) => ({ id })), error: null });
     const session = createSupabaseFake({
       tables: {
         takeoff_launch_requests: () => ({ data: { completion_event_id: null }, error: null }),
-        takeoff_jobs: () => ({ data: [], error: null }),
+        takeoff_jobs: (query: FakeQuery) => ({ data: jobs(query), error: null }),
         plan_files: rows, affaire_intake_documents: rows,
       },
       rpc: {
@@ -78,9 +82,27 @@ describe("readAffaireTakeoffZone", () => {
         can_access_takeoff_project: () => ({ data: rights.owner ?? false, error: null }),
       },
     });
-    return readAffaireTakeoffZone({ supabase: session.client, tenantId: TENANT, userId: VIEWER } as never, PROJECT)
-      .then((data) => data.request?.coverage);
+    return readAffaireTakeoffZone({ supabase: session.client, tenantId: TENANT, userId: VIEWER } as never, PROJECT);
   }
+
+  // An analysis launched outside any request (before the activation) that has not ended: the database answers a launch
+  // with it, and the zone only saves the options while it runs.
+  it.each([
+    ["waiting for its Mac", "pending"],
+    ["read now", "processing"],
+    ["failed with a retry due", "failed"],
+  ] as const)("counts an analysis outside any request %s as running", async (_case, status) => {
+    const legacy = { id: "bbbbbbbb-0000-4000-8000-000000000070", status };
+    const data = await read({ owner: true }, (query) => {
+      const statuses = filterValue(query, "status");
+      return (Array.isArray(statuses) ? statuses.includes(status) && !statuses.includes("completed") : statuses === status) ? [legacy] : [];
+    });
+    expect(data.unrequestedRunning).toBe(true);
+  });
+
+  it("counts nothing as running once every analysis outside a request ended", async () => {
+    await expect(read({ owner: true }).then((data) => data.unrequestedRunning)).resolves.toBe(false);
+  });
 
   it("names the pieces left out to the affaire's owner or an administrator", async () => {
     await expect(zone({ owner: true })).resolves.toEqual({ plansRetained: 1,

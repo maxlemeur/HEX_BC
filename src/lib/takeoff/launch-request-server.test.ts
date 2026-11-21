@@ -6,6 +6,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { AFFAIRE_INTAKE_PLAN_SET_METADATA } from "@/lib/takeoff/default-import-plan-set";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
   assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
   launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readDossierChangeSinceAnalysis,
@@ -36,6 +38,15 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 vi.mock("@/lib/takeoff/local-dispatch", () => ({ runLocalTakeoffAttempts: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/takeoff/preparation-server", () => ({ loadPreparation: vi.fn(), assertConfirmedTakeoffPreparation: vi.fn() }));
 vi.mock("@/lib/pdf/page-render-server", () => ({ renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
+// The member's own subscription and the plan set's source, as a manual launch reads them: real unless a test names them.
+vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
+  return { ...actual, getConfirmedTakeoffExecutionOwner: vi.fn(actual.getConfirmedTakeoffExecutionOwner) };
+});
+vi.mock("@/lib/takeoff/job-creation-repository", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/takeoff/job-creation-repository")>();
+  return { ...actual, resolvePlanSetSourceFile: vi.fn(actual.resolvePlanSetSourceFile) };
+});
 
 const HOST = "urn:uuid:aaaaaaaa-0000-4000-8000-000000000099";
 const TENANT = "aaaaaaaa-0000-4000-8000-000000000010";
@@ -468,6 +479,51 @@ describe("launchTakeoffRelaunch", () => {
       .rejects.toMatchObject({ status: 422, message: expect.stringContaining("cette adresse ne peut pas utiliser le forfait ChatGPT") });
     expect(calls("replay")).toEqual([]);
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+  });
+
+  // Past the replay: the member's confirmed preparation sealed, then the database's command decides.
+  function command(answer: { data?: unknown; error?: { code: string; message: string } }) {
+    const calls: string[] = [];
+    const service = createSupabaseFake({ rpc: {
+      replay_manual_takeoff_request: () => ({ data: [], error: null }),
+      launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
+    } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
+    const session = createSupabaseFake({ tables: { plan_files: () => ({ data: [], error: null, count: 0 }) } });
+    const plan = takeoffPreparationSourceSchema.parse({ document_id: PLAN_FILE, document_name: "Plan RDC.pdf", kind: "plan",
+      revision: null, source_version: "fixture-version", pages: [], active: true, confirmed: true, plan_set_id: PLAN_SET,
+      file_path: FILE_PATH, page_count: 1, source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf", content_hash: "d".repeat(64) });
+    vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue({ execution_selection: SELECTION, preparation_revision: 2,
+      preparation: { sources: [plan] } } as never);
+    vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValueOnce({ execution_host_id: HOST } as never);
+    vi.mocked(resolvePlanSetSourceFile).mockResolvedValueOnce({ sourceFileName: "Plan RDC.pdf", sourceFileType: "application/pdf",
+      sourceFileSizeBytes: 10 } as never);
+    const launch = (predecessorJobId: string | null) => launchTakeoffRelaunch({ context: { userId: PAYER, tenantId: TENANT,
+      tenantRole: "engineer", supabase: session.client } as never, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId });
+    return { launch, calls };
+  }
+
+  // The database refuses a manual launch while the affaire's automatic start can still begin (it is taken on from the
+  // zone), and a first analysis of an affaire that has one: the member reads why, as a refusal that ends the command.
+  it.each([
+    ["the affaire's automatic start can still begin", { code: "55000", message: "TAKEOFF_LAUNCH_AUTOMATIC_PENDING" }, null,
+      "Le métré automatique de l’affaire peut encore démarrer : prenez-le en charge depuis l’état du métré de l’affaire."],
+    ["the affaire already has an analysis", { code: "22023", message: "TAKEOFF_LAUNCH_ANALYSIS_EXISTS" }, null,
+      "L’affaire a déjà une analyse : rechargez l’affaire pour relancer celle qu’elle montre."],
+  ] as const)("refuses a launch the database refuses because %s, and starts nothing", async (_case, error, predecessor, message) => {
+    const { launch, calls } = command({ error });
+    await expect(launch(predecessor)).rejects.toMatchObject({ status: 409, message });
+    expect(calls).toEqual(["launch"]);
+    expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
+  });
+
+  // An analysis launched outside any request that has not ended: the command is answered with it, without a request.
+  it("answers with the analysis outside any request that still runs, and starts nothing", async () => {
+    const legacy = "aaaaaaaa-0000-4000-8000-0000000000dd";
+    const { launch } = command({ data: [{ outcome: "already_running", request_id: null, job_id: legacy }] });
+    await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).resolves.toEqual({ outcome: "already_running", requestId: null, jobId: legacy });
+    expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
   });
 
   it("names a first analysis of the affaire « initial », with no analysis to replace", async () => {

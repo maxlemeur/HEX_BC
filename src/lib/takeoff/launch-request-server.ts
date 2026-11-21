@@ -82,6 +82,11 @@ function launchError(error: { code?: string; message: string }, fallback: string
     case "TAKEOFF_LAUNCH_PREDECESSOR_REQUIRED":
     case "TAKEOFF_LAUNCH_PREDECESSOR_INVALID":
       throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR, "L’analyse à relancer n’appartient pas à cette affaire.");
+    case "TAKEOFF_LAUNCH_AUTOMATIC_PENDING":
+      throw refusal(409, TakeoffErrorCode.CONFLICT,
+        "Le métré automatique de l’affaire peut encore démarrer : prenez-le en charge depuis l’état du métré de l’affaire.");
+    case "TAKEOFF_LAUNCH_ANALYSIS_EXISTS":
+      throw refusal(409, TakeoffErrorCode.CONFLICT, "L’affaire a déjà une analyse : rechargez l’affaire pour relancer celle qu’elle montre.");
     case "TAKEOFF_JOB_ADMISSION_LIMIT":
       throw takeoffJobInsertError({ code: "23514", message: error.message }, "");
   }
@@ -537,7 +542,11 @@ async function dispatchLaunchRequestJob(input: { jobId: string; host?: string | 
     result: { triggered: true, correlationId, statusCode: 202, outcome: "accepted" } });
 }
 
-export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "already_running"; requestId: string; jobId: string | null };
+/**
+ * `already_running` names the analysis that runs: a request's, or one launched outside any request before the activation
+ * (no `requestId` then).
+ */
+export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "already_running"; requestId: string | null; jobId: string | null };
 
 /**
  * A manual request created, sealed and admitted in one commit from the member's confirmed preparation, naming the

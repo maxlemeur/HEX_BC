@@ -79,6 +79,12 @@ export type AffaireTakeoffZoneData = {
   latestReview: AffaireTakeoffZoneJob | null;
   /** The affaire's latest end of analysis, as its readers' activity and the members' notifications show it. */
   latestEnd: null | { eventId: string; outcome: TakeoffAnalysisOutcome; finishedAt: string; reason: string | null };
+  /**
+   * An analysis of the affaire launched outside any request (before the activation) has not ended: waiting, read, or
+   * failed with a retry due, as the database counts it (private.takeoff_unrequested_analysis_running). A launch is answered
+   * with it and an automatic start waits for it.
+   */
+  unrequestedRunning: boolean;
 };
 
 export type AffaireTakeoffZoneInput = {
@@ -232,7 +238,7 @@ function decideOptions(input: AffaireTakeoffZoneInput, data: AffaireTakeoffZoneD
   if (!input.canOperate || input.planFileCount === 0) return null;
   if (!data.active) return { mode: "version" };
   const { request } = data;
-  if (request?.state === "admitted") {
+  if (request?.state === "admitted" || data.unrequestedRunning) {
     return { mode: "save_only", reason: "Une analyse de l’affaire est en cours : vos options s’appliqueront à la prochaine analyse." };
   }
   if (isOpen(request)) {
@@ -301,9 +307,9 @@ export function buildAffaireTakeoffZone(zoneInput: AffaireTakeoffZoneInput): Aff
     ? { kind: action, label: describeTakeoffLaunchAction(action)!, requestId: request!.id, revision: request!.mandateRevision }
     : null;
   const { latestEnd } = data;
-  const live = request ? request.state === "evaluating" || request.state === "admitted"
+  const live = data.unrequestedRunning || (request ? request.state === "evaluating" || request.state === "admitted"
     || (request.state === "blocked" && TRANSIENT_REASONS.has(request.reason ?? ""))
-    : latestJob ? isTakeoffVisibleJobInFlight(latestJob.status) : false;
+    : latestJob ? isTakeoffVisibleJobInFlight(latestJob.status) : false);
 
   return {
     ...state,

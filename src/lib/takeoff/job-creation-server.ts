@@ -40,7 +40,17 @@ import {
   assertEstimateVersionAccessibleForTakeoff,
 } from "@/lib/takeoff/job-creation-repository";
 
+/**
+ * Once the automatic start is active, every new analysis is a launch request from the affaire's options: a launch on a
+ * version is refused by the server before anything is read, and by the database at the job's admission.
+ */
+export function takeoffLaunchRequestRequiredError() {
+  return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+    message: "Le métré de l’affaire se lance désormais depuis ses options, sans version : rechargez l’affaire et ouvrez « Options du métré »." });
+}
+
 export function takeoffJobInsertError(error: { code: string; message: string }, jobId: string, level?: TakeoffLevel) {
+  if (error.message === "TAKEOFF_JOB_REQUEST_REQUIRED") return takeoffLaunchRequestRequiredError();
   if (error.code === "23514" && error.message === "TAKEOFF_JOB_ADMISSION_LIMIT") {
     return new TakeoffError({
       status: 409,
