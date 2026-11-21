@@ -61,14 +61,15 @@ export function startLocalTakeoffRetryRecovery() {
     if (running) return;
     running = true;
     try {
-      // Once one analysis per plan is active, the dispatcher serves this Mac's queue in the database's order.
-      if (await isTakeoffPlanDispatchActive(client).catch(() => false)) {
-        await runLocalTakeoffDispatcherPass();
-        return;
-      }
+      // The dispatcher serves this Mac's whole queue in the database's order once one analysis per plan is active, and
+      // after a withdrawal the plans of one analysis per plan already admitted (one at a time); with none, it answers
+      // nothing and this poll keeps its former path for every other job.
+      const active = await isTakeoffPlanDispatchActive(client).catch(() => false);
+      await runLocalTakeoffDispatcherPass({ service: client }).catch(() => console.error("takeoff.local_retry_recovery.dispatch_failed"));
+      if (active) return;
       const due = new Date().toISOString();
       let query = client.from("takeoff_jobs")
-        .select("id, tenant_id, status, created_at, tenants!inner(is_active)")
+        .select("id, tenant_id, status, created_at, launch_unit_key, tenants!inner(is_active)")
         .eq("tenants.is_active", true)
         .eq("execution_provider", "chatgpt_local")
         .eq("execution_host_id", await getChatGptHostId())
@@ -85,6 +86,8 @@ export function startLocalTakeoffRetryRecovery() {
       const admitted = await readAdmittedJobIds(client, data.filter((job) => job.status === "pending"));
       const { processTakeoffJobAttempt } = await import("@/lib/takeoff/async-worker");
       for (const job of data) {
+        // A plan of one analysis per plan is the dispatcher's (above): never a second lane on this Mac.
+        if ((job as { launch_unit_key?: string | null }).launch_unit_key?.startsWith("plan:")) continue;
         // A pending row whose creation has not finished may still be withdrawn: the member is told it did not start.
         if (job.status === "pending" && !admitted.has(job.id)) continue;
         try {

@@ -13,7 +13,8 @@ import type { TakeoffJobAttemptOutcome, TakeoffJobAttemptTrigger } from "@/lib/t
  * (the oldest eligible request first, its units in their recorded order; a unit waiting for a later retry never holds
  * the others back), and the job's claim takes the slot in the same transaction. One attempt at a time, then the next:
  * a gesture (a confirmation, a relaunch, « Soumettre à nouveau ») and the Mac's poller both start a pass, never a lane
- * of their own; two processes of this Mac are kept apart by the slot. Before the activation nothing here runs.
+ * of their own; two processes of this Mac are kept apart by the slot. Withdrawn, the database still hands the plans of
+ * one analysis per plan already admitted (one at a time); with none, it answers nothing.
  */
 export type TakeoffDispatchAttempt = (jobId: string, trigger: TakeoffJobAttemptTrigger) => Promise<TakeoffJobAttemptOutcome>;
 
@@ -85,12 +86,12 @@ function scheduleRetry(dueAt: string | null) {
  * due; then a timer for the next retry due. A pass asked while one runs makes that one go round once more. `attempt` is
  * the attempt of one job (the worker's by default; the owned-worker journeys pass a controlled provider's).
  */
-export async function runLocalTakeoffDispatcherPass(options: { attempt?: TakeoffDispatchAttempt; hostId?: string } = {}): Promise<TakeoffDispatchPass> {
+export async function runLocalTakeoffDispatcherPass(options: { attempt?: TakeoffDispatchAttempt; hostId?: string; service?: Service } = {}): Promise<TakeoffDispatchPass> {
   if (running) {
     again = true;
     return running;
   }
-  const service = createServiceRoleClient();
+  const service = options.service ?? createServiceRoleClient();
   running = (async () => {
     const hostId = options.hostId ?? await getChatGptHostId();
     const total: TakeoffDispatchPass = { ran: [], closed: [], nextDueAt: null };
