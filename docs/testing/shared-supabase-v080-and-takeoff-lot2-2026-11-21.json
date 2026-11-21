@@ -1,0 +1,1133 @@
+{
+  "date_utc": "2026-11-21",
+  "source_commit": "dff50c2e1d3ea67e57c53e9572f51d80010cbf84",
+  "applied_and_verified": 7,
+  "applied": [
+    {
+      "file": "20261117193734_workbook_supplier_references.sql",
+      "pr": 369,
+      "merge_commit": "aed97d3bfe765e453c444c3770ee3f08a09f3e83",
+      "remote_version": "20261121064149",
+      "applied_at_utc": "2026-11-21T06:41:49Z",
+      "source_bytes": 10091,
+      "stored_bytes": 10091,
+      "source_sha256": "3d95a24e2400d5a44dc22dd2c42bc877d01079f81dab524760b454a2bf321f45",
+      "stored_sha256": "3d95a24e2400d5a44dc22dd2c42bc877d01079f81dab524760b454a2bf321f45",
+      "stored_form": "full_file_including_final_lf",
+      "functions": [
+        {
+          "name": "public.import_workbook_supplier_references",
+          "body_md5": "81b504026b28f3b6d6da6d5b25173cc9",
+          "security_definer": true,
+          "execute": {
+            "anon": false,
+            "authenticated": true,
+            "service_role": true
+          }
+        },
+        {
+          "name": "public.protect_pending_supplier_reference",
+          "body_md5": "8359589682676ee290b161fe04a4cc12",
+          "security_definer": false,
+          "execute": {
+            "anon": false,
+            "authenticated": false,
+            "service_role": true
+          }
+        },
+        {
+          "name": "public.save_supplier_catalog_item",
+          "body_md5": "f41de23829b20cb2f61150d2e3fded82",
+          "security_definer": true,
+          "execute": {
+            "anon": false,
+            "authenticated": true,
+            "service_role": true
+          }
+        },
+        {
+          "name": "public.sync_supplier_price_catalog_item",
+          "body_md5": "cc59f7a7e16f8c584decb61da17457bd",
+          "security_definer": false,
+          "execute": {
+            "anon": false,
+            "authenticated": true,
+            "service_role": true
+          }
+        }
+      ],
+      "checks": "186 références existantes, 0 violation de la contrainte avec la valeur par défaut. Le booléen obligatoire vaut false par défaut, le contrôle est validé et le déclencheur est actif. Les nouvelles références en attente bloquent leur activation incidente, le changement de SKU ou d’URL et leur usage par un prix. Le chemin d’édition de la v0.7.0 conserve les références existantes."
+    },
+    {
+      "file": "20261117195542_product_reference_price_withdrawal.sql",
+      "pr": 370,
+      "merge_commit": "dfbcf7a9546418ac802df570d72c408d82f5b792",
+      "remote_version": "20261121064717",
+      "applied_at_utc": "2026-11-21T06:47:17Z",
+      "source_bytes": 14463,
+      "stored_bytes": 14463,
+      "source_sha256": "22d213fd5c8ef66ce88e8e089c87ee659d1fac1fdb4aa888a7d6593400f18d8c",
+      "stored_sha256": "22d213fd5c8ef66ce88e8e089c87ee659d1fac1fdb4aa888a7d6593400f18d8c",
+      "stored_form": "full_file_including_final_lf",
+      "functions": [
+        {
+          "signature": "public.get_product_reference_price_history(uuid,integer,integer)",
+          "body_md5": "417b7d47433356d92e1442107fa1805b",
+          "security_definer": false,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.product_reference_price_proposal(uuid,numeric,text)",
+          "body_md5": "2ed114736633ff40d21a7e8f5a11726e",
+          "security_definer": false,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.protect_product_reference_price()",
+          "body_md5": "31decb8281958f89f02afbb812dc0650",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.withdraw_product_reference_price(uuid,timestamptz,uuid)",
+          "body_md5": "c05e13d6a892fad4ad2fe60d95737c26",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        }
+      ],
+      "checks": "Le journal des retraits était absent, donc aucune ligne existante à contraindre. Ses quatre clés étrangères, ses contrôles de valeur, ses deux index, la RLS, la politique et le droit SELECT des membres sont en place. Le garde conserve la validation de prix de la v0.7.0 et admet désormais un retrait justifié par une écriture du même acteur dans la même transaction."
+    },
+    {
+      "file": "20261117200342_material_request_affaire_storage_cleanup.sql",
+      "pr": 372,
+      "merge_commit": "d8d2e412e8f3907d13a8c4303d7353c642869be7",
+      "remote_version": "20261121064816",
+      "applied_at_utc": "2026-11-21T06:48:16Z",
+      "source_bytes": 9701,
+      "stored_bytes": 9701,
+      "source_sha256": "d05d03911ffe7f86b54fa46c7415f46e49fd8d40efad92e5f53cd00d22a75737",
+      "stored_sha256": "d05d03911ffe7f86b54fa46c7415f46e49fd8d40efad92e5f53cd00d22a75737",
+      "stored_form": "full_file_including_final_lf",
+      "functions": [
+        {
+          "signature": "private.enqueue_affaire_material_request_storage_cleanup()",
+          "body_md5": "b9e2500f0de0bf0ffd868a7d9757009c",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.guard_material_request_storage_write()",
+          "body_md5": "410d6e57f907d225dc6f34b39a9c7f74",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.claim_procurement_storage_cleanup_for_bucket(uuid,integer,integer,text)",
+          "body_md5": "7a8b89a2eb8fa0d930e87aac5d13abb2",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.claim_procurement_storage_cleanup(uuid,integer,integer)",
+          "body_md5": "00bcc54b159750eb8ddf0b9f667b4697",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.guard_procurement_storage_cleanup_outbox()",
+          "body_md5": "543350e06f9020fe7e9f5153df24efd1",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        }
+      ],
+      "checks": "L’outbox était vide. Zéro clé de pièce existante incompatible avec la nouvelle contrainte. Les trois colonnes de provenance, le contrôle de cible, l’index partiel, la politique de lecture et le déclencheur de suppression sont en place. Une clé retirée ne peut plus recevoir de nouveaux octets. Le worker de la v0.7.0 conserve son périmètre devis. Le traitement des nouvelles suppressions de photos requiert le worker compatible."
+    },
+    {
+      "file": "20261117201102_estimate_orders_in_affaire_supply_cost.sql",
+      "pr": 371,
+      "merge_commit": "8eeeb09f9b4f39d1d01e6138e4383cacf3033fee",
+      "remote_version": "20261121064859",
+      "applied_at_utc": "2026-11-21T06:48:59Z",
+      "source_bytes": 12436,
+      "stored_bytes": 12436,
+      "source_sha256": "f6b4bc854ac5e30f2898251748259e7ed2c20f66796473d14419b7ae899b1e57",
+      "stored_sha256": "f6b4bc854ac5e30f2898251748259e7ed2c20f66796473d14419b7ae899b1e57",
+      "stored_form": "full_file_including_final_lf",
+      "functions": [
+        {
+          "signature": "private.guard_estimate_purchase_source_header()",
+          "body_md5": "f9e21c0d5bc26d6dc9c8dcd1ace5ceb3",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.affaire_supply_cost(uuid)",
+          "body_md5": "4bb161f3c0d035b8c8aaa3b6a89ce37b",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        }
+      ],
+      "checks": "Sur 17 commandes, zéro source de devis et zéro transfert enregistré. Aucune contrainte de ligne ajoutée. Le nouveau déclencheur protège le rattachement au devis et contrôle le droit d’achat et l’affaire. La v0.7.0 crée ses brouillons par la RPC de transfert. Les deux fonctions et le remplacement du déclencheur ont été vérifiés."
+    },
+    {
+      "file": "20261120204437_takeoff_jobs_by_affaire.sql",
+      "pr": 413,
+      "merge_commit": "ab72179db0920c6b123ec76cbfc12e6a49b0132e",
+      "remote_version": "20261121064932",
+      "applied_at_utc": "2026-11-21T06:49:32Z",
+      "source_bytes": 60289,
+      "stored_bytes": 60289,
+      "source_sha256": "1194ff733be5a1cc0c294c8af103e3ad6d8b908cec8f55f3cae42bd673b5075e",
+      "stored_sha256": "1194ff733be5a1cc0c294c8af103e3ad6d8b908cec8f55f3cae42bd673b5075e",
+      "stored_form": "full_file_including_final_lf",
+      "functions": [
+        {
+          "signature": "private.attest_takeoff_job_snapshot(public.takeoff_jobs)",
+          "body_md5": "5a29499d0b21a615f4e540dc8da04ca8",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.can_access_takeoff_child(uuid,uuid,uuid,boolean)",
+          "body_md5": "2b4295719714173da543ca1a1d01cbc1",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "private.can_access_takeoff_scope(uuid,uuid,uuid,boolean)",
+          "body_md5": "414ea7acd768946374c2819a26d60d4a",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "private.can_access_takeoff_storage(text,boolean)",
+          "body_md5": "075f3bc6b75d44085539911ab24a2557",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "private.can_read_takeoff_plan_evidence(uuid,uuid,uuid,text)",
+          "body_md5": "6836785d0303480577ccf878818d2cd2",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "private.enforce_takeoff_job_preparation()",
+          "body_md5": "fbc324cf6dd973af8eff0fdf9b111cb2",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.guard_referenced_takeoff_plan_set_scope()",
+          "body_md5": "4218f6103cea322c2ad9c3f95b9084fe",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.has_takeoff_job_version_attachment_permit(uuid,uuid,uuid,uuid)",
+          "body_md5": "3ab0d7f01cf01c94c66d65befa4bd505",
+          "security_definer": false,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.record_prepared_takeoff_job_creation()",
+          "body_md5": "4f7481cf67dcddc72f10e7f32dd39ead",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.admit_prepared_takeoff_job(jsonb)",
+          "body_md5": "d1488cd0da6240fabc61a2d8eb2bd2a5",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.assign_takeoff_jobs_tenant_id()",
+          "body_md5": "f97c9bb0fb7f79d3371dc233ffc2d64a",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.enforce_authenticated_takeoff_job_fields()",
+          "body_md5": "dde8205ebb8d52e2e8f382dc67ba6cf3",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.enforce_takeoff_item_mutation_before_apply()",
+          "body_md5": "0fbac92d23b545873fe757a17bdff0eb",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.enforce_takeoff_job_identity_immutable()",
+          "body_md5": "04faf8bbd2336bf255acf0df0ffc2954",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.stale_takeoff_rule_peers()",
+          "body_md5": "0e74d675910251bbb972b263b160ac00",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.takeoff_rule_job_stamp(uuid,uuid,uuid)",
+          "body_md5": "1d8a241e758a2bc70c2ae8d5ce279c62",
+          "security_definer": false,
+          "volatility": "s",
+          "settings": [
+            "search_path=\"\""
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.update_takeoff_item_for_review(uuid,uuid,uuid,timestamptz,jsonb,timestamptz)",
+          "body_md5": "6df70e46e1bc59db623553d7b14f8d99",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.update_takeoff_item_for_review(uuid,uuid,uuid,timestamptz,jsonb)",
+          "body_md5": "d4142b02268af8b631a6ee8b89635672",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.write_takeoff_job_rule_results(uuid,uuid,uuid,jsonb,jsonb,text)",
+          "body_md5": "c7a87a3233c6556c9ed62039683cc08b",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.write_takeoff_rule_results(uuid,uuid,jsonb,jsonb,text)",
+          "body_md5": "9d7d08f22e34485ab5252b3d4a1b65b7",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "takeoff_internal.persist_rule_results(uuid,uuid,uuid[],jsonb,jsonb)",
+          "body_md5": "d670020f847b70c4cd843172906bb986",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog, pg_temp"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        }
+      ],
+      "checks": "Zéro job incohérent et zéro job en traitement. La table des jobs était vide avant et après le rattachement. Les clés d’affaire et de jeu de plans, l’index, les déclencheurs et les 23 politiques d’accès aux jobs, résultats, plans et objets Storage ont été contrôlés."
+    },
+    {
+      "file": "20261121011212_takeoff_analysis_completion.sql",
+      "pr": 415,
+      "merge_commit": "025226d741d076ea9fd08d6e43f29cc285e51174",
+      "remote_version": "20261121065044",
+      "applied_at_utc": "2026-11-21T06:50:44Z",
+      "source_bytes": 37029,
+      "stored_bytes": 37029,
+      "source_sha256": "fe686c48545e814dbc9b25c9db49d1ad5ea22766b6c9c56761a32ed9494d1cb2",
+      "stored_sha256": "fe686c48545e814dbc9b25c9db49d1ad5ea22766b6c9c56761a32ed9494d1cb2",
+      "stored_form": "full_file_including_final_lf",
+      "functions": [
+        {
+          "signature": "private.guard_takeoff_completion_notification_identity()",
+          "body_md5": "a02746d314514083796278b71fd38523",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.insert_local_takeoff_result_items(uuid,uuid,uuid,jsonb)",
+          "body_md5": "1936f16d598c456dc841542ece7cbc73",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.publish_takeoff_analysis_completion()",
+          "body_md5": "9530ebea1fb2d9b528259a6716eba0cd",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.set_takeoff_analysis_outcome()",
+          "body_md5": "6a11e2f51e6200831cd5ab6c55ba8cda",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.takeoff_completion_recipient_can_read(uuid,uuid,uuid)",
+          "body_md5": "cdfc841a5078ac49584fa55ff23f23a8",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.takeoff_completion_visible(uuid,uuid)",
+          "body_md5": "19d1c182911423486c2da873ae3ed221",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.claim_observed_local_takeoff_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer)",
+          "body_md5": "6a7ddd0787c98c8c1cabe1b07e6a5dda",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.claim_takeoff_completion_email(uuid)",
+          "body_md5": "26a1fbb89567bbc70f62c138d3aa1eb3",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.finalize_local_takeoff_result(uuid,uuid,uuid,timestamptz,text,text,jsonb,jsonb,jsonb)",
+          "body_md5": "4b2beef4a444bc5a7a6b3eae5f67386e",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.list_affaire_takeoff_completions(uuid,integer,integer)",
+          "body_md5": "9d47299fa5b76939d776a4712419815d",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.mark_takeoff_completion_notification_read(uuid)",
+          "body_md5": "f5ba94ca5af263ba1442eb2f737b901e",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.prepare_takeoff_completion_email(uuid,uuid,text,text,text)",
+          "body_md5": "7b3de049d98170a475872c43bf5e1cdf",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.record_local_takeoff_failure(uuid,uuid,uuid,jsonb,jsonb,jsonb)",
+          "body_md5": "780fd9c2ecd66461aaee53bd099bf75e",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.recover_stale_local_takeoff_jobs(timestamptz,interval)",
+          "body_md5": "0a9f9c1703bb81367b7433d4cdc5ce9f",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        }
+      ],
+      "checks": "Zéro job en traitement et zéro violation des nouvelles contraintes. Les colonnes de fin d’analyse, la table des avis, ses index, sa politique, les droits de colonne et les déclencheurs sont en place. La table d’activation et la table des avis comptaient chacune zéro ligne."
+    },
+    {
+      "file": "20261121020321_takeoff_completion_before_activation.sql",
+      "pr": 425,
+      "merge_commit": "089608f046d9a8fc11121c8703d4ac8589959c44",
+      "remote_version": "20261121065131",
+      "applied_at_utc": "2026-11-21T06:51:31Z",
+      "source_bytes": 37669,
+      "stored_bytes": 37669,
+      "source_sha256": "dbab0169bda43ff551d1973595106165d981171ccf3f5bda9295427a7c9cefc3",
+      "stored_sha256": "dbab0169bda43ff551d1973595106165d981171ccf3f5bda9295427a7c9cefc3",
+      "stored_form": "full_file_including_final_lf",
+      "functions": [
+        {
+          "signature": "private.give_back_takeoff_completion_attempt(uuid)",
+          "body_md5": "f10b0f67b3941c658f58413f75ec5932",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.guard_takeoff_completion_notification_identity()",
+          "body_md5": "fd69b566ed067d4691f8bdd15ab595e2",
+          "security_definer": false,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.local_takeoff_claim_admissible(uuid,uuid,boolean)",
+          "body_md5": "78ee10262650b4ac481ba6ccdbb15ad5",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.publish_takeoff_analysis_completion()",
+          "body_md5": "22bab1ef161c9c08311923fea5db5b97",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.set_takeoff_analysis_outcome()",
+          "body_md5": "e544d02d11f250e6a09bf40cc16f54f2",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.takeoff_local_host_live_window()",
+          "body_md5": "97b2aee45a2aaddc0beae1638290f7d5",
+          "security_definer": false,
+          "volatility": "i",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.takeoff_local_host_lock_key(text)",
+          "body_md5": "3e055d9dfbc45c4fd13577b5708090d5",
+          "security_definer": false,
+          "volatility": "i",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "private.takeoff_public_failure_codes()",
+          "body_md5": "64aaf627f11dfb56801716c017d6163b",
+          "security_definer": false,
+          "volatility": "i",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.claim_observed_local_takeoff_job(uuid,uuid,text,timestamptz,uuid,timestamptz,text,text,text,integer)",
+          "body_md5": "50b3739dffe355d6590aa55e70c61261",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.confirm_takeoff_completion_email_dispatch(uuid,uuid)",
+          "body_md5": "ca1695bc235c9398f28808e047f35d1b",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.list_affaire_takeoff_completions(uuid,integer,integer,uuid)",
+          "body_md5": "840cdd21a39108888f664a147241d5e2",
+          "security_definer": true,
+          "volatility": "s",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": false,
+            "authenticated": true
+          }
+        },
+        {
+          "signature": "public.prepare_takeoff_completion_email(uuid,uuid,text,text,text)",
+          "body_md5": "8f1a7cb276d4ab50d63e58820de5032e",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.record_local_takeoff_host_activity(text)",
+          "body_md5": "bdef90ef91b32982071d3b4c213755ec",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        },
+        {
+          "signature": "public.recover_stale_local_takeoff_jobs(timestamptz,interval)",
+          "body_md5": "16e499adaa284e19b087fa8a528a51bb",
+          "security_definer": true,
+          "volatility": "v",
+          "settings": [
+            "search_path=pg_catalog"
+          ],
+          "execute": {
+            "anon": false,
+            "public": false,
+            "service_role": true,
+            "authenticated": false
+          }
+        }
+      ],
+      "checks": "Les tables privées de présence du Mac, de travail par job et de début de capture ont les colonnes, contraintes, index et droits prévus. Les délais par défaut sont 15 minutes et 24 heures. Le motif public est lisible sur l’avis. La relance est réservée au lanceur dès cette migration. Aucun job existant n’était susceptible d’être refusé par ce nouveau garde."
+    }
+  ],
+  "history": {
+    "before": 408,
+    "after": 415,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "baseline_identical": true
+  },
+  "advisors": {
+    "before": [
+      [
+        "rls_enabled_no_policy",
+        26
+      ],
+      [
+        "authenticated_security_definer_function_executable",
+        81
+      ],
+      [
+        "auth_leaked_password_protection",
+        1
+      ]
+    ],
+    "after": [
+      [
+        "rls_enabled_no_policy",
+        26
+      ],
+      [
+        "authenticated_security_definer_function_executable",
+        85
+      ],
+      [
+        "auth_leaked_password_protection",
+        1
+      ]
+    ],
+    "added": [
+      {
+        "category": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "object": "import_workbook_supplier_references",
+        "arguments": "p_tenant_id uuid, p_rows jsonb",
+        "detail": "Function `public.import_workbook_supplier_references(p_tenant_id uuid, p_rows jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/import_workbook_supplier_references`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "category": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "object": "list_affaire_takeoff_completions",
+        "arguments": "p_project_id uuid, p_limit integer, p_offset integer, p_job_id uuid",
+        "detail": "Function `public.list_affaire_takeoff_completions(p_project_id uuid, p_limit integer, p_offset integer, p_job_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/list_affaire_takeoff_completions`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "category": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "object": "mark_takeoff_completion_notification_read",
+        "arguments": "p_id uuid",
+        "detail": "Function `public.mark_takeoff_completion_notification_read(p_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/mark_takeoff_completion_notification_read`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "category": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "object": "withdraw_product_reference_price",
+        "arguments": "p_product_id uuid, p_expected_updated_at timestamp with time zone, p_expected_validation_id uuid",
+        "detail": "Function `public.withdraw_product_reference_price(p_product_id uuid, p_expected_updated_at timestamp with time zone, p_expected_validation_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/withdraw_product_reference_price`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      }
+    ],
+    "removed": []
+  },
+  "verification": {
+    "at_utc": "2026-11-21 06:52:01.548441+00",
+    "activation_rows": 0,
+    "capture_rows": 1,
+    "notifications": 0,
+    "precondition_rows": []
+  },
+  "deployed": false,
+  "flag_changed": false
+}
