@@ -176,6 +176,16 @@ export function createChunkPromptSourceHint(input: {
   }-${input.chunk.endPage}`;
 }
 
+const UNDETERMINED_PAGE = "page indéterminée";
+
+/**
+ * A quantity the model could not measure, located on the page it reported within its fragment. One without a usable
+ * page keeps its message (« page indéterminée ») but cannot make an answer without measured lines acceptable.
+ */
+export function isLocatedUnmeasuredQuantity(warning: TakeoffExchange["warnings"][number]) {
+  return warning.code === "QUANTITE_A_VERIFIER" && !warning.message.includes(` · ${UNDETERMINED_PAGE} (fragment `);
+}
+
 export function remapChunkLocalPagesToAbsolute(input: {
   chunk: TakeoffPdfChunk;
   exchange: TakeoffExchange;
@@ -210,7 +220,7 @@ export function remapChunkLocalPagesToAbsolute(input: {
       const label = ordinal ? `${file} (fichier ${ordinal})` : file;
       const location = localPage > 0 && index < chunk.endPage
         ? `${label} · page ${source.sourcePageNumbersByPage?.[index] ?? index + 1}`
-        : `${source.fileName} · page indéterminée (fragment ${chunk.index + 1})`;
+        : `${source.fileName} · ${UNDETERMINED_PAGE} (fragment ${chunk.index + 1})`;
       const message = warning.message.slice(heading?.[0].length ?? 0);
       return { ...warning, message: `${location} — ${message}`.slice(0, 500) };
     }) : input.exchange.warnings,

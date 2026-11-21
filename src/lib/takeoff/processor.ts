@@ -15,6 +15,7 @@ import {
   createChunkPromptSourceHint,
   createPdfChunkBytes,
   getPdfPageCount,
+  isLocatedUnmeasuredQuantity,
   mergeTakeoffChunkExchanges,
   remapChunkLocalPagesToAbsolute,
   type TakeoffPdfChunk,
@@ -2881,7 +2882,7 @@ async function processTakeoffLevel(
         sourceFile,
         tablesCount: levelCResult.tablesCount,
         itemsCount: levelCResult.itemsForInsert.length,
-        hasUnmeasuredQuantities: levelCResult.normalizedExchange.warnings.some((warning) => warning.code === "QUANTITE_A_VERIFIER"),
+        hasUnmeasuredQuantities: levelCResult.normalizedExchange.warnings.some(isLocatedUnmeasuredQuantity),
         providerMeta: levelCResult.providerMeta,
       });
 

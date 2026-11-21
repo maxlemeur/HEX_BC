@@ -65,9 +65,12 @@ if (!existsSync(liveProbePath)) test("LOCALREV01 a chosen plan revision supplies
   tags: ["critical", "local", "chatgpt", "premetre"], session: "army", timeout: 240_000,
 }, async ({ app, screen, browser }) => {
   if (!await preparePlanFixture()) throw new Error("The revision journey requires its own temporary profile.");
-  const store = JSON.parse(await readFile(fixtureStore!, "utf8"));
-  store.profiles.find((profile: { id: string }) => profile.id === store.selectedId).reasoningEffort = "high";
-  await writeFile(fixtureStore!, JSON.stringify(store), { mode: 0o600 });
+  const setEffort = async (effort: "medium" | "high") => {
+    const store = JSON.parse(await readFile(fixtureStore!, "utf8"));
+    store.profiles.find((profile: { id: string }) => profile.id === store.selectedId).reasoningEffort = effort;
+    await writeFile(fixtureStore!, JSON.stringify(store), { mode: 0o600 });
+  };
+  await setEffort("medium");
   const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
   const start = (await readTransport()).length;
   try {
@@ -102,7 +105,15 @@ if (!existsSync(liveProbePath)) test("LOCALREV01 a chosen plan revision supplies
     const screenshot = await app.screenshot("localrev01-plan-choice");
     await dialog.getByRole("button", `Retenir ${b}`, { exact: true }).click();
     await dialog.getByRole("button", /Vérifier et lancer$/).click();
+    await expect(dialog.getByText(/army-plan-model · Effort moyen[.]/)).toBeVisible();
+    await setEffort("high");
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect(dialog.getByText(/Le compte, le modèle ou l’effort ChatGPT a changé[.]/)).toBeVisible();
+    await expect(dialog.getByText(/army-plan-model · Effort élevé[.]/)).toBeVisible();
+    expect(await jobs.list()).toEqual([]);
+    expect((await readTransport()).slice(start)).toEqual([]);
+    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect(dialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible();
     await expect.poll(async () => (await jobs.list()).find((job) => job.level === "C")?.status, { timeout: 150_000 }).toBe("completed");
     const [job] = await jobs.list();
     const { client } = await localClient();

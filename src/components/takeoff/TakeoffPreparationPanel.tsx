@@ -1,5 +1,6 @@
 "use client";
 
+import { CHATGPT_REASONING_EFFORT_LABELS } from "@/lib/ai/chatgpt-model-preferences";
 import { TakeoffActionError } from "@/lib/takeoff/action-result";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -25,7 +26,7 @@ export type TakeoffPreparationPanelProps = {
   estimateVersionId: string | null;
   documentControls?: ReactNode;
   destinationControls?: ReactNode;
-  onLaunch: (revision: number) => Promise<void>;
+  onLaunch: (revision: number, planFileCount: number) => Promise<void>;
   onBusyChange?: (busy: boolean) => void;
   onRegisterSave?: (save: () => Promise<number | null>) => void;
   disabled?: boolean;
@@ -71,13 +72,13 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     onBusyChange?.(true);
     setLaunchError(null);
     try {
-      const revision = await confirm();
-      if (revision === null) {
+      const confirmed = await confirm();
+      if (confirmed === null) {
         setShowOptions(true);
         setStep(0);
         return;
       }
-      await onLaunch(revision);
+      await onLaunch(confirmed.revision, confirmed.planFileCount);
     } catch (cause) {
       setLaunchError(cause instanceof TakeoffActionError ? cause.message : "Impossible de confirmer le lancement. Vos réponses sont conservées.");
     } finally { setConfirming(false); onBusyChange?.(false); }
@@ -106,16 +107,19 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       <p className="text-sm font-medium">Analyse détaillée avec votre forfait ChatGPT</p>
       <button type="button" className={buttonVariants({ variant: "outline", size: "sm" })} disabled={locked} aria-expanded={showOptions} onClick={() => { setShowOptions(!showOptions); if (showOptions) setStep(3); }}>Options du métré</button>
     </div>
-    <p className="text-sm text-muted-foreground">{support.chatGpt?.sharing && support.chatGpt.model ? `Modèle sélectionné dans Mon profil : ${support.chatGpt.model}.` : "Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré."}{" "}<Link href="/dashboard/profile" className="underline">Gérer mon forfait ChatGPT</Link></p>
-    {draft.provenance?.converted_from_legacy && <p className="text-sm text-muted-foreground">Préparation précédente adaptée à l’analyse détaillée avec le forfait ChatGPT. Vos choix de mesure sont conservés.</p>}
+    <p className="text-sm text-muted-foreground">
+      {support.chatGpt ? `${support.chatGpt.model} · Effort ${support.chatGpt.reasoningEffort ? CHATGPT_REASONING_EFFORT_LABELS[support.chatGpt.reasoningEffort].toLocaleLowerCase("fr") : "par défaut"}.` : "Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré."}{" "}
+      <Link href="/dashboard/profile" className="underline">Gérer mon forfait ChatGPT</Link>
+    </p>
+    {draft.provenance?.converted_from_legacy && <p className="text-sm text-muted-foreground">Préparation précédente adaptée à l’analyse détaillée. Vérifiez les sources et le périmètre avant le lancement.</p>}
     {showOptions && <nav aria-label="Étapes de préparation du métré" className="grid grid-cols-2 gap-1 sm:grid-cols-4">
       {STEPS.map((label, index) => <button key={label} type="button" disabled={locked} aria-current={step === index ? "step" : undefined} className={`rounded-lg px-2 py-2 text-left text-xs ${step === index ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-surface-subtle"}`} onClick={() => setStep(index)}><span className="mr-1">{index + 1}.</span>{label}</button>)}
     </nav>}
-    {showOptions && <div className="flex flex-wrap items-center justify-between gap-2 text-xs" aria-live="polite">
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs" aria-live="polite">
       <span className={saveState === "error" ? "text-danger" : "text-muted-foreground"}>{saveLabel}</span>
-      <button type="button" disabled={locked || saveState === "saving"} className="text-primary underline disabled:opacity-50" onClick={() => void saveOptions().catch(() => undefined)}>Enregistrer maintenant</button>
-    </div>}
-    {(error || launchError) && <Alert variant="danger"><AlertDescription>{error ?? launchError}<button type="button" className="mt-2 block text-sm underline" onClick={() => void reload()}>Reprendre la dernière préparation</button><span className="mt-1 block text-xs">La reprise remplace les réponses affichées par la dernière révision enregistrée.</span></AlertDescription></Alert>}
+      {showOptions && <button type="button" disabled={locked || saveState === "saving"} className="text-primary underline disabled:opacity-50" onClick={() => void saveOptions().catch(() => undefined)}>Enregistrer maintenant</button>}
+    </div>
+    {(error || launchError) && <Alert variant="danger"><AlertDescription>{error ?? launchError}<button type="button" className="mt-2 block text-sm underline" onClick={() => { setLaunchError(null); void reload(); }}>Reprendre la dernière préparation</button><span className="mt-1 block text-xs">La reprise remplace les réponses affichées par la dernière révision enregistrée.</span></AlertDescription></Alert>}
     {record && record.changedSourceIds.length > 0 && <Alert variant="warning"><AlertDescription>Des documents ont changé depuis la dernière préparation. Vérifiez les sources concernées et les confirmations rouvertes ; les analyses précédentes sont conservées.</AlertDescription></Alert>}
     {showOptions && <TakeoffPreparationAssistance projectId={projectId} draft={draft} onChange={updateDraft} save={saveOptions} disabled={locked} onStepChange={setStep} onOrderQuestions={setOrderedQuestionIds} />}
     <fieldset disabled={locked} className="space-y-4 disabled:opacity-70">

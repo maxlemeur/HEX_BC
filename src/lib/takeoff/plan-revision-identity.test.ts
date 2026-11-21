@@ -41,6 +41,22 @@ describe("plan revisions", () => {
     expect(findPlanRevisionConflicts([{ ...plan("a", "Plan raster"), plan_identity: identity }], [])).toEqual([]);
   });
 
+  it("does not read a finish description as a revision label", () => {
+    expect(readPlanTitleBlock("Revêtement de sol")).toBeNull();
+    expect(readPlanTitleBlock("Révision : B")?.revision).toBe("B");
+  });
+
+  it("flags suffixed drawing numbers without a readable title block", () => {
+    const left = plan("a", "P-101_A");
+    const right = plan("b", "P-101_B");
+    expect(findPlanRevisionConflicts([left, right], [])).toEqual([[left, right]]);
+    for (const [a, b] of [["P-101 A", "P-101 B"], ["P101_A", "P101-B"], ["CVC 2.04-A", "CVC 2.04-C"]]) {
+      expect(findPlanRevisionConflicts([plan("a", a), plan("b", b)], [])).toHaveLength(1);
+    }
+    expect(findPlanRevisionConflicts([plan("a", "P-101_A"), plan("b", "P-102_A")], [])).toEqual([]);
+    expect(findPlanRevisionConflicts([plan("a", "Plan RDC A"), plan("b", "Plan RDC B")], [])).toEqual([]);
+  });
+
   it("groups identical bytes and invalidates decisions when bytes change", () => {
     const left = plan("a", "Plan RDC rev A");
     const right = plan("b", "Plan RDC rev B");

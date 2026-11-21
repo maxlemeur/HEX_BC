@@ -15,9 +15,12 @@ droits du tenant actif et de l'affaire.
 « Métrés » rouvre les métrés de la dernière affaire consultée. Si elle est archivée, inaccessible ou inconnue, choisissez une affaire dans la liste. Ouvrez ses plans ou ses métrés pour préparer une analyse. Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
 
 Le lancement présente une analyse **Détaillée** avec le forfait ChatGPT du
-membre qui la demande. Sur un jeu de plans sans versions concurrentes, le
-récapitulatif affiche **Tout mesurer**, les pages retenues et l’unité **par
-ouvrage**. Le membre peut confirmer le lancement directement.
+membre qui la demande, et le modèle et l’effort de son profil. Sur un jeu de
+plans sans versions concurrentes, le récapitulatif affiche **Tout mesurer**, les
+pages retenues, le périmètre (bâtiments compris), l’unité **par ouvrage** et
+l’état d’enregistrement. Le membre peut confirmer le lancement directement. Le
+message de réussite compte les fichiers de plan réellement mesurés : une version
+écartée ou une copie identique n’y figure pas.
 
 Le menu **Options du métré** ouvre quatre étapes dans
 [`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx).
@@ -32,17 +35,33 @@ Le menu **Options du métré** ouvre quatre étapes dans
 4. **Vérifier et lancer** réunit le périmètre, les sources, les conventions,
    les réserves et la version de devis utilisée par le lancement manuel.
 
-Les choix sont enregistrés avec un contrôle de révision. Les anciennes
-préparations sont adaptées au lancement détaillé avec une mention visible et
-leurs choix de mesure conservés. Les jobs et instantanés déjà créés gardent
-leurs valeurs historiques.
+Les choix sont enregistrés avec un contrôle de révision. Une pièce ajoutée au
+dossier (plan du jeu choisi, CCTP ou DPGF) après l’ouverture n’est jamais
+enregistrée comme écartée : l’enregistrement, la confirmation et l’admission
+sont refusés tant que la préparation n’a pas été rechargée, et le rechargement
+la retient par défaut.
+
+Les anciennes préparations sont adaptées au lancement détaillé avec une mention
+visible qui invite à vérifier les sources et le périmètre. Leurs sources et
+leurs pages sont gardées ; un fichier téléversé pour un ancien lancement, absent
+du dossier, reste affiché avec ses pages et bloque le lancement jusqu’à ce que
+le membre le retire ou l’ajoute au jeu de plans. Un périmètre enregistré est
+gardé tel quel, sa confirmation comprise. Un périmètre qui ne nomme rien reçoit
+l’inclusion par défaut, et sa confirmation est alors retirée. Les jobs et
+instantanés déjà créés gardent leurs valeurs historiques.
 
 Le clic de lancement fige le modèle, l’effort éventuellement automatique,
-l’identifiant opaque du profil et le Mac autorisé dans l’instantané attesté.
+l’identifiant opaque du profil et le Mac autorisé dans l’instantané attesté. La
+confirmation compare cette sélection à celle que le récapitulatif affichait : si
+le compte, le modèle ou l’effort a changé entre-temps, rien n’est confirmé, la
+nouvelle sélection s’affiche et un nouveau clic est demandé.
 L’admission vérifie que le même membre utilise toujours cette sélection. Le
 traitement et les groupes vectoriels facultatifs la vérifient avant leurs appels.
-Un changement de compte ou de réglage demande une nouvelle analyse. Les anciens
-jobs sans sélection figée conservent leur comportement d’exécution historique.
+Un changement de compte ou de réglage demande une nouvelle analyse. Seul le
+membre qui a lancé une analyse peut la soumettre à nouveau, avec son forfait ;
+toute autre personne est invitée à préparer une nouvelle analyse. Les reprises
+techniques du worker gardent la sélection figée. Les anciens jobs sans sélection
+figée conservent leur comportement d’exécution historique.
 
 ## Contenu de la fiche
 
@@ -80,6 +99,13 @@ Les mêmes règles s'appliquent au récapitulatif et à la confirmation serveur 
 | Comparaison DPGF | Plan et DPGF actifs ; l'absence de bordereau reste bloquante |
 | Préparation d'achat | Déductions, pourcentage de pertes, arrondi et conditionnement explicités ; le relevé brut reste distinct de la conversion en achat |
 | Estimation | Périmètre, source, unité et conventions confirmés ; les hypothèses restent identifiables dans la préparation |
+
+Avec **Tout mesurer**, une quantité que le modèle n’a pas pu mesurer apparaît
+dans « Quantités à vérifier » sans créer de ligne chiffrée. Elle porte son
+fichier et sa page quand le modèle donne une page de son fragment, sinon la
+mention « page indéterminée ». Une réponse sans ligne mesurée n’est acceptée que
+si au moins une de ces quantités porte une page ; sinon toute la réponse est
+refusée, comme avant.
 
 La présence d'un objectif dans le contrat ne fournit pas à elle seule ses pièces
 de référence : la préparation ne peut pas déclarer un plan comme DPGF pour lever
@@ -121,9 +147,17 @@ la partie concernée du périmètre.
 Un plan isolé sans indice peut être analysé. Quand deux fichiers distincts
 pourraient être des versions du même plan, la préparation demande quel fichier
 retenir ou si les plans sont distincts. Le nom normalisé et le texte lisible du
-cartouche servent à la comparaison. Les indices connus et les aperçus sont
-affichés. Le choix est lié aux empreintes des deux fichiers. Un scan sans texte
-lisible reste utilisable et son indice peut rester inconnu.
+cartouche servent à la comparaison ; un numéro de plan suivi d’une seule lettre
+(« P-101_A », « P-101_B ») suffit à poser la question. Un indice lu dans le
+cartouche est une lettre suivie d’au plus deux chiffres, ou un nombre d’au plus
+trois chiffres, après « Indice », « Révision » ou « Rév » ; il ne remplace
+jamais un indice déjà connu par les métadonnées ou le nom du fichier. Les indices
+connus et les aperçus sont affichés. Le choix est lié aux empreintes des deux
+fichiers : à l’admission, la version écartée est relue et doit être inchangée,
+la version retenue l’est par le traitement avant tout appel. Des choix qui
+écarteraient toutes les versions d’un plan sont refusés : retenir une version
+rouvre les choix qui l’écartaient. Un scan sans texte lisible reste utilisable et
+son indice peut rester inconnu.
 
 Les valeurs déduites démarquent la portée et les conventions de départ. Une
 réserve reste une décision humaine attribuée.

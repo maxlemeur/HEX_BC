@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { takeoffPageTriageSchema } from "@/lib/takeoff/page-triage";
 import { toUnitToken } from "@/lib/takeoff/units";
-import { findPlanRevisionConflicts, planIdentitySchema, planRevisionDecisionSchema } from "@/lib/takeoff/plan-revision-identity";
+import { findPlanRevisionConflicts, hasCyclicPlanRevisionDecisions, planIdentitySchema, planRevisionDecisionSchema } from "@/lib/takeoff/plan-revision-identity";
 import { chatGptPreferencesSchema } from "@/lib/ai/chatgpt-model-preferences";
 
 export const TAKEOFF_PREPARATION_OBJECTIVES = {
@@ -221,7 +221,7 @@ export function evaluateTakeoffPreparation(
     block("objective_confirmation_required", "objective", "Confirmez le résultat attendu.");
   }
   const { scope } = preparation;
-  if (![scope.lots, scope.networks, scope.levels, scope.zones, scope.inclusions].some((values) => values.length > 0)) {
+  if (![scope.buildings ?? [], scope.lots, scope.networks, scope.levels, scope.zones, scope.inclusions].some((values) => values.length > 0)) {
     block("scope_required", "scope", "Précisez les lots, réseaux ou zones à analyser, ou indiquez explicitement tout le dossier.");
   }
   if (!deduced && !scope.confirmed) {
@@ -243,7 +243,9 @@ export function evaluateTakeoffPreparation(
     if (!deduced && !source.confirmed) {
       block("source_confirmation_required", path, `Confirmez la source « ${source.document_name} » et sa version.`, source.document_id);
     }
-    if (!source.source_version.trim()) {
+    if (!source.source_version.trim() && deduced && source.document_id.startsWith("upload:")) {
+      block("source_unavailable", path, `Le fichier téléversé « ${source.document_name} » est indisponible dans le dossier. Retirez-le des sources actives ou ajoutez-le au jeu de plans et vérifiez les pages retenues.`, source.document_id);
+    } else if (!source.source_version.trim()) {
       block("source_version_required", path, `L'identité du fichier « ${source.document_name} » doit être vérifiée.`, source.document_id);
     }
     if (new Set(source.pages).size !== source.pages.length || source.pages.some((page) => page < 1 || (source.page_count !== null && page > source.page_count))) {
@@ -264,7 +266,12 @@ export function evaluateTakeoffPreparation(
     }
   }
   if (deduced) {
-    for (const [left, right] of findPlanRevisionConflicts(activeSources.filter((source) => source.kind === "plan"), preparation.plan_revision_decisions ?? [])) {
+    const plans = activeSources.filter((source) => source.kind === "plan");
+    const decisions = preparation.plan_revision_decisions ?? [];
+    if (hasCyclicPlanRevisionDecisions(plans, decisions)) {
+      block("source_revision_conflict", "sources", "Les choix d’indices se contredisent. Gardez une version de chaque plan.");
+    }
+    for (const [left, right] of findPlanRevisionConflicts(plans, decisions)) {
       block("source_revision_conflict", `sources.${right.document_id}`, `Choisissez entre « ${left.document_name} » et « ${right.document_name} », ou indiquez qu’il s’agit de deux plans distincts.`, right.document_id);
     }
   }
@@ -446,7 +453,7 @@ export function createTakeoffPreparationProfile(input: {
     version: input.version,
     objective: input.preparation.objective,
     scope: { lots: scope.lots, networks: scope.networks, inclusions: scope.inclusions, exclusions: scope.exclusions },
-    conventions: { unit: conventions.unit, measurement_basis: conventions.measurement_basis, purchase: conventions.purchase },
+    conventions: { unit: conventions.unit, unit_mode: conventions.unit_mode, measurement_basis: conventions.measurement_basis, purchase: conventions.purchase },
   });
 }
 
@@ -460,6 +467,11 @@ export function applyTakeoffPreparationProfile(
   result.objective = profile.objective;
   result.objective_confirmed = false;
   result.scope = { ...result.scope, ...profile.scope, confirmed: false };
-  result.conventions = { ...profile.conventions, calibration: null, confirmed: false };
+  result.conventions = {
+    ...profile.conventions,
+    ...(profile.objective === "measure_all" && !profile.conventions.unit_mode ? { unit_mode: "per_item" as const } : {}),
+    calibration: null,
+    confirmed: false,
+  };
   return result;
 }

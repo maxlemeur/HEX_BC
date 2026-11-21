@@ -2617,7 +2617,11 @@ describe("processLevelC", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it("keeps documentary review warnings when every quantity remains unknown", async () => {
+  it.each([
+    ["keeps documentary review warnings when every quantity remains unknown", "Page 1 : Conduite visible, aucune cote lisible.", true],
+    ["refuses a warning-only answer without a usable model-reported page", "Conduite visible, aucune cote lisible.", false],
+    ["refuses a warning-only answer with an out-of-fragment page", "Page 2 : Conduite visible, aucune cote lisible.", false],
+  ])("%s", async (_name, message, hasUsablePage) => {
     const bytes = await createPdfArrayBuffer(3);
     const hash = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
     const snapshot = confirmedPreparationFixture();
@@ -2631,11 +2635,21 @@ describe("processLevelC", () => {
     const mock = createTakeoffProcessorSupabaseMock({ job: {
       level: "C", preparation_snapshot: snapshot, source_file_name: "plan-fictif.pdf", source_file_path: DEFAULT_SOURCE_PATH_C, source_file_type: "application/pdf",
     }, downloadFile: { bytes, mimeType: "application/pdf" } });
-    const warning = { code: "QUANTITE_A_VERIFIER", severity: "warning" as const, message: "Page 1 : Conduite visible, aucune cote lisible." };
+    const warning = { code: "QUANTITE_A_VERIFIER", severity: "warning" as const, message };
     const callProvider = vi.fn().mockResolvedValue(buildProviderResult({
       ...buildTakeoffExchange([], [warning], { level: "C", file_type: "application/pdf" }), tables: [], confidence: 0.2,
     }));
-    const result = await processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
+    const processing = processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW, resolveProvider: localProvider(callProvider) });
+    if (!hasUsablePage) {
+      await expect(processing).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE });
+      expect(mock.state.job.status).toBe("failed");
+      expect(mock.state.takeoffResults[0].warnings).toEqual([
+        expect.objectContaining({ code: "PROCESSING_FAILED", severity: "error" }),
+      ]);
+      expect(mock.state.takeoffItems).toEqual([]);
+      return;
+    }
+    const result = await processing;
     expect(result.status).toBe("completed");
     expect(mock.state.takeoffItems).toEqual([]);
     expect(mock.state.takeoffResults[0].warnings).toEqual([{ ...warning, message: "plan-fictif.pdf · page 2 — Conduite visible, aucune cote lisible." }]);

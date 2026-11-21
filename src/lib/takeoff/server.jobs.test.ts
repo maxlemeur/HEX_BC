@@ -813,6 +813,20 @@ describe("takeoff job server helpers (TKF-009)", () => {
     );
   });
 
+  it("refuses an administrator's manual retry of another member's job", async () => {
+    const job = baseJob({ status: "failed", created_by: "11111111-1111-4111-8111-111111111111", completed_at: "2026-02-25T08:00:00.000Z" });
+    const supabase = createSupabaseMock({ jobs: [job] });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase, userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin",
+    } as never);
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 403, message: expect.stringContaining("Préparez une nouvelle analyse"),
+    });
+    expect(supabase.__state.jobsById.get(JOB_ID)).toEqual(job);
+    expect(supabase.__state.auditLogs).toEqual([]);
+  });
+
   it("refuses to resubmit a job of a former provider without changing it or auditing", async () => {
     const job = baseJob({ status: "failed", execution_provider: "gemini" });
     const supabase = createSupabaseMock({ jobs: [job] });

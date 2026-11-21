@@ -26,6 +26,8 @@ function normalized(value: string) {
 }
 
 const dateSuffix = /(?:^|[\s_-])(?:\d{4}[._-]\d{2}[._-]\d{2}|\d{2}[._-]\d{2}[._-]\d{4}|20\d{6})$/;
+// A drawing number followed by a single index letter (« P-101_A », « P101 B »): enough to ask the member.
+const drawingIndexSuffix = /^([a-z]+(?:[\s._-]?\d+)+)[\s_-]([a-z])$/;
 const revisionSuffix = /(?:^|[\s_-])(?:indice|revision|rev|ind)[\s._-]*([a-z]\d{0,2}|\d{1,3})$/;
 
 function filenameIdentity(name: string) {
@@ -36,7 +38,10 @@ function filenameIdentity(name: string) {
       revision ??= index.toUpperCase();
       return "";
     }).replace(/[\s_-]+$/, "");
-    if (next === stem) return { name: stem.replace(/[^a-z0-9]+/g, " ").trim(), revision };
+    if (next === stem) {
+      const drawing = stem.match(drawingIndexSuffix);
+      return { name: (drawing?.[1] ?? stem).replace(/[^a-z0-9]+/g, " ").trim(), revision };
+    }
     stem = next;
   }
 }
@@ -63,7 +68,8 @@ export function readPlanTitleBlock(text: string): PlanIdentity | null {
   };
   const input = normalized(text);
   const read = (label: keyof typeof labels) => {
-    const match = new RegExp(`(?:^|\\s)${labels[label]}\\s*[:=]?\\s*([a-z0-9][a-z0-9+._/-]{0,39})(?=\\s|$)`, "g");
+    const value = label === "revision" ? "[a-z]\\d{0,2}|\\d{1,3}" : "[a-z0-9][a-z0-9+._/-]{0,39}";
+    const match = new RegExp(`(?:^|\\s)${labels[label]}(?:\\s*[:=]\\s*|[ \\t]+)(${value})(?=\\s|$)`, "g");
     const values = new Set(Array.from(input.matchAll(match), (entry) => entry[1]));
     return values.size === 1 ? [...values][0] : null;
   };
@@ -104,6 +110,29 @@ export function validPlanRevisionDecisions(sources: readonly PlanIdentitySource[
     const b = byId.get(right.document_id);
     return a && b && a !== b && matches(a, left) && matches(b, right) && samePlan(a, b);
   });
+}
+
+export function hasCyclicPlanRevisionDecisions(sources: readonly PlanIdentitySource[], choices: readonly PlanRevisionDecision[]) {
+  const retainedBy = new Map<string, string[]>();
+  for (const { left, right, choice } of validPlanRevisionDecisions(sources, choices)) {
+    if (choice === "distinct") continue;
+    const [retained, discarded] = choice === "left" ? [left, right] : [right, left];
+    const successors = retainedBy.get(discarded.document_id) ?? [];
+    successors.push(retained.document_id);
+    retainedBy.set(discarded.document_id, successors);
+  }
+  const visiting = new Set<string>();
+  const checked = new Set<string>();
+  const visitsCycle = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (checked.has(id)) return false;
+    visiting.add(id);
+    if (retainedBy.get(id)?.some(visitsCycle)) return true;
+    visiting.delete(id);
+    checked.add(id);
+    return false;
+  };
+  return [...retainedBy.keys()].some(visitsCycle);
 }
 
 export function findPlanRevisionConflicts<T extends PlanIdentitySource>(sources: readonly T[], choices: readonly PlanRevisionDecision[]) {

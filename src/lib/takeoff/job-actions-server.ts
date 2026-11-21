@@ -100,6 +100,10 @@ export async function resubmitTakeoffJob(
     tenantId,
     jobId: normalizedJobId,
   });
+  if (existingJob.created_by !== userId) {
+    throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId: normalizedJobId,
+      message: "Seule la personne qui a lancé cette analyse peut la soumettre à nouveau avec son forfait. Préparez une nouvelle analyse avec votre forfait." });
+  }
   await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
 
   if (existingJob.status !== "failed" && existingJob.status !== "canceled") {

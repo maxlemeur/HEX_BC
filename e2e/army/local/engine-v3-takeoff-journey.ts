@@ -91,6 +91,7 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       };
       const confirmation = await confirmTakeoffPreparationViaAction(browser, {
         actionId: await serverActionId("confirmTakeoffPreparationAction", actionManifest),
+        previewActionId: await serverActionId("loadTakeoffExecutionPreviewAction", actionManifest),
         projectId: anchor.projectId, expectedRevision: await preparationRevision(),
       });
       expect(confirmation).toMatchObject({ status: 200, digest: null, ok: true, errorCode: null });

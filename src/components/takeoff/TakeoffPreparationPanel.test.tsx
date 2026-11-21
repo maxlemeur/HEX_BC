@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { UserProvider, useUserContext } from "@/lib/auth/user-context";
 import type { UserProfile } from "@/lib/auth/user-context";
 import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparationPanel";
 import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPreparationSourceSchema, type TakeoffPreparation } from "@/lib/takeoff/preparation";
-import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
+import { buildDeducedTakeoffPreparation, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
 
 // Each part of the panel's one read has its own mock, as each part fails on its own on the server.
 const actions = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), confirm: vi.fn(), assist: vi.fn(), profiles: vi.fn(), saveProfile: vi.fn(), preview: vi.fn(), triageAvailability: vi.fn(), chatGpt: vi.fn(), triage: vi.fn() }));
@@ -16,6 +16,7 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff-preparation", () => ({
     const [preparation, profiles, pageTriage, chatGpt] = await Promise.all([actions.load(projectId), actions.profiles(), actions.triageAvailability(projectId), actions.chatGpt()]);
     return { preparation, profiles, pageTriage, chatGpt };
   },
+  loadTakeoffExecutionPreviewAction: actions.chatGpt,
   saveTakeoffPreparationAction: actions.save,
   confirmTakeoffPreparationAction: actions.confirm,
   assistTakeoffPreparationAction: actions.assist,
@@ -146,16 +147,13 @@ describe("TakeoffPreparationPanel", () => {
     await waitFor(() => expect(pending).toHaveLength(2));
     await act(async () => { pending[0](success(original)); });
 
-    // The UI may wait for the newest request; if it is already editable, the
-    // late response must not erase what the user enters before it completes.
-    const editableBeforeLatest = screen.queryByRole("button", { name: /Mes documents/ }) !== null;
-    if (!editableBeforeLatest) await act(async () => { pending[1](success(original)); });
+    expect(screen.queryByRole("button", { name: "Options du métré" })).not.toBeInTheDocument();
+    await act(async () => { pending[1](success(original)); });
     await openOptions();
     fireEvent.click(await screen.findByRole("button", { name: /Mes documents/ }));
     fireEvent.change(screen.getByLabelText(`Pages de ${SOURCE.document_name}`), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
     fireEvent.change(screen.getByLabelText("Objectif du métré"), { target: { value: "extract_quantities" } });
-    if (editableBeforeLatest) await act(async () => { pending[1](success(original)); });
 
     expect(screen.getByLabelText("Objectif du métré")).toHaveValue("extract_quantities");
     fireEvent.click(screen.getByRole("button", { name: /Mes documents/ }));
@@ -194,7 +192,7 @@ describe("TakeoffPreparationPanel", () => {
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(actions.save).not.toHaveBeenCalled();
     await userEvent.setup().click(launch);
-    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(7));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(7, 1));
     expect(actions.save).toHaveBeenCalledTimes(1);
   });
 
@@ -202,12 +200,62 @@ describe("TakeoffPreparationPanel", () => {
     stored = buildDeducedTakeoffPreparation({ sources: [{ ...SOURCE, confirmed: false }], planSetId: PLAN_SET_ID });
     actions.load.mockResolvedValue(success({ ...state(), revision: null, needsSave: true }));
     render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    expect(await screen.findByText("Préparation à enregistrer")).toBeInTheDocument();
     await openOptions();
     expect(screen.getByText("Préparation à enregistrer")).toBeInTheDocument();
     expect(screen.getByText("Les sources seront vérifiées au lancement. Les résultats resteront à vérifier.")).toBeInTheDocument();
     expect(screen.queryByText(/Préparation complète|Préparation enregistrée/)).not.toBeInTheDocument();
     expect(actions.save).not.toHaveBeenCalled();
     expect(actions.confirm).not.toHaveBeenCalled();
+  });
+
+  it("keeps one version of a plan when the member's revision choices go round in a circle", async () => {
+    const revisions = ["A", "B", "C"].map((index) => ({ ...SOURCE, document_id: `plan-${index}`, document_name: `Plan rev ${index}.pdf`,
+      revision: index, source_version: `version-${index}`, content_hash: index.toLowerCase().repeat(64) }));
+    availableSources = revisions;
+    stored = buildDeducedTakeoffPreparation({ sources: revisions, planSetId: PLAN_SET_ID });
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await openOptions();
+    fireEvent.click(await screen.findByRole("button", { name: /Mes documents/ }));
+    const pair = (left: string, right: string) => screen.getAllByRole("group", { name: "Quelle version retenir ?" })
+      .find((group) => within(group).queryByText(new RegExp(`^Plan rev ${left}[.]pdf`)) && within(group).queryByText(new RegExp(`^Plan rev ${right}[.]pdf`)))!;
+    fireEvent.click(within(pair("A", "B")).getByRole("button", { name: "Retenir Plan rev A.pdf" }));
+    fireEvent.click(within(pair("B", "C")).getByRole("button", { name: "Retenir Plan rev B.pdf" }));
+    fireEvent.click(within(pair("A", "C")).getByRole("button", { name: "Retenir Plan rev C.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
+    await waitFor(() => expect(actions.save).toHaveBeenCalled());
+    const saved = actions.save.mock.lastCall![0].draft as TakeoffPreparation;
+    expect(resolveDeducedPlanVersions(saved).sources.filter(({ active }) => active).map(({ document_name }) => document_name)).toEqual(["Plan rev C.pdf"]);
+    expect(within(pair("B", "C")).getByRole("button", { name: "Retenir Plan rev B.pdf" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("asks for a new click and shows the new ChatGPT selection when it changed after the recap", async () => {
+    const shown = { model: "modele-a", reasoningEffort: "medium", fingerprint: "a".repeat(64) };
+    const changed = { model: "modele-b", reasoningEffort: "high", fingerprint: "b".repeat(64) };
+    actions.chatGpt.mockResolvedValueOnce(shown).mockResolvedValueOnce(success(changed));
+    const message = "Le compte, le modèle ou l’effort ChatGPT a changé. Vérifiez la sélection affichée et confirmez de nouveau.";
+    const confirmed = actions.confirm.getMockImplementation()!;
+    actions.confirm.mockResolvedValueOnce({ ok: false, error: { status: 409, code: "TAKEOFF_CHATGPT_SELECTION_CHANGED", message, retryable: false } })
+      .mockImplementation(confirmed);
+    const onLaunch = vi.fn();
+    const user = userEvent.setup();
+    render(<TakeoffPreparationPanel {...props} onLaunch={onLaunch} />);
+    expect(await screen.findByText(/^modele-a · Effort moyen[.]/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByText(/^modele-b · Effort élevé[.]/)).toBeInTheDocument();
+    expect(actions.confirm).toHaveBeenLastCalledWith(expect.objectContaining({ expectedExecutionFingerprint: shown.fingerprint }));
+    expect(onLaunch).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalled());
+    expect(actions.confirm).toHaveBeenLastCalledWith(expect.objectContaining({ expectedExecutionFingerprint: changed.fingerprint }));
+  });
+
+  it("includes the selected building in the closed-options recap", async () => {
+    stored.scope.buildings = ["Bâtiment Ouest"];
+    render(<TakeoffPreparationPanel {...props} onLaunch={vi.fn()} />);
+    await screen.findByRole("button", { name: "Confirmer et lancer le métré" });
+    expect(screen.getByText(/Bâtiment Ouest/)).toBeInTheDocument();
   });
 
   it("clears the displayed preparation immediately when the active tenant changes", async () => {
@@ -239,7 +287,7 @@ describe("TakeoffPreparationPanel", () => {
     await user.click(screen.getByRole("button", { name: "Enregistrer maintenant" }));
     expect(actions.save).not.toHaveBeenCalled();
     await user.click(launch);
-    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(5));
+    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(5, 1));
     expect(actions.save).not.toHaveBeenCalled();
     expect(actions.confirm).toHaveBeenLastCalledWith({ projectId: PROJECT_ID, expectedRevision: 5 });
     expect(screen.getByText("Conserve vos réponses et ouvre une nouvelle préparation.")).toBeInTheDocument();
@@ -255,7 +303,7 @@ describe("TakeoffPreparationPanel", () => {
     expect(actions.save).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
-    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(7));
+    await waitFor(() => expect(onLaunch).toHaveBeenLastCalledWith(7, 1));
     expect(actions.confirm).toHaveBeenLastCalledWith({ projectId: PROJECT_ID, expectedRevision: 6 });
     expect(stored).toEqual(original);
 
@@ -280,7 +328,7 @@ describe("TakeoffPreparationPanel", () => {
     expect(stored.destination.estimate_version_id).toBe(VERSION_ID);
     expect(screen.getByText("La destination de la préparation diffère de la version cible sélectionnée.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Confirmer et lancer le métré" }));
-    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledWith(5, 1));
     expect(actions.confirm).toHaveBeenCalledWith({ projectId: PROJECT_ID, expectedRevision: 5 });
     expect(stored).toEqual(original);
     expect(actions.save).not.toHaveBeenCalled();

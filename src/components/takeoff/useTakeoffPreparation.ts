@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   confirmTakeoffPreparationAction,
+  loadTakeoffExecutionPreviewAction,
   loadTakeoffPreparationPanelAction,
   saveTakeoffPreparationAction,
 } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
@@ -160,15 +161,28 @@ export function useTakeoffPreparation(projectId: string, planSetId?: string | nu
   const confirm = useCallback(async () => {
     const savedRevision = await saveOptions();
     if (savedRevision === null) throw new Error("Enregistrez la préparation avant de confirmer.");
-    const confirmed = unwrapTakeoffActionResult(await confirmTakeoffPreparationAction({ projectId, expectedRevision: savedRevision }));
+    const result = await confirmTakeoffPreparationAction({
+      projectId, expectedRevision: savedRevision, expectedExecutionFingerprint: support?.chatGpt?.fingerprint,
+    });
+    if (!result.ok && result.error.code === "TAKEOFF_CHATGPT_SELECTION_CHANGED") {
+      const latest = await loadTakeoffExecutionPreviewAction().catch(() => null);
+      if (mounted.current) {
+        setSupport((previous) => previous ? { ...previous, chatGpt: latest?.ok ? latest.data : null } : previous);
+      }
+    }
+    const confirmed = unwrapTakeoffActionResult(result);
     revision.current = confirmed.revision;
     needsSave.current = confirmed.needsSave;
     savedJson.current = JSON.stringify(confirmed.draft);
     currentDraft.current = confirmed.draft;
     setDraft(confirmed.draft);
     setRecord((previous) => previous ? { ...previous, ...confirmed } : confirmed);
-    return confirmed.confirmedAt ? confirmed.revision : null;
-  }, [projectId, saveOptions]);
+    if (!confirmed.confirmedAt || confirmed.revision === null) return null;
+    return {
+      revision: confirmed.revision,
+      planFileCount: confirmed.draft.sources.filter((source) => source.active && source.kind === "plan").length,
+    };
+  }, [projectId, saveOptions, support?.chatGpt?.fingerprint]);
 
   /** Adopts a state returned by a server mutation (page triage) as the saved draft. */
   const adopt = useCallback((state: PreparationRecord) => {

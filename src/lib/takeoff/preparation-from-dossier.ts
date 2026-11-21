@@ -1,8 +1,12 @@
 import { isSameDocument } from "@/lib/takeoff/page-contributions";
-import { findPlanRevisionConflicts, getDeclaredPlanReference, inferPlanLogicalReference, validPlanRevisionDecisions } from "@/lib/takeoff/plan-revision-identity";
+import { findPlanRevisionConflicts, getDeclaredPlanReference, hasCyclicPlanRevisionDecisions, inferPlanLogicalReference, validPlanRevisionDecisions } from "@/lib/takeoff/plan-revision-identity";
 import { createEmptyTakeoffPreparation, type TakeoffPreparation, type TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 
 export const DETAILED_TAKEOFF_PROCESSING = { level: "C", provider: "chatgpt" } as const;
+
+export function isDossierDefaultSource(source: TakeoffPreparationSource, planSetId: string) {
+  return source.kind === "cctp" || source.kind === "dpgf" || (source.kind === "plan" && source.plan_set_id === planSetId);
+}
 
 export function getDeducedPlanCandidates(sources: readonly TakeoffPreparationSource[]) {
   const plans = sources.filter((source) => source.kind === "plan");
@@ -34,7 +38,7 @@ export function buildDeducedTakeoffPreparation(input: {
     const saved = savedById.get(source.document_id);
     const result = { ...(saved ?? source) };
     if (source.kind !== "plan") {
-      result.active = saved?.active ?? (source.kind === "dpgf" || source.kind === "cctp");
+      result.active = saved?.active ?? isDossierDefaultSource(source, input.planSetId);
       return result;
     }
     const wasCurrentSet = preparation.provenance ? preparation.provenance.plan_set_id === source.plan_set_id : legacySelections.has(source.plan_set_id);
@@ -46,9 +50,14 @@ export function buildDeducedTakeoffPreparation(input: {
     return result;
   };
   const sources = input.sources.map(applySelection);
-  // Keep an unavailable selected reference visible so it cannot silently disappear.
+  // Keep an unavailable selected reference visible so it cannot silently disappear. A file uploaded for a former
+  // launch is not in the dossier: it stays with its pages, without a verifiable version, until the member resolves it.
   const currentIds = new Set(sources.map((source) => source.document_id));
-  sources.push(...preparation.sources.filter((source) => !source.document_id.startsWith("upload:") && !currentIds.has(source.document_id)).map(applySelection));
+  sources.push(...preparation.sources.filter((source) => !currentIds.has(source.document_id)).map((source) =>
+    source.document_id.startsWith("upload:") ? { ...source, source_version: "", content_hash: null, confirmed: false } : applySelection(source)));
+  // A saved scope is kept as it was confirmed; the default inclusion is only added to a scope that names nothing.
+  const { buildings, lots, networks, levels, zones, inclusions } = preparation.scope;
+  const namesScope = [buildings ?? [], lots, networks, levels, zones, inclusions].some((entries) => entries.length > 0);
   return {
     ...preparation,
     provenance: {
@@ -57,9 +66,10 @@ export function buildDeducedTakeoffPreparation(input: {
     },
     objective: preparation.objective ?? "measure_all",
     processing: DETAILED_TAKEOFF_PROCESSING,
-    scope: {
+    scope: namesScope ? preparation.scope : {
       ...preparation.scope,
-      inclusions: previous?.scope.inclusions.length ? previous.scope.inclusions : ["Toutes les pages et tous les ouvrages des plans retenus"],
+      inclusions: ["Toutes les pages et tous les ouvrages des plans retenus"],
+      confirmed: false,
     },
     sources,
     conventions: useDefaultObjective ? {
@@ -82,7 +92,7 @@ export function resolveDeducedPlanVersions(preparation: TakeoffPreparation): Tak
   }
   const choices = validPlanRevisionDecisions(plans, draft.plan_revision_decisions ?? []);
   draft.plan_revision_decisions = choices;
-  if (findPlanRevisionConflicts(plans, choices).length) return draft;
+  if (hasCyclicPlanRevisionDecisions(plans, choices) || findPlanRevisionConflicts(plans, choices).length) return draft;
   const retained = new Map<string, (typeof plans)[number]>();
   const byId = new Map(plans.map((plan) => [plan.document_id, plan]));
   for (const plan of plans) {

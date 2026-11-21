@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/native-select";
 import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
-import { findPlanRevisionConflicts, getDeclaredPlanReference, type PlanRevisionDecision } from "@/lib/takeoff/plan-revision-identity";
+import { findPlanRevisionConflicts, getDeclaredPlanReference, hasCyclicPlanRevisionDecisions, type PlanRevisionDecision } from "@/lib/takeoff/plan-revision-identity";
 import { getDeducedPlanCandidates } from "@/lib/takeoff/preparation-from-dossier";
 import { orderTakeoffPreparationQuestions } from "@/lib/takeoff/preparation-assistance";
 import { TAKEOFF_PREPARATION_OBJECTIVES, type TakeoffPreparation } from "@/lib/takeoff/preparation";
@@ -90,13 +90,21 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
   const unresolved = findPlanRevisionConflicts(candidates, draft.plan_revision_decisions ?? []);
   const samePair = (decision: PlanRevisionDecision, left: PreparationSourceOption, right: PreparationSourceOption) =>
     decision.left.document_id === left.document_id && decision.right.document_id === right.document_id;
+  const discards = (decision: PlanRevisionDecision, documentId: string) =>
+    (decision.choice === "left" && decision.right.document_id === documentId) || (decision.choice === "right" && decision.left.document_id === documentId);
   const chooseRevision = (left: PreparationSourceOption, right: PreparationSourceOption, choice: PlanRevisionDecision["choice"]) => {
     if (!left.content_hash || !right.content_hash) return;
-    const existing = (draft.plan_revision_decisions ?? []).filter((decision) => !samePair(decision, left, right));
-    onChange({ ...draft, plan_revision_decisions: [...existing, {
+    const next: PlanRevisionDecision = {
       left: { document_id: left.document_id, content_hash: left.content_hash },
       right: { document_id: right.document_id, content_hash: right.content_hash }, choice,
-    }] });
+    };
+    let existing = (draft.plan_revision_decisions ?? []).filter((decision) => !samePair(decision, left, right) && !samePair(decision, right, left));
+    // Choices that would discard every version of a plan: retaining this one reopens those that discarded it.
+    const retained = choice === "left" ? left.document_id : choice === "right" ? right.document_id : null;
+    if (retained && hasCyclicPlanRevisionDecisions(candidates, [...existing, next])) {
+      existing = existing.filter((decision) => !discards(decision, retained));
+    }
+    onChange({ ...draft, plan_revision_decisions: [...existing, next] });
   };
 
   if (step === 0) return <div className="space-y-4">
@@ -126,7 +134,9 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
             changeSource(source.document_id, { declared_logical_document_id: reference, logical_document_id: reference, inferred_logical_reference: false });
           }} />
       </label>}
-      <TakeoffPreparationSourcePreview projectId={projectId} documentId={source.document_id} name={source.document_name} page={source.pages[0]} />
+      {draft.provenance && source.document_id.startsWith("upload:")
+        ? <p className="text-sm text-muted-foreground">Fichier téléversé indisponible dans le dossier.</p>
+        : <TakeoffPreparationSourcePreview projectId={projectId} documentId={source.document_id} name={source.document_name} page={source.pages[0]} />}
     </div>)}
     {draft.sources.length === 0 && <p className="text-sm text-muted-foreground">Aucune pièce disponible. Ajoutez vos documents avant de poursuivre.</p>}
     <Link href={`/dashboard/affaires/${projectId}/plans`} className="text-sm text-primary underline">Consulter les plans du dossier</Link>
@@ -201,7 +211,7 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
     <dl className="grid gap-3 rounded-lg border border-border bg-surface-subtle p-3 text-sm sm:grid-cols-2">
       <div><dt className="text-muted-foreground">Résultat attendu</dt><dd className="mt-1 font-medium">{draft.objective ? TAKEOFF_PREPARATION_OBJECTIVES[draft.objective] : "À préciser"}</dd></div>
       <div><dt className="text-muted-foreground">Sources actives</dt><dd className="mt-1">{effectiveSources.filter((source) => source.active).map((source) => `${source.document_name} · ${source.revision ?? "indice inconnu"}${source.pages.length ? ` · pages ${source.pages.join(", ")}` : " · toutes les pages"}`).join(" ; ") || "Aucune"}</dd></div>
-      <div><dt className="text-muted-foreground">Périmètre</dt><dd className="mt-1">{[...draft.scope.lots, ...draft.scope.networks, ...draft.scope.levels, ...draft.scope.zones, ...draft.scope.inclusions].join(" · ") || "À préciser"}</dd></div>
+      <div><dt className="text-muted-foreground">Périmètre</dt><dd className="mt-1">{[...(draft.scope.buildings ?? []), ...draft.scope.lots, ...draft.scope.networks, ...draft.scope.levels, ...draft.scope.zones, ...draft.scope.inclusions].join(" · ") || "À préciser"}</dd></div>
       <div><dt className="text-muted-foreground">Exclusions</dt><dd className="mt-1">{draft.scope.exclusions.join(" · ") || "Aucune exclusion déclarée"}</dd></div>
       <div><dt className="text-muted-foreground">Conventions</dt><dd className="mt-1">{({ unknown: "Base inconnue", documented: "Comptage ou quantités documentaires", dimensioned: "Cotes explicites", calibrated: "Échelle par calibration", documentary_evidence: "Cotes et preuves du dossier" })[draft.conventions.measurement_basis]} · {draft.conventions.unit_mode === "per_item" ? "Unité par ouvrage" : draft.conventions.unit ?? "unité inconnue"}</dd></div>
       {draft.profile && <div><dt className="text-muted-foreground">Profil</dt><dd className="mt-1">{draft.profile.name} · version {draft.profile.version}</dd></div>}

@@ -180,6 +180,7 @@ function LaunchMetreDialogContent({
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
   const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
   const [launchSuccess, setLaunchSuccess] = useState(false);
+  const [launchPlanFileCount, setLaunchPlanFileCount] = useState<number | null>(null);
   const [launchQueuedForRecovery, setLaunchQueuedForRecovery] = useState(false);
   const [launchRecoveryUnconfirmed, setLaunchRecoveryUnconfirmed] = useState(false);
   const [launchExistingAnalysis, setLaunchExistingAnalysis] = useState(false);
@@ -299,7 +300,7 @@ function LaunchMetreDialogContent({
     [isSubmitting, launchSuccess, onOpenChange],
   );
 
-  const handleLaunch = useCallback(async (preparationRevision: number) => {
+  const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
     if (!selectedPlanSet || !hasPlanFiles) return;
 
     setIsSubmitting(true);
@@ -366,7 +367,7 @@ function LaunchMetreDialogContent({
           ? `${resolvedVersionLabel} — le démarrage immédiat et l'enregistrement de la reprise n'ont pas pu être confirmés. Ouvrez le centre d'activité pour réessayer avec l'identifiant ${createdJobId}.`
           : queuedForRecovery
             ? `${resolvedVersionLabel} — la demande est conservée et sera reprise automatiquement. Suivez son état dans le centre d'activité des métrés.`
-            : `${resolvedVersionLabel} — ${selectedPlanSet.fileCount} fichier${selectedPlanSet.fileCount > 1 ? "s" : ""} concerné${selectedPlanSet.fileCount > 1 ? "s" : ""}. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
+            : `${resolvedVersionLabel} — ${planFileCount} fichier${planFileCount > 1 ? "s" : ""} de plan. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
         durationMs: 6000,
       };
       if (queuedForRecovery || recoveryUnconfirmed) {
@@ -375,6 +376,7 @@ function LaunchMetreDialogContent({
         toast.success(toastPayload);
       }
       setLaunchSuccessVersionLabel(resolvedVersionLabel);
+      setLaunchPlanFileCount(existingStatus ? null : planFileCount);
       setLaunchQueuedForRecovery(queuedForRecovery);
       setLaunchRecoveryUnconfirmed(recoveryUnconfirmed);
       setLaunchExistingAnalysis(Boolean(existingStatus));
@@ -419,9 +421,8 @@ function LaunchMetreDialogContent({
                     : "Analyse transmise au traitement"}
               </p>
               <p className="text-xs text-muted-foreground">
-                {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"} —{" "}
-                {selectedPlanSet?.fileCount ?? 0} fichier
-                {(selectedPlanSet?.fileCount ?? 0) > 1 ? "s" : ""}.
+                {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"}
+                {launchPlanFileCount !== null ? ` — ${launchPlanFileCount} fichier${launchPlanFileCount > 1 ? "s" : ""} de plan.` : "."}
                 {launchExistingAnalysis
                   ? " Consultez son état dans le centre d’activité."
                   : launchRecoveryUnconfirmed

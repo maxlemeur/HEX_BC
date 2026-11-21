@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { reconcileTakeoffPageTriageStatuses } from "@/lib/takeoff/page-triage";
 import type { TakeoffPreparation, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
+import { isDossierDefaultSource } from "@/lib/takeoff/preparation-from-dossier";
 import { readPlanFilenameRevision } from "@/lib/takeoff/plan-revision-identity";
 
 export type PreparationPlanFile = {
@@ -106,7 +107,12 @@ export function reconcilePreparationSources(
     });
   });
   for (const source of available.values()) {
-    if (source.plan_set_id && activePlanSets.has(source.plan_set_id)) changedSourceIds.push(source.document_id);
+    if (preparation.provenance && isDossierDefaultSource(source, preparation.provenance.plan_set_id)) {
+      changedSourceIds.push(source.document_id);
+      available.delete(source.document_id);
+    } else if (source.plan_set_id && activePlanSets.has(source.plan_set_id)) {
+      changedSourceIds.push(source.document_id);
+    }
   }
   const activeChanged = preparation.sources.some((source) => source.active && changedSourceIds.includes(source.document_id));
   const calibrationChanged = preparation.conventions.calibration?.document_id && changedSourceIds.includes(preparation.conventions.calibration.document_id);

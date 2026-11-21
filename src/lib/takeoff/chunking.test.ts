@@ -5,6 +5,7 @@ import {
   buildPdfChunks,
   createPdfChunkBytes,
   getPdfPageCount,
+  isLocatedUnmeasuredQuantity,
   mergeTakeoffChunkExchanges,
   remapChunkLocalPagesToAbsolute,
 } from "@/lib/takeoff/chunking";
@@ -61,6 +62,23 @@ describe("takeoff chunking", () => {
     ] : [
       "RDC.pdf · page 2 — Échelle illisible.", "R+1.pdf · page 7 — Échelle illisible.",
     ]);
+  });
+
+  it("keeps an unmeasured quantity without a usable page visible without counting it as located", () => {
+    const chunk = { index: 0, startPage: 1, endPage: 1 };
+    const warnings = ["Page 1 : Échelle illisible.", "Cote absente.", "Page 2 : Unité absente."]
+      .map((message) => ({ code: "QUANTITE_A_VERIFIER", message, severity: "warning" as const }));
+    const { exchange } = mergeTakeoffChunkExchanges([{ chunk, exchange: remapChunkLocalPagesToAbsolute({
+      chunk, exchange: createExchange({ items: [], warnings }),
+      source: { fileName: "RDC.pdf", sourceFileNamesByPage: ["RDC.pdf"], sourcePageNumbersByPage: [4],
+        sourceDocumentsByPage: [{ kind: "plan_file" as const, plan_file_id: "a" }] },
+    }) }]);
+    expect(exchange.warnings.map(({ message }) => message)).toEqual([
+      "RDC.pdf · page 4 — Échelle illisible.",
+      "RDC.pdf · page indéterminée (fragment 1) — Cote absente.",
+      "RDC.pdf · page indéterminée (fragment 1) — Unité absente.",
+    ]);
+    expect(exchange.warnings.map(isLocatedUnmeasuredQuantity)).toEqual([true, false, false]);
   });
 
   it("splits pages with overlap for large PDFs", () => {

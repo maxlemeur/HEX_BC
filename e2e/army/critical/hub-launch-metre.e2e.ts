@@ -106,6 +106,9 @@ armyTest("PRE06 long inclusions and exclusions remain readable and survive a rel
 
 armyTest("PRE05 dossier defaults stay visible on reopening without creating an analysis", options, async (ui) => {
   const { estimate, file, read, jobs, dialog } = await setup(ui, "PRE05");
+  const optionsButton = dialog.getByRole("button", "Options du métré", { exact: true });
+  await optionsButton.click();
+  await expect(optionsButton).toHaveAttribute("aria-expanded", "false");
   await expect(dialog.getByText("Tout mesurer", { exact: true })).toBeVisible();
   await expect(dialog.getByText(/Unité par ouvrage/)).toBeVisible();
   await expect(dialog.getByText("Préparation à enregistrer", { exact: true })).toBeVisible();

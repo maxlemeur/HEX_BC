@@ -16,7 +16,7 @@ vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
 
 vi.mock("@/components/takeoff/TakeoffPreparationPanel", () => ({
   TakeoffPreparationPanel: (props: import("@/components/takeoff/TakeoffPreparationPanel").TakeoffPreparationPanelProps) =>
-    <div>{props.documentControls}{props.destinationControls}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7)}>Confirmer et lancer le métré</button></div>,
+    <div>{props.documentControls}{props.destinationControls}<button type="button" disabled={props.disabled || props.launchDisabled} onClick={() => void props.onLaunch(7, 1)}>Confirmer et lancer le métré</button></div>,
 }));
 
 vi.mock("@/components/feedback/toast-provider", () => ({
@@ -109,6 +109,15 @@ describe("LaunchMetreDialog", () => {
     expect(toastWarningMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Analyse créée, reprise à vérifier" })
     );
+  });
+
+  it("reports the confirmed plan count instead of counting a discarded revision", async () => {
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ ok: true, data: {
+      jobId: "job-active", dispatch: { status: "running", persisted: true },
+    } });
+    render(<LaunchMetreDialog {...defaultProps} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+    expect(await screen.findByText(/— 1 fichier de plan[.]/)).toBeInTheDocument();
   });
 
   it("shows the safe launch conflict without reporting a successful analysis", async () => {
