@@ -24,6 +24,10 @@ import { createSupabaseFake, servedRows } from "@/lib/takeoff/metre-m3.test-util
 // - 3: a preview's error that is none of the send's named refusals carried the database text to the HTTP body; the dry
 //   run answers a code from a closed list only.
 // - 4: a free unit written « status:lot » was shown without its unit (« no unit » was a prefix of the unit).
+// Follow-up of the send, written before the fix (red on 0dcea6a2):
+// - a replay returned the receipt at once: a process stopped between the commit and what follows it (a first draft's
+//   default categories and labour roles, the rules of the draft's other takeoffs) left them missing for good, and the
+//   application's audit rows were the server's, after the commit; they are now the send's own (command format 2).
 
 vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/job-read-server")>(),
@@ -55,10 +59,13 @@ vi.mock("@/lib/takeoff/audit", async (importOriginal) => ({
 
 import { prepareCanonicalEstimateCreation } from "@/lib/estimates/canonical-v2-creation";
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
+import { ensureDefaultEstimateCategories, ensureDefaultLaborRoles } from "@/lib/estimates/version-creation-repository";
+import { logTakeoffMappingApplyAuditEvents } from "@/lib/takeoff/apply-repository";
+import { logTakeoffAuditEvent } from "@/lib/takeoff/audit";
 import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-server";
 import { buildTakeoffPageReplacementProposal } from "@/lib/takeoff/page-replacement-server";
-import { evaluateTakeoffRulesForDestination } from "@/lib/takeoff/rules/recompute-server";
+import { evaluateTakeoffRulesForDestination, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { previewTakeoffSend, sendTakeoffJob } from "@/lib/takeoff/send-server";
 
@@ -92,9 +99,15 @@ function randomId() {
 function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options: {
   results?: Map<string, unknown[]>; dryRun?: (command: Record<string, unknown>) => unknown;
   dryRunError?: Record<string, unknown>;
+  /** false: the session reads no receipt, as a retry that raced the first attempt's commit. */
+  receiptsVisible?: boolean;
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
+  // Every command the service staged, in order (a replay stages the same request again).
+  const history: Array<Record<string, unknown>> = [];
+  // The requests whose send committed, with their version: a later call of the same request replays its receipt.
+  const committed = new Map<string, string>();
   const dpgfLines = versions.flatMap((version) => Array.from({ length: typeof version.dpgf === "number" ? version.dpgf : version.dpgf ? 1 : 0 },
     (_, index) => ({ id: `${version.id.slice(0, 24)}${String(index).padStart(12, "0")}`, version_id: version.id, tenant_id: TENANT,
       item_type: "line", source_provider: "dpgf" })));
@@ -104,8 +117,12 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
         plan_set_id: null, execution_provider: "chatgpt_local", preparation_revision: "1" }, error: null }),
       takeoff_items: () => ({ data: [{ id: ITEM, designation: "Lavabo", quantity: 3, unit: "u", is_excluded: false, source_file_name: "plan.pdf",
         source_page: 1, quantity_entry_category: null, metadata: {}, confidence: 0.95, is_verified: false }], error: null, count: 1 }),
-      // The draft as its session reads it (one section).
-      takeoff_send_receipts: () => ({ data: null, error: null }),
+      // The receipt of a committed request, as the session reads it before sending again.
+      takeoff_send_receipts: (query) => {
+        const request = query.filters.find((filter) => filter.column === "request_id")?.value as string | undefined;
+        const visible = options.receiptsVisible !== false && request !== undefined && committed.has(request);
+        return { data: visible ? { id: "a0000000-0000-4000-8000-000000000001" } : null, error: null };
+      },
       // As « Créer un devis » reads them: the affaire, and its latest version (none).
       estimate_projects: () => ({ data: { id: PROJECT, user_id: USER }, error: null }),
       estimate_versions: () => ({ data: null, error: null }),
@@ -118,9 +135,14 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
         const command = staged.get((args as { p_request: { request_id: string } }).p_request.request_id) ?? {};
         if (command.mode === "dry_run" && options.dryRunError) return { data: null, error: options.dryRunError };
         if (command.mode === "dry_run") return { data: options.dryRun ? options.dryRun(command) : { dry_run: true, outcome: OUTCOME }, error: null };
-        return { data: { id: "a0000000-0000-4000-8000-000000000001", job_id: JOB, request_id: command.request_id,
-          target_version_id: (command.destination as { version_payload?: { id?: string } }).version_payload?.id ?? DPGF_DRAFT,
-          result: { version_created: true, created_count: 1, lines_created: [] }, replayed: false }, error: null };
+        const request = (args as { p_request: { request_id: string } }).p_request.request_id;
+        const replayed = committed.has(request);
+        if (!replayed) {
+          committed.set(request, (command.destination as { version_payload?: { id?: string } }).version_payload?.id ?? DPGF_DRAFT);
+        }
+        return { data: { id: "a0000000-0000-4000-8000-000000000001", job_id: JOB, project_id: PROJECT, request_id: request,
+          target_version_id: committed.get(request),
+          result: { version_created: true, source_version_id: null, created_count: 1, lines_created: [] }, replayed }, error: null };
       },
     },
   });
@@ -138,6 +160,7 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
       stage_takeoff_send: (args) => {
         const command = (args as { p_command: Record<string, unknown> }).p_command;
         staged.set(command.request_id as string, command);
+        history.push(command);
         return { data: null, error: null };
       },
     },
@@ -156,7 +179,7 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
     transforms: [], results: options.results ?? new Map() } as never);
   // As the comparison loader does for a takeoff not on that version.
   vi.mocked(buildTakeoffPageReplacementProposal).mockRejectedValue(Object.assign(new Error("Comparaison DPGF indisponible."), { status: 409 }));
-  return { staged: () => [...staged.values()] };
+  return { staged: () => [...staged.values()], history: () => [...history] };
 }
 
 beforeEach(() => {
@@ -310,5 +333,50 @@ describe("sendTakeoffJob — the settings the creation takes from the policy", (
     await expect(sendTakeoffJob(JOB, { request_id: REQUEST, fingerprint: preview.fingerprint, destination: { kind: "first_draft" },
       section: { kind: "new" } })).rejects.toMatchObject({ status: 409, details: { guard: "send_preview_stale" } });
     expect(fake.staged().map((command) => command.mode)).toEqual(["dry_run", "dry_run"]);
+  });
+});
+
+describe("sendTakeoffJob — what follows the commit, on a replay too", () => {
+  it("repairs on a replay what a stop between the commit and its effects left out, and writes no audit row itself", async () => {
+    const fake = setUp([]);
+    vi.mocked(prepareCanonicalEstimateCreation).mockResolvedValue({ versionPayload: versionPayload("2026-11-21", 1.3) } as never);
+    const preview = await previewTakeoffSend(JOB, {});
+    const payload = { request_id: REQUEST, fingerprint: preview.fingerprint, destination: { kind: "first_draft" }, section: { kind: "new" } };
+    // The first attempt commits, then its process stops before the first draft's defaults: their call never answers.
+    vi.mocked(ensureDefaultEstimateCategories).mockImplementationOnce(() => new Promise<void>(() => undefined));
+    void sendTakeoffJob(JOB, payload);
+    await vi.waitFor(() => expect(ensureDefaultEstimateCategories).toHaveBeenCalledTimes(1));
+    expect([vi.mocked(ensureDefaultLaborRoles).mock.calls.length, vi.mocked(recomputeTakeoffRulesQuietly).mock.calls.length]).toEqual([0, 0]);
+
+    // « Réessayer »: the same request returns its receipt, and does what the stopped attempt did not.
+    const replayed = await sendTakeoffJob(JOB, payload);
+
+    expect(replayed).toMatchObject({ replayed: true, version_created: true, request_id: REQUEST });
+    expect(ensureDefaultEstimateCategories).toHaveBeenLastCalledWith(expect.objectContaining({ tenantId: TENANT, userId: USER }));
+    expect(ensureDefaultLaborRoles).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT, ownerUserId: USER }));
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT,
+      estimateVersionId: replayed.version_id, context: "applied" }));
+    // The application's audit rows are the send's own, written in its transaction once (format 2): the server adds none,
+    // neither after the commit nor on a replay.
+    expect(fake.history().map((command) => [command.mode ?? "replay", command.format_version ?? null]))
+      .toEqual([["dry_run", 2], ["dry_run", 2], ["send", 2], ["replay", null]]);
+    expect(logTakeoffAuditEvent).not.toHaveBeenCalled();
+    expect(logTakeoffMappingApplyAuditEvents).not.toHaveBeenCalled();
+  });
+
+  it("does the same when the send itself answers that an attempt in flight committed the request", async () => {
+    setUp([], { receiptsVisible: false });
+    vi.mocked(prepareCanonicalEstimateCreation).mockResolvedValue({ versionPayload: versionPayload("2026-11-21", 1.3) } as never);
+    const preview = await previewTakeoffSend(JOB, {});
+    const payload = { request_id: REQUEST, fingerprint: preview.fingerprint, destination: { kind: "first_draft" }, section: { kind: "new" } };
+    vi.mocked(ensureDefaultEstimateCategories).mockImplementationOnce(() => new Promise<void>(() => undefined));
+    void sendTakeoffJob(JOB, payload);
+    await vi.waitFor(() => expect(ensureDefaultEstimateCategories).toHaveBeenCalledTimes(1));
+    // The retry read no receipt (it raced the first attempt's commit): the send itself answers with the receipt.
+    const replayed = await sendTakeoffJob(JOB, payload);
+
+    expect(replayed.replayed).toBe(true);
+    expect(ensureDefaultLaborRoles).toHaveBeenCalledTimes(1);
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(1);
   });
 });
