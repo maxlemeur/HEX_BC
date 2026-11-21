@@ -17,11 +17,11 @@ import { FieldLabel } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import {
   acquireEstimateDraftLock,
-  fetchEstimatePdfLayoutConfiguration,
-  isEstimateApiError,
   releaseEstimateDraftLock,
   renewEstimateDraftLock,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/client-locks";
+import { fetchEstimatePdfLayoutConfiguration } from "@/lib/estimates/pdf-client";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { DRAFT_LOCK_HEARTBEAT_INTERVAL_MS } from "@/hooks/useDraftLock";
 import { hasEstimateEditorMutationSession } from "@/lib/estimates/editor-mutations";
 import {

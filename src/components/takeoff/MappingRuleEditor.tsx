@@ -8,7 +8,7 @@ import { FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 
-import type { EstimateAssemblySummary } from "@/lib/estimates/client";
+import type { EstimateAssemblySummary } from "@/lib/estimates/assemblies-client";
 import type {
   CreateTakeoffMappingRuleInput,
   TakeoffMappingRule,

@@ -18,11 +18,18 @@ import { createEstimateEditorResponseFixture } from "@/test/fixtures/estimate-ed
 import type { EstimateLineSaveReceipt } from "@/lib/estimates/editor-line-save";
 
 const io = vi.hoisted(() => ({ read: vi.fn(), save: vi.fn(), error: vi.fn(), notice: vi.fn(), schedule: vi.fn(), gating: vi.fn(), status: vi.fn(), openSettings: vi.fn() }));
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/editor-read-client", () => ({
   fetchEstimateEditorData: io.read,
+}));
+vi.mock("@/lib/estimates/version-lifecycle-client", () => ({
   fetchEstimateSendGating: io.gating,
   updateEstimateStatus: io.status,
+}));
+vi.mock("@/lib/estimates/suggestion-learning-client", () => ({
   fetchEstimateSuggestionLearnings: async () => null,
+}));
+vi.mock("@/lib/estimates/client-errors", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/estimates/client-errors")>("@/lib/estimates/client-errors")),
   isEstimateApiError: () => false,
 }));
 vi.mock("@/lib/estimates/editor-line-save", () => ({ saveEstimateEditorLines: io.save }));

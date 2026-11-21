@@ -1,13 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { applyEstimateStructureDraft } from "@/lib/estimates/structure-drafts-client";
+import { batchEstimateOperations } from "@/lib/estimates/batch-operations-client";
 import {
-  applyEstimateStructureDraft, batchEstimateOperations, bulkUpdateEstimateItems,
-  createEstimateItem, deleteEstimateItem, duplicateEstimateSection,
-  importEstimateSections, importLinkedDpgfSource, insertAssemblyIntoVersion,
-  insertTemplateIntoVersion, materializeVersionZeroDraft, moveEstimateItem,
-  reorderEstimateItems, runEstimateEditorExternalMutation, saveEstimateVersion,
-  updateEstimateItem, updateEstimateStatus,
-} from "@/lib/estimates/client";
+  bulkUpdateEstimateItems,
+  createEstimateItem,
+  deleteEstimateItem,
+  moveEstimateItem,
+  reorderEstimateItems,
+  updateEstimateItem,
+} from "@/lib/estimates/items-client";
+import {
+  duplicateEstimateSection,
+  importEstimateSections,
+} from "@/lib/estimates/section-copy-client";
+import { importLinkedDpgfSource } from "@/lib/estimates/linked-dpgf-client";
+import { insertAssemblyIntoVersion } from "@/lib/estimates/assemblies-client";
+import { insertTemplateIntoVersion } from "@/lib/estimates/templates-client";
+import { materializeVersionZeroDraft } from "@/lib/estimates/version-zero-drafts-client";
+import { runEstimateEditorExternalMutation } from "@/lib/estimates/client-requests";
+import { saveEstimateVersion } from "@/lib/estimates/version-settings-client";
+import { updateEstimateStatus } from "@/lib/estimates/version-lifecycle-client";
 import {
   isOlderEstimateVersionToken, registerEstimateEditorMutations, recoverEstimateEditorRead,
   runEstimateEditorMutation, waitForEstimateEditorMutations,

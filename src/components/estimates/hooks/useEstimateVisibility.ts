@@ -4,7 +4,6 @@ import { useCallback, useMemo } from "react";
 
 import {
   computeAllSectionTotals,
-  type ComputeAllSectionTotalsInput,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
 import type {
@@ -13,6 +12,7 @@ import type {
 } from "@/lib/estimate-quality";
 import { getParentKey } from "@/lib/estimates/editor-item-tree";
 import type { EstimateQualityFilter } from "@/lib/estimates/editor-quality-filter";
+import type { EstimateSectionCalculation } from "@/lib/estimates/editor-table-types";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -21,17 +21,6 @@ type BulkMoveDestination = {
   id: string | null;
   label: string;
 };
-
-export type EstimateSectionCalculation = Pick<
-  ComputeAllSectionTotalsInput,
-  | "marginMode"
-  | "marginTiers"
-  | "globalCoefficient"
-  | "discountMode"
-  | "discountStepsBp"
-  | "calcEngineVersion"
-  | "preserveStoredSnapshot"
->;
 
 type UseEstimateVisibilityParams = {
   items: EstimateItem[];

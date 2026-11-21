@@ -1,5 +1,5 @@
 import { ok, toErrorResponse } from "@/lib/http/api-response";
-import { getEstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import { getEstimateApprovalSummary } from "@/lib/estimates/approval-summary-server";
 import { uuidRouteParam } from "@/lib/http/request";
 
 export async function GET(

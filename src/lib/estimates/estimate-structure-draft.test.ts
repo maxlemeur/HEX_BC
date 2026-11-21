@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { EstimateStructureDraftNode } from "@/lib/estimates/client";
+import type { EstimateStructureDraftNode } from "@/lib/estimates/structure-drafts-client";
 import {
   buildDraftOverrides,
   buildFilterCounts,

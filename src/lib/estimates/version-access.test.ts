@@ -41,7 +41,8 @@ import {
   resolveEstimatePdfPreviewLayout,
 } from "@/lib/estimates/pdf-generator";
 import { DEFAULT_ESTIMATE_PDF_LAYOUT } from "@/lib/estimates/pdf-layout";
-import { getEstimateApprovalSummary, listEstimateApprovalDecisionJournal } from "@/lib/estimates/rules-engine";
+import { listEstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal-server";
+import { getEstimateApprovalSummary } from "@/lib/estimates/approval-summary-server";
 import {
   applyEstimateStructureDraft,
   generateEstimateStructureDraft,

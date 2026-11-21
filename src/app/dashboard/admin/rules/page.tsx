@@ -16,7 +16,7 @@ import {
   deleteEstimateRuleForCurrentTenant,
   listEstimateRulesForCurrentTenant,
   updateEstimateRuleForCurrentTenant,
-} from "@/lib/estimates/rules-engine";
+} from "@/lib/estimates/rules-admin-server";
 import {
   DEFAULT_APPROVAL_THRESHOLD_EUROS,
   formatRuleThreshold,

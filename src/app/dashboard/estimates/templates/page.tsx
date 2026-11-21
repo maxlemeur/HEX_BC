@@ -20,7 +20,7 @@ import {
   fetchEstimateTemplates,
   updateEstimateTemplate,
   type EstimateTemplateSummary,
-} from "@/lib/estimates/client";
+} from "@/lib/estimates/templates-client";
 
 export default function EstimateTemplatesPage() {
   const confirm = useConfirm();

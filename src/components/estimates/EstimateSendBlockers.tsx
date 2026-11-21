@@ -3,7 +3,8 @@
 import Link from "next/link";
 
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
-import type { EstimateEditorData, EstimateSendGatingFlag } from "@/lib/estimates/client";
+import type { EstimateEditorData } from "@/lib/estimates/editor-read-contracts";
+import type { EstimateSendGatingFlag } from "@/lib/estimates/version-lifecycle-client";
 import { ESTIMATE_GATING_ALWAYS_BLOCKING_FLAG_KEYS } from "@/lib/estimates/gating-policy";
 import { resolveEstimateReadinessCategoryFromGatingFlagKey } from "@/lib/estimates/readiness";
 import { buildSendBlockerRegisterHref, formatSendBlockerRegisterAction } from "@/lib/estimates/send-blocker-remedies";

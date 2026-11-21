@@ -8,7 +8,6 @@ vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(w
 vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }) }));
 vi.mock("@/lib/auth/user-context", () => ({ useUserContext: () => ({ profile: { tenant_role: "member" }, tenantId: "tenant" }) }));
 vi.mock("@/hooks/useFeatureFlag", () => ({ useFeatureFlag: () => ({ enabled: false, value: null }) }));
-vi.mock("@/lib/estimates/client", () => ({ releaseEstimateDraftLock: vi.fn() }));
 vi.mock("@/lib/takeoff/client", () => ({
   fetchTakeoffJobWithAllItems: vi.fn(),
   fetchTakeoffDpgfComparison: vi.fn(),

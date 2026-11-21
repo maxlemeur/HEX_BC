@@ -12,10 +12,7 @@ import {
   type EstimateDeletionRecreationOptions,
   type RecreatedEstimateDeletionItems,
 } from "@/hooks/estimate-editor-deletion-history";
-import {
-  bulkUpdateEstimateItems,
-  deleteEstimateItem,
-} from "@/lib/estimates/client";
+import { bulkUpdateEstimateItems, deleteEstimateItem } from "@/lib/estimates/items-client";
 import {
   buildEstimateItemUpdatePayload,
   type EditorEstimateItem,

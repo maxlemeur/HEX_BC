@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
-vi.mock("@/lib/affaires/intake-server", () => ({ fetchAffaireIntakeWorkspace: vi.fn() }));
+vi.mock("@/lib/affaires/intake-workspace-server", () => ({ fetchAffaireIntakeWorkspace: vi.fn() }));
 vi.mock("@/lib/affaires/server", () => ({ fetchAffaireHubSummary: vi.fn(), fetchAffaireHubPlansSummary: vi.fn() }));
 vi.mock("@/lib/affaires/register-read-server", () => ({ fetchAffaireRegisterSummary: vi.fn() }));
 vi.mock("@/lib/cockpit/preferences", () => ({ fetchCockpitCommandPreferences: vi.fn().mockResolvedValue([]) }));
@@ -10,7 +10,7 @@ vi.mock("@/lib/ai/decisions", () => ({ getOpenAiDecisionsCapability: vi.fn() }))
 vi.mock("@/lib/cockpit/decision-assistance", () => ({ suggestCockpitNextAction: vi.fn(), fingerprintCockpitCandidates: vi.fn().mockReturnValue("fixed") }));
 vi.mock("@/lib/cockpit/decision-freshness", () => ({ readCockpitDecisionFingerprint: vi.fn() }));
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
-import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { fetchAffaireHubSummary } from "@/lib/affaires/server";
 import { getOpenAiDecisionsCapability } from "@/lib/ai/decisions";
 import { suggestCockpitNextAction } from "@/lib/cockpit/decision-assistance";

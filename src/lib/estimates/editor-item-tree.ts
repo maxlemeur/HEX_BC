@@ -4,6 +4,14 @@ type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
 export const ITEMS_BY_PARENT_ROOT_KEY = "root";
 
+export type ExistingSection = {
+  id: string;
+  path: string;
+  hierarchyLevel: number;
+  parentId: string | null;
+  title: string;
+};
+
 export function getParentKey(id: string | null) {
   return id ?? ITEMS_BY_PARENT_ROOT_KEY;
 }

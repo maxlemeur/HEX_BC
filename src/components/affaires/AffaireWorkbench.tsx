@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { SupplierDocumentsHint } from "./SupplierDocumentsHint";
 import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
 import { canClassifyDossierDocument, dossierDocumentAiConfidence, dossierDocumentState, type DossierDocument } from "@/lib/affaires/document-triage";
-import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import type { AffaireRegisterEntry, AffaireRegisterSummary } from "@/lib/affaires/register";
 
 export type AffaireWorkbenchSection = "overview" | "dossier" | "estimate" | "register" | "submission";

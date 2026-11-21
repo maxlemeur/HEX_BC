@@ -16,7 +16,7 @@ import {
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createEstimateTemplate } from "@/lib/estimates/client";
+import { createEstimateTemplate } from "@/lib/estimates/templates-client";
 import { cn } from "@/lib/utils";
 
 type SaveAsTemplateButtonProps = {

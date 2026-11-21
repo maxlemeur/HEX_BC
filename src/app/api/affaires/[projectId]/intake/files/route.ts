@@ -4,10 +4,8 @@ import { AFFAIRE_INTAKE_MAX_MULTIPART_BODY_BYTES } from "@/lib/affaires/intake-l
 import { z } from "zod";
 
 import { ok, badRequest, toErrorResponse } from "@/lib/http/api-response";
-import {
-  createAffaireIntakeUpload,
-  processAffaireIntakeUpload,
-} from "@/lib/affaires/intake-server";
+import { createAffaireIntakeUpload } from "@/lib/affaires/intake-upload-server";
+import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 
 export const runtime = "nodejs";
 

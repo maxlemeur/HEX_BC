@@ -4,52 +4,11 @@ import dynamic from "next/dynamic";
 import { EstimateSendBlockers } from "@/components/estimates/EstimateSendBlockers";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import type { EstimateEditorData, EstimateSendGatingFlag } from "@/lib/estimates/client";
-import type { EstimateMutationRecovery } from "./EstimateMutationRecoveryAlert";
+import type { EstimateEditorAlertsProps } from "@/hooks/estimate-editor-view-props";
 
 const EstimateMutationRecoveryAlert = dynamic(() =>
   import("./EstimateMutationRecoveryAlert").then((module) => module.EstimateMutationRecoveryAlert)
 );
-
-type EstimateEditorAlertsProps = {
-  statusError: string | null;
-  isViewerReadOnly: boolean;
-  canSend: boolean;
-  isSendBlockedForCurrentUser: boolean;
-  /** The blockers the send gating names, listed with what lifts each (TI-691). */
-  sendBlockingFlags?: readonly EstimateSendGatingFlag[];
-  versionId?: string | null;
-  projectId?: string | null;
-  onBeforeGeneratePdf?: () => Promise<boolean>;
-  onPdfPrepared?: (data: EstimateEditorData) => void;
-  /** The PDF is ready: the gating is read again. */
-  onPdfReady?: () => void;
-  isDraftLockedByOther: boolean;
-  lockHolderLabel: string;
-  isAdmin: boolean;
-  isForcingDraftUnlock: boolean;
-  onForceUnlockDraftLock: () => void;
-  draftLockError: string | null;
-  conflictMessage: string | null;
-  isReloadingVersion: boolean;
-  onReloadAfterConflict: () => void;
-  hasRestorableDraft: boolean;
-  onRestoreConflictDraft: () => void;
-  totalsOutOfSync: boolean;
-  /** Total écrêté au plafond de stockage : le montant affiché est minoré. */
-  isTotalCapped?: boolean;
-  isSaveBlocked: boolean;
-  onRetryTotalsSave: () => void;
-  isStatusReadOnly: boolean;
-  bulkSuggestAppliedCount: number | null;
-  onUndoBulkSuggest: () => void;
-  isUndoingBulkSuggest: boolean;
-  isUndoBulkSuggestDisabled: boolean;
-  importSummaryMessage: string | null;
-  actionNotice: string | null;
-  actionError: string | null;
-  batchRecovery?: EstimateMutationRecovery;
-};
 
 const ALERT_WITH_ACTION_CLASS = "flex flex-wrap items-center justify-between gap-3";
 

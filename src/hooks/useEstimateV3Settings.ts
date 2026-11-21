@@ -49,7 +49,7 @@ import {
 /**
  * Lot 2, sous-lot 2.6 - état des réglages d'une v3 (§1.3 de docs/testing/estimate-engine-v3-2.6.md).
  * Actif si et seulement si la version est au moteur 3 : sur une v1/v2 le hook rend `null` et la
- * sauvegarde v2 (et sa réécriture du taux, P-04) reste celle de `useEstimateEditorState`.
+ * sauvegarde v2 (et sa réécriture du taux, P-04) reste celle de `saveEstimateEditorSettings`.
  * Le cœur pur (`v3-settings-payload.ts`) est réexporté ici.
  */
 export * from "@/lib/estimates/v3-settings-payload";

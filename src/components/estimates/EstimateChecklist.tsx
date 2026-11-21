@@ -5,19 +5,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
   EstimateChecklistCriterion,
-  EstimateChecklistResult,
   EstimateChecklistStatus,
 } from "@/lib/estimates/checklist";
-
-type EstimateChecklistProps = {
-  checklist: EstimateChecklistResult;
-  isCollapsed: boolean;
-  anomalyCount: number;
-  affectedLineCount: number;
-  onToggleCollapsed: () => void;
-  onCriterionClick: (criterion: EstimateChecklistCriterion) => void;
-  onShowAnomalies: () => void;
-};
+import type { EstimateChecklistProps } from "@/hooks/estimate-editor-view-props";
 
 const STATUS_BADGE_VARIANT: Record<
   EstimateChecklistStatus,

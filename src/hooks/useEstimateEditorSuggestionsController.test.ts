@@ -6,9 +6,9 @@ import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { EstimateEditorDocument } from "@/lib/estimates/editor-document-state";
 import { useEstimateEditorSuggestionsController } from "@/hooks/useEstimateEditorSuggestionsController";
 import type {
-SuggestionLearningState as SuggestionLearningClientState,
-TrackEstimateSuggestionCorrectionsResult,
-} from "@/lib/estimates/client";
+  SuggestionLearningState as SuggestionLearningClientState,
+  TrackEstimateSuggestionCorrectionsResult,
+} from "@/lib/estimates/suggestion-learning-client";
 import type {
 EditorEstimateItem,
 EstimateItem,
@@ -30,17 +30,21 @@ const clientMocks = vi.hoisted(() => ({
   updateEstimateSuggestionRule: vi.fn(),
 }));
 
-vi.mock("@/lib/estimates/client", () => ({
+vi.mock("@/lib/estimates/items-client", () => ({
   bulkUpdateEstimateItems: clientMocks.bulkUpdateEstimateItems,
+}));
+vi.mock("@/lib/estimates/reference-data-client", () => ({
   createEstimateSuggestionRule: clientMocks.createEstimateSuggestionRule,
-  fetchEstimateSuggestionLearnings:
-    clientMocks.fetchEstimateSuggestionLearnings,
   sendEstimateSuggestionRuleFeedback:
     clientMocks.sendEstimateSuggestionRuleFeedback,
-  trackEstimateSuggestionCorrections:
-    clientMocks.trackEstimateSuggestionCorrections,
   updateEstimateSuggestionRule:
     clientMocks.updateEstimateSuggestionRule,
+}));
+vi.mock("@/lib/estimates/suggestion-learning-client", () => ({
+  fetchEstimateSuggestionLearnings:
+    clientMocks.fetchEstimateSuggestionLearnings,
+  trackEstimateSuggestionCorrections:
+    clientMocks.trackEstimateSuggestionCorrections,
 }));
 
 const VERSION_A = "33333333-3333-4333-8333-333333333333";

@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/affaires/intake-server", () => ({
+vi.mock("@/lib/affaires/intake-upload-server", () => ({
   createAffaireIntakeUpload: vi.fn(),
+}));
+vi.mock("@/lib/affaires/intake-analysis-server", () => ({
   processAffaireIntakeUpload: vi.fn(),
 }));
 
 import { POST } from "@/app/api/affaires/[projectId]/intake/files/route";
-import { createAffaireIntakeUpload } from "@/lib/affaires/intake-server";
+import { createAffaireIntakeUpload } from "@/lib/affaires/intake-upload-server";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 
