@@ -7,6 +7,7 @@ import {
   type TakeoffResumeAction,
   type TakeoffResumeReason,
   type TakeoffResumeViewer,
+  resolveTakeoffLaunchDecision,
 } from "@/lib/takeoff/operator-state";
 
 const NOW = new Date("2026-11-21T10:00:00.000Z");
@@ -170,5 +171,24 @@ describe("describeTakeoffResume", () => {
   it("gives the time of a wait in Paris", () => {
     expect(describeTakeoffResume({ action: "wait_retry", reason: "retry_scheduled", availableAt: "2026-11-21T10:00:15.000Z" }))
       .toContain("11:00:15");
+  });
+});
+
+describe("resolveTakeoffLaunchDecision", () => {
+  const operator = { userId: "payer", tenantRole: "engineer", canWriteAffaire: true, executionHostId: "urn:uuid:mac", planStatus: "ready" as const };
+  it.each([
+    ["an admitted request answers through its job", "admitted", null, "payer", operator, "none"],
+    ["a closed request answers through its job", "closed", null, "payer", operator, "none"],
+    ["a dossier not confirmed is lifted in the dossier", "not_eligible", "DOSSIER_PROCESSING", null, operator, "none"],
+    ["a request waiting for its Mac is awaited", "evaluating", null, "payer", operator, "wait"],
+    ["a passing cause is awaited", "blocked", "ADMISSION_LIMIT", "payer", operator, "wait"],
+    ["a missing working copy is lifted in the dossier", "blocked", "PLAN_COPY_MISSING", "payer", operator, "none"],
+    ["the payer resumes with their subscription", "blocked", "CHATGPT_NOT_CONNECTED", "payer", operator, "resume"],
+    ["another operator takes it on", "blocked", "CHATGPT_NOT_CONNECTED", "payer", { ...operator, userId: "other" }, "take_on"],
+    ["a reader's confirmation waits for an operator", "blocked", "OPERATOR_REQUIRED", null, operator, "take_on"],
+    ["a reader cannot take it on", "blocked", "OPERATOR_REQUIRED", null, { ...operator, tenantRole: "director", canWriteAffaire: false }, "none"],
+    ["the hosted application sends to the Mac", "blocked", "LOCAL_RUNTIME_REQUIRED", "payer", { ...operator, executionHostId: null }, "open_mac"],
+  ] as const)("%s", (_case, state, reasonCode, payerId, viewer, action) => {
+    expect(resolveTakeoffLaunchDecision({ state, reasonCode, payerId, viewer })).toEqual({ action });
   });
 });

@@ -379,3 +379,42 @@ export function describeTakeoffResume(decision: TakeoffResumeDecision): string |
       return "Vous pouvez soumettre cette analyse à nouveau ; votre forfait ChatGPT est vérifié au lancement.";
   }
 }
+
+/** What a member may do with a launch request that has not started (migration 20261121083011_takeoff_launch_requests.sql). */
+export const TAKEOFF_LAUNCH_ACTIONS = ["take_on", "resume", "open_mac", "wait", "none"] as const;
+export type TakeoffLaunchAction = (typeof TAKEOFF_LAUNCH_ACTIONS)[number];
+
+const LAUNCH_MANDATE_REASONS = new Set(["OPERATOR_REQUIRED", "MANDATE_REQUIRED", "LOCAL_RUNTIME_REQUIRED", "HOST_NOT_AUTHORISED",
+  "CHATGPT_NOT_CONNECTED", "CHATGPT_ACCESS_REVOKED", "CHATGPT_MODEL_MISSING", "CHATGPT_SELECTION_CHANGED", "PAYER_NOT_ELIGIBLE"]);
+const LAUNCH_TRANSIENT_REASONS = new Set(["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING"]);
+
+/**
+ * The launch policy, beside the resume policy of a job. A request waiting for its evaluation, or blocked by a passing
+ * cause, is awaited by everyone; a blocking of the dossier is lifted in the dossier or the options; a blocking of the
+ * mandate is lifted only by a gesture: « Reprendre avec mon forfait » by its payer, « Prendre en charge » by another
+ * operator who may launch on the affaire, on the Mac where their subscription is connected. An admitted or closed request
+ * answers through its job.
+ */
+export function resolveTakeoffLaunchDecision(input: {
+  state: string;
+  reasonCode: string | null;
+  payerId: string | null;
+  viewer: TakeoffResumeViewer;
+}): { action: TakeoffLaunchAction } {
+  if (input.state === "admitted" || input.state === "closed" || input.state === "not_eligible") return { action: "none" };
+  if (input.state === "evaluating" || LAUNCH_TRANSIENT_REASONS.has(input.reasonCode ?? "")) return { action: "wait" };
+  if (!LAUNCH_MANDATE_REASONS.has(input.reasonCode ?? "") || !canTakeoffResumeViewerAct(input.viewer)) return { action: "none" };
+  if (!input.viewer.executionHostId) return { action: "open_mac" };
+  return { action: input.payerId && input.payerId === input.viewer.userId ? "resume" : "take_on" };
+}
+
+/** The gesture's name, as the affaire's options will show it. */
+export function describeTakeoffLaunchAction(action: TakeoffLaunchAction): string | null {
+  switch (action) {
+    case "take_on": return "Prendre en charge avec mon forfait";
+    case "resume": return "Reprendre avec mon forfait";
+    case "open_mac": return "Ouvrir sur le Mac connecté";
+    case "wait":
+    case "none": return null;
+  }
+}

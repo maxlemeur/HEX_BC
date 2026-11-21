@@ -43,6 +43,7 @@ import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-draft
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { readAffaireAutomaticTakeoffPayerNotice } from "@/lib/takeoff/launch-request-server";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
 
 // A document retry may download and parse a large PDF before proposing its category.
@@ -114,6 +115,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const initialDataPromise = fetchAffaireHubCoreData(projectId, timelinePage);
   const marginAnalysisPromise = fetchAffaireHubMarginCardData(projectId);
   const takeoffEnabledPromise = isTakeoffEnabled(tenantId);
+  // Told at the brief's confirmation to the member whose subscription the automatic takeoff will use.
+  const automaticTakeoffPayerNoticePromise = readAffaireAutomaticTakeoffPayerNotice(projectId);
   const takeoffDataPromise = takeoffEnabledPromise.then(
     (enabled) =>
       enabled
@@ -377,6 +380,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     preferences: effectiveCockpitPreferences,
   });
 
+  const automaticTakeoffPayerNotice = devHubScenario ? null : await automaticTakeoffPayerNoticePromise;
+
   return (
     <AffaireHub
       summary={effectiveSummary}
@@ -406,6 +411,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       cockpitPreferences={effectiveCockpitPreferences}
       liveDossier={devHubScenario === null}
       viewerProfileId={profile?.id ?? null}
+      automaticTakeoffPayerNotice={automaticTakeoffPayerNotice}
     />
   );
 }

@@ -68,7 +68,12 @@ async function selectionForConfirmation(context: AuthenticatedTenantContext, exp
   return selection;
 }
 
-async function loadPreparation(context: AuthenticatedTenantContext, projectId: string, planSetId?: string) {
+/**
+ * The affaire's preparation as its options show it: the saved draft reconciled with the dossier's current pieces, and,
+ * with a plan set, the preparation deduced from the dossier for that set. The automatic start seals the same deduction,
+ * through the server's own client, without saving it over the member's draft.
+ */
+export async function loadPreparation(context: Pick<AuthenticatedTenantContext, "supabase" | "tenantId">, projectId: string, planSetId?: string) {
   const [record, availableSources] = await Promise.all([
     readPreparationRecord(context, projectId), readPreparationSources(context, projectId),
   ]);

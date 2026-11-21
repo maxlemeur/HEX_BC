@@ -11,6 +11,8 @@ import { toPreparationPlanSource, toPreparationIntakeSource, type PreparationPla
 import type { Json } from "@/types/database";
 
 type Context = AuthenticatedTenantContext;
+/** The reads need only a client and a tenant: the server's own client reads them for the automatic start. */
+type ReadContext = Pick<AuthenticatedTenantContext, "supabase" | "tenantId">;
 export type PreparationRecordRow = {
   revision: number;
   draft: Json;
@@ -43,7 +45,7 @@ export async function assertPreparationProjectAccess(context: Context, projectId
   await assertProjectAccessOrThrow({ ...context, projectId, mode: write ? "write" : "read" });
 }
 
-export async function readPreparationRecord(context: Context, projectId: string): Promise<PreparationRecordRow | null> {
+export async function readPreparationRecord(context: ReadContext, projectId: string): Promise<PreparationRecordRow | null> {
   const { data, error } = await context.supabase.from("takeoff_preparations" as never)
     .select(PREPARATION_SELECT as never).eq("tenant_id" as never, context.tenantId as never)
     .eq("project_id" as never, projectId as never).abortSignal(new AbortController().signal).maybeSingle();
@@ -51,7 +53,7 @@ export async function readPreparationRecord(context: Context, projectId: string)
   return data as PreparationRecordRow | null;
 }
 
-export async function readPreparationSources(context: Context, projectId: string): Promise<TakeoffPreparationSource[]> {
+export async function readPreparationSources(context: ReadContext, projectId: string): Promise<TakeoffPreparationSource[]> {
   const { data: sets, error: setError } = await readAllRows(() => context.supabase.from("plan_sets")
     .select("id", { count: "exact" }).eq("tenant_id", context.tenantId).eq("project_id", projectId).order("id").abortSignal(new AbortController().signal));
   if (setError) throw mapSupabaseError(setError, "Impossible de charger les jeux de plans.");

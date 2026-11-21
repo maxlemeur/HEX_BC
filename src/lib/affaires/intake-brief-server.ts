@@ -233,9 +233,11 @@ export async function confirmAffaireBrief(input: { projectId: string; expectedUp
   }
 
   if (existing.draft.status === "confirme") {
+    // A replay of the gesture records the confirmer's mandate if the first call could not (the database keeps one).
     return {
       ok: true,
       status: "confirme",
+      takeoff: await recordAutomaticTakeoffStart(context, project.id),
     } as const;
   }
 
@@ -271,5 +273,23 @@ export async function confirmAffaireBrief(input: { projectId: string; expectedUp
   return {
     ok: true,
     status: "confirme",
+    takeoff: await recordAutomaticTakeoffStart(context, project.id),
   } as const;
+}
+
+/**
+ * The automatic start of the takeoff, once the confirmation committed: the affaire's one request is reserved and the
+ * member who confirmed is recorded as its payer, or the reason why the analysis cannot start (it is visible on the
+ * affaire, never silent). The brief stays confirmed whatever happens here.
+ */
+async function recordAutomaticTakeoffStart(context: Awaited<ReturnType<typeof requireAffaireAccess>>["context"], projectId: string) {
+  try {
+    const [{ recordAutomaticTakeoffMandate }, { headers }] = await Promise.all([
+      import("@/lib/takeoff/launch-request-server"), import("next/headers"),
+    ]);
+    return await recordAutomaticTakeoffMandate({ context, projectId, host: (await headers()).get("host") });
+  } catch (error) {
+    console.error("takeoff.launch_request.mandate_failed", { projectId, code: (error as { code?: string })?.code ?? null });
+    return null;
+  }
 }

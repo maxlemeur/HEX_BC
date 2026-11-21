@@ -36,6 +36,8 @@ type BriefDraftCardProps = {
   isReadOnly?: boolean;
   hideConfirmAction?: boolean;
   hasPlans?: boolean;
+  /** Who pays for the automatic takeoff, told at the gesture to the member it will charge. */
+  payerNotice?: string | null;
   onOpenDocuments?: () => void;
   onBackToDossier?: () => void;
 };
@@ -312,6 +314,7 @@ export function BriefDraftCard({
   isReadOnly,
   hideConfirmAction = false,
   hasPlans = false,
+  payerNotice = null,
   onOpenDocuments,
   onBackToDossier,
 }: Readonly<BriefDraftCardProps>) {
@@ -613,7 +616,7 @@ export function BriefDraftCard({
 
       <AffaireConfirmDialog open={showConfirmDialog && Boolean(briefDraft) && !isReadOnly && !isEditing}
         title="Confirmer ce brief ?"
-        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.`}
+        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.${payerNotice ? ` ${payerNotice}` : ""}`}
         confirmLabel="Oui, confirmer" confirmDisabled={isPending} cancelDisabled={isPending}
         onConfirm={() => { setShowConfirmDialog(false); handleConfirm(); }} onCancel={() => setShowConfirmDialog(false)} />
 
