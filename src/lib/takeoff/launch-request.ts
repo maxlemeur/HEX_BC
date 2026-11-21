@@ -181,6 +181,8 @@ export type TakeoffPlanLaunchUnit = {
   page_count: number | null;
   /** Its share of the request's budget: every paid call of its job needs a positive balance of it. */
   budget: { tokens: number; cost_cents: number };
+  /** Its pages of the dossier's vector reading, allotted in the recorded order (TAKEOFF_LAUNCH_VECTOR_PAGES in all). */
+  vector_pages: number;
 };
 export type AnyTakeoffLaunchManifest = TakeoffLaunchManifest | TakeoffPlanLaunchManifest;
 
@@ -212,6 +214,30 @@ export function splitTakeoffRequestBudget(budget: TakeoffLaunchManifest["budget"
   }));
 }
 
+/** The pages of the vector reading of one request, over all its plans (a grouped analysis reads as many: TAKEOFF_VECTOR_MAX_PAGES). */
+export const TAKEOFF_LAUNCH_VECTOR_PAGES = 60;
+
+/**
+ * The pages each plan is weighed by: those retained, else its page count. A plan whose page count is not known when the
+ * request is sealed (a dossier copy not read yet) weighs as the mean of the others, or as each other when none is known.
+ */
+export function takeoffPlanWeights(plans: ReadonlyArray<{ pages: number[]; page_count: number | null }>) {
+  const known = plans.map((plan) => plan.pages.length || plan.page_count || null);
+  const counted = known.filter((weight): weight is number => weight !== null);
+  const fallback = counted.length ? Math.max(1, Math.round(counted.reduce((sum, weight) => sum + weight, 0) / counted.length)) : 1;
+  return known.map((weight) => weight ?? fallback);
+}
+
+/** The dossier's vector pages allotted to its plans in the recorded order, each at most its own pages. */
+export function allotTakeoffVectorPages(weights: ReadonlyArray<number>, total = TAKEOFF_LAUNCH_VECTOR_PAGES) {
+  let left = total;
+  return weights.map((weight) => {
+    const pages = Math.max(0, Math.min(weight, left));
+    left -= pages;
+    return pages;
+  });
+}
+
 /** The manifest of format 2 (lot 3): one unit per active plan of the snapshot the request seals, in the recorded order. */
 export function buildTakeoffPlanLaunchManifest(input: TakeoffLaunchManifestInput): TakeoffPlanLaunchManifest {
   const entries = sealedManifestEntries(input);
@@ -219,12 +245,13 @@ export function buildTakeoffPlanLaunchManifest(input: TakeoffLaunchManifestInput
   if (plans.length === 0 || plans.length > TAKEOFF_LAUNCH_MAX_UNITS) {
     throw new Error(`A request seals between 1 and ${TAKEOFF_LAUNCH_MAX_UNITS} plans.`);
   }
-  const weights = plans.map((plan) => plan.pages.length || plan.page_count || 1);
+  const weights = takeoffPlanWeights(plans);
   const shares = splitTakeoffRequestBudget(input.budget, weights);
+  const vectors = allotTakeoffVectorPages(weights);
   return {
     format_version: 2, intent: input.intent, order: { kind: "free_extraction", version: 1, list: null },
     units: plans.map((plan, index) => ({ key: takeoffPlanUnitKey(plan.entry_key), ordinal: index + 1, plans: [plan.entry_key],
-      pages: plan.pages, page_count: plan.page_count, budget: shares[index] })),
+      pages: plan.pages, page_count: plan.page_count, budget: shares[index], vector_pages: vectors[index] })),
     plans, references: entries.references,
     coverage: { plans_retained: plans.length, plans_omitted: input.omittedPlans, references_omitted: input.omittedReferences },
     preparation: { revision: input.preparationRevision, rule_version: 1 },

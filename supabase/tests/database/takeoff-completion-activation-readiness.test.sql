@@ -244,9 +244,12 @@ select results_eq($$select job_id, reason_code from public.takeoff_completion_no
 select is(private.takeoff_public_failure_codes(), array['AI_PROVIDER', 'AI_RATE_LIMIT', 'AI_SAFETY', 'AI_SCHEMA', 'AI_TIMEOUT',
   'FORBIDDEN', 'INTERNAL_ERROR',
   'TAKEOFF_FILE_TOO_LARGE', 'TAKEOFF_FILE_TYPE_INVALID', 'TAKEOFF_LEVEL_C_BUDGET_EXCEEDED', 'TAKEOFF_LEVEL_C_INVALID_SCHEMA',
-  'TAKEOFF_LEVEL_C_TIMEOUT', 'TAKEOFF_PDF_CORRUPTED', 'TAKEOFF_PDF_NOT_INTERPRETABLE', 'TAKEOFF_WORKER_HOST_SILENT',
+  'TAKEOFF_LEVEL_C_TIMEOUT', 'TAKEOFF_PDF_CORRUPTED', 'TAKEOFF_PDF_NOT_INTERPRETABLE', 'TAKEOFF_REQUEST_BUDGET_EXHAUSTED',
+  'TAKEOFF_USAGE_UNRECORDED', 'TAKEOFF_WORKER_HOST_SILENT',
   'TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', 'TAKEOFF_WORKER_QUEUE_EXPIRED'],
   'the allow-list holds the codes the application labels in French (FAILURE_FACTS, src/lib/takeoff/visible-status.ts)');
+-- Lot 3 (20261121181031_takeoff_plan_dispatcher.sql) added the two codes of the launch requests, labelled there too; the
+-- internal code of case 6 above (TAKEOFF_PREPARATION_SOURCE_CHANGED) is still not published.
 
 select * from finish();
 rollback;

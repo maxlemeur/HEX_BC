@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildTakeoffLaunchManifest, buildTakeoffPlanLaunchManifest, compareTakeoffPlansForDispatch, splitTakeoffRequestBudget,
-  takeoffPlanUnitKey, TAKEOFF_LAUNCH_MAX_UNITS,
+  allotTakeoffVectorPages, buildTakeoffLaunchManifest, buildTakeoffPlanLaunchManifest, compareTakeoffPlansForDispatch, splitTakeoffRequestBudget,
+  takeoffPlanUnitKey, takeoffPlanWeights, TAKEOFF_LAUNCH_MAX_UNITS,
 } from "@/lib/takeoff/launch-request";
 import {
   describeTakeoffCoverage, describeTakeoffRequestEnd, summarizeTakeoffCoverage, type TakeoffUnitState,
@@ -53,10 +53,14 @@ describe("the manifest of one analysis per plan (format 2)", () => {
 
   it("shares the request's envelope by pages read and never leaves a unit without a positive balance", () => {
     const manifest = buildTakeoffPlanLaunchManifest(input);
-    // Weights: 2 pages, the whole of a plan whose page count is unknown (1), 4 pages.
+    // Weights: 2 retained pages; a plan whose page count is unknown weighs as the mean of the others (3); 4 pages.
     expect(manifest.units.map((unit) => unit.budget)).toEqual([
-      { tokens: 114_286, cost_cents: 715 }, { tokens: 57_143, cost_cents: 358 }, { tokens: 228_572, cost_cents: 1_429 },
+      { tokens: 88_889, cost_cents: 556 }, { tokens: 133_334, cost_cents: 834 }, { tokens: 177_778, cost_cents: 1_112 },
     ]);
+    // The dossier's sixty vector pages, in the recorded order, each plan at most its own pages.
+    expect(manifest.units.map((unit) => unit.vector_pages)).toEqual([2, 3, 4]);
+    expect(allotTakeoffVectorPages([40, 30, 5])).toEqual([40, 20, 0]);
+    expect(takeoffPlanWeights([{ pages: [], page_count: null }, { pages: [], page_count: null }])).toEqual([1, 1]);
     const total = manifest.units.reduce((sum, unit) => sum + unit.budget.tokens, 0);
     expect(total).toBeGreaterThanOrEqual(input.budget.tokens);
     expect(total).toBeLessThan(input.budget.tokens + manifest.units.length);

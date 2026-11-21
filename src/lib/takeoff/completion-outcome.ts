@@ -4,13 +4,14 @@ export type TakeoffAnalysisOutcome = "success" | "failure" | "canceled";
 
 /**
  * The codes of an end that the database publishes to the inbox and to the affaire's readers
- * (private.takeoff_public_failure_codes, 20261121020321_takeoff_completion_before_activation.sql): each has a public
+ * (private.takeoff_public_failure_codes, last written by 20261121181031_takeoff_plan_dispatcher.sql): each has a public
  * French reason. Any other code is shown as the generic reason. Add a code to both lists, never to one.
  */
 export const TAKEOFF_PUBLIC_FAILURE_CODES = [
   "AI_PROVIDER", "AI_RATE_LIMIT", "AI_SAFETY", "AI_SCHEMA", "AI_TIMEOUT", "FORBIDDEN", "INTERNAL_ERROR", "TAKEOFF_FILE_TOO_LARGE",
   "TAKEOFF_FILE_TYPE_INVALID", "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED", "TAKEOFF_LEVEL_C_INVALID_SCHEMA",
-  "TAKEOFF_LEVEL_C_TIMEOUT", "TAKEOFF_PDF_CORRUPTED", "TAKEOFF_PDF_NOT_INTERPRETABLE", "TAKEOFF_WORKER_HOST_SILENT",
+  "TAKEOFF_LEVEL_C_TIMEOUT", "TAKEOFF_PDF_CORRUPTED", "TAKEOFF_PDF_NOT_INTERPRETABLE", "TAKEOFF_REQUEST_BUDGET_EXHAUSTED",
+  "TAKEOFF_USAGE_UNRECORDED", "TAKEOFF_WORKER_HOST_SILENT",
   "TAKEOFF_WORKER_NOT_STARTED", "TAKEOFF_WORKER_OUTCOME_UNKNOWN", "TAKEOFF_WORKER_QUEUE_EXPIRED",
 ] as const;
 

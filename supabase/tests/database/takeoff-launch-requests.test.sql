@@ -380,8 +380,10 @@ select results_eq($$select outcome, job_id from public.admit_takeoff_launch_requ
 update public.takeoff_jobs set status = 'failed', error_code = 'TAKEOFF_WORKER_NOT_STARTED', error_message = 'Aucun Mac fictif',
   analysis_outcome = 'failure', completed_at = clock_timestamp(), next_retry_at = null
 where id = pg_temp.f(68) and status = 'pending';
-select results_eq($$select state, outcome, units_failed from public.takeoff_launch_requests where id = pg_temp.request(23)$$,
-  $$values ('closed'::text, 'failure'::text, 1)$$, 'an admitted request whose job never started ends visibly');
+-- Lot 3 (20261121181031_takeoff_plan_dispatcher.sql) counts a unit that never started apart from one that failed: each
+-- unit in exactly one state. A unit that started and failed still counts as failed (takeoff-plan-dispatcher.test.sql).
+select results_eq($$select state, outcome, units_failed, units_not_started from public.takeoff_launch_requests where id = pg_temp.request(23)$$,
+  $$values ('closed'::text, 'failure'::text, 0, 1)$$, 'an admitted request whose job never started ends visibly');
 select results_eq($$select outcome, plans_read_count, plans_failed_count, plans_not_started_count, recipient_user_id
   from public.takeoff_completion_notifications where request_id = pg_temp.request(23)$$,
   $$values ('failure'::text, 0, 0, 1, pg_temp.f(1))$$, 'its notice counts the plan as not started, for its payer');
