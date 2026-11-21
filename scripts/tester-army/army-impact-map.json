@@ -832,6 +832,27 @@
       ]
     },
     {
+      "id": "takeoff-request-activity",
+      "note": "Centre d'activité d'une affaire (lot 3, TKPA01) : la dernière demande de lancement et ses plans lus un à un, « Revoir [plan] » dès le premier plan lu, l'analyse groupée du lot 2, un seul poll léger arrêté quand tout est final, lecteur sans action.",
+      "paths": [
+        "src/lib/takeoff/request-activity*",
+        "src/lib/takeoff/launch-request-coverage.ts",
+        "src/components/takeoff/TakeoffRequest*",
+        "src/components/takeoff/useTakeoffRequestActivity.ts",
+        "src/components/takeoff/TakeoffActivityCenter.tsx",
+        "src/components/takeoff/TakeoffActivityNextStep.ts",
+        "src/app/api/takeoff/activity-center/**",
+        "src/app/dashboard/affaires/[projectId]/takeoff/page.tsx",
+        "src/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/page.tsx",
+        "e2e/army/takeoff/affaire-plan-analyses.e2e.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/affaire-plan-analyses.e2e.ts",
+        "e2e/army/takeoff/worker-lifecycle.e2e.ts",
+        "e2e/army/critical/hub-plans-card.e2e.ts"
+      ]
+    },
+    {
       "id": "affaire-send",
       "note": "Envoi d'un métré d'affaire au tableau de chiffrage (lot 2, M2) : aperçu par essai à blanc, premier brouillon, plan A puis plan B sur les deux moteurs, page relue, copie et métrés reportés, ligne PE gaz bloquée par la seule destination et forcée par un administrateur (TKAW05).",
       "paths": [
