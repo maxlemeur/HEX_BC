@@ -232,4 +232,34 @@ describe("takeoff completion email", () => {
     expect(message.text.endsWith(`\nhttps://estimates.example.test/dashboard/affaires/${claim.project_id}`)).toBe(true);
     expect(message.text).not.toContain("/takeoff");
   });
+
+  // Lot 3: one notice and one e-mail for a request of several plans, at the end of its last plan, with its counts and a
+  // link that opens the activity on that request.
+  const requestClaim: CompletionEmailClaim = { ...claim, job_id: null, subject_kind: "request",
+    request_id: "8f400000-0000-4000-8000-000000000041", outcome: "partial", plans_read_count: 2, plans_failed_count: 1,
+    plans_not_started_count: 0 };
+  it("tells the end of a request of plans with its counts, and links to that request's activity", async () => {
+    const io = { ...fixture(), requestEnd: vi.fn().mockResolvedValue({ expected: 3, canceled: 0, stopped: false }) };
+    await deliverTakeoffCompletionEmail(requestClaim, io, env, sendingAt);
+    const [message] = io.send.mock.calls[0];
+    expect(message.subject).toBe("[TEST → requester@example.test] Votre métré est terminé en partie");
+    expect(message.text).toContain("2 plans lus sur 3.");
+    expect(message.text).toContain(`https://estimates.example.test/dashboard/affaires/${claim.project_id}/takeoff?request=${requestClaim.request_id}`);
+  });
+
+  it("tells a requester who stopped the rest of a request which plans are available", async () => {
+    const io = { ...fixture(), requestEnd: vi.fn().mockResolvedValue({ expected: 3, canceled: 2, stopped: true }) };
+    await deliverTakeoffCompletionEmail({ ...requestClaim, plans_read_count: 1, plans_failed_count: 0 }, io, env, sendingAt);
+    expect(io.send.mock.calls[0][0].text).toContain("1 plan disponible, 2 arrêtés à votre demande.");
+  });
+
+  it("keeps the wording of one analysis for a grouped request (one unit), whatever its plans", async () => {
+    const single = { ...fixture(), requestEnd: vi.fn().mockResolvedValue({ expected: 1, canceled: 0, stopped: false }) };
+    await deliverTakeoffCompletionEmail({ ...requestClaim, outcome: "success", plans_read_count: 4, plans_failed_count: 0 }, single, env, sendingAt);
+    expect(single.send.mock.calls[0][0].text).toContain("Le résultat de votre analyse est disponible dans l’affaire.");
+    // Without the request's row, the notice's own counts tell it.
+    const unread = { ...fixture(), requestEnd: vi.fn().mockResolvedValue(null) };
+    await deliverTakeoffCompletionEmail({ ...requestClaim, outcome: "success", plans_read_count: 3, plans_failed_count: 0 }, unread, env, sendingAt);
+    expect(unread.send.mock.calls[0][0].text).toContain("Les 3 plans de votre analyse ont été lus.");
+  });
 });

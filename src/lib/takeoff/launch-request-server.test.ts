@@ -49,7 +49,9 @@ const BYTES = new TextEncoder().encode("%PDF-1.4 plan fictif du rez-de-chaussée
 const SELECTION = { profileId: "profil-fictif", model: "modele-fictif", reasoningEffort: null, hostId: HOST, authorizationId: "autorisation-1" };
 const FILE_PATH = `${TENANT}/${PLAN_SET}/${PLAN_FILE}/plan-rdc.pdf`;
 
-function dossier(input: { classification?: string; copy?: "same" | "older" | "legacy" | "none"; executionHost?: string; running?: boolean } = {}) {
+function dossier(input: { classification?: string; copy?: "same" | "older" | "legacy" | "none"; executionHost?: string; running?: boolean;
+  /** The owner activated one analysis per plan. */
+  perPlan?: boolean } = {}) {
   const document = {
     id: DOCUMENT, tenant_id: TENANT, project_id: PROJECT, upload_id: "aaaaaaaa-0000-4000-8000-000000000070", created_by: PAYER,
     storage_path: `${TENANT}/dossier/plan-rdc.pdf`, deletion_token: null, plan_copy_generation: "generation-2",
@@ -89,9 +91,11 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
           mandate_selection: SELECTION, payer_eligible: true }] : [], error: null }),
       record_takeoff_launch_evaluation: (args) => { recorded.push(args); return { data: "blocked", error: null }; },
       record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
+      takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan === true, error: null }),
       admit_takeoff_launch_request: (args) => {
         admitted.push(args);
-        return { data: [{ outcome: "admitted", job_id: (args as { p_job: { id: string } }).p_job.id, reason_code: null }], error: null };
+        const job = (args as { p_job: { id: string } | Array<{ id: string }> }).p_job;
+        return { data: [{ outcome: "admitted", job_id: Array.isArray(job) ? job[0].id : job.id, reason_code: null }], error: null };
       },
     },
   });
@@ -186,6 +190,22 @@ describe("evaluateTakeoffLaunchRequests", () => {
     expect(admitted).toEqual([]);
   });
 
+  // Lot 3: once the owner activated one analysis per plan, the same seal is admitted as one unit per plan, each with its
+  // own job identified by the request and its unit, and the Mac's dispatcher is handed them.
+  it("admits one unit per plan with its job once one analysis per plan is active", async () => {
+    const { admitted } = dossier({ perPlan: true });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ requestId: REQUEST, outcome: "admitted" });
+    const call = admitted[0] as { p_manifest: Record<string, unknown>; p_job: Array<Record<string, unknown>> };
+    expect(call.p_manifest).toMatchObject({ format_version: 2, dispatch: { order: "display_name", version: 1 },
+      units: [{ key: `plan:${PLAN_FILE}`, ordinal: 1, plans: [PLAN_FILE], budget: { tokens: 400000, cost_cents: 2500 }, vector_pages: 1 }],
+      budget: { tokens: 400000, cost_cents: 2500 } });
+    expect(call.p_job).toEqual([expect.objectContaining({ launch_unit_key: `plan:${PLAN_FILE}`, plan_set_id: PLAN_SET,
+      execution_host_id: HOST, id: expect.stringMatching(/^[0-9a-f-]{36}$/) })]);
+    expect(result.jobId).toBe(call.p_job[0].id);
+    expect(runLocalTakeoffAttempts).toHaveBeenCalledWith(expect.objectContaining({ jobId: call.p_job[0].id }));
+  });
+
   it("asks the claim with the server's module default, and admits with it", async () => {
     const { fake } = dossier();
     await evaluateTakeoffLaunchRequests();
@@ -235,7 +255,7 @@ describe("describeDossierChangeSinceAnalysis", () => {
 // The gestures: the brief's confirmation records who pays, on this Mac, or why nobody does; a take-over and a relaunch.
 const NOTICE = "a".repeat(64);
 function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown>; outcome?: string; replayed?: Record<string, unknown>;
-  mayPay?: boolean; action?: string } = {}) {
+  mayPay?: boolean; action?: string; perPlan?: boolean } = {}) {
   const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
   const record = (fn: string, data: unknown) => (args: unknown) => { calls.push({ fn, args: args as Record<string, unknown> }); return { data, error: null }; };
   const row = { request_id: REQUEST, state: "evaluating", reason_code: null, payer_id: PAYER, ...input.reply };
@@ -248,7 +268,12 @@ function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown
     take_on_takeoff_launch_request: record("take_on", [{ outcome: input.outcome ?? "mandated", mandate_revision: 2, ...row }]),
     takeoff_payer_notice: record("notice", NOTICE),
     replay_manual_takeoff_request: record("replay", input.replayed ? [input.replayed] : []),
+    replay_manual_takeoff_plan_request: record("replay_plans", input.replayed ? [input.replayed] : []),
+    takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan === true, error: null }),
     claim_takeoff_launch_evaluations: () => ({ data: [], error: null }),
+  }, tables: {
+    // The analysis a command replaces: a plan's unit of one analysis per plan.
+    takeoff_jobs: () => ({ data: { launch_unit_key: `plan:${PLAN_FILE}`, preparation_snapshot: null }, error: null }),
   } });
   vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
   return { calls: (fn: string) => calls.filter((call) => call.fn === fn).map((call) => call.args) };
@@ -386,4 +411,28 @@ describe("launchTakeoffRelaunch", () => {
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
   });
 
+  // Lot 3: once one analysis per plan is active, a relaunch reads by default only the plan of the analysis it replaces,
+  // and its identity names that plan; its replay is still answered before any preparation is read.
+  it("answers a replayed relaunch of one plan by the plans it reads, before reading the preparation", async () => {
+    const { calls } = gesture({ perPlan: true, replayed: { outcome: "replayed", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000cc" } });
+    expect(await relaunch()).toEqual({ outcome: "replayed", requestId: REQUEST, jobId: "aaaaaaaa-0000-4000-8000-0000000000cc" });
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "reread_plans", p_plan_file_ids: [PLAN_FILE],
+      p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb" })]);
+    expect(calls("replay")).toEqual([]);
+    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+  });
+
+  it("reads a plan added after the analysis by a command that names it, without a predecessor", async () => {
+    const { calls } = gesture({ perPlan: true, replayed: { outcome: "replayed", request_id: REQUEST, job_id: null } });
+    await launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab", planFileIds: [PLAN_FILE.toUpperCase()] });
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "initial", p_predecessor_job_id: null,
+      p_plan_file_ids: [PLAN_FILE] })]);
+  });
+
+  it("refuses a relaunch that names no analysis before one analysis per plan is active", async () => {
+    gesture();
+    await expect(launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000ac", planFileIds: [PLAN_FILE] })).rejects.toMatchObject({ status: 422 });
+  });
 });

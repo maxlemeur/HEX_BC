@@ -256,22 +256,28 @@ export function allotTakeoffVectorPages(weights: ReadonlyArray<number>, total = 
 
 /** The manifest of format 2 (lot 3): one unit per active plan of the snapshot the request seals, in the recorded order. */
 export function buildTakeoffPlanLaunchManifest(input: TakeoffLaunchManifestInput): TakeoffPlanLaunchManifest {
-  const entries = sealedManifestEntries(input);
-  const plans = [...entries.plans].sort(compareTakeoffPlansForDispatch);
+  return splitTakeoffLaunchManifest(buildTakeoffLaunchManifest(input));
+}
+
+/**
+ * The same seal, one unit per plan: the grouped manifest's plans, references and coverage, its plans in the recorded
+ * order, each with its share of the envelope and of the dossier's vector pages. Nothing is read again: the plans are
+ * those the request's one seal verified.
+ */
+export function splitTakeoffLaunchManifest(grouped: TakeoffLaunchManifest): TakeoffPlanLaunchManifest {
+  const plans = [...grouped.plans].sort(compareTakeoffPlansForDispatch);
   if (plans.length === 0 || plans.length > TAKEOFF_LAUNCH_MAX_UNITS) {
     throw new Error(`A request seals between 1 and ${TAKEOFF_LAUNCH_MAX_UNITS} plans.`);
   }
   const weights = takeoffPlanWeights(plans);
-  const shares = splitTakeoffRequestBudget(input.budget, weights);
+  const shares = splitTakeoffRequestBudget(grouped.budget, weights);
   const vectors = allotTakeoffVectorPages(weights);
   return {
-    format_version: 2, intent: input.intent, order: { kind: "free_extraction", version: 1, list: null },
+    ...grouped,
+    format_version: 2,
     units: plans.map((plan, index) => ({ key: takeoffPlanUnitKey(plan.entry_key), ordinal: index + 1, plans: [plan.entry_key],
       pages: plan.pages, page_count: plan.page_count, budget: shares[index], vector_pages: vectors[index] })),
-    plans, references: entries.references,
-    coverage: { plans_retained: plans.length, plans_omitted: input.omittedPlans, references_omitted: input.omittedReferences },
-    preparation: { revision: input.preparationRevision, rule_version: 1 },
-    budget: input.budget,
+    plans,
     dispatch: { order: "display_name", version: 1 },
   };
 }
