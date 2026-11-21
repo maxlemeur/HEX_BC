@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@base-ui/react/tabs";
-import { ArrowRight, History, MessageSquareText, Trash2 } from "lucide-react";
+import { ArrowRight, History, MessageSquareText, Settings, Trash2 } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -191,7 +191,7 @@ function ReadyEditor({
         </div>
       </div>
       {canWrite ? (
-        <details className="mr-request-actions border-t border-border py-3 text-sm"><summary role="button" className="w-fit cursor-pointer font-medium text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring">Demande</summary><div className="mt-3">
+        <details className="mr-request-actions border-t border-border py-3 text-sm"><summary role="button" aria-label="Options de la demande" title="Options de la demande" className="cursor-pointer text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"><Settings aria-hidden="true" className="size-5" /></summary><div className="mt-3">
           <ConfirmButton
             variant="outline"
             label="Supprimer la demande"
