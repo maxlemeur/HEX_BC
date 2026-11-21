@@ -13,30 +13,33 @@ import { runSafeTakeoffAction } from "@/lib/takeoff/action-errors-server";
 import { findTakeoffPreparationCopyReceipt, recordTakeoffPreparationCopy } from "@/lib/takeoff/preparation-copy-provenance-server";
 import type { TakeoffJobCreateResponse } from "@/lib/takeoff/job-creation-input";
 
+// Identifiers are compared as text by the replay of a launch (its copy receipt is JSON): one spelling, lower case.
+const uuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
+
 const launchTakeoffFromPlanSetSchema = z.object({
-  projectId: z.string().uuid(),
-  planSetId: z.string().uuid(),
-  versionId: z.string().uuid(),
+  projectId: uuidSchema,
+  planSetId: uuidSchema,
+  versionId: uuidSchema,
   level: z.enum(["B", "C"]).optional(),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
   preparationRevision: z.number().int().positive().optional(),
-  sourceVersionId: z.string().uuid().optional(),
+  sourceVersionId: uuidSchema.optional(),
 });
 
-export type LaunchTakeoffFromPlanSetInput = z.infer<
+export type LaunchTakeoffFromPlanSetInput = z.input<
   typeof launchTakeoffFromPlanSetSchema
 >;
 
 const launchTakeoffFromSourceVersionPlanSetSchema = z.object({
-  projectId: z.string().uuid(),
-  planSetId: z.string().uuid(),
-  sourceVersionId: z.string().uuid(),
+  projectId: uuidSchema,
+  planSetId: uuidSchema,
+  sourceVersionId: uuidSchema,
   level: z.enum(["B", "C"]).optional(),
   provider: z.enum(["auto", "chatgpt", "gemini"]).optional(),
   preparationRevision: z.number().int().positive().optional(),
 });
 
-export type LaunchTakeoffFromSourceVersionPlanSetInput = z.infer<
+export type LaunchTakeoffFromSourceVersionPlanSetInput = z.input<
   typeof launchTakeoffFromSourceVersionPlanSetSchema
 >;
 
