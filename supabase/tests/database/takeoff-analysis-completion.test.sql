@@ -502,32 +502,62 @@ select results_eq($$select n.recipient_user_id, n.recipient_email, j.created_by
     '8f400000-0000-4000-8000-000000000001'::uuid)$$,
   'an accepted legacy relaunch notifies the administrator, preserving the original creator');
 
-insert into public.estimate_projects (id, tenant_id, user_id, name)
-select '8f400000-0000-4000-8000-000000000012', tenant_id,
-  '8f400000-0000-4000-8000-000000000002', 'Seconde affaire fictive'
-from completion_fixture;
+-- M1 is applied first: a job admitted through its RPC without a version
+-- carries its own affaire, and its end is published there.
 insert into public.plan_sets (id, tenant_id, project_id, name)
-select '8f400000-0000-4000-8000-000000000013', tenant_id,
-  '8f400000-0000-4000-8000-000000000010', 'Jeu de plans mobile'
+select '8f400000-0000-4000-8000-000000000014', tenant_id, '8f400000-0000-4000-8000-000000000010', 'Jeu de plans fictif'
 from completion_fixture;
-update public.plan_sets set project_id = '8f400000-0000-4000-8000-000000000012'
-where id = '8f400000-0000-4000-8000-000000000013';
-
--- Supply the publisher with M1's NEW shape without requiring M1 or changing
--- any production table constraints. The notice's FKs still target real rows.
-create temporary table versionless_completion as select j.* from public.takeoff_jobs j with no data;
-alter table versionless_completion add column if not exists project_id uuid;
-create trigger publish_versionless_completion after insert on versionless_completion for each row
-execute function private.publish_takeoff_analysis_completion();
-insert into versionless_completion (id, tenant_id, project_id, plan_set_id, created_by,
-  analysis_completion_event_id, analysis_outcome, analysis_finished_at)
-select '8f400000-0000-4000-8000-000000000084', tenant_id, '8f400000-0000-4000-8000-000000000010',
-  '8f400000-0000-4000-8000-000000000013', '8f400000-0000-4000-8000-000000000001',
-  gen_random_uuid(), 'success', clock_timestamp()
+insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+select '8f400000-0000-4000-8000-000000000015', tenant_id, '8f400000-0000-4000-8000-000000000014', 'plan-fictif.pdf',
+  concat_ws('/', tenant_id, '8f400000-0000-4000-8000-000000000014', '8f400000-0000-4000-8000-000000000015', 'plan-fictif.pdf'),
+  'application/pdf', 8, 1
 from completion_fixture;
-select is((select project_id from public.takeoff_completion_notifications where job_id = '8f400000-0000-4000-8000-000000000084'),
-  '8f400000-0000-4000-8000-000000000010'::uuid,
-  'a versionless job publishes to its frozen affaire after its plan set moves');
+with preparation as (
+  select jsonb_build_object('schema_version', 1,
+    'destination', '{"kind":"analysis_only","estimate_version_id":null}'::jsonb,
+    'processing', '{"level":"C","provider":"chatgpt"}'::jsonb,
+    'sources', jsonb_build_array(jsonb_build_object(
+      'document_id', id, 'kind', 'plan', 'active', true, 'confirmed', true, 'plan_set_id', plan_set_id,
+      'file_path', file_path, 'page_count', page_count, 'source_updated_at', updated_at))) as draft
+  from public.plan_files where id = '8f400000-0000-4000-8000-000000000015'
+)
+insert into public.takeoff_preparations (tenant_id, project_id, revision, draft, confirmed_snapshot, confirmed_at, confirmed_by, updated_by)
+select f.tenant_id, '8f400000-0000-4000-8000-000000000010', 1, draft,
+  jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 'confirmed_by', '8f400000-0000-4000-8000-000000000002',
+    'confirmed_at', '2026-11-20T00:00:00Z', 'readiness', '{"can_launch":true}'::jsonb, 'preparation', draft),
+  '2026-11-20T00:00:00Z', '8f400000-0000-4000-8000-000000000002', '8f400000-0000-4000-8000-000000000002'
+from preparation cross join completion_fixture f;
+create temporary table versionless_admission as
+select jsonb_build_object('id', '8f400000-0000-4000-8000-000000000095', 'tenant_id', p.tenant_id, 'project_id', p.project_id,
+  'plan_set_id', '8f400000-0000-4000-8000-000000000014', 'level', 'C', 'created_by', '8f400000-0000-4000-8000-000000000002',
+  'execution_provider', 'chatgpt_local', 'execution_host_id', 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  'processing_strategy', 'sync', 'preparation_snapshot', p.confirmed_snapshot,
+  'classification', '{"recommended_level":"C"}'::jsonb, 'selection', '{"selected_level":"C"}'::jsonb) as job
+from public.takeoff_preparations p where p.project_id = '8f400000-0000-4000-8000-000000000010';
+grant select on versionless_admission to authenticated;
+select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000002', true);
+select set_config('request.jwt.claims', '{"role":"authenticated","sub":"8f400000-0000-4000-8000-000000000002"}', true);
+set local role authenticated;
+select lives_ok($$select * from public.admit_prepared_takeoff_job((select job from versionless_admission))$$,
+  'the administrator admits an analysis of the affaire without a version');
+reset role;
+set local role service_role;
+select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
+  '8f400000-0000-4000-8000-000000000095', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
+  now(), 'aaaaaaaa-0000-4000-8000-000000000095', now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 1::bigint,
+  'the versionless job is claimed');
+select isnt(public.finalize_local_takeoff_result('8f400000-0000-4000-8000-000000000095', (select tenant_id from completion_fixture),
+  'aaaaaaaa-0000-4000-8000-000000000095', clock_timestamp(), 'fixture', 'fixture',
+  '{"extracted_json": {"items": [{"designation":"Ligne sans version"}]}, "warnings": [], "tables": [], "provider_meta": {}}',
+  '[{"designation":"Ligne sans version", "quantity": 1, "unit":"u", "metadata": {}, "is_excluded": false, "rules_stale": false}]'),
+  null, 'the versionless job completes');
+reset role;
+select results_eq($$select j.estimate_version_id, j.project_id, n.project_id, n.outcome
+  from public.takeoff_jobs j join public.takeoff_completion_notifications n on n.id = j.analysis_completion_event_id
+  where j.id = '8f400000-0000-4000-8000-000000000095'$$,
+  $$values (null::uuid, '8f400000-0000-4000-8000-000000000010'::uuid, '8f400000-0000-4000-8000-000000000010'::uuid,
+    'success'::text)$$,
+  'a versionless job publishes its end to its own affaire');
 
 -- After activation the same writer publishes the definitive end it commits.
 insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, created_by, execution_provider, execution_host_id)

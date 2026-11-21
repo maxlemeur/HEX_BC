@@ -22,7 +22,7 @@ it("reaches an accepted pending job beyond a page of due retries whose claims al
   client.from.mockImplementation((table: string) => {
     if (table === "audit_logs") {
       // Job 6 was admitted: its creation record is written.
-      const receipts = { select: () => receipts, eq: () => receipts, in: () => receipts,
+      const receipts = { select: () => receipts, eq: () => receipts, in: () => receipts, gte: () => receipts,
         then: (resolve: (value: unknown) => unknown) => resolve({ error: null,
           data: [{ tenant_id: "t", record_id: "6", created_at: createdAt }] }) };
       return receipts;
@@ -70,6 +70,7 @@ it("takes an accepted pending job only once its creation record is written", asy
         return query;
       },
       in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(row[column])); return query; },
+      gte: (column: string, value: string) => { filters.push((row) => String(row[column]) >= value); return query; },
       is: () => query,
       or: () => query,
       gt: () => query,
@@ -111,6 +112,7 @@ it("does not take a job on the creation record of an earlier attempt that reused
         return query;
       },
       in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(row[column])); return query; },
+      gte: (column: string, value: string) => { filters.push((row) => String(row[column]) >= value); return query; },
       is: () => query,
       or: () => query,
       gt: () => query,

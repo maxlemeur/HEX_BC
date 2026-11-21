@@ -1,4 +1,4 @@
--- Lot 2, end-of-analysis notice (migration 20261120204433_takeoff_analysis_completion.sql). A worker records a known
+-- Lot 2, end-of-analysis notice (migration 20261121011212_takeoff_analysis_completion.sql). A worker records a known
 -- retryable failure while another session holds the job's previous result row. The diagnostic that replaces that row
 -- is best effort: it gives up on the held row, or on the caller's statement timeout, and the failure with its
 -- automatic retry is recorded anyway. Isolation justified: a held row and a statement timeout interleave only across

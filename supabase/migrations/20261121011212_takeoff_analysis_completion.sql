@@ -323,7 +323,8 @@ language plpgsql security definer
 set search_path = pg_catalog
 as $$
 declare
-  affaire_id uuid := (to_jsonb(new) ->> 'project_id')::uuid;
+  -- M1 (applied first) froze the job's own affaire on every job, versionless ones included.
+  affaire_id uuid := new.project_id;
   requester_id uuid := coalesce(new.analysis_requested_by, new.created_by);
   logical_email text;
   initial_state text := 'unavailable';
@@ -334,16 +335,6 @@ begin
     return null;
   end if;
 
-  -- A job admitted by affaire carries its frozen scope. Use the historical
-  -- sources only when that field is absent so both migrations can land first.
-  if affaire_id is null then
-    select v.project_id into affaire_id from public.estimate_versions v
-      where v.id = new.estimate_version_id and v.tenant_id = new.tenant_id;
-  end if;
-  if affaire_id is null then
-    select s.project_id into affaire_id from public.plan_sets s
-      where s.id = new.plan_set_id and s.tenant_id = new.tenant_id;
-  end if;
   if affaire_id is null then
     raise exception 'TAKEOFF_COMPLETION_PROJECT_MISSING' using errcode = '23514';
   end if;

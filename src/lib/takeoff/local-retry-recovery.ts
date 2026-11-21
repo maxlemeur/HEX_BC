@@ -31,11 +31,15 @@ function timestampMicros(value: string | null) {
 async function readAdmittedJobIds(client: ServiceRoleClient,
   pending: Array<{ id: string; tenant_id: string; created_at: string }>) {
   if (pending.length === 0) return new Set<string>();
+  // A short range of audit_logs_tenant_table_created_idx: records written since the oldest row of this page.
+  const earliest = pending.reduce((oldest, job) =>
+    timestampMicros(job.created_at) < timestampMicros(oldest) ? job.created_at : oldest, pending[0].created_at);
   const { data, error } = await client.from("audit_logs")
     .select("tenant_id, record_id, created_at")
-    .eq("table_name", "takeoff_jobs")
-    .eq("action", "takeoff.job.created")
     .in("tenant_id", [...new Set(pending.map((job) => job.tenant_id))])
+    .eq("table_name", "takeoff_jobs")
+    .gte("created_at", earliest)
+    .eq("action", "takeoff.job.created")
     .in("record_id", pending.map((job) => job.id));
   if (error) throw error;
   return new Set(data.filter((receipt) => pending.some((job) => job.id === receipt.record_id
