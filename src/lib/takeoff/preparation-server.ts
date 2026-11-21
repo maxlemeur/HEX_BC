@@ -247,7 +247,8 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
     omittedReferences.push({ id: source.document_id, name: source.document_name, reason });
   };
   const sealed = draft.sources.filter((source) => source.active && !source.document_id.startsWith("upload:"));
-  // From the rows alone, before any download.
+  // From the rows alone, before any download. A reference left out after its download keeps its share of the file and
+  // size bounds: the worker's bounds are never passed, at the price of a later reference left out that would have fit.
   const budget = createPreparationReferenceBudget();
   const formats = new Map<TakeoffPreparationSource, PreparationReferenceFormat>();
   for (const source of sealed.filter((entry) => entry.kind !== "plan")) {
