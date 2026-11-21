@@ -1,3 +1,4 @@
+import { boundTakeoffAttemptByRequest, readTakeoffRequestBudget } from "@/lib/takeoff/launch-request-budget";
 import type { StructuredCall, TokenUsage } from "@/lib/ai/structured-call";
 import {
   buildPdfChunks,
@@ -104,12 +105,13 @@ export async function processLevelCChunks(input: {
     });
   }
 
-  const levelCProcessingConfig = await getTakeoffLevelCProcessingConfigForTenant(
+  // The per-job budget of the detailed reading, within what the job's launch request has left over its attempts.
+  const levelCProcessingConfig = boundTakeoffAttemptByRequest(await getTakeoffLevelCProcessingConfigForTenant(
     input.job.tenant_id,
     {
       supabase: input.supabase,
     }
-  );
+  ), await readTakeoffRequestBudget(input.job.id), input.job.id);
 
   if (pageCount > levelCProcessingConfig.maxPdfPages) {
     throw new TakeoffError({
