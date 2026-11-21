@@ -87,7 +87,9 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId:
   }
   const names = ["PATH", "TMPDIR", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
     "E2E_LOGIN_EMAIL", "E2E_LOGIN_PASSWORD", "E2E_ALLOWED_SUPABASE_HOST", "E2E_ARMY_LOCAL_DB_URL", "E2E_ARMY_BASE_URL",
-    "E2E_COVERAGE_BACKEND_ORIGIN", "E2E_COVERAGE_NETWORK_LOG", "E2E_ARMY_BLOCK_WORKERS", "E2E_ARMY_TAKEOFF_WORKER"];
+    "E2E_COVERAGE_BACKEND_ORIGIN", "E2E_COVERAGE_NETWORK_LOG", "E2E_ARMY_BLOCK_WORKERS", "E2E_ARMY_TAKEOFF_WORKER",
+    // The e-mail it sends links to the job's page only where the takeoff is enabled, as the app decides.
+    "TAKEOFF_MODULE_ENABLED_BY_DEFAULT"];
   const env = { NODE_ENV: "test" as const, ...Object.fromEntries(names.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]!])),
     // MergeOne local on this host: the child claims the job as its own host (ownedWorkerHostId); its provider is controlled.
     MERGEONE_CHATGPT_LOCAL: "1",
