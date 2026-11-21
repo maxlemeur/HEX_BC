@@ -512,12 +512,14 @@ export async function assertConfirmedTakeoffPreparation(input: {
   }
   if (preparation.provenance) {
     // A revision choice binds both files, and an identical copy is set aside for its bytes: the file left out is
-    // re-read here, the retained one by the worker before any model call.
+    // re-read here, the retained one by the worker before any model call. Only what the confirmed selection set aside
+    // counts: a plan set the member left keeps its set-aside files for a return, and the confirmation already kept
+    // only the revision choices between the plans of this selection.
     const prepared = new Map(preparation.sources.map((source) => [source.document_id, source]));
     const available = new Map(sources.map((source) => [source.document_id, source]));
     const participants = [
       ...(preparation.plan_revision_decisions ?? []).flatMap((decision) => [decision.left, decision.right]),
-      ...preparation.sources.filter((source) => source.kind === "plan" && !source.active && source.alternate_of)
+      ...getDeducedPlanCandidates(preparation.sources).filter((source) => !source.active)
         .map((source) => ({ document_id: source.document_id, content_hash: source.content_hash })),
     ];
     const checked = new Set<string>();

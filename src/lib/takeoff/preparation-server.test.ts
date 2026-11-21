@@ -41,7 +41,10 @@ function fixture() {
     tables: {
       estimate_projects: (query) => ({ data: filterValue(query, "id") === M3_PROJECT_ID && filterValue(query, "tenant_id") === M3_TENANT_ID ? { id: M3_PROJECT_ID } : null, error: null }),
       estimate_versions: () => ({ data: { id: M3_VERSION_ID, project_id: targetProjectId, parent_version_id: null }, error: null }),
-      plan_sets: () => ({ data: [{ id: M3_PLAN_SET_ID }], error: null, count: 1 }),
+      plan_sets: () => {
+        const ids = [...new Set(files.map(({ plan_set_id }) => plan_set_id))];
+        return { data: ids.map((id) => ({ id })), error: null, count: ids.length };
+      },
       plan_files: () => ({ data: files, error: null, count: files.length }),
       affaire_briefs: () => ({ data: null, error: null }),
       affaire_intake_documents: () => ({ data: intake, error: null, count: intake.length }),
@@ -81,6 +84,28 @@ function fixture() {
 const selection = { profileId: "alice", model: "gpt-5.4", reasoningEffort: "medium", hostId: "mac" } as const;
 const observedFingerprint = createHash("sha256").update(JSON.stringify([selection.profileId, selection.hostId, selection.model, selection.reasoningEffort])).digest("hex");
 const confirmation = { projectId: M3_PROJECT_ID, expectedRevision: 1, expectedExecutionFingerprint: observedFingerprint };
+const OTHER_PLAN_SET_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+/** A second plan set of the same affaire, with one plan of its own. */
+function addOtherPlanSet(f: ReturnType<typeof fixture>) {
+  const plan = { ...f.file, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", plan_set_id: OTHER_PLAN_SET_ID,
+    file_name: "Plan autre jeu.pdf", file_path: `${M3_TENANT_ID}/plan-autre-jeu.pdf`, metadata: { revision: "C" } };
+  f.files.push(plan);
+  f.contents.set(plan.file_path, Buffer.from("plan of the other set"));
+  return plan;
+}
+
+/** What the launch dialog does when a plan set is selected: open it, save the deduced draft, confirm. */
+async function confirmPlanSet(planSetId: string) {
+  const opened = await loadTakeoffPreparation(M3_PROJECT_ID, planSetId);
+  const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: opened.draft, expectedRevision: opened.revision });
+  return confirmTakeoffPreparation({ ...confirmation, expectedRevision: saved.revision! });
+}
+
+function launchPlanSet(f: ReturnType<typeof fixture>, planSetId: string, preparationRevision: number | null) {
+  return assertConfirmedTakeoffPreparation({ context: f.context, estimateVersionId: M3_VERSION_ID, planSetId,
+    preparationRevision, level: "C", provider: "chatgpt" });
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -290,6 +315,74 @@ describe("persisted preparation server boundary", () => {
     const alternate = confirmed.draft.sources.find(({ alternate_of }) => alternate_of)!;
     f.contents.set(alternate.file_path!, Buffer.from("different bytes"));
     await expect(assertConfirmedTakeoffPreparation(launch)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("admits another plan set after a copy was set aside in the former one, and re-reads that copy on return", async () => {
+    const f = fixture();
+    const copy = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan fictif copie.pdf", file_path: `${M3_TENANT_ID}/plan-copie.pdf` };
+    f.files.push(copy);
+    f.contents.set(copy.file_path, f.content);
+    const other = addOtherPlanSet(f);
+    const first = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(first.draft.sources.find(({ document_id }) => document_id === copy.id)).toMatchObject({ active: false, alternate_of: f.file.id });
+    await expect(launchPlanSet(f, M3_PLAN_SET_ID, first.revision)).resolves.toBeTruthy();
+
+    const switched = await confirmPlanSet(OTHER_PLAN_SET_ID);
+    expect(switched.confirmedAt).not.toBeNull();
+    expect(switched.draft.sources.filter(({ active, kind }) => active && kind === "plan").map(({ document_id }) => document_id)).toEqual([other.id]);
+    // The former set keeps what it set aside, so that coming back to it restores the member's selection.
+    expect(switched.draft.sources.find(({ document_id }) => document_id === copy.id)).toMatchObject({ active: false, alternate_of: f.file.id });
+    await expect(launchPlanSet(f, OTHER_PLAN_SET_ID, switched.revision)).resolves.toMatchObject({ preparation_revision: switched.revision });
+
+    const back = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(back.draft.sources.filter(({ active, kind }) => active && kind === "plan").map(({ document_id }) => document_id)).toEqual([f.file.id]);
+    await expect(launchPlanSet(f, M3_PLAN_SET_ID, back.revision)).resolves.toMatchObject({ preparation_revision: back.revision });
+    f.contents.set(copy.file_path, Buffer.from("different bytes"));
+    await expect(launchPlanSet(f, M3_PLAN_SET_ID, back.revision)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("admits another plan set after a revision was discarded in the former one, and asks again on return", async () => {
+    const f = fixture();
+    f.file.file_name = "Distribution rev A.pdf";
+    const alternative = { ...f.file, id: "88888888-8888-4888-8888-888888888888",
+      file_name: "Distribution rev B.pdf", file_path: `${M3_TENANT_ID}/plan-b.pdf`, metadata: { revision: "B" } };
+    f.files.push(alternative);
+    f.contents.set(alternative.file_path, Buffer.from("second revision"));
+    const other = addOtherPlanSet(f);
+    const unresolved = await confirmPlanSet(M3_PLAN_SET_ID);
+    const [left, right] = unresolved.draft.sources.filter(({ plan_set_id }) => plan_set_id === M3_PLAN_SET_ID);
+    unresolved.draft.plan_revision_decisions = [{
+      left: { document_id: left.document_id, content_hash: left.content_hash! },
+      right: { document_id: right.document_id, content_hash: right.content_hash! }, choice: "left",
+    }];
+    const chosen = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: unresolved.draft, expectedRevision: unresolved.revision });
+    const first = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: chosen.revision! });
+    expect(first.draft.sources.find(({ document_id }) => document_id === alternative.id)).toMatchObject({ active: false, alternate_of: f.file.id });
+    await expect(launchPlanSet(f, M3_PLAN_SET_ID, first.revision)).resolves.toBeTruthy();
+
+    const switched = await confirmPlanSet(OTHER_PLAN_SET_ID);
+    expect(switched.confirmedAt).not.toBeNull();
+    expect(switched.draft.sources.filter(({ active, kind }) => active && kind === "plan").map(({ document_id }) => document_id)).toEqual([other.id]);
+    await expect(launchPlanSet(f, OTHER_PLAN_SET_ID, switched.revision)).resolves.toMatchObject({ preparation_revision: switched.revision });
+    // The discarded revision is no longer part of what this launch measures.
+    f.contents.set(alternative.file_path, Buffer.from("replacement bytes"));
+    await expect(launchPlanSet(f, OTHER_PLAN_SET_ID, switched.revision)).resolves.toMatchObject({ preparation_revision: switched.revision });
+
+    // Back on the former set, both revisions are candidates again: nothing is left out unseen.
+    const back = await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(back.confirmedAt).toBeNull();
+    expect(back.readiness.blockers).toContainEqual(expect.objectContaining({ code: "source_revision_conflict" }));
+    const [retained, discarded] = back.draft.sources.filter(({ plan_set_id }) => plan_set_id === M3_PLAN_SET_ID);
+    expect(discarded).toMatchObject({ document_id: alternative.id, active: true });
+    back.draft.plan_revision_decisions = [{
+      left: { document_id: retained.document_id, content_hash: retained.content_hash! },
+      right: { document_id: discarded.document_id, content_hash: discarded.content_hash! }, choice: "left",
+    }];
+    const rechosen = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: back.draft, expectedRevision: back.revision });
+    const reconfirmed = await confirmTakeoffPreparation({ ...confirmation, expectedRevision: rechosen.revision! });
+    await expect(launchPlanSet(f, M3_PLAN_SET_ID, reconfirmed.revision)).resolves.toMatchObject({ preparation_revision: reconfirmed.revision });
+    f.contents.set(alternative.file_path, Buffer.from("third bytes"));
+    await expect(launchPlanSet(f, M3_PLAN_SET_ID, reconfirmed.revision)).rejects.toMatchObject({ status: 409 });
   });
 
   it("autosaves incomplete values, survives reload, and uses a tenant/project compare-and-swap", async () => {
