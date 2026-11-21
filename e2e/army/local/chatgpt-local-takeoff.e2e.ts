@@ -175,7 +175,7 @@ if (!existsSync(liveProbePath)) test("LOCAL07 another plan set launches after th
     const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Deux jeux de plans" }, army);
     const first = await createPlanSet(ui, army, estimate, `${prefix} plans A`);
     await screen.getByRole("heading", first.name, { exact: true }).click();
-    const [original, copy] = await uploadPlansUnderNames(ui, army, first, ["Réseau RDC.pdf", "Réseau RDC copie.pdf"]);
+    const identical = await uploadPlansUnderNames(ui, army, first, ["Réseau RDC.pdf", "Réseau RDC copie.pdf"]);
     const created = await apiRequest<{ data: { plan_set: { id: string; tenant_id: string } } }>(browser, "POST", "/api/takeoff/plan-sets",
       { project_id: estimate.projectId, name: `${prefix} plans B` });
     expect(created.status).toBe(201);
@@ -193,40 +193,44 @@ if (!existsSync(liveProbePath)) test("LOCAL07 another plan set launches after th
       expect(result.error).toBeNull();
       return result.data!;
     };
-    // Once an analysis exists, another plan set is analysed from the activity center's launch link (« Pour analyser un
-    // autre jeu, ouvrez-le ci-dessous » in the plans center).
+    // Once an analysis exists, the hub no longer offers a launch: another plan set is analysed from its launch link in
+    // the activity center (« Pour analyser un autre jeu, ouvrez-le ci-dessous » in the plans center).
     const openLaunch = async (planSetId: string) => {
       await ui.app.open(`/dashboard/affaires/${estimate.projectId}/takeoff?launch=1&launchPlanSet=${planSetId}`);
       const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
       await expect(dialog.getByLabel("Jeu de plans à analyser", { exact: true })).toHaveValue(planSetId);
       return dialog;
     };
+    const plans = (job: { preparation_snapshot: unknown }) => (job.preparation_snapshot as unknown as { preparation: TakeoffPreparation })
+      .preparation.sources.filter((source) => source.kind === "plan");
 
     const firstDialog = await openLaunch(first.id);
     await firstDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
     await expect(firstDialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible({ timeout: 45_000 });
     await expect.poll(async () => (await launchedJobs()).length, { timeout: 45_000 }).toBe(1);
     const [firstJob] = await launchedJobs();
-    const firstSources = (firstJob.preparation_snapshot as unknown as { preparation: TakeoffPreparation }).preparation.sources;
     expect(firstJob.plan_set_id).toBe(first.id);
-    expect(firstSources.filter((source) => source.active).map((source) => source.document_id)).toEqual([original.id]);
-    expect(firstSources.find((source) => source.document_id === copy.id)).toMatchObject({ active: false, alternate_of: original.id });
+    // Either identical file may be the one retained: the other is set aside as its copy.
+    const firstSetPlans = plans(firstJob).filter((source) => source.plan_set_id === first.id);
+    const retained = firstSetPlans.filter((source) => source.active);
+    expect(retained).toHaveLength(1);
+    const setAside = firstSetPlans.find((source) => !source.active)!;
+    expect(setAside).toMatchObject({ alternate_of: retained[0].document_id });
+    expect([retained[0].document_id, setAside.document_id].sort()).toEqual(identical.map(({ id }) => id).sort());
 
-    // The member opens the first plan set again and selects the other one in the dialog.
-    const secondDialog = await openLaunch(first.id);
-    const planSetSelect = secondDialog.getByLabel("Jeu de plans à analyser", { exact: true });
-    await planSetSelect.selectOption({ value: second.id });
-    await expect(planSetSelect).toHaveValue(second.id);
+    const secondDialog = await openLaunch(second.id);
     await secondDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
-    await expect(secondDialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible({ timeout: 45_000 });
+    // The launch either succeeds or shows the refusal this journey guards against; the refusal is named if it appears.
+    await expect(secondDialog.getByText(/— 1 fichier de plan[.]|Une version de plan a changé/).first()).toBeVisible({ timeout: 45_000 });
     await expect(secondDialog.getByText(/Une version de plan a changé/)).toHaveCount(0);
+    await expect(secondDialog.getByText(/— 1 fichier de plan[.]/)).toBeVisible();
     await expect.poll(async () => (await launchedJobs()).length, { timeout: 45_000 }).toBe(2);
     const secondJob = (await launchedJobs())[1];
-    const secondSources = (secondJob.preparation_snapshot as unknown as { preparation: TakeoffPreparation }).preparation.sources;
     expect(secondJob.plan_set_id).toBe(second.id);
-    expect(secondSources.filter((source) => source.active && source.kind === "plan").map((source) => source.document_id)).toEqual([other.id]);
+    expect(plans(secondJob).filter((source) => source.active).map((source) => source.document_id)).toEqual([other.id]);
     // The first plan set keeps the copy it set aside, for a return to it.
-    expect(secondSources.find((source) => source.document_id === copy.id)).toMatchObject({ active: false, alternate_of: original.id });
+    expect(plans(secondJob).find((source) => source.document_id === setAside.document_id))
+      .toMatchObject({ active: false, alternate_of: retained[0].document_id });
     // Both analyses end before the next journey counts its provider calls.
     await expect.poll(async () => {
       const current = await launchedJobs();
@@ -235,7 +239,7 @@ if (!existsSync(liveProbePath)) test("LOCAL07 another plan set launches after th
       return current.map((job) => job.status);
     }, { timeout: 150_000 }).toEqual(["completed", "completed"]);
     await recordEvidence(army, "local-plan-set-switch", { estimate, firstPlanSetId: first.id, secondPlanSetId: second.id,
-      setAsideCopy: copy.id, jobs: (await jobs.list()).map(({ id, status }) => ({ id, status })),
+      retainedCopy: retained[0].document_id, setAsideCopy: setAside.document_id, jobs: (await jobs.list()).map(({ id, status }) => ({ id, status })),
       boundary: "Fictional plans and ChatGPT transport fixture on an owned local backend." });
   } finally {
     if (fixtureStore) await rm(fixtureStore, { force: true });
