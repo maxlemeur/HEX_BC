@@ -12,7 +12,7 @@ export function requestStepPanelId(base: string, step: RequestStepKey): string {
   return `${base}-etape-${step}`;
 }
 
-/** Keep the current step distinct from its completion state, without a second large page header. */
+/** Keep the current step distinct from its completion state, without a second large page header: one size on every step. */
 export function MaterialRequestSteps({ model, active, canWrite, idBase, onGoTo }: Readonly<{
   model: RequestSteps;
   active: RequestStepKey;
@@ -21,31 +21,30 @@ export function MaterialRequestSteps({ model, active, canWrite, idBase, onGoTo }
   onGoTo: (step: RequestStepKey) => void;
 }>) {
   const { next, steps } = model;
-  const compact = active === "lignes";
   const reading = !canWrite && !next.done;
   const standing = steps.find((step) => step.key === next.step);
   return (
     <section aria-label="Avancement de la demande" className="mb-5">
-      <Tabs.List aria-label="Étapes de la demande" className={cn("gap-2 border-b border-border sm:gap-6", compact ? "flex flex-wrap" : "grid grid-cols-3")}>
+      <Tabs.List aria-label="Étapes de la demande" className="grid grid-cols-3 gap-2 border-b border-border sm:gap-4 lg:grid-cols-[repeat(3,minmax(0,18rem))]">
         {steps.map((step, index) => (
           <Tabs.Tab
             key={step.key}
             value={step.key}
             id={`${requestStepPanelId(idBase, step.key)}-onglet`}
             aria-controls={requestStepPanelId(idBase, step.key)}
-            className={cn("group/step flex min-w-0 items-start gap-2 border-b-[3px] border-transparent px-1 py-4 text-left transition-colors hover:bg-surface/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring data-active:border-brand-orange sm:gap-3 sm:px-3", compact && "sm:min-w-40")}
+            className="group/step flex min-w-0 items-start gap-2 border-b-[3px] border-transparent px-1 py-2.5 text-left transition-colors hover:bg-surface/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring data-active:border-brand-orange sm:gap-2.5 sm:px-2"
           >
             <span aria-hidden="true" className={cn(
-              "mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:size-7",
-              step.state === "done" && (compact || active !== step.key) ? "bg-success text-white" : active === step.key ? "bg-brand-orange text-white" : "bg-muted text-muted-foreground",
+              "inline-flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+              step.state === "done" && active !== step.key ? "bg-success text-white" : active === step.key ? "bg-brand-orange text-white" : "bg-muted text-muted-foreground",
             )}>
-              {step.state === "done" && (compact || active !== step.key) ? <Check className="size-4" /> : index + 1}
+              {step.state === "done" && active !== step.key ? <Check className="size-3.5" /> : index + 1}
             </span>
             <span className="min-w-0">
               <span className="sr-only">{`Étape ${index + 1} : `}</span>
-              <span className={cn("block text-sm font-semibold text-foreground sm:text-base", !compact && "group-data-active/step:text-brand-orange")}>{step.label}</span>
+              <span className="block text-sm leading-6 font-semibold text-foreground group-data-active/step:text-brand-orange">{step.label}</span>
               <span className="sr-only">{step.state === "done" ? ", terminée. " : ". "}</span>
-              <span className={compact ? "sr-only" : "mt-1 block text-xs leading-snug text-muted-foreground sm:text-sm"}>{step.status}</span>
+              <span className="sr-only block text-xs leading-snug text-muted-foreground sm:not-sr-only">{step.status}</span>
             </span>
           </Tabs.Tab>
         ))}
