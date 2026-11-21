@@ -62,6 +62,8 @@ const FAILURE_REASON_LABELS: Record<string, string> = {
   FORBIDDEN: "L’accès nécessaire au traitement n’est plus disponible.",
   TAKEOFF_WORKER_NOT_STARTED:
     "L’analyse n’a pas pu démarrer. Vérifiez le poste autorisé avant de préparer une nouvelle analyse.",
+  TAKEOFF_WORKER_HOST_SILENT:
+    "L’analyse n’a pas démarré : le poste autorisé ne s’est pas manifesté avant la fin du délai d’attente maximal. Vérifiez qu’il est allumé, connecté et que l’application y est ouverte avant de préparer une nouvelle analyse.",
   TAKEOFF_WORKER_QUEUE_EXPIRED:
     "L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré. Elle n’a pas démarré : préparez une nouvelle analyse.",
   TAKEOFF_WORKER_OUTCOME_UNKNOWN:

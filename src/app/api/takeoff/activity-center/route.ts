@@ -40,6 +40,9 @@ export async function GET(request: Request) {
     const rawOffset = searchParams.has("offset")
       ? Number(searchParams.get("offset"))
       : undefined;
+    const rawCompletionsOffset = searchParams.has("completionsOffset")
+      ? Number(searchParams.get("completionsOffset"))
+      : undefined;
 
     const data = await listActivityCenterJobs({
       project_id: projectId,
@@ -57,6 +60,10 @@ export async function GET(request: Request) {
       offset:
         rawOffset != null && Number.isFinite(rawOffset) && rawOffset >= 0
           ? rawOffset
+          : undefined,
+      completionsOffset:
+        rawCompletionsOffset != null && Number.isFinite(rawCompletionsOffset) && rawCompletionsOffset >= 0
+          ? rawCompletionsOffset
           : undefined,
     });
 

@@ -48,9 +48,15 @@ vi.mock("./TakeoffApplicationHistoryTab", () => ({
   default: () => <div>Historique</div>,
 }));
 
+vi.mock("./TakeoffJobsTable", () => ({
+  default: ({ data }: { data: TakeoffActivityCenterResponse }) => (
+    <table><tbody>{data.jobs.map((job) => <tr key={job.jobId}><td>{job.jobId}</td></tr>)}</tbody></table>
+  ),
+}));
+
 import TakeoffActivityCenter from "./TakeoffActivityCenter";
 
-const SUMMARY_KEY = ["activity-center", "project-1", "all", "all", "all", "all", "all", "all", "all", 0, 20];
+const SUMMARY_KEY = ["activity-center", "project-1", "all", "all", "all", "all", "all", "all", "all", 0, 0, 20];
 
 const EMPTY_RESPONSE: TakeoffActivityCenterResponse = {
   analysisCompletions: [],
@@ -163,7 +169,7 @@ describe("TakeoffActivityCenter", () => {
     });
     // The list request names the job: an older failure is never off the first page.
     expect(useSWRMock.mock.calls.map(([key]) => key)).toContainEqual(
-      ["activity-center", "project-1", "all", "all", "all", "all", "all", "all", FAILED_JOB_ID, 0, 20],
+      ["activity-center", "project-1", "all", "all", "all", "all", "all", "all", FAILED_JOB_ID, 0, 0, 20],
     );
     const selected = screen.getByRole("list", { name: "Analyse sélectionnée" });
     expect(selected).toHaveTextContent("Analyse échouée");
@@ -190,15 +196,29 @@ describe("TakeoffActivityCenter", () => {
     expect(shared).toHaveTextContent("Le service d’analyse n’a pas pu terminer le métré.");
     expect(screen.queryByRole("button", { name: "Plus récentes" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Plus anciennes" }));
-    expect(routerPushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1/takeoff?offset=20", { scroll: false });
+    expect(routerPushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1/takeoff?ends=20", { scroll: false });
     cleanup();
 
-    searchParams = new URLSearchParams("offset=20");
+    searchParams = new URLSearchParams("ends=20");
     renderCenter({ response: page(["event-1"], true), listResponse: page(["event-21"], false) });
     expect(screen.getByRole("list", { name: "Fins d’analyse de l’affaire" })).toHaveTextContent("Analyse échouée");
     expect(screen.queryByRole("button", { name: "Plus anciennes" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Plus récentes" }));
     expect(routerPushMock).toHaveBeenLastCalledWith("/dashboard/affaires/project-1/takeoff", { scroll: false });
+  });
+
+  it("shows every end the reader may see beside the one job they can read", () => {
+    const readable = { jobId: "a1000000-0000-4000-8000-000000000009" } as TakeoffActivityCenterResponse["jobs"][number];
+    const ends: TakeoffActivityCenterResponse = {
+      ...EMPTY_RESPONSE, jobs: [readable], pagination: { limit: 20, offset: 0, total: 1 }, analysisCompletionsHasOlder: true,
+      analysisCompletions: [{ eventId: "event-hidden", outcome: "failure", finishedAt: "2026-11-18T08:00:00.000Z",
+        failureReason: "Le service d’analyse n’a pas pu terminer le métré." }],
+    };
+    renderCenter({ response: ends, listResponse: ends });
+    expect(screen.getByText(readable.jobId)).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Fins d’analyse de l’affaire" }))
+      .toHaveTextContent("Le service d’analyse n’a pas pu terminer le métré.");
+    expect(screen.getByRole("button", { name: "Plus anciennes" })).toBeInTheDocument();
   });
 
   it("opens a usable non-default plan set from a deep link", () => {

@@ -235,13 +235,26 @@ update public.takeoff_jobs set status = 'failed', completed_at = now() - interva
   error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', error_message = 'Fixture recovery',
   processing_lease_token = null, processing_lease_expires_at = null
 where id = '8f400000-0000-4000-8000-000000000093' and status = 'processing';
--- Since 20261121020321_takeoff_completion_before_activation.sql only the launcher relaunches through a session; this
--- job's launcher is the director, who is no operator. The statement is replayed without a session: this block is
--- about the resumed failure writer, not about who relaunches.
+-- Since 20261121020321_takeoff_completion_before_activation.sql only the launcher relaunches through a session. This
+-- job's launcher works in this tenant as a director, who is no operator: for this statement they are an
+-- administrator of the tenant, and are a director again afterwards.
+update public.tenant_memberships set is_default = false where user_id = '8f400000-0000-4000-8000-000000000002';
+update public.tenant_memberships set role = 'admin', is_default = true
+where user_id = '8f400000-0000-4000-8000-000000000002' and tenant_id = (select tenant_id from completion_fixture);
+select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000002', true);
+set local role authenticated;
 update public.takeoff_jobs set status = 'pending', retry_count = retry_count + 1, next_retry_at = null, last_error_at = null,
   started_at = null, completed_at = null, token_count = null, cost_cents = null, duration_ms = null,
   error_code = null, error_message = null
 where id = '8f400000-0000-4000-8000-000000000093';
+reset role;
+update public.tenant_memberships set role = 'director', is_default = false
+where user_id = '8f400000-0000-4000-8000-000000000002' and tenant_id = (select tenant_id from completion_fixture);
+update public.tenant_memberships set is_default = true
+where user_id = '8f400000-0000-4000-8000-000000000002' and tenant_id <> (select tenant_id from completion_fixture);
+select results_eq($$select status::text, analysis_requested_by from public.takeoff_jobs
+    where id = '8f400000-0000-4000-8000-000000000093'$$,
+  $$values ('pending'::text, '8f400000-0000-4000-8000-000000000002'::uuid)$$, 'the launcher''s session relaunched the job');
 set local role service_role;
 select is((select count(*) from completion_fixture f cross join lateral public.claim_observed_local_takeoff_job(
   '8f400000-0000-4000-8000-000000000093', f.tenant_id, 'urn:uuid:8f400000-0000-4000-8000-000000000099',
@@ -364,8 +377,10 @@ select throws_ok($$select recipient_email from public.takeoff_completion_notific
   'permission denied for table takeoff_completion_notifications', 'private delivery data has no browser grant');
 reset role;
 
-update public.tenant_memberships set is_default = (tenant_id = (select tenant_id from completion_fixture))
-where user_id = '8f400000-0000-4000-8000-000000000002';
+-- Two statements: one default per member is checked row by row.
+update public.tenant_memberships set is_default = false where user_id = '8f400000-0000-4000-8000-000000000002';
+update public.tenant_memberships set is_default = true
+where user_id = '8f400000-0000-4000-8000-000000000002' and tenant_id = (select tenant_id from completion_fixture);
 select set_config('request.jwt.claim.sub', '8f400000-0000-4000-8000-000000000002', true);
 set local role authenticated;
 select is((select count(id) from public.takeoff_completion_notifications), 0::bigint,

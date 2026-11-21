@@ -38,6 +38,8 @@ type ListActivityCenterJobsInput = {
   jobId?: string | null;
   limit?: number;
   offset?: number;
+  /** The page of the affaire's shared ends, independent of the page of jobs. */
+  completionsOffset?: number;
 };
 
 type SupabaseClient = AuthenticatedTakeoffContext["supabase"];
@@ -589,6 +591,7 @@ export async function listActivityCenterJobs(
   const offset = Math.max(input.offset ?? 0, 0);
 
   const jobId = input.jobId ?? null;
+  const completionsOffset = Math.max(input.completionsOffset ?? 0, 0);
 
   // The shared ends follow the affaire's read rule, also for a reader whom a job's own rule hides it from. One row
   // beyond the page tells that an older page exists.
@@ -597,7 +600,7 @@ export async function listActivityCenterJobs(
     supabase.rpc("list_affaire_takeoff_completions" as never, {
       p_project_id: input.project_id,
       p_limit: Math.trunc(limit) + 1,
-      p_offset: jobId ? 0 : Math.min(Math.trunc(offset), 2_147_483_647),
+      p_offset: jobId ? 0 : Math.min(Math.trunc(completionsOffset), 2_147_483_647),
       p_job_id: jobId,
     } as never),
   ]);

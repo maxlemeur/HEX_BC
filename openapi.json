@@ -24147,7 +24147,7 @@
           "Takeoff"
         ],
         "summary": "Consulter le centre d'activite Takeoff",
-        "description": "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue, la date de fin et, pour un échec, son motif en français, indépendamment des détails réservés de chaque analyse ; analysisCompletionsHasOlder indique une page plus ancienne. jobId limite la liste et les fins à cette analyse, sans changer les compteurs.",
+        "description": "Retourne les analyses accessibles et les alertes d’une affaire non archivée. analysisCompletions expose aux lecteurs de l’affaire l’identifiant d’événement, l’issue, la date de fin et, pour un échec, son motif en français, indépendamment des détails réservés de chaque analyse ; analysisCompletionsHasOlder indique une page plus ancienne. jobId limite la liste et les fins à cette analyse, sans changer les compteurs ; completionsOffset pagine les fins indépendamment des analyses.",
         "parameters": [
           {
             "name": "project_id",
@@ -24237,6 +24237,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/GetTakeoffActivityCenterOffsetParameter"
+            }
+          },
+          {
+            "name": "completionsOffset",
+            "in": "query",
+            "description": "Decalage de la page des fins d’analyse.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterCompletionsOffsetParameter"
             }
           }
         ],
@@ -29283,6 +29292,7 @@
               "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
               "TAKEOFF_WORKER_NOT_STARTED",
               "TAKEOFF_WORKER_QUEUE_EXPIRED",
+              "TAKEOFF_WORKER_HOST_SILENT",
               "AI_RATE_LIMIT",
               "AI_TIMEOUT",
               "AI_SCHEMA",
@@ -29357,6 +29367,7 @@
                   "TAKEOFF_WORKER_OUTCOME_UNKNOWN",
                   "TAKEOFF_WORKER_NOT_STARTED",
                   "TAKEOFF_WORKER_QUEUE_EXPIRED",
+                  "TAKEOFF_WORKER_HOST_SILENT",
                   "AI_RATE_LIMIT",
                   "AI_TIMEOUT",
                   "AI_SCHEMA",
@@ -82670,6 +82681,10 @@
         "exclusiveMinimum": 0
       },
       "GetTakeoffActivityCenterOffsetParameter": {
+        "type": "number",
+        "minimum": 0
+      },
+      "GetTakeoffActivityCenterCompletionsOffsetParameter": {
         "type": "number",
         "minimum": 0
       },

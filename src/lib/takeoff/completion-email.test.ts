@@ -5,6 +5,7 @@ import { deliverTakeoffCompletionEmail, type CompletionEmailClaim } from "@/lib/
 const sendingAt = new Date("2026-11-20T08:00:00Z");
 const claim: CompletionEmailClaim = {
   id: "8f400000-0000-4000-8000-000000000021",
+  tenant_id: "8f400000-0000-4000-8000-000000000001",
   project_id: "8f400000-0000-4000-8000-000000000010",
   job_id: "8f400000-0000-4000-8000-000000000031",
   recipient_email: "requester@example.test",
@@ -25,6 +26,7 @@ function fixture() {
   return {
     prepare: vi.fn().mockResolvedValue(true),
     confirmDispatch: vi.fn().mockResolvedValue(100_000),
+    takeoffEnabled: vi.fn().mockResolvedValue(true),
     settle: vi.fn().mockResolvedValue(undefined),
     send: vi.fn().mockResolvedValue({ data: { id: "fixture-provider-id" }, error: null }),
   };
@@ -33,16 +35,21 @@ function fixture() {
 // One delivery row, as claim_takeoff_completion_email, prepare_takeoff_completion_email and
 // confirm_takeoff_completion_email_dispatch keep it (supabase/tests/database/takeoff-completion-before-activation.test.sql).
 function deliveryRow(clock: { now: number }) {
-  const row = { leaseToken: null as string | null, leaseExpiresAt: 0, firstSendAt: null as number | null, state: "pending" };
+  const row = { leaseToken: null as string | null, leaseExpiresAt: 0, firstSendAt: null as number | null, state: "pending",
+    attemptCount: 0 };
   const providerKeys: string[] = [];
   return {
     row, providerKeys,
+    // As claim_takeoff_completion_email: each claim counts an attempt.
     claim(token: string) {
       row.leaseToken = token;
       row.leaseExpiresAt = clock.now + 120_000;
       row.state = "sending";
+      row.attemptCount += 1;
+      return { ...claim, attempt_count: row.attemptCount,
+        first_send_at: row.firstSendAt === null ? null : new Date(row.firstSendAt).toISOString() };
     },
-    io(token: string, pauseAfterPrepare?: Promise<void>) {
+    io(token: string, pauseAfterPrepare?: Promise<void>, remainingAtDispatch?: number) {
       const owns = () => row.state === "sending" && row.leaseToken === token && row.leaseExpiresAt > clock.now;
       return {
         prepare: vi.fn(async () => {
@@ -52,13 +59,17 @@ function deliveryRow(clock: { now: number }) {
           await pauseAfterPrepare;
           return true;
         }),
+        takeoffEnabled: vi.fn(async () => true),
         confirmDispatch: vi.fn(async () => {
           if (!owns() || row.firstSendAt === null) return null;
+          if (remainingAtDispatch !== undefined) return remainingAtDispatch;
           if (row.firstSendAt <= clock.now - 23 * 3_600_000) return null;
           return Math.min(row.leaseExpiresAt, row.firstSendAt + 23 * 3_600_000) - clock.now;
         }),
-        settle: vi.fn(async (result: { delivery_state?: string }) => {
-          if (owns()) Object.assign(row, { state: result.delivery_state, leaseToken: null });
+        settle: vi.fn(async (result: { delivery_state?: string; attempt_count?: number }) => {
+          if (!owns()) return;
+          Object.assign(row, { state: result.delivery_state, leaseToken: null });
+          if (result.attempt_count !== undefined) row.attemptCount = result.attempt_count;
         }),
         send: vi.fn(async (_message: unknown, key: string) => {
           providerKeys.push(key);
@@ -193,5 +204,32 @@ describe("takeoff completion email", () => {
       `https://estimates.example.test/dashboard/affaires/${claim.project_id}/takeoff?job=${claim.job_id}`,
     );
     expect(message.text).not.toContain("AI_PROVIDER");
+  });
+
+  it("gives its attempt back when it stops before the provider call, so no call is never an exhausted delivery", async () => {
+    const clock = { now: sendingAt.getTime() };
+    const delivery = deliveryRow(clock);
+    // Nine claims in a row find only fifteen seconds of lease left at dispatch: none of them calls the provider.
+    for (let round = 1; round <= 9; round += 1) {
+      const claimed = delivery.claim(`lease-${round}`);
+      await deliverTakeoffCompletionEmail(claimed, delivery.io(`lease-${round}`, undefined, 15_000), env, new Date(clock.now),
+        () => clock.now);
+      expect(delivery.row).toMatchObject({ state: "pending", attemptCount: 0 });
+      clock.now += 60_000;
+    }
+    expect(delivery.providerKeys).toEqual([]);
+    const claimed = delivery.claim("lease-10");
+    await deliverTakeoffCompletionEmail(claimed, delivery.io("lease-10"), env, new Date(clock.now), () => clock.now);
+    expect(delivery.providerKeys).toEqual([claim.provider_key]);
+    expect(delivery.row).toMatchObject({ state: "sent", attemptCount: 1 });
+  });
+
+  it("links to the affaire itself when the tenant's takeoff is disabled, so the link opens", async () => {
+    const io = fixture();
+    io.takeoffEnabled.mockResolvedValue(false);
+    await deliverTakeoffCompletionEmail({ ...claim, outcome: "failure" }, io, env, sendingAt);
+    const [message] = io.send.mock.calls[0];
+    expect(message.text.endsWith(`\nhttps://estimates.example.test/dashboard/affaires/${claim.project_id}`)).toBe(true);
+    expect(message.text).not.toContain("/takeoff");
   });
 });

@@ -102,17 +102,26 @@ entre deux tentatives change donc ce forfait.
 
 Avec `next dev`, le Mac autorisé signale qu’il est actif une fois par minute, sur une
 minuterie distincte de sa reprise des tâches (toutes les 15 s), si bien qu’une longue
-analyse ne l’interrompt pas. La reprise hébergée (toutes les cinq minutes) ne clôt une
-analyse qui attend ce Mac (en attente, ou reprise automatique échue) qu’une fois les avis
-de fin activés, et seulement dans deux cas. Le Mac est actif depuis au moins le délai de
-prise en charge (15 min par défaut), il n’a rien en cours ni rien commencé ou terminé
-pendant ce délai, et l’analyse attend depuis ce délai : personne ne la prendra
-(`TAKEOFF_WORKER_NOT_STARTED`). Ou l’analyse attend depuis plus que le plafond (24 h par
-défaut) : son avis dit si elle attendait son tour derrière un Mac actif
-(`TAKEOFF_WORKER_QUEUE_EXPIRED`) ou si personne ne l’a prise (`TAKEOFF_WORKER_NOT_STARTED`).
-Un Mac en veille ou une file longue ne clôt donc rien avant le plafond. Les deux durées se
-règlent dans la ligne d’activation (`pickup_grace`, au moins 10 min ; `wait_ceiling`, au
-moins 1 h). Une analyse ainsi close ne peut plus être prise en charge ni relancée.
+analyse ne l’interrompt pas. Ses prises en charge, renouvellements de bail et fins
+d’analyse sont aussi datés par la base. La reprise hébergée (toutes les cinq minutes)
+ne clôt une analyse qui attend ce Mac (en attente, ou reprise automatique échue) qu’une
+fois les avis de fin activés, et dans deux cas seulement :
+
+- **Personne ne la prendra** (`TAKEOFF_WORKER_NOT_STARTED`) : le Mac est actif depuis
+  au moins le délai de prise en charge (15 min par défaut), il n’a rien sous bail, il
+  n’a rien pris, renouvelé ni terminé pendant ce délai, les limites d’admission du
+  tenant lui permettraient de la prendre, et l’analyse attend depuis ce délai.
+- **Le plafond** (24 h par défaut) : son avis dit si elle attendait son tour derrière un
+  Mac actif, occupé ou bloqué par ces limites (`TAKEOFF_WORKER_QUEUE_EXPIRED`), si le
+  Mac actif ne l’a pas prise (`TAKEOFF_WORKER_NOT_STARTED`), ou si le Mac ne s’est pas
+  manifesté (`TAKEOFF_WORKER_HOST_SILENT`).
+
+Un Mac qui ne s’est jamais manifesté, en veille ou dont l’application n’est pas ouverte,
+ne mène donc qu’au plafond. Une file longue ou des limites atteintes ne mènent qu’au
+plafond. La décision pour un Mac et ses prises en charge sont sérialisées : un Mac qui
+prend une analyse pendant la décision n’en voit aucune close. Les deux durées se règlent
+dans la ligne d’activation (`pickup_grace`, au moins 10 min ; `wait_ceiling`, au moins
+1 h). Une analyse ainsi close ne peut plus être prise en charge ni relancée.
 Son résultat identifie `provider: chatgpt`, le modèle et les jetons consommés ;
 `cost_cents: 0` signifie usage du forfait, sans prix API calculé.
 

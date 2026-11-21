@@ -475,7 +475,8 @@ describe("listActivityCenterJobs", () => {
     const first = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 2 });
     expect(first.analysisCompletions.map((event) => event.eventId)).toEqual([completions[0].event_id, completions[1].event_id]);
     expect(first.analysisCompletionsHasOlder).toBe(true);
-    const next = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 2, offset: 2 });
+    // The ends have their own page, whatever page of jobs is shown.
+    const next = await listActivityCenterJobs({ project_id: PROJECT_ID, limit: 2, offset: 0, completionsOffset: 2 });
     expect(next.analysisCompletions.map((event) => event.eventId)).toEqual([completions[2].event_id]);
     expect(next.analysisCompletionsHasOlder).toBe(false);
   });

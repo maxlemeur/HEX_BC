@@ -5,22 +5,25 @@ import { Resend, type CreateEmailOptions, type ErrorResponse } from "resend";
 import { canonicalJsonHash } from "@/lib/email/estimate-email-hash";
 import { isOneMailbox, readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import type { Database } from "@/types/database";
 
 type Notification = Database["public"]["Tables"]["takeoff_completion_notifications"];
 export type CompletionEmailClaim = Pick<Notification["Row"],
-  "id" | "project_id" | "job_id" | "recipient_email" | "outcome" | "provider_key" | "attempt_count" | "first_send_at"
+  "id" | "tenant_id" | "project_id" | "job_id" | "recipient_email" | "outcome" | "provider_key" | "attempt_count" | "first_send_at"
 >;
 
 type Settlement = Pick<Notification["Update"], "delivery_state" | "last_delivery_code"> &
   Partial<Pick<Notification["Update"],
-    "next_attempt_at" | "provider_id" | "first_send_at" | "routing_mode" | "effective_email" | "payload_hash"
+    "next_attempt_at" | "provider_id" | "first_send_at" | "routing_mode" | "effective_email" | "payload_hash" | "attempt_count"
   >>;
 
 type DeliveryIO = {
   prepare: (mode: "live" | "redirect", effectiveEmail: string, hash: string) => Promise<boolean>;
   /** Milliseconds left, on the database's clock, before the lease ends or the provider forgets the first key; null when either is gone. */
   confirmDispatch: () => Promise<number | null>;
+  /** The test the takeoff pages apply: when it fails, the job's page answers 404 and the link goes to the affaire. */
+  takeoffEnabled: () => Promise<boolean>;
   settle: (result: Settlement) => Promise<void>;
   send: (message: CreateEmailOptions, key: string) => Promise<{
     data: { id: string } | null;
@@ -35,6 +38,8 @@ const IDEMPOTENCY_WINDOW_MS = 23 * 60 * 60 * 1_000;
 const SEND_TIMEOUT_MS = 15_000;
 // A call starts only if it can end, timeout included, before the lease and the window do.
 const DISPATCH_MARGIN_MS = SEND_TIMEOUT_MS + 5_000;
+// A sender that stops before the call gives its attempt back and lets the next claim come soon.
+const GIVEN_BACK_DELAY_MS = 30_000;
 
 // The job's end on the affaire's activity: every reader of the affaire may open it, and it shows a failure's reason.
 function affaireEmailUrl(projectId: string, jobId: string | null, origin: string | undefined) {
@@ -95,7 +100,8 @@ export async function deliverTakeoffCompletionEmail(
   try {
     const from = env.EMAIL_FROM?.trim();
     if (!from || !env.RESEND_API_KEY?.trim()) throw new Error("Missing Resend configuration.");
-    const link = affaireEmailUrl(claim.project_id, claim.job_id, env.MERGEONE_TAKEOFF_EMAIL_ORIGIN);
+    const jobPage = claim.job_id && await io.takeoffEnabled() ? claim.job_id : null;
+    const link = affaireEmailUrl(claim.project_id, jobPage, env.MERGEONE_TAKEOFF_EMAIL_ORIGIN);
     const complete = claim.outcome === "success";
     const subject = complete ? "Votre métré est terminé" : "Votre métré nécessite une vérification";
     const summary = complete
@@ -109,7 +115,7 @@ export async function deliverTakeoffCompletionEmail(
       from,
       to: routed.to,
       subject: routed.subject,
-      text: `${summary}\n\n${claim.job_id ? "Ouvrir le suivi du métré" : "Ouvrir l’affaire"}\n${link}`,
+      text: `${summary}\n\n${jobPage ? "Ouvrir le suivi du métré" : "Ouvrir l’affaire"}\n${link}`,
     };
     // Include the provider configuration in the fingerprint because changing
     // Resend accounts can change the namespace of the idempotency key.
@@ -125,7 +131,16 @@ export async function deliverTakeoffCompletionEmail(
   // while enough of both remains, by this process's clock read before that check.
   const checkedAt = clock();
   const remainingMs = await io.confirmDispatch();
-  if (remainingMs === null || clock() + DISPATCH_MARGIN_MS > checkedAt + remainingMs) return;
+  if (remainingMs === null) return;
+  if (clock() + DISPATCH_MARGIN_MS > checkedAt + remainingMs) {
+    // Too little lease is left to finish a call: none is made, and the attempt is given back. An attempt counts only
+    // when the provider is called, or when a sender stops without being able to give it back.
+    await io.settle({
+      delivery_state: "pending", last_delivery_code: "DISPATCH_WINDOW_TOO_SHORT", attempt_count: claim.attempt_count - 1,
+      next_attempt_at: new Date(clock() + GIVEN_BACK_DELAY_MS).toISOString(),
+    });
+    return;
+  }
   let response: Awaited<ReturnType<DeliveryIO["send"]>>;
   try {
     response = await io.send(request, claim.provider_key);
@@ -182,6 +197,7 @@ export async function drainTakeoffCompletionEmails(options: { id?: string; limit
         if (error) throw new Error("Impossible de vérifier l’envoi du courriel de métré.");
         return typeof data === "number" ? data : null;
       },
+      takeoffEnabled: () => isTakeoffEnabled(row.tenant_id, { supabase: client }),
       async settle(result) {
         const { error } = await client.from("takeoff_completion_notifications")
           .update({ next_attempt_at: null, ...result, lease_token: null, lease_expires_at: null })

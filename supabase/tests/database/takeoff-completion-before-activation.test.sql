@@ -111,6 +111,9 @@ set local role authenticated;
 select lives_ok($$select pg_temp.old_resubmit('8f600000-0000-4000-8000-000000000033')$$,
   'before activation the launcher resubmits a canceled job');
 reset role;
+select results_eq($$select status::text, retry_count, analysis_outcome from public.takeoff_jobs
+    where id = '8f600000-0000-4000-8000-000000000033'$$, $$values ('pending'::text, 1, null::text)$$,
+  'the canceled job is pending again, without an end');
 
 select pg_temp.claim_old('8f600000-0000-4000-8000-000000000034', now() - interval '2 hours', now() - interval '90 minutes');
 set local role service_role;
@@ -125,20 +128,30 @@ set local role authenticated;
 select lives_ok($$select pg_temp.old_resubmit('8f600000-0000-4000-8000-000000000034')$$,
   'before activation the launcher resubmits a recovered job');
 reset role;
+select results_eq($$select status::text, retry_count, error_code, analysis_outcome from public.takeoff_jobs
+    where id = '8f600000-0000-4000-8000-000000000034'$$, $$values ('pending'::text, 1, null::text, null::text)$$,
+  'the recovered job is pending again, without an end');
 
 select pg_temp.claim_old('8f600000-0000-4000-8000-000000000035', now() - interval '40 minutes', now() - interval '30 minutes');
 select lives_ok($$update public.takeoff_jobs set status = 'completed' where id = '8f600000-0000-4000-8000-000000000035'$$,
   'before activation the previous worker completes after its lease expired');
+select results_eq($$select status::text, analysis_outcome from public.takeoff_jobs where id = '8f600000-0000-4000-8000-000000000035'$$,
+  $$values ('completed'::text, null::text)$$, 'the late completion is recorded, without an end');
 
 select pg_temp.claim_old('8f600000-0000-4000-8000-000000000036', now(), now() + interval '1 hour');
 update public.takeoff_jobs set status = 'failed', error_code = 'AI_PROVIDER', processing_lease_token = null,
   processing_lease_expires_at = null where id = '8f600000-0000-4000-8000-000000000036';
 select lives_ok($$update public.takeoff_jobs set last_error_at = now(), next_retry_at = null
   where id = '8f600000-0000-4000-8000-000000000036'$$, 'before activation the previous scheduler writes after a failure');
+select results_eq($$select status::text, last_error_at is not null, next_retry_at, analysis_outcome from public.takeoff_jobs
+    where id = '8f600000-0000-4000-8000-000000000036'$$, $$values ('failed'::text, true, null::timestamptz, null::text)$$,
+  'the scheduler''s write is recorded, without an end');
 set local role service_role;
 select lives_ok($$select pg_temp.old_resubmit('8f600000-0000-4000-8000-000000000036')$$,
   'the service role still sends a job back to pending');
 reset role;
+select is((select status::text from public.takeoff_jobs where id = '8f600000-0000-4000-8000-000000000036'), 'pending',
+  'the service role''s reset is applied');
 select is((select analysis_requested_by from public.takeoff_jobs where id = '8f600000-0000-4000-8000-000000000036'), null,
   'a reset without a session names no requester: the launcher is the recipient');
 update public.takeoff_jobs set status = 'canceled' where id = '8f600000-0000-4000-8000-000000000036';
@@ -188,6 +201,13 @@ select results_eq($$select id, analysis_requested_by from public.takeoff_jobs
   $$values ('8f600000-0000-4000-8000-000000000041'::uuid, '8f600000-0000-4000-8000-000000000001'::uuid),
     ('8f600000-0000-4000-8000-000000000042'::uuid, '8f600000-0000-4000-8000-000000000002'::uuid)$$,
   'each relaunch before the cutoff records who asked for it');
+
+-- An earlier relaunch of each, by the other member, is in the audit: if the capture were lost, the publication would
+-- find that other member and keep the end unavailable, so the recipients below can only come from the capture.
+insert into public.audit_logs (tenant_id, user_id, table_name, record_id, action, created_at)
+select tenant_id, x.member, 'takeoff_jobs', x.id, 'takeoff.job.retried', clock_timestamp() - interval '1 second'
+from fixture cross join (values ('8f600000-0000-4000-8000-000000000041'::uuid, '8f600000-0000-4000-8000-000000000002'::uuid),
+  ('8f600000-0000-4000-8000-000000000042'::uuid, '8f600000-0000-4000-8000-000000000001'::uuid)) as x(id, member);
 
 insert into private.takeoff_completion_activation (active_from) values (clock_timestamp());
 
@@ -272,21 +292,29 @@ select pg_temp.claim_old('8f600000-0000-4000-8000-000000000059', (select t from 
 update public.takeoff_jobs set status = 'failed', error_code = 'AI_TIMEOUT', last_error_at = (select t from clock),
   next_retry_at = (select t from clock) + interval '1 hour', processing_lease_token = null, processing_lease_expires_at = null
 where id = '8f600000-0000-4000-8000-000000000059';
+-- b5 has given no sign since: the stamp of that worker's claim and failure is removed with its Mac.
+delete from private.takeoff_local_host_activity where host_id = 'urn:uuid:8f600000-0000-4000-8000-0000000000b5';
 select is((select analysis_outcome from public.takeoff_jobs where id = '8f600000-0000-4000-8000-000000000059'), null,
   'the scheduled retry has no end');
 
-insert into private.takeoff_local_host_activity (host_id, live_since, seen_at)
+insert into private.takeoff_local_host_activity as a (host_id, live_since, seen_at)
 select 'urn:uuid:8f600000-0000-4000-8000-0000000000' || host, t - interval '1 hour', t - interval '1 hour'
-from clock cross join (values ('b1'), ('b2'), ('b3'), ('b4'), ('b6')) as hosts(host);
+from clock cross join (values ('b1'), ('b2'), ('b3'), ('b4'), ('b6')) as hosts(host)
+on conflict (host_id) do update set live_since = excluded.live_since, seen_at = excluded.seen_at;
+-- The claims above stamped their Macs' work in database time, that is now; b2's last work ended at T - 1 h.
+update private.takeoff_local_host_activity set worked_at = (select t from clock) - interval '1 hour'
+where host_id = 'urn:uuid:8f600000-0000-4000-8000-0000000000b2';
 
 create function pg_temp.recover_at(p_offset interval) returns setof uuid language plpgsql as $$
 declare
   at timestamptz := (select t from clock) + p_offset;
 begin
-  update private.takeoff_local_host_activity set seen_at = at - interval '30 seconds',
-    live_since = case when host_id like '%b3' then at - interval '2 minutes' else live_since end
+  -- The live Macs gave their last sign just now, in database time; b3 woke up two minutes before the instant, and
+  -- b4 ended a job five minutes before it.
+  update private.takeoff_local_host_activity set seen_at = clock_timestamp(),
+    live_since = case when host_id like '%b3' then at - interval '2 minutes' else live_since end,
+    worked_at = case when host_id like '%b4' then at - interval '5 minutes' else worked_at end
   where host_id like 'urn:uuid:8f600000-0000-4000-8000-0000000000b_';
-  update public.takeoff_jobs set completed_at = at - interval '5 minutes' where id = '8f600000-0000-4000-8000-000000000057';
   return query select r.job_id from public.recover_stale_local_takeoff_jobs(at) r;
 end;
 $$;
@@ -338,9 +366,9 @@ select results_eq($$select pg_temp.state(id) from (values ('8f600000-0000-4000-8
     ('8f600000-0000-4000-8000-000000000056'::uuid), ('8f600000-0000-4000-8000-000000000055'::uuid),
     ('8f600000-0000-4000-8000-000000000058'::uuid), ('8f600000-0000-4000-8000-00000000005c'::uuid)) as x(id)$$,
   $$values ('failed TAKEOFF_WORKER_QUEUE_EXPIRED'::text), ('failed TAKEOFF_WORKER_QUEUE_EXPIRED'::text),
-    ('failed TAKEOFF_WORKER_NOT_STARTED'::text), ('failed TAKEOFF_WORKER_NOT_STARTED'::text),
+    ('failed TAKEOFF_WORKER_NOT_STARTED'::text), ('failed TAKEOFF_WORKER_HOST_SILENT'::text),
     ('failed TAKEOFF_WORKER_NOT_STARTED'::text)$$,
-  'behind a busy or working Mac it was waiting its turn; on a woken, silent or skipping Mac nobody took it');
+  'behind a busy or working Mac it was waiting its turn; a woken or skipping Mac did not take it; a silent one never reported');
 select is(pg_temp.state('8f600000-0000-4000-8000-000000000051'), 'processing', 'the job under lease keeps running');
 
 select is(array(select pg_temp.recover_at(interval '25 hours 1 minute') order by 1),
@@ -349,8 +377,8 @@ select is(array(select pg_temp.recover_at(interval '25 hours 1 minute') order by
 select results_eq($$select pg_temp.state(id), analysis_outcome from public.takeoff_jobs
     where id in ('8f600000-0000-4000-8000-000000000051', '8f600000-0000-4000-8000-000000000059') order by id$$,
   $$values ('failed TAKEOFF_WORKER_OUTCOME_UNKNOWN'::text, 'failure'::text),
-    ('failed TAKEOFF_WORKER_NOT_STARTED'::text, 'failure'::text)$$,
-  'the lost worker ends as unknown, the retry nobody took as not started');
+    ('failed TAKEOFF_WORKER_HOST_SILENT'::text, 'failure'::text)$$,
+  'the lost worker ends as unknown, the retry of the silent Mac as never reported');
 
 -- The owner states another ceiling: a job queued behind the busy b6 is closed after three hours of waiting.
 update private.takeoff_completion_activation set wait_ceiling = interval '3 hours', pickup_grace = interval '10 minutes';
@@ -387,8 +415,9 @@ update public.takeoff_jobs set status = 'failed', error_code = 'AI_TIMEOUT', las
 where id = '8f600000-0000-4000-8000-00000000005e';
 update public.takeoff_jobs set created_at = (select t from clock) + interval '40 hours 5 minutes'
 where id = '8f600000-0000-4000-8000-00000000005f';
-insert into private.takeoff_local_host_activity (host_id, live_since, seen_at)
-select 'urn:uuid:8f600000-0000-4000-8000-0000000000b7', t + interval '39 hours', t + interval '39 hours' from clock;
+-- b7 has been live since T + 39 h; its last own work is that failure at T + 40 h.
+update private.takeoff_local_host_activity set live_since = t + interval '39 hours', seen_at = clock_timestamp(),
+  worked_at = t + interval '40 hours' from clock where host_id = 'urn:uuid:8f600000-0000-4000-8000-0000000000b7';
 select is(array(select pg_temp.recover_at(interval '40 hours 11 minutes') order by 1),
   array['8f600000-0000-4000-8000-00000000005e'::uuid], 'the due retry the live, idle Mac leaves untaken is closed');
 select is(pg_temp.state('8f600000-0000-4000-8000-00000000005e'), 'failed TAKEOFF_WORKER_NOT_STARTED',
@@ -408,6 +437,10 @@ select throws_ok($$update private.takeoff_completion_activation set pickup_grace
 -- and relaunched a job on the engineer's affaire is now a director: the affaire stays readable, the job no longer is.
 update public.tenant_memberships set role = 'director'
 where user_id = '8f600000-0000-4000-8000-000000000002' and tenant_id = (select tenant_id from fixture);
+create temporary table second_event as
+select n.id from public.takeoff_completion_notifications n where n.project_id = '8f600000-0000-4000-8000-000000000010'
+order by n.finished_at desc, n.id desc limit 1 offset 1;
+grant select on second_event to authenticated;
 select set_config('request.jwt.claim.sub', '8f600000-0000-4000-8000-000000000002', true);
 set local role authenticated;
 select is((select count(*) from public.takeoff_jobs where id = '8f600000-0000-4000-8000-000000000042'), 0::bigint,
@@ -420,9 +453,8 @@ select results_eq($$select outcome, reason_code from public.list_affaire_takeoff
   $$values ('failure'::text, 'AI_PROVIDER'::text)$$, 'the shared state names that job''s end and reason for the link');
 select is((select count(*) from public.list_affaire_takeoff_completions('8f600000-0000-4000-8000-000000000010', 1, 0)),
   1::bigint, 'the shared list is paged');
-select isnt((select event_id from public.list_affaire_takeoff_completions('8f600000-0000-4000-8000-000000000010', 1, 1)),
-  (select event_id from public.list_affaire_takeoff_completions('8f600000-0000-4000-8000-000000000010', 1, 0)),
-  'its next page holds the next event');
+select results_eq($$select event_id from public.list_affaire_takeoff_completions('8f600000-0000-4000-8000-000000000010', 1, 1)$$,
+  $$select id from second_event$$, 'its next page holds exactly the next event');
 reset role;
 select set_config('request.jwt.claim.sub', '8f600000-0000-4000-8000-000000000003', true);
 set local role authenticated;
