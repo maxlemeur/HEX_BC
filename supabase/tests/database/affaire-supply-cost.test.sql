@@ -88,10 +88,11 @@ alter table public.estimate_items enable trigger ae_track_estimate_item_status_r
 alter table public.estimate_items enable trigger bump_estimate_content_revision_from_item;
 
 -- Request 601 of affaire 201: L1 tubes (article 501), L2 elbows (article 502), L3 sleeves without article, L4 gloves
--- (frais généraux). Alpha is asked L1, L2 and L4; Beta L3.
+-- (frais généraux). Alpha is asked L1, L2 and L4; Beta L3. The dates are relative to today: the confirmation below is
+-- passed on current_date, and an order cannot be confirmed after the delivery date its draft keeps.
 insert into public.material_requests (id, project_id, requested_on, needed_on, delivery_place, created_by) values
-  ('a9340000-0000-4000-8000-000000000601', 'a9340000-0000-4000-8000-000000000201', '2026-11-10', '2026-11-20', 'site',
-    'a9340000-0000-4000-8000-000000000001');
+  ('a9340000-0000-4000-8000-000000000601', 'a9340000-0000-4000-8000-000000000201', current_date - 10, current_date + 10,
+    'site', 'a9340000-0000-4000-8000-000000000001');
 insert into public.material_request_lines (id, request_id, position, quantity, unit, dimension, no_dimension, product_type,
   material, imputation, overhead_category, product_id, product_match, original_text) values
   ('a9340000-0000-4000-8000-000000000701', 'a9340000-0000-4000-8000-000000000601', 1, 3, 'm', 'DN 50', false, 'Tube',
