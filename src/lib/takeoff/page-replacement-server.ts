@@ -45,6 +45,7 @@ const ESTIMATE_LINE_SELECT = "id,title,unit_code,description,pricing_status,quan
   + "rounding_item_ids:source_metadata->takeoff_length_rounding->item_ids,rounding_job_id:source_metadata->takeoff_length_rounding->>job_id,"
   + "policy_item_ids:source_metadata->takeoff_quantity_policy->item_ids,policy_job_id:source_metadata->takeoff_quantity_policy->>job_id,"
   + "replacement_item_ids:source_metadata->takeoff_page_replacement->item_ids,replacement_job_id:source_metadata->takeoff_page_replacement->>job_id,"
+  + "contribution_item_ids:source_metadata->takeoff_contributions->item_ids,contribution_job_id:source_metadata->takeoff_contributions->>job_id,"
   + "mapping_action:source_metadata->>mapping_action";
 const JOB_SELECT = "id,created_at,level,source_file_name,sources:preparation_snapshot->preparation->sources";
 

@@ -37,6 +37,7 @@ import {
 import {
   defaultTakeoffSendSection,
   orderTakeoffSendSections,
+  previewOrReplay,
   proposeTakeoffSendAccumulations,
   resolveTakeoffSendDestinations,
   sameTakeoffSendDestination,
@@ -49,9 +50,11 @@ import type { TakeoffMappingPreviewItem, TakeoffPreviewConversionResponse } from
 import type { Json } from "@/types/database";
 
 // Lot 2, M2: « Envoyer au tableau de chiffrage » for a takeoff of an affaire (one admitted without a version, M1). The
-// preview reads and computes; it writes nothing. The confirmation computes the same preview again, refuses it when its
-// fingerprint differs from the one the user confirmed, and hands the database what it computed with the state it
-// computed it from (public.send_takeoff_job), which reads that state again under its locks.
+// preview reads and computes, then runs the send and rolls it back (its dry run): it shows the lines as the estimate would
+// hold them and writes nothing. The confirmation computes the same preview again, refuses it when its fingerprint
+// differs from the one the user confirmed, and hands the database what it computed — the state it computed it from and
+// the outcome the member saw (public.send_takeoff_job) —, which reads that state again under its locks and refuses any
+// other outcome.
 
 type Context = AuthenticatedTakeoffContext & { tenantRole: string };
 type Service = ReturnType<typeof createServiceRoleClient>;
@@ -69,6 +72,7 @@ const BLOCKER_MESSAGES: Record<TakeoffSendBlocker, string> = {
   choose_destination: "Plusieurs brouillons peuvent recevoir ce métré : choisissez la destination.",
   read_only: "Ce métré est accessible en lecture seule.",
   rules_unbounded: "Les contrôles de ce métré ne peuvent pas être enregistrés pour ce devis : contactez le support.",
+  draft_locked: "Ce brouillon est ouvert par un autre membre : l’envoi y sera possible quand il l’aura libéré.",
 };
 
 const PRICE_ACTIONS = new Set(["set_price", "apply_assembly"]);
@@ -161,29 +165,70 @@ async function readDraftItems(ctx: Context, versionId: string): Promise<DraftIte
   return (data ?? []) as unknown as DraftItem[];
 }
 
+/** The send as the database writes it, from the state the preview read; what the dry run and the confirmation stage. */
+type StagedParts = {
+  destination: Record<string, unknown>;
+  section: { kind: "new"; id: string; title: string } | { kind: "existing"; id: string };
+  expected: { versions: Array<{ id: string; status: string; updated_at: string }>; job_stamp: string; peers_stamp: string | null;
+    mapping_stamp: string };
+  mapping_plan: ReturnType<typeof buildTakeoffAtomicMappingPlan>;
+  page_decisions: unknown[];
+  rule_results: unknown[];
+  rule_transforms: unknown[];
+  accumulations: Array<{ takeoff_item_id: string; estimate_item_id: string; expected_updated_at: string; expected_quantity: number }>;
+  price_rules_ignored: unknown[];
+};
+
 type Computed = {
   response: TakeoffSendPreviewResponse;
-  /** What the confirmation hands the database; null when the preview blocks. */
-  command: {
-    destination: TakeoffSendDestination;
-    section: { kind: "new"; title: string } | { kind: "existing"; id: string };
-    expected: { versions: Array<{ id: string; status: string; updated_at: string }>; job_stamp: string; version_stamp: string | null };
-    mapping_plan: ReturnType<typeof buildTakeoffAtomicMappingPlan>;
-    rule_results: unknown[];
-    rule_transforms: unknown[];
-    accumulations: Array<{ takeoff_item_id: string; estimate_item_id: string; expected_updated_at: string; expected_quantity: number }>;
-    expected_impact: { sent: number; accumulated: number };
-    write_plan: Record<string, unknown>;
+  /** What the confirmation hands the database; null when the preview blocks or has no outcome to confirm. */
+  command: (StagedParts & {
+    target: TakeoffSendDestination;
+    /** The outcome the dry run showed: the confirmation is refused when the send would write anything else. */
+    outcome: Record<string, unknown>;
     blocked_items: GuardBlockedItem[];
     guard_items: Awaited<ReturnType<typeof listTakeoffApplyGuardItems>>;
     threshold: number;
     preview: TakeoffPreviewConversionResponse;
     engine: number | null;
-  } | null;
+  }) | null;
 };
 
+const DRY_RUN_JUSTIFICATION = "Aperçu de l’envoi : motif provisoire, jamais enregistré.";
+
+/**
+ * The dry run of the send: the command staged by the service under a fresh identity, run by the member's session and
+ * rolled back (public.send_takeoff_job, mode dry_run). It returns what the send would leave — lines created, changed and
+ * removed, each in its section, with the quantity as written — and writes nothing.
+ */
+async function dryRunSend(ctx: Context, jobId: string, parts: StagedParts, override: Record<string, unknown> | null) {
+  const requestId = randomUUID();
+  const staged = { format_version: 1, mode: "dry_run", request_id: requestId, job_id: jobId, fingerprint: sha256({ dry_run: requestId }),
+    client: {}, ...parts, override, expected_outcome: null };
+  const { error: stageError } = await createServiceRoleClient().rpc("stage_takeoff_send" as never,
+    { p_actor_id: ctx.userId, p_command: staged as unknown as Json } as never);
+  if (stageError) throw mapSendTakeoffRpcError(stageError, jobId);
+  const { data, error } = await ctx.supabase.rpc("send_takeoff_job" as never, {
+    p_request: { request_id: requestId, job_id: jobId, fingerprint: staged.fingerprint } as unknown as Json } as never);
+  if (error) return { error: error as ApplyTakeoffRpcError, outcome: null };
+  const outcome = (data as { outcome?: Record<string, unknown> } | null)?.outcome;
+  if (!outcome || typeof outcome !== "object") failed(null, "L’aperçu de l’envoi n’a pas pu être calculé.", jobId);
+  return { error: null, outcome };
+}
+
+/** An override that holds for every blocked line, for the administrator's dry run only (rolled back with it). */
+function dryRunOverride(blocked: readonly GuardBlockedItem[], guardItems: Awaited<ReturnType<typeof listTakeoffApplyGuardItems>>,
+  threshold: number) {
+  const forced = blocked.map((line) => ({ item_id: line.item_id, reason_code: "additional_evidence" as const,
+    justification: DRY_RUN_JUSTIFICATION }));
+  return overrideFromForced(blocked, forced, guardItems, threshold);
+}
+
+type OutcomeLine = { change: "created" | "changed" | "removed"; section: string | null; title: string; unit: string;
+  quantity: number; quantity_before: number | null; unit_price_ht_cents: number | null; takeoff_item_ids: string[] };
+
 async function computeSendPreview(ctx: Context, job: SendJob, request: {
-  destination?: TakeoffSendDestination; section?: TakeoffSendSectionChoice;
+  destination?: TakeoffSendDestination; section?: TakeoffSendSectionChoice; page_decisions?: unknown[];
 }): Promise<Computed> {
   const service = createServiceRoleClient();
   const { data: project, error: projectError } = await service.from("estimate_projects")
@@ -191,19 +236,24 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   if (projectError || !project) failed(projectError, "Impossible de lire l’affaire du métré.", job.id);
   const canEdit = !project.is_archived && (ctx.tenantRole === TAKEOFF_TENANT_ADMIN_ROLE
     || (ctx.tenantRole === "engineer" && project.user_id === ctx.userId));
+  const reasonOnly = (blocker: TakeoffSendBlocker, extra: Partial<TakeoffSendPreviewResponse> = {}): Computed => ({ command: null,
+    response: { job_id: job.id, fingerprint: sha256({ format_version: 1, job_id: job.id, blocker, extra }),
+      destinations: [], destination: null, destination_label: null, section: null, section_options: [],
+      new_section_title: takeoffSendSectionTitle(null), blocked: { reason: blocker, message: BLOCKER_MESSAGES[blocker] }, engine: null,
+      lines: [], left_out: [], price_rules_ignored: [], reservations: [], estimate_lines: null, outcome_pending: null,
+      controls: { evaluated_for: null, not_evaluated_reason: null, blocked_items: [], medium_items: [], threshold: 0 }, page_proposal: null,
+      impact: { sent_count: 0, accumulated_count: 0, version_created: false, section_created: false }, ...extra } });
 
   // A takeoff that cannot be sent from here (already sent, not finished, or read by someone who cannot write the affaire)
   // gets its reason only: nothing of the affaire's versions nor of its estimates is read for it.
   const early: TakeoffSendBlocker | null = job.status === "applied" || job.estimate_version_id !== null ? "already_sent"
     : job.status !== "completed" ? "not_completed" : !canEdit ? "read_only" : null;
-  if (early) {
-    return { command: null, response: { job_id: job.id, fingerprint: sha256({ format_version: 1, job_id: job.id, blocker: early }),
-      destinations: [], destination: null, destination_label: null, section: null, section_options: [],
-      new_section_title: takeoffSendSectionTitle(null), blocked: { reason: early, message: BLOCKER_MESSAGES[early] }, engine: null,
-      lines: [], left_out: [], price_rules_ignored: [], reservations: [],
-      controls: { evaluated_for: null, blocked_items: [], medium_items: [], threshold: 0 }, page_proposal: null,
-      impact: { sent_count: 0, accumulated_count: 0, version_created: false, section_created: false } } };
-  }
+  if (early) return reasonOnly(early);
+
+  // The mapping rules' state, read before the rules themselves: a rule changed after it refuses the send.
+  const { data: mappingStamp, error: mappingStampError } = await service.rpc("takeoff_mapping_rules_stamp" as never,
+    { p_tenant_id: ctx.tenantId } as never);
+  if (mappingStampError || typeof mappingStamp !== "string") failed(mappingStampError, "Impossible de lire les règles de correspondance.", job.id);
 
   const versions = await readVersions(service, ctx.tenantId, job.project_id);
   const { options, preferred } = resolveTakeoffSendDestinations(versions);
@@ -214,6 +264,12 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   }
   const destination = request.destination ?? preferred;
   const option = destination ? options.find((entry) => sameTakeoffSendDestination(entry.destination, destination)) ?? null : null;
+  const destinations = options.map((entry) => ({ destination: entry.destination, label: entry.label, blocked: entry.blocked }));
+  // A destination that cannot receive this send (a draft that holds DPGF lines) says so at once, by name: nothing of it
+  // is read further (its page proposal and its DPGF comparison need the takeoff on that version, which only the send does).
+  if (option?.blocked) {
+    return reasonOnly(option.blocked, { destinations, destination: destination ?? null, destination_label: option.label });
+  }
   const targetVersionId = destination?.kind === "existing_draft" ? destination.version_id : null;
   const readVersionId = destination?.kind === "existing_draft" ? destination.version_id
     : destination?.kind === "version_copy" ? destination.source_version_id : null;
@@ -253,9 +309,9 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     takeoff_item_id: item.item_id, designation: item.original.designation,
     reason: item.original.is_excluded ? "excluded" as const : "rule_skip" as const, rule_name: item.original.is_excluded ? null : item.rule_name }));
 
-  // The controls, evaluated for this destination: the takeoffs the draft holds and its DPGF lines; for a copy, those of
-  // the version it copies (their lines are the copy's); none for a first draft. Nothing is shown as passed that was not
-  // evaluated here.
+  // The controls, evaluated for this destination against the takeoffs its lines come from: those the draft holds or a
+  // copy carried over to it, and its DPGF lines; for a copy, those of the version it copies; none for a first draft.
+  // Nothing is shown as checked that was not evaluated here: a takeoff whose lines carry no rule inputs says so.
   const rules = destination ? await evaluateTakeoffRulesForDestination({ tenantId: ctx.tenantId, projectId: job.project_id,
     jobId: job.id, destinationVersionId: readVersionId, supabase: service }) : null;
   const threshold = await getTakeoffLowConfidenceThresholdForTenant(ctx.tenantId, { supabase: ctx.supabase });
@@ -289,7 +345,8 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   const pageNewLines = new Set((pageProposal?.pages ?? []).flatMap((page) => page.new_line_ids));
   const pageLineIds = new Set((pageProposal?.pages ?? []).flatMap((page) => page.lines.map((line) => line.id)));
 
-  // Earlier takeoff lines of the same item in the chosen section receive the new part (plan A then plan B).
+  // Earlier takeoff lines of the same item in the chosen section receive the new part (plan A then plan B), on both
+  // engines; the outcome of the dry run says what the send really does with each of them.
   const engine = destination?.kind === "existing_draft"
     ? await (async () => {
       const { data } = await service.from("estimate_versions").select("calc_engine_version").eq("id", destination.version_id).maybeSingle();
@@ -309,7 +366,7 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     if (error) failed(error as { message?: string }, "Impossible de lire les métrés déjà au devis.", job.id);
     for (const row of (data ?? []) as Array<{ id: string; quantity: number | string }>) sourceQuantities.set(row.id, Number(row.quantity));
   }
-  const accumulations = proposeTakeoffSendAccumulations({ engine, sectionLines, sourceQuantities, pageLineIds,
+  const accumulations = proposeTakeoffSendAccumulations({ sectionLines, sourceQuantities, pageLineIds,
     sent: sentItems.map((item) => {
       const stored = byId.get(item.item_id);
       return { takeoff_item_id: item.item_id, designation: item.transformed.designation, unit: item.transformed.unit,
@@ -345,9 +402,9 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
       .eq("preparation_snapshot->>preparation_revision" as never, (job.preparation_revision ?? "") as never).neq("id", job.id).limit(1);
     return (data ?? []).length > 0;
   })() : false;
-  const blocker: TakeoffSendBlocker | null = !destination ? "choose_destination"
-    : option?.blocked ?? (destination.kind === "version_copy" && (pageProposal?.pages.length ?? 0) > 0 ? "copy_pages_already_in_estimate"
-      : sameLaunch ? "preparation_already_sent" : sentItems.length === 0 ? "no_line" : null);
+  let blocker: TakeoffSendBlocker | null = !destination ? "choose_destination"
+    : destination.kind === "version_copy" && (pageProposal?.pages.length ?? 0) > 0 ? "copy_pages_already_in_estimate"
+      : sameLaunch ? "preparation_already_sent" : sentItems.length === 0 ? "no_line" : null;
 
   const sectionTitle = sectionChoice.kind === "existing" ? ordered.find((section) => section.id === sectionChoice.id)?.label ?? "" : newSectionTitle;
   const expectedVersions = [...versions].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
@@ -357,18 +414,71 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   const accumulationList = [...accumulations.entries()].map(([takeoffItemId, line]) => ({ takeoff_item_id: takeoffItemId,
     estimate_item_id: line.id, expected_updated_at: line.updated_at, expected_quantity: line.quantity }));
   const blockedItems = guard?.blocked_items ?? [];
+  const pageDecisions = request.page_decisions ?? [];
+
+  // The send as the database would write it: the first draft created as « Créer un devis » creates it (same engine and
+  // settings), the section created with it or in the draft, everything the preview read and the state it read it from.
+  let parts: StagedParts | null = null;
+  if (!blocker && destination && rules?.jobStamp) {
+    let staged: Record<string, unknown>;
+    if (destination.kind === "first_draft") {
+      const prepared = await prepareCanonicalEstimateCreation({ supabase: ctx.supabase, tenantId: ctx.tenantId, actorUserId: ctx.userId,
+        project: { kind: "existing", id: job.project_id }, source: { kind: "blank", importId: null }, expectedCalcEngineVersion: engine });
+      staged = { kind: "first_draft", version_payload: prepared.versionPayload };
+    } else {
+      staged = { ...destination };
+    }
+    parts = { destination: staged,
+      section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", id: randomUUID(), title: newSectionTitle },
+      expected: { versions: expectedVersions, job_stamp: rules.jobStamp, peers_stamp: rules.peersStamp, mapping_stamp: mappingStamp },
+      mapping_plan: mappingPlan, page_decisions: pageDecisions, rule_results: ruleWrites, rule_transforms: rules.transforms,
+      accumulations: accumulationList, price_rules_ignored: priceRulesIgnored };
+  }
+
+  // The outcome: the send run and rolled back. It needs the member's decisions on the pages already in the estimate, and,
+  // for lines the guard blocks, an administrator (whose override is checked again at the confirmation).
+  let outcome: Record<string, unknown> | null = null;
+  let outcomePending: TakeoffSendPreviewResponse["outcome_pending"] = null;
+  if (parts) {
+    if ((pageProposal?.pages.length ?? 0) > 0 && pageDecisions.length === 0) {
+      outcomePending = "page_decisions";
+    } else if (blockedItems.length > 0 && ctx.tenantRole !== TAKEOFF_TENANT_ADMIN_ROLE) {
+      outcomePending = "blocked";
+    } else {
+      const run = await dryRunSend(ctx, job.id, parts, blockedItems.length > 0 ? dryRunOverride(blockedItems, guardItems, threshold) : null);
+      if (run.error?.message === "TAKEOFF_SEND_DRAFT_LOCKED") blocker = "draft_locked";
+      else if (run.error) throw mapSendTakeoffRpcError(run.error, job.id);
+      else outcome = run.outcome;
+    }
+  }
+
+  // The lines of the estimate as the send leaves them, each in its section by its title.
+  const sourceSections = destination?.kind === "version_copy" ? (await readDraftItems(ctx, destination.source_version_id))
+    .filter((item) => item.item_type === "section") : [];
+  const sectionTitleOf = (ref: string | null) => {
+    if (ref === null) return null;
+    if (ref === "new") return newSectionTitle;
+    const [kind, id] = ref.split(":");
+    const found = (kind === "copy" ? sourceSections : draftItems).find((item) => item.id === id);
+    return found?.title ?? null;
+  };
+  const estimateLines = outcome ? ((outcome.lines ?? []) as OutcomeLine[]).map((line) => ({ change: line.change,
+    section_title: sectionTitleOf(line.section), title: line.title, unit: line.unit.startsWith("status:") ? null : line.unit,
+    quantity: Number(line.quantity), quantity_before: line.quantity_before === null ? null : Number(line.quantity_before),
+    unit_price_ht_cents: line.unit_price_ht_cents, takeoff_item_ids: line.takeoff_item_ids })) : null;
+  const evaluated = (rules?.results.size ?? 0) > 0;
 
   const fingerprint = sha256({
-    format_version: 1, job_id: job.id, destination, engine, section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", title: newSectionTitle },
-    expected: { versions: expectedVersions, job_stamp: rules?.jobStamp ?? null, version_stamp: rules?.versionStamp ?? null },
+    format_version: 2, job_id: job.id, destination, engine, section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", title: newSectionTitle },
+    expected: { versions: expectedVersions, job_stamp: rules?.jobStamp ?? null, peers_stamp: rules?.peersStamp ?? null, mapping_stamp: mappingStamp },
     mapping_plan: mappingPlan, rules: ruleWrites.map((write) => [write.id, write.results]), transforms: rules?.transforms ?? [],
-    accumulations: accumulationList, page_proposal: pageProposal, blocked: blockedItems.map((item) => [item.item_id, item.reasons]),
-    price_rules_ignored: priceRulesIgnored.map((rule) => [rule.takeoff_item_id, rule.action]), blocker,
+    accumulations: accumulationList, page_proposal: pageProposal, page_decisions: pageDecisions,
+    blocked: blockedItems.map((item) => [item.item_id, item.reasons]),
+    price_rules_ignored: priceRulesIgnored.map((rule) => [rule.takeoff_item_id, rule.action]), blocker, outcome, outcome_pending: outcomePending,
   });
 
   const response: TakeoffSendPreviewResponse = {
-    job_id: job.id, fingerprint,
-    destinations: options.map((entry) => ({ destination: entry.destination, label: entry.label, blocked: entry.blocked })),
+    job_id: job.id, fingerprint, destinations,
     destination: destination ?? null, destination_label: option?.label ?? null,
     section: destination ? (sectionChoice.kind === "existing" ? { kind: "existing", id: sectionChoice.id, title: sectionTitle }
       : { kind: "new", title: newSectionTitle }) : null,
@@ -377,7 +487,9 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     blocked: blocker ? { reason: blocker, message: BLOCKER_MESSAGES[blocker] } : null,
     engine,
     lines, left_out: leftOut, price_rules_ignored: priceRulesIgnored, reservations,
-    controls: { evaluated_for: destination?.kind ?? null,
+    estimate_lines: estimateLines, outcome_pending: outcomePending,
+    controls: { evaluated_for: destination && evaluated ? destination.kind : null,
+      not_evaluated_reason: destination && !evaluated ? "no_rule_inputs" : null,
       blocked_items: blockedItems.map((item) => ({ item_id: item.item_id, designation: item.designation, confidence: item.confidence,
         is_verified: item.is_verified, reasons: item.reasons, ...(item.rule_failures ? { rule_failures: item.rule_failures.map((failure) => ({
           rule: failure.rule, code: failure.code, reason: failure.reason, acceptable: failure.acceptable })) } : {}) })),
@@ -392,19 +504,9 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
       version_created: destination?.kind === "first_draft" || destination?.kind === "version_copy",
       section_created: sectionChoice.kind === "new" },
   };
-  if (blocker || !destination || !rules?.jobStamp) return { response, command: null };
-  return { response, command: {
-    destination, section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", title: newSectionTitle },
-    expected: { versions: expectedVersions, job_stamp: rules.jobStamp, version_stamp: rules.versionStamp },
-    mapping_plan: mappingPlan, rule_results: ruleWrites, rule_transforms: rules.transforms, accumulations: accumulationList,
-    expected_impact: { sent: sentItems.length, accumulated: accumulations.size },
-    write_plan: { format_version: 1, price_rules_ignored: priceRulesIgnored,
-      parts: lines.map((line) => ({ takeoff_item_id: line.takeoff_item_id, designation: line.designation,
-        item: null, target: line.target.kind === "existing_line"
-          ? { kind: "existing_line", estimate_item_id: line.target.estimate_item_id, quantity_before: line.target.quantity_before }
-          : { kind: "new_line" } })) },
-    blocked_items: blockedItems, guard_items: guardItems, threshold, preview, engine,
-  } };
+  if (blocker || !destination || !parts || !outcome) return { response, command: null };
+  return { response, command: { ...parts, target: destination, outcome, blocked_items: blockedItems, guard_items: guardItems, threshold,
+    preview, engine } };
 }
 
 async function contextOf(): Promise<Context> {
@@ -412,7 +514,7 @@ async function contextOf(): Promise<Context> {
   return { ...context, tenantRole: context.tenantRole ?? "" } as Context;
 }
 
-/** POST /api/takeoff/jobs/[jobId]/send-to-estimate/preview: the destination and the impact of sending this takeoff; writes nothing. */
+/** POST /api/takeoff/jobs/[jobId]/send-to-estimate/preview: the destination and the outcome of sending this takeoff; writes nothing. */
 export async function previewTakeoffSend(jobId: string, body: unknown): Promise<TakeoffSendPreviewResponse> {
   const ctx = await contextOf();
   const normalizedJobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant job invalide.");
@@ -424,9 +526,11 @@ export async function previewTakeoffSend(jobId: string, body: unknown): Promise<
 const STALE_MESSAGES: Record<string, string> = {
   destination_changed: "Une version de devis a été créée ou modifiée depuis l’aperçu : vérifiez la destination proposée puis confirmez.",
   takeoff_changed: "Le métré a été modifié depuis l’aperçu (une ligne, une preuve ou un repère) : vérifiez le nouvel aperçu puis confirmez.",
-  estimate_changed: "Le devis a été modifié depuis l’aperçu : vérifiez le nouvel aperçu puis confirmez.",
+  estimate_changed: "Le devis ou les métrés qu’il porte ont changé depuis l’aperçu : vérifiez le nouvel aperçu puis confirmez.",
   rules_changed: "Les contrôles du métré ont changé depuis l’aperçu : vérifiez le nouvel aperçu puis confirmez.",
+  mapping_changed: "Les règles de correspondance ont changé depuis l’aperçu : vérifiez le nouvel aperçu puis confirmez.",
   accumulation_changed: "Une ligne du devis qui devait recevoir ce métré a changé : vérifiez le nouvel aperçu puis confirmez.",
+  outcome_changed: "Les lignes que l’envoi écrirait ne sont plus celles de l’aperçu : vérifiez le nouvel aperçu puis confirmez.",
 };
 
 function staleError(reason: string | null, jobId: string) {
@@ -453,8 +557,12 @@ export function mapSendTakeoffRpcError(error: ApplyTakeoffRpcError, jobId: strin
     case "ESTIMATE_CALC_POLICY_CONTEXT_CHANGED": return staleError("destination_changed", jobId);
     case "TAKEOFF_SEND_ALREADY_SENT": return conflict(BLOCKER_MESSAGES.already_sent, "send_already_sent");
     case "TAKEOFF_SEND_JOB_NOT_READY": return conflict(BLOCKER_MESSAGES.not_completed, "send_not_ready");
+    case "TAKEOFF_SEND_DRAFT_LOCKED": return conflict(BLOCKER_MESSAGES.draft_locked, "send_draft_locked", true);
     case "TAKEOFF_SEND_REQUEST_CONFLICT":
       return conflict("Cette confirmation a déjà servi à un autre envoi : rouvrez l’aperçu puis confirmez.", "send_request_conflict");
+    case "TAKEOFF_SEND_RECEIPT_NOT_READABLE":
+      return new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId,
+        message: "Cet envoi n’est plus accessible : l’affaire a changé de responsable.", details: { guard: "send_receipt_not_readable" } });
     case "TAKEOFF_SEND_PROJECT_NOT_WRITABLE":
       return new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false, jobId,
         message: "Seul le propriétaire de l’affaire ou un administrateur envoie ce métré.", details: { guard: "send_project_not_writable" } });
@@ -471,10 +579,22 @@ export function mapSendTakeoffRpcError(error: ApplyTakeoffRpcError, jobId: strin
   }
 }
 
+/** The override as the audit stores it, bound to the state of each blocked line as evaluated for the destination. */
+function overrideFromForced(blocked: readonly GuardBlockedItem[], forced: ForcedEntry[],
+  guardItems: Awaited<ReturnType<typeof listTakeoffApplyGuardItems>>, threshold: number) {
+  const states = new Map(guardItems.map((item) => [item.id, item.override_state]));
+  const metadata = takeoffAuditMetadataBuilders["takeoff.apply.override"]({ estimate_version_id: "00000000-0000-4000-8000-000000000000",
+    threshold, blocked_item_ids: blocked.map((item) => item.item_id), blocked_items_count: blocked.length,
+    blocked_items_state: blocked.flatMap((item) => { const state = states.get(item.item_id); return state ? [state] : []; }),
+    ...packForcedItems(forced) });
+  // The send command binds the audit to the version it creates or chooses (metadata.estimate_version_id included).
+  return Object.fromEntries(Object.entries(metadata as Record<string, unknown>).filter(([key]) => key !== "estimate_version_id"));
+}
+
 /** An administrator's override of the blocked lines, each line's coded reason checked against the line as evaluated. */
 function overrideMetadata(blocked: readonly GuardBlockedItem[], payload: { forced_items?: Array<{ item_id: string;
   reason_code: string; false_positive_rules?: string[]; justification_index: number }>; forced_justifications?: string[] },
-  guardItems: Awaited<ReturnType<typeof listTakeoffApplyGuardItems>>, threshold: number, versionId: string, jobId: string) {
+  guardItems: Awaited<ReturnType<typeof listTakeoffApplyGuardItems>>, threshold: number, jobId: string) {
   const entries = new Map((payload.forced_items ?? []).map((entry) => [entry.item_id.toLowerCase(), entry]));
   const forced: ForcedEntry[] = [];
   const missing_item_ids: string[] = [];
@@ -492,25 +612,21 @@ function overrideMetadata(blocked: readonly GuardBlockedItem[], payload: { force
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, message: FORCE_MESSAGES.overrideReasons,
       details: { guard: "override_reasons", missing_item_ids, invalid_items }, retryable: false, jobId });
   }
-  const states = new Map(guardItems.map((item) => [item.id, item.override_state]));
-  const metadata = takeoffAuditMetadataBuilders["takeoff.apply.override"]({ estimate_version_id: versionId, threshold,
-    blocked_item_ids: blocked.map((item) => item.item_id), blocked_items_count: blocked.length,
-    blocked_items_state: blocked.flatMap((item) => { const state = states.get(item.item_id); return state ? [state] : []; }),
-    ...packForcedItems(forced) });
-  // The send command binds the audit to the version it creates or chooses (metadata.estimate_version_id included).
-  return Object.fromEntries(Object.entries(metadata as Record<string, unknown>).filter(([key]) => key !== "estimate_version_id"));
+  return overrideFromForced(blocked, forced, guardItems, threshold);
 }
 
 type ReceiptRow = { id: string; job_id: string; request_id: string; target_version_id: string; result: Record<string, unknown>;
   replayed?: boolean };
 
 function responseOf(receipt: ReceiptRow, replayed: boolean): TakeoffSendResponse {
-  const result = receipt.result as { version_created?: boolean; created_count?: number; updated_count?: number; ignored_count?: number;
-    lines_created?: string[]; lines_updated?: string[]; sections_changed?: string[] };
+  const result = receipt.result as { version_created?: boolean; created_count?: number; updated_count?: number; removed_count?: number;
+    ignored_count?: number; lines_created?: string[]; lines_changed?: string[]; lines_removed?: Array<{ id: string }>;
+    sections_changed?: string[] };
   return { job_id: receipt.job_id, receipt_id: receipt.id, request_id: receipt.request_id, replayed,
     version_id: receipt.target_version_id, version_created: result.version_created === true,
-    created_count: result.created_count ?? 0, updated_count: result.updated_count ?? 0, ignored_count: result.ignored_count ?? 0,
-    lines_created: result.lines_created ?? [], lines_updated: result.lines_updated ?? [], sections_changed: result.sections_changed ?? [] };
+    created_count: result.created_count ?? 0, updated_count: result.updated_count ?? 0, removed_count: result.removed_count ?? 0,
+    ignored_count: result.ignored_count ?? 0, lines_created: result.lines_created ?? [], lines_updated: result.lines_changed ?? [],
+    lines_removed: (result.lines_removed ?? []).map((line) => line.id), sections_changed: result.sections_changed ?? [] };
 }
 
 /**
@@ -552,12 +668,22 @@ export async function sendTakeoffJob(jobId: string, body: unknown): Promise<Take
   if (await committed()) return replay();
 
   const job = await readSendJob(ctx, normalizedJobId);
-  const { response, command } = await computeSendPreview(ctx, job, { destination: payload.destination, section: payload.section });
-  // A retry whose first attempt committed while this preview was computed reads a takeoff already sent: it gets the
-  // receipt, never « rien n’a été écrit ».
-  if ((response.fingerprint !== payload.fingerprint || response.blocked || !command) && await committed()) return replay();
+  const computed = await previewOrReplay({ committed, replay,
+    preview: () => computeSendPreview(ctx, job, { destination: payload.destination, section: payload.section,
+      page_decisions: payload.page_decisions }),
+    settled: ({ response, command }) => response.fingerprint === payload.fingerprint && !response.blocked && command !== null });
+  if ("replayed" in computed) return computed.replayed;
+  const { response, command } = computed.preview;
   if (response.fingerprint !== payload.fingerprint) throw staleError(null, normalizedJobId);
+  if (response.outcome_pending === "page_decisions") {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false, jobId: normalizedJobId,
+      message: "Décidez d’abord des pages déjà au devis : l’envoi en dépend.", details: { guard: "send_page_decisions_required" } });
+  }
   if (response.blocked || !command) {
+    if (!response.blocked && response.outcome_pending === "blocked") {
+      throw new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, status: 422, retryable: false, jobId: normalizedJobId,
+        details: { blocked_items: response.controls.blocked_items, threshold: response.controls.threshold } });
+    }
     throw new TakeoffError({ status: response.blocked?.reason === "already_sent" ? 409 : 422,
       code: response.blocked?.reason === "already_sent" ? TakeoffErrorCode.CONFLICT : TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
       message: response.blocked?.message ?? BLOCKER_MESSAGES.no_line, details: { guard: `send_${response.blocked?.reason ?? "blocked"}` },
@@ -570,47 +696,35 @@ export async function sendTakeoffJob(jobId: string, body: unknown): Promise<Take
   if (payload.override === true && ctx.tenantRole !== TAKEOFF_TENANT_ADMIN_ROLE) {
     throw forbidden("Seul un administrateur peut forcer l'application des lignes bloquées.");
   }
-
-  let destination: Record<string, unknown>;
-  let knownVersionId: string;
-  if (command.destination.kind === "first_draft") {
-    // The first draft is the one « Créer un devis » creates: same defaults, same engine and settings.
-    const { data: project } = await createServiceRoleClient().from("estimate_projects").select("user_id").eq("id", job.project_id).single();
-    await ensureDefaultEstimateCategories({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId });
-    await ensureDefaultLaborRoles({ supabase: ctx.supabase, tenantId: ctx.tenantId, ownerUserId: project?.user_id ?? ctx.userId });
-    const prepared = await prepareCanonicalEstimateCreation({ supabase: ctx.supabase, tenantId: ctx.tenantId, actorUserId: ctx.userId,
-      project: { kind: "existing", id: job.project_id }, source: { kind: "blank", importId: null }, expectedCalcEngineVersion: command.engine });
-    destination = { kind: "first_draft", version_payload: prepared.versionPayload };
-    knownVersionId = String(prepared.versionPayload.id);
-  } else if (command.destination.kind === "existing_draft") {
-    destination = { kind: "existing_draft", version_id: command.destination.version_id };
-    knownVersionId = command.destination.version_id;
-  } else {
-    destination = { kind: "version_copy", source_version_id: command.destination.source_version_id };
-    knownVersionId = command.destination.source_version_id;
-  }
-  const section = command.section.kind === "existing" ? command.section
-    : { kind: "new", id: randomUUID(), title: command.section.title };
   const override = payload.override === true
-    ? overrideMetadata(command.blocked_items, payload, command.guard_items, command.threshold, knownVersionId, normalizedJobId) : null;
+    ? overrideMetadata(command.blocked_items, payload, command.guard_items, command.threshold, normalizedJobId) : null;
 
-  // The server stages what it computed (the rules evaluated for the destination, the plan, the expected impact) and the
-  // user's session sends it: the command never takes them from the browser.
-  const { data, error } = await send({ format_version: 1, destination, section, expected: command.expected,
-    mapping_plan: command.mapping_plan, page_decisions: payload.page_decisions, rule_results: command.rule_results,
-    rule_transforms: command.rule_transforms, accumulations: command.accumulations, expected_impact: command.expected_impact,
-    override, write_plan: command.write_plan });
+  // The server stages what it computed (the rules evaluated for the destination, the plan, the outcome the member saw)
+  // and the user's session sends it: the command never takes them from the browser.
+  const { data, error } = await send({ format_version: 1, mode: "send", destination: command.destination, section: command.section,
+    expected: command.expected, mapping_plan: command.mapping_plan, page_decisions: command.page_decisions,
+    rule_results: command.rule_results, rule_transforms: command.rule_transforms, accumulations: command.accumulations,
+    override, price_rules_ignored: command.price_rules_ignored, expected_outcome: command.outcome });
   if (error) throw mapSendTakeoffRpcError(error, normalizedJobId);
   const receipt = data as unknown as ReceiptRow;
   // The same request committed by an attempt in flight: its own call wrote the audit and recomputed the rules.
   if (receipt.replayed === true) return responseOf(receipt, true);
 
-  // After commit: the other takeoffs of the draft have a new peer; their rules are computed again (their stale state
-  // blocks them meanwhile). A copy holds no other takeoff (those of the copied version stay on it): its rules, evaluated
-  // against them by the send, are kept. The audit of the application, as « Envoyer au tableau de chiffrage » writes it.
-  if (command.destination.kind !== "version_copy") {
-    await recomputeTakeoffRulesQuietly({ tenantId: ctx.tenantId, estimateVersionId: receipt.target_version_id, context: "applied" });
+  // After commit, never before: a first draft gets the default categories and labour roles « Créer un devis » gives it
+  // (a refused confirmation leaves none). Then the other takeoffs of the draft have a new peer: their rules are computed
+  // again (their stale state blocks them meanwhile). The audit of the application, as « Envoyer au tableau de
+  // chiffrage » writes it.
+  if (command.target.kind === "first_draft") {
+    try {
+      const { data: owner } = await createServiceRoleClient().from("estimate_projects").select("user_id").eq("id", job.project_id).single();
+      await ensureDefaultEstimateCategories({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId });
+      await ensureDefaultLaborRoles({ supabase: ctx.supabase, tenantId: ctx.tenantId, ownerUserId: owner?.user_id ?? ctx.userId });
+    } catch (defaultsError) {
+      console.error("takeoff.send.defaults_failed", { job_id: normalizedJobId,
+        message: defaultsError instanceof Error ? defaultsError.message.slice(0, 300) : "unknown" });
+    }
   }
+  await recomputeTakeoffRulesQuietly({ tenantId: ctx.tenantId, estimateVersionId: receipt.target_version_id, context: "applied" });
   await logTakeoffAuditEvent({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId, jobId: normalizedJobId,
     estimateVersionId: receipt.target_version_id, action: "takeoff.apply.completed",
     metadata: takeoffAuditMetadataBuilders["takeoff.apply.completed"]({ estimate_version_id: receipt.target_version_id,

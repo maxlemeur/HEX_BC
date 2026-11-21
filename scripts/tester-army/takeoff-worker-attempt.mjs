@@ -55,11 +55,18 @@ if (versionId !== null) {
   assert.equal(version.data.project_id, projectId);
   assert.equal(version.data.tenant_id, tenantId);
   assert.equal(version.data.calc_engine_version, 2, "Positive worker journeys require an actual compatible v2.");
-} else {
-  const versions = await user.from("estimate_versions").select("id", { count: "exact", head: true }).eq("project_id", projectId);
-  assert.equal(versions.error, null);
-  assert.equal(versions.count, 0, "An affaire-only test must begin without any estimate version.");
 }
+// An affaire-level job is read without touching any estimate: the affaire's versions and their lines, as they are before
+// the run (none for an affaire without a version; lot 2 M2 sends later takeoffs to the drafts an earlier send created),
+// are the same after it.
+const estimateState = async () => {
+  const read = await user.from("estimate_versions").select("id, updated_at, estimate_items(id, updated_at)").eq("project_id", projectId)
+    .order("id");
+  assert.equal(read.error, null);
+  return JSON.stringify(read.data.map((version) => [version.id, version.updated_at,
+    version.estimate_items.map((item) => [item.id, item.updated_at]).sort()]));
+};
+const estimateBefore = versionId === null ? await estimateState() : null;
 const tenant = await user.from("tenants").select("name").eq("id", tenantId).single();
 assert.equal(tenant.error, null);
 assert(/^ARMY\b/.test(tenant.data.name));
@@ -160,6 +167,7 @@ try {
     }
   }
   const job = await readJob();
+  if (estimateBefore !== null) assert.equal(await estimateState(), estimateBefore, "An affaire-level job must leave the affaire's estimates as they were.");
   const results = await worker.from("takeoff_results").select("id, extracted_json, warnings, provider_meta").eq("job_id", jobId);
   const items = await worker.from("takeoff_items").select("id, designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason").eq("job_id", jobId).order("designation");
   // TI-662: the vector reading persisted beside the level C result (MERGEONE_TAKEOFF_VECTORS=1 only).

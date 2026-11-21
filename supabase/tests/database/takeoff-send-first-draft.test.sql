@@ -153,37 +153,35 @@ select to_jsonb(v) - 'updated_at' as version_row, (select jsonb_agg(to_jsonb(i) 
   where i.version_id = v.id) as lines
 from public.estimate_versions v where v.id = pg_temp.fixture(30);
 
--- The command as the server builds it, from the state it read (as the service it reads stamps through).
+-- The command as the server builds it, from the state it read (as the service it reads stamps through): a dry run first,
+-- whose outcome the member sees, then the send of that outcome (pg_temp.send does both, as the preview and the
+-- confirmation do; a command already confirmed is sent again as it was, as a retry is).
 create function pg_temp.command(p_request integer, p_job integer, p_destination jsonb, p_section jsonb,
-  p_accumulations jsonb default '[]', p_accumulated integer default 0, p_rule_results jsonb default null,
-  p_mapping jsonb default null, p_override jsonb default null, p_sent integer default null)
+  p_accumulations jsonb default '[]', p_rule_results jsonb default null, p_mapping jsonb default null,
+  p_override jsonb default null, p_page_decisions jsonb default '[]')
 returns jsonb language sql as $$
-  select jsonb_build_object('format_version', 1, 'request_id', pg_temp.fixture(p_request), 'job_id', j.id,
+  select jsonb_build_object('format_version', 1, 'mode', 'dry_run', 'request_id', pg_temp.fixture(p_request), 'job_id', j.id,
     'fingerprint', repeat('f', 64), 'destination', p_destination, 'section', p_section,
     -- What the user confirmed (send-server.ts `client`): its hash tells a replay from another confirmation.
     'client', jsonb_build_object('fingerprint', repeat('f', 64), 'destination', p_destination - 'version_payload',
-      'section', p_section - 'id', 'override', p_override is not null),
+      'section', p_section - 'id', 'page_decisions', p_page_decisions, 'override', p_override is not null),
     'expected', jsonb_build_object(
       'versions', (select coalesce(jsonb_agg(jsonb_build_object('id', v.id, 'status', v.status, 'updated_at', v.updated_at)
         order by v.id), '[]'::jsonb) from public.estimate_versions v where v.project_id = j.project_id),
       'job_stamp', public.takeoff_rule_job_stamp(j.tenant_id, j.project_id, j.id),
-      'version_stamp', case p_destination ->> 'kind'
-        when 'existing_draft' then public.takeoff_rule_version_stamp(j.tenant_id, (p_destination ->> 'version_id')::uuid)
+      'peers_stamp', case p_destination ->> 'kind'
+        when 'existing_draft' then public.takeoff_send_peers_stamp(j.tenant_id, (p_destination ->> 'version_id')::uuid)
         -- A copy is evaluated against the takeoffs of the version it copies.
-        when 'version_copy' then public.takeoff_rule_version_stamp(j.tenant_id, (p_destination ->> 'source_version_id')::uuid) end),
+        when 'version_copy' then public.takeoff_send_peers_stamp(j.tenant_id, (p_destination ->> 'source_version_id')::uuid) end,
+      'mapping_stamp', public.takeoff_mapping_rules_stamp(j.tenant_id)),
     'mapping_plan', coalesce(p_mapping, (select jsonb_agg(jsonb_build_object('item_id', i.id, 'source_order', i.rank - 1,
         'rule_id', null, 'action', 'none', 'designation', btrim(i.designation), 'unit_price_cents', null, 'category_id', null,
         'assembly_id', null) order by i.rank)
       from (select item.*, row_number() over (order by item.created_at, item.id) as rank
         from public.takeoff_items item where item.job_id = j.id) as i)),
-    'page_decisions', '[]'::jsonb,
+    'page_decisions', p_page_decisions,
     'rule_results', coalesce(p_rule_results, '[]'::jsonb), 'rule_transforms', '[]'::jsonb,
-    'accumulations', p_accumulations,
-    'expected_impact', jsonb_build_object('sent', coalesce(p_sent, (select count(*) from public.takeoff_items i
-      where i.job_id = j.id and not i.is_excluded)), 'accumulated', p_accumulated),
-    'override', p_override,
-    'write_plan', jsonb_build_object('format_version', 1, 'parts', (select jsonb_agg(jsonb_build_object('takeoff_item_id', i.id)
-      order by i.created_at, i.id) from public.takeoff_items i where i.job_id = j.id and not i.is_excluded)))
+    'accumulations', p_accumulations, 'override', p_override, 'price_rules_ignored', '[]'::jsonb, 'expected_outcome', null)
   from public.takeoff_jobs j where j.id = pg_temp.fixture(p_job)
 $$;
 create function pg_temp.first_draft(p_version integer) returns jsonb language sql immutable as $$
@@ -217,8 +215,27 @@ create function pg_temp.request(p_name text) returns jsonb language sql as $$
   select jsonb_build_object('request_id', body -> 'request_id', 'job_id', body -> 'job_id', 'fingerprint', body -> 'fingerprint')
   from commands where name = p_name
 $$;
-create function pg_temp.send(p_name text) returns jsonb language plpgsql as $$
+create function pg_temp.stage_body(p_body jsonb) returns void language plpgsql as $$
+declare
+  caller text := current_user;
+  actor uuid := (select auth.uid());
 begin
+  set local role service_role;
+  perform public.stage_takeoff_send(actor, p_body);
+  execute format('set local role %I', caller);
+end;
+$$;
+create function pg_temp.send(p_name text) returns jsonb language plpgsql as $$
+declare
+  previewed jsonb := (select body from commands where name = p_name) || jsonb_build_object('request_id', gen_random_uuid());
+  shown jsonb;
+begin
+  if (select body ->> 'mode' from commands where name = p_name) = 'dry_run' then
+    perform pg_temp.stage_body(previewed);
+    shown := public.send_takeoff_job(jsonb_build_object('request_id', previewed -> 'request_id', 'job_id', previewed -> 'job_id',
+      'fingerprint', previewed -> 'fingerprint')) -> 'outcome';
+    update commands set body = body || jsonb_build_object('mode', 'send', 'expected_outcome', shown) where name = p_name;
+  end if;
   perform pg_temp.stage(p_name);
   return public.send_takeoff_job(pg_temp.request(p_name));
 end;
@@ -413,8 +430,7 @@ where version_id = pg_temp.fixture(100) and title = 'Lavabo';
 insert into commands values ('b', pg_temp.command(109, 62, jsonb_build_object('kind', 'existing_draft', 'version_id', pg_temp.fixture(100)),
   jsonb_build_object('kind', 'existing', 'id', pg_temp.fixture(110)),
   p_accumulations => (select jsonb_build_array(jsonb_build_object('takeoff_item_id', pg_temp.fixture(83),
-    'estimate_item_id', id, 'expected_updated_at', updated_at, 'expected_quantity', quantity)) from a_line),
-  p_accumulated => 1));
+    'estimate_item_id', id, 'expected_updated_at', updated_at, 'expected_quantity', quantity)) from a_line)));
 set local role authenticated;
 select lives_ok($$select pg_temp.send('b')$$, 'B is sent to the draft A created');
 reset role;
@@ -429,7 +445,7 @@ select is((select private.takeoff_estimate_line_item_ids(source_metadata, source
 select is((select jsonb_agg(trim_scale((part ->> 'quantity')::numeric) order by ordinality) from public.estimate_items
   cross join lateral jsonb_array_elements(source_metadata #> '{takeoff_contributions,parts}') with ordinality as p(part, ordinality)
   where version_id = pg_temp.fixture(100) and title = 'Lavabo'), '[3, 2]'::jsonb, 'each send keeps its contribution');
-select is((select result -> 'lines_updated' from public.takeoff_send_receipts where job_id = pg_temp.fixture(62)),
+select is((select result -> 'lines_changed' from public.takeoff_send_receipts where job_id = pg_temp.fixture(62)),
   (select jsonb_build_array(id) from a_line), 'the receipt lists the line actually changed apart from the created ones');
 
 -- A second job of A's very launch meets the historical receipt of that launch on the version: refused by name.
@@ -486,7 +502,7 @@ insert into commands values ('copy', pg_temp.command(111, 63, jsonb_build_object
   'source_version_id', pg_temp.fixture(30)), pg_temp.new_section(119)));
 -- Its controls were evaluated against the takeoffs of the version it copies: a state read elsewhere is refused.
 insert into commands select 'copy-elsewhere', jsonb_set(jsonb_set(body, '{request_id}', to_jsonb(pg_temp.fixture(141))),
-  '{expected,version_stamp}', '"read without the takeoffs of the copied version"') from commands where name = 'copy';
+  '{expected,peers_stamp}', '"read without the takeoffs of the copied version"') from commands where name = 'copy';
 select pg_temp.sign_in(1);
 set local role authenticated;
 select throws_ok($$select pg_temp.send('copy-elsewhere')$$, '40001', 'TAKEOFF_SEND_PREVIEW_STALE',
@@ -540,6 +556,16 @@ select throws_ok($$select * from public.apply_takeoff_job_with_page_decisions(pg
   'the route''s entry refuses to merge onto a hand-typed line');
 select throws_ok($$select * from public.apply_takeoff_job_guarded_atomic(pg_temp.fixture(64), 'merge', pg_temp.fixture(121),
   pg_temp.merge_plan())$$, '22023', 'TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT', 'the direct four-argument overload refuses it too');
+reset role;
+-- The five-argument overload, the one a DPGF reconciliation authorizes, on its own.
+insert into public.takeoff_apply_authorizations (tenant_id, job_id, estimate_version_id, user_id, authorization_token_hash,
+  review_summary, expires_at)
+values (pg_temp.fixture(10), pg_temp.fixture(64), pg_temp.fixture(120), pg_temp.fixture(4),
+  encode(sha256(convert_to('ordinary-line-five', 'UTF8')), 'hex'), '{}'::jsonb, now() + interval '5 minutes');
+set local role authenticated;
+select throws_ok($$select * from public.apply_takeoff_job_guarded_atomic(pg_temp.fixture(64), 'merge', pg_temp.fixture(121),
+  pg_temp.merge_plan(), 'ordinary-line-five')$$, '22023', 'TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT',
+  'the direct five-argument overload refuses it too');
 reset role;
 select results_eq($$select trim_scale(quantity), unit_price_ht_cents, source_provider from public.estimate_items
   where id = pg_temp.fixture(122)$$, $$values (9::numeric, 15000, 'manual'::text)$$, 'the hand-typed line keeps its quantity');

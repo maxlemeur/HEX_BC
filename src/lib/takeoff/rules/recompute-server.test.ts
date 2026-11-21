@@ -118,6 +118,7 @@ describe("reading an entered quantity", () => {
     const fake = createSupabaseFake({
       tables: {
         takeoff_jobs: () => ({ data: [{ id: JOB, status: "completed", created_at: "2026-11-09T09:00:00.000Z" }], error: null }),
+        takeoff_version_links: () => ({ data: [], error: null }),
         takeoff_items: () => ({ data: rows, error: null, count: rows.length }),
         takeoff_vector_pages: () => ({ data: [], error: null, count: 0 }),
         takeoff_item_geometries: () => ({ data: [], error: null }),
@@ -168,7 +169,8 @@ describe("reading the plan page of each vector page", () => {
     rules_evaluated_at: null, quantity_entry_category: null, is_verified: false,
   });
 
-  async function recompute(sources: (job: string) => unknown, names = ["R+1.pdf", "R+1 relance.pdf"], planFileId: string | null = null, versionless = false) {
+  async function recompute(sources: (job: string) => unknown, names = ["R+1.pdf", "R+1 relance.pdf"], planFileId: string | null = null, versionless = false,
+    carried = false) {
     const rows = [item(M1, names[0], forced), item(M2, names[1], [])];
     const selected = versionless ? rows.slice(1) : rows;
     const written: Array<{ id: string; results: Array<{ rule: string; status: string; code: string }> }> = [];
@@ -177,14 +179,26 @@ describe("reading the plan page of each vector page", () => {
       written.push(...items);
       return { data: items.map((entry) => ({ item_id: entry.id, version_stamp: "stamp-written", reopened: false })), error: null };
     };
+    // The lines, pages and geometries of the jobs a query names (every one of them when it names none).
+    const ofJobs = (query: { filters: Array<{ column: string; value: unknown }> }) => {
+      const jobs = query.filters.find((filter) => filter.column === "job_id")?.value;
+      return Array.isArray(jobs) ? selected.filter((row) => jobs.includes(row.job_id)) : selected;
+    };
     const fake = createSupabaseFake({
       tables: {
-        takeoff_jobs: () => ({ data: [...(versionless ? [] : [{ id: M1, status: "applied", created_at: "2026-11-12T09:00:00.000Z", sources: sources(M1) }]),
-          { id: M2, status: "completed", created_at: "2026-11-12T09:30:00.000Z", sources: sources(M2) }], error: null }),
-        takeoff_items: () => ({ data: selected, error: null, count: selected.length }),
-        takeoff_vector_pages: () => ({ data: selected.map((row) => ({ id: `page-${row.job_id}`, job_id: row.job_id, plan_file_id: planFileId,
-          source_file_name: row.source_file_name, source_page: 1, reading, rule_anchors: anchors })), error: null, count: selected.length }),
-        takeoff_item_geometries: () => ({ data: selected.map((row) => ({ takeoff_item_id: row.id, job_id: row.job_id, vector_page_id: `page-${row.job_id}`,
+        // Carried: M2 is the copy's own takeoff, M1 the one its lines come from, attached to the version it was applied to
+        // and carried over to the copy (takeoff_version_links), read by its id.
+        takeoff_jobs: (query) => {
+          const m1 = { id: M1, status: "applied", created_at: "2026-11-12T09:00:00.000Z", sources: sources(M1) };
+          const m2 = { id: M2, status: "completed", created_at: "2026-11-12T09:30:00.000Z", sources: sources(M2) };
+          if (carried) return { data: query.filters.some((filter) => filter.column === "estimate_version_id") ? [m2] : [m1], error: null };
+          return { data: [...(versionless ? [] : [m1]), m2], error: null };
+        },
+        takeoff_version_links: () => ({ data: carried ? [{ takeoff_job_id: M1 }] : [], error: null }),
+        takeoff_items: (query) => ({ data: ofJobs(query), error: null, count: ofJobs(query).length }),
+        takeoff_vector_pages: (query) => ({ data: ofJobs(query).map((row) => ({ id: `page-${row.job_id}`, job_id: row.job_id, plan_file_id: planFileId,
+          source_file_name: row.source_file_name, source_page: 1, reading, rule_anchors: anchors })), error: null, count: ofJobs(query).length }),
+        takeoff_item_geometries: (query) => ({ data: ofJobs(query).map((row) => ({ takeoff_item_id: row.id, job_id: row.job_id, vector_page_id: `page-${row.job_id}`,
           geometry: { schema_version: 1, kind: "network", network: "EF", material: "inox-316l", dn: 22, zone: "Z1", level: "R+1", groups: [],
             segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null, transform: null } })), error: null }),
       },
@@ -221,6 +235,14 @@ describe("reading the plan page of each vector page", () => {
   it("passes the page read again from one plan file of the library, without any preparation", async () => {
     const { written } = await recompute(() => null, ["R+1.pdf", "R+1.pdf"], "3c000000-0000-4000-8000-000000000001");
     expect(written[0].results.find((result) => result.rule === "zone_overlap")).toMatchObject({ status: "pass", code: "ZONE_OVERLAP_SAME_PAGE" });
+  });
+
+  // Fix round 1, point 4: the takeoffs a version's lines come from are its peers. Written before the fix: red on
+  // 986aea27 (only the takeoffs attached to the copy were read: M2 was compared with nothing and passed).
+  it("compares a copy's takeoff with the takeoff its lines come from, carried over, and never writes that one", async () => {
+    const { written, rows } = await recompute(() => null, ["R+1.pdf", "R+1.pdf"], null, false, true);
+    expect(written.map((entry) => entry.id)).toEqual([rows[1].id]);
+    expect(written[0].results.find((result) => result.rule === "zone_overlap")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
   });
 
   it("keeps the duplicate of two direct uploads it knows by their name only, the same name", async () => {

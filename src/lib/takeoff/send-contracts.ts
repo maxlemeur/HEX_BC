@@ -5,7 +5,8 @@ import { TAKEOFF_RULE_IDS } from "@/lib/takeoff/rules/types";
 import { takeoffPageDecisionSchema, takeoffPageReplacementResponseSchema } from "@/lib/takeoff/page-replacement-contracts";
 
 // Lot 2, M2: « Envoyer au tableau de chiffrage » for a takeoff of an affaire, which may have no estimate yet. The preview
-// writes nothing; the confirmation sends what the preview showed (its fingerprint) or is refused and asked again.
+// writes nothing: it is the very send run and rolled back, so it shows the lines as the estimate would hold them. The
+// confirmation sends what the preview showed (its fingerprint, its outcome) or is refused and asked again.
 
 const uuid = z.string().uuid();
 
@@ -27,6 +28,8 @@ export type TakeoffSendSectionChoice = z.infer<typeof takeoffSendSectionChoiceSc
 export const takeoffSendPreviewRequestSchema = z.object({
   destination: takeoffSendDestinationSchema.optional(),
   section: takeoffSendSectionChoiceSchema.optional(),
+  /** The member's decisions on the pages already in the estimate: the outcome shown depends on them. */
+  page_decisions: z.array(takeoffPageDecisionSchema).max(2000).optional(),
 }).strict();
 export type TakeoffSendPreviewRequest = z.infer<typeof takeoffSendPreviewRequestSchema>;
 
@@ -51,7 +54,7 @@ export type TakeoffSendRequest = z.infer<typeof takeoffSendRequestSchema>;
 
 export const TAKEOFF_SEND_BLOCKERS = [
   "not_completed", "already_sent", "no_line", "dpgf_reconciliation_required", "copy_pages_already_in_estimate",
-  "preparation_already_sent", "choose_destination", "read_only", "rules_unbounded",
+  "preparation_already_sent", "choose_destination", "read_only", "rules_unbounded", "draft_locked",
 ] as const;
 export type TakeoffSendBlocker = (typeof TAKEOFF_SEND_BLOCKERS)[number];
 
@@ -67,6 +70,23 @@ const lineTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing_line"), estimate_item_id: uuid, title: z.string(), quantity_before: z.number(),
     quantity_after: z.number() }).strict(),
 ]);
+
+/**
+ * A line of the estimate as the send leaves it (the outcome of its dry run): created, changed (its quantity before and
+ * after) or removed by a page decision, in its section, with its unit and quantity as written (a length rounded up once,
+ * equal lengths grouped into one line) and the takeoff lines it holds.
+ */
+export const takeoffSendEstimateLineSchema = z.object({
+  change: z.enum(["created", "changed", "removed"]),
+  section_title: z.string().nullable(),
+  title: z.string(),
+  unit: z.string().nullable(),
+  quantity: z.number(),
+  quantity_before: z.number().nullable(),
+  unit_price_ht_cents: z.number().int().nullable(),
+  takeoff_item_ids: z.array(uuid),
+}).strict();
+export type TakeoffSendEstimateLine = z.infer<typeof takeoffSendEstimateLineSchema>;
 
 const ruleFailureSchema = z.object({ rule: z.enum(TAKEOFF_RULE_IDS), code: z.string(), reason: z.string(), acceptable: z.boolean() }).strict();
 const guardReasonSchema = z.enum(["low_confidence", "missing_evidence", "missing_source_page", "rule_failed", "rules_stale"]);
@@ -99,9 +119,17 @@ export const takeoffSendPreviewResponseSchema = z.object({
     action: z.enum(["set_price", "apply_assembly"]) }).strict()),
   reservations: z.array(z.object({ takeoff_item_id: uuid, designation: z.string(),
     kind: z.enum(["entered_hypothesis", "estimated", "non_observable", "entered", "to_review"]) }).strict()),
+  /**
+   * The estimate's lines as this send leaves them, computed by its dry run; null until it can run (pages to decide,
+   * lines blocked for this member) — `outcome_pending` says why, and nothing can be confirmed meanwhile.
+   */
+  estimate_lines: z.array(takeoffSendEstimateLineSchema).nullable(),
+  outcome_pending: z.enum(["page_decisions", "blocked"]).nullable(),
   /** The controls evaluated for this destination: the cross-takeoff controls are no longer deferred. */
   controls: z.object({
+    /** Null when nothing was evaluated (`not_evaluated_reason` says why): never shown as checked. */
     evaluated_for: z.enum(["first_draft", "existing_draft", "version_copy"]).nullable(),
+    not_evaluated_reason: z.enum(["no_rule_inputs"]).nullable(),
     blocked_items: z.array(z.object({ item_id: uuid, designation: z.string(), confidence: z.number().nullable(),
       is_verified: z.boolean(), reasons: z.array(guardReasonSchema), rule_failures: z.array(ruleFailureSchema).optional() }).strict()),
     medium_items: z.array(z.object({ item_id: uuid, designation: z.string(), confidence: z.number().nullable(),
@@ -124,9 +152,11 @@ export const takeoffSendResponseSchema = z.object({
   version_created: z.boolean(),
   created_count: z.number().int().nonnegative(),
   updated_count: z.number().int().nonnegative(),
+  removed_count: z.number().int().nonnegative(),
   ignored_count: z.number().int().nonnegative(),
   lines_created: z.array(uuid),
   lines_updated: z.array(uuid),
+  lines_removed: z.array(uuid),
   sections_changed: z.array(uuid),
 }).strict();
 export type TakeoffSendResponse = z.infer<typeof takeoffSendResponseSchema>;

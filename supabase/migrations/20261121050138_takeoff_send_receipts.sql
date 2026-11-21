@@ -1,8 +1,10 @@
 -- Lot 2 of the takeoff, sending a reviewed analysis to the estimate when the affaire may have no estimate yet (M2).
 -- Forward-only; no row is changed or deleted. While it is applied the previous application still runs: it never
--- calls the new command, never reads the new table, and the only write it makes that this migration tightens is
--- « Fusionner » onto an ordinary line, which its screen already refuses before sending (merge-overwrites.ts, v0.8.0).
--- Drain the takeoff application requests (« Envoyer au tableau de chiffrage ») while it is applied.
+-- calls the new command, never reads the new tables. The one write this migration refuses that a release still offers
+-- is « Fusionner » onto an ordinary line: the writer now refuses it for every entry. v0.8.0 is the first release whose
+-- screen refuses it before sending (merge-overwrites.ts); v0.7.0's wizard still offers it, and would receive a 409
+-- « Conflit lors de l'application du job takeoff. » with nothing applied. Deploy v0.8.0 or later before applying this
+-- migration. Drain the takeoff application requests (« Envoyer au tableau de chiffrage ») while it is applied.
 begin;
 
 set local lock_timeout = '5s';
@@ -1041,10 +1043,12 @@ as $function$
     order by ids.id, ids.rank, ids.ordinality) as first;
 $function$;
 
--- 7. What the server computed for a confirmation, staged by the service role and sent by the authenticated session of
--- the same actor. The rule results evaluated for the destination, the write plan and the expected impact are the
--- server's, never the browser's: an API caller of public.send_takeoff_job names a request it cannot have staged itself.
--- A staged command lives 15 minutes; once its send committed, the receipt answers for it.
+-- 7. What the server computed for a preview or a confirmation, staged by the service role and run by the authenticated
+-- session of the same actor. The rule results evaluated for the destination, the mapping plan, the accumulations and
+-- the outcome the member confirmed are the server's, never the browser's: an API caller of public.send_takeoff_job names
+-- a request it cannot have staged itself. A request keeps the command it was first staged with (another submission
+-- under the same identity is refused); a staged command lives 15 minutes, and once its send committed the receipt
+-- answers for it.
 create table private.takeoff_send_commands (
   request_id uuid primary key,
   tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -1053,8 +1057,8 @@ create table private.takeoff_send_commands (
   job_id uuid not null,
   actor_id uuid not null,
   fingerprint text not null check (fingerprint ~ '^[0-9a-f]{64}$'),
-  -- Identity of what the user confirmed (request, job, actor, destination, section, decisions, override): a replay with
-  -- the same inputs returns the receipt, the same request with other inputs is a conflict.
+  -- Identity of what the user confirmed (request, job, actor, destination, section, page decisions, override): a replay
+  -- with the same inputs returns the receipt, the same request with other inputs is a conflict.
   payload_hash text not null check (payload_hash ~ '^[0-9a-f]{64}$'),
   command jsonb not null check (pg_catalog.jsonb_typeof(command) = 'object'),
   expires_at timestamptz not null default pg_catalog.statement_timestamp() + interval '15 minutes'
@@ -1066,6 +1070,7 @@ returns void
 language plpgsql security definer set search_path = '' as $$
 declare
   staged_job public.takeoff_jobs%rowtype;
+  hash text;
 begin
   if p_actor_id is null or pg_catalog.jsonb_typeof(p_command) is distinct from 'object'
     or coalesce(p_command ->> 'request_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -1078,16 +1083,19 @@ begin
   if not found then
     raise exception 'TAKEOFF_JOB_NOT_FOUND' using errcode = 'P0002';
   end if;
+  hash := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.jsonb_build_object(
+    'request_id', p_command -> 'request_id', 'job_id', p_command -> 'job_id', 'actor_id', p_actor_id,
+    'client', p_command -> 'client')::text, 'UTF8')), 'hex');
   delete from private.takeoff_send_commands as expired where expired.expires_at < pg_catalog.statement_timestamp();
-  insert into private.takeoff_send_commands as staged (request_id, tenant_id, job_id, actor_id, fingerprint, payload_hash, command)
-  values ((p_command ->> 'request_id')::uuid, staged_job.tenant_id, staged_job.id, p_actor_id, p_command ->> 'fingerprint',
-    pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.jsonb_build_object('request_id', p_command -> 'request_id',
-      'job_id', p_command -> 'job_id', 'actor_id', p_actor_id, 'client', p_command -> 'client')::text, 'UTF8')), 'hex'),
+  insert into private.takeoff_send_commands (request_id, tenant_id, job_id, actor_id, fingerprint, payload_hash, command)
+  values ((p_command ->> 'request_id')::uuid, staged_job.tenant_id, staged_job.id, p_actor_id, p_command ->> 'fingerprint', hash,
     p_command)
-  on conflict (request_id) do update set fingerprint = excluded.fingerprint, payload_hash = excluded.payload_hash,
-    command = excluded.command, expires_at = excluded.expires_at
-  where staged.actor_id = excluded.actor_id and staged.job_id = excluded.job_id and staged.tenant_id = excluded.tenant_id;
-  if not found then
+  on conflict (request_id) do nothing;
+  -- The request was staged already: the same submission keeps its first command (a retry after a timeout runs what was
+  -- confirmed then); any other submission under this identity is refused.
+  if not found and not exists (select 1 from private.takeoff_send_commands as staged
+    where staged.request_id = (p_command ->> 'request_id')::uuid and staged.actor_id = p_actor_id
+      and staged.job_id = staged_job.id and staged.tenant_id = staged_job.tenant_id and staged.payload_hash = hash) then
     raise exception 'TAKEOFF_SEND_REQUEST_CONFLICT' using errcode = '40001';
   end if;
 end;
@@ -1095,36 +1103,53 @@ $$;
 revoke all on function public.stage_takeoff_send(uuid, jsonb) from public, anon, authenticated;
 grant execute on function public.stage_takeoff_send(uuid, jsonb) to service_role;
 
--- 8. The send command. The browser previews (writes nothing); the server recomputes the preview, compares its
--- fingerprint with the one the user confirmed, stages the command it computed with the state it computed it from, and
--- the user's session sends it. Here, under the locks, that state is read again: any change since (another version, an edit of the takeoff
--- or of the estimate, a rule input) refuses the whole command with TAKEOFF_SEND_PREVIEW_STALE and nothing is written.
--- Otherwise, in this one transaction: the first draft is created (or the issued version copied) through the existing
--- primitives, the job is attached through its permit, its rules evaluated against this destination are written, the
--- guarded application runs, earlier takeoff lines of the same item receive their new part, and the receipt is stored.
--- A replay of the same request returns that receipt.
+-- 8. What a send is compared with, read by the preview and again by the command under its locks.
+-- The tenant's mapping rules: the preview's mapping plan comes from them; a rule changed since refuses the send.
+create function public.takeoff_mapping_rules_stamp(p_tenant_id uuid)
+returns text language sql stable set search_path = '' as $$
+  select pg_catalog.md5(coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(rule.id, rule.updated_at, rule.is_active,
+      rule.priority, rule.match_type, rule.match_pattern, rule.action, rule.action_params, rule.name) order by rule.id)::text
+    from public.takeoff_mapping_rules as rule where rule.tenant_id = p_tenant_id), '[]'))
+$$;
+revoke all on function public.takeoff_mapping_rules_stamp(uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_mapping_rules_stamp(uuid) to service_role;
+
+-- The takeoffs a version's lines come from: those attached to it and those a copy carried over to it
+-- (takeoff_version_links), with their lines; and its DPGF state, as takeoff_rule_version_stamp reads it. A peer's page
+-- readings and geometries are written by the worker while it processes (its status then changes) and its frame transform
+-- by the evaluation itself: no other edit of them changes what a send is compared with.
+create function public.takeoff_send_peers_stamp(p_tenant_id uuid, p_version_id uuid)
+returns text language sql stable set search_path = '' as $$
+  select pg_catalog.md5(public.takeoff_rule_version_stamp(p_tenant_id, p_version_id) || '|' || coalesce((
+    select pg_catalog.string_agg(job.id::text || ':' || job.status::text || ':' || coalesce((
+        select pg_catalog.string_agg(item.id::text || ':' || item.updated_at::text, ',' order by item.id)
+        from public.takeoff_items as item where item.job_id = job.id and item.tenant_id = p_tenant_id), ''), ';' order by job.id)
+    from public.takeoff_jobs as job
+    where job.tenant_id = p_tenant_id and job.estimate_version_id is distinct from p_version_id
+      and job.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
+      and exists (select 1 from public.takeoff_version_links as link
+        where link.tenant_id = p_tenant_id and link.takeoff_job_id = job.id and link.target_version_id = p_version_id)), ''))
+$$;
+revoke all on function public.takeoff_send_peers_stamp(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_send_peers_stamp(uuid, uuid) to service_role;
+
+-- 9. The send, run once by public.send_takeoff_job (and rolled back when the command is a dry run: the preview).
 --
--- Lock order, shared with the import and the first creation of a version (persist_estimate_creation_atomic) and with
--- the application (apply_takeoff_job_with_page_decisions): the tenant's calculation policy (shared, only when a version
--- is created), then the affaire's row (only when a version is created), then the version's rule lock
--- `takeoff-rules:<version>`, then the version's row, then the job's row and its locks, then the lines. Never the
--- reverse. Sending to an existing draft creates no version: it starts at the version's rule lock, as an application does.
-create function public.send_takeoff_job(p_request jsonb)
+-- Lock order, one for every destination and shared with the import and the first creation of a version
+-- (persist_estimate_creation_atomic) and with the application (apply_takeoff_job_with_page_decisions): the tenant's
+-- calculation policy (shared), the affaire's row, then for an existing draft its rule lock `takeoff-rules:<version>` and
+-- its row, then the job's locks and row, then the tenant's mapping rules (shared), then the lines. The versions of the
+-- affaire are compared only once its row is held, so no version is created after the comparison. Never the reverse.
+create function private.takeoff_send_execute(p_actor uuid, p_tenant uuid, p_role public.tenant_role, p_request uuid,
+  p_command jsonb, p_dry_run boolean)
 returns jsonb
-language plpgsql security definer set search_path = '' as $$
+language plpgsql set search_path = '' as $$
 declare
-  actor uuid := (select auth.uid());
-  tenant uuid := (select public.current_tenant_id());
-  p_command jsonb;
-  staged private.takeoff_send_commands%rowtype;
-  payload_hash text;
-  request uuid;
-  target_job_id uuid;
-  kind text;
-  receipt public.takeoff_send_receipts%rowtype;
+  kind text := p_command #>> '{destination,kind}';
+  target_job_id uuid := (p_command ->> 'job_id')::uuid;
   job public.takeoff_jobs%rowtype;
   project public.estimate_projects%rowtype;
-  actor_role public.tenant_role;
+  existing public.takeoff_send_receipts%rowtype;
   target_version uuid;
   source_version uuid;
   target_engine smallint;
@@ -1144,10 +1169,547 @@ declare
   entry record;
   rules_written integer;
   previous_writer text;
-  impact jsonb;
-  final_created uuid[];
+  outcome jsonb;
   result jsonb;
   plan jsonb;
+begin
+  select * into job from public.takeoff_jobs as candidate where candidate.id = target_job_id;
+  if not found or job.tenant_id is distinct from p_tenant then
+    raise exception 'TAKEOFF_JOB_NOT_FOUND' using errcode = 'P0002';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended('estimate-calc-policy:' || p_tenant::text, 0));
+  select * into project from public.estimate_projects as row_project
+  where row_project.id = job.project_id and row_project.tenant_id = p_tenant
+  for update;
+  if project.id is null or project.is_archived
+    or (p_role <> 'admin'::public.tenant_role and project.user_id is distinct from p_actor) then
+    raise exception 'TAKEOFF_SEND_PROJECT_NOT_WRITABLE' using errcode = '42501';
+  end if;
+  if kind = 'existing_draft' then
+    target_version := (p_command #>> '{destination,version_id}')::uuid;
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || target_version::text, 0));
+    select version.calc_engine_version into target_engine from public.estimate_versions as version
+    where version.id = target_version and version.tenant_id = p_tenant and version.project_id = job.project_id
+      and version.status = 'draft'::public.estimate_status
+    for update;
+    if not found then
+      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+        detail = pg_catalog.jsonb_build_object('reason', 'destination_changed')::text;
+    end if;
+  end if;
+
+  -- The locks taken: a command of this request that committed meanwhile is visible now.
+  if not p_dry_run then
+    select * into existing from public.takeoff_send_receipts as stored
+    where stored.tenant_id = p_tenant and stored.request_id = p_request;
+    if found then
+      return pg_catalog.jsonb_build_object('replay', existing.id);
+    end if;
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-job-rules:' || target_job_id::text, 0));
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-job:' || target_job_id::text, 0));
+  select * into job from public.takeoff_jobs as candidate where candidate.id = target_job_id for update;
+  if job.estimate_version_id is not null or job.status is distinct from 'completed'::public.takeoff_job_status then
+    if exists (select 1 from public.takeoff_send_receipts as stored
+      where stored.job_id = target_job_id and stored.command_kind = 'send') then
+      raise exception 'TAKEOFF_SEND_ALREADY_SENT' using errcode = '40001';
+    end if;
+    raise exception 'TAKEOFF_SEND_JOB_NOT_READY' using errcode = '40001';
+  end if;
+  -- The mapping rules the preview's plan comes from stay as they are until this transaction ends.
+  perform 1 from public.takeoff_mapping_rules as rule where rule.tenant_id = p_tenant for share;
+
+  -- What the preview evaluated, read again under the locks.
+  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', version.id, 'status', version.status,
+      'updated_at', version.updated_at) order by version.id), '[]'::jsonb)
+    into current_versions
+  from public.estimate_versions as version
+  where version.project_id = job.project_id and version.tenant_id = p_tenant;
+  stale_reason := case
+    when current_versions is distinct from p_command #> '{expected,versions}' then 'destination_changed'
+    when kind = 'first_draft' and current_versions <> '[]'::jsonb then 'destination_changed'
+    when public.takeoff_rule_job_stamp(p_tenant, job.project_id, target_job_id) is distinct from p_command #>> '{expected,job_stamp}'
+      then 'takeoff_changed'
+    when public.takeoff_mapping_rules_stamp(p_tenant) is distinct from p_command #>> '{expected,mapping_stamp}' then 'mapping_changed'
+    when kind = 'existing_draft' and public.takeoff_send_peers_stamp(p_tenant, target_version)
+      is distinct from p_command #>> '{expected,peers_stamp}' then 'estimate_changed'
+    -- A copy is compared with the takeoffs of the version it copies (they become the copy's peers).
+    when kind = 'version_copy' and public.takeoff_send_peers_stamp(p_tenant, (p_command #>> '{destination,source_version_id}')::uuid)
+      is distinct from p_command #>> '{expected,peers_stamp}' then 'estimate_changed'
+  end;
+  if stale_reason is not null then
+    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+      detail = pg_catalog.jsonb_build_object('reason', stale_reason)::text;
+  end if;
+
+  if kind = 'first_draft' then
+    section_id := (p_command #>> '{section,id}')::uuid;
+    created := public.persist_estimate_creation_atomic(p_tenant, p_actor, job.project_id, null,
+      p_command #> '{destination,version_payload}',
+      pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('id', section_id, 'parent_id', null, 'item_type', 'section',
+        'position', 1, 'title', btrim(p_command #>> '{section,title}'))),
+      null);
+    target_version := (created #>> '{version,id}')::uuid;
+    version_created := true;
+    section_created := true;
+  elsif kind = 'version_copy' then
+    source_version := (p_command #>> '{destination,source_version_id}')::uuid;
+    if not exists (select 1 from public.estimate_versions as version where version.id = source_version
+      and version.tenant_id = p_tenant and version.project_id = job.project_id
+      and version.status <> 'draft'::public.estimate_status) then
+      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+        detail = pg_catalog.jsonb_build_object('reason', 'destination_changed')::text;
+    end if;
+    target_version := public.duplicate_estimate_version(source_version, false);
+    version_created := true;
+  end if;
+  select version.calc_engine_version into target_engine from public.estimate_versions as version
+  where version.id = target_version and version.tenant_id = p_tenant;
+
+  -- A version that holds a DPGF line is sent through its reconciliation, which needs the job on the version first:
+  -- refused before anything is attached (the preview names this blocker first and offers no confirmation).
+  if exists (select 1 from public.estimate_items as item where item.version_id = target_version and item.tenant_id = p_tenant
+    and item.item_type = 'line'::public.estimate_item_type and item.source_provider = 'dpgf') then
+    raise exception 'TAKEOFF_SEND_DPGF_RECONCILIATION_REQUIRED' using errcode = '22023';
+  end if;
+
+  -- The section that receives the lines: created here for a new version or on request, else one of the draft's.
+  if not section_created then
+    section_id := (p_command #>> '{section,id}')::uuid;
+    if (p_command #>> '{section,kind}') = 'new' then
+      select coalesce(max(item.position), 0) + 1 into section_position from public.estimate_items as item
+      where item.version_id = target_version and item.tenant_id = p_tenant and item.parent_id is null;
+      previous_writer := coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '');
+      if target_engine = 3 then
+        perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', target_version::text, true);
+      end if;
+      insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
+      values (section_id, p_tenant, target_version, null, 'section'::public.estimate_item_type, section_position,
+        btrim(p_command #>> '{section,title}'));
+      perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', previous_writer, true);
+      section_created := true;
+    elsif not exists (select 1 from public.estimate_items as item where item.id = section_id
+      and item.version_id = target_version and item.tenant_id = p_tenant and item.item_type = 'section'::public.estimate_item_type) then
+      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+        detail = pg_catalog.jsonb_build_object('reason', 'estimate_changed')::text;
+    end if;
+  end if;
+
+  -- What the destination holds before the send, and a reference of each item that does not depend on this run: its id in
+  -- an existing draft, the id of the item it copies in a copy (copies map by position, as duplicate_estimate_version
+  -- maps them), « new » for the section this command creates. The outcome compares the dry run with the send by them.
+  drop table if exists pg_temp._takeoff_send_refs;
+  create temporary table _takeoff_send_refs (id uuid primary key, ref text not null) on commit drop;
+  if kind = 'existing_draft' then
+    insert into pg_temp._takeoff_send_refs (id, ref)
+    select item.id, 'item:' || item.id::text from public.estimate_items as item
+    where item.version_id = target_version and item.tenant_id = p_tenant;
+  elsif kind = 'version_copy' then
+    insert into pg_temp._takeoff_send_refs (id, ref)
+    with recursive source_tree as (
+      select item.id, array[item.position] as path from public.estimate_items as item
+      where item.version_id = source_version and item.parent_id is null
+      union all
+      select child.id, parent.path || child.position from public.estimate_items as child
+      join source_tree as parent on parent.id = child.parent_id where child.version_id = source_version
+    ), copy_tree as (
+      select item.id, array[item.position] as path from public.estimate_items as item
+      where item.version_id = target_version and item.parent_id is null and item.id <> section_id
+      union all
+      select child.id, parent.path || child.position from public.estimate_items as child
+      join copy_tree as parent on parent.id = child.parent_id where child.version_id = target_version
+    )
+    select copied.id, 'copy:' || original.id::text from copy_tree as copied join source_tree as original on original.path = copied.path;
+  end if;
+  if section_created then
+    insert into pg_temp._takeoff_send_refs (id, ref) values (section_id, 'new') on conflict (id) do update set ref = 'new';
+  end if;
+  drop table if exists pg_temp._takeoff_send_before;
+  create temporary table _takeoff_send_before on commit drop as
+  select item.id, item.parent_id, item.title,
+    coalesce(item.unit_code, (private.normalize_unit(item.description)).unit_code, 'status:' || item.pricing_status::text) as unit,
+    item.quantity, item.unit_price_ht_cents, item.source_job_id, item.updated_at
+  from public.estimate_items as item
+  where item.version_id = target_version and item.tenant_id = p_tenant and item.item_type = 'line'::public.estimate_item_type;
+
+  -- The application checks the actor's draft lock. A version created here has no other holder: its lock lives only in
+  -- this transaction. An existing draft is locked by the actor before the send, as for any application; its dry run
+  -- borrows it for its rolled-back run unless another member is editing it.
+  if version_created then
+    insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+    values (target_version, p_actor, p_tenant, pg_catalog.statement_timestamp() + interval '5 minutes', gen_random_uuid())
+    returning id into created_lock;
+  elsif p_dry_run then
+    if exists (select 1 from public.draft_locks as lock_row where lock_row.version_id = target_version
+      and lock_row.user_id <> p_actor and lock_row.expires_at > pg_catalog.statement_timestamp()) then
+      raise exception 'TAKEOFF_SEND_DRAFT_LOCKED' using errcode = '55P03';
+    end if;
+    insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+    values (target_version, p_actor, p_tenant, pg_catalog.statement_timestamp() + interval '5 minutes', gen_random_uuid())
+    on conflict (version_id) do update set user_id = excluded.user_id, expires_at = excluded.expires_at;
+  end if;
+
+  -- The historical receipt of a launch on a version (takeoff_jobs_prepared_plan_receipt_uidx) holds one job per version,
+  -- plan set, preparation revision, level and provider. A versionless job of that same launch is refused by name here;
+  -- the launch requests of a later migration narrow that index to the jobs they do not own.
+  if exists (select 1 from public.takeoff_jobs as other
+    where other.tenant_id = p_tenant and other.estimate_version_id = target_version and other.id <> target_job_id
+      and other.plan_set_id = job.plan_set_id and other.level = job.level
+      and other.execution_provider is not distinct from job.execution_provider
+      and other.preparation_snapshot is not null
+      and other.preparation_snapshot ->> 'preparation_revision' = job.preparation_snapshot ->> 'preparation_revision') then
+    raise exception 'TAKEOFF_SEND_PREPARATION_ALREADY_SENT' using errcode = '22023';
+  end if;
+
+  -- The door: the job's version goes from NULL to this draft of its affaire, once, by this command's permit.
+  insert into private.takeoff_job_attachment_permits (job_id, tenant_id, project_id, version_id)
+  values (target_job_id, p_tenant, job.project_id, target_version);
+  update public.takeoff_jobs as attached set estimate_version_id = target_version where attached.id = target_job_id;
+  if exists (select 1 from private.takeoff_job_attachment_permits as permit where permit.job_id = target_job_id) then
+    raise exception 'TAKEOFF_SEND_PERMIT_NOT_CONSUMED' using errcode = 'P0001';
+  end if;
+
+  -- The controls that compare with other takeoffs and with the DPGF, evaluated for this destination by the preview from
+  -- the state checked above: every line with rule inputs receives them, or nothing is sent.
+  select pg_catalog.count(*) into rules_written
+  from takeoff_internal.persist_rule_results(p_tenant, target_version, array[target_job_id], p_command -> 'rule_results',
+    p_command -> 'rule_transforms');
+  if rules_written <> pg_catalog.jsonb_array_length(p_command -> 'rule_results')
+    or exists (select 1 from public.takeoff_items as item
+      cross join lateral pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(item.rule_results) = 'array'
+        then item.rule_results else '[]'::jsonb end) as rule_result(value)
+      where item.job_id = target_job_id and item.tenant_id = p_tenant
+        and rule_result.value #>> '{details,cross_job_comparison}' = 'deferred') then
+    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+      detail = pg_catalog.jsonb_build_object('reason', 'rules_changed')::text;
+  end if;
+
+  -- An administrator's override, bound to this destination, checked again by the application's trigger.
+  if pg_catalog.jsonb_typeof(p_command -> 'override') = 'object' then
+    if p_role <> 'admin'::public.tenant_role then
+      raise exception 'TAKEOFF_APPLY_GUARD_FAILED' using errcode = 'P0001';
+    end if;
+    insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
+    values (p_tenant, p_actor, 'takeoff_jobs', target_job_id, target_version, 'takeoff.apply.override',
+      pg_catalog.jsonb_build_object('schema_version', 1, 'action', 'takeoff.apply.override', 'job_id', target_job_id,
+        'tenant_id', p_tenant, 'user_id', p_actor,
+        'metadata', (p_command -> 'override') || pg_catalog.jsonb_build_object('estimate_version_id', target_version)));
+  end if;
+
+  select result_row.* into applied from public.apply_takeoff_job_with_page_decisions(target_job_id, 'append', section_id,
+    p_command -> 'mapping_plan', p_command -> 'page_decisions', null) as result_row;
+  links := coalesce(applied.item_links, '[]'::jsonb);
+  created_ids := coalesce(applied.created_ids, '{}'::uuid[]);
+
+  -- An engine 2 line names no takeoff line of its own. Each line this send creates there names the ones it sums, as a
+  -- DPGF line names the measures it keeps (takeoff_quantity_policy): a later send can add to it (plan A then plan B)
+  -- and a page re-read finds it.
+  if target_engine is distinct from 3 then
+    update public.estimate_items as line set source_metadata = coalesce(line.source_metadata, '{}'::jsonb)
+      || pg_catalog.jsonb_build_object('takeoff_contributions', pg_catalog.jsonb_build_object('version', 1, 'job_id', target_job_id,
+        'item_ids', sources.ids, 'parts', pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('job_id', target_job_id,
+          'request_id', p_request, 'takeoff_item_ids', sources.ids, 'quantity', pg_catalog.trim_scale(line.quantity)))))
+    from (select (output.value ->> 'estimate_item_id')::uuid as estimate_item_id,
+        pg_catalog.jsonb_agg(output.value -> 'takeoff_item_id' order by output.value ->> 'takeoff_item_id') as ids
+      from pg_catalog.jsonb_array_elements(links) as output(value) group by 1) as sources
+    where line.id = sources.estimate_item_id and line.id = any(created_ids) and line.version_id = target_version
+      and line.tenant_id = p_tenant and line.source_provider = 'takeoff'
+      and pg_catalog.cardinality(private.takeoff_estimate_line_item_ids(line.source_metadata, line.source_job_id)) = 0;
+  end if;
+
+  -- Earlier takeoff lines of the same item (plan A sent 3, plan B adds 2: one line of 5). The preview proposed each part,
+  -- with the line as it read it; the line must still be that line, measured by its takeoff lines only (never a quantity
+  -- typed by hand), in the section, of the same title and unit, with no hypothesis nor rounded length on either side.
+  -- On both engines: engine 3 completes the line as its writer does, engine 2 recalculates the version (as the DPGF
+  -- composition does); the price, unit, hours and supplier stay the line's.
+  for entry in
+    select part.takeoff_item_id, part.estimate_item_id, part.expected_updated_at, part.expected_quantity, link.created_id
+    from pg_catalog.jsonb_to_recordset(p_command -> 'accumulations')
+      as part(takeoff_item_id uuid, estimate_item_id uuid, expected_updated_at timestamptz, expected_quantity numeric)
+    left join lateral (select (output.value ->> 'estimate_item_id')::uuid as created_id
+      from pg_catalog.jsonb_array_elements(links) as output(value)
+      where (output.value ->> 'takeoff_item_id')::uuid = part.takeoff_item_id) as link on true
+    order by part.estimate_item_id, part.takeoff_item_id
+  loop
+    if entry.created_id is null or not entry.created_id = any(created_ids)
+      or entry.estimate_item_id = any(created_ids) or entry.estimate_item_id = any(removed) then
+      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+        detail = pg_catalog.jsonb_build_object('reason', 'accumulation_changed', 'estimate_item_id', entry.estimate_item_id)::text;
+    end if;
+    perform 1 from public.estimate_items as earlier where earlier.id = entry.estimate_item_id for update;
+    if not exists (
+      select 1
+      from public.estimate_items as earlier
+      join public.estimate_items as added on added.id = entry.created_id and added.version_id = earlier.version_id
+      join public.takeoff_items as source on source.id = entry.takeoff_item_id and source.job_id = target_job_id
+      cross join lateral (select private.takeoff_estimate_line_item_ids(earlier.source_metadata, earlier.source_job_id) as ids) as sources
+      cross join lateral (select pg_catalog.sum(own.quantity) as raw, pg_catalog.count(*) as readable
+        from public.takeoff_items as own where own.id = any(sources.ids) and own.tenant_id = p_tenant) as measured
+      where earlier.id = entry.estimate_item_id and earlier.version_id = target_version and earlier.tenant_id = p_tenant
+        and earlier.item_type = 'line'::public.estimate_item_type and earlier.parent_id = section_id
+        and earlier.source_provider = 'takeoff'
+        -- The line as the preview read it, before this send (the engine 2 writer recalculates and dates anew every line of
+        -- the version); a second part for the same line finds it as the first part left it.
+        and (entry.estimate_item_id = any(accumulated)
+          or exists (select 1 from pg_temp._takeoff_send_before as before_line where before_line.id = entry.estimate_item_id
+            and before_line.updated_at = entry.expected_updated_at and before_line.quantity = entry.expected_quantity
+            and earlier.quantity = before_line.quantity))
+        and pg_catalog.cardinality(sources.ids) > 0 and measured.readable = pg_catalog.cardinality(sources.ids)
+        and measured.raw = earlier.quantity
+        and not (earlier.source_metadata ? 'takeoff_length_rounding') and not (earlier.source_metadata ? 'takeoff_provision')
+        and not (added.source_metadata ? 'takeoff_length_rounding') and not (added.source_metadata ? 'takeoff_provision')
+        and public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category) is null
+        and added.parent_id = earlier.parent_id
+        and lower(regexp_replace(btrim(added.title), '\s+', ' ', 'g')) = lower(regexp_replace(btrim(earlier.title), '\s+', ' ', 'g'))
+        and coalesce(added.unit_code, 'status:' || added.pricing_status::text)
+          = coalesce(earlier.unit_code, 'status:' || earlier.pricing_status::text)
+    ) then
+      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+        detail = pg_catalog.jsonb_build_object('reason', 'accumulation_changed', 'estimate_item_id', entry.estimate_item_id)::text;
+    end if;
+
+    previous_writer := coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '');
+    if target_engine = 3 then
+      perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', target_version::text, true);
+    end if;
+    -- Only the quantity and the provenance move: price, unit, hours, supplier and status stay the line's.
+    update public.estimate_items as earlier set
+      quantity = earlier.quantity + added.quantity,
+      source_job_id = target_job_id,
+      source_metadata = coalesce(earlier.source_metadata, '{}'::jsonb) || pg_catalog.jsonb_build_object('takeoff_contributions',
+        pg_catalog.jsonb_build_object('version', 1, 'job_id', target_job_id,
+          'item_ids', (select pg_catalog.jsonb_agg(source_id order by ordinal) from pg_catalog.unnest(
+              private.takeoff_estimate_line_item_ids(earlier.source_metadata, earlier.source_job_id) || entry.takeoff_item_id)
+              with ordinality as listed(source_id, ordinal)),
+          'parts', coalesce(earlier.source_metadata #> '{takeoff_contributions,parts}',
+              pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('job_id', earlier.source_job_id,
+                'takeoff_item_ids', pg_catalog.to_jsonb(private.takeoff_estimate_line_item_ids(earlier.source_metadata, earlier.source_job_id)),
+                'quantity', pg_catalog.trim_scale(earlier.quantity))))
+            || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('job_id', target_job_id, 'request_id', p_request,
+              'takeoff_item_ids', pg_catalog.jsonb_build_array(entry.takeoff_item_id),
+              'quantity', pg_catalog.trim_scale(added.quantity))))),
+      updated_at = pg_catalog.statement_timestamp()
+    from public.estimate_items as added
+    where earlier.id = entry.estimate_item_id and added.id = entry.created_id;
+    delete from public.estimate_items as added where added.id = entry.created_id and added.version_id = target_version;
+    if target_engine = 3 then
+      perform public.estimate_v3_complete_entry_for_writer(target_version, array[entry.estimate_item_id]);
+    end if;
+    perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', previous_writer, true);
+    removed := removed || entry.created_id;
+    accumulated := accumulated || entry.estimate_item_id;
+    links := (select pg_catalog.jsonb_agg(case when (output.value ->> 'takeoff_item_id')::uuid = entry.takeoff_item_id
+        then pg_catalog.jsonb_build_object('takeoff_item_id', entry.takeoff_item_id, 'estimate_item_id', entry.estimate_item_id)
+        else output.value end order by output.ordinality)
+      from pg_catalog.jsonb_array_elements(links) with ordinality as output(value, ordinality));
+  end loop;
+  if target_engine is distinct from 3 and pg_catalog.cardinality(accumulated) > 0 then
+    perform public.recalculate_takeoff_estimate_version(target_version, p_tenant);
+  end if;
+
+  if created_lock is not null then
+    delete from public.draft_locks as lock_row where lock_row.id = created_lock;
+  end if;
+
+  -- What the send leaves, against what the destination held: the lines created, changed and removed, each in its
+  -- section, and where each takeoff line went. The dry run of the preview computes it the same way, from the same state.
+  drop table if exists pg_temp._takeoff_send_after;
+  create temporary table _takeoff_send_after on commit drop as
+  select item.id, item.parent_id, item.title,
+    coalesce(item.unit_code, (private.normalize_unit(item.description)).unit_code, 'status:' || item.pricing_status::text) as unit,
+    item.quantity, item.unit_price_ht_cents, item.source_job_id,
+    (select pg_catalog.jsonb_agg(output.value ->> 'takeoff_item_id' order by output.value ->> 'takeoff_item_id')
+      from pg_catalog.jsonb_array_elements(links) as output(value)
+      where (output.value ->> 'estimate_item_id')::uuid = item.id) as takeoff_item_ids
+  from public.estimate_items as item
+  where item.version_id = target_version and item.tenant_id = p_tenant and item.item_type = 'line'::public.estimate_item_type;
+  with changes as (
+    select 'created' as change, null::text as ref, refs.ref as section, after_line.title, after_line.unit, after_line.quantity,
+      null::numeric as quantity_before, after_line.unit_price_ht_cents, coalesce(after_line.takeoff_item_ids, '[]'::jsonb) as takeoff_item_ids
+    from pg_temp._takeoff_send_after as after_line
+    left join pg_temp._takeoff_send_refs as refs on refs.id = after_line.parent_id
+    where not exists (select 1 from pg_temp._takeoff_send_before as before_line where before_line.id = after_line.id)
+    union all
+    select 'changed', line_ref.ref, refs.ref, after_line.title, after_line.unit, after_line.quantity, before_line.quantity,
+      after_line.unit_price_ht_cents, coalesce(after_line.takeoff_item_ids, '[]'::jsonb)
+    from pg_temp._takeoff_send_after as after_line
+    join pg_temp._takeoff_send_before as before_line on before_line.id = after_line.id
+    left join pg_temp._takeoff_send_refs as line_ref on line_ref.id = after_line.id
+    left join pg_temp._takeoff_send_refs as refs on refs.id = after_line.parent_id
+    where (after_line.parent_id, after_line.title, after_line.unit, after_line.quantity, after_line.unit_price_ht_cents,
+        after_line.source_job_id)
+      is distinct from (before_line.parent_id, before_line.title, before_line.unit, before_line.quantity,
+        before_line.unit_price_ht_cents, before_line.source_job_id)
+    union all
+    select 'removed', line_ref.ref, refs.ref, before_line.title, before_line.unit, before_line.quantity, before_line.quantity,
+      before_line.unit_price_ht_cents, '[]'::jsonb
+    from pg_temp._takeoff_send_before as before_line
+    left join pg_temp._takeoff_send_refs as line_ref on line_ref.id = before_line.id
+    left join pg_temp._takeoff_send_refs as refs on refs.id = before_line.parent_id
+    where not exists (select 1 from pg_temp._takeoff_send_after as after_line where after_line.id = before_line.id)
+  )
+  select pg_catalog.jsonb_build_object('format_version', 1, 'engine', target_engine,
+    'sections_created', case when section_created
+      then pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('title', btrim(p_command #>> '{section,title}')))
+      else '[]'::jsonb end,
+    'lines', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('change', change.change, 'ref', change.ref,
+        'section', change.section, 'title', change.title, 'unit', change.unit, 'quantity', pg_catalog.trim_scale(change.quantity),
+        'quantity_before', pg_catalog.trim_scale(change.quantity_before), 'unit_price_ht_cents', change.unit_price_ht_cents,
+        'takeoff_item_ids', change.takeoff_item_ids)
+      order by change.change, change.section collate "C", change.title collate "C", change.unit collate "C", change.quantity,
+        change.ref collate "C", change.takeoff_item_ids::text collate "C") from changes as change), '[]'::jsonb),
+    'parts', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('takeoff_item_id', output.value ->> 'takeoff_item_id',
+        'target', case when exists (select 1 from pg_temp._takeoff_send_before as before_line
+          where before_line.id = (output.value ->> 'estimate_item_id')::uuid) then 'existing_line' else 'new_line' end,
+        'line', (select refs.ref from pg_temp._takeoff_send_refs as refs where refs.id = (output.value ->> 'estimate_item_id')::uuid),
+        'section', (select refs.ref from pg_temp._takeoff_send_after as after_line
+          join pg_temp._takeoff_send_refs as refs on refs.id = after_line.parent_id
+          where after_line.id = (output.value ->> 'estimate_item_id')::uuid))
+      order by output.value ->> 'takeoff_item_id') from pg_catalog.jsonb_array_elements(links) as output(value)), '[]'::jsonb))
+  into outcome;
+
+  -- What the member confirmed is what is written: any other line, quantity, unit, section or target refuses everything.
+  if not p_dry_run and outcome is distinct from p_command -> 'expected_outcome' then
+    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+      detail = pg_catalog.jsonb_build_object('reason', 'outcome_changed')::text;
+  end if;
+  if p_dry_run then
+    return pg_catalog.jsonb_build_object('outcome', outcome);
+  end if;
+
+  -- The parts as stored: each one names its takeoff line, its real target (the line it entered, new or earlier, and the
+  -- section that line is in), the page, the plan's attested content, the source of its quantity and the revision of its
+  -- evidence, read here from the rows the application wrote from.
+  plan := pg_catalog.jsonb_build_object('format_version', 1,
+    'destination', pg_catalog.jsonb_build_object('kind', kind, 'version_id', target_version, 'source_version_id', source_version,
+      'version_created', version_created),
+    'price_rules_ignored', coalesce(p_command -> 'price_rules_ignored', '[]'::jsonb),
+    'sections', pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('id', section_id, 'created', section_created,
+      'title', (select item.title from public.estimate_items as item where item.id = section_id))),
+    'parts', coalesce((
+      select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+          'takeoff_item_id', source.id, 'designation', source.designation,
+          'estimate_item_id', target_line.id, 'section_id', target_line.parent_id,
+          'target', case when before_line.id is not null
+            then pg_catalog.jsonb_build_object('kind', 'existing_line', 'estimate_item_id', before_line.id,
+              'quantity_before', pg_catalog.trim_scale(before_line.quantity))
+            else pg_catalog.jsonb_build_object('kind', 'new_line') end,
+          'quantity', pg_catalog.trim_scale(source.quantity), 'unit', source.unit,
+          'source', pg_catalog.jsonb_build_object('job_id', target_job_id, 'answer_id', null, 'observation_id', source.id,
+            'plan_file_id', source.metadata #>> '{source_document,plan_file_id}', 'source_file_name', source.source_file_name,
+            'source_page', source.source_page,
+            'quantity_source', case
+              when public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category) is not null
+                then 'hypothesis:' || public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category)
+              when source.quantity_entry_category is not null then 'entered' else 'measured' end,
+            -- The plan's bytes as the takeoff attested them (its preparation), never the plan centre's current file.
+            'plan_content_hash', (select attested.value ->> 'content_hash'
+              from pg_catalog.jsonb_array_elements(job.preparation_snapshot #> '{preparation,sources}') as attested(value)
+              where attested.value ->> 'document_id' = source.metadata #>> '{source_document,plan_file_id}' limit 1),
+            'evidence_revision', pg_catalog.md5(pg_catalog.jsonb_build_array(source.updated_at, source.evidence,
+              source.source_file_name, source.source_page, source.metadata,
+              (select pg_catalog.jsonb_agg(geometry.geometry - 'transform' order by geometry.vector_page_id)
+                from public.takeoff_item_geometries as geometry where geometry.takeoff_item_id = source.id))::text)))
+        order by source.id)
+      from pg_catalog.jsonb_array_elements(links) as output(value)
+      join public.takeoff_items as source on source.id = (output.value ->> 'takeoff_item_id')::uuid
+        and source.job_id = target_job_id and source.tenant_id = p_tenant
+      join pg_temp._takeoff_send_after as target_line on target_line.id = (output.value ->> 'estimate_item_id')::uuid
+      left join pg_temp._takeoff_send_before as before_line on before_line.id = target_line.id), '[]'::jsonb));
+
+  result := pg_catalog.jsonb_build_object(
+    'format_version', 1,
+    'version_id', target_version,
+    'version_created', version_created,
+    'source_version_id', source_version,
+    'outcome', outcome,
+    'sections_created', case when section_created then pg_catalog.jsonb_build_array(section_id) else '[]'::jsonb end,
+    'sections_changed', coalesce((select pg_catalog.jsonb_agg(distinct touched.section_id) from (
+        select after_line.parent_id as section_id from pg_temp._takeoff_send_after as after_line
+        left join pg_temp._takeoff_send_before as before_line on before_line.id = after_line.id
+        where after_line.parent_id is not null and (before_line.id is null
+          or (after_line.parent_id, after_line.title, after_line.unit, after_line.quantity, after_line.unit_price_ht_cents,
+            after_line.source_job_id) is distinct from (before_line.parent_id, before_line.title, before_line.unit,
+            before_line.quantity, before_line.unit_price_ht_cents, before_line.source_job_id))
+        union
+        select before_line.parent_id from pg_temp._takeoff_send_before as before_line
+        left join pg_temp._takeoff_send_after as after_line on after_line.id = before_line.id
+        where before_line.parent_id is not null and (after_line.id is null or after_line.parent_id is distinct from before_line.parent_id)
+      ) as touched), '[]'::jsonb),
+    'lines_created', coalesce((select pg_catalog.jsonb_agg(after_line.id order by after_line.id) from pg_temp._takeoff_send_after as after_line
+      where not exists (select 1 from pg_temp._takeoff_send_before as before_line where before_line.id = after_line.id)), '[]'::jsonb),
+    'lines_changed', coalesce((select pg_catalog.jsonb_agg(after_line.id order by after_line.id)
+      from pg_temp._takeoff_send_after as after_line join pg_temp._takeoff_send_before as before_line on before_line.id = after_line.id
+      where (after_line.parent_id, after_line.title, after_line.unit, after_line.quantity, after_line.unit_price_ht_cents,
+          after_line.source_job_id) is distinct from (before_line.parent_id, before_line.title, before_line.unit,
+          before_line.quantity, before_line.unit_price_ht_cents, before_line.source_job_id)), '[]'::jsonb),
+    'lines_removed', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', before_line.id,
+        'section_id', before_line.parent_id, 'title', before_line.title, 'quantity', pg_catalog.trim_scale(before_line.quantity),
+        'unit', before_line.unit) order by before_line.id)
+      from pg_temp._takeoff_send_before as before_line
+      where not exists (select 1 from pg_temp._takeoff_send_after as after_line where after_line.id = before_line.id)), '[]'::jsonb),
+    'item_links', links,
+    'ignored_count', applied.ignored_count,
+    'scope', applied.scope);
+  result := result || pg_catalog.jsonb_build_object(
+    'created_count', pg_catalog.jsonb_array_length(result -> 'lines_created'),
+    'updated_count', pg_catalog.jsonb_array_length(result -> 'lines_changed'),
+    'removed_count', pg_catalog.jsonb_array_length(result -> 'lines_removed'),
+    'sent_count', pg_catalog.jsonb_array_length(links),
+    'accumulated_count', pg_catalog.cardinality(accumulated));
+  return pg_catalog.jsonb_build_object('version_id', target_version, 'project_id', job.project_id, 'plan', plan, 'result', result);
+end;
+$$;
+revoke all on function private.takeoff_send_execute(uuid, uuid, public.tenant_role, uuid, jsonb, boolean)
+  from public, anon, authenticated, service_role;
+
+-- A replay: the receipt of this request, to the member who sent it, for the job and the fingerprint it was confirmed
+-- with and, when this call staged a command, the same inputs; and only while that member may still read the takeoff
+-- (an affaire handed to another engineer takes its receipts with it).
+create function private.takeoff_send_replay(p_receipt public.takeoff_send_receipts, p_actor uuid, p_job_id uuid,
+  p_fingerprint text, p_staged_hash text)
+returns jsonb
+language plpgsql set search_path = '' as $$
+begin
+  if p_receipt.actor_id is distinct from p_actor or p_receipt.job_id is distinct from p_job_id
+    or p_receipt.preview_fingerprint is distinct from p_fingerprint
+    or (p_staged_hash is not null and p_staged_hash is distinct from p_receipt.payload_hash) then
+    raise exception 'TAKEOFF_SEND_REQUEST_CONFLICT' using errcode = '40001';
+  end if;
+  if not private.can_access_takeoff_child(p_receipt.tenant_id, p_receipt.job_id, null, false) then
+    raise exception 'TAKEOFF_SEND_RECEIPT_NOT_READABLE' using errcode = '42501';
+  end if;
+  delete from private.takeoff_send_commands as spent where spent.request_id = p_receipt.request_id and spent.actor_id = p_actor;
+  return pg_catalog.to_jsonb(p_receipt) || pg_catalog.jsonb_build_object('replayed', true);
+end;
+$$;
+revoke all on function private.takeoff_send_replay(public.takeoff_send_receipts, uuid, uuid, text, text)
+  from public, anon, authenticated, service_role;
+
+-- 10. The send command. The browser previews by a dry run of the command the server staged for it (the very send,
+-- rolled back: what the writer would leave, rounded lengths and grouped lines included); the confirmation recomputes that
+-- preview, compares its fingerprint with the one the member confirmed, and stages the command with the outcome the
+-- member saw; the member's session sends it. Under the locks the state the preview came from is read again: any change
+-- since (another version, an edit of the takeoff or of the estimate, a rule input, a mapping rule, a takeoff carried
+-- over to the destination) or any other outcome refuses the whole command with TAKEOFF_SEND_PREVIEW_STALE and nothing is
+-- written. A replay of the same request returns its receipt, to a caller who may still read it, for the fingerprint it
+-- was confirmed with.
+create function public.send_takeoff_job(p_request jsonb)
+returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  actor uuid := (select auth.uid());
+  tenant uuid := (select public.current_tenant_id());
+  p_command jsonb;
+  staged private.takeoff_send_commands%rowtype;
+  request uuid;
+  target_job_id uuid;
+  receipt public.takeoff_send_receipts%rowtype;
+  actor_role public.tenant_role;
+  dry_run boolean;
+  executed jsonb;
 begin
   if actor is null or tenant is null then
     raise exception 'TAKEOFF_SEND_AUTH_REQUIRED' using errcode = '42501';
@@ -1165,16 +1727,11 @@ begin
   where command_row.request_id = request and command_row.tenant_id = tenant and command_row.actor_id = actor
     and command_row.job_id = target_job_id;
 
-  -- A replay of a committed command returns its receipt; the same request with other inputs is a conflict.
-  select * into receipt from public.takeoff_send_receipts as stored
-  where stored.tenant_id = tenant and stored.request_id = request;
+  -- A replay of a committed command returns its receipt, to the member who sent it, for the fingerprint it was confirmed
+  -- with, while that member may still read it; the same request with other inputs is a conflict.
+  select * into receipt from public.takeoff_send_receipts as stored where stored.tenant_id = tenant and stored.request_id = request;
   if found then
-    if receipt.actor_id is distinct from actor or receipt.job_id is distinct from target_job_id
-      or (staged.request_id is not null and staged.payload_hash is distinct from receipt.payload_hash) then
-      raise exception 'TAKEOFF_SEND_REQUEST_CONFLICT' using errcode = '40001';
-    end if;
-    delete from private.takeoff_send_commands as spent where spent.request_id = request and spent.actor_id = actor;
-    return pg_catalog.to_jsonb(receipt) || pg_catalog.jsonb_build_object('replayed', true);
+    return private.takeoff_send_replay(receipt, actor, target_job_id, p_request ->> 'fingerprint', staged.payload_hash);
   end if;
   if staged.request_id is null or staged.fingerprint is distinct from p_request ->> 'fingerprint'
     or staged.expires_at <= pg_catalog.statement_timestamp() then
@@ -1182,17 +1739,13 @@ begin
       detail = pg_catalog.jsonb_build_object('reason', 'command_not_staged')::text;
   end if;
   p_command := staged.command;
-  payload_hash := staged.payload_hash;
   if pg_catalog.jsonb_typeof(p_command) is distinct from 'object'
-    or p_command - array['format_version', 'request_id', 'job_id', 'fingerprint', 'client', 'destination', 'section', 'expected',
-      'mapping_plan', 'page_decisions', 'rule_results', 'rule_transforms', 'accumulations', 'expected_impact', 'override',
-      'write_plan']
-      <> '{}'::jsonb
+    or p_command - array['format_version', 'mode', 'request_id', 'job_id', 'fingerprint', 'client', 'destination', 'section',
+      'expected', 'mapping_plan', 'page_decisions', 'rule_results', 'rule_transforms', 'accumulations', 'override',
+      'price_rules_ignored', 'expected_outcome'] <> '{}'::jsonb
     or p_command ->> 'request_id' is distinct from request::text or p_command ->> 'job_id' is distinct from target_job_id::text
     or p_command -> 'format_version' is distinct from '1'::jsonb
-    or coalesce(p_command ->> 'request_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    or coalesce(p_command ->> 'job_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    or coalesce(p_command ->> 'fingerprint', '') !~ '^[0-9a-f]{64}$'
+    or (p_command ->> 'mode') is null or (p_command ->> 'mode') not in ('send', 'dry_run')
     or pg_catalog.jsonb_typeof(p_command -> 'destination') is distinct from 'object'
     or (p_command #>> '{destination,kind}') is null
     or (p_command #>> '{destination,kind}') not in ('first_draft', 'existing_draft', 'version_copy')
@@ -1204,16 +1757,17 @@ begin
     or pg_catalog.jsonb_typeof(p_command -> 'expected') is distinct from 'object'
     or pg_catalog.jsonb_typeof(p_command #> '{expected,versions}') is distinct from 'array'
     or pg_catalog.jsonb_typeof(p_command #> '{expected,job_stamp}') is distinct from 'string'
+    or pg_catalog.jsonb_typeof(p_command #> '{expected,mapping_stamp}') is distinct from 'string'
     or pg_catalog.jsonb_typeof(p_command -> 'mapping_plan') is distinct from 'array'
     or pg_catalog.jsonb_typeof(p_command -> 'page_decisions') is distinct from 'array'
     or pg_catalog.jsonb_typeof(p_command -> 'rule_results') is distinct from 'array'
     or pg_catalog.jsonb_typeof(p_command -> 'rule_transforms') is distinct from 'array'
     or pg_catalog.jsonb_typeof(p_command -> 'accumulations') is distinct from 'array'
-    or pg_catalog.jsonb_typeof(p_command -> 'expected_impact') is distinct from 'object'
-    or pg_catalog.jsonb_typeof(p_command -> 'write_plan') is distinct from 'object'
-    or p_command #> '{write_plan,format_version}' is distinct from '1'::jsonb
-    or pg_catalog.jsonb_typeof(p_command #> '{write_plan,parts}') is distinct from 'array'
+    or pg_catalog.jsonb_typeof(coalesce(p_command -> 'price_rules_ignored', '[]'::jsonb)) is distinct from 'array'
     or coalesce(pg_catalog.jsonb_typeof(p_command -> 'override'), 'null') not in ('null', 'object')
+    -- A send carries the outcome its member saw; a dry run computes it.
+    or ((p_command ->> 'mode') = 'send' and pg_catalog.jsonb_typeof(p_command -> 'expected_outcome') is distinct from 'object')
+    or ((p_command ->> 'mode') = 'dry_run' and coalesce(pg_catalog.jsonb_typeof(p_command -> 'expected_outcome'), 'null') <> 'null')
     or ((p_command #>> '{destination,kind}') = 'first_draft'
       and pg_catalog.jsonb_typeof(p_command #> '{destination,version_payload}') is distinct from 'object')
     or ((p_command #>> '{destination,kind}') = 'existing_draft'
@@ -1237,13 +1791,6 @@ begin
     raise exception 'TAKEOFF_SEND_PRICE_RULE_REFUSED' using errcode = '22023';
   end if;
 
-  kind := p_command #>> '{destination,kind}';
-
-  select * into job from public.takeoff_jobs as candidate where candidate.id = target_job_id;
-  if not found or job.tenant_id is distinct from tenant then
-    raise exception 'TAKEOFF_JOB_NOT_FOUND' using errcode = 'P0002';
-  end if;
-
   select membership.role into actor_role
   from public.tenant_memberships as membership
   join public.tenants as tenant_row on tenant_row.id = membership.tenant_id and tenant_row.is_active
@@ -1252,354 +1799,32 @@ begin
     raise exception 'TAKEOFF_APPLY_OPERATOR_REQUIRED' using errcode = '42501';
   end if;
 
-  if kind = 'existing_draft' then
-    target_version := (p_command #>> '{destination,version_id}')::uuid;
-    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || target_version::text, 0));
-    select version.calc_engine_version into target_engine from public.estimate_versions as version
-    where version.id = target_version and version.tenant_id = tenant and version.project_id = job.project_id
-      and version.status = 'draft'::public.estimate_status
-    for update;
-    if not found then
-      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-        detail = pg_catalog.jsonb_build_object('reason', 'destination_changed')::text;
-    end if;
-    select * into project from public.estimate_projects as row_project
-    where row_project.id = job.project_id and row_project.tenant_id = tenant;
-  else
-    perform pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended('estimate-calc-policy:' || tenant::text, 0));
-    select * into project from public.estimate_projects as row_project
-    where row_project.id = job.project_id and row_project.tenant_id = tenant
-    for update;
-  end if;
-  if project.id is null or project.is_archived
-    or (actor_role <> 'admin'::public.tenant_role and project.user_id is distinct from actor) then
-    raise exception 'TAKEOFF_SEND_PROJECT_NOT_WRITABLE' using errcode = '42501';
-  end if;
-
-  -- The locks taken: a command that committed meanwhile is visible now.
-  select * into receipt from public.takeoff_send_receipts as stored
-  where stored.tenant_id = tenant and stored.request_id = request;
-  if found then
-    if receipt.actor_id is distinct from actor or receipt.job_id is distinct from target_job_id
-      or receipt.payload_hash is distinct from payload_hash then
-      raise exception 'TAKEOFF_SEND_REQUEST_CONFLICT' using errcode = '40001';
-    end if;
-    delete from private.takeoff_send_commands as spent where spent.request_id = request and spent.actor_id = actor;
-    return pg_catalog.to_jsonb(receipt) || pg_catalog.jsonb_build_object('replayed', true);
-  end if;
-
-  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-job-rules:' || target_job_id::text, 0));
-  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-job:' || target_job_id::text, 0));
-  select * into job from public.takeoff_jobs as candidate where candidate.id = target_job_id for update;
-  if job.estimate_version_id is not null or job.status is distinct from 'completed'::public.takeoff_job_status then
-    if exists (select 1 from public.takeoff_send_receipts as stored
-      where stored.job_id = target_job_id and stored.command_kind = 'send') then
-      raise exception 'TAKEOFF_SEND_ALREADY_SENT' using errcode = '40001';
-    end if;
-    raise exception 'TAKEOFF_SEND_JOB_NOT_READY' using errcode = '40001';
-  end if;
-
-  -- What the preview evaluated, read again under the locks.
-  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', version.id, 'status', version.status,
-      'updated_at', version.updated_at) order by version.id), '[]'::jsonb)
-    into current_versions
-  from public.estimate_versions as version
-  where version.project_id = job.project_id and version.tenant_id = tenant;
-  stale_reason := case
-    when current_versions is distinct from p_command #> '{expected,versions}' then 'destination_changed'
-    when public.takeoff_rule_job_stamp(tenant, job.project_id, target_job_id) is distinct from p_command #>> '{expected,job_stamp}'
-      then 'takeoff_changed'
-    when kind = 'existing_draft' and public.takeoff_rule_version_stamp(tenant, target_version)
-      is distinct from p_command #>> '{expected,version_stamp}' then 'estimate_changed'
-    -- A copy is compared with the takeoffs of the version it copies (their lines are the copy's).
-    when kind = 'version_copy' and public.takeoff_rule_version_stamp(tenant, (p_command #>> '{destination,source_version_id}')::uuid)
-      is distinct from p_command #>> '{expected,version_stamp}' then 'estimate_changed'
-    when kind = 'first_draft' and current_versions <> '[]'::jsonb then 'destination_changed'
-  end;
-  if stale_reason is not null then
-    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-      detail = pg_catalog.jsonb_build_object('reason', stale_reason)::text;
-  end if;
-
-  if kind = 'first_draft' then
-    section_id := (p_command #>> '{section,id}')::uuid;
-    created := public.persist_estimate_creation_atomic(tenant, actor, job.project_id, null,
-      p_command #> '{destination,version_payload}',
-      pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('id', section_id, 'parent_id', null, 'item_type', 'section',
-        'position', 1, 'title', btrim(p_command #>> '{section,title}'))),
-      null);
-    target_version := (created #>> '{version,id}')::uuid;
-    version_created := true;
-    section_created := true;
-  elsif kind = 'version_copy' then
-    source_version := (p_command #>> '{destination,source_version_id}')::uuid;
-    if not exists (select 1 from public.estimate_versions as version where version.id = source_version
-      and version.tenant_id = tenant and version.project_id = job.project_id and version.status <> 'draft'::public.estimate_status) then
-      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-        detail = pg_catalog.jsonb_build_object('reason', 'destination_changed')::text;
-    end if;
-    target_version := public.duplicate_estimate_version(source_version, false);
-    version_created := true;
-  end if;
-  select version.calc_engine_version into target_engine from public.estimate_versions as version
-  where version.id = target_version and version.tenant_id = tenant;
-
-  -- A version that holds a DPGF line is sent through its reconciliation, which needs the job on the version first:
-  -- refused before anything is attached (the preview says so and offers no confirmation).
-  if exists (select 1 from public.estimate_items as item where item.version_id = target_version and item.tenant_id = tenant
-    and item.item_type = 'line'::public.estimate_item_type and item.source_provider = 'dpgf') then
-    raise exception 'TAKEOFF_SEND_DPGF_RECONCILIATION_REQUIRED' using errcode = '22023';
-  end if;
-
-  -- The section that receives the lines: created here for a new version or on request, else one of the draft's.
-  if not section_created then
-    section_id := (p_command #>> '{section,id}')::uuid;
-    if (p_command #>> '{section,kind}') = 'new' then
-      select coalesce(max(item.position), 0) + 1 into section_position from public.estimate_items as item
-      where item.version_id = target_version and item.tenant_id = tenant and item.parent_id is null;
-      previous_writer := coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '');
-      if target_engine = 3 then
-        perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', target_version::text, true);
+  dry_run := (p_command ->> 'mode') = 'dry_run';
+  if dry_run then
+    -- The preview: the very send, in a block rolled back once it computed what it would leave.
+    begin
+      executed := private.takeoff_send_execute(actor, tenant, actor_role, request, p_command, true);
+      raise exception 'TAKEOFF_SEND_DRY_RUN_DONE' using errcode = 'P0001';
+    exception when raise_exception then
+      if sqlerrm <> 'TAKEOFF_SEND_DRY_RUN_DONE' then
+        raise;
       end if;
-      insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
-      values (section_id, tenant, target_version, null, 'section'::public.estimate_item_type, section_position,
-        btrim(p_command #>> '{section,title}'));
-      perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', previous_writer, true);
-      section_created := true;
-    elsif not exists (select 1 from public.estimate_items as item where item.id = section_id
-      and item.version_id = target_version and item.tenant_id = tenant and item.item_type = 'section'::public.estimate_item_type) then
-      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-        detail = pg_catalog.jsonb_build_object('reason', 'estimate_changed')::text;
-    end if;
+    end;
+    return pg_catalog.jsonb_build_object('dry_run', true, 'outcome', executed -> 'outcome');
   end if;
 
-  -- The application checks the actor's draft lock. A version created here has no other holder: its lock lives only in
-  -- this transaction. An existing draft is locked by the actor before the command, as for any application.
-  if version_created then
-    insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
-    values (target_version, actor, tenant, pg_catalog.statement_timestamp() + interval '5 minutes', gen_random_uuid())
-    returning id into created_lock;
+  executed := private.takeoff_send_execute(actor, tenant, actor_role, request, p_command, false);
+  if executed ? 'replay' then
+    select * into receipt from public.takeoff_send_receipts as stored where stored.id = (executed ->> 'replay')::uuid;
+    return private.takeoff_send_replay(receipt, actor, target_job_id, p_request ->> 'fingerprint', staged.payload_hash);
   end if;
-
-  -- The historical receipt of a launch on a version (takeoff_jobs_prepared_plan_receipt_uidx) holds one job per version,
-  -- plan set, preparation revision, level and provider. A versionless job of that same launch is refused by name here;
-  -- the launch requests of a later migration narrow that index to the jobs they do not own.
-  if exists (select 1 from public.takeoff_jobs as other
-    where other.tenant_id = tenant and other.estimate_version_id = target_version and other.id <> target_job_id
-      and other.plan_set_id = job.plan_set_id and other.level = job.level
-      and other.execution_provider is not distinct from job.execution_provider
-      and other.preparation_snapshot is not null
-      and other.preparation_snapshot ->> 'preparation_revision' = job.preparation_snapshot ->> 'preparation_revision') then
-    raise exception 'TAKEOFF_SEND_PREPARATION_ALREADY_SENT' using errcode = '22023';
-  end if;
-
-  -- The door: the job's version goes from NULL to this draft of its affaire, once, by this command's permit.
-  insert into private.takeoff_job_attachment_permits (job_id, tenant_id, project_id, version_id)
-  values (target_job_id, tenant, job.project_id, target_version);
-  update public.takeoff_jobs as attached set estimate_version_id = target_version where attached.id = target_job_id;
-  if exists (select 1 from private.takeoff_job_attachment_permits as permit where permit.job_id = target_job_id) then
-    raise exception 'TAKEOFF_SEND_PERMIT_NOT_CONSUMED' using errcode = 'P0001';
-  end if;
-
-  -- The controls that compare with other takeoffs and with the DPGF, evaluated for this destination by the preview from
-  -- the state checked above: every line with rule inputs receives them, or nothing is sent.
-  select pg_catalog.count(*) into rules_written
-  from takeoff_internal.persist_rule_results(tenant, target_version, array[target_job_id], p_command -> 'rule_results',
-    p_command -> 'rule_transforms');
-  if rules_written <> pg_catalog.jsonb_array_length(p_command -> 'rule_results')
-    or exists (select 1 from public.takeoff_items as item
-      cross join lateral pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(item.rule_results) = 'array'
-        then item.rule_results else '[]'::jsonb end) as rule_result(value)
-      where item.job_id = target_job_id and item.tenant_id = tenant
-        and rule_result.value #>> '{details,cross_job_comparison}' = 'deferred') then
-    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-      detail = pg_catalog.jsonb_build_object('reason', 'rules_changed')::text;
-  end if;
-
-  -- An administrator's override, bound to this destination, checked again by the application's trigger.
-  if pg_catalog.jsonb_typeof(p_command -> 'override') = 'object' then
-    if actor_role <> 'admin'::public.tenant_role then
-      raise exception 'TAKEOFF_APPLY_GUARD_FAILED' using errcode = 'P0001';
-    end if;
-    insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
-    values (tenant, actor, 'takeoff_jobs', target_job_id, target_version, 'takeoff.apply.override',
-      pg_catalog.jsonb_build_object('schema_version', 1, 'action', 'takeoff.apply.override', 'job_id', target_job_id,
-        'tenant_id', tenant, 'user_id', actor,
-        'metadata', (p_command -> 'override') || pg_catalog.jsonb_build_object('estimate_version_id', target_version)));
-  end if;
-
-  select result_row.* into applied from public.apply_takeoff_job_with_page_decisions(target_job_id, 'append', section_id,
-    p_command -> 'mapping_plan', p_command -> 'page_decisions', null) as result_row;
-  links := coalesce(applied.item_links, '[]'::jsonb);
-  created_ids := coalesce(applied.created_ids, '{}'::uuid[]);
-
-  -- Earlier takeoff lines of the same item (plan A sent 3, plan B adds 2: one line of 5). The preview proposed each part,
-  -- with the line as it read it; the line must still be that line, measured by its takeoff lines only (never a quantity
-  -- typed by hand), in the section, of the same title and unit, with no hypothesis nor rounded length on either side.
-  for entry in
-    select part.takeoff_item_id, part.estimate_item_id, part.expected_updated_at, part.expected_quantity, link.created_id
-    from pg_catalog.jsonb_to_recordset(p_command -> 'accumulations')
-      as part(takeoff_item_id uuid, estimate_item_id uuid, expected_updated_at timestamptz, expected_quantity numeric)
-    left join lateral (select (output.value ->> 'estimate_item_id')::uuid as created_id
-      from pg_catalog.jsonb_array_elements(links) as output(value)
-      where (output.value ->> 'takeoff_item_id')::uuid = part.takeoff_item_id) as link on true
-    order by part.estimate_item_id, part.takeoff_item_id
-  loop
-    if target_engine is distinct from 3 or entry.created_id is null or not entry.created_id = any(created_ids)
-      or entry.estimate_item_id = any(created_ids) or entry.estimate_item_id = any(removed) then
-      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-        detail = pg_catalog.jsonb_build_object('reason', 'accumulation_changed', 'estimate_item_id', entry.estimate_item_id)::text;
-    end if;
-    perform 1 from public.estimate_items as earlier where earlier.id = entry.estimate_item_id for update;
-    if not exists (
-      select 1
-      from public.estimate_items as earlier
-      join public.estimate_items as added on added.id = entry.created_id and added.version_id = earlier.version_id
-      join public.takeoff_items as source on source.id = entry.takeoff_item_id and source.job_id = target_job_id
-      cross join lateral (select private.takeoff_estimate_line_item_ids(earlier.source_metadata, earlier.source_job_id) as ids) as sources
-      cross join lateral (select pg_catalog.sum(own.quantity) as raw, pg_catalog.count(*) as readable
-        from public.takeoff_items as own where own.id = any(sources.ids) and own.tenant_id = tenant) as measured
-      where earlier.id = entry.estimate_item_id and earlier.version_id = target_version and earlier.tenant_id = tenant
-        and earlier.item_type = 'line'::public.estimate_item_type and earlier.parent_id = section_id
-        and earlier.source_provider = 'takeoff'
-        -- The line as the preview read it; a second part for the same line finds it as the first part left it.
-        and (entry.estimate_item_id = any(accumulated)
-          or (earlier.updated_at = entry.expected_updated_at and earlier.quantity = entry.expected_quantity))
-        and pg_catalog.cardinality(sources.ids) > 0 and measured.readable = pg_catalog.cardinality(sources.ids)
-        and measured.raw = earlier.quantity
-        and not (earlier.source_metadata ? 'takeoff_length_rounding') and not (earlier.source_metadata ? 'takeoff_provision')
-        and not (added.source_metadata ? 'takeoff_length_rounding') and not (added.source_metadata ? 'takeoff_provision')
-        and public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category) is null
-        and added.parent_id = earlier.parent_id
-        and lower(regexp_replace(btrim(added.title), '\s+', ' ', 'g')) = lower(regexp_replace(btrim(earlier.title), '\s+', ' ', 'g'))
-        and coalesce(added.unit_code, 'status:' || added.pricing_status::text)
-          = coalesce(earlier.unit_code, 'status:' || earlier.pricing_status::text)
-    ) then
-      raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-        detail = pg_catalog.jsonb_build_object('reason', 'accumulation_changed', 'estimate_item_id', entry.estimate_item_id)::text;
-    end if;
-
-    previous_writer := coalesce(pg_catalog.current_setting('miaouffrage.estimate_v3_writer', true), '');
-    perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', target_version::text, true);
-    -- Only the quantity and the provenance move: price, unit, hours, supplier and status stay the line's.
-    update public.estimate_items as earlier set
-      quantity = earlier.quantity + added.quantity,
-      source_job_id = target_job_id,
-      source_metadata = coalesce(earlier.source_metadata, '{}'::jsonb) || pg_catalog.jsonb_build_object('takeoff_contributions',
-        pg_catalog.jsonb_build_object('version', 1, 'job_id', target_job_id,
-          'item_ids', (select pg_catalog.jsonb_agg(source_id order by ordinal) from pg_catalog.unnest(
-              private.takeoff_estimate_line_item_ids(earlier.source_metadata, earlier.source_job_id) || entry.takeoff_item_id)
-              with ordinality as listed(source_id, ordinal)),
-          'parts', coalesce(earlier.source_metadata #> '{takeoff_contributions,parts}',
-              pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('job_id', earlier.source_job_id,
-                'takeoff_item_ids', pg_catalog.to_jsonb(private.takeoff_estimate_line_item_ids(earlier.source_metadata, earlier.source_job_id)),
-                'quantity', pg_catalog.trim_scale(earlier.quantity))))
-            || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('job_id', target_job_id, 'request_id', request,
-              'takeoff_item_ids', pg_catalog.jsonb_build_array(entry.takeoff_item_id),
-              'quantity', pg_catalog.trim_scale(added.quantity))))),
-      updated_at = pg_catalog.statement_timestamp()
-    from public.estimate_items as added
-    where earlier.id = entry.estimate_item_id and added.id = entry.created_id;
-    delete from public.estimate_items as added where added.id = entry.created_id and added.version_id = target_version;
-    perform public.estimate_v3_complete_entry_for_writer(target_version, array[entry.estimate_item_id]);
-    perform pg_catalog.set_config('miaouffrage.estimate_v3_writer', previous_writer, true);
-    removed := removed || entry.created_id;
-    accumulated := accumulated || entry.estimate_item_id;
-    links := (select pg_catalog.jsonb_agg(case when (output.value ->> 'takeoff_item_id')::uuid = entry.takeoff_item_id
-        then pg_catalog.jsonb_build_object('takeoff_item_id', entry.takeoff_item_id, 'estimate_item_id', entry.estimate_item_id)
-        else output.value end order by output.ordinality)
-      from pg_catalog.jsonb_array_elements(links) with ordinality as output(value, ordinality));
-  end loop;
-
-  final_created := array(select id from pg_catalog.unnest(created_ids) as ids(id) where not id = any(removed) order by id);
-  -- What the user confirmed: these takeoff lines sent, these earlier lines added to. A recomputation that sends another
-  -- set rolls everything back (the counts of new lines also depend on lengths grouped on the way, and are reported).
-  impact := pg_catalog.jsonb_build_object(
-    'sent', (select pg_catalog.count(*)::integer from pg_catalog.jsonb_array_elements(links)),
-    'accumulated', (select pg_catalog.count(*)::integer from pg_catalog.jsonb_array_elements(p_command -> 'accumulations')));
-  if impact is distinct from p_command -> 'expected_impact'
-    or (select coalesce(pg_catalog.array_agg(output.value ->> 'takeoff_item_id' order by output.value ->> 'takeoff_item_id'), '{}')
-      from pg_catalog.jsonb_array_elements(links) as output(value))
-      is distinct from (select coalesce(pg_catalog.array_agg(part.value ->> 'takeoff_item_id' order by part.value ->> 'takeoff_item_id'), '{}')
-      from pg_catalog.jsonb_array_elements(p_command #> '{write_plan,parts}') as part(value)) then
-    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-      detail = pg_catalog.jsonb_build_object('reason', 'impact_changed', 'expected', p_command -> 'expected_impact',
-        'actual', impact)::text;
-  end if;
-
-  if created_lock is not null then
-    delete from public.draft_locks as lock_row where lock_row.id = created_lock;
-  end if;
-
-  -- The parts as stored: each one names its takeoff line, the page, the source of its quantity and the revision of its
-  -- evidence, read here from the rows the application wrote from.
-  plan := (p_command -> 'write_plan') || pg_catalog.jsonb_build_object(
-    'destination', pg_catalog.jsonb_build_object('kind', kind, 'version_id', target_version, 'source_version_id', source_version,
-      'version_created', version_created),
-    'sections', pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('id', section_id, 'created', section_created,
-      'title', (select item.title from public.estimate_items as item where item.id = section_id))),
-    'parts', coalesce((
-      select pg_catalog.jsonb_agg(part.value || pg_catalog.jsonb_build_object(
-          'section_id', section_id,
-          'estimate_item_id', (select (output.value ->> 'estimate_item_id')::uuid from pg_catalog.jsonb_array_elements(links) as output(value)
-            where output.value ->> 'takeoff_item_id' = part.value ->> 'takeoff_item_id'),
-          'quantity', pg_catalog.trim_scale(source.quantity), 'unit', source.unit,
-          'source', pg_catalog.jsonb_build_object('job_id', target_job_id, 'answer_id', null, 'observation_id', source.id,
-            'plan_file_id', source.metadata #>> '{source_document,plan_file_id}', 'source_file_name', source.source_file_name,
-            'source_page', source.source_page,
-            'quantity_source', case
-              when public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category) is not null
-                then 'hypothesis:' || public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category)
-              when source.quantity_entry_category is not null then 'entered' else 'measured' end,
-            -- The plan's bytes as the takeoff attested them (its preparation), never the plan centre's current file.
-            'plan_content_hash', (select attested.value ->> 'content_hash'
-              from pg_catalog.jsonb_array_elements(job.preparation_snapshot #> '{preparation,sources}') as attested(value)
-              where attested.value ->> 'document_id' = source.metadata #>> '{source_document,plan_file_id}' limit 1),
-            'evidence_revision', pg_catalog.md5(pg_catalog.jsonb_build_array(source.updated_at, source.evidence,
-              source.source_file_name, source.source_page, source.metadata,
-              (select pg_catalog.jsonb_agg(geometry.geometry - 'transform' order by geometry.vector_page_id)
-                from public.takeoff_item_geometries as geometry where geometry.takeoff_item_id = source.id))::text)))
-        order by part.ordinality)
-      from pg_catalog.jsonb_array_elements(p_command #> '{write_plan,parts}') with ordinality as part(value, ordinality)
-      join public.takeoff_items as source on source.id::text = part.value ->> 'takeoff_item_id'
-        and source.job_id = target_job_id and source.tenant_id = tenant), '[]'::jsonb));
-  if pg_catalog.jsonb_array_length(plan -> 'parts') <> pg_catalog.jsonb_array_length(p_command #> '{write_plan,parts}')
-    or exists (select 1 from pg_catalog.jsonb_array_elements(plan -> 'parts') as part(value)
-      where part.value -> 'estimate_item_id' = 'null'::jsonb)
-    or (select pg_catalog.count(*) from pg_catalog.jsonb_array_elements(links)) <> pg_catalog.jsonb_array_length(plan -> 'parts') then
-    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-      detail = pg_catalog.jsonb_build_object('reason', 'write_plan_changed')::text;
-  end if;
-
-  result := pg_catalog.jsonb_build_object(
-    'format_version', 1,
-    'version_id', target_version,
-    'version_created', version_created,
-    'source_version_id', source_version,
-    'sections_created', case when section_created then pg_catalog.jsonb_build_array(section_id) else '[]'::jsonb end,
-    'sections_changed', coalesce((select pg_catalog.jsonb_agg(distinct item.parent_id) from public.estimate_items as item
-      where item.version_id = target_version and item.tenant_id = tenant and item.parent_id is not null
-        and item.id in (select (output.value ->> 'estimate_item_id')::uuid from pg_catalog.jsonb_array_elements(links) as output(value))),
-      '[]'::jsonb),
-    'lines_created', pg_catalog.to_jsonb(final_created),
-    'lines_updated', coalesce((select pg_catalog.jsonb_agg(distinct (output.value ->> 'estimate_item_id')::uuid)
-      from pg_catalog.jsonb_array_elements(links) as output(value)
-      where not (output.value ->> 'estimate_item_id')::uuid = any(final_created)), '[]'::jsonb),
-    'item_links', links,
-    'created_count', pg_catalog.cardinality(final_created),
-    'updated_count', (select pg_catalog.count(distinct output.value ->> 'estimate_item_id')::integer
-      from pg_catalog.jsonb_array_elements(links) as output(value)
-      where not (output.value ->> 'estimate_item_id')::uuid = any(final_created)),
-    'ignored_count', applied.ignored_count,
-    'sent_count', impact -> 'sent',
-    'accumulated_count', impact -> 'accumulated',
-    'scope', applied.scope);
 
   perform pg_catalog.set_config('mergeone.takeoff_send_receipt', request::text, true);
   insert into public.takeoff_send_receipts (tenant_id, project_id, job_id, request_id, command_kind, format_version, actor_id,
     payload_hash, preview_fingerprint, destination, target_version_id, write_plan, result)
-  values (tenant, job.project_id, target_job_id, request, 'send', 1, actor, payload_hash, p_command ->> 'fingerprint',
-    plan -> 'destination', target_version, plan, result)
+  values (tenant, (executed ->> 'project_id')::uuid, target_job_id, request, 'send', 1, actor, staged.payload_hash,
+    p_command ->> 'fingerprint', executed #> '{plan,destination}', (executed ->> 'version_id')::uuid, executed -> 'plan',
+    executed -> 'result')
   returning * into receipt;
   perform pg_catalog.set_config('mergeone.takeoff_send_receipt', '', true);
   -- The staged command stays until it expires: from now on the receipt answers every call of this request (a retry
@@ -1609,5 +1834,6 @@ end;
 $$;
 revoke all on function public.send_takeoff_job(jsonb) from public, anon, service_role;
 grant execute on function public.send_takeoff_job(jsonb) to authenticated;
+
 
 commit;

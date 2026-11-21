@@ -11,7 +11,8 @@ import type { WorkerOwner } from "./worker-support";
 const run = promisify(execFile);
 type Admission = { receipt?: { id: string; status: string; estimate_version_id: string | null; project_id?: string }; rejected?: string };
 
-export function startOwnedTakeoffAdmission(owner: WorkerOwner, runPrefix: string, projectId: string, planSetId: string, operationId: string) {
+export function startOwnedTakeoffAdmission(owner: WorkerOwner, runPrefix: string, projectId: string, planSetId: string, operationId: string,
+  preparationRevision = 1) {
   const names = ["PATH", "TMPDIR", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
     "E2E_ALLOWED_SUPABASE_HOST", "E2E_ARMY_BASE_URL", "E2E_ARMY_BLOCK_WORKERS",
     "E2E_COVERAGE_BACKEND_ORIGIN", "E2E_COVERAGE_NETWORK_LOG",
@@ -19,7 +20,7 @@ export function startOwnedTakeoffAdmission(owner: WorkerOwner, runPrefix: string
   const env: NodeJS.ProcessEnv = { ...Object.fromEntries(names.map(name => [name, process.env[name]])), NODE_ENV: "test", MERGEONE_CHATGPT_LOCAL: "1",
     E2E_LOGIN_EMAIL: owner.email, E2E_LOGIN_PASSWORD: owner.password };
   const result = run(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/tester-army/takeoff-admit.mjs",
-    projectId, planSetId, operationId, runPrefix], { env, timeout: 40_000 });
+    projectId, planSetId, operationId, runPrefix, String(preparationRevision)], { env, timeout: 40_000 });
   const done = result.then(({ stdout, stderr }) => {
     const line = stdout.split("\n").find(line => line.startsWith("ARMY_ADMISSION "));
     if (!line) throw new Error(`Missing owned admission result: ${stderr.slice(-1200)}`);

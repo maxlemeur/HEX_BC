@@ -97449,6 +97449,11 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "removed_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
               "ignored_count": {
                 "type": "integer",
                 "minimum": 0,
@@ -97463,6 +97468,14 @@
                 }
               },
               "lines_updated": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "lines_removed": {
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -97488,9 +97501,11 @@
               "version_created",
               "created_count",
               "updated_count",
+              "removed_count",
               "ignored_count",
               "lines_created",
               "lines_updated",
+              "lines_removed",
               "sections_changed"
             ],
             "additionalProperties": false
@@ -97595,6 +97610,205 @@
                 "additionalProperties": false
               }
             ]
+          },
+          "page_decisions": {
+            "maxItems": 2000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "document": {
+                  "type": "object",
+                  "properties": {
+                    "plan_file_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "content_hash": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "logical_document_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "file_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "plan_file_id",
+                    "content_hash",
+                    "logical_document_id",
+                    "file_name"
+                  ],
+                  "additionalProperties": false
+                },
+                "source_page": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "earlier_job_ids": {
+                  "maxItems": 100,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "replace",
+                    "keep_both"
+                  ]
+                },
+                "reason_code": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "other_zone",
+                        "other_trade",
+                        "complementary_scope"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "note": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lines": {
+                  "minItems": 1,
+                  "maxItems": 5000,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "estimate_item_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "expected_updated_at": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "update",
+                          "remove",
+                          "keep"
+                        ]
+                      },
+                      "take": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "new",
+                              "keep_mine"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "item_ids": {
+                        "maxItems": 5000,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "estimate_item_id",
+                      "expected_updated_at",
+                      "action",
+                      "take",
+                      "item_ids"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "pairs": {
+                  "maxItems": 5000,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "takeoff_item_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "estimate_item_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    "required": [
+                      "takeoff_item_id",
+                      "estimate_item_id"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "document",
+                "source_page",
+                "earlier_job_ids",
+                "decision",
+                "reason_code",
+                "note",
+                "lines",
+                "pairs"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false
@@ -97694,7 +97908,8 @@
                             "preparation_already_sent",
                             "choose_destination",
                             "read_only",
-                            "rules_unbounded"
+                            "rules_unbounded",
+                            "draft_locked"
                           ]
                         },
                         {
@@ -97870,7 +98085,8 @@
                           "preparation_already_sent",
                           "choose_destination",
                           "read_only",
-                          "rules_unbounded"
+                          "rules_unbounded",
+                          "draft_locked"
                         ]
                       },
                       "message": {
@@ -98109,6 +98325,98 @@
                   "additionalProperties": false
                 }
               },
+              "estimate_lines": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "change": {
+                          "type": "string",
+                          "enum": [
+                            "created",
+                            "changed",
+                            "removed"
+                          ]
+                        },
+                        "section_title": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "unit": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "quantity": {
+                          "type": "number"
+                        },
+                        "quantity_before": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "unit_price_ht_cents": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "takeoff_item_ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          }
+                        }
+                      },
+                      "required": [
+                        "change",
+                        "section_title",
+                        "title",
+                        "unit",
+                        "quantity",
+                        "quantity_before",
+                        "unit_price_ht_cents",
+                        "takeoff_item_ids"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "outcome_pending": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "page_decisions",
+                      "blocked"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "controls": {
                 "type": "object",
                 "properties": {
@@ -98120,6 +98428,19 @@
                           "first_draft",
                           "existing_draft",
                           "version_copy"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "not_evaluated_reason": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "no_rule_inputs"
                         ]
                       },
                       {
@@ -98299,6 +98620,7 @@
                 },
                 "required": [
                   "evaluated_for",
+                  "not_evaluated_reason",
                   "blocked_items",
                   "medium_items",
                   "threshold"
@@ -98993,6 +99315,8 @@
               "left_out",
               "price_rules_ignored",
               "reservations",
+              "estimate_lines",
+              "outcome_pending",
               "controls",
               "page_proposal",
               "impact"

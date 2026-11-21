@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
 import {
   buildPageReplacementProposal,
+  sourceItemIdsOf,
   type EstimateLineRow,
   type PageReplacementInput,
   type TakeoffLineRow,
@@ -128,5 +129,18 @@ describe("the lines « Fusionner » sends onto a DPGF line outside the reconcili
     expect(refusalsOf([takeoffLine(311, NEW, "EF cuivre DN 22", 3, "ml", 3), takeoffLine(314, NEW, "EF cuivre DN 22", 12, "ml", 3)],
       new Map([[id(311), id(212)], [id(314), id(211)]]))).toEqual([]);
     expect(proposal([takeoffLine(312, NEW, "Calorifuge DN 22", 9, "ml", 3)]).dpgf_merge_refusals).toEqual([]);
+  });
+});
+
+// Lot 2 M2, fix round 1, point 5: a line plan A sent and plan B added to names both takeoff lines in
+// `takeoff_contributions`; the proposal reads it as the database does (private.takeoff_estimate_line_item_ids). Written
+// before the fix: red on 986aea27 (the projected row left the key out, so only A's line was named).
+describe("the sources of a line fed by several sends", () => {
+  it("names A's and B's takeoff lines of a line A sent and B added to", () => {
+    const accumulated = { ...mergedLength, id: id(301), title: "Lavabo", unit_code: "u", description: "u", quantity: 5,
+      source_job_id: NEW, takeoff_item_id: id(101), rounding_item_ids: null, rounding_job_id: null,
+      contribution_item_ids: [id(101), id(103)], contribution_job_id: NEW } as EstimateLineRow;
+
+    expect(sourceItemIdsOf([accumulated]).get(id(301))).toEqual([id(101), id(103)]);
   });
 });

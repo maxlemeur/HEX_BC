@@ -25,7 +25,14 @@ import { releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
 import { isTakeoffApiError, previewTakeoffSend, sendTakeoffJobToEstimate } from "@/lib/takeoff/client";
 import type { ApplyGuardResult } from "@/lib/takeoff/guards";
-import type { TakeoffSendDestination, TakeoffSendPreviewResponse, TakeoffSendResponse, TakeoffSendSectionChoice } from "@/lib/takeoff/send-contracts";
+import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contracts";
+import type {
+  TakeoffSendDestination,
+  TakeoffSendEstimateLine,
+  TakeoffSendPreviewResponse,
+  TakeoffSendResponse,
+  TakeoffSendSectionChoice,
+} from "@/lib/takeoff/send-contracts";
 import { plural } from "@/lib/text/plural";
 
 export const TAKEOFF_SEND_TITLE = "Envoyer au tableau de chiffrage";
@@ -38,6 +45,8 @@ const RESERVATION_LABELS: Record<TakeoffSendPreviewResponse["reservations"][numb
   entered: "quantité saisie",
   to_review: "à revoir (confiance ou contrôle)",
 };
+
+const CHANGE_LABELS: Record<TakeoffSendEstimateLine["change"], string> = { created: "nouvelle ligne", changed: "ligne modifiée", removed: "ligne retirée" };
 
 const destinationKey = (destination: TakeoffSendDestination) => destination.kind === "existing_draft" ? `draft:${destination.version_id}`
   : destination.kind === "version_copy" ? `copy:${destination.source_version_id}` : "first";
@@ -62,10 +71,12 @@ type Props = {
 
 /**
  * « Envoyer au tableau de chiffrage » for a takeoff of an affaire (lot 2, M2): the destination (the first draft the
- * confirmation creates, a draft of the affaire, or a copy of an issued version), the section, the lines and what they
- * add to, the reservations and the controls evaluated for that destination. Nothing is written before « Confirmer »;
- * the server sends what this preview showed or refuses, and the preview is read again. A confirmation keeps its
- * request id across a timeout: sent again, it returns the receipt instead of sending twice.
+ * confirmation creates, a draft of the affaire, or a copy of an issued version), the section, the lines of the estimate
+ * as the send leaves them (its dry run: rounded lengths, grouped lines, the lines a page decision changes or removes),
+ * the measures sent, the reservations and the controls evaluated for that destination. Nothing is written before
+ * « Confirmer »; the server sends what this preview showed or refuses, and the preview is read again. The pages already
+ * in the estimate are decided first: the preview is computed again with those decisions, and confirmed with them. A
+ * confirmation keeps its request id across a timeout: sent again, it returns the receipt instead of sending twice.
  */
 export function TakeoffSendDialog(props: Props) {
   return <TakeoffSendScreen key={props.jobId} {...props} />;
@@ -74,7 +85,8 @@ export function TakeoffSendDialog(props: Props) {
 function TakeoffSendScreen({ open, jobId, isAdmin, jobLevel, targetedReviewHref, onOpenChange, onSent }: Props) {
   const toast = useToast();
   const router = useRouter();
-  const [request, setRequest] = useState<{ destination?: TakeoffSendDestination; section?: TakeoffSendSectionChoice; read: number }>({ read: 0 });
+  const [request, setRequest] = useState<{ destination?: TakeoffSendDestination; section?: TakeoffSendSectionChoice;
+    page_decisions?: TakeoffPageDecision[]; read: number }>({ read: 0 });
   const [preview, setPreview] = useState<{ read: number; data: TakeoffSendPreviewResponse | null; error: string | null } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -89,7 +101,8 @@ function TakeoffSendScreen({ open, jobId, isAdmin, jobLevel, targetedReviewHref,
     const controller = new AbortController();
     const read = request.read;
     void previewTakeoffSend(jobId, { ...(request.destination ? { destination: request.destination } : {}),
-      ...(request.section ? { section: request.section } : {}) }, { signal: controller.signal }).then(
+      ...(request.section ? { section: request.section } : {}),
+      ...(request.page_decisions ? { page_decisions: request.page_decisions } : {}) }, { signal: controller.signal }).then(
       (data) => { if (!controller.signal.aborted) { requestId.current = null; setPreview({ read, data, error: null }); } },
       (error: unknown) => {
         if (controller.signal.aborted) return;
@@ -118,6 +131,12 @@ function TakeoffSendScreen({ open, jobId, isAdmin, jobLevel, targetedReviewHref,
   }, [proposal, pageChoices]);
   const pageResolution = useMemo(() => (proposal && pageDraft ? resolveConfirmation(proposal, pageDraft) : null), [proposal, pageDraft]);
   const pagesReady = pageResolution?.complete ?? true;
+  // The decisions made, once complete, are previewed: the outcome shown, and confirmed, is the one they give.
+  const decided = pageResolution?.complete ? pageResolution.payload : null;
+  useEffect(() => {
+    if (!decided || JSON.stringify(decided) === JSON.stringify(request.page_decisions ?? [])) return;
+    setRequest((currentRequest) => ({ ...currentRequest, page_decisions: decided, read: currentRequest.read + 1 }));
+  }, [decided, request.page_decisions]);
 
   const guardResult = useMemo<ApplyGuardResult | null>(() => (data ? {
     passed: data.controls.blocked_items.length === 0,
@@ -127,13 +146,15 @@ function TakeoffSendScreen({ open, jobId, isAdmin, jobLevel, targetedReviewHref,
     threshold: data.controls.threshold,
   } : null), [data]);
   const guardBlocking = guardResult !== null && !guardResult.passed;
-  const sendable = !!data && !data.blocked && data.impact.sent_count > 0 && !submitting && pagesReady;
+  // Only an outcome the dry run computed is confirmed: the lines the member sees are the ones written.
+  const sendable = !!data && !data.blocked && data.impact.sent_count > 0 && !submitting && pagesReady && data.estimate_lines !== null;
   const canConfirm = sendable && !guardBlocking;
   const canOverride = sendable && isAdmin && guardBlocking;
 
   const readAgain = useCallback((next?: { destination?: TakeoffSendDestination; section?: TakeoffSendSectionChoice }) => {
     setRequest((currentRequest) => ({ destination: next ? next.destination : currentRequest.destination,
-      section: next ? next.section : currentRequest.section, read: currentRequest.read + 1 }));
+      section: next ? next.section : currentRequest.section,
+      page_decisions: next ? undefined : currentRequest.page_decisions, read: currentRequest.read + 1 }));
   }, []);
 
   const confirm = async (override: boolean) => {
@@ -160,7 +181,7 @@ function TakeoffSendScreen({ open, jobId, isAdmin, jobLevel, targetedReviewHref,
       response = await sendTakeoffJobToEstimate(jobId, {
         request_id: requestId.current, fingerprint: data.fingerprint, destination,
         section: data.section.kind === "existing" ? { kind: "existing", id: data.section.id } : { kind: "new" },
-        page_decisions: pageResolution?.payload ?? [],
+        page_decisions: request.page_decisions ?? [],
         ...(forced ? { override: true, forced_items: forced.forced_items, forced_justifications: forced.forced_justifications } : {}),
       });
     } catch (error) {
@@ -291,7 +312,9 @@ function SendPreviewBody({ data, headline, disabled, onDestinationChange, onSect
           </p>
         ) : null}
         <p className="text-sm text-muted-foreground">
-          Doublons et couverture entre métrés : {data.controls.evaluated_for === null
+          Doublons et couverture entre métrés : {data.controls.not_evaluated_reason === "no_rule_inputs"
+            ? "non évalués : aucune ligne de ce métré ne porte les repères qu’ils comparent."
+            : data.controls.evaluated_for === null
             ? "comparaison au devis disponible à l’envoi, une fois la destination choisie."
             : data.controls.evaluated_for === "existing_draft"
               ? "vérifiés avec les métrés de ce brouillon."
@@ -303,9 +326,39 @@ function SendPreviewBody({ data, headline, disabled, onDestinationChange, onSect
 
       {data.blocked ? <Alert variant={data.blocked.reason === "choose_destination" ? "info" : "warning"}>{data.blocked.message}</Alert> : null}
 
+      {data.estimate_lines ? (
+        <section aria-labelledby="takeoff-send-estimate-lines" className="space-y-2">
+          <h3 id="takeoff-send-estimate-lines" className="text-sm font-semibold text-foreground">Lignes du devis après l’envoi</h3>
+          <p className="text-sm text-muted-foreground">
+            Ce que l’envoi écrit, tel quel : une longueur arrondie au mètre, des longueurs identiques réunies en une ligne.
+          </p>
+          <ul aria-label="Lignes du devis après l’envoi" className="divide-y divide-border rounded-lg border border-border text-sm">
+            {data.estimate_lines.map((line, index) => (
+              <li key={`${line.change}-${index}`} aria-label={line.title}
+                className="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2">
+                <span className="min-w-0">
+                  <strong className={line.change === "removed" ? "line-through" : undefined}>{line.title}</strong>
+                  <span className="text-muted-foreground"> · {CHANGE_LABELS[line.change]}</span>
+                  {line.section_title ? <span className="text-muted-foreground"> · {line.section_title}</span> : null}
+                </span>
+                <span className="font-mono tabular-nums">
+                  {line.change === "changed" && line.quantity_before !== null
+                    ? `${quantity.format(line.quantity_before)} → ${quantity.format(line.quantity)}`
+                    : quantity.format(line.quantity)}{line.unit ? ` ${line.unit}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : data.outcome_pending === "page_decisions" ? (
+        <Alert variant="info">Décidez des pages déjà au devis ci-dessous : les lignes du devis s’affichent ensuite, et l’envoi se confirme sur elles.</Alert>
+      ) : data.outcome_pending === "blocked" ? (
+        <Alert variant="warning">Des lignes sont bloquées par les contrôles : seul un administrateur peut forcer leur envoi.</Alert>
+      ) : null}
+
       <section aria-labelledby="takeoff-send-lines" className="space-y-2">
         <h3 id="takeoff-send-lines" className="text-sm font-semibold text-foreground">
-          {`Lignes envoyées (${data.lines.length})`}
+          {`Mesures envoyées (${data.lines.length})`}
         </h3>
         {added.length > 0 ? (
           <p className="text-sm text-muted-foreground">

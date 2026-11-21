@@ -161,3 +161,24 @@ describe("readTakeoffJobPageReading — the pages the application brings again (
     expect(read.pages).toMatchObject([{ page: 1, item_ids: [item(1)], earlier: [{ job_id: J3 }] }]);
   });
 });
+
+// Lot 2 M2, fix round 1, point 5: after A then B fed one line, a third takeoff that reads B's page again finds B's page
+// in the estimate: the line names B's takeoff line in `takeoff_contributions`, which the reader projects like the other
+// provenance keys. Written before the fix: red on 986aea27 (the projection left the key out, B's page was not found).
+describe("getTakeoffJobPageContributions — a line fed by several sends", () => {
+  it("finds the page of the second send of an accumulated line", async () => {
+    const V3 = "30000000-0000-4000-8000-000000000005";
+    const [JA, JB, JC] = ["40000000-0000-4000-8000-000000000005", "40000000-0000-4000-8000-000000000006",
+      "40000000-0000-4000-8000-000000000007"];
+    db.tables.estimate_versions.push({ id: V3, tenant_id: TENANT, project_id: PROJECT, version_number: 3 });
+    db.tables.takeoff_jobs.push(job(JA, V3, AT), job(JB, V3, "2026-11-04T08:00:00.000Z"), job(JC, V3, "2026-11-05T08:00:00.000Z"));
+    db.tables.takeoff_items.push({ ...takeoffLine(7, JA), source_file_name: "plan-a.pdf" }, { ...takeoffLine(8, JB), source_file_name: "plan-b.pdf" },
+      { ...takeoffLine(9, JC), source_file_name: "plan-b.pdf" });
+    db.tables.estimate_items.push({ ...estimateLine(7, V3, JB, item(7)), contribution_item_ids: [item(7), item(8)], contribution_job_id: JB });
+
+    const read = await getTakeoffJobPageContributions(JC, V3);
+
+    expect(read.pages).toMatchObject([{ file_name: "plan-b.pdf", page: 1, item_ids: [item(9)],
+      earlier: [{ job_id: JB, takeoff_item_ids: [item(8)] }] }]);
+  });
+});

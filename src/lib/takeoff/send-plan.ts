@@ -1,5 +1,6 @@
 import { estimateLineTakeoffItemIds } from "@/lib/takeoff/page-contributions";
 import { lengthFactor, unitKey } from "@/lib/takeoff/page-replacement";
+import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import type { TakeoffSendDestination, TakeoffSendBlocker } from "@/lib/takeoff/send-contracts";
 
 // Lot 2, M2: what « Envoyer au tableau de chiffrage » proposes for a takeoff of an affaire, computed from what the server
@@ -168,14 +169,14 @@ const record = (value: unknown) => (value && typeof value === "object" && !Array
 
 /**
  * Which lines of this takeoff add to an earlier takeoff line of the section instead of a new line: plan A sent 3
- * washbasins, plan B adds its 2 to that line (5). Only on an engine 3 draft, onto a line fed by takeoffs alone whose
- * quantity is still the sum of its takeoff lines (a quantity typed by hand is never changed by a send), of the same
- * title and unit, with neither a length rounded nor an hypothesis on either side, and only when the title and unit name
- * one line of the section (two homonyms stay two lines). `sourceQuantities` holds the quantity of each takeoff line the
- * section's lines name. The send command checks each of these facts again under the draft's lock.
+ * washbasins, plan B adds its 2 to that line (5). On both engines (engine 2 sums the takeoffs a line keeps, as its DPGF
+ * lines do), onto a line fed by takeoffs alone that names them and whose quantity is still their sum (a quantity typed by
+ * hand is never changed by a send), of the same title and unit (an engine 2 line keeps its unit in its description),
+ * with neither a length rounded nor an hypothesis on either side, and only when the title and unit name one line of the
+ * section (two homonyms stay two lines). `sourceQuantities` holds the quantity of each takeoff line the section's lines
+ * name. The send command checks each of these facts again under the draft's lock, and its dry run shows what it does.
  */
 export function proposeTakeoffSendAccumulations(input: {
-  engine: number | null;
   sent: readonly TakeoffSendLine[];
   sectionLines: readonly TakeoffSendSectionLine[];
   sourceQuantities: ReadonlyMap<string, number>;
@@ -183,10 +184,10 @@ export function proposeTakeoffSendAccumulations(input: {
   pageLineIds: ReadonlySet<string>;
 }): Map<string, TakeoffSendSectionLine> {
   const targets = new Map<string, TakeoffSendSectionLine>();
-  if (input.engine !== 3) return targets;
   const byKey = new Map<string, TakeoffSendSectionLine[]>();
   for (const line of input.sectionLines) {
-    const unit = line.unit_code ?? (line.pricing_status ? `status:${line.pricing_status}` : null);
+    const unit = line.unit_code ?? normalizeMeasurementUnit(line.description).unitCode
+      ?? (line.pricing_status ? `status:${line.pricing_status}` : null);
     if (!line.title?.trim() || unit === null) continue;
     const key = `${fineTitle(line.title)}\u0000${unit}`;
     byKey.set(key, [...(byKey.get(key) ?? []), line]);
@@ -207,4 +208,22 @@ export function proposeTakeoffSendAccumulations(input: {
     targets.set(sent.takeoff_item_id, line);
   }
   return targets;
+}
+
+/**
+ * What a confirmation does once its preview is computed again: a retry whose request committed meanwhile (a timeout,
+ * then « Réessayer ») gets that receipt whatever the preview says — a takeoff already sent, a destination gone, an
+ * error — never « rien n’a été écrit »; otherwise the preview's own answer stands.
+ */
+export async function previewOrReplay<T, R>(steps: { preview: () => Promise<T>; committed: () => Promise<boolean>;
+  replay: () => Promise<R>; settled: (preview: T) => boolean }): Promise<{ preview: T } | { replayed: R }> {
+  let preview: T;
+  try {
+    preview = await steps.preview();
+  } catch (error) {
+    if (await steps.committed()) return { replayed: await steps.replay() };
+    throw error;
+  }
+  if (!steps.settled(preview) && await steps.committed()) return { replayed: await steps.replay() };
+  return { preview };
 }

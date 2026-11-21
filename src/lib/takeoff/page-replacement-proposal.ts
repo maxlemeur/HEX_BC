@@ -44,7 +44,9 @@ export type EstimateLineRow = { id: string; title: string; unit_code: string | n
   quantity: number | string | null; updated_at: string; unit_price_ht_cents: number | null; parent_id: string | null; position: number;
   item_type: string; source_provider: string | null; source_job_id: string | null; source_file_name: string | null; source_page: number | null;
   takeoff_item_id: unknown; rounding_item_ids: unknown; rounding_job_id: unknown; policy_item_ids: unknown; policy_job_id: unknown;
-  replacement_item_ids: unknown; replacement_job_id: unknown; mapping_action: unknown };
+  replacement_item_ids: unknown; replacement_job_id: unknown; mapping_action: unknown;
+  /** Lot 2 M2: the takeoff lines of every send that fed the line (plan A then plan B). */
+  contribution_item_ids?: unknown; contribution_job_id?: unknown };
 export type JobRow = { id: string; created_at: string; level: string | null; source_file_name: string | null; sources: unknown };
 
 const sourcesSchema = z.array(z.object({ document_id: z.string(), document_name: z.string().nullish(), kind: z.string().nullish(), active: z.boolean().nullish(),
@@ -59,7 +61,8 @@ const provenanceOf = (line: EstimateLineRow): EstimateLineProvenance => ({
   source_metadata: { takeoff_item_id: line.takeoff_item_id,
     takeoff_length_rounding: { job_id: line.rounding_job_id, item_ids: line.rounding_item_ids },
     takeoff_quantity_policy: { job_id: line.policy_job_id, item_ids: line.policy_item_ids },
-    takeoff_page_replacement: { job_id: line.replacement_job_id, item_ids: line.replacement_item_ids } },
+    takeoff_page_replacement: { job_id: line.replacement_job_id, item_ids: line.replacement_item_ids },
+    takeoff_contributions: { job_id: line.contribution_job_id ?? null, item_ids: line.contribution_item_ids ?? null } },
 });
 
 /** The earlier takeoff lines the estimate's lines name (their sources), to read beside this takeoff's own. */

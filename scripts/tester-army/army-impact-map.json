@@ -811,6 +811,23 @@
       ]
     },
     {
+      "id": "affaire-send",
+      "note": "Envoi d'un métré d'affaire au tableau de chiffrage (lot 2, M2) : aperçu par essai à blanc, premier brouillon, plan A puis plan B sur les deux moteurs, page relue, copie et métrés reportés.",
+      "paths": [
+        "src/lib/takeoff/**",
+        "src/app/api/takeoff/**",
+        "src/components/takeoff/takeoff-send/**",
+        "scripts/tester-army/takeoff-*",
+        "e2e/fixtures/sample-plan.pdf",
+        "e2e/army/takeoff/zone-plans-fixture.ts",
+        "supabase/migrations/*_takeoff_send_receipts.sql"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/affaire-send-outcome.e2e.ts",
+        "e2e/army/takeoff/affaire-without-version.e2e.ts"
+      ]
+    },
+    {
       "id": "affaire-parcours-drawer",
       "paths": [
         "src/components/affaires/AffaireJourneyPanel*",

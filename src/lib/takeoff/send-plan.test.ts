@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultTakeoffSendSection,
   orderTakeoffSendSections,
+  previewOrReplay,
   proposeTakeoffSendAccumulations,
   resolveTakeoffSendDestinations,
   type TakeoffSendSectionLine,
@@ -78,7 +79,7 @@ describe("proposeTakeoffSendAccumulations — plan A then plan B feed one line",
     source_metadata: { takeoff_item_id: id(101) }, ...extra,
   });
   const sent = [{ takeoff_item_id: id(301), designation: "lavabo ", unit: "u", quantity: 2, accumulable: true }];
-  const base = { engine: 3, sent, sourceQuantities: new Map([[id(101), 3]]), pageLineIds: new Set<string>() };
+  const base = { sent, sourceQuantities: new Map([[id(101), 3]]), pageLineIds: new Set<string>() };
 
   it("adds B's two washbasins to A's line of three", () => {
     expect(proposeTakeoffSendAccumulations({ ...base, sectionLines: [earlier()] }).get(id(301))?.id).toBe(id(200));
@@ -92,11 +93,10 @@ describe("proposeTakeoffSendAccumulations — plan A then plan B feed one line",
     expect(proposeTakeoffSendAccumulations({ ...base, sectionLines: [earlier(), earlier({ id: id(201) })] }).size).toBe(0);
   });
 
-  it("adds nothing onto a hand-made line, a provision, a rounded length, nor on an engine 2 draft", () => {
+  it("adds nothing onto a hand-made line, a provision nor a rounded length", () => {
     expect(proposeTakeoffSendAccumulations({ ...base, sectionLines: [earlier({ source_provider: "manual" })] }).size).toBe(0);
     expect(proposeTakeoffSendAccumulations({ ...base,
       sectionLines: [earlier({ source_metadata: { takeoff_item_id: id(101), takeoff_provision: { version: 1 } } })] }).size).toBe(0);
-    expect(proposeTakeoffSendAccumulations({ ...base, engine: 2, sectionLines: [earlier()] }).size).toBe(0);
     expect(proposeTakeoffSendAccumulations({ ...base, sent: [{ ...sent[0], unit: "ml" }],
       sectionLines: [earlier({ unit_code: "ml" })] }).size).toBe(0);
   });
@@ -114,5 +114,46 @@ describe("proposeTakeoffSendAccumulations — plan A then plan B feed one line",
     expect(proposeTakeoffSendAccumulations({ ...base, sourceQuantities: quantities, sectionLines: [fed] }).get(id(301))?.id)
       .toBe(id(200));
     expect(proposeTakeoffSendAccumulations({ ...base, sourceQuantities: new Map([[id(101), 3]]), sectionLines: [fed] }).size).toBe(0);
+  });
+
+  // Fix round 1, point 10: engine 2 sums the takeoffs a line keeps, as its DPGF lines do. Was « nothing on an engine 2
+  // draft »: the acceptance case (3 then 2 washbasins to one section) gave two lines on the engine of that tenant's
+  // estimates. An engine 2 line keeps its unit in its description; the send names its takeoff lines on it.
+  it("adds B's two washbasins to A's line on engine 2, whose unit is in its description", () => {
+    const engine2 = earlier({ unit_code: null, description: "u", source_metadata: { takeoff_contributions: { version: 1, job_id: id(1),
+      item_ids: [id(101)] } } });
+    expect(proposeTakeoffSendAccumulations({ ...base, sectionLines: [engine2] }).get(id(301))?.id).toBe(id(200));
+  });
+
+  it("keeps apart an engine 2 line that names no takeoff line, as earlier applications left it: two lines, as the preview says", () => {
+    expect(proposeTakeoffSendAccumulations({ ...base, sectionLines: [earlier({ unit_code: null, description: "u", source_metadata: {} })] })
+      .size).toBe(0);
+  });
+});
+
+// Fix round 1, point 8: a retry (a timeout, then « Réessayer ») whose request committed while its preview was computed
+// gets the receipt, never « rien n'a été écrit ». Written before the fix: red on 986aea27 (the preview threw its 409 —
+// first draft no longer offered — before the committed request was looked for).
+describe("previewOrReplay — the retry of a committed request", () => {
+  const stale = Object.assign(new Error("Une version de devis a été créée ou modifiée depuis l’aperçu"), { status: 409 });
+
+  it("replays a request that committed while its preview refused the destination", async () => {
+    // Nothing was committed when the retry began (sendTakeoffJob looked first); the first attempt commits meanwhile.
+    const answer = await previewOrReplay({ preview: () => Promise.reject(stale), committed: async () => true,
+      replay: async () => "receipt", settled: () => true });
+    expect(answer).toEqual({ replayed: "receipt" });
+  });
+
+  it("replays a request that committed while its preview changed", async () => {
+    const answer = await previewOrReplay({ preview: async () => "another preview", committed: async () => true,
+      replay: async () => "receipt", settled: () => false });
+    expect(answer).toEqual({ replayed: "receipt" });
+  });
+
+  it("keeps the preview's refusal when nothing committed, and a preview that matches", async () => {
+    await expect(previewOrReplay({ preview: () => Promise.reject(stale), committed: async () => false,
+      replay: async () => "receipt", settled: () => true })).rejects.toBe(stale);
+    expect(await previewOrReplay({ preview: async () => "the same preview", committed: async () => true,
+      replay: async () => "receipt", settled: () => true })).toEqual({ preview: "the same preview" });
   });
 });

@@ -268,7 +268,9 @@ armyTest("TKAW02 the takeoff of an affaire without a version creates its first d
   preparation.destination = { kind: "analysis_only", estimate_version_id: null, reviewer: null, confirmed: true };
   preparation.processing = { level: "C", provider: "chatgpt" };
   const confirmedAt = new Date().toISOString();
-  const snapshot = createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedAt, confirmedBy: userId });
+  // A confirmation pins the member's ChatGPT selection; the admission script connects this profile on the worker host.
+  const snapshot = { ...createTakeoffPreparationSnapshot({ preparation, revision: 1, confirmedAt, confirmedBy: userId }),
+    execution_selection: { profileId: "army", model: "army", reasoningEffort: null, hostId: await ownedWorkerHostId() } };
   expect((await setup.from("takeoff_preparations").insert({ tenant_id: tenantId, project_id: projectId, revision: 1, draft: preparation,
     confirmed_snapshot: snapshot, confirmed_at: confirmedAt, confirmed_by: userId, updated_by: userId })).error).toBeNull();
   const launched = await startOwnedTakeoffAdmission(owner, ui.army.runPrefix, projectId, planSetId, randomUUID()).done;
@@ -297,6 +299,12 @@ armyTest("TKAW02 the takeoff of an affaire without a version creates its first d
   await expect(dialog.getByText("Section proposée : « Métré — Plans fictifs », créée à la confirmation.", { exact: true })).toBeVisible();
   await expect(dialog.getByText(/vérifiés pour ce nouveau devis, qui ne porte encore aucun autre métré/)).toBeVisible();
   await expect(dialog.getByRole("list", "Lignes envoyées", { exact: true })).toContainText("ARMY envoi vanne");
+  // What the estimator confirms is what the estimate will hold: the tube measured 12.5 m enters as 13 m (a length is
+  // rounded up once to the metre, by the send itself run and rolled back); the measures sent still read 12.5.
+  const written = dialog.getByRole("list", "Lignes du devis après l’envoi", { exact: true });
+  await expect(written.getByRole("listitem", "ARMY envoi tube", { exact: true })).toContainText(/13 ml?$/);
+  await expect(written.getByRole("listitem", "ARMY envoi vanne", { exact: true })).toContainText(/3 u$/);
+  await expect(dialog.getByRole("list", "Lignes envoyées", { exact: true })).toContainText("12,5 m");
   const previewScreenshot = await ui.app.screenshot("takeoff-affaire-send-preview");
   await dialog.getByRole("button", "Annuler", { exact: true }).click();
   await expect(dialog).toHaveCount(0);
@@ -321,9 +329,15 @@ armyTest("TKAW02 the takeoff of an affaire without a version creates its first d
   const revised = await apiRequest<{ data: { succeeded: number } }>(ui.browser, "PATCH", `/api/takeoff/jobs/${jobId}/items`, {
     items: [{ item_id: line.id, updated_at: line.updated_at, fields: { evidence: "Valve row, page 1 (repère revu)" } }] });
   expect(revised.status).toEqual(200);
+  // A refused confirmation writes nothing at all, not even the default categories and labour roles a first draft gets
+  // (they come with the send that commits).
+  const defaults = () => querySql(`select count(*) from public.estimate_categories where tenant_id = '${tenantId}';
+    select count(*) from public.labor_roles where tenant_id = '${tenantId}';`);
+  const defaultsBefore = await defaults();
   await dialog.getByRole("button", "Créer le brouillon et envoyer", { exact: true }).click();
   await expect(dialog.getByText(/depuis l’aperçu/).first()).toBeVisible({ timeout: 30_000 });
   expect(await state()).toEqual(["0", "0", "0"]);
+  expect(await defaults()).toEqual(defaultsBefore);
 
   // Confirmed on the new preview: V1 of the tenant's engine, its section, the two lines without price, the job sent.
   await expect(dialog.getByText("Créer le premier brouillon et y envoyer 2 lignes", { exact: true })).toBeVisible({ timeout: 30_000 });

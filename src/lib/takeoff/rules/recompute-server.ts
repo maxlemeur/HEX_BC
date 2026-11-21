@@ -141,17 +141,19 @@ async function recomputeTakeoffRules(input: TakeoffRuleRecomputeInput): Promise<
   if (estimateVersionId === undefined && stamp === null) return EMPTY_RECOMPUTATION;
   if (typeof stamp !== "string") failed("Impossible de lire l’état du métré pour les règles.", null);
 
-  const jobQuery = supabase.from("takeoff_jobs" as never)
-    .select(JOB_SELECT as never)
-    .eq("tenant_id" as never, tenantId as never);
-  const { data: jobData, error: jobError } = await (estimateVersionId === undefined
-    ? jobQuery.eq("id" as never, input.jobId as never).eq("project_id" as never, input.projectId as never)
-      .is("estimate_version_id" as never, null)
-    : jobQuery.eq("estimate_version_id" as never, estimateVersionId as never))
-    .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true });
-  if (jobError) failed("Impossible de lire les jobs de la version pour les règles.", jobError);
-  const evaluated = await evaluateRulesOfJobs({ supabase, tenantId, jobs: (jobData ?? []) as unknown as JobRow[],
-    surfaceVersionId: estimateVersionId ?? null });
+  let jobs: JobRow[];
+  let carried = new Set<string>();
+  if (estimateVersionId === undefined) {
+    const { data: jobData, error: jobError } = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
+      .eq("tenant_id" as never, tenantId as never).eq("id" as never, input.jobId as never)
+      .eq("project_id" as never, input.projectId as never).is("estimate_version_id" as never, null)
+      .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true });
+    if (jobError) failed("Impossible de lire les jobs de la version pour les règles.", jobError);
+    jobs = (jobData ?? []) as unknown as JobRow[];
+  } else {
+    ({ jobs, carried } = await readVersionPeerJobs(supabase, tenantId, estimateVersionId));
+  }
+  const evaluated = await evaluateRulesOfJobs({ supabase, tenantId, jobs, surfaceVersionId: estimateVersionId ?? null });
   if (!evaluated) return EMPTY_RECOMPUTATION;
   const { items, geometries, evaluation, status, lines } = evaluated;
 
@@ -160,7 +162,8 @@ async function recomputeTakeoffRules(input: TakeoffRuleRecomputeInput): Promise<
   const transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }> = [];
   let unbounded = 0;
   for (const { item, inputs } of items) {
-    if (inputs === null || status.get(item.job_id) !== "completed") continue;
+    // A takeoff carried over from the version this one copies is a partner, written by its own version only.
+    if (inputs === null || status.get(item.job_id) !== "completed" || carried.has(item.job_id)) continue;
     const stored = geometries.get(item.id);
     if (stored) {
       const transform = evaluation.transforms.get(stored.page) ?? null;
@@ -196,6 +199,35 @@ async function recomputeTakeoffRules(input: TakeoffRuleRecomputeInput): Promise<
 }
 
 const JOB_SELECT = "id, status, created_at, sources:preparation_snapshot->preparation->sources";
+
+/**
+ * The takeoffs a version's lines come from, completed or applied, oldest first: those attached to it and those a copy
+ * carried over to it (takeoff_version_links), still attached to the version they were applied to. `carried` names the
+ * latter: their lines are read as partners and never written from this version.
+ */
+async function readVersionPeerJobs(supabase: ServiceClient, tenantId: string, versionId: string) {
+  const attached = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
+    .eq("tenant_id" as never, tenantId as never).eq("estimate_version_id" as never, versionId as never)
+    .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true });
+  if (attached.error) failed("Impossible de lire les métrés du devis pour les règles.", attached.error);
+  const links = await supabase.from("takeoff_version_links" as never).select("takeoff_job_id" as never)
+    .eq("tenant_id" as never, tenantId as never).eq("target_version_id" as never, versionId as never);
+  if (links.error) failed("Impossible de lire les métrés reportés sur le devis.", links.error);
+  const own = (attached.data ?? []) as unknown as JobRow[];
+  const linkedIds = [...new Set(((links.data ?? []) as unknown as Array<{ takeoff_job_id: string }>).map((link) => link.takeoff_job_id))]
+    .filter((id) => !own.some((job) => job.id === id));
+  let linked: JobRow[] = [];
+  if (linkedIds.length > 0) {
+    const read = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
+      .eq("tenant_id" as never, tenantId as never).in("id" as never, linkedIds as never)
+      .in("status" as never, ["completed", "applied"] as never);
+    if (read.error) failed("Impossible de lire les métrés reportés sur le devis.", read.error);
+    linked = (read.data ?? []) as unknown as JobRow[];
+  }
+  const jobs = [...own, ...linked].sort((left, right) => (left.created_at < right.created_at ? -1 : left.created_at > right.created_at ? 1
+    : left.id < right.id ? -1 : 1));
+  return { jobs, carried: new Set(linked.map((job) => job.id)) };
+}
 
 /**
  * Reads the lines, vector pages and geometries of these jobs (and, for a version, its DPGF lines for the surface
@@ -365,9 +397,11 @@ export async function evaluateTakeoffRulesForDestination(input: {
   supabase?: ServiceClient;
 }): Promise<{
   jobStamp: string | null;
-  versionStamp: string | null;
+  /** The destination's takeoffs, attached or carried over (takeoff_send_peers_stamp), as the send checks them again. */
+  peersStamp: string | null;
   writes: RuleResultWrite[];
   transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }>;
+  /** The results of this takeoff's lines that carry rule inputs; empty when none does (nothing was evaluated). */
   results: Map<string, TakeoffRuleResult[]>;
 }> {
   const supabase = input.supabase ?? createServiceRoleClient();
@@ -376,14 +410,14 @@ export async function evaluateTakeoffRulesForDestination(input: {
   if (jobStampError || (jobStamp !== null && typeof jobStamp !== "string")) {
     failed("Impossible de lire l’état du métré pour les règles.", jobStampError);
   }
-  let versionStamp: string | null = null;
+  let peersStamp: string | null = null;
   if (input.destinationVersionId) {
-    const { data, error } = await supabase.rpc("takeoff_rule_version_stamp" as never,
-      { p_tenant_id: input.tenantId, p_estimate_version_id: input.destinationVersionId } as never);
+    const { data, error } = await supabase.rpc("takeoff_send_peers_stamp" as never,
+      { p_tenant_id: input.tenantId, p_version_id: input.destinationVersionId } as never);
     if (error || typeof data !== "string") failed("Impossible de lire l’état du devis pour les règles.", error);
-    versionStamp = data;
+    peersStamp = data;
   }
-  const empty = { jobStamp: jobStamp as string | null, versionStamp, writes: [], transforms: [], results: new Map() };
+  const empty = { jobStamp: jobStamp as string | null, peersStamp, writes: [], transforms: [], results: new Map() };
   if (jobStamp === null) return empty;
 
   const own = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
@@ -391,12 +425,10 @@ export async function evaluateTakeoffRulesForDestination(input: {
     .eq("project_id" as never, input.projectId as never).is("estimate_version_id" as never, null)
     .eq("status" as never, "completed" as never);
   if (own.error) failed("Impossible de lire le métré pour les règles.", own.error);
-  const peers = input.destinationVersionId ? await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
-    .eq("tenant_id" as never, input.tenantId as never).eq("estimate_version_id" as never, input.destinationVersionId as never)
-    .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true })
-    : { data: [], error: null };
-  if (peers.error) failed("Impossible de lire les métrés du devis pour les règles.", peers.error);
-  const jobs = [...((peers.data ?? []) as unknown as JobRow[]), ...((own.data ?? []) as unknown as JobRow[])];
+  // The destination's peers: the takeoffs its lines come from, attached to it or carried over by the copy it is (or will
+  // be, for a copy: those of the version it copies).
+  const peers = input.destinationVersionId ? (await readVersionPeerJobs(supabase, input.tenantId, input.destinationVersionId)).jobs : [];
+  const jobs = [...peers, ...((own.data ?? []) as unknown as JobRow[])];
   const evaluated = await evaluateRulesOfJobs({ supabase, tenantId: input.tenantId, jobs, surfaceVersionId: input.destinationVersionId });
   if (!evaluated) return empty;
   const { items, geometries, evaluation } = evaluated;
@@ -416,5 +448,5 @@ export async function evaluateTakeoffRulesForDestination(input: {
     results.set(item.id, payload.results);
     writes.push({ id: item.id, ...payload, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
   }
-  return { jobStamp: jobStamp as string, versionStamp, writes, transforms, results };
+  return { jobStamp: jobStamp as string, peersStamp, writes, transforms, results };
 }
