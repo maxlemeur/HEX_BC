@@ -913,7 +913,15 @@ function createSupabaseMock() {
 
       throw new Error(`Unexpected table: ${table}`);
     }),
-    rpc: vi.fn((fn: string, args: Record<string, unknown>) => fn === "read_estimate_version_items"
+    rpc: vi.fn((fn: string, args: Record<string, unknown>) => fn === "read_takeoff_risk_alerts"
+      // The alerts of one job and version: served by the estimate_risk_alerts reads above, under the function's arguments.
+      ? {
+        select: (columns?: string) => (supabase.from("estimate_risk_alerts") as unknown as {
+          select: (columns?: string) => ReturnType<typeof buildThenableSelectBuilder>;
+        }).select(columns).eq("tenant_id", args.p_tenant_id).eq("version_id", args.p_version_id)
+          .eq("takeoff_job_id", args.p_job_id),
+      }
+      : fn === "read_estimate_version_items"
       // The version's items: served by the estimate_items reads above, under the function's tenant and version.
       ? {
         select: (columns?: string) => {
