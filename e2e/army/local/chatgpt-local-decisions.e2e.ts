@@ -1531,11 +1531,17 @@ if (!existsSync(liveProbePath)) test("AUTO06 the affaire's zone: a reader sees w
     const prefix = `ARMY-auto-zone-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
-    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Zone du métré" }, army);
+    // An affaire without any version, created under the owner's own session: nothing of its takeoff may create one.
+    const membership = await owner.client.from("tenant_memberships").select("tenant_id").eq("user_id", owner.userId).single();
+    expect(membership.error).toBeNull();
+    const created = await owner.client.from("estimate_projects")
+      .insert({ tenant_id: membership.data!.tenant_id, user_id: owner.userId, name: prefix }).select("id").single();
+    expect(created.error).toBeNull();
+    const ids = { projectId: created.data!.id as string };
+    expect(await readOwnedVersionCount(ids.projectId)).toBe(0);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
     const readsBefore = await planReads();
-    const versionsBefore = await readOwnedVersionCount(ids.projectId);
     // A director confirms: the start waits for an operator (AUTO02).
     await signInAs({ app, screen, browser }, director.email);
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
@@ -1567,6 +1573,7 @@ if (!existsSync(liveProbePath)) test("AUTO06 the affaire's zone: a reader sees w
       { timeout: 180_000 }).toEqual([["closed", "success", owner.userId]]);
     const [automatic] = await readOwnedAffaireJobs(ids.projectId);
     expect(automatic).toMatchObject({ estimate_version_id: null, created_by: owner.userId, status: "completed" });
+    expect(await readOwnedVersionCount(ids.projectId)).toBe(0);
     await ui.browser.reload();
     await waitForHydration(browser);
     await expect(zone.getByText("Terminé", { exact: true })).toBeVisible(DEV_SERVER_WORK);
@@ -1586,7 +1593,7 @@ if (!existsSync(liveProbePath)) test("AUTO06 the affaire's zone: a reader sees w
     const jobs = await readOwnedAffaireJobs(ids.projectId);
     expect(jobs).toEqual([expect.objectContaining({ id: automatic!.id }),
       expect.objectContaining({ estimate_version_id: null, created_by: owner.userId, launch_unit_key: "grouped", status: "completed" })]);
-    expect(await readOwnedVersionCount(ids.projectId)).toBe(versionsBefore);
+    expect(await readOwnedVersionCount(ids.projectId)).toBe(0);
     expect(await planReads() - readsBefore).toBe(2);
 
     // A former launch link of the takeoff page opens the zone's options and launches nothing.
@@ -1597,9 +1604,10 @@ if (!existsSync(liveProbePath)) test("AUTO06 the affaire's zone: a reader sees w
       .toBe(`/dashboard/affaires/${ids.projectId}?view=overview&metreOptions=1&launchPlanSet=${planSet!.id}#metre`);
     expect(await readOwnedLaunchRequests(ids.projectId)).toHaveLength(2);
     expect(await readOwnedAffaireJobs(ids.projectId)).toHaveLength(2);
+    expect(await readOwnedVersionCount(ids.projectId)).toBe(0);
     expect(await forbiddenRequests()).toBe(0);
     await recordEvidence(army, "AUTO06-affaire-zone", { ids, requests: await readOwnedLaunchRequests(ids.projectId), jobs,
-      versionsBefore, versionsAfter: versionsBefore, planReads: 2,
+      versions: 0, planReads: 2,
       boundary: "Fictional dossier, two owned members, ChatGPT transport fixture on an owned local backend." });
   } finally {
     await browser.setViewport({ width: 1440, height: 900 });
