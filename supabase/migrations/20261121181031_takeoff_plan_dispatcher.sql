@@ -9,12 +9,22 @@
 -- claim, its admissions of format 1, its usage records and its checks before each paid call answer as before (the
 -- functions it calls keep their signatures; their new branches only concern format 2 requests, which it never makes,
 -- and reservations, which it never writes); its inserts of jobs and its claims are counted by the admission limits as
--- before (one request of format 1 has one job). Drain the takeoff worker while this is applied: the last section takes a
--- short lock on takeoff_jobs to add its triggers.
+-- before (one request of format 1 has one job). This application does not reserve a call before the activation either.
+-- Drain the authorised Mac's takeoff worker and its evaluation loop, and pause the hosted recovery, while this is
+-- applied. The send of a per-plan analysis stays closed until the partial send (TAKEOFF_SEND_JOB_NOT_READY): activating
+-- before it closes the send of every new analysis, a dossier of one plan included.
 begin;
 
 -- Every statement takes a short lock: give up instead of queueing the job writers.
 set local lock_timeout = '5s';
+-- The tables this migration alters or adds triggers to, locked first and in the order of the paid path's writers (the
+-- job, then its request, then its ledger): a worker that ends a job, reserves or settles a call meanwhile waits for this
+-- migration, never in a cycle with it (a job's end writes the job before anything else of these tables). A transaction
+-- that reads a request before it writes a job (an admission, a member's stop, a dispatch) may still meet it in a cycle:
+-- it is rolled back whole, with no call made, and retried; a paid reading's end never is.
+lock table public.takeoff_jobs in share row exclusive mode;
+lock table public.takeoff_launch_requests in access exclusive mode;
+lock table private.takeoff_launch_usage in access exclusive mode;
 
 -- 1. The activation of one analysis per plan. Empty until the owner sets it.
 create table private.takeoff_plan_dispatch_activation (
@@ -116,6 +126,18 @@ begin
 end;
 $$;
 revoke all on function private.takeoff_launch_unit_snapshot(public.takeoff_launch_requests, text) from public, anon, authenticated, service_role;
+
+-- The job of a request's first unit, by its place in the recorded order (a unit's key is a plan copy's identifier, whose
+-- order is not the members'): what an admission, a replay or a command meanwhile answers.
+create function private.takeoff_launch_first_job(p_request_id uuid)
+returns uuid language sql stable security definer set search_path = '' as $$
+  select j.id from public.takeoff_jobs j
+  join public.takeoff_launch_requests r on r.id = j.launch_request_id
+  where j.launch_request_id = p_request_id
+  order by (private.takeoff_launch_unit(r.manifest, j.launch_unit_key) ->> 'ordinal')::integer nulls first, j.id
+  limit 1
+$$;
+revoke all on function private.takeoff_launch_first_job(uuid) from public, anon, authenticated, service_role;
 
 -- The seal of either format: format 1 exactly as M4 checked it; format 2 only once the owner activated it, with one
 -- unit per plan of the snapshot, in the recorded order, each with its share of the request's envelope (rounded up by
@@ -300,8 +322,7 @@ begin
     raise exception 'TAKEOFF_LAUNCH_REQUEST_NOT_FOUND' using errcode = 'P0002';
   end if;
   if request.state in ('admitted', 'closed') then
-    return query select 'replayed'::text, (select j.id from public.takeoff_jobs j where j.launch_request_id = request.id
-      order by j.launch_unit_key limit 1), null::text;
+    return query select 'replayed'::text, private.takeoff_launch_first_job(request.id), null::text;
     return;
   end if;
   -- The token alone: a lease that expired was claimed again under another token by then, or is still this evaluation's.
@@ -432,7 +453,7 @@ begin
   -- (it runs, the command is refused) or waits for this command, which then sets it aside.
   perform 1 from public.takeoff_launch_requests r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic' for update;
-  select r.id, (select j.id from public.takeoff_jobs j where j.launch_request_id = r.id order by j.launch_unit_key limit 1) as job
+  select r.id, private.takeoff_launch_first_job(r.id) as job
   into running from public.takeoff_launch_requests r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted';
   if found then
@@ -471,7 +492,7 @@ begin
     -- receipt records that one.
     get stacked diagnostics violated = constraint_name;
     if violated is distinct from 'takeoff_launch_requests_running_uidx' then raise; end if;
-    select r.id, (select j.id from public.takeoff_jobs j where j.launch_request_id = r.id order by j.launch_unit_key limit 1) as job
+    select r.id, private.takeoff_launch_first_job(r.id) as job
     into running from public.takeoff_launch_requests r
     where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted';
     insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
@@ -712,6 +733,36 @@ begin
 end;
 $$;
 
+-- Whether a claim of this job would pass the admission limits now, counted exactly as the two triggers above count them
+-- (a request of plans is one analysis: its first unit's first claim, the other units' first claims joining it; every
+-- retry counts), on the database clock. The Mac's dispatcher and the hosted recovery ask it, so that a unit the triggers
+-- would admit never waits for a turn M3's count of jobs (private.local_takeoff_claim_admissible) would never give it.
+create function private.takeoff_job_claim_admissible(p_job_id uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  with job as (
+    select j.id, j.tenant_id, j.created_by, j.status = 'failed' as from_failed,
+      j.launch_request_id is not null and j.status = 'pending' and j.retry_count = 0 and exists (
+        select 1 from public.takeoff_processing_admissions a join public.takeoff_jobs other on other.id = a.job_id
+        where other.launch_request_id = j.launch_request_id and other.id <> j.id and a.attempt_number = 0) as joins
+    from public.takeoff_jobs j where j.id = p_job_id
+  )
+  select
+    -- A failed job that becomes active again counts itself among the active analyses.
+    (not job.from_failed or (
+      select pg_catalog.count(distinct coalesce(j.launch_request_id, j.id)) <= 15
+        and pg_catalog.count(distinct coalesce(j.launch_request_id, j.id)) filter (where j.created_by = job.created_by) <= 6
+      from public.takeoff_jobs j
+      where j.tenant_id = job.tenant_id and (j.status in ('pending', 'processing') or j.id = job.id)))
+    and (job.joins or (
+      select pg_catalog.count(distinct k.key) < 80 and pg_catalog.count(distinct k.key) filter (where k.created_by = job.created_by) < 20
+      from (select a.created_by, case when j.launch_request_id is not null and a.attempt_number = 0
+          then 'request:' || j.launch_request_id::text else 'attempt:' || a.job_id::text || ':' || a.attempt_number::text end as key
+        from public.takeoff_processing_admissions a left join public.takeoff_jobs j on j.id = a.job_id
+        where a.tenant_id = job.tenant_id and a.admitted_at > pg_catalog.clock_timestamp() - interval '24 hours') k))
+  from job
+$$;
+revoke all on function private.takeoff_job_claim_admissible(uuid) from public, anon, authenticated, service_role;
+
 -- 7. The slot of each authorised Mac: the one job its dispatcher reads now, held by that job's processing lease token
 -- (its holder), with a generation that grows at each acquisition. It is taken with the job's claim, under the Mac's
 -- lock and in the same transaction, renewed with the job's lease and given back by the job's end with the same token
@@ -744,6 +795,22 @@ returns boolean language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_host_slot_busy(text, uuid) from public, anon, authenticated, service_role;
 
+-- Whether the Mac reads another job now: the holder of its slot, or a job of the Mac still processing under a live lease
+-- that never took the slot (claimed before the activation). A claim or a dispatch waits for either.
+create function private.takeoff_host_busy(p_host_id text, p_job_id uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select private.takeoff_host_slot_busy(p_host_id, p_job_id) or exists (
+    select 1 from public.takeoff_jobs j
+    where j.execution_provider = 'chatgpt_local' and j.execution_host_id = p_host_id and j.id is distinct from p_job_id
+      and j.status = 'processing' and j.processing_lease_expires_at > pg_catalog.clock_timestamp())
+$$;
+revoke all on function private.takeoff_host_busy(text, uuid) from public, anon, authenticated, service_role;
+
+-- The live jobs of each Mac: its dispatcher's queue and next retry, and whether it reads a job now, without a scan of
+-- every job at each pass.
+create index takeoff_jobs_local_host_live_idx on public.takeoff_jobs (execution_host_id, status, next_retry_at)
+  where execution_provider = 'chatgpt_local' and analysis_outcome is null and status in ('pending', 'processing', 'failed');
+
 -- The application's claim (M3, 20261121020321), which from activation on takes the Mac's slot with the job, in one
 -- transaction under the Mac's lock: a second process, tab or gesture of the same Mac cannot start a second plan.
 create or replace function public.claim_observed_local_takeoff_job(
@@ -767,7 +834,7 @@ begin
   for update;
   if not found then return; end if;
   -- Another plan is read on this Mac now: this one waits for its turn.
-  if slotted and private.takeoff_host_slot_busy(p_host_id, p_job_id) then return; end if;
+  if slotted and private.takeoff_host_busy(p_host_id, p_job_id) then return; end if;
   -- Planned per call: a session keeps working after a column joins the job row.
   return query execute 'select * from public.claim_local_takeoff_job($1, $2, $3, $4, $5, $6, $7, $8)'
     using p_job_id, p_tenant_id, p_host_id, p_started_at, p_lease_token, p_lease_expires_at, p_model, p_prompt_version;
@@ -914,6 +981,15 @@ begin
   end if;
   -- The job's row, then the request's: the order of every writer of both.
   select * into request from public.takeoff_launch_requests r where r.id = job.launch_request_id for update;
+  -- Before the owner's activation of one analysis per plan, a call of a grouped analysis is checked as M4 checked it (its
+  -- request's balance) and reserves nothing: its usage is recorded once answered, as before; nothing new is written.
+  if not private.takeoff_plan_dispatch_active() and request.manifest -> 'format_version' is distinct from '2'::jsonb then
+    select * into balance from private.takeoff_launch_job_balance(job, request);
+    return query select case when balance.tokens_left > 0 and balance.cost_left > 0 then 'unreserved' else 'refused' end,
+      case when balance.tokens_left > 0 and balance.cost_left > 0 then null else 'BUDGET_EXHAUSTED' end,
+      null::bigint, balance.tokens_left, balance.cost_left;
+    return;
+  end if;
   select * into existing from private.takeoff_launch_usage l
   where l.job_id = job.id and l.lease_token = p_lease_token and l.call_key = p_call_key;
   select * into balance from private.takeoff_launch_job_balance(job, request);
@@ -1003,6 +1079,90 @@ end;
 $$;
 revoke all on function public.record_takeoff_launch_call_unknown(uuid, uuid, text) from public, anon, authenticated;
 grant execute on function public.record_takeoff_launch_call_unknown(uuid, uuid, text) to service_role;
+
+-- The worker's end of an attempt on a failure (M3, 20261121011212_takeoff_analysis_completion.sql), same signature: its
+-- retry decision is the worker's, except after a call of unknown outcome.
+create or replace function public.record_local_takeoff_failure(
+  p_job_id uuid, p_tenant_id uuid, p_lease_token uuid, p_failure jsonb,
+  p_diagnostic jsonb default null, p_run_metrics jsonb default null
+)
+returns jsonb language plpgsql security definer set search_path = pg_catalog as $$
+declare
+  failure public.takeoff_jobs := jsonb_populate_record(null::public.takeoff_jobs, p_failure);
+  diagnostic public.takeoff_results;
+  diagnostic_id uuid;
+  caller_lock_timeout text := current_setting('lock_timeout');
+begin
+  perform 1 from public.takeoff_jobs j
+  where j.id = p_job_id and j.tenant_id = p_tenant_id and j.status = 'processing'
+    and j.execution_provider = 'chatgpt_local' and j.processing_lease_token = p_lease_token
+  for update;
+  if not found then return null; end if;
+
+  if not exists (select 1 from public.takeoff_jobs j where j.id = p_job_id
+      and j.processing_lease_expires_at > clock_timestamp()) then
+    return null;
+  end if;
+
+  -- The diagnostic stays best effort, as it was: if it cannot be stored, the
+  -- previous rows stay whole and the failure is still recorded. It never waits
+  -- on a held row (lock_not_available) and a statement timeout inside it is
+  -- trapped, so the retry-or-terminal decision below does not depend on it.
+  perform set_config('lock_timeout', '2s', true);
+  if p_diagnostic is not null then
+    begin
+      diagnostic := jsonb_populate_record(null::public.takeoff_results, p_diagnostic);
+      delete from public.takeoff_run_metrics where job_id = p_job_id and tenant_id = p_tenant_id;
+      delete from public.takeoff_items where job_id = p_job_id and tenant_id = p_tenant_id;
+      delete from public.takeoff_results where job_id = p_job_id and tenant_id = p_tenant_id;
+      insert into public.takeoff_results (tenant_id, job_id, extracted_json, warnings, tables, provider_meta, raw_response,
+        token_count, cost_cents, duration_ms)
+      values (p_tenant_id, p_job_id, diagnostic.extracted_json, diagnostic.warnings, diagnostic.tables, diagnostic.provider_meta,
+        diagnostic.raw_response, diagnostic.token_count, diagnostic.cost_cents, diagnostic.duration_ms)
+      returning id into diagnostic_id;
+    exception when others or query_canceled then
+      diagnostic_id := null;
+      raise log 'takeoff.failure.diagnostic_persistence_failed job=% code=%', p_job_id, sqlstate;
+    end;
+  end if;
+
+  if jsonb_typeof(p_run_metrics) = 'array' and jsonb_array_length(p_run_metrics) > 0 then
+    begin
+      insert into public.takeoff_run_metrics (
+        tenant_id, job_id, result_id, level, provider, model, chunk_index, chunk_start_page, chunk_end_page,
+        input_tokens, reasoning_tokens, output_tokens, total_tokens, cost_cents, duration_ms, timed_out,
+        budget_exceeded, metadata
+      )
+      select p_tenant_id, p_job_id, diagnostic_id, m.level, m.provider, m.model, m.chunk_index,
+        m.chunk_start_page, m.chunk_end_page, m.input_tokens, m.reasoning_tokens, m.output_tokens,
+        m.total_tokens, m.cost_cents, m.duration_ms, m.timed_out, m.budget_exceeded, m.metadata
+      from jsonb_populate_recordset(null::public.takeoff_run_metrics, p_run_metrics) m;
+    exception when others or query_canceled then
+      raise log 'takeoff.failure.metrics_persistence_failed job=% code=%', p_job_id, sqlstate;
+    end;
+  end if;
+  perform set_config('lock_timeout', caller_lock_timeout, true);
+
+  -- An attempt that holds a paid call of unknown outcome (still reserved when it ends, or ended without its usage) is
+  -- never retried on its own: the retry would send that call again. Its unit ends with that reason; a member may relaunch
+  -- it. Only a call reserved from the activation of one analysis per plan on can be held. Read in the update itself, after
+  -- its lock on the job: the job first, then the ledger, as every writer of both.
+  update public.takeoff_jobs j set
+    status = 'failed', completed_at = failure.completed_at, duration_ms = failure.duration_ms,
+    error_code = case when held.unknown then 'TAKEOFF_USAGE_UNRECORDED' else failure.error_code end,
+    error_message = case when held.unknown
+      then 'Un appel de cette analyse s’est terminé sans consommation connue : elle s’arrête sans le renvoyer. Relancez-la depuis les options du métré.'
+      else failure.error_message end,
+    analysis_outcome = case when held.unknown then 'failure' else failure.analysis_outcome end,
+    last_error_at = failure.last_error_at,
+    next_retry_at = case when held.unknown then null else failure.next_retry_at end,
+    processing_lease_token = null, processing_lease_expires_at = null
+  from (select failure.next_retry_at is not null and exists (select 1 from private.takeoff_launch_usage l
+      where l.job_id = p_job_id and l.lease_token = p_lease_token and l.state in ('reserved', 'unknown')) as unknown) held
+  where j.id = p_job_id and j.tenant_id = p_tenant_id;
+  return jsonb_build_object('diagnostic_id', diagnostic_id);
+end;
+$$;
 
 -- 9. The end of a request, recomputed from its units' jobs at each unit's end (M4 counted increments): the same answer
 -- for a settlement, a replay or a reconciliation, never two notices (the request's completion event is set once).
@@ -1340,7 +1500,7 @@ begin
   select min(j.next_retry_at) into due from public.takeoff_jobs j
   where j.execution_provider = 'chatgpt_local' and j.execution_host_id = p_host_id and j.analysis_outcome is null
     and j.status = 'failed' and j.retry_count < 3 and j.next_retry_at > pg_catalog.clock_timestamp();
-  if private.takeoff_host_slot_busy(p_host_id, null) then
+  if private.takeoff_host_busy(p_host_id, null) then
     return query select null::uuid, null::text, due, closed;
     return;
   end if;
@@ -1374,7 +1534,7 @@ begin
         continue;
       end if;
     end if;
-    if not private.local_takeoff_claim_admissible(candidate.tenant_id, candidate.created_by, candidate.status = 'failed') then
+    if not private.takeoff_job_claim_admissible(candidate.id) then
       continue;
     end if;
     return query select candidate.id, case when candidate.status = 'failed' then 'retry' else 'create' end, due, closed;
@@ -1385,6 +1545,193 @@ end;
 $$;
 revoke all on function public.dispatch_next_takeoff_host_job(text, boolean) from public, anon, authenticated;
 grant execute on function public.dispatch_next_takeoff_host_job(text, boolean) to service_role;
+
+-- The hosted recovery (M3, 20261121020321_takeoff_completion_before_activation.sql), same signature, with two changes from
+-- the activation of the notices on: a job waits for its turn by the rule its claim's triggers apply (a request of plans is
+-- one analysis), and the jobs it may close are locked in identifier order first. Before that activation it answers as
+-- before.
+create or replace function public.recover_stale_local_takeoff_jobs(
+  p_now timestamptz,
+  p_stale_after interval default interval '10 minutes'
+)
+returns table (job_id uuid, error_code text)
+language plpgsql security definer
+set search_path = pg_catalog
+as $$
+declare
+  activation private.takeoff_completion_activation;
+  recovery_at timestamptz := least(p_now, clock_timestamp());
+  live_window constant interval := private.takeoff_local_host_live_window();
+  waiting_host text;
+  waiting_tenant uuid;
+  decided_hosts text[] := '{}';
+  admitting_tenants uuid[] := '{}';
+begin
+  if p_now is null or p_stale_after < interval '1 minute' then
+    raise exception 'TAKEOFF_RECOVERY_ARGUMENT_INVALID' using errcode = '22023';
+  end if;
+  select * into activation from private.takeoff_completion_activation;
+  if activation.active_from is null or clock_timestamp() < activation.active_from then
+    -- The statement of the function before M3, unchanged.
+    return query
+    with recovered as (
+      update public.takeoff_jobs as job_row
+      set status = 'failed', completed_at = p_now, next_retry_at = null,
+        last_error_at = p_now, error_code = 'TAKEOFF_WORKER_OUTCOME_UNKNOWN',
+        error_message = 'Le worker a expire pendant un appel dont le resultat fournisseur est inconnu. Une reprise manuelle est requise.',
+        processing_lease_token = null, processing_lease_expires_at = null,
+        provider_reconcile_due_at = null, provider_reconcile_lease_token = null,
+        provider_reconcile_lease_expires_at = null
+      where job_row.execution_provider = 'chatgpt_local'
+        and job_row.status = 'processing' and job_row.provider_batch_id is null
+        and (job_row.processing_lease_expires_at <= p_now or
+          (job_row.processing_lease_expires_at is null and coalesce(job_row.started_at, job_row.updated_at) <= p_now - p_stale_after))
+      returning job_row.id, job_row.error_code
+    ) select recovered.id, recovered.error_code from recovered;
+    return;
+  end if;
+  if p_stale_after is null then
+    raise exception 'TAKEOFF_RECOVERY_ARGUMENT_INVALID' using errcode = '22023';
+  end if;
+
+  -- Decide for each Mac while none of its claims is in flight: this application's claim takes the same lock, so a
+  -- claim committed before the decision is read below and one that starts after it waits for this transaction. Only
+  -- the Macs locked here are decided for in this run.
+  for waiting_host in
+    select distinct j.execution_host_id from public.takeoff_jobs j
+    where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
+      and j.status in ('pending', 'failed')
+    order by 1
+  loop
+    perform pg_advisory_xact_lock(private.takeoff_local_host_lock_key(waiting_host));
+    decided_hosts := decided_hosts || waiting_host;
+  end loop;
+  -- Judge a tenant's admission limits only under its admission lock, as a claim does (the key of
+  -- 20261022075204_bound_takeoff_job_admission.sql). A tenant whose admission is in flight is waiting its turn; the
+  -- lock is only tried, so the recovery never waits behind an admission.
+  for waiting_tenant in
+    select distinct j.tenant_id from public.takeoff_jobs j
+    where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
+      and j.status in ('pending', 'failed') and j.execution_host_id = any (decided_hosts)
+    order by 1
+  loop
+    if not pg_try_advisory_xact_lock(hashtextextended('takeoff-admission:' || waiting_tenant::text, 0)) then
+      admitting_tenants := admitting_tenants || waiting_tenant;
+    end if;
+  end loop;
+
+  -- The jobs this run may close, locked in identifier order before any of them is written: a member's stop locks a
+  -- request's jobs in that order, then the request, so neither waits for the other in a cycle.
+  perform 1 from public.takeoff_jobs j
+  where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
+    and ((j.status = 'processing' and (j.processing_lease_expires_at <= recovery_at
+        or (j.processing_lease_expires_at is null and coalesce(j.started_at, j.updated_at) <= recovery_at - p_stale_after)))
+      or (j.execution_host_id = any (decided_hosts)
+        and (j.status = 'pending' or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= recovery_at))))
+  order by j.id
+  for update;
+
+  -- A processing job whose lease expired is closed as before. A job that waits for its Mac (pending, or a due
+  -- retry) is never closed for its age alone: only when its live Mac could take it and, idle with nothing claimed,
+  -- renewed or ended for the pickup grace, leaves it untaken, or when it has waited longer than the ceiling.
+  -- Liveness, live period and work are database time; so is the queue time of a pending job.
+  return query
+  with waiting as (
+    select j.id, j.tenant_id, j.created_by, j.execution_host_id as host_id, j.status, j.retry_count, j.next_retry_at,
+      coalesce(j.analysis_queued_at, j.created_at) as queued_at,
+      greatest(activation.active_from,
+        case when j.status = 'pending' then coalesce(j.analysis_queued_at, j.created_at) else j.next_retry_at end
+      ) as waiting_since,
+      t.is_active as tenant_active
+    from public.takeoff_jobs j
+    join public.tenants t on t.id = j.tenant_id
+    where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
+      and j.execution_host_id = any (decided_hosts)
+      and (j.status = 'pending'
+        or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= recovery_at))
+  ),
+  host_work as (
+    select w.host_id, max(w.worked_at) as worked_at
+    from private.takeoff_local_job_work w
+    where w.host_id in (select waiting.host_id from waiting)
+    group by w.host_id
+  ),
+  host_busy as (
+    select k.execution_host_id as host_id, true as busy
+    from public.takeoff_jobs k
+    where k.execution_provider = 'chatgpt_local' and k.execution_host_id in (select w.host_id from waiting w)
+      and k.status = 'processing' and k.processing_lease_expires_at > recovery_at
+    group by k.execution_host_id
+  ),
+  judged as (
+    select w.*,
+      coalesce(a.seen_at >= recovery_at - live_window and a.seen_at >= clock_timestamp() - live_window, false) as live,
+      a.live_since,
+      -- What is ahead of it: a job under lease, recent work of the Mac, an admission of the tenant in flight, or the
+      -- tenant's limits refusing its claim.
+      coalesce(hb.busy, false) or coalesce(hw.worked_at > recovery_at - activation.pickup_grace, false)
+        or w.tenant_id = any (admitting_tenants)
+        or not private.takeoff_job_claim_admissible(w.id) as waiting_turn
+    from waiting w
+    left join private.takeoff_local_host_activity a on a.host_id = w.host_id
+    left join host_busy hb on hb.host_id = w.host_id
+    left join host_work hw on hw.host_id = w.host_id
+  ),
+  closing as (
+    select j.id, j.status, j.retry_count, j.next_retry_at, null::timestamptz as queued_at,
+      'TAKEOFF_WORKER_OUTCOME_UNKNOWN'::text as code,
+      'Le traitement a été interrompu. Son résultat est inconnu et nécessite une vérification manuelle.'::text as message
+    from public.takeoff_jobs j
+    where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
+      and j.status = 'processing' and (j.processing_lease_expires_at <= recovery_at or
+        (j.processing_lease_expires_at is null and coalesce(j.started_at, j.updated_at) <= recovery_at - p_stale_after))
+    union all
+    select g.id, g.status, g.retry_count, g.next_retry_at, g.queued_at,
+      case
+        when g.waiting_since > recovery_at - activation.wait_ceiling then 'TAKEOFF_WORKER_NOT_STARTED'
+        when not g.live then 'TAKEOFF_WORKER_HOST_SILENT'
+        when g.waiting_turn then 'TAKEOFF_WORKER_QUEUE_EXPIRED'
+        else 'TAKEOFF_WORKER_NOT_STARTED'
+      end,
+      case
+        when g.waiting_since > recovery_at - activation.wait_ceiling then
+          'L’analyse n’a pas démarré : le poste autorisé était disponible mais ne l’a pas prise en charge. Vérifiez le poste autorisé avant de préparer une nouvelle analyse.'
+        when not g.live then
+          'L’analyse n’a pas démarré : le poste autorisé ne s’est pas manifesté avant la fin du délai d’attente maximal. Vérifiez qu’il est allumé, connecté et que l’application y est ouverte avant de préparer une nouvelle analyse.'
+        when g.waiting_turn then
+          'L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré. Elle n’a pas démarré : préparez une nouvelle analyse.'
+        else
+          'L’analyse n’a pas démarré : le poste autorisé ne l’a pas prise en charge pendant le délai d’attente maximal. Vérifiez le poste autorisé avant de préparer une nouvelle analyse.'
+      end
+    from judged g
+    where g.waiting_since <= recovery_at - activation.wait_ceiling
+      or (g.tenant_active and g.live and not g.waiting_turn
+        and g.live_since <= recovery_at - activation.pickup_grace
+        and g.waiting_since <= recovery_at - activation.pickup_grace)
+  )
+  update public.takeoff_jobs as job_row
+  set status = 'failed', completed_at = recovery_at, next_retry_at = null,
+    last_error_at = recovery_at, error_code = closing.code, error_message = closing.message,
+    analysis_outcome = 'failure',
+    processing_lease_token = null, processing_lease_expires_at = null,
+    provider_reconcile_due_at = null, provider_reconcile_lease_token = null,
+    provider_reconcile_lease_expires_at = null
+  from closing
+  -- Rechecked on the locked row: a claim, a renewal or a relaunch that commits first keeps the job.
+  where job_row.id = closing.id
+    and job_row.execution_provider = 'chatgpt_local' and job_row.provider_batch_id is null
+    and job_row.analysis_outcome is null and job_row.status = closing.status
+    and job_row.retry_count = closing.retry_count
+    and case job_row.status::text
+      when 'processing' then job_row.processing_lease_expires_at <= recovery_at
+        or (job_row.processing_lease_expires_at is null
+          and coalesce(job_row.started_at, job_row.updated_at) <= recovery_at - p_stale_after)
+      when 'pending' then coalesce(job_row.analysis_queued_at, job_row.created_at) = closing.queued_at
+      else job_row.next_retry_at = closing.next_retry_at
+    end
+  returning job_row.id, job_row.error_code;
+end;
+$$;
 
 -- 13. The units of a request, for the affaire's activity, read by the server after it checked the reader's access to
 -- the affaire: each unit in its recorded order with its state (section 2), its public reason, its plan as the dossier

@@ -270,6 +270,11 @@ select is((select count(*)::integer from public.takeoff_jobs where project_id = 
 -- 7. The end of its job closes the request and publishes its one notice; the job publishes none of its own.
 select is((select count(*)::integer from public.claim_observed_local_takeoff_job(pg_temp.f(60), pg_temp.f(10), pg_temp.host(),
   now(), pg_temp.f(95), now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 1, 'the Mac claims the job');
+-- Before the owner's activation of one analysis per plan (20261121181031_takeoff_plan_dispatcher.sql), a call of this
+-- grouped analysis is checked against its request's balance as before and reserves nothing: nothing new is written.
+select results_eq($$select outcome, reason from public.reserve_takeoff_launch_call(pg_temp.f(60), pg_temp.f(95), 'C:0', 'pdf', 30000)$$,
+  $$values ('unreserved'::text, null::text)$$, 'before one analysis per plan is active, a call is checked and not reserved');
+select is((select count(*)::integer from private.takeoff_launch_usage where job_id = pg_temp.f(60)), 0, 'no ledger row is written for it');
 -- Its reading answered in one call of 1200 tokens, recorded by the worker under its lease and counted on the request.
 select results_eq($$select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.f(60), pg_temp.f(95), 'C:0', 1200, 0)$$,
   $$values (398800::bigint)$$, 'the call is recorded and the request has the rest of its budget');

@@ -28,24 +28,29 @@ update public.feature_flags set enabled = true where tenant_id = pg_temp.f(10) a
 insert into public.tenant_memberships (tenant_id, user_id, role, is_default, created_at) values
   (pg_temp.f(10), pg_temp.f(1), 'engineer', true, '2020-01-01'),
   (pg_temp.f(10), pg_temp.f(3), 'director', true, '2020-01-01');
--- Affaires 20 to 27, each with its dossier's plan set (40 + n) of plans (named so that their order is not their identifier's).
+-- Affaires 20 to 29, each with its dossier's plan set (40 + n) of plans (named so that their order is not their identifier's).
 insert into public.estimate_projects (id, tenant_id, user_id, name)
-select pg_temp.f(20 + n), pg_temp.f(10), pg_temp.f(1), 'Affaire par plan ' || n || ' (fictive)' from generate_series(0, 7) as n;
+select pg_temp.f(20 + n), pg_temp.f(10), pg_temp.f(1), 'Affaire par plan ' || n || ' (fictive)' from generate_series(0, 9) as n;
 insert into public.affaire_intake_uploads (id, project_id, created_by, status)
-select pg_temp.f(30 + n), pg_temp.f(20 + n), pg_temp.f(1), 'ready' from generate_series(0, 7) as n;
+select pg_temp.f(30 + n), pg_temp.f(20 + n), pg_temp.f(1), 'ready' from generate_series(0, 9) as n;
 insert into public.affaire_briefs (id, project_id, upload_id, status, summary, project_object, confirmed_at, confirmed_by)
 select pg_temp.f(60 + n), pg_temp.f(20 + n), pg_temp.f(30 + n), 'confirme', 'Résumé fictif', 'Objet fictif', now(), pg_temp.f(1)
-from generate_series(0, 7) as n;
+from generate_series(0, 9) as n;
 insert into public.plan_sets (id, tenant_id, project_id, name)
-select pg_temp.f(40 + n), pg_temp.f(10), pg_temp.f(20 + n), 'Plans du dossier' from generate_series(0, 7) as n;
--- Plan files 100 + 10 n + k (k = 1..3; affaire 26 holds 7 plans, 161 to 167).
+select pg_temp.f(40 + n), pg_temp.f(10), pg_temp.f(20 + n), 'Plans du dossier' from generate_series(0, 9) as n;
+-- Plan files 100 + 10 n + k (k = 1..3; affaires 26 and 29 hold 7 plans, 161 to 167 and 191 to 197, the latter named
+-- against their identifiers: plan-1 is 197).
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 select pg_temp.f(100 + 10 * n + k), pg_temp.f(10), pg_temp.f(40 + n), 'plan-' || (4 - k) || '.pdf',
   concat_ws('/', pg_temp.f(10), pg_temp.f(40 + n), pg_temp.f(100 + 10 * n + k), 'plan-' || (4 - k) || '.pdf'), 'application/pdf', 8, 9
-from (select n from generate_series(0, 7) as n where n <> 6) as n cross join generate_series(1, 3) as k
+from (select n from generate_series(0, 9) as n where n not in (6, 9)) as n cross join generate_series(1, 3) as k
 union all
 select pg_temp.f(160 + k), pg_temp.f(10), pg_temp.f(46), 'plan-' || k || '.pdf',
   concat_ws('/', pg_temp.f(10), pg_temp.f(46), pg_temp.f(160 + k), 'plan-' || k || '.pdf'), 'application/pdf', 8, 1
+from generate_series(1, 7) as k
+union all
+select pg_temp.f(190 + k), pg_temp.f(10), pg_temp.f(49), 'plan-' || (8 - k) || '.pdf',
+  concat_ws('/', pg_temp.f(10), pg_temp.f(49), pg_temp.f(190 + k), 'plan-' || (8 - k) || '.pdf'), 'application/pdf', 8, 9
 from generate_series(1, 7) as k;
 -- A CCTP of affaire 20, a common reference of its plans.
 insert into public.affaire_intake_documents (id, upload_id, file_name, upload_status, storage_path, classification_status, document_kind)
@@ -125,6 +130,12 @@ $$;
 create function pg_temp.fail(job uuid, code text) returns void language sql as $$
   update public.takeoff_jobs set status = 'failed', completed_at = clock_timestamp(), error_code = code, error_message = 'Échec fictif',
     analysis_outcome = 'failure', next_retry_at = null, last_error_at = clock_timestamp() where id = job and status = 'processing'
+$$;
+-- The worker's end of an attempt on a failure it would retry (record_local_takeoff_failure, under the attempt's lease).
+create function pg_temp.fail_attempt(job uuid, token integer) returns jsonb language sql as $$
+  select public.record_local_takeoff_failure(job, pg_temp.f(10), pg_temp.f(token), jsonb_build_object(
+    'completed_at', clock_timestamp(), 'duration_ms', 10, 'error_code', 'AI_PROVIDER', 'error_message', 'Échec fictif',
+    'analysis_outcome', null, 'last_error_at', clock_timestamp(), 'next_retry_at', clock_timestamp() - interval '1 second'))
 $$;
 create function pg_temp.dispatch() returns uuid language sql as $$
   select job_id from public.dispatch_next_takeoff_host_job(pg_temp.host())
@@ -383,6 +394,60 @@ select is((select count(*)::integer from public.takeoff_completion_notifications
   'with one notice');
 select is((select count(*)::integer from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(25)), 0,
   'and only once');
+
+-- 11. Affaire 29's seven plans: the dispatcher counts the admission limits as the claim's triggers do, an attempt that
+-- holds a call of unknown outcome is never retried on its own, a job read without the slot still holds the Mac, the
+-- answers name the first unit by its place, and a stopped reading's late end is refused.
+select results_eq($$select outcome, job_id from pg_temp.launch(29)$$, $$values ('admitted'::text, pg_temp.unit(29, 1))$$,
+  'a request of seven plans whose names run against their identifiers');
+select results_eq($$select outcome, job_id from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(29), pg_temp.f(1),
+  pg_temp.f(629), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(29), pg_temp.snapshot(29), pg_temp.jobs(29),
+  pg_temp.f(49), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(49)))$$,
+  $$values ('already_running'::text, pg_temp.unit(29, 1))$$,
+  'a command meanwhile gets the running request''s first unit by its place, not by its key');
+select is(pg_temp.dispatch(), pg_temp.unit(29, 1), 'the dispatcher hands its first unit');
+select is(pg_temp.claim(pg_temp.unit(29, 1), 951), 1, 'which the Mac reads');
+-- A job read without the slot (claimed before the activation) holds the Mac all the same.
+delete from private.takeoff_host_slots where host_id = pg_temp.host();
+select is(pg_temp.claim(pg_temp.unit(29, 2), 952), 0, 'a job read without the slot still keeps a second plan from starting');
+select is(pg_temp.dispatch(), null::uuid, 'and the dispatcher hands nothing meanwhile');
+-- A failure after calls whose usage is known keeps its technical retry.
+select results_eq($$select outcome from pg_temp.reserve(pg_temp.unit(29, 1), 951, 'call:1')$$, $$values ('reserved'::text)$$,
+  'a call of its first attempt is reserved');
+select pg_temp.settle(pg_temp.unit(29, 1), 951, 'call:1', 1000);
+select isnt(pg_temp.fail_attempt(pg_temp.unit(29, 1), 951), null, 'the attempt ends on a failure its worker would retry');
+select results_eq($$select status::text, next_retry_at is not null, analysis_outcome::text from public.takeoff_jobs
+    where id = pg_temp.unit(29, 1)$$, $$values ('failed'::text, true, null::text)$$, 'every usage known, its retry stays planned');
+-- Six other units of its request wait: one analysis, so its retry may be claimed, as its claim's trigger counts it.
+select results_eq($$select job_id, trigger_kind from public.dispatch_next_takeoff_host_job(pg_temp.host())$$,
+  $$values (pg_temp.unit(29, 1), 'retry'::text)$$, 'a due retry is handed while six units of its own request wait');
+select is(pg_temp.claim(pg_temp.unit(29, 1), 953, 'failed', 0), 1, 'and its claim is admitted alike');
+-- An attempt that holds a call of unknown outcome is never retried on its own: the retry would send that call again.
+select results_eq($$select outcome from pg_temp.reserve(pg_temp.unit(29, 1), 953, 'call:1')$$, $$values ('reserved'::text)$$,
+  'a call of the retry is reserved');
+select is(public.record_takeoff_launch_call_unknown(pg_temp.unit(29, 1), pg_temp.f(953), 'call:1'), true,
+  'and ends without a known usage');
+select isnt(pg_temp.fail_attempt(pg_temp.unit(29, 1), 953), null, 'the attempt ends on a failure its worker would retry');
+select results_eq($$select status::text, next_retry_at is null, analysis_outcome::text, error_code from public.takeoff_jobs
+    where id = pg_temp.unit(29, 1)$$, $$values ('failed'::text, true, 'failure'::text, 'TAKEOFF_USAGE_UNRECORDED'::text)$$,
+  'its unit ends without a retry, the unknown consumption named');
+-- Twenty attempts of the member today, far fewer analyses: the next unit is handed, and its claim admitted.
+insert into public.takeoff_processing_admissions (job_id, attempt_number, tenant_id, created_by, admitted_at)
+select j.id, 0, j.tenant_id, j.created_by, clock_timestamp() from public.takeoff_jobs j
+where j.launch_request_id in (pg_temp.request(26), pg_temp.request(27));
+select ok((select count(*) from public.takeoff_processing_admissions where created_by = pg_temp.f(1)
+  and admitted_at > clock_timestamp() - interval '24 hours') >= 20, 'the member''s claims of the day reach twenty attempts');
+select is(pg_temp.dispatch(), pg_temp.unit(29, 2), 'they are far fewer analyses: the next unit is handed');
+select is(pg_temp.claim(pg_temp.unit(29, 2), 954), 1, 'and its claim is admitted alike');
+-- A member stops the rest while the second plan is read: that reading's late end is refused.
+select results_eq($$select request_state from public.stop_takeoff_launch_request(pg_temp.f(10), pg_temp.f(29), pg_temp.f(1),
+  pg_temp.request(29))$$, $$values ('closed'::text)$$, 'the rest of the request is stopped');
+select is(pg_temp.fail_attempt(pg_temp.unit(29, 2), 954), null::jsonb, 'the stopped reading''s failure is refused under its old lease');
+select is(public.finalize_local_takeoff_result(pg_temp.unit(29, 2), pg_temp.f(10), pg_temp.f(954), clock_timestamp(), 'fixture', 'fixture',
+  '{"extracted_json": {"items": []}, "warnings": [], "tables": [], "provider_meta": {}, "token_count": 0, "cost_cents": 0,
+    "run_metrics": []}', '[]'), null, 'and so is its result');
+select results_eq($$select status::text, analysis_outcome::text from public.takeoff_jobs where id = pg_temp.unit(29, 2)$$,
+  $$values ('canceled'::text, 'canceled'::text)$$, 'it stays cancelled');
 
 select * from finish();
 rollback;

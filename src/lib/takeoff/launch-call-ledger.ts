@@ -10,7 +10,9 @@ import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
  * and settled once with the usage its answer carried; a call that ends without a known usage stays held as unknown in
  * the request's balance, never credited back. The database decides, under the job's lock then the request's: the job's
  * right to pay (its module, the one payer rule), and for a launch request's job a positive balance of its unit and of
- * its request, counting what is held. A job without a request reserves nothing (its own per-job budget applies).
+ * its request, counting what is held. A job without a request reserves nothing (its own per-job budget applies); before
+ * the owner's activation of one analysis per plan, a grouped analysis's call is checked as lot 2 checked it, reserves
+ * nothing, and its usage is recorded once answered.
  */
 export type TakeoffPaidCallBranch = "pdf" | "vector_group" | "other";
 
@@ -82,6 +84,9 @@ export function createTakeoffCallLedger(job: { id: string; launch_request_id?: s
         }
         const row = (data as Row[] | null)?.[0];
         if (row?.outcome === "unbudgeted") return null;
+        // Before the owner's activation of one analysis per plan: checked as before, not reserved, its usage recorded once
+        // answered.
+        if (row?.outcome === "unreserved") return { key };
         if (row?.outcome === "reserved") {
           let resolve = () => {};
           const done = new Promise<void>((settle) => { resolve = settle; });

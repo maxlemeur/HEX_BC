@@ -49,6 +49,17 @@ describe("createTakeoffCallLedger", () => {
     expect(rpc).toHaveBeenCalledTimes(1);
   });
 
+  // Before the owner's activation of one analysis per plan, a grouped analysis's call is checked as lot 2 checked it and
+  // reserves nothing (the database answers « unreserved »): its usage is still recorded once its answer comes.
+  it("checks a call without reserving it before the activation, and records its usage once answered", async () => {
+    answers.push({ data: [{ outcome: "unreserved", reason: null }], error: null });
+    const ledger = createTakeoffCallLedger({ id: "job", launch_request_id: "request" }, () => "lease");
+    const call = await ledger.beforePaidCall("pdf");
+    await ledger.recordPaidUsage(call, { totalTokens: 42, costCents: 0 });
+    expect(rpc.mock.calls.map(([name, args]) => [name, args.p_call_key])).toEqual([
+      ["reserve_takeoff_launch_call", "call:1"], ["record_takeoff_launch_usage", "call:1"]]);
+  });
+
   it("waits for a call of its attempt in flight when only that call holds the balance, then reserves", async () => {
     const ledger = createTakeoffCallLedger({ id: "job", launch_request_id: "request" }, () => "lease");
     // The database's answers in turn: the first call reserved, the second waits, the first is settled, the second reserved.

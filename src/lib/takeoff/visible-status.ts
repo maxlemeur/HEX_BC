@@ -80,7 +80,7 @@ const FAILURE_FACTS: Record<string, string> = {
   AI_SAFETY: "Document bloqué pendant l'analyse.",
   TAKEOFF_LEVEL_C_BUDGET_EXCEEDED: "L’analyse détaillée dépasse le budget prévu.",
   TAKEOFF_REQUEST_BUDGET_EXHAUSTED: "Le budget de cette analyse était épuisé : ce plan n’a pas été lu en entier.",
-  TAKEOFF_USAGE_UNRECORDED: "La consommation d’un appel n’a pas pu être enregistrée : l’analyse s’est arrêtée par précaution.",
+  TAKEOFF_USAGE_UNRECORDED: "La consommation d’un appel est restée inconnue ou n’a pas pu être enregistrée : l’analyse s’est arrêtée sans le renvoyer.",
 };
 
 export function getTakeoffVisibleJobStatusLabel(
