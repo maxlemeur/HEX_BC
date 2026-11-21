@@ -25,6 +25,7 @@ import {
 
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
+  applyMappingToPayload,
   filterMappingToSourceColumns,
   mappingTargetFieldSchema,
   type MappingTargetField,
@@ -615,17 +616,6 @@ function extractSampleValues(
   }
 
   return result;
-}
-
-function applyMappingToPayload(payload: JsonRecord, mapping: SourceToTargetMapping): JsonRecord {
-  const mapped: JsonRecord = {};
-
-  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
-    if (!(sourceColumn in payload)) continue;
-    mapped[targetField] = payload[sourceColumn];
-  }
-
-  return mapped;
 }
 
 function computeValidation(mapping: SourceToTargetMapping): MappingValidation {

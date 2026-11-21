@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   buildImportFlowStats,
+  importStructuralExclusions,
   normalizeMappedRowsForEstimateCreation,
   resolveImportLaborRole,
   type ImportFlowLineValuesContext,
@@ -19,9 +20,11 @@ import {
   type Supabase,
   DEFAULT_MARGIN_MULTIPLIER,
   DEFAULT_TAX_RATE_BP,
+  IMPORT_MAPPING_CHANGED_MESSAGE,
+  assertMappedRowsFollowMapping,
   assertProjectAccessOrThrow,
   ensureImportProjectLink,
-  fetchLatestMappingId,
+  fetchLatestMapping,
   fetchMappedRowsForImport,
   fetchProjectOwnerLaborRoles,
   fetchVersionComputationContext,
@@ -262,10 +265,23 @@ export async function getUnifiedImportFlowTakeoffCarryOverPreview(
   });
 }
 
+/** Whether a refusal comes from the confirmation's own check: its mapping or its rows are no longer the import's. */
+function isImportConfirmationChanged(error: unknown) {
+  for (let cause = error, depth = 0; cause && depth < 5; depth += 1) {
+    const message = typeof cause === "object" && "message" in cause ? String((cause as { message?: unknown }).message) : "";
+    if (message.includes("DPGF_IMPORT_CONFIRMATION_STALE") || message.includes("DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED")) {
+      return true;
+    }
+    cause = typeof cause === "object" && "cause" in cause ? (cause as { cause?: unknown }).cause : null;
+  }
+  return false;
+}
+
 /**
- * The structure decisions of a confirmation that keeps the mapping alone, recorded right after the mapping it
- * created, bound to it and to what the import holds. The confirmation's work has committed: a failure here leaves the
- * affaire's item list saying that the decisions were not recorded, and never fails the confirmation.
+ * The structure decisions of a confirmation that keeps the mapping alone. The mapping writer commits in several
+ * requests (header, deletion, inserts by 500) and cannot share a transaction with them: this record is the
+ * confirmation's own transaction, and the confirmation does not report success without it. A refusal gives a French
+ * error; confirming again (the same gesture) writes the same mapping again and records it.
  */
 async function recordMappingOnlyConfirmation(input: {
   tenantId: string;
@@ -274,19 +290,32 @@ async function recordMappingOnlyConfirmation(input: {
   mappingId: string;
   projectId: string | null;
   decisions: readonly ImportStructureDecision[];
+  exclusions: ReturnType<typeof importStructuralExclusions>;
+  mappedRowIds: string[];
 }) {
-  const { error } = await createServiceRoleClient().rpc("record_dpgf_import_confirmation", {
-    p_tenant_id: input.tenantId,
-    p_actor: input.actorUserId,
-    p_import_id: input.importId,
-    p_mapping_id: input.mappingId,
-    p_project_id: input.projectId as string,
-    p_estimate_version_id: null as unknown as string,
-    p_decisions: input.decisions as unknown as Json,
-  });
-  if (error) {
-    console.warn("dpgf import confirmation decisions not recorded", { importId: input.importId, code: error.code ?? null });
+  let failure: unknown = null;
+  try {
+    const { error } = await createServiceRoleClient().rpc("record_dpgf_import_confirmation", {
+      p_tenant_id: input.tenantId,
+      p_actor: input.actorUserId,
+      p_import_id: input.importId,
+      p_mapping_id: input.mappingId,
+      p_project_id: input.projectId as string,
+      p_estimate_version_id: null as unknown as string,
+      p_decisions: input.decisions as unknown as Json,
+      p_exclusions: input.exclusions as unknown as Json,
+      p_mapped_row_ids: input.mappedRowIds,
+    });
+    failure = error;
+  } catch (error) {
+    failure = error ?? new Error("record failed");
   }
+  if (!failure) return;
+  console.warn("dpgf import confirmation decisions not recorded", { importId: input.importId });
+  if (isImportConfirmationChanged(failure)) throw new Error(IMPORT_MAPPING_CHANGED_MESSAGE);
+  throw new Error(
+    "Le mappage est enregistré, mais pas les choix de structure de l’import : confirmez de nouveau pour les enregistrer."
+  );
 }
 
 export async function confirmUnifiedImportFlow(
@@ -354,7 +383,7 @@ export async function confirmUnifiedImportFlow(
   }
 
   const normalizedMapping = mappingRecordSchema.parse(parsed.data.mapping ?? {});
-  let mappingId: string | null = null;
+  let mapping: { id: string; columnMapping: unknown } | null = null;
 
   if (Object.keys(normalizedMapping).length > 0) {
     const createMappingResult = await createMapping({
@@ -362,16 +391,17 @@ export async function confirmUnifiedImportFlow(
       mapping: normalizedMapping,
       save_template: false,
     });
-    mappingId = createMappingResult.mapping.id;
+    mapping = { id: createMappingResult.mapping.id, columnMapping: createMappingResult.mapping.column_mapping };
   }
 
-  if (!mappingId) {
-    mappingId = await fetchLatestMappingId({
+  if (!mapping) {
+    mapping = await fetchLatestMapping({
       supabase,
       importId: parsed.data.importId,
       tenantId: membership.tenant_id,
     });
   }
+  const mappingId = mapping?.id ?? null;
 
   const effectiveProjectId = requestedProjectId ?? importRow.project_id ?? null;
   const mappedRows = await fetchMappedRowsForImport({
@@ -379,6 +409,11 @@ export async function confirmUnifiedImportFlow(
     importId: parsed.data.importId,
     tenantId: membership.tenant_id,
   });
+  // The rows confirmed are those the mapping made, all of them: another tab's mapping, or its rows still being
+  // written, refuse the confirmation before anything else is written.
+  if (mapping) {
+    assertMappedRowsFollowMapping(mappedRows, { columnMapping: mapping.columnMapping, rowCount: importRow.row_count });
+  }
 
   const versionContext = effectiveProjectId
     ? await fetchVersionComputationContext(
@@ -465,6 +500,8 @@ export async function confirmUnifiedImportFlow(
         mappingId,
         projectId: effectiveProjectId,
         decisions: normalizationOptions.structureDecisions,
+        exclusions: importStructuralExclusions(normalizedRows),
+        mappedRowIds: mappedRows.map(({ id }) => id),
       });
     }
     revalidateImportFlowPaths(effectiveProjectId, null);
@@ -522,10 +559,21 @@ export async function confirmUnifiedImportFlow(
         ...(saleCoefficients ? { engine: 3 } : {}),
       },
       ...(saleCoefficients ? { expectedCalcEngineVersion: 3 } : {}),
-      // The structure decisions applied to this estimate, recorded in its transaction (lot 4, the affaire's item list).
-      ...(mappingId ? { importConfirmation: { mappingId, decisions: normalizationOptions.structureDecisions } } : {}),
+      // The structure decisions applied to this estimate, the rows they left out and the rows checked, recorded in
+      // its transaction (lot 4, the affaire's item list).
+      ...(mappingId
+        ? { importConfirmation: {
+          mappingId,
+          decisions: normalizationOptions.structureDecisions,
+          exclusions: importStructuralExclusions(normalizedRows),
+          mappedRowIds: mappedRows.map(({ id }) => id),
+        } }
+        : {}),
     });
   } catch (error) {
+    if (isImportConfirmationChanged(error)) {
+      throw new Error(IMPORT_MAPPING_CHANGED_MESSAGE, { cause: error });
+    }
     throw new Error("Impossible de créer la version depuis l'import.", {
       cause: error,
     });

@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import type { RpcImportItemPayload } from "@/lib/affaires/import-flow-server";
 import type { ImportStructureDecision } from "@/lib/imports/structure";
+import type { DpgfStructuralExclusion } from "@/lib/takeoff/poste-list-dpgf";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import {
   calcPolicyContextChanged,
@@ -201,10 +202,16 @@ export type PersistCanonicalEstimateV2Input = {
   expectedCalcEngineVersion?: number | null;
   /**
    * Lot 4 (migration A) : une création depuis un import enregistre, dans la même transaction, les décisions de structure
-   * de sa confirmation et la correspondance qu'elles visent (`persist_dpgf_import_estimate_atomic`). Sans elle, la
-   * création est celle d'avant, inchangée.
+   * de sa confirmation, les lignes qu'elle a écartées (avec leur raison), la correspondance qu'elles visent et les
+   * lignes mappées que le membre a vérifiées (`persist_dpgf_import_estimate_atomic`, qui refuse sous son verrou un
+   * ensemble de lignes qui n'est plus celui de l'import). Sans elle, la création est celle d'avant, inchangée.
    */
-  importConfirmation?: { mappingId: string; decisions: readonly ImportStructureDecision[] };
+  importConfirmation?: {
+    mappingId: string;
+    decisions: readonly ImportStructureDecision[];
+    exclusions: readonly DpgfStructuralExclusion[];
+    mappedRowIds: readonly string[];
+  };
 };
 
 /** Sous-lot 2.10a (P-12, D-h) : rapport d'un modèle entré dans une v3, même forme que son insertion (M6). */
@@ -1137,6 +1144,8 @@ export async function persistCanonicalEstimateV2(
       p_import_id: input.source.importId,
       p_mapping_id: input.importConfirmation.mappingId,
       p_decisions: input.importConfirmation.decisions as unknown as Json,
+      p_exclusions: input.importConfirmation.exclusions as unknown as Json,
+      p_mapped_row_ids: [...input.importConfirmation.mappedRowIds],
     })
     : await persistenceClient.rpc("persist_estimate_creation_atomic", creation);
   if (isCalcPolicyContextChangedError(error)) throw calcPolicyContextChanged();

@@ -16,6 +16,11 @@ vi.mock("@/lib/estimates/canonical-v2-creation", () => ({
   persistCanonicalEstimateV2: vi.fn(),
 }));
 
+const serviceRpc = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: () => ({ rpc: serviceRpc }),
+}));
+
 import { confirmUnifiedImportFlow } from "@/app/dashboard/affaires/_actions/import-flow";
 import { createMapping } from "@/lib/mappings/server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
@@ -47,7 +52,23 @@ function createMembershipBuilder(role: "engineer" | "admin" = "engineer") {
   return builder;
 }
 
-function createImportSelectBuilder(projectId: string | null) {
+// The column mapping of the fixtures and a mapped row as the mapping writer stores it: the raw row and the mapping
+// applied to it.
+const COLUMNS = { Designation: "designation", Qte: "quantity", U: "unit", PU: "unit_price_ht" } as const;
+function storedRow(index: number, raw: Record<string, string | number | null>, columns: Record<string, string> = COLUMNS) {
+  return {
+    id: `mapped-${index}`,
+    payload: {
+      raw_row_id: `raw-${index}`,
+      row_index: index,
+      raw_row: raw,
+      mapped_row: Object.fromEntries(Object.entries(columns).flatMap(([source, target]) =>
+        source in raw ? [[target, raw[source]]] : [])),
+    },
+  };
+}
+
+function createImportSelectBuilder(projectId: string | null, rowCount = 1) {
   const builder = {
     select: vi.fn(),
     eq: vi.fn(),
@@ -63,6 +84,7 @@ function createImportSelectBuilder(projectId: string | null) {
         user_id: USER_ID,
         project_id: projectId,
         filename: "dpgf.xlsx",
+        row_count: rowCount,
     },
     error: null,
   });
@@ -101,7 +123,7 @@ function createLatestMappingBuilder(mappingId: string | null) {
   builder.order.mockReturnValue(builder);
   builder.limit.mockReturnValue(builder);
   builder.maybeSingle.mockResolvedValue({
-    data: mappingId ? { id: mappingId } : null,
+    data: mappingId ? { id: mappingId, column_mapping: COLUMNS } : null,
     error: null,
   });
 
@@ -269,17 +291,7 @@ describe("confirmUnifiedImportFlow", () => {
       projectBuilder: createProjectSelectBuilder(true),
       latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
       mappedRowsBuilder: createMappedRowsBuilder([
-        {
-          id: "mapped-1",
-          payload: {
-            row_index: 1,
-            mapped_row: {
-              designation: "Poste A",
-              quantity: "1",
-              unit_price_ht: "100",
-            },
-          },
-        },
+        storedRow(1, { Designation: "Poste A", Qte: "1", PU: "100" }),
       ]),
       versionContextBuilder: createVersionContextBuilder(currentSourceVersionId, 1, 2000),
     });
@@ -308,17 +320,7 @@ describe("confirmUnifiedImportFlow", () => {
       projectBuilder: createProjectSelectBuilder(true),
       latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
       mappedRowsBuilder: createMappedRowsBuilder([
-        {
-          id: "mapped-1",
-          payload: {
-            row_index: 1,
-            mapped_row: {
-              designation: "Poste A",
-              quantity: "1",
-              unit_price_ht: "100",
-            },
-          },
-        },
+        storedRow(1, { Designation: "Poste A", Qte: "1", PU: "100" }),
       ]),
       versionContextBuilder: createVersionContextBuilder(sourceVersionId, 1, 2000),
       rpcResult: {
@@ -393,5 +395,110 @@ describe("confirmUnifiedImportFlow", () => {
         createEstimate: true,
       })
     ).rejects.toThrow("Cet import est déjà lié a une autre affaire.");
+  });
+});
+
+// Lot 4 (the affaire's item list): what a confirmation records is bound to the rows its mapping made.
+describe("confirmUnifiedImportFlow — the rows and decisions a confirmation records", () => {
+  const FOOTER_SHEET = [
+    { Designation: "Tube acier", Qte: 12, U: "ml", PU: 10 },
+    { Designation: "Sous-total HT", Qte: null, U: null, PU: 120 },
+    { Designation: "PSE 1 : robinet thermostatique", Qte: 4, U: "u", PU: 45 },
+    { Designation: "Total HT", Qte: null, U: null, PU: 300 },
+  ];
+  const mappingCreated = { mapping: { id: "mapping-created", column_mapping: COLUMNS } };
+
+  function stub(rows: ReturnType<typeof storedRow>[], rowCount = rows.length) {
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(PROJECT_ID, rowCount),
+      projectBuilder: createProjectSelectBuilder(true),
+      mappedRowsBuilder: createMappedRowsBuilder(rows),
+      versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    return supabase;
+  }
+  const confirm = (createEstimate: boolean) => confirmUnifiedImportFlow({
+    importId: IMPORT_ID, projectId: PROJECT_ID, mapping: { ...COLUMNS }, createEstimate,
+    structurePlan: { decisions: [] },
+  });
+  const MAPPING_CHANGED = "Le mappage a changé dans un autre onglet : rechargez-le et vérifiez-le avant de confirmer.";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(createMapping).mockResolvedValue(mappingCreated as never);
+    serviceRpc.mockResolvedValue({ data: "confirmation-1", error: null });
+    vi.mocked(persistCanonicalEstimateV2).mockResolvedValue({
+      project: { id: PROJECT_ID },
+      version: { id: VERSION_ID, total_ht_cents: 12000, total_tax_cents: 2400, total_ttc_cents: 14400 },
+      insertedLineCount: 1, insertedSectionCount: 0, rootSectionId: null,
+    } as never);
+  });
+
+  it("refuses rows another tab's mapping made, before anything is created", async () => {
+    // Tab A finished writing its rows under its own mapping (no unit column) after tab B created the latest mapping.
+    stub([storedRow(0, FOOTER_SHEET[0], { Designation: "designation", Qte: "quantity", PU: "unit_price_ht" })]);
+    await expect(confirm(true)).rejects.toThrow(MAPPING_CHANGED);
+    expect(persistCanonicalEstimateV2).not.toHaveBeenCalled();
+  });
+
+  it("refuses a replacement still being written: fewer rows than the import holds", async () => {
+    stub([storedRow(0, FOOTER_SHEET[0]), storedRow(1, FOOTER_SHEET[1])], 4);
+    await expect(confirm(true)).rejects.toThrow(MAPPING_CHANGED);
+    stub([storedRow(0, FOOTER_SHEET[0]), storedRow(1, FOOTER_SHEET[1])], 4);
+    await expect(confirm(false)).rejects.toThrow(MAPPING_CHANGED);
+    expect(persistCanonicalEstimateV2).not.toHaveBeenCalled();
+    expect(serviceRpc).not.toHaveBeenCalled();
+  });
+
+  it("gives the French reason when the confirmation's lock finds other rows, not a generic failure", async () => {
+    stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
+    vi.mocked(persistCanonicalEstimateV2).mockRejectedValueOnce(new Error("ESTIMATE_CANONICAL_V2_PERSIST_FAILED", {
+      cause: { code: "40001", message: "DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED" },
+    }));
+    await expect(confirm(true)).rejects.toThrow(MAPPING_CHANGED);
+  });
+
+  it("records the rows checked and the footer rows the import left out, with their reason", async () => {
+    stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
+    await confirm(true);
+    expect(vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0].importConfirmation).toEqual({
+      mappingId: "mapping-created",
+      decisions: [],
+      exclusions: [
+        { rowIndex: 1, reason: "footer" }, { rowIndex: 2, reason: "footer" }, { rowIndex: 3, reason: "footer" },
+      ],
+      mappedRowIds: ["mapped-0", "mapped-1", "mapped-2", "mapped-3"],
+    });
+  });
+
+  it("does not report a mapping-only confirmation whose decisions were refused after the mapping committed", async () => {
+    stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
+    serviceRpc.mockResolvedValueOnce({ data: null, error: { code: "57014", message: "canceling statement" } });
+    await expect(confirm(false)).rejects.toThrow(
+      "Le mappage est enregistré, mais pas les choix de structure de l’import : confirmez de nouveau pour les enregistrer."
+    );
+    expect(createMapping).toHaveBeenCalledTimes(1);
+
+    // Confirming again is the same gesture: the same mapping written again, then its record.
+    stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
+    const result = await confirm(false);
+    expect(result.mode).toBe("mapping_only");
+    expect(serviceRpc).toHaveBeenCalledTimes(2);
+    expect(serviceRpc.mock.calls[1]).toEqual(serviceRpc.mock.calls[0]);
+    expect(serviceRpc.mock.calls[1]?.[1]).toMatchObject({
+      p_mapping_id: "mapping-created", p_decisions: [],
+      p_exclusions: [
+        { rowIndex: 1, reason: "footer" }, { rowIndex: 2, reason: "footer" }, { rowIndex: 3, reason: "footer" },
+      ],
+      p_mapped_row_ids: ["mapped-0", "mapped-1", "mapped-2", "mapped-3"],
+    });
+  });
+
+  it("does not report a mapping-only confirmation when the service client throws after the mapping committed", async () => {
+    stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
+    serviceRpc.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(confirm(false)).rejects.toThrow("confirmez de nouveau pour les enregistrer");
   });
 });

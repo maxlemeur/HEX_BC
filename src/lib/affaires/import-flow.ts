@@ -422,6 +422,16 @@ export function sortValidImportFlowLines(lines: readonly ValidImportFlowLine[]):
   });
 }
 
+/**
+ * The rows a confirmation leaves out of the estimate with the import's own reason (a total and the options after it,
+ * a row of workbook parameters, a row the member ignored), as the affaire's list of items reads them: positions and
+ * codes only.
+ */
+export function importStructuralExclusions(result: Pick<NormalizeImportFlowRowsResult, "ignoredRows">) {
+  return result.ignoredRows.map(({ rowIndex, reason }) => ({ rowIndex, reason }))
+    .sort((left, right) => left.rowIndex - right.rowIndex);
+}
+
 export function normalizeMappedRowsForEstimateCreation(
   rows: ImportFlowMappedRowInput[],
   context: ImportFlowLineValuesContext,
