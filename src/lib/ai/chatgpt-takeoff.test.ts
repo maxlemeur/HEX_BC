@@ -47,22 +47,22 @@ it("binds the plan to the persisted creator and active job tenant, rechecking ac
   expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options, { profileId: "profile", model: "chosen-model", reasoningEffort: null, authorizationId: "connexion" });
 });
 it("reserves each paid call in the job's ledger, a reading of the PDF or a question on its vector groups, and settles it", async () => {
-  const ledger = { beforePaidCall: vi.fn(async (branch: string) => ({ key: branch })), recordPaidUsage: vi.fn(async () => undefined),
+  const ledger = { beforePaidCall: vi.fn(async (branch: string) => ({ key: branch, reserved: true })), recordPaidUsage: vi.fn(async () => undefined),
     recordUnknownUsage: vi.fn(async () => undefined) };
   vi.mocked(callLocalChatGptStructured).mockImplementation(async (_owner, _options, selection) => {
     const paid = await selection?.beforeSend?.();
-    await selection?.onUsage?.({ totalTokens: 42, costCents: 0 }, paid);
+    await selection?.onUsage?.({ totalTokens: 42, costCents: 0, trusted: true }, paid);
     return { data: { quantity: 12 } } as never;
   });
   const provider = await resolveLocalTakeoffProvider(client as never, { ...job, launch_request_id: "request" }, { ledger });
   await provider.call(options);
   expect(ledger.beforePaidCall).toHaveBeenCalledWith("pdf");
-  expect(ledger.recordPaidUsage).toHaveBeenCalledWith({ key: "pdf" }, { totalTokens: 42, costCents: 0 });
+  expect(ledger.recordPaidUsage).toHaveBeenCalledWith({ key: "pdf", reserved: true }, { totalTokens: 42, costCents: 0, trusted: true });
   // The vector reading's questions pin the same profile and are reserved as such.
   expect(provider.groupsSelection).toMatchObject({ profileId: "profile", model: "chosen-model", authorizationId: "connexion" });
-  await expect(provider.groupsSelection?.beforeSend?.()).resolves.toEqual({ key: "vector_group" });
-  await provider.groupsSelection?.onUnknownUsage?.({ key: "vector_group" });
-  expect(ledger.recordUnknownUsage).toHaveBeenCalledWith({ key: "vector_group" });
+  await expect(provider.groupsSelection?.beforeSend?.()).resolves.toEqual({ key: "vector_group", reserved: true });
+  await provider.groupsSelection?.onUnknownUsage?.({ key: "vector_group", reserved: true });
+  expect(ledger.recordUnknownUsage).toHaveBeenCalledWith({ key: "vector_group", reserved: true });
 });
 it.each([
   ["pinned before authorizations existed", { confirmed_by: "creator", execution_selection: {
