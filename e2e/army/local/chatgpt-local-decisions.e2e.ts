@@ -36,8 +36,7 @@ import { labSessionCookies, launchLabRun, rawLabRequest } from "./takeoff-lab-su
 // chatgpt-local-takeoff.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). Each test that needs a ChatGPT profile writes its
 // own and removes it: DEC01 starts without one, and the lab's output holds the runs of VEC01 alone.
-// This server runs the periodic consumer of launch requests (AUTO05 waits for it).
-const server = chatGptLocalServer({ launchConsumer: true });
+const server = chatGptLocalServer();
 let localOrigin: string;
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;
@@ -1310,7 +1309,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
     await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.origin, request.state, request.outcome]),
       { timeout: 180_000 }).toEqual([["automatic", "closed", "success"]]);
     const [request] = await readOwnedLaunchRequests(ids.projectId);
-    expect(request).toMatchObject({ confirmed_by: owner.userId, payer_id: owner.userId, requested_by: owner.userId,
+    expect(request).toMatchObject({ confirmed_by: owner.userId, payer_id: owner.userId,
       mandate_kind: "confirmation", units_expected: 1 });
     const jobs = await readOwnedAffaireJobs(ids.projectId);
     expect(jobs).toEqual([expect.objectContaining({ launch_request_id: request.id, launch_unit_key: "grouped", estimate_version_id: null,
@@ -1373,7 +1372,7 @@ if (!existsSync(liveProbePath)) test("AUTO02 a director who confirms the dossier
     expect(confirmed.status).toBe(200);
     expect(await readOwnedBrief(ids.projectId)).toMatchObject({ status: "confirme", confirmed_by: director.userId });
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([expect.objectContaining({ origin: "automatic", state: "blocked",
-      reason_code: "OPERATOR_REQUIRED", confirmed_by: director.userId, payer_id: null, requested_by: null })]);
+      reason_code: "OPERATOR_REQUIRED", confirmed_by: director.userId, payer_id: null })]);
     // A request blocked for an operator is never handed to a Mac's loop (takeoff-launch-requests.test.sql): no job.
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
@@ -1388,7 +1387,7 @@ if (!existsSync(liveProbePath)) test("AUTO02 a director who confirms the dossier
   }
 });
 
-if (!existsSync(liveProbePath)) test("AUTO03 a confirmer without a ChatGPT connection sees why the analysis did not start, and nothing is spent", {
+if (!existsSync(liveProbePath)) test("AUTO03 a confirmer whose ChatGPT connection goes while the dialog is open engages nobody, sees why, and nothing is spent", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 240_000,
 }, async ({ app, screen, browser }) => {
   const owner = await createLocalChatGptOwner();
@@ -1404,22 +1403,23 @@ if (!existsSync(liveProbePath)) test("AUTO03 a confirmer without a ChatGPT conne
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
     const readsBefore = await planReads();
-    // The connection is gone before the affaire is opened (the dossier was classified and its brief written while it
-    // existed): the notice is shown for no subscription, and the confirmation engages its member, who must connect.
-    await rm(store, { force: true });
+    // The dialog tells the member who pays, for the subscription connected now; the connection goes while it is open
+    // (the dossier was classified and its brief written while it existed): the notice shown no longer holds.
     const confirm = await openBriefConfirmation(ui, ids.projectId);
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText(PAYER_NOTICE);
+    await rm(store, { force: true });
     await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
+    await expect(screen.getByText(/Brief confirmé\. Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT/)).toBeVisible(DEV_SERVER_WORK);
     await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code]),
-      DEV_SERVER_WORK).toEqual([["blocked", "CHATGPT_NOT_CONNECTED"]]);
-    expect((await readOwnedLaunchRequests(ids.projectId))[0]).toMatchObject({ payer_id: owner.userId, execution_host_id: null });
-    // Without a mandate the request has no Mac: no loop claims it until the payer's gesture (takeoff-launch-requests.test.sql).
+      DEV_SERVER_WORK).toEqual([["blocked", "MANDATE_REQUIRED"]]);
+    expect((await readOwnedLaunchRequests(ids.projectId))[0]).toMatchObject({ payer_id: null, execution_host_id: null });
+    // Without a mandate the request has no Mac: no loop claims it until a gesture (takeoff-launch-requests.test.sql).
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
     expect(await forbiddenRequests()).toBe(0);
-    await recordEvidence(army, "AUTO03-no-connection", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0], jobs: 0,
+    await recordEvidence(army, "AUTO03-stale-notice", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0], jobs: 0,
       planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
   } finally {
     // The next journey signs its own account in: leave no session of these owners.
@@ -1454,6 +1454,8 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
     // The owner turns the automatic start on while the dialog is open: its confirmation was never told who pays.
     await activateOwnedAutomaticStart();
     await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
+    // The member is told why nothing started, and what may start it.
+    await expect(screen.getByText(/Brief confirmé\. Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT/)).toBeVisible(DEV_SERVER_WORK);
     await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code, request.payer_id]),
       DEV_SERVER_WORK).toEqual([["blocked", "MANDATE_REQUIRED", null]]);
     expect(await readOwnedBrief(ids.projectId)).toMatchObject({ status: "confirme", confirmed_by: owner.userId });

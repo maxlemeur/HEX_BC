@@ -34,14 +34,14 @@ async function readJson<T>(sql: string): Promise<T> {
 
 export type OwnedLaunchRequest = {
   id: string; origin: string; state: string; reason_code: string | null; confirmed_by: string | null; payer_id: string | null;
-  requested_by: string | null; mandate_kind: string | null; execution_host_id: string | null; outcome: string | null;
+  mandate_kind: string | null; execution_host_id: string | null; outcome: string | null;
   units_expected: number | null; manifest_plans: string[] | null;
 };
 
 export async function readOwnedLaunchRequests(projectId: string) {
   if (!UUID.test(projectId)) throw new Error("Invalid fixture affaire.");
   return readJson<OwnedLaunchRequest[]>(`select coalesce(json_agg(json_build_object('id', r.id, 'origin', r.origin, 'state', r.state,
-    'reason_code', r.reason_code, 'confirmed_by', r.confirmed_by, 'payer_id', r.payer_id, 'requested_by', r.requested_by,
+    'reason_code', r.reason_code, 'confirmed_by', r.confirmed_by, 'payer_id', r.payer_id,
     'mandate_kind', r.mandate_kind, 'execution_host_id', r.execution_host_id, 'outcome', r.outcome, 'units_expected', r.units_expected,
     'manifest_plans', (select json_agg(plan ->> 'plan_file_id') from jsonb_array_elements(r.manifest -> 'plans') plan))
     order by r.created_at), '[]'::json) from public.takeoff_launch_requests r where r.project_id = '${projectId}';`);

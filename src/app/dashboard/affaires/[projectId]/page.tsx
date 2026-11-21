@@ -115,8 +115,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const initialDataPromise = fetchAffaireHubCoreData(projectId, timelinePage);
   const marginAnalysisPromise = fetchAffaireHubMarginCardData(projectId);
   const takeoffEnabledPromise = isTakeoffEnabled(tenantId);
-  // Told at the brief's confirmation to the member whose subscription the automatic takeoff will use.
-  const automaticTakeoffPayerNoticePromise = readAffaireAutomaticTakeoffPayerNotice(projectId);
   const takeoffDataPromise = takeoffEnabledPromise.then(
     (enabled) =>
       enabled
@@ -380,7 +378,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     preferences: effectiveCockpitPreferences,
   });
 
-  const automaticTakeoffPayerNotice = devHubScenario ? null : await automaticTakeoffPayerNoticePromise;
+  // The payer notice only for a brief to confirm, the one dialog that shows it.
+  const automaticTakeoffPayerNotice = devHubScenario || intakeWorkspace?.briefDraft?.status !== "a_confirmer" ? null
+    : await readAffaireAutomaticTakeoffPayerNotice(projectId);
 
   return (
     <AffaireHub

@@ -438,9 +438,15 @@ export function BriefDraftCard({
     }
     startTransition(async () => {
       try {
-        await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, payerNotice: payerNotice?.digest ?? null });
-        setAnnouncement("Brief confirmé.");
-        toast.success({ title: "Brief confirmé." });
+        const result = await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, payerNotice: payerNotice?.digest ?? null });
+        // What the confirmation did with the affaire's takeoff: why it waits, and the gesture it now offers this member.
+        const takeoff = result?.takeoff;
+        const takeoffNotice = takeoff?.message
+          ? [takeoff.message, takeoff.actionLabel ? `Action possible dans les options du métré : « ${takeoff.actionLabel} ».` : null]
+            .filter(Boolean).join(" ")
+          : null;
+        setAnnouncement(takeoffNotice ? `Brief confirmé. ${takeoffNotice}` : "Brief confirmé.");
+        toast.success({ title: "Brief confirmé.", ...(takeoffNotice ? { description: takeoffNotice } : {}) });
         router.refresh();
       } catch (err) {
         toast.error({

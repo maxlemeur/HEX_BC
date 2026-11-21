@@ -94,11 +94,7 @@ export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProb
  * `compileTakeoffRoutes` takes one more beforeAll per wave of TAKEOFF_JOURNEY_WAVES, after `start`: every hook has
  * its own time limit, and one hook cannot hold them all (compileChatGptRoutes).
  */
-/**
- * `launchConsumer`: this server runs the periodic consumer of launch requests (launch-request-consumer.ts), which the
- * campaign's blocked workers otherwise keep off; it acts only while a journey sets both cut-offs of the automatic start.
- */
-export function chatGptLocalServer(options: { launchConsumer?: boolean } = {}) {
+export function chatGptLocalServer() {
   let localServer: ChildProcess | undefined;
   let localOrigin: string | undefined;
   let ownerEmail: string | undefined;
@@ -151,7 +147,6 @@ export function chatGptLocalServer(options: { launchConsumer?: boolean } = {}) {
         TAKEOFF_LAB_DATASET_DIR: labDatasetDir, TAKEOFF_LAB_OUTPUT_DIR: labOutputDir,
         // The assistant (ASSIST01) exists only where it is switched on, beside the linked ChatGPT plan.
         MERGEONE_ASSISTANT: "1",
-        ...(options.launchConsumer ? { E2E_ARMY_LAUNCH_CONSUMER: "1" } : {}),
         ...(!liveProbe ? { MERGEONE_OPENAI_DECISIONS: "1", MERGEONE_TAKEOFF_DECISIONS: "1", OPENAI_DECISIONS_API_KEY: "army-decisions-fixture", ARMY_DECISIONS_CONTROL: decisionsControl } : {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });

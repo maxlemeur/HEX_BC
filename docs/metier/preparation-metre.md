@@ -96,7 +96,13 @@ la base en garantit l’unicité et l’admission (migration
   serveur (qui écrit aussi l’événement du brief et le mandat), ou toute autre
   confirmation, qui la réserve sans mandat, en attente d’un geste. L’activation
   demande les deux dates (démarrage automatique et avis de fin d’analyse) : avec
-  une seule, rien de nouveau n’est écrit. L’analyse démarre quand le dossier est « Dossier
+  une seule, rien de nouveau n’est écrit. Le module du métré coupé, rien n’est
+  réservé, évalué, admis ni payé (la base en décide, avec le réglage par défaut
+  du serveur). Seuls le propriétaire de l’affaire et un administrateur ou un
+  directeur confirment le brief (comme la règle du brief publiée) ; un brief sans
+  pièce déposée, ou rattaché au dépôt d’une autre affaire, se confirme, son
+  événement restant dans sa propre affaire. La même confirmation renvoyée après
+  une réponse perdue retrouve sa demande. L’analyse démarre quand le dossier est « Dossier
   confirmé » (même règle que le titre du parcours : pièces présentes, aucune à
   revoir ni en classement, brief confirmé), que le classement finisse avant ou
   après la confirmation. Il n’y a qu’une demande automatique, pour toute la vie
@@ -142,20 +148,24 @@ la base en garantit l’unicité et l’admission (migration
   cours sur l’affaire) sont réessayées par le Mac.
 - **Une seule demande admise à la fois par affaire.** Une relance pendant
   l’exécution renvoie l’analyse en cours. Une relance admise met de côté, pour
-  de bon, un démarrage automatique qui n’avait pas commencé : ni une nouvelle
-  confirmation ni une prise en charge ne le réarment ; une nouvelle analyse est
-  une relance. Le job d’une demande en cours ne peut pas être supprimé.
+  de bon (un état final), un démarrage automatique qui n’avait pas commencé : ni
+  une nouvelle confirmation ni une prise en charge ne le réarment ; une nouvelle
+  analyse est une relance, et l’affaire montre la relance, jamais le démarrage mis
+  de côté. Le job d’une demande en cours ne peut pas être supprimé.
 - **Une demande qui attend son Mac** (évaluation à faire, dossier modifié depuis,
   cause passagère à réessayer) depuis plus de quinze minutes peut être reprise
   par son payeur ou prise en charge par un autre opérateur. Trois vérifications
   du dossier qui échouent de suite la bloquent avec ce motif jusqu’à un geste.
 - **Budget.** La demande scelle à son admission le budget par job de la lecture
-  détaillée de l’entreprise (jetons et coût). Les jetons et le coût de chaque
-  tentative de ses jobs, échouées comprises, sont cumulés sur la demande ; chaque
-  tentative payante n’a que ce qui reste, et une demande dont le budget est épuisé
-  s’arrête avant tout appel et se ferme avec ce motif (« Métré arrêté — le budget
-  de cette analyse est épuisé »). Le lot 3 le répartira par plan. Les appels des
-  groupes vectoriels ne sont pas encore comptés.
+  détaillée de l’entreprise (jetons et coût). Chaque appel payant de ses jobs
+  (lecture détaillée et groupes vectoriels, réponse illisible comprise) est
+  inscrit par le worker, sous le bail de la tentative, juste après la réponse, dans
+  un registre que lui seul écrit ; une inscription impossible arrête l’analyse.
+  Avant chaque appel payant de tout job, la base vérifie le module, que son
+  créateur peut toujours lancer sur l’affaire et, pour une demande, qu’il reste du
+  budget ; chaque tentative de lecture n’a que ce qui reste. Un dépassement du
+  budget de la lecture ou de la demande la ferme avec ce motif (« Métré arrêté — le
+  budget de cette analyse est épuisé »). Le lot 3 scellera un budget par plan.
 - **Fin.** La fin enregistrée du job ferme la demande et publie un seul avis et
   un seul courriel à son payeur ; les jobs d’une demande ne publient pas d’avis
   propre. Un job jamais pris en charge est clos par la reprise des métrés en attente, et la
@@ -164,11 +174,13 @@ la base en garantit l’unicité et l’admission (migration
   l’admission est signalé sur l’affaire ; rien n’est relancé sans un geste.
 - **Relancer** crée une nouvelle demande manuelle, un nouveau job et un lien vers
   l’analyse qu’elle remplace (obligatoire), sur le forfait du membre qui clique,
-  qui en reçoit la fin. Sa clé est enregistrée avec chaque réponse et répondue
-  avant toute autre vérification : un double clic ou un rejeu reçoit la même
-  réponse, même si la préparation a changé depuis ; une relance refusée parce
-  qu’une autre analyse tournait reste refusée, sans job payant ; la même clé pour
-  une autre commande est refusée. Le module du métré désactivé refuse la relance,
+  qui en reçoit la fin. Son reçu (la clé, la commande : membre, intention,
+  analyse remplacée, jeu de plans et révision de la préparation, et sa réponse)
+  est tenu à part des demandes et répondu avant toute autre vérification : un
+  double clic ou un rejeu reçoit la même réponse, même si la préparation a changé
+  depuis ; une relance refusée parce qu’une autre analyse tournait reste refusée,
+  avec l’analyse qu’elle a trouvée, sans job payant ; la même clé pour une autre
+  commande est refusée. Le module du métré désactivé refuse la relance,
   la prise en charge et la reprise.
 - **Avant chaque appel payant**, le worker vérifie que le payeur peut toujours
   lancer un métré sur l’affaire. Un membre rétrogradé après avoir mis une analyse

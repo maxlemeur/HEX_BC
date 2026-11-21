@@ -64,6 +64,24 @@ returns table (outcome text, request_id uuid, state text, reason_code text, paye
     pg_temp.selection(), null, false) c
 $$;
 
+-- What the server seals for affaire n's plan (its manifest, the snapshot of member 1, the job).
+create function pg_temp.seal(n integer, revision integer default 1) returns table (manifest jsonb, snapshot jsonb, job jsonb) language sql as $$
+  select jsonb_build_object('format_version', 1, 'intent', 'initial', 'order', jsonb_build_object('kind', 'free_extraction', 'version', 1, 'list', null),
+      'units', jsonb_build_array(jsonb_build_object('key', 'grouped', 'plans', jsonb_build_array(f.id))),
+      'plans', jsonb_build_array(jsonb_build_object('entry_key', f.id, 'plan_file_id', f.id, 'pages', '[]'::jsonb)),
+      'budget', jsonb_build_object('tokens', 1000, 'cost_cents', 10)),
+    jsonb_build_object('schema_version', 1, 'preparation_revision', revision, 'confirmed_by', pg_temp.f(1), 'confirmed_at', '2026-11-21T08:00:00Z',
+      'execution_selection', pg_temp.selection(),
+      'readiness', jsonb_build_object('status', 'ready', 'can_launch', true, 'blockers', '[]'::jsonb, 'reservations', '[]'::jsonb),
+      'preparation', jsonb_build_object('schema_version', 1, 'destination', '{"kind":"analysis_only","estimate_version_id":null}'::jsonb,
+        'processing', '{"level":"C","provider":"chatgpt"}'::jsonb, 'sources', jsonb_build_array(jsonb_build_object('document_id', f.id,
+          'kind', 'plan', 'active', true, 'confirmed', true, 'plan_set_id', f.plan_set_id, 'file_path', f.file_path,
+          'page_count', f.page_count, 'source_updated_at', f.updated_at)))),
+    jsonb_build_object('id', pg_temp.f(80 + n), 'plan_set_id', f.plan_set_id, 'source_file_name', f.file_name, 'source_file_type', 'application/pdf',
+      'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', pg_temp.host())
+  from public.plan_files f where f.id = pg_temp.f(60 + n)
+$$;
+
 -- 1. One rule for who confirms and who pays, on the locked rows: an engineer who neither owns the affaire nor
 -- administers it may not confirm it through the server (as the released brief policy refuses it); an archived affaire
 -- is confirmed by its owner, who pays nothing.
@@ -116,6 +134,20 @@ select results_eq($$select c.outcome, c.state from public.confirm_affaire_brief_
   pg_temp.brief_at(29), null, pg_temp.host(), pg_temp.selection(), null, true) c$$, $$values ('replayed'::text, null::text)$$,
   'a replay with the module on by default still finds no request: the brief was confirmed while it was off');
 select is(public.takeoff_launch_is_active(), true, 'the activation is one boolean the server reads');
+select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(11), pg_temp.f(29), pg_temp.f(6), gen_random_uuid(),
+  'initial', null, pg_temp.host(), pg_temp.selection(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, pg_temp.f(59), 1, false)$$,
+  '55000', 'TAKEOFF_LAUNCH_MODULE_DISABLED', 'with the module off a relaunch is refused');
+-- The module turned off while the Mac reads the dossier: nothing more is claimed, and the admission refuses.
+create temp table module_claim as select * from public.claim_takeoff_launch_evaluations(pg_temp.host(), pg_temp.f(98), 20)
+  where request_id = pg_temp.request(26);
+select is((select count(*)::integer from module_claim), 1, 'the Mac claims the mandated request of the sixth affaire');
+update public.feature_flags set enabled = false where tenant_id = pg_temp.f(10) and flag_key = 'TAKEOFF_MODULE_ENABLED';
+select is((select count(*)::integer from public.claim_takeoff_launch_evaluations(pg_temp.host(), gen_random_uuid(), 20)), 0,
+  'with the module off a Mac claims nothing');
+select results_eq($$select a.outcome, a.reason_code from pg_temp.seal(6) s cross join lateral public.admit_takeoff_launch_request(
+  pg_temp.request(26), pg_temp.f(98), (select mark from module_claim), s.manifest, s.snapshot, s.job) a$$,
+  $$values ('blocked'::text, 'TAKEOFF_DISABLED'::text)$$, 'and the admission refuses, visibly');
+update public.feature_flags set enabled = true where tenant_id = pg_temp.f(10) and flag_key = 'TAKEOFF_MODULE_ENABLED';
 
 -- 5. A set-aside start is terminal, and the receipts of commands are apart from the requests.
 select results_eq($$select state, reason_code from pg_temp.confirm(27, 3)$$, $$values ('blocked'::text, 'OPERATOR_REQUIRED'::text)$$,
@@ -124,22 +156,6 @@ set local session_replication_role = replica;
 insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by)
 values (pg_temp.f(77), pg_temp.f(10), pg_temp.f(27), pg_temp.f(57), 'C', 'completed', pg_temp.f(1));
 set local session_replication_role = origin;
-create function pg_temp.seal(n integer, revision integer default 1) returns table (manifest jsonb, snapshot jsonb, job jsonb) language sql as $$
-  select jsonb_build_object('format_version', 1, 'intent', 'initial', 'order', jsonb_build_object('kind', 'free_extraction', 'version', 1, 'list', null),
-      'units', jsonb_build_array(jsonb_build_object('key', 'grouped', 'plans', jsonb_build_array(f.id))),
-      'plans', jsonb_build_array(jsonb_build_object('entry_key', f.id, 'plan_file_id', f.id, 'pages', '[]'::jsonb)),
-      'budget', jsonb_build_object('tokens', 1000, 'cost_cents', 10)),
-    jsonb_build_object('schema_version', 1, 'preparation_revision', revision, 'confirmed_by', pg_temp.f(1), 'confirmed_at', '2026-11-21T08:00:00Z',
-      'execution_selection', pg_temp.selection(),
-      'readiness', jsonb_build_object('status', 'ready', 'can_launch', true, 'blockers', '[]'::jsonb, 'reservations', '[]'::jsonb),
-      'preparation', jsonb_build_object('schema_version', 1, 'destination', '{"kind":"analysis_only","estimate_version_id":null}'::jsonb,
-        'processing', '{"level":"C","provider":"chatgpt"}'::jsonb, 'sources', jsonb_build_array(jsonb_build_object('document_id', f.id,
-          'kind', 'plan', 'active', true, 'confirmed', true, 'plan_set_id', f.plan_set_id, 'file_path', f.file_path,
-          'page_count', f.page_count, 'source_updated_at', f.updated_at)))),
-    jsonb_build_object('id', pg_temp.f(80 + n), 'plan_set_id', f.plan_set_id, 'source_file_name', f.file_name, 'source_file_type', 'application/pdf',
-      'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', pg_temp.host())
-  from public.plan_files f where f.id = pg_temp.f(60 + n)
-$$;
 create function pg_temp.relaunch(key integer, revision integer, intent text default 'reread_plans', predecessor uuid default pg_temp.f(77))
 returns table (outcome text, request_id uuid, job_id uuid) language sql as $$
   select r.outcome, r.request_id, r.job_id from pg_temp.seal(7, revision) s cross join lateral public.launch_manual_takeoff_request(
