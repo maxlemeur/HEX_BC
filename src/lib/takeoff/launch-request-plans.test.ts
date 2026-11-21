@@ -117,4 +117,12 @@ describe("the coverage of a request", () => {
     expect(describeTakeoffRequestEnd({ outcome: "failure", expected: 2, read: 0, failed: 1, notStarted: 1, canceled: 0, stopped: false }))
       .toBe("Aucun des 2 plans n’a pu être lu.");
   });
+
+  // A plan that failed, or never started, before a member stopped the rest was not stopped at their request.
+  it("tells the plans a member stopped apart from those that failed or never started before the stop", () => {
+    expect(describeTakeoffRequestEnd({ outcome: "partial", expected: 3, read: 1, failed: 1, notStarted: 0, canceled: 1, stopped: true }))
+      .toBe("1 plan disponible, 1 arrêté à votre demande, 1 en échec.");
+    expect(describeTakeoffRequestEnd({ outcome: "partial", expected: 5, read: 2, failed: 0, notStarted: 1, canceled: 2, stopped: true }))
+      .toBe("2 plans disponibles, 2 arrêtés à votre demande, 1 non démarré.");
+  });
 });
