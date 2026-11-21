@@ -78,6 +78,8 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId:
   mode: "success" | "transient" | "terminal" | "hold" | "crash-after-result" = "success",
   options: { vectors?: boolean; rules?: boolean; owner?: WorkerOwner;
     trigger?: "retry"; mailCollector?: string;
+    /** The affaire has no estimate version at all when the worker starts (the journeys of an affaire without one). */
+    affaireWithoutVersion?: boolean;
     providerItems?: Array<{ designation: string; quantity: number; unit: string; source_page: number; confidence: number; evidence: string }> } = {}) {
   const ownsScope = ids.versionId === null
     ? ui.army.ownedTakeoffAffaires?.includes(ids.projectId)
@@ -95,6 +97,7 @@ export function startOwnedWorker(ui: WorkerUi, ids: OwnedEstimate | { projectId:
     MERGEONE_TAKEOFF_VECTORS: options.vectors ? "1" : "0",
     MERGEONE_TAKEOFF_RULES: options.rules ? "1" : "0",
     ...(options.trigger ? { ARMY_TAKEOFF_WORKER_TRIGGER: options.trigger } : {}),
+    ...(options.affaireWithoutVersion ? { ARMY_TAKEOFF_AFFAIRE_WITHOUT_VERSION: "1" } : {}),
     ...(options.mailCollector ? {
       E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN: options.mailCollector,
       RESEND_BASE_URL: options.mailCollector, RESEND_API_KEY: "LOCAL_ONLY_INVALID_RESEND_SENTINEL",

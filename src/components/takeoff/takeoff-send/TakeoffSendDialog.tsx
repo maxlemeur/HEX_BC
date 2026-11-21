@@ -262,6 +262,26 @@ function TakeoffSendScreen({ open, jobId, isAdmin, jobLevel, targetedReviewHref,
   );
 }
 
+/** What the controls between takeoffs say for this destination, each one evaluated or not as it ran. */
+function crossTakeoffSummary(data: TakeoffSendPreviewResponse) {
+  const { controls } = data;
+  if (controls.cross_takeoff === null) {
+    return "Doublons et couverture entre métrés : comparaison au devis disponible à l’envoi, une fois la destination choisie.";
+  }
+  const where = controls.evaluated_for === "existing_draft" ? "avec les métrés de ce brouillon"
+    : controls.evaluated_for === "version_copy" ? "avec les métrés de la version copiée"
+      : "pour ce nouveau devis, qui ne porte encore aucun autre métré";
+  const { duplicates, coverage } = controls.cross_takeoff;
+  if (duplicates === coverage) {
+    return duplicates === "evaluated" ? `Doublons et couverture entre métrés : vérifiés ${where}.`
+      : "Doublons et couverture entre métrés : non évalués : aucune ligne de ce métré ne porte les repères qu’ils comparent.";
+  }
+  const notEvaluated = "non évaluée : aucune ligne de ce métré ne porte les repères qu’elle compare";
+  return duplicates === "evaluated"
+    ? `Doublons entre métrés : vérifiés ${where}. Couverture entre métrés : ${notEvaluated}.`
+    : `Couverture entre métrés : vérifiée ${where}. Doublons entre métrés : non évalués : aucune ligne de ce métré ne porte les repères qu’ils comparent.`;
+}
+
 function SendPreviewBody({ data, headline, disabled, onDestinationChange, onSectionChange }: {
   data: TakeoffSendPreviewResponse;
   headline: string | null;
@@ -311,17 +331,7 @@ function SendPreviewBody({ data, headline, disabled, onDestinationChange, onSect
             {data.section.kind === "new" ? `Section proposée : « ${data.section.title} », créée à la confirmation.` : `Section : ${data.section.title}`}
           </p>
         ) : null}
-        <p className="text-sm text-muted-foreground">
-          Doublons et couverture entre métrés : {data.controls.not_evaluated_reason === "no_rule_inputs"
-            ? "non évalués : aucune ligne de ce métré ne porte les repères qu’ils comparent."
-            : data.controls.evaluated_for === null
-            ? "comparaison au devis disponible à l’envoi, une fois la destination choisie."
-            : data.controls.evaluated_for === "existing_draft"
-              ? "vérifiés avec les métrés de ce brouillon."
-              : data.controls.evaluated_for === "version_copy"
-                ? "vérifiés avec les métrés de la version copiée."
-                : "vérifiés pour ce nouveau devis, qui ne porte encore aucun autre métré."}
-        </p>
+        <p className="text-sm text-muted-foreground">{crossTakeoffSummary(data)}</p>
       </section>
 
       {data.blocked ? <Alert variant={data.blocked.reason === "choose_destination" ? "info" : "warning"}>{data.blocked.message}</Alert> : null}

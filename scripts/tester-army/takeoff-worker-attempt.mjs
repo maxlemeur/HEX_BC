@@ -55,6 +55,11 @@ if (versionId !== null) {
   assert.equal(version.data.project_id, projectId);
   assert.equal(version.data.tenant_id, tenantId);
   assert.equal(version.data.calc_engine_version, 2, "Positive worker journeys require an actual compatible v2.");
+} else if (process.env.ARMY_TAKEOFF_AFFAIRE_WITHOUT_VERSION === "1") {
+  // The journeys of an affaire without an estimate (TKAW01, TKAW02) begin without any version at all.
+  const versions = await user.from("estimate_versions").select("id", { count: "exact", head: true }).eq("project_id", projectId);
+  assert.equal(versions.error, null);
+  assert.equal(versions.count, 0, "An affaire-only test must begin without any estimate version.");
 }
 // An affaire-level job is read without touching any estimate: the affaire's versions and their lines, as they are before
 // the run (none for an affaire without a version; lot 2 M2 sends later takeoffs to the drafts an earlier send created),

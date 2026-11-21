@@ -3,6 +3,9 @@
 -- anything else; a request keeps the meaning it was staged with; the mapping rules and the destination's takeoffs are
 -- read again under the locks; the receipt names every line created, changed or removed and the real target of each part;
 -- a replay checks the caller's current rights and the confirmed fingerprint; plan A then plan B add up on both engines.
+-- Fix round 2 (red on 2ad71cfb): an expired lease of another member refused the preview (11); a preview left its staged
+-- command behind and a refused one raised instead of answering (12); a free unit of an engine 2 line was shown as a
+-- pricing status (13).
 -- Isolation justified: the rolled-back run, the comparison under the locks, the staging, the receipt and the replay are
 -- database contracts no journey can force deterministically. Written before the change: red on 986aea27 (no dry run, no
 -- outcome, no stamp of the mapping rules nor of the linked takeoffs, the staging overwritten, accumulation on engine 3
@@ -177,8 +180,8 @@ create function pg_temp.dry(p_name text) returns jsonb language plpgsql as $$
 declare
   answer jsonb := pg_temp.run((select body from commands where name = p_name) || jsonb_build_object('request_id', gen_random_uuid()));
 begin
-  if answer ->> 'dry_run' is distinct from 'true' then
-    raise exception 'not a dry run: %', answer;
+  if answer ->> 'dry_run' is distinct from 'true' or answer ? 'error' then
+    raise exception 'not a preview: %', answer;
   end if;
   return answer -> 'outcome';
 end;
@@ -479,6 +482,84 @@ update public.takeoff_items set updated_at = updated_at + interval '1 second' wh
 set local session_replication_role = origin;
 select isnt(public.takeoff_send_peers_stamp(pg_temp.fx(10), (select copy_id from carried)), (select stamp from peers_before),
   'an edit of a carried-over takeoff changes the stamp a send to the copy is checked against');
+
+-- A call of the command as the member's session makes it, its refusal kept as an answer (a preview answers its refusals,
+-- a send raises them).
+create function pg_temp.answer(p_body jsonb) returns jsonb language plpgsql as $$
+begin
+  return pg_temp.run(p_body);
+exception when others then
+  return jsonb_build_object('raised', sqlerrm);
+end;
+$$;
+-- A takeoff of one more washbasin on a third plan of affaire 23, to be previewed to its draft V1 (130).
+select pg_temp.plan(48, 58, 23, 10);
+select pg_temp.prepare(23, 10, 1, 58, 3);
+select pg_temp.admit(72, 23, 48, 10, 1);
+select pg_temp.measure(94, 72, 10, 58, 'Lavabo', 1, 'u');
+insert into commands values ('to-130', pg_temp.command(72, pg_temp.draft(130), pg_temp.existing_section(131)));
+
+-- 11. An expired lease of another member does not refuse the preview: it is cleaned up, as the editor's acquisition
+-- cleans expired leases first.
+delete from public.draft_locks where version_id = pg_temp.fx(130);
+insert into public.draft_locks(version_id, user_id, tenant_id, expires_at, session_id)
+values (pg_temp.fx(130), pg_temp.fx(2), pg_temp.fx(10), now() - interval '1 minute', gen_random_uuid());
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table expired_answer as
+select pg_temp.answer((select body from commands where name = 'to-130') || jsonb_build_object('request_id', pg_temp.fx(150))) as body;
+reset role;
+select is((select coalesce(body ->> 'raised', body #>> '{error,message}') from expired_answer), null,
+  'a draft whose only lease expired is previewed');
+select results_eq($$select line ->> 'change', line ->> 'title', (line ->> 'quantity')::numeric
+  from expired_answer cross join jsonb_array_elements(body #> '{outcome,lines}') as line$$,
+  $$values ('created'::text, 'Lavabo'::text, 1::numeric)$$, 'and shows its outcome');
+select is((select count(*) from public.draft_locks where version_id = pg_temp.fx(130)), 1::bigint,
+  'the preview changed nothing: the expired lease is cleaned up by the editor''s next acquisition, not by a preview');
+
+-- 12. A preview leaves nothing: its staged command goes in the transaction that answers it, whether it shows an outcome
+-- or a refusal; a refusal is an answer, not a database error.
+delete from public.draft_locks where version_id = pg_temp.fx(130);
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table left_answer as
+select pg_temp.answer((select body from commands where name = 'to-130') || jsonb_build_object('request_id', pg_temp.fx(151))) as body;
+reset role;
+select is((select body #>> '{outcome,lines,0,title}' from left_answer), 'Lavabo', 'the preview shows its outcome');
+select is((select count(*) from private.takeoff_send_commands where request_id = pg_temp.fx(151)), 0::bigint,
+  'and leaves no staged command');
+insert into public.draft_locks(version_id, user_id, tenant_id, expires_at, session_id)
+values (pg_temp.fx(130), pg_temp.fx(2), pg_temp.fx(10), now() + interval '30 minutes', gen_random_uuid());
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table refused_answer as
+select pg_temp.answer((select body from commands where name = 'to-130') || jsonb_build_object('request_id', pg_temp.fx(152))) as body;
+reset role;
+select results_eq($$select body ->> 'dry_run', body #>> '{error,message}', body ->> 'raised' from refused_answer$$,
+  $$values ('true'::text, 'TAKEOFF_SEND_DRAFT_LOCKED'::text, null::text)$$,
+  'a draft open by another member is refused by an answer of the preview');
+select is((select count(*) from private.takeoff_send_commands where request_id = pg_temp.fx(152)), 0::bigint,
+  'the refused preview leaves no staged command either');
+delete from public.draft_locks where version_id = pg_temp.fx(130);
+
+-- 13. On engine 2 a line keeps its unit in its description: a free unit (sand in bags) is shown as stored.
+select pg_temp.plan(49, 59, 22, 12);
+select pg_temp.prepare(22, 12, 6, 59, 3);
+select pg_temp.admit(73, 22, 49, 12, 6);
+select pg_temp.measure(95, 73, 12, 59, 'Sable', 3, 'sac');
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches,
+  pg_temp._takeoff_apply_unmatched;
+insert into commands values ('sand', pg_temp.command(73, pg_temp.draft(120), pg_temp.existing_section(121)));
+select pg_temp.sign_in(6);
+set local role authenticated;
+create temp table sand_shown as select pg_temp.dry('sand') as outcome;
+select lives_ok($$select pg_temp.confirm('sand', (select outcome from sand_shown))$$, 'the bags of sand are sent to the engine 2 draft');
+reset role;
+select results_eq($$select line ->> 'title', line ->> 'unit' from sand_shown cross join jsonb_array_elements(outcome -> 'lines') as line$$,
+  $$values ('Sable'::text, 'sac'::text)$$, 'the preview shows the free unit of the line');
+select is((select description from public.estimate_items where version_id = pg_temp.fx(120) and title = 'Sable'),
+  (select line ->> 'unit' from sand_shown cross join jsonb_array_elements(outcome -> 'lines') as line),
+  'what is shown is what the line stores');
 
 select * from finish();
 rollback;

@@ -5,6 +5,12 @@
 -- screen refuses it before sending (merge-overwrites.ts); v0.7.0's wizard still offers it, and would receive a 409
 -- « Conflit lors de l'application du job takeoff. » with nothing applied. Deploy v0.8.0 or later before applying this
 -- migration. Drain the takeoff application requests (« Envoyer au tableau de chiffrage ») while it is applied.
+-- Applying it takes locks on existing tables: the foreign keys of its new tables lock takeoff_jobs, estimate_versions,
+-- estimate_projects and tenants (SHARE ROW EXCLUSIVE), and its replaced read policy of takeoff_jobs locks that table
+-- (ACCESS EXCLUSIVE). Any transaction open on them — a save in the estimate editor, a takeoff worker writing its result,
+-- a recovery or a send — makes it wait, at most 5 s (lock_timeout), then stop with 55P03: it then applies nothing and is
+-- run again. Draining the sends is not enough: apply it when no takeoff worker runs and nobody edits an estimate, and
+-- run it again if it stops (requests on takeoff_jobs wait behind it during those seconds).
 begin;
 
 set local lock_timeout = '5s';
@@ -1047,8 +1053,9 @@ $function$;
 -- session of the same actor. The rule results evaluated for the destination, the mapping plan, the accumulations and
 -- the outcome the member confirmed are the server's, never the browser's: an API caller of public.send_takeoff_job names
 -- a request it cannot have staged itself. A request keeps the command it was first staged with (another submission
--- under the same identity is refused); a staged command lives 15 minutes, and once its send committed the receipt
--- answers for it.
+-- under the same identity is refused); a confirmed command lives 15 minutes, and once its send committed the receipt
+-- answers for it. A preview's command goes with the call that answers it (public.send_takeoff_job deletes it in the
+-- transaction of its answer); one whose call never answered (cancelled) lives one minute and goes with the next staging.
 create table private.takeoff_send_commands (
   request_id uuid primary key,
   tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -1087,9 +1094,10 @@ begin
     'request_id', p_command -> 'request_id', 'job_id', p_command -> 'job_id', 'actor_id', p_actor_id,
     'client', p_command -> 'client')::text, 'UTF8')), 'hex');
   delete from private.takeoff_send_commands as expired where expired.expires_at < pg_catalog.statement_timestamp();
-  insert into private.takeoff_send_commands (request_id, tenant_id, job_id, actor_id, fingerprint, payload_hash, command)
+  insert into private.takeoff_send_commands (request_id, tenant_id, job_id, actor_id, fingerprint, payload_hash, command, expires_at)
   values ((p_command ->> 'request_id')::uuid, staged_job.tenant_id, staged_job.id, p_actor_id, p_command ->> 'fingerprint', hash,
-    p_command)
+    p_command, pg_catalog.statement_timestamp() + case when p_command ->> 'mode' = 'dry_run' then interval '1 minute'
+      else interval '15 minutes' end)
   on conflict (request_id) do nothing;
   -- The request was staged already: the same submission keeps its first command (a retry after a timeout runs what was
   -- confirmed then); any other submission under this identity is refused.
@@ -1133,13 +1141,29 @@ $$;
 revoke all on function public.takeoff_send_peers_stamp(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.takeoff_send_peers_stamp(uuid, uuid) to service_role;
 
+-- The unit of an estimate line as the line stores it, for the outcome a send is compared with: its unit code on engine 3,
+-- the free text of its description on engine 2 (where the unit is kept); a line without one is named by its pricing status.
+create function private.takeoff_send_line_unit(p_engine smallint, p_unit_code text, p_description text, p_pricing_status text)
+returns text language sql immutable set search_path = '' as $$
+  select case when p_engine = 3 then coalesce(p_unit_code, 'status:' || p_pricing_status)
+    else coalesce(nullif(pg_catalog.btrim(p_description), ''), p_unit_code, 'status:' || p_pricing_status) end
+$$;
+revoke all on function private.takeoff_send_line_unit(smallint, text, text, text) from public, anon, authenticated, service_role;
+
 -- 9. The send, run once by public.send_takeoff_job (and rolled back when the command is a dry run: the preview).
 --
 -- Lock order, one for every destination and shared with the import and the first creation of a version
 -- (persist_estimate_creation_atomic) and with the application (apply_takeoff_job_with_page_decisions): the tenant's
--- calculation policy (shared), the affaire's row, then for an existing draft its rule lock `takeoff-rules:<version>` and
--- its row, then the job's locks and row, then the tenant's mapping rules (shared), then the lines. The versions of the
--- affaire are compared only once its row is held, so no version is created after the comparison. Never the reverse.
+-- calculation policy (shared), the affaire's row, then for an existing draft its rule lock `takeoff-rules:<version>`, the
+-- estimate editor's lock of the draft (the key its lease acquisition takes before the version's row) and the version's
+-- row, then the job's locks and row, then the tenant's mapping rules (shared), then the lines. Never the reverse.
+-- The affaire's row is held FOR NO KEY UPDATE: two sends, and a send and the creation of a version (which holds it FOR
+-- UPDATE), wait for each other, and the versions of the affaire are compared only once it is held, so no version is
+-- created after the comparison; the key-share locks of foreign keys to the affaire (the notice of an analysis that ends,
+-- whose worker holds the version's rule lock; this send's own receipt) are not blocked by it. A preview of an existing
+-- draft creates no version and holds the affaire FOR SHARE, as the editor's saves read it, so that it never makes a save
+-- fail; a preview of a new version holds it as the send does. The version's row is held FOR NO KEY UPDATE (the send
+-- updates it, never its key): the foreign keys of the editor's lease and of new lines are not blocked by it.
 create function private.takeoff_send_execute(p_actor uuid, p_tenant uuid, p_role public.tenant_role, p_request uuid,
   p_command jsonb, p_dry_run boolean)
 returns jsonb
@@ -1179,9 +1203,15 @@ begin
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended('estimate-calc-policy:' || p_tenant::text, 0));
-  select * into project from public.estimate_projects as row_project
-  where row_project.id = job.project_id and row_project.tenant_id = p_tenant
-  for update;
+  if p_dry_run and kind = 'existing_draft' then
+    select * into project from public.estimate_projects as row_project
+    where row_project.id = job.project_id and row_project.tenant_id = p_tenant
+    for share;
+  else
+    select * into project from public.estimate_projects as row_project
+    where row_project.id = job.project_id and row_project.tenant_id = p_tenant
+    for no key update;
+  end if;
   if project.id is null or project.is_archived
     or (p_role <> 'admin'::public.tenant_role and project.user_id is distinct from p_actor) then
     raise exception 'TAKEOFF_SEND_PROJECT_NOT_WRITABLE' using errcode = '42501';
@@ -1189,10 +1219,24 @@ begin
   if kind = 'existing_draft' then
     target_version := (p_command #>> '{destination,version_id}')::uuid;
     perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || target_version::text, 0));
+    -- The editor's lock, in the editor's order: its lease acquisition takes this key, then the version's row through the
+    -- lease's foreign key (public.assign_draft_lock_tenant_id).
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(target_version::text, 0));
+    if p_dry_run then
+      -- As the editor's acquisition does first, expired leases go (here with the preview's rollback). A member who
+      -- edits the draft refuses the preview before it takes anything their saves need.
+      delete from public.draft_locks as expired
+      where expired.version_id = target_version and expired.tenant_id = p_tenant
+        and expired.expires_at <= pg_catalog.statement_timestamp();
+      if exists (select 1 from public.draft_locks as lock_row where lock_row.version_id = target_version
+        and lock_row.user_id <> p_actor and lock_row.expires_at > pg_catalog.statement_timestamp()) then
+        raise exception 'TAKEOFF_SEND_DRAFT_LOCKED' using errcode = '55P03';
+      end if;
+    end if;
     select version.calc_engine_version into target_engine from public.estimate_versions as version
     where version.id = target_version and version.tenant_id = p_tenant and version.project_id = job.project_id
       and version.status = 'draft'::public.estimate_status
-    for update;
+    for no key update;
     if not found then
       raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
         detail = pg_catalog.jsonb_build_object('reason', 'destination_changed')::text;
@@ -1329,26 +1373,23 @@ begin
   drop table if exists pg_temp._takeoff_send_before;
   create temporary table _takeoff_send_before on commit drop as
   select item.id, item.parent_id, item.title,
-    coalesce(item.unit_code, (private.normalize_unit(item.description)).unit_code, 'status:' || item.pricing_status::text) as unit,
+    private.takeoff_send_line_unit(target_engine, item.unit_code, item.description, item.pricing_status::text) as unit,
     item.quantity, item.unit_price_ht_cents, item.source_job_id, item.updated_at
   from public.estimate_items as item
   where item.version_id = target_version and item.tenant_id = p_tenant and item.item_type = 'line'::public.estimate_item_type;
 
   -- The application checks the actor's draft lock. A version created here has no other holder: its lock lives only in
   -- this transaction. An existing draft is locked by the actor before the send, as for any application; its dry run
-  -- borrows it for its rolled-back run unless another member is editing it.
+  -- uses the actor's lease as it is, or, when the draft has none (another member's refused the preview above, expired
+  -- ones went), takes one for its rolled-back run. No lease is ever changed.
   if version_created then
     insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
     values (target_version, p_actor, p_tenant, pg_catalog.statement_timestamp() + interval '5 minutes', gen_random_uuid())
     returning id into created_lock;
-  elsif p_dry_run then
-    if exists (select 1 from public.draft_locks as lock_row where lock_row.version_id = target_version
-      and lock_row.user_id <> p_actor and lock_row.expires_at > pg_catalog.statement_timestamp()) then
-      raise exception 'TAKEOFF_SEND_DRAFT_LOCKED' using errcode = '55P03';
-    end if;
+  elsif p_dry_run and not exists (select 1 from public.draft_locks as lock_row where lock_row.version_id = target_version
+    and lock_row.user_id = p_actor and lock_row.expires_at > pg_catalog.statement_timestamp()) then
     insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
-    values (target_version, p_actor, p_tenant, pg_catalog.statement_timestamp() + interval '5 minutes', gen_random_uuid())
-    on conflict (version_id) do update set user_id = excluded.user_id, expires_at = excluded.expires_at;
+    values (target_version, p_actor, p_tenant, pg_catalog.statement_timestamp() + interval '5 minutes', gen_random_uuid());
   end if;
 
   -- The historical receipt of a launch on a version (takeoff_jobs_prepared_plan_receipt_uidx) holds one job per version,
@@ -1518,7 +1559,7 @@ begin
   drop table if exists pg_temp._takeoff_send_after;
   create temporary table _takeoff_send_after on commit drop as
   select item.id, item.parent_id, item.title,
-    coalesce(item.unit_code, (private.normalize_unit(item.description)).unit_code, 'status:' || item.pricing_status::text) as unit,
+    private.takeoff_send_line_unit(target_engine, item.unit_code, item.description, item.pricing_status::text) as unit,
     item.quantity, item.unit_price_ht_cents, item.source_job_id,
     (select pg_catalog.jsonb_agg(output.value ->> 'takeoff_item_id' order by output.value ->> 'takeoff_item_id')
       from pg_catalog.jsonb_array_elements(links) as output(value)
@@ -1696,54 +1737,19 @@ revoke all on function private.takeoff_send_replay(public.takeoff_send_receipts,
 -- over to the destination) or any other outcome refuses the whole command with TAKEOFF_SEND_PREVIEW_STALE and nothing is
 -- written. A replay of the same request returns its receipt, to a caller who may still read it, for the fingerprint it
 -- was confirmed with.
-create function public.send_takeoff_job(p_request jsonb)
-returns jsonb
-language plpgsql security definer set search_path = '' as $$
+-- The staged command as public.send_takeoff_job admits it: its shape, no price effect, and the actor an operator of the
+-- tenant. Returns the actor's role; raises the refusal.
+create function private.takeoff_send_admitted_role(p_command jsonb, p_request uuid, p_job_id uuid, p_actor uuid, p_tenant uuid)
+returns public.tenant_role
+language plpgsql set search_path = '' as $$
 declare
-  actor uuid := (select auth.uid());
-  tenant uuid := (select public.current_tenant_id());
-  p_command jsonb;
-  staged private.takeoff_send_commands%rowtype;
-  request uuid;
-  target_job_id uuid;
-  receipt public.takeoff_send_receipts%rowtype;
   actor_role public.tenant_role;
-  dry_run boolean;
-  executed jsonb;
 begin
-  if actor is null or tenant is null then
-    raise exception 'TAKEOFF_SEND_AUTH_REQUIRED' using errcode = '42501';
-  end if;
-  if pg_catalog.jsonb_typeof(p_request) is distinct from 'object'
-    or p_request - array['request_id', 'job_id', 'fingerprint'] <> '{}'::jsonb
-    or coalesce(p_request ->> 'request_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    or coalesce(p_request ->> 'job_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    or coalesce(p_request ->> 'fingerprint', '') !~ '^[0-9a-f]{64}$' then
-    raise exception 'TAKEOFF_SEND_COMMAND_INVALID' using errcode = '22023';
-  end if;
-  request := (p_request ->> 'request_id')::uuid;
-  target_job_id := (p_request ->> 'job_id')::uuid;
-  select * into staged from private.takeoff_send_commands as command_row
-  where command_row.request_id = request and command_row.tenant_id = tenant and command_row.actor_id = actor
-    and command_row.job_id = target_job_id;
-
-  -- A replay of a committed command returns its receipt, to the member who sent it, for the fingerprint it was confirmed
-  -- with, while that member may still read it; the same request with other inputs is a conflict.
-  select * into receipt from public.takeoff_send_receipts as stored where stored.tenant_id = tenant and stored.request_id = request;
-  if found then
-    return private.takeoff_send_replay(receipt, actor, target_job_id, p_request ->> 'fingerprint', staged.payload_hash);
-  end if;
-  if staged.request_id is null or staged.fingerprint is distinct from p_request ->> 'fingerprint'
-    or staged.expires_at <= pg_catalog.statement_timestamp() then
-    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
-      detail = pg_catalog.jsonb_build_object('reason', 'command_not_staged')::text;
-  end if;
-  p_command := staged.command;
   if pg_catalog.jsonb_typeof(p_command) is distinct from 'object'
     or p_command - array['format_version', 'mode', 'request_id', 'job_id', 'fingerprint', 'client', 'destination', 'section',
       'expected', 'mapping_plan', 'page_decisions', 'rule_results', 'rule_transforms', 'accumulations', 'override',
       'price_rules_ignored', 'expected_outcome'] <> '{}'::jsonb
-    or p_command ->> 'request_id' is distinct from request::text or p_command ->> 'job_id' is distinct from target_job_id::text
+    or p_command ->> 'request_id' is distinct from p_request::text or p_command ->> 'job_id' is distinct from p_job_id::text
     or p_command -> 'format_version' is distinct from '1'::jsonb
     or (p_command ->> 'mode') is null or (p_command ->> 'mode') not in ('send', 'dry_run')
     or pg_catalog.jsonb_typeof(p_command -> 'destination') is distinct from 'object'
@@ -1794,25 +1800,87 @@ begin
   select membership.role into actor_role
   from public.tenant_memberships as membership
   join public.tenants as tenant_row on tenant_row.id = membership.tenant_id and tenant_row.is_active
-  where membership.tenant_id = tenant and membership.user_id = actor;
+  where membership.tenant_id = p_tenant and membership.user_id = p_actor;
   if actor_role is null or actor_role not in ('admin'::public.tenant_role, 'engineer'::public.tenant_role) then
     raise exception 'TAKEOFF_APPLY_OPERATOR_REQUIRED' using errcode = '42501';
   end if;
 
-  dry_run := (p_command ->> 'mode') = 'dry_run';
+  return actor_role;
+end;
+$$;
+revoke all on function private.takeoff_send_admitted_role(jsonb, uuid, uuid, uuid, uuid) from public, anon, authenticated, service_role;
+
+create function public.send_takeoff_job(p_request jsonb)
+returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  actor uuid := (select auth.uid());
+  tenant uuid := (select public.current_tenant_id());
+  p_command jsonb;
+  staged private.takeoff_send_commands%rowtype;
+  request uuid;
+  target_job_id uuid;
+  receipt public.takeoff_send_receipts%rowtype;
+  actor_role public.tenant_role;
+  dry_run boolean;
+  executed jsonb;
+  failure_code text;
+  failure_message text;
+  failure_detail text;
+begin
+  if actor is null or tenant is null then
+    raise exception 'TAKEOFF_SEND_AUTH_REQUIRED' using errcode = '42501';
+  end if;
+  if pg_catalog.jsonb_typeof(p_request) is distinct from 'object'
+    or p_request - array['request_id', 'job_id', 'fingerprint'] <> '{}'::jsonb
+    or coalesce(p_request ->> 'request_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    or coalesce(p_request ->> 'job_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    or coalesce(p_request ->> 'fingerprint', '') !~ '^[0-9a-f]{64}$' then
+    raise exception 'TAKEOFF_SEND_COMMAND_INVALID' using errcode = '22023';
+  end if;
+  request := (p_request ->> 'request_id')::uuid;
+  target_job_id := (p_request ->> 'job_id')::uuid;
+  select * into staged from private.takeoff_send_commands as command_row
+  where command_row.request_id = request and command_row.tenant_id = tenant and command_row.actor_id = actor
+    and command_row.job_id = target_job_id;
+  -- A preview's command does not outlive the call that answers it.
+  dry_run := staged.command ->> 'mode' is not distinct from 'dry_run';
   if dry_run then
-    -- The preview: the very send, in a block rolled back once it computed what it would leave.
-    begin
-      executed := private.takeoff_send_execute(actor, tenant, actor_role, request, p_command, true);
-      raise exception 'TAKEOFF_SEND_DRY_RUN_DONE' using errcode = 'P0001';
-    exception when raise_exception then
-      if sqlerrm <> 'TAKEOFF_SEND_DRY_RUN_DONE' then
-        raise;
-      end if;
-    end;
-    return pg_catalog.jsonb_build_object('dry_run', true, 'outcome', executed -> 'outcome');
+    delete from private.takeoff_send_commands as command_row where command_row.request_id = request;
   end if;
 
+  -- A replay of a committed command returns its receipt, to the member who sent it, for the fingerprint it was confirmed
+  -- with, while that member may still read it; the same request with other inputs is a conflict.
+  select * into receipt from public.takeoff_send_receipts as stored where stored.tenant_id = tenant and stored.request_id = request;
+  if found then
+    return private.takeoff_send_replay(receipt, actor, target_job_id, p_request ->> 'fingerprint', staged.payload_hash);
+  end if;
+  if staged.request_id is null or staged.fingerprint is distinct from p_request ->> 'fingerprint'
+    or staged.expires_at <= pg_catalog.statement_timestamp() then
+    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+      detail = pg_catalog.jsonb_build_object('reason', 'command_not_staged')::text;
+  end if;
+  p_command := staged.command;
+  if dry_run then
+    -- The preview: the very send, in a block rolled back once it computed what it would leave. Its lock waits are short
+    -- (the estimate being saved or another send of it answers « busy », never a database error), and every refusal is an
+    -- answer: the transaction that answers it deletes its staged command (above), which a raised refusal would keep.
+    begin
+      actor_role := private.takeoff_send_admitted_role(p_command, request, target_job_id, actor, tenant);
+      perform pg_catalog.set_config('lock_timeout', '2s', true);
+      executed := private.takeoff_send_execute(actor, tenant, actor_role, request, p_command, true);
+      raise exception 'TAKEOFF_SEND_DRY_RUN_DONE' using errcode = 'P0001';
+    exception when others then
+      get stacked diagnostics failure_code = returned_sqlstate, failure_message = message_text, failure_detail = pg_exception_detail;
+      if failure_message = 'TAKEOFF_SEND_DRY_RUN_DONE' then
+        return pg_catalog.jsonb_build_object('dry_run', true, 'outcome', executed -> 'outcome');
+      end if;
+      return pg_catalog.jsonb_build_object('dry_run', true, 'error', pg_catalog.jsonb_build_object('code', failure_code,
+        'message', failure_message, 'details', nullif(failure_detail, '')));
+    end;
+  end if;
+
+  actor_role := private.takeoff_send_admitted_role(p_command, request, target_job_id, actor, tenant);
   executed := private.takeoff_send_execute(actor, tenant, actor_role, request, p_command, false);
   if executed ? 'replay' then
     select * into receipt from public.takeoff_send_receipts as stored where stored.id = (executed ->> 'replay')::uuid;

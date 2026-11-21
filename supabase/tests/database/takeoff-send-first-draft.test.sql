@@ -2,7 +2,10 @@
 -- draft created by the confirmation. Isolation justified: the attachment permit, the rollback of a created version, the
 -- replay of a receipt, the writer's refusal of an ordinary line and the readers after the send are database contracts
 -- no journey can force deterministically. Races between two sessions are in takeoff-send-race.test.sql.
--- Written before the migration: red on ab72179d (public.send_takeoff_job does not exist). All values are fictional.
+-- Written before the migration: red on ab72179d (public.send_takeoff_job does not exist). Fix round 2: every refusal is
+-- asserted at the confirmation (send mode), after a preview that passed, the state or the confirmation changed in
+-- between; a refusal no preview can pass (its own check precedes the outcome) is asserted on the send mode directly, by
+-- its own message. All values are fictional.
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
@@ -225,20 +228,66 @@ begin
   execute format('set local role %I', caller);
 end;
 $$;
-create function pg_temp.send(p_name text) returns jsonb language plpgsql as $$
+-- The preview of a command: its dry run under a fresh identity, as the server runs it. It must show an outcome.
+create function pg_temp.preview(p_name text) returns jsonb language plpgsql as $$
 declare
-  previewed jsonb := (select body from commands where name = p_name) || jsonb_build_object('request_id', gen_random_uuid());
-  shown jsonb;
+  previewed jsonb := (select body from commands where name = p_name)
+    || jsonb_build_object('request_id', gen_random_uuid(), 'mode', 'dry_run', 'expected_outcome', null);
+  answer jsonb;
+begin
+  perform pg_temp.stage_body(previewed);
+  answer := public.send_takeoff_job(jsonb_build_object('request_id', previewed -> 'request_id', 'job_id', previewed -> 'job_id',
+    'fingerprint', previewed -> 'fingerprint'));
+  if answer ->> 'dry_run' is distinct from 'true' or answer ? 'error'
+    or jsonb_typeof(answer -> 'outcome') is distinct from 'object' then
+    raise exception 'the preview showed no outcome: %', answer;
+  end if;
+  return answer -> 'outcome';
+end;
+$$;
+-- The confirmation of an outcome: the command in send mode, staged and sent by its request identity.
+create function pg_temp.confirm(p_name text, p_outcome jsonb) returns jsonb language plpgsql as $$
+begin
+  update commands set body = body || jsonb_build_object('mode', 'send', 'expected_outcome', p_outcome) where name = p_name;
+  perform pg_temp.stage(p_name);
+  return public.send_takeoff_job(pg_temp.request(p_name));
+end;
+$$;
+-- The preview, then the confirmation of what it showed; a confirmed command is sent again as it is (a replay).
+create function pg_temp.send(p_name text) returns jsonb language plpgsql as $$
 begin
   if (select body ->> 'mode' from commands where name = p_name) = 'dry_run' then
-    perform pg_temp.stage_body(previewed);
-    shown := public.send_takeoff_job(jsonb_build_object('request_id', previewed -> 'request_id', 'job_id', previewed -> 'job_id',
-      'fingerprint', previewed -> 'fingerprint')) -> 'outcome';
-    update commands set body = body || jsonb_build_object('mode', 'send', 'expected_outcome', shown) where name = p_name;
+    return pg_temp.confirm(p_name, pg_temp.preview(p_name));
   end if;
   perform pg_temp.stage(p_name);
   return public.send_takeoff_job(pg_temp.request(p_name));
 end;
+$$;
+-- The refusal of a statement as « SQLSTATE MESSAGE reason », or null when it passed (its writes are rolled back).
+create function pg_temp.refusal(p_sql text) returns text language plpgsql as $$
+declare
+  state text;
+  message text;
+  detail text;
+begin
+  execute p_sql;
+  return null;
+exception when others then
+  get stacked diagnostics state = returned_sqlstate, message = message_text, detail = pg_exception_detail;
+  return concat_ws(' ', state, message, case when detail ~ '^\{' then detail::jsonb ->> 'reason' end);
+end;
+$$;
+-- An outcome no preview showed, for the refusals that come before the outcome is compared.
+create function pg_temp.unseen() returns jsonb language sql immutable as $$
+  select '{"format_version": 1, "engine": 3, "sections_created": [], "lines": [], "parts": []}'::jsonb
+$$;
+-- A's WC evaluated for the destination by the preview (its cross-job control was deferred).
+create function pg_temp.wc_evaluated() returns jsonb language sql as $$
+  select jsonb_agg(jsonb_build_object('id', i.id, 'results', jsonb_build_array(jsonb_build_object(
+      'rule', 'zone_overlap', 'code', 'ZONE_OVERLAP_NONE', 'status', 'pass', 'version', 1, 'acceptable', false,
+      'reason', 'Aucun doublon avec les autres métrés du devis.')),
+    'expected_updated_at', i.updated_at, 'expected_stale_at', i.rules_stale_at))
+  from public.takeoff_items i where i.id = pg_temp.fixture(82)
 $$;
 create function pg_temp.counts(p_project integer) returns jsonb language sql as $$
   select jsonb_build_object(
@@ -317,22 +366,39 @@ reset role;
 delete from private.takeoff_send_commands where request_id = pg_temp.fixture(140);
 select is(pg_temp.counts(20), '{"versions":0,"lines":0,"receipts":0,"attached":0}'::jsonb, 'nothing was sent');
 
--- 2. A destination read before a version existed is stale once one exists; nothing is written by the refusal.
-insert into commands values ('stale', pg_temp.command(101, 61, pg_temp.first_draft(100), pg_temp.new_section(110)));
-update commands set body = jsonb_set(body, '{expected,versions}',
-  jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'status', 'draft', 'updated_at', now())))
-where name = 'stale';
+-- 2. A first draft previewed before a version existed is stale once one exists: its confirmation is refused, and the
+-- refusal writes nothing.
+insert into commands values ('stale', pg_temp.command(101, 61, pg_temp.first_draft(100), pg_temp.new_section(110),
+  p_rule_results => pg_temp.wc_evaluated()));
 select pg_temp.sign_in(1);
 set local role authenticated;
-select throws_ok($$select pg_temp.send('stale')$$, '40001', 'TAKEOFF_SEND_PREVIEW_STALE', 'a destination that changed is refused');
+create temp table stale_shown as select pg_temp.preview('stale') as outcome;
 reset role;
+select pg_temp.sign_out();
+insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
+  currency, status, margin_mode, margin_multiplier, margin_bp, global_coefficient, discount_bp, discount_mode, tax_rate_bp,
+  rounding_mode, rounding_step_cents, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents,
+  commercial_rounding_cents, total_ht_cents, total_tax_cents, total_ttc_cents)
+values (pg_temp.fixture(160), pg_temp.fixture(10), pg_temp.fixture(20), 1, 3, 3, 'EUR', 'draft', 'fixed', 1, 0, 1, 0,
+  'simple', 2000, 'none', 1, 1.3, 1.2, 0, 0, 0, 0, 0, 0);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.refusal($$select pg_temp.confirm('stale', (select outcome from stale_shown))$$),
+  '40001 TAKEOFF_SEND_PREVIEW_STALE destination_changed', 'a version created after the preview refuses its confirmation');
+reset role;
+delete from public.estimate_versions where id = pg_temp.fixture(160);
 select is(pg_temp.counts(20), '{"versions":0,"lines":0,"receipts":0,"attached":0}'::jsonb, 'a refused send writes nothing');
 
--- 3. A deferred control must be evaluated for the destination: without its results nothing is sent.
-insert into commands values ('deferred', pg_temp.command(102, 61, pg_temp.first_draft(100), pg_temp.new_section(110)));
+-- 3. A deferred control must be evaluated for the destination: a confirmation that arrives without the evaluation its
+-- preview made sends nothing.
+insert into commands values ('deferred', pg_temp.command(102, 61, pg_temp.first_draft(100), pg_temp.new_section(110),
+  p_rule_results => pg_temp.wc_evaluated()));
+select pg_temp.sign_in(1);
 set local role authenticated;
-select throws_ok($$select pg_temp.send('deferred')$$, '40001', 'TAKEOFF_SEND_PREVIEW_STALE',
-  'a control still deferred refuses the send');
+create temp table deferred_shown as select pg_temp.preview('deferred') as outcome;
+update commands set body = jsonb_set(body, '{rule_results}', '[]') where name = 'deferred';
+select is(pg_temp.refusal($$select pg_temp.confirm('deferred', (select outcome from deferred_shown))$$),
+  '40001 TAKEOFF_SEND_PREVIEW_STALE rules_changed', 'a control still deferred refuses the confirmation');
 reset role;
 select is(pg_temp.counts(20), '{"versions":0,"lines":0,"receipts":0,"attached":0}'::jsonb,
   'the refused send rolled back the created version and section');
@@ -340,36 +406,57 @@ select is((select estimate_version_id from public.takeoff_jobs where id = pg_tem
   'the job is still without a version');
 select is((select count(*) from private.takeoff_job_attachment_permits), 0::bigint, 'no permit survives a refused send');
 
--- 4. A price rule never reaches the estimate through this journey.
+-- 4. A price rule never reaches the estimate through this journey: a confirmation that carries one its preview did not
+-- is refused.
 insert into commands values ('price', pg_temp.command(103, 61, pg_temp.first_draft(100), pg_temp.new_section(110),
-  p_mapping => (select jsonb_agg(jsonb_build_object('item_id', i.id, 'source_order', i.rank - 1, 'rule_id', null,
-    'action', case when i.rank = 1 then 'set_price' else 'none' end, 'designation', i.designation,
-    'unit_price_cents', case when i.rank = 1 then 5000 end, 'category_id', null, 'assembly_id', null) order by i.rank)
-    from (select item.*, row_number() over (order by item.created_at, item.id) as rank from public.takeoff_items item
-      where item.job_id = pg_temp.fixture(61)) as i)));
-set local role authenticated;
-select throws_ok($$select pg_temp.send('price')$$, '22023', 'TAKEOFF_SEND_PRICE_RULE_REFUSED', 'a price rule is refused');
-reset role;
-
--- 5. The first send: V1, its section, the lines, the job attached and applied, the receipt, in one transaction.
-insert into commands values ('first', pg_temp.command(104, 61, pg_temp.first_draft(100), pg_temp.new_section(110),
-  p_rule_results => (select jsonb_agg(jsonb_build_object('id', i.id, 'results', jsonb_build_array(jsonb_build_object(
-      'rule', 'zone_overlap', 'code', 'ZONE_OVERLAP_NONE', 'status', 'pass', 'version', 1, 'acceptable', false,
-      'reason', 'Aucun doublon avec les autres métrés du devis.')),
-    'expected_updated_at', i.updated_at, 'expected_stale_at', i.rules_stale_at))
-    from public.takeoff_items i where i.id = pg_temp.fixture(82))));
-select pg_temp.sign_in(2);
-set local role authenticated;
-select throws_ok($$select pg_temp.send('first')$$, '42501', 'TAKEOFF_SEND_PROJECT_NOT_WRITABLE',
-  'an engineer of another affaire cannot send its takeoff');
-reset role;
-select pg_temp.sign_in(3);
-set local role authenticated;
-select throws_ok($$select pg_temp.send('first')$$, '42501', 'TAKEOFF_APPLY_OPERATOR_REQUIRED', 'a director cannot send');
-reset role;
+  p_rule_results => pg_temp.wc_evaluated()));
 select pg_temp.sign_in(1);
 set local role authenticated;
-create temp table first_receipt as select pg_temp.send('first') as receipt;
+create temp table price_shown as select pg_temp.preview('price') as outcome;
+update commands set body = jsonb_set(body, '{mapping_plan}', (select jsonb_agg(jsonb_build_object('item_id', i.id,
+    'source_order', i.rank - 1, 'rule_id', null, 'action', case when i.rank = 1 then 'set_price' else 'none' end,
+    'designation', i.designation, 'unit_price_cents', case when i.rank = 1 then 5000 end, 'category_id', null,
+    'assembly_id', null) order by i.rank)
+  from (select item.*, row_number() over (order by item.created_at, item.id) as rank from public.takeoff_items item
+    where item.job_id = pg_temp.fixture(61)) as i))
+where name = 'price';
+select is(pg_temp.refusal($$select pg_temp.confirm('price', (select outcome from price_shown))$$),
+  '22023 TAKEOFF_SEND_PRICE_RULE_REFUSED', 'a price rule is refused at the confirmation');
+reset role;
+
+-- 5. The first send: V1, its section, the lines, the job attached and applied, the receipt, in one transaction. Its
+-- engineer previews it; the rights are those of the confirmation: the affaire given to another engineer, or the engineer
+-- made a director, after the preview, refuses it.
+insert into commands values ('first', pg_temp.command(104, 61, pg_temp.first_draft(100), pg_temp.new_section(110),
+  p_rule_results => pg_temp.wc_evaluated()));
+-- Previewed now too, and confirmed after the first send (6 and 7): the same takeoff from another tab, and takeoff B.
+insert into commands values ('again', pg_temp.command(105, 61, pg_temp.first_draft(106), pg_temp.new_section(116),
+  p_rule_results => pg_temp.wc_evaluated()));
+insert into commands values ('b-first', pg_temp.command(107, 62, pg_temp.first_draft(108), pg_temp.new_section(118)));
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table first_shown as select pg_temp.preview('first') as outcome;
+create temp table again_shown as select pg_temp.preview('again') as outcome;
+create temp table b_first_shown as select pg_temp.preview('b-first') as outcome;
+reset role;
+update public.estimate_projects set user_id = pg_temp.fixture(2) where id = pg_temp.fixture(20);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.refusal($$select pg_temp.confirm('first', (select outcome from first_shown))$$),
+  '42501 TAKEOFF_SEND_PROJECT_NOT_WRITABLE', 'an engineer who no longer owns the affaire cannot confirm its send');
+reset role;
+update public.estimate_projects set user_id = pg_temp.fixture(1) where id = pg_temp.fixture(20);
+update public.tenant_memberships set role = 'director' where user_id = pg_temp.fixture(1) and tenant_id = pg_temp.fixture(10);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.refusal($$select pg_temp.confirm('first', (select outcome from first_shown))$$),
+  '42501 TAKEOFF_APPLY_OPERATOR_REQUIRED', 'a director cannot confirm a send');
+reset role;
+update public.tenant_memberships set role = 'engineer' where user_id = pg_temp.fixture(1) and tenant_id = pg_temp.fixture(10);
+select is(pg_temp.counts(20), '{"versions":0,"lines":0,"receipts":0,"attached":0}'::jsonb, 'the refused confirmations wrote nothing');
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table first_receipt as select pg_temp.confirm('first', (select outcome from first_shown)) as receipt;
 reset role;
 select is((select receipt ->> 'replayed' from first_receipt), 'false', 'the first send is not a replay');
 select results_eq($$select version_number, status::text, calc_engine_version::integer from public.estimate_versions
@@ -410,18 +497,17 @@ select throws_ok($$select pg_temp.send('first')$$, '40001', 'TAKEOFF_SEND_REQUES
   'the same request confirming something else is a conflict');
 reset role;
 select is(pg_temp.counts(20), '{"versions":1,"lines":2,"receipts":1,"attached":1}'::jsonb, 'no second V1, no second application');
-insert into commands values ('again', jsonb_set(pg_temp.command(105, 61, pg_temp.first_draft(106), pg_temp.new_section(116)),
-  '{expected,job_stamp}', '"read before the first send"'));
+select pg_temp.sign_in(1);
 set local role authenticated;
-select throws_ok($$select pg_temp.send('again')$$, '40001', 'TAKEOFF_SEND_ALREADY_SENT', 'a job is sent once');
+select is(pg_temp.refusal($$select pg_temp.confirm('again', (select outcome from again_shown))$$),
+  '40001 TAKEOFF_SEND_ALREADY_SENT', 'a job is sent once: its preview from another tab is refused once it is sent');
 reset role;
 
 -- 7. B previewed a first draft before A was sent: its confirmation is refused; sent to V1, it adds its 2 to A's 3.
-insert into commands values ('b-first', pg_temp.command(107, 62, pg_temp.first_draft(108), pg_temp.new_section(118)));
-update commands set body = jsonb_set(body, '{expected,versions}', '[]') where name = 'b-first';
+select pg_temp.sign_in(1);
 set local role authenticated;
-select throws_ok($$select pg_temp.send('b-first')$$, '40001', 'TAKEOFF_SEND_PREVIEW_STALE',
-  'a first draft previewed before another send is refused');
+select is(pg_temp.refusal($$select pg_temp.confirm('b-first', (select outcome from b_first_shown))$$),
+  '40001 TAKEOFF_SEND_PREVIEW_STALE destination_changed', 'a first draft previewed before another send is refused');
 reset role;
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
 values (pg_temp.fixture(100), pg_temp.fixture(1), pg_temp.fixture(10), now() + interval '30 minutes', gen_random_uuid());
@@ -453,8 +539,10 @@ insert into commands values ('a2', pg_temp.command(112, 65, jsonb_build_object('
   jsonb_build_object('kind', 'existing', 'id', pg_temp.fixture(110))));
 select pg_temp.sign_in(1);
 set local role authenticated;
-select throws_ok($$select pg_temp.send('a2')$$, '22023', 'TAKEOFF_SEND_PREPARATION_ALREADY_SENT',
-  'a second job of the same launch is refused by name, not by a key violation');
+select is(pg_temp.refusal($$select pg_temp.preview('a2')$$) ~ 'TAKEOFF_SEND_PREPARATION_ALREADY_SENT', true,
+  'its preview is refused by name');
+select is(pg_temp.refusal($$select pg_temp.confirm('a2', pg_temp.unseen())$$), '22023 TAKEOFF_SEND_PREPARATION_ALREADY_SENT',
+  'and so is its confirmation, by name, not by a key violation');
 reset role;
 
 -- 8. A, already applied, cannot lose a duplicate behind the estimate's back: the estimate stays at five.
@@ -500,12 +588,17 @@ reset role;
 -- 10. Only issued versions: the copy receives the lines, the original is unchanged.
 insert into commands values ('copy', pg_temp.command(111, 63, jsonb_build_object('kind', 'version_copy',
   'source_version_id', pg_temp.fixture(30)), pg_temp.new_section(119)));
--- Its controls were evaluated against the takeoffs of the version it copies: a state read elsewhere is refused.
-insert into commands select 'copy-elsewhere', jsonb_set(jsonb_set(body, '{request_id}', to_jsonb(pg_temp.fixture(141))),
-  '{expected,peers_stamp}', '"read without the takeoffs of the copied version"') from commands where name = 'copy';
+-- Its controls were evaluated against the takeoffs of the version it copies: a confirmation that names another state
+-- of them than its preview read is refused.
+insert into commands select 'copy-elsewhere', jsonb_set(body, '{request_id}', to_jsonb(pg_temp.fixture(141)))
+from commands where name = 'copy';
 select pg_temp.sign_in(1);
 set local role authenticated;
-select throws_ok($$select pg_temp.send('copy-elsewhere')$$, '40001', 'TAKEOFF_SEND_PREVIEW_STALE',
+create temp table copy_elsewhere_shown as select pg_temp.preview('copy-elsewhere') as outcome;
+update commands set body = jsonb_set(body, '{expected,peers_stamp}', '"read without the takeoffs of the copied version"')
+where name = 'copy-elsewhere';
+select is(pg_temp.refusal($$select pg_temp.confirm('copy-elsewhere', (select outcome from copy_elsewhere_shown))$$),
+  '40001 TAKEOFF_SEND_PREVIEW_STALE estimate_changed',
   'a copy whose controls were not evaluated against the copied version is refused');
 create temp table copy_receipt as select pg_temp.send('copy') as receipt;
 reset role;
@@ -625,16 +718,32 @@ $$;
 insert into commands values
   ('blocked', pg_temp.command(113, 66, pg_temp.first_draft(130), pg_temp.new_section(131))),
   ('forced', pg_temp.command(114, 66, pg_temp.first_draft(130), pg_temp.new_section(131), p_override => pg_temp.override_for(66)));
+-- The administrator previews the forced send; a confirmation of that outcome without the override is refused.
+insert into commands select 'blocked-by-admin', jsonb_set(body, '{request_id}', to_jsonb(pg_temp.fixture(115)))
+from commands where name = 'blocked';
+insert into commands select 'forced-by-engineer', jsonb_set(body, '{request_id}', to_jsonb(pg_temp.fixture(117)))
+from commands where name = 'forced';
+select pg_temp.sign_in(4);
+set local role authenticated;
+create temp table forced_shown as select pg_temp.preview('forced') as outcome;
+select is(pg_temp.refusal($$select pg_temp.confirm('blocked-by-admin', (select outcome from forced_shown))$$),
+  'P0001 TAKEOFF_APPLY_GUARD_FAILED', 'a line without evidence blocks a confirmation without an override');
+reset role;
+-- The engineer's preview of either is refused (the server computes none for a blocked line): their confirmations are.
 select pg_temp.sign_in(1);
 set local role authenticated;
-select throws_ok($$select pg_temp.send('blocked')$$, 'P0001', 'TAKEOFF_APPLY_GUARD_FAILED',
-  'a line without evidence blocks the send, and the created draft is rolled back');
-select throws_ok($$select pg_temp.send('forced')$$, 'P0001', 'TAKEOFF_APPLY_GUARD_FAILED', 'an engineer cannot force it');
+select is(pg_temp.refusal($$select pg_temp.preview('blocked')$$) ~ 'TAKEOFF_APPLY_GUARD_FAILED', true,
+  'the engineer''s preview is refused');
+select is(pg_temp.refusal($$select pg_temp.confirm('blocked', pg_temp.unseen())$$), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
+  'a line without evidence blocks the engineer''s confirmation, and the created draft is rolled back');
+select is(pg_temp.refusal($$select pg_temp.confirm('forced-by-engineer', pg_temp.unseen())$$), 'P0001 TAKEOFF_APPLY_GUARD_FAILED',
+  'an engineer cannot force it');
 reset role;
 select is(pg_temp.counts(22), '{"versions":0,"lines":0,"receipts":0,"attached":0}'::jsonb, 'nothing is left of the refused sends');
 select pg_temp.sign_in(4);
 set local role authenticated;
-select lives_ok($$select pg_temp.send('forced')$$, 'an administrator forces it with a coded reason and a justification');
+select lives_ok($$select pg_temp.confirm('forced', (select outcome from forced_shown))$$,
+  'an administrator forces it with a coded reason and a justification');
 reset role;
 select results_eq($$select i.title, trim_scale(i.quantity), i.source_metadata #>> '{takeoff_provision,sources,0,forced_reason}'
   from public.estimate_items i where i.version_id = pg_temp.fixture(130) and i.item_type = 'line' and i.title = 'Robinet d''arrêt'$$,

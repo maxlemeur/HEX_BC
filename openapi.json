@@ -98448,6 +98448,37 @@
                       }
                     ]
                   },
+                  "cross_takeoff": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "duplicates": {
+                            "type": "string",
+                            "enum": [
+                              "evaluated",
+                              "not_evaluated"
+                            ]
+                          },
+                          "coverage": {
+                            "type": "string",
+                            "enum": [
+                              "evaluated",
+                              "not_evaluated"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "duplicates",
+                          "coverage"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "blocked_items": {
                     "type": "array",
                     "items": {
@@ -98621,6 +98652,7 @@
                 "required": [
                   "evaluated_for",
                   "not_evaluated_reason",
+                  "cross_takeoff",
                   "blocked_items",
                   "medium_items",
                   "threshold"

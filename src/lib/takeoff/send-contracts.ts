@@ -127,9 +127,15 @@ export const takeoffSendPreviewResponseSchema = z.object({
   outcome_pending: z.enum(["page_decisions", "blocked"]).nullable(),
   /** The controls evaluated for this destination: the cross-takeoff controls are no longer deferred. */
   controls: z.object({
-    /** Null when nothing was evaluated (`not_evaluated_reason` says why): never shown as checked. */
+    /** Null when no control between takeoffs ran (`not_evaluated_reason` says why): never shown as checked. */
     evaluated_for: z.enum(["first_draft", "existing_draft", "version_copy"]).nullable(),
     not_evaluated_reason: z.enum(["no_rule_inputs"]).nullable(),
+    /**
+     * Each control between takeoffs, for this destination: evaluated when it ran for a line of this takeoff (zone
+     * duplicates, zone coverage), else not evaluated. Null without a destination.
+     */
+    cross_takeoff: z.object({ duplicates: z.enum(["evaluated", "not_evaluated"]), coverage: z.enum(["evaluated", "not_evaluated"]) })
+      .strict().nullable(),
     blocked_items: z.array(z.object({ item_id: uuid, designation: z.string(), confidence: z.number().nullable(),
       is_verified: z.boolean(), reasons: z.array(guardReasonSchema), rule_failures: z.array(ruleFailureSchema).optional() }).strict()),
     medium_items: z.array(z.object({ item_id: uuid, designation: z.string(), confidence: z.number().nullable(),

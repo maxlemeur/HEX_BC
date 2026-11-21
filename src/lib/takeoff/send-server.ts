@@ -128,16 +128,19 @@ async function readSendJob(ctx: Context, jobId: string): Promise<SendJob> {
 }
 
 async function readVersions(service: Service, tenantId: string, projectId: string): Promise<TakeoffSendVersion[]> {
-  const { data, error } = await service.from("estimate_versions")
-    .select("id, version_number, status, title, variant_label, updated_at")
-    .eq("tenant_id", tenantId).eq("project_id", projectId);
-  if (error) failed(error, "Impossible de lire les versions de l’affaire.");
+  const { data, error } = await readAllRows(() => service.from("estimate_versions")
+    .select("id, version_number, status, title, variant_label, updated_at", { count: "exact" })
+    .eq("tenant_id", tenantId).eq("project_id", projectId));
+  if (error) failed(error as { message?: string }, "Impossible de lire les versions de l’affaire.");
   const versions = (data ?? []) as Array<Omit<TakeoffSendVersion, "holds_dpgf_lines">>;
-  const dpgf = versions.length ? await service.from("estimate_items").select("version_id").eq("tenant_id", tenantId)
-    .in("version_id", versions.map((version) => version.id)).eq("item_type", "line").eq("source_provider", "dpgf") : { data: [], error: null };
-  if (dpgf.error) failed(dpgf.error, "Impossible de lire les lignes DPGF de l’affaire.");
-  const withDpgf = new Set(((dpgf.data ?? []) as Array<{ version_id: string }>).map((row) => row.version_id));
-  return versions.map((version) => ({ ...version, holds_dpgf_lines: withDpgf.has(version.id) }));
+  // One answer per version (does it hold a DPGF line?), never a list of its DPGF lines cut at PostgREST's ceiling.
+  const withDpgf = await Promise.all(versions.map(async (version) => {
+    const { data: line, error: lineError } = await service.from("estimate_items").select("id").eq("tenant_id", tenantId)
+      .eq("version_id", version.id).eq("item_type", "line").eq("source_provider", "dpgf").limit(1);
+    if (lineError) failed(lineError, "Impossible de lire les lignes DPGF de l’affaire.");
+    return (line ?? []).length > 0;
+  }));
+  return versions.map((version, index) => ({ ...version, holds_dpgf_lines: withDpgf[index] }));
 }
 
 type SendItem = { id: string; designation: string; quantity: number; unit: string; is_excluded: boolean; source_file_name: string | null;
@@ -211,7 +214,13 @@ async function dryRunSend(ctx: Context, jobId: string, parts: StagedParts, overr
   const { data, error } = await ctx.supabase.rpc("send_takeoff_job" as never, {
     p_request: { request_id: requestId, job_id: jobId, fingerprint: staged.fingerprint } as unknown as Json } as never);
   if (error) return { error: error as ApplyTakeoffRpcError, outcome: null };
-  const outcome = (data as { outcome?: Record<string, unknown> } | null)?.outcome;
+  // The dry run answers its refusals (its staged command goes with that answer), as the confirmation would raise them.
+  const answer = data as { outcome?: Record<string, unknown>; error?: { code?: string | null; message?: string; details?: string | null } } | null;
+  if (answer?.error) {
+    return { error: { code: answer.error.code ?? undefined, message: answer.error.message ?? "", details: answer.error.details ?? null,
+      hint: null } as ApplyTakeoffRpcError, outcome: null };
+  }
+  const outcome = answer?.outcome;
   if (!outcome || typeof outcome !== "object") failed(null, "L’aperçu de l’envoi n’a pas pu être calculé.", jobId);
   return { error: null, outcome };
 }
@@ -241,7 +250,8 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
       destinations: [], destination: null, destination_label: null, section: null, section_options: [],
       new_section_title: takeoffSendSectionTitle(null), blocked: { reason: blocker, message: BLOCKER_MESSAGES[blocker] }, engine: null,
       lines: [], left_out: [], price_rules_ignored: [], reservations: [], estimate_lines: null, outcome_pending: null,
-      controls: { evaluated_for: null, not_evaluated_reason: null, blocked_items: [], medium_items: [], threshold: 0 }, page_proposal: null,
+      controls: { evaluated_for: null, not_evaluated_reason: null, cross_takeoff: null, blocked_items: [], medium_items: [], threshold: 0 },
+      page_proposal: null,
       impact: { sent_count: 0, accumulated_count: 0, version_created: false, section_created: false }, ...extra } });
 
   // A takeoff that cannot be sent from here (already sent, not finished, or read by someone who cannot write the affaire)
@@ -466,10 +476,23 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     section_title: sectionTitleOf(line.section), title: line.title, unit: line.unit.startsWith("status:") ? null : line.unit,
     quantity: Number(line.quantity), quantity_before: line.quantity_before === null ? null : Number(line.quantity_before),
     unit_price_ht_cents: line.unit_price_ht_cents, takeoff_item_ids: line.takeoff_item_ids })) : null;
-  const evaluated = (rules?.results.size ?? 0) > 0;
+  // Each control between takeoffs is said evaluated only when it ran for a line of this takeoff: a line with rule inputs
+  // that no zone compares (a count of washbasins) is no evaluation of the duplicates nor of the coverage.
+  const ran = (rule: string) => [...(rules?.results.values() ?? [])].some((results) => results.some((result) => result.rule === rule));
+  const crossTakeoff = destination ? { duplicates: ran("zone_overlap") ? "evaluated" as const : "not_evaluated" as const,
+    coverage: ran("zone_coverage") ? "evaluated" as const : "not_evaluated" as const } : null;
+  const evaluated = crossTakeoff !== null && (crossTakeoff.duplicates === "evaluated" || crossTakeoff.coverage === "evaluated");
 
+  // A first draft is created with the settings its preview was computed with (coefficients, rates, rounding, validity):
+  // they are part of what is confirmed, and a change refuses the confirmation. Not its identifier, drawn for each run, nor
+  // its date: the draft is dated the day it is created, as « Créer un devis » dates it, so that a confirmation after
+  // midnight is not refused by the date alone.
+  const draftSettings = parts?.destination.kind === "first_draft"
+    ? Object.fromEntries(Object.entries(parts.destination.version_payload as Record<string, unknown>)
+      .filter(([key]) => key !== "id" && key !== "date_devis")) : null;
   const fingerprint = sha256({
-    format_version: 2, job_id: job.id, destination, engine, section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", title: newSectionTitle },
+    format_version: 3, job_id: job.id, destination, engine, draft_settings: draftSettings,
+    section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", title: newSectionTitle },
     expected: { versions: expectedVersions, job_stamp: rules?.jobStamp ?? null, peers_stamp: rules?.peersStamp ?? null, mapping_stamp: mappingStamp },
     mapping_plan: mappingPlan, rules: ruleWrites.map((write) => [write.id, write.results]), transforms: rules?.transforms ?? [],
     accumulations: accumulationList, page_proposal: pageProposal, page_decisions: pageDecisions,
@@ -489,7 +512,7 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     lines, left_out: leftOut, price_rules_ignored: priceRulesIgnored, reservations,
     estimate_lines: estimateLines, outcome_pending: outcomePending,
     controls: { evaluated_for: destination && evaluated ? destination.kind : null,
-      not_evaluated_reason: destination && !evaluated ? "no_rule_inputs" : null,
+      not_evaluated_reason: destination && !evaluated ? "no_rule_inputs" : null, cross_takeoff: crossTakeoff,
       blocked_items: blockedItems.map((item) => ({ item_id: item.item_id, designation: item.designation, confidence: item.confidence,
         is_verified: item.is_verified, reasons: item.reasons, ...(item.rule_failures ? { rule_failures: item.rule_failures.map((failure) => ({
           rule: failure.rule, code: failure.code, reason: failure.reason, acceptable: failure.acceptable })) } : {}) })),
@@ -575,7 +598,14 @@ export function mapSendTakeoffRpcError(error: ApplyTakeoffRpcError, jobId: strin
     case "TAKEOFF_SEND_PREPARATION_ALREADY_SENT":
       return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false, jobId,
         message: BLOCKER_MESSAGES.preparation_already_sent, details: { guard: "send_preparation_already_sent" } });
-    default: return mapApplyTakeoffRpcError(error, { jobId });
+    default:
+      // A lock the send needs stayed held past its short wait (the estimate being saved, another send of it), or two
+      // writes crossed: nothing was written, the same request can be tried again.
+      if (error.code === "55P03" || error.code === "40P01") {
+        return new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: true, jobId,
+          message: "Le devis est en cours de modification : réessayez dans un instant.", details: { guard: "send_estimate_busy" } });
+      }
+      return mapApplyTakeoffRpcError(error, { jobId });
   }
 }
 

@@ -6,7 +6,7 @@ import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import { readAllRows } from "@/lib/supabase/read-all";
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { takeoffLinePageIdentity, type PageDocumentSource } from "@/lib/takeoff/page-contributions";
 import { readRuleInputs } from "@/lib/takeoff/rules/contracts";
@@ -206,21 +206,23 @@ const JOB_SELECT = "id, status, created_at, sources:preparation_snapshot->prepar
  * latter: their lines are read as partners and never written from this version.
  */
 async function readVersionPeerJobs(supabase: ServiceClient, tenantId: string, versionId: string) {
-  const attached = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
+  // Read in full, page by page: beyond PostgREST's ceiling of rows a peer left out would never be compared, while the
+  // send's stamp (takeoff_send_peers_stamp) covers them all.
+  const attached = await readAllRows(() => supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, tenantId as never).eq("estimate_version_id" as never, versionId as never)
-    .in("status" as never, ["completed", "applied"] as never).order("created_at" as never, { ascending: true });
+    .in("status" as never, ["completed", "applied"] as never));
   if (attached.error) failed("Impossible de lire les métrés du devis pour les règles.", attached.error);
-  const links = await supabase.from("takeoff_version_links" as never).select("takeoff_job_id" as never)
-    .eq("tenant_id" as never, tenantId as never).eq("target_version_id" as never, versionId as never);
+  const links = await readAllRows(() => supabase.from("takeoff_version_links" as never).select("id, takeoff_job_id" as never, { count: "exact" })
+    .eq("tenant_id" as never, tenantId as never).eq("target_version_id" as never, versionId as never));
   if (links.error) failed("Impossible de lire les métrés reportés sur le devis.", links.error);
   const own = (attached.data ?? []) as unknown as JobRow[];
   const linkedIds = [...new Set(((links.data ?? []) as unknown as Array<{ takeoff_job_id: string }>).map((link) => link.takeoff_job_id))]
     .filter((id) => !own.some((job) => job.id === id));
   let linked: JobRow[] = [];
   if (linkedIds.length > 0) {
-    const read = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
-      .eq("tenant_id" as never, tenantId as never).in("id" as never, linkedIds as never)
-      .in("status" as never, ["completed", "applied"] as never);
+    const read = await readAllRowsInChunks(linkedIds, (chunk) => supabase.from("takeoff_jobs" as never)
+      .select(JOB_SELECT as never, { count: "exact" }).eq("tenant_id" as never, tenantId as never).in("id" as never, chunk as never)
+      .in("status" as never, ["completed", "applied"] as never));
     if (read.error) failed("Impossible de lire les métrés reportés sur le devis.", read.error);
     linked = (read.data ?? []) as unknown as JobRow[];
   }

@@ -504,8 +504,17 @@ devis, ni version, ni section, ni quantité.
   base (son essai à blanc) : il montre les lignes du devis telles que l'envoi les laisse —
   créées, modifiées (quantité avant et après) ou retirées par une décision de page, chacune
   dans sa section, avec l'unité et la quantité écrites (une longueur arrondie une fois au
-  mètre, deux longueurs identiques réunies en une ligne) — à côté des mesures envoyées. La
-  confirmation porte ce résultat ; si l'envoi écrirait autre chose, tout est refusé.
+  mètre, deux longueurs identiques réunies en une ligne) — à côté des mesures envoyées.
+  L'unité est celle que la ligne garde : son code d'unité sur le moteur 3, le texte de sa
+  description sur le moteur 2 (une unité libre, « sac », reste « sac »). La confirmation
+  porte ce résultat ; si l'envoi écrirait autre chose, tout est refusé. Ce qui est comparé :
+  pour chaque ligne créée, modifiée ou retirée, sa section, son titre, son unité, sa quantité
+  (et celle d'avant), son prix unitaire et les lignes de métré qu'elle reçoit ; pour chaque
+  ligne de métré, sa cible (nouvelle ligne ou ligne antérieure, laquelle, dans quelle
+  section) ; les sections créées. Ce qui ne l'est pas : les identifiants des lignes créées,
+  leur position, et, pour une ligne qui réunit plusieurs mesures, la mesure qui la représente
+  (sa page principale), que l'envoi choisit comme son écrivain. Un aperçu ne laisse rien : sa
+  commande déposée part dans la transaction qui lui répond, refus compris.
 - **Destination** ([`send-plan.ts`](../../src/lib/takeoff/send-plan.ts)). Sans version :
   « Créer le premier brouillon et y envoyer N lignes », la section proposée
   « Métré — <jeu de plans> » créée avec lui. Un seul brouillon : il est proposé. Plusieurs
@@ -514,7 +523,12 @@ devis, ni version, ni section, ni quantité.
   brouillon qui tient une ligne DPGF reste proposé mais bloqué, et l'aperçu le dit d'abord,
   sans rien lire d'autre de ce brouillon : son rapprochement exige le métré sur la version,
   ce que seul l'envoi fait (à faire dans un lot suivant). Un brouillon ouvert par un autre
-  membre est nommé aussi : l'envoi y attend qu'il le libère.
+  membre est nommé aussi : l'envoi y attend qu'il le libère ; un bail expiré ne compte plus,
+  comme pour l'éditeur. L'aperçu ne fait jamais échouer l'enregistrement d'un éditeur : il
+  prend les verrous de l'éditeur dans son ordre, refuse un brouillon qu'un autre membre
+  édite avant de prendre quoi que ce soit dont ses enregistrements ont besoin, et n'attend
+  que deux secondes un verrou tenu (« Le devis est en cours de modification : réessayez dans
+  un instant. », avec « Réessayer »).
 - **Ce qui part.** Les lignes que la revue retient, renommées ou classées par les règles
   de correspondance de l'administrateur. Une règle qui fixe un prix ou intègre un ouvrage
   est sans effet dans ce parcours et l'aperçu le dit : les prix ne sont jamais touchés, et
@@ -538,8 +552,10 @@ devis, ni version, ni section, ni quantité.
   disponible à l'envoi » dans les revues, sont évalués pour la destination choisie, avec les
   métrés d'où viennent ses lignes : ceux du brouillon et ceux qu'une copie y a reportés
   (encore rattachés à la version où ils ont été appliqués) ; pour une copie à créer, ceux de
-  la version copiée ; aucun pour un premier brouillon. Un métré dont aucune ligne ne porte
-  leurs repères ne les a pas évalués, et l'aperçu dit « non évalués ». Une ligne qui en sort
+  la version copiée ; aucun pour un premier brouillon. Chacun n'est dit « vérifié » que s'il
+  a été calculé pour une ligne de ce métré : une ligne qui porte des repères sans zone (un
+  comptage de lavabos) n'évalue ni l'un ni l'autre, et l'aperçu dit, contrôle par contrôle,
+  « non évalués » ou « non évaluée ». Une ligne qui en sort
   bloquée est montrée avant la confirmation, avec le forçage réservé aux administrateurs
   (motif codé et justification). Les pages déjà au devis demandent la même décision qu'à
   l'envoi d'un métré de version ; l'aperçu est recalculé avec ces décisions, et la
@@ -547,7 +563,11 @@ devis, ni version, ni section, ni quantité.
 - **Confirmation** ([`send-server.ts`](../../src/lib/takeoff/send-server.ts), migration
   [`…_takeoff_send_receipts.sql`](../../supabase/migrations/20261121050138_takeoff_send_receipts.sql)).
   Le serveur recalcule l'aperçu, essai à blanc compris, et refuse (409) s'il diffère de celui
-  confirmé. Il dépose ce qu'il a calculé (contrôles évalués pour la destination, plan de
+  confirmé. Un premier brouillon est créé avec les réglages de son aperçu (coefficients,
+  taux, arrondi, validité) : ils font partie de ce qui est confirmé, et un réglage changé
+  entre-temps refuse la confirmation sans rien écrire. Sa date est celle de sa création,
+  comme pour « Créer un devis » : une confirmation après minuit n'est pas refusée pour sa
+  seule date. Il dépose ce qu'il a calculé (contrôles évalués pour la destination, plan de
   correspondance, parts, résultat que le membre a vu) par `public.stage_takeoff_send`,
   réservée au service ; une commande déposée ne change plus pour son identifiant (une
   autre soumission sous le même identifiant est refusée). La session de l'utilisateur
@@ -579,10 +599,17 @@ devis, ni version, ni section, ni quantité.
 - **Ordre des verrous**, le même pour toute destination et commun à l'import et à la
   création d'une version : la politique de calcul du tenant (partagée), la ligne de
   l'affaire, puis pour un brouillon existant son verrou de règles
-  (`takeoff-rules:<version>`) et sa ligne, puis le métré (ses verrous et sa ligne), les règles
-  de correspondance du tenant (partagées) et enfin les lignes. Les versions de l'affaire ne
-  sont comparées qu'une fois sa ligne tenue : aucune version ne se crée après la
-  comparaison. Jamais l'inverse.
+  (`takeoff-rules:<version>`), le verrou de l'éditeur sur ce brouillon (la clé que prend
+  l'acquisition de son bail, avant la ligne de la version) et la ligne de la version, puis
+  le métré (ses verrous et sa ligne), les règles de correspondance du tenant (partagées) et
+  enfin les lignes. Jamais l'inverse. La ligne de l'affaire est tenue en `FOR NO KEY UPDATE` :
+  deux envois, et un envoi et la création d'une version (qui la tient en `FOR UPDATE`),
+  s'attendent ; les versions de l'affaire ne sont comparées qu'une fois elle tenue, aucune
+  version ne se crée après la comparaison ; les clés étrangères vers l'affaire (l'avis de fin
+  d'une analyse, dont le worker tient le verrou de règles de la version ; le reçu de l'envoi)
+  ne l'attendent pas. L'aperçu d'un brouillon existant ne crée aucune version et la tient en
+  `FOR SHARE`, comme la lisent les enregistrements de l'éditeur. La ligne de la version est
+  tenue en `FOR NO KEY UPDATE` : ni le bail de l'éditeur ni une nouvelle ligne ne l'attendent.
 - **Reçu** (`takeoff_send_receipts`, format 1) : la destination, la section, chaque part
   (sa ligne de métré, sa cible réelle : nouvelle ligne ou ligne antérieure, sa quantité
   avant et la section où elle est, la page, l'empreinte du plan attesté, la source de la
@@ -601,7 +628,12 @@ devis, ni version, ni section, ni quantité.
   ordinaire de la section. La v0.8.0 est la première version de l'application dont l'écran
   le refuse avant l'envoi ; la v0.7.0 le proposait encore, et un de ses utilisateurs
   recevrait « Conflit lors de l'application du job takeoff. » sans rien d'appliqué. La
-  migration ne s'applique donc qu'après le déploiement d'une v0.8.0 ou ultérieure.
+  migration ne s'applique donc qu'après le déploiement d'une v0.8.0 ou ultérieure. Elle
+  verrouille des tables existantes (les clés étrangères de ses nouvelles tables, la règle de
+  lecture des métrés qu'elle remplace) : une transaction ouverte sur les métrés, les versions
+  ou les affaires la fait attendre cinq secondes au plus puis s'arrêter (`55P03`) sans rien
+  appliquer. Elle s'applique quand aucun worker de métré ne tourne et que personne n'édite
+  de devis, et se relance si elle s'arrête.
 
 ## Entrées
 

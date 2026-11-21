@@ -99,7 +99,7 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
   const deleteReferenced = await apiRequest<{ error: { code: string } }>(ui.browser, "DELETE", `/api/takeoff/plan-sets/${planSetId}`);
   expect([deleteReferenced.status, deleteReferenced.body.error.code]).toEqual([400, "BAD_REQUEST"]);
   const completed = await startOwnedWorker(ui, { projectId, versionId: null }, jobId, "success", {
-    owner, vectors: true, rules: true, providerItems: [
+    owner, vectors: true, rules: true, affaireWithoutVersion: true, providerItems: [
       { designation: "ARMY worker pipe", quantity: 12.5, unit: "m", source_page: 1, confidence: 0.72, evidence: "Pipe row, page 1" },
       { designation: "ARMY worker valve", quantity: 3, unit: "u", source_page: 1, confidence: 0.99, evidence: "Valve row, page 1" },
     ],
@@ -276,7 +276,7 @@ armyTest("TKAW02 the takeoff of an affaire without a version creates its first d
   const launched = await startOwnedTakeoffAdmission(owner, ui.army.runPrefix, projectId, planSetId, randomUUID()).done;
   const jobId = launched.receipt!.id;
   const completed = await startOwnedWorker(ui, { projectId, versionId: null }, jobId, "success", {
-    owner, vectors: true, rules: true, providerItems: [
+    owner, vectors: true, rules: true, affaireWithoutVersion: true, providerItems: [
       { designation: "ARMY envoi tube", quantity: 12.5, unit: "m", source_page: 1, confidence: 0.99, evidence: "Tube row, page 1" },
       { designation: "ARMY envoi vanne", quantity: 3, unit: "u", source_page: 1, confidence: 0.99, evidence: "Valve row, page 1" },
     ],
@@ -329,13 +329,36 @@ armyTest("TKAW02 the takeoff of an affaire without a version creates its first d
   const revised = await apiRequest<{ data: { succeeded: number } }>(ui.browser, "PATCH", `/api/takeoff/jobs/${jobId}/items`, {
     items: [{ item_id: line.id, updated_at: line.updated_at, fields: { evidence: "Valve row, page 1 (repère revu)" } }] });
   expect(revised.status).toEqual(200);
-  // A refused confirmation writes nothing at all, not even the default categories and labour roles a first draft gets
-  // (they come with the send that commits).
+  await dialog.getByRole("button", "Créer le brouillon et envoyer", { exact: true }).click();
+  await expect(dialog.getByText(/depuis l’aperçu/).first()).toBeVisible({ timeout: 30_000 });
+  expect(await state()).toEqual(["0", "0", "0"]);
+
+  // A confirmation refused by the send itself, past every check of the server (its fingerprint matches), writes nothing
+  // at all: not the version nor its lines, and not the default categories and labour roles a first draft gets — they come
+  // after the send commits. The refusal is forced at the send's last write, its receipt, once.
+  await expect(dialog.getByText("Créer le premier brouillon et y envoyer 2 lignes", { exact: true })).toBeVisible({ timeout: 30_000 });
   const defaults = () => querySql(`select count(*) from public.estimate_categories where tenant_id = '${tenantId}';
     select count(*) from public.labor_roles where tenant_id = '${tenantId}';`);
   const defaultsBefore = await defaults();
-  await dialog.getByRole("button", "Créer le brouillon et envoyer", { exact: true }).click();
-  await expect(dialog.getByText(/depuis l’aperçu/).first()).toBeVisible({ timeout: 30_000 });
+  const refusal = `army_send_refusal_${jobId.replaceAll("-", "")}`;
+  await querySql(`create sequence public.${refusal}_seq;
+    create function public.${refusal}() returns trigger language plpgsql set search_path = '' as $$
+    begin
+      if new.job_id = '${jobId}' and nextval('public.${refusal}_seq') = 1 then
+        raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001', detail = '{"reason": "estimate_changed"}';
+      end if;
+      return new;
+    end $$;
+    create trigger ${refusal} before insert on public.takeoff_send_receipts for each row execute function public.${refusal}();`);
+  try {
+    await dialog.getByRole("button", "Créer le brouillon et envoyer", { exact: true }).click();
+    await expect(dialog.getByText("Le devis ou les métrés qu’il porte ont changé depuis l’aperçu : vérifiez le nouvel aperçu puis confirmez.",
+      { exact: true })).toBeVisible({ timeout: 30_000 });
+    expect(await querySql(`select is_called from public.${refusal}_seq;`)).toEqual(["t"]);
+  } finally {
+    await querySql(`drop trigger if exists ${refusal} on public.takeoff_send_receipts; drop function if exists public.${refusal}();
+      drop sequence if exists public.${refusal}_seq;`);
+  }
   expect(await state()).toEqual(["0", "0", "0"]);
   expect(await defaults()).toEqual(defaultsBefore);
 
