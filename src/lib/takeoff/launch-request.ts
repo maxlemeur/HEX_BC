@@ -143,7 +143,8 @@ export function buildTakeoffLaunchManifest(input: {
       return {
         entry_key: source.document_id, name: source.document_name, logical_id: intake?.intakeDocumentId ?? source.document_id,
         intake_document_id: intake?.intakeDocumentId ?? null, plan_file_id: source.document_id,
-        generation: intake?.generation ?? source.source_updated_at ?? null, content_sha256: source.content_hash,
+        // A dossier copy's own generation (none for a copy made before generations were recorded), never a file's date.
+        generation: intake ? intake.generation : source.source_updated_at ?? null, content_sha256: source.content_hash,
         pages: [...source.pages].sort((left, right) => left - right), page_count: source.page_count ?? null,
       };
     });

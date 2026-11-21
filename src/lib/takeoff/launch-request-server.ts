@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 
 import { AFFAIRE_INTAKE_BUCKET, getAffaireIntakeFileExtension } from "@/lib/affaires/intake";
-import { findIntakePlansWithoutWorkingCopy, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
+import { findIntakePlansWithoutWorkingCopy, isSameIntakePlanGeneration, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
 import { DOCUMENT_SELECT, normalizeDocumentRow } from "@/lib/affaires/intake-rows";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
@@ -682,11 +682,16 @@ async function readDossierChangeSinceAnalysis(service: Service, tenantId: string
     readDossierDocuments(service, tenantId, projectId),
   ]);
   if (error) databaseError(error, "Impossible de lire le métré de l’affaire.");
-  const manifest = request?.manifest as TakeoffLaunchManifest | null;
+  return describeDossierChangeSinceAnalysis(request?.manifest as TakeoffLaunchManifest | null, planSet?.files ?? [], documents);
+}
+
+/** The dossier's plans and pieces against a request's sealed manifest: what was added, replaced or removed since. */
+export function describeDossierChangeSinceAnalysis(manifest: TakeoffLaunchManifest | null,
+  current: Array<PlanFileRow & { file_name: string }>,
+  documents: Array<{ id: string; file_name: string; plan_copy_generation?: string | null }>) {
   if (!manifest || !Array.isArray(manifest.plans)) return null;
   const sealed = new Map(manifest.plans.map((plan) => [plan.plan_file_id, plan]));
   const omitted = new Set((manifest.coverage?.plans_omitted ?? []).map((plan) => plan.id));
-  const current = planSet?.files ?? [];
   const currentIds = new Set(current.map((file) => file.id));
   const nameOf = (file: { file_name: string; metadata: Record<string, unknown> }) => getPlanFileDisplayName(file);
   const sealedDocuments = new Set(manifest.plans.flatMap((plan) => plan.intake_document_id ? [plan.intake_document_id] : []));
@@ -696,11 +701,18 @@ async function readDossierChangeSinceAnalysis(service: Service, tenantId: string
       .filter((document) => !sealedDocuments.has(document.id) && !omitted.has(document.id))
       .map((document) => ({ id: document.id, name: document.file_name })),
   ];
-  // A dossier piece sealed at one generation and now at another, whether or not its old copy is still in the set.
+  // A dossier piece sealed at one generation and now at another, whether or not its old copy is still in the set: the
+  // sealed copy still there is compared with the piece by the dossier sync's own rule (a copy made before generations were
+  // recorded included); a sealed copy gone, by the generation sealed with it.
   const documentsById = new Map(documents.map((document) => [document.id, document]));
+  const currentById = new Map(current.map((file) => [file.id, file]));
   const replaced = manifest.plans.flatMap((plan) => {
     const document = plan.intake_document_id ? documentsById.get(plan.intake_document_id) : undefined;
-    return document && (document.plan_copy_generation ?? null) !== plan.generation ? [{ id: document.id, name: document.file_name }] : [];
+    if (!document) return [];
+    const copy = currentById.get(plan.plan_file_id);
+    const stale = copy ? !isSameIntakePlanGeneration(copy, document as unknown as SyncDocument)
+      : plan.generation !== null && (document.plan_copy_generation ?? null) !== plan.generation;
+    return stale ? [{ id: document.id, name: document.file_name }] : [];
   });
   const removed = manifest.plans.filter((plan) => !currentIds.has(plan.plan_file_id)).map((plan) => ({ id: plan.plan_file_id, name: plan.name }));
   return added.length || replaced.length || removed.length ? { added, replaced, removed } : null;

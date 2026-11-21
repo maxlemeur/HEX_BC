@@ -7,8 +7,8 @@ import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { AFFAIRE_INTAKE_PLAN_SET_METADATA } from "@/lib/takeoff/default-import-plan-set";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import {
-  assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, evaluateTakeoffLaunchRequests, launchTakeoffRelaunch,
-  readAutomaticTakeoffPayerNotice,
+  assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
+  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice,
 } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import { createSupabaseFake, filterValue, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
@@ -49,7 +49,7 @@ const BYTES = new TextEncoder().encode("%PDF-1.4 plan fictif du rez-de-chaussée
 const SELECTION = { profileId: "profil-fictif", model: "modele-fictif", reasoningEffort: null, hostId: HOST, authorizationId: "autorisation-1" };
 const FILE_PATH = `${TENANT}/${PLAN_SET}/${PLAN_FILE}/plan-rdc.pdf`;
 
-function dossier(input: { classification?: string; copy?: "same" | "older" | "none"; executionHost?: string; running?: boolean } = {}) {
+function dossier(input: { classification?: string; copy?: "same" | "older" | "legacy" | "none"; executionHost?: string; running?: boolean } = {}) {
   const document = {
     id: DOCUMENT, tenant_id: TENANT, project_id: PROJECT, upload_id: "aaaaaaaa-0000-4000-8000-000000000070", created_by: PAYER,
     storage_path: `${TENANT}/dossier/plan-rdc.pdf`, deletion_token: null, plan_copy_generation: "generation-2",
@@ -58,9 +58,11 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "no
     document_priority: "primary", confidence: 0.92, issues: [], extracted_metadata: {}, classification_source: "heuristic",
     classified_by: null, classified_at: "2026-11-21T08:00:00Z", manually_overridden_at: null, source_provider: null,
   };
+  // A copy made before generations were recorded (legacy) names the classification it was made from instead.
   const copy = { id: PLAN_FILE, file_path: FILE_PATH, file_name: "plan-rdc.pdf", file_size_bytes: BYTES.byteLength,
     metadata: { source: "affaire-intake", intake_document_id: DOCUMENT, intake_storage_path: document.storage_path,
-      intake_generation: input.copy === "older" ? "generation-1" : "generation-2" } };
+      ...(input.copy === "legacy" ? { intake_classified_at: document.classified_at }
+        : { intake_generation: input.copy === "older" ? "generation-1" : "generation-2" }) } };
   const admitted: unknown[] = [];
   const recorded: unknown[] = [];
   const fake = createSupabaseFake({
@@ -102,7 +104,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "no
   vi.mocked(loadPreparation).mockResolvedValue({
     draft: buildDeducedTakeoffPreparation({ sources: [source], planSetId: PLAN_SET }), revision: null, availableSources: [source],
   } as never);
-  return { fake, admitted, recorded };
+  return { fake, admitted, recorded, document, copy };
 }
 
 beforeEach(() => {
@@ -206,6 +208,28 @@ describe("evaluateTakeoffLaunchRequests", () => {
     expect(admitted).toEqual([]);
     expect(fake.rpcCalls.map((call) => call.fn)).toContain("record_takeoff_launch_evaluation_failure");
   });
+});
+
+// After an analysis, the dossier against the plans it sealed: the same kind of generation sealed and compared, a copy made
+// before generations were recorded included.
+describe("describeDossierChangeSinceAnalysis", () => {
+  it.each([["a copy of the piece's generation", "same"], ["a copy made before generations were recorded", "legacy"]] as const)(
+    "reports no change right after the analysis of %s", async (_case, kind) => {
+      const { admitted, document, copy } = dossier({ copy: kind });
+      await evaluateTakeoffLaunchRequests();
+      const { p_manifest: manifest } = admitted[0] as { p_manifest: never };
+      expect(describeDossierChangeSinceAnalysis(manifest, [copy], [document])).toBeNull();
+    });
+
+  it.each([["a copy of the piece's generation", "same"], ["a copy made before generations were recorded", "legacy"]] as const)(
+    "reports the piece replaced once the dossier holds its new generation, its old %s still in the set", async (_case, kind) => {
+      const { admitted, document, copy } = dossier({ copy: kind });
+      await evaluateTakeoffLaunchRequests();
+      const { p_manifest: manifest } = admitted[0] as { p_manifest: never };
+      const replaced = { ...document, plan_copy_generation: "generation-3", classified_at: "2026-11-21T09:00:00Z" };
+      expect(describeDossierChangeSinceAnalysis(manifest, [copy], [replaced])).toEqual({ added: [], removed: [],
+        replaced: [{ id: DOCUMENT, name: "Plan RDC.pdf" }] });
+    });
 });
 
 // The gestures: the brief's confirmation records who pays, on this Mac, or why nobody does; a take-over and a relaunch.

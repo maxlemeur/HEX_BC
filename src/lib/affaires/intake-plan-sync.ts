@@ -118,7 +118,11 @@ function toIntakeDocumentId(planFile: PlanFileRow) {
   return typeof intakeDocumentId === "string" ? intakeDocumentId : null;
 }
 
-function isSameIntakePlanGeneration(file: PlanFileRow, document: SyncDocument) {
+/**
+ * Whether a working copy holds its dossier piece's current generation: its generation marker, or, for a copy made before
+ * generations were recorded, the classification it was made from (also what an analysis's « Dossier modifié » compares).
+ */
+export function isSameIntakePlanGeneration(file: Pick<PlanFileRow, "metadata">, document: SyncDocument) {
   if (file.metadata.intake_storage_path !== document.storage_path) return false;
   if (isDrivePlanSource(document) && file.metadata.intake_drive_file_id !== document.drive_file_id) return false;
   // Older copies predate the generation marker; keep them until a cleanup has
