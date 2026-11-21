@@ -135,7 +135,6 @@ function ReadyEditor({
           <AlertDescription>Vous consultez cette demande en lecture seule.</AlertDescription>
         </Alert>
       )}
-      {step === "lignes" ? <p className="mb-2 text-base text-foreground-secondary">Table de pilotage</p> : null}
       <MaterialRequestSteps model={model} active={step} canWrite={canWrite} idBase={ids} onGoTo={goToStep} />
       {/* Each step has the whole width of the page: the lines are a table, as in the estimate editor. */}
       <div className="min-w-0">
