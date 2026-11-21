@@ -587,8 +587,8 @@ describe("TesterArmy shard plans", () => {
     expect(none.mode).toBe("none");
     expect(none.shards).toMatchObject({ files: [], shards: [] });
 
-    // The takeoff journeys: all of them in as many jobs as their measured seconds fill at one worker, a few in
-    // one job, and none planned for none. New files contribute their default weight until measured.
+    // The configured durations determine the number of single-worker jobs. Files without a measurement use the default.
+    // A small selection owns one job and an empty selection has no job.
     expect(full.fullOnly.mode).toBe("all");
     const takeoffSeconds = full.fullOnly.files.filter((file) => file !== map.suite.setup)
       .reduce((sum, file) => sum + (durations.seconds[file] ?? durations.defaultSeconds), 0);

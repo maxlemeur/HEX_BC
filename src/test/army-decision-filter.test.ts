@@ -198,7 +198,7 @@ describe("the decision filter behind its guards", () => {
     expect(mapChangesBeyondRules(before, widened)).toEqual(["full", "nonRuntime"]);
   });
 
-  it("keeps the base's rules and refuses judgment when the suite changes or the base cannot be read", async () => {
+  it("protects a journey tied by the base and judges nothing when the change adds a journey beside a rule edit", async () => {
     const tree = fs.mkdtempSync(path.join(os.tmpdir(), "army-base-map-"));
     const git = (...args: string[]) => {
       const result = spawnSync("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", ...args],
@@ -213,8 +213,9 @@ describe("the decision filter behind its guards", () => {
     const existing = "e2e/army/critical/existing.e2e.ts";
     const replacement = "e2e/army/critical/replacement.e2e.ts";
     const added = "e2e/army/critical/added.e2e.ts";
+    const other = "e2e/army/critical/other.e2e.ts";
     const stored: StoredImpactMap = {
-      schemaVersion: 1, suite: { anchor: existing, anonymous: [] }, fullOnly: {}, docs: [], nonRuntime: [], full: [], runnerEntries: [],
+      schemaVersion: 1, suite: { anchor: other, anonymous: [] }, fullOnly: {}, docs: [], nonRuntime: [], full: [], runnerEntries: [],
       graph: { sourceRoots: ["src", "e2e"], extraFiles: [], apiRouteRoot: "src/app/api", apiCallers: [], apiCallersExcluded: [], importersExcluded: [],
         escalationExcluded: [] },
       groups: {}, rules: [{ id: "feature", paths: ["src/feature.ts"], journeys: [existing] }],
@@ -229,6 +230,7 @@ describe("the decision filter behind its guards", () => {
       write("src/feature.ts", "export const feature = 1;\n");
       write(existing, "");
       write(replacement, "");
+      write(other, "");
       git("init", "-q");
       git("add", ".");
       git("commit", "-q", "-m", "base");
@@ -237,9 +239,6 @@ describe("the decision filter behind its guards", () => {
       write(MAP_PATH, JSON.stringify({ ...stored, rules: [{ ...stored.rules[0], journeys: [replacement] }] }));
       expect(await judged(["src/feature.ts", MAP_PATH], base)).toEqual({
         calls: [["src/feature.ts"]], exclude: {}, note: "stock note; 1 test(s) kept: a map rule ties their journey to a changed file",
-      });
-      expect(await judged(["src/feature.ts", MAP_PATH], "0".repeat(40))).toEqual({
-        calls: [], exclude: {}, note: "the model judges nothing: the impact map changed and its base version cannot be read",
       });
       // A rule edit that comes with a new journey changes the suite, as when the map listed its journeys.
       write(added, "");
@@ -277,6 +276,14 @@ describe("the decision filter behind its guards", () => {
     expect(result.exclude).toEqual({ [`${low}#0`]: `${DECISION_MIN_PERCENT - 1}% likely affected`, [`${decimal}#0`]: "7.9% likely affected" });
     expect(result.note).toBe("stock note; 1 test(s) kept: a map rule ties their journey to a changed file; " +
       `2 test(s) kept: rated ${DECISION_MIN_PERCENT} % or more, or without a rating`);
+  });
+
+  it("judges nothing when the base map cannot be read", async () => {
+    const { file, journeys: tied } = ruledFile();
+    const unreadable = recording({ [`${tied[0]}#0`]: "0% likely affected" });
+    const refused = await unreadable.filter.filter([candidate(tied[0])], { ...context([file, MAP_PATH]), changes: { base: "0".repeat(40), root, files: [file, MAP_PATH].sort() } });
+    expect(unreadable.calls).toEqual([]);
+    expect(refused).toEqual({ exclude: {}, note: "the model judges nothing: the impact map changed and its base version cannot be read" });
   });
 
   it("throws, so that the runner leaves nothing out, when the model fails or its key is missing", async () => {

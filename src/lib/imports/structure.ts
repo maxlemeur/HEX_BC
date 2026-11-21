@@ -125,7 +125,7 @@ export function resolveImportRowTitle(mappedRow: JsonRecord) {
   return asText(mappedRow.designation) || asText(mappedRow.reference ?? mappedRow.hex_code);
 }
 
-function isFooterTitle(title: string) {
+export function isFooterTitle(title: string) {
   return [FOOTER_TITLE_PATTERN, LEGAL_FOOTER_TITLE_PATTERN].some((pattern) =>
     pattern.test(stripAccents(title))
   );
