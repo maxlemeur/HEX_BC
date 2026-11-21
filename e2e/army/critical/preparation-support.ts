@@ -4,9 +4,22 @@ import { type ArmyState, type createEstimateViaWizard } from "./fixtures";
 
 type Ui = Parameters<typeof createEstimateViaWizard>[0] & { army: ArmyState };
 
+/** The takeoff's one place on the affaire page (« Vue d’ensemble » and « Chiffrage »): its state and its options. */
+export function takeoffZone(ui: Pick<Ui, "screen">) {
+  return ui.screen.getByRole("region", "Métré de l’affaire", { exact: true });
+}
+
+/** Opens the takeoff's options from its zone, the affaire's only access to them, on their summary. */
+export async function openTakeoffOptionsDialog(ui: Ui) {
+  await takeoffZone(ui).getByRole("button", "Options du métré", { exact: true }).click();
+  const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+/** Opens the takeoff's options from its zone and unfolds their four steps. */
 export async function openTakeoffPreparation(ui: Ui) {
-  await ui.screen.getByRole("button", "Plus", { exact: true }).click();
-  await ui.screen.getByRole("menuitem", "Préparer le métré", { exact: true }).click();
+  await takeoffZone(ui).getByRole("button", "Options du métré", { exact: true }).click();
   const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await expect(dialog).toBeVisible();
   await openTakeoffOptions(ui);

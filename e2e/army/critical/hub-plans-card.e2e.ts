@@ -5,30 +5,34 @@ import { expect } from "e2e";
 import { localTakeoffFixture } from "../takeoff/fixtures";
 import { armyTest, createEstimateViaWizard, createLineViaApi, recordEvidence } from "./fixtures";
 import { createPlanSet, duplicateHubVersion, requireLocalPlansBackend, uploadSamplePlan } from "./plans-support";
+import { openTakeoffOptionsDialog, takeoffZone } from "./preparation-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local", "hub-plans"], timeout: 180_000 };
 
-armyTest("HUB03 a fresh affaire without plans hides the plans section and launch action", options, async (ui) => {
+armyTest("HUB03 a fresh affaire without plans hides the plans section, the takeoff's zone and any launch", options, async (ui) => {
   requireLocalPlansBackend();
   const estimate = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-HUB03`, title: "ARMY hub sans plans" }, ui.army);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
   await expect(ui.screen.getByRole("heading", "Ajoutez le dossier de consultation", { exact: true })).toBeVisible();
   await expect(ui.screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toHaveCount(0);
   await expect(ui.screen.getByRole("button", "Préparer le métré", { exact: true })).toHaveCount(0);
-  await recordEvidence(ui.army, "HUB03-no-plans", { estimate, plansSection: false, launchButton: false });
+  await expect(takeoffZone(ui)).toHaveCount(0);
+  await expect(ui.screen.getByRole("button", "Options du métré", { exact: true })).toHaveCount(0);
+  await recordEvidence(ui.army, "HUB03-no-plans", { estimate, plansSection: false, launchButton: false, takeoffZone: false });
 });
 
-armyTest("HUB04 the preparation hero identifies the retained plan set before launching", options, async (ui) => {
+armyTest("HUB04 the takeoff's zone opens its options on the retained plan set, without an analysis yet", options, async (ui) => {
   requireLocalPlansBackend();
   const estimate = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-HUB04`, title: "ARMY hub avec plans" }, ui.army);
   const set = await createPlanSet(ui, ui.army, estimate, "Lot CVC");
   const file = await uploadSamplePlan(ui, ui.army, set);
+  // The zone is in the overview as in « Chiffrage », also before any line of the estimate.
+  await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=overview`);
+  const zone = takeoffZone(ui);
+  await expect(zone).toBeVisible();
+  await expect(zone.getByText("Non démarré", { exact: true })).toBeVisible();
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
-  const prompt = ui.screen.getByRole("region", "Préparation du métré", { exact: true });
-  await expect(prompt).toBeVisible();
-  await expect(prompt.getByText(/Lot CVC · 1 fichier/)).toBeVisible();
-  await prompt.getByRole("button", "Préparer le métré", { exact: true }).click();
-  const dialog = ui.screen.getByRole("dialog", "Préparer le métré", { exact: true });
+  const dialog = await openTakeoffOptionsDialog(ui);
   await expect(dialog.getByLabel("Jeu de plans à analyser", { exact: true })).toHaveValue(set.id);
   await expect(dialog.getByLabel("Version cible", { exact: true })).toHaveValue(estimate.versionId);
   await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();

@@ -11,7 +11,7 @@ import {
   apiRequest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, restrictCriticalBrowser,
 } from "../critical/fixtures";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
-import { fillTakeoffPreparation, openTakeoffOptions, saveTakeoffPreparation } from "../critical/preparation-support";
+import { fillTakeoffPreparation, openTakeoffOptions, saveTakeoffPreparation, takeoffZone } from "../critical/preparation-support";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, readPlanSets, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import {
@@ -24,7 +24,7 @@ import { querySql } from "./calculation-gate-support";
 import { callServerAction, serverActionId } from "./engine-v3-creators-support";
 import {
   activateOwnedAutomaticStart, deactivateOwnedAutomaticStart, makeOwnedDirector, readOwnedAffaireJobs, readOwnedAffaireNotices,
-  readOwnedBrief, readOwnedLaunchRequests,
+  readOwnedBrief, readOwnedLaunchRequests, readOwnedVersionCount,
 } from "./automatic-start-support";
 import { LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
 import { labSessionCookies, launchLabRun, rawLabRequest } from "./takeoff-lab-support";
@@ -32,7 +32,7 @@ import { labSessionCookies, launchLabRun, rawLabRequest } from "./takeoff-lab-su
 // The assistance of the ChatGPT local journeys, on this file's own development server: the Decisions proposals of
 // the preparation (DEC01, TRI01), the lab's vectors page (VEC01), the price reuse arbitration (PRX02), the intake
 // reanalysis (INTRETRY01, INTWORD01), the transcriptions of the pieces (INTOCR01, INTOCR02) and the automatic start
-// of the takeoff when the dossier is confirmed (AUTO01 to AUTO05, each with owners of its own). The takeoff jobs run in
+// of the takeoff when the dossier is confirmed and its zone on the affaire (AUTO01 to AUTO06, each with owners of its own). The takeoff jobs run in
 // chatgpt-local-takeoff.e2e.ts, on a second server
 // (chatgpt-local-journey-support.ts says why they are two files). Each test that needs a ChatGPT profile writes its
 // own and removes it: DEC01 starts without one, and the lab's output holds the runs of VEC01 alone.
@@ -107,7 +107,7 @@ if (!existsSync(liveProbePath)) test("LOCALREV01 a chosen plan revision supplies
     const files = await readPlanFiles(browser, set.id);
     const jobs = ownedTakeoffJobs(browser, estimate);
     await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
-    await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+    await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
     const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
     await expect(dialog.getByText("Quelle version retenir ?", { exact: true })).toBeVisible();
@@ -171,7 +171,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
-  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
   const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
   await saveTakeoffPreparation({ ...ui, army });
   const { client } = await localClient();
@@ -268,7 +268,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   await expect(screen.getByRole("button", `Supprimer ${name}`, { exact: true })).toBeVisible();
   const [planFile] = await readPlanFiles(browser, planSet.id);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
-  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [name] });
   await dialog.getByRole("button", /Mes documents$/).click();
   await saveTakeoffPreparation({ ...ui, army });
@@ -311,7 +311,7 @@ if (!existsSync(liveProbePath)) test("TRI01 Decisions page triage is accepted, c
   const callsBeforeReload = (await triageCalls()).length;
   await browser.reload();
   await waitForHydration(browser);
-  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
   const reopened = await openTakeoffOptions({ ...ui, army });
   await reopened.getByRole("button", /Mes documents$/).click();
   const reloadedTable = reopened.getByRole("region", "Tri des pages", { exact: true }).getByRole("table", `Tri proposé pour ${name}`, { exact: true });
@@ -1515,5 +1515,96 @@ if (!existsSync(liveProbePath)) test("AUTO05 a dossier classified after its conf
     await browser.clearCookies({ domain: new URL(localOrigin).hostname });
     await deactivateOwnedAutomaticStart();
     await rm(store, { force: true });
+  }
+});
+
+if (!existsSync(liveProbePath)) test("AUTO06 the affaire's zone: a reader sees why, an operator takes it on, its options relaunch without any draft", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 420_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const director = await createLocalChatGptOwner();
+  await makeOwnedDirector(owner.userId, director.userId);
+  const stores = [await writePlanFixture(owner.email, null, false), await writePlanFixture(director.email, null, false)];
+  await activateOwnedAutomaticStart();
+  try {
+    await signInAs({ app, screen, browser }, owner.email);
+    const prefix = `ARMY-auto-zone-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Zone du métré" }, army);
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
+    await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    const readsBefore = await planReads();
+    const versionsBefore = await readOwnedVersionCount(ids.projectId);
+    // A director confirms: the start waits for an operator (AUTO02).
+    await signInAs({ app, screen, browser }, director.email);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    const confirmed = await callServerAction(browser, await serverActionId("confirmAffaireBrief", actionManifest()),
+      { projectId: ids.projectId, expectedUpdatedAt: (await readOwnedBrief(ids.projectId))!.updated_at });
+    expect(confirmed.status).toBe(200);
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code]),
+      DEV_SERVER_WORK).toEqual([["blocked", "OPERATOR_REQUIRED"]]);
+
+    // The director reads why, with no gesture and no options, on a phone too; reading spends nothing.
+    await browser.setViewport({ width: 390, height: 844 });
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+    await waitForHydration(browser);
+    const zone = takeoffZone({ screen });
+    await expect(zone.getByText("Métré non démarré — prise en charge par un métreur requise", { exact: true })).toBeVisible(DEV_SERVER_WORK);
+    await expect(zone.getByRole("button", "Prendre en charge avec mon forfait", { exact: true })).toHaveCount(0);
+    await expect(zone.getByRole("button", "Options du métré", { exact: true })).toHaveCount(0);
+    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await browser.setViewport({ width: 1440, height: 900 });
+    expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
+
+    // An operator takes it on from the zone, on their own subscription: one analysis, its review and its notice there.
+    await signInAs({ app, screen, browser }, owner.email);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+    await waitForHydration(browser);
+    await expect(screen.getByRole("button", "Préparer le métré", { exact: true })).toHaveCount(0);
+    await zone.getByRole("button", "Prendre en charge avec mon forfait", { exact: true }).click();
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.outcome, request.payer_id]),
+      { timeout: 180_000 }).toEqual([["closed", "success", owner.userId]]);
+    const [automatic] = await readOwnedAffaireJobs(ids.projectId);
+    expect(automatic).toMatchObject({ estimate_version_id: null, created_by: owner.userId, status: "completed" });
+    await ui.browser.reload();
+    await waitForHydration(browser);
+    await expect(zone.getByText("Terminé", { exact: true })).toBeVisible(DEV_SERVER_WORK);
+    await expect(zone.getByText("Analyse terminée", { exact: true })).toBeVisible();
+    await expect(zone.getByRole("link", "Revoir l’analyse", { exact: true }))
+      .toHaveAttribute("href", `/dashboard/affaires/${ids.projectId}/takeoff/${automatic!.id}/review`);
+
+    // Its options relaunch it as a request on the clicker's subscription, without any version: no draft before the send.
+    await zone.getByRole("button", "Options du métré", { exact: true }).click();
+    const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled(DEV_SERVER_WORK);
+    await expect(dialog.getByRole("combobox", "Version cible", { exact: true })).toHaveCount(0);
+    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect(dialog.getByText("Analyse transmise au traitement", { exact: true })).toBeVisible(DEV_SERVER_WORK);
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.origin, request.state, request.outcome]),
+      { timeout: 180_000 }).toEqual([["automatic", "closed", "success"], ["manual", "closed", "success"]]);
+    const jobs = await readOwnedAffaireJobs(ids.projectId);
+    expect(jobs).toEqual([expect.objectContaining({ id: automatic!.id }),
+      expect.objectContaining({ estimate_version_id: null, created_by: owner.userId, launch_unit_key: "grouped", status: "completed" })]);
+    expect(await readOwnedVersionCount(ids.projectId)).toBe(versionsBefore);
+    expect(await planReads() - readsBefore).toBe(2);
+
+    // A former launch link of the takeoff page opens the zone's options and launches nothing.
+    const [planSet] = await readPlanSets(browser, ids.projectId);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff?launch=1&launchPlanSet=${planSet!.id}`);
+    await expect(screen.getByRole("dialog", "Préparer le métré", { exact: true })).toBeVisible(DEV_SERVER_WORK);
+    expect(await browser.evaluate(() => `${location.pathname}${location.search}${location.hash}`))
+      .toBe(`/dashboard/affaires/${ids.projectId}?view=overview&metreOptions=1&launchPlanSet=${planSet!.id}#metre`);
+    expect(await readOwnedLaunchRequests(ids.projectId)).toHaveLength(2);
+    expect(await readOwnedAffaireJobs(ids.projectId)).toHaveLength(2);
+    expect(await forbiddenRequests()).toBe(0);
+    await recordEvidence(army, "AUTO06-affaire-zone", { ids, requests: await readOwnedLaunchRequests(ids.projectId), jobs,
+      versionsBefore, versionsAfter: versionsBefore, planReads: 2,
+      boundary: "Fictional dossier, two owned members, ChatGPT transport fixture on an owned local backend." });
+  } finally {
+    await browser.setViewport({ width: 1440, height: 900 });
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedAutomaticStart();
+    for (const store of stores) await rm(store, { force: true });
   }
 });
