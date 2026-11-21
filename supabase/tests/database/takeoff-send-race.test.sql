@@ -4,15 +4,16 @@
 -- which no journey drives deterministically. Each command is previewed first (its dry run, in a third session) and
 -- confirmed with the outcome that preview showed, as the server does.
 -- 1. Two takeoffs of one affaire, confirmed by two members, both previewed a first draft: one V1, the other asked again.
--- 2. The same takeoff confirmed from two tabs: one V1, one application, the second tab told it is sent.
+-- 2. The same takeoff confirmed from two tabs: one V1, one application, the second tab told V1 now exists.
 -- 3. A real import creates V1 (it holds its import row and the affaire) while a first draft is being confirmed: the send
 --    is asked again on the real destination.
 -- 4. The same request replayed while it is in flight: the replay returns the receipt.
 -- 5. Two takeoffs sent to the same draft and the same line: serialized, the second asked again, then 3 + 2 + 1 = 6.
 -- 6. A first draft previewed before V1 existed, confirmed while a fresh send of the same takeoff to V1 is held before it
---    writes its lines: both take the affaire first, then the takeoff, so the stale one waits and is told the takeoff is
---    sent (red on 986aea27: the fresh send took the takeoff without the affaire, the stale one the affaire, and the two
---    deadlocked when the fresh send inserted its receipt).
+--    writes its lines: both take the affaire first, then the takeoff, so the stale one waits and is told V1 exists (red
+--    on 986aea27: the fresh send took the takeoff without the affaire, the stale one the affaire, and the two deadlocked
+--    when the fresh send inserted its receipt). Since 9ed38ced's closing round a first draft is compared with the
+--    affaire's versions as soon as it holds the affaire, before the takeoff is checked.
 -- Written before the migration: red on ab72179d (public.send_takeoff_job does not exist). All values are fictional.
 begin;
 create extension if not exists pgtap with schema extensions;
@@ -267,8 +268,8 @@ select is(extensions.dblink_send_query('send_b', pg_temp.send_sql((select body f
 select ok(pg_temp.b_waits_for_a(), 'tab B waits for tab A');
 select is(extensions.dblink_exec('send_a', 'commit'), 'COMMIT', 'tab A commits');
 select is((select count(*)::integer from extensions.dblink_get_result('send_b', false) as x(replayed text)), 0, 'tab B writes nothing');
-select ok(extensions.dblink_error_message('send_b') like '%TAKEOFF_SEND_ALREADY_SENT%',
-  'tab B finds the takeoff sent: nothing is applied twice');
+select ok(extensions.dblink_error_message('send_b') like '%TAKEOFF_SEND_PREVIEW_STALE%destination_changed%',
+  'tab B is told V1 now exists (the takeoff is sent there), as soon as it holds the affaire: nothing is applied twice');
 select is((select count(*)::integer from extensions.dblink_get_result('send_b', false) as x(replayed text)), 0, 'tab B is done');
 select results_eq($$select (select count(*) from public.estimate_versions where project_id = pg_temp.fx(20)),
     (select count(*) from public.takeoff_send_receipts where job_id = pg_temp.fx(21)),
@@ -369,8 +370,8 @@ select is((select x.replayed from extensions.dblink_get_result('send_a') as x(re
 select is((select count(*)::integer from extensions.dblink_get_result('send_a', false) as x(replayed text)), 0, 'it is done');
 select is((select count(*)::integer from extensions.dblink_get_result('send_b', false) as x(replayed text)), 0,
   'the stale first draft writes nothing');
-select ok(extensions.dblink_error_message('send_b') like '%TAKEOFF_SEND_ALREADY_SENT%',
-  'it is told the takeoff is sent, not a deadlock');
+select ok(extensions.dblink_error_message('send_b') like '%TAKEOFF_SEND_PREVIEW_STALE%destination_changed%',
+  'it is told V1 exists, as soon as it holds the affaire: not a deadlock');
 select is((select count(*)::integer from extensions.dblink_get_result('send_b', false) as x(replayed text)), 0, 'the stale send is done');
 select results_eq($$select (select count(*) from public.estimate_versions where project_id = pg_temp.fx(10)),
     (select estimate_version_id from public.takeoff_jobs where id = pg_temp.fx(14))$$,

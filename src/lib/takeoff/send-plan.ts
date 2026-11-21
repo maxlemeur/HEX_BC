@@ -1,6 +1,5 @@
 import { estimateLineTakeoffItemIds } from "@/lib/takeoff/page-contributions";
 import { lengthFactor, unitKey } from "@/lib/takeoff/page-replacement";
-import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import type { TakeoffSendDestination, TakeoffSendBlocker } from "@/lib/takeoff/send-contracts";
 
 // Lot 2, M2: what « Envoyer au tableau de chiffrage » proposes for a takeoff of an affaire, computed from what the server
@@ -185,9 +184,10 @@ export function proposeTakeoffSendAccumulations(input: {
 }): Map<string, TakeoffSendSectionLine> {
   const targets = new Map<string, TakeoffSendSectionLine>();
   const byKey = new Map<string, TakeoffSendSectionLine[]>();
+  // The unit as the send's outcome reads it: the unit code on engine 3; on engine 2 (no unit code) the description as the
+  // writer stored it, which is the takeoff line's unit as written.
   for (const line of input.sectionLines) {
-    const unit = line.unit_code ?? normalizeMeasurementUnit(line.description).unitCode
-      ?? (line.pricing_status ? `status:${line.pricing_status}` : null);
+    const unit = line.unit_code !== null ? `code:${line.unit_code}` : line.description?.trim() ? `text:${line.description.trim()}` : null;
     if (!line.title?.trim() || unit === null) continue;
     const key = `${fineTitle(line.title)}\u0000${unit}`;
     byKey.set(key, [...(byKey.get(key) ?? []), line]);
@@ -195,7 +195,8 @@ export function proposeTakeoffSendAccumulations(input: {
   for (const sent of input.sent) {
     const unit = unitKey(sent.unit);
     if (!sent.accumulable || unit === null || lengthFactor({ unit_code: unit, description: sent.unit }) !== null) continue;
-    const same = byKey.get(`${fineTitle(sent.designation)}\u0000${unit}`) ?? [];
+    const title = fineTitle(sent.designation);
+    const same = [...(byKey.get(`${title}\u0000code:${unit}`) ?? []), ...(byKey.get(`${title}\u0000text:${sent.unit.trim()}`) ?? [])];
     if (same.length !== 1) continue;
     const line = same[0];
     const metadata = record(line.source_metadata);

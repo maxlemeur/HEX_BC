@@ -6,6 +6,9 @@
 -- Fix round 2 (red on 2ad71cfb): an expired lease of another member refused the preview (11); a preview left its staged
 -- command behind and a refused one raised instead of answering (12); a free unit of an engine 2 line was shown as a
 -- pricing status (13).
+-- Closing round (red on 9ed38ced): a first draft took the policy's sale coefficients read at the confirmation, outside
+-- what was compared (14); a preview answered database text and kept its command on a mismatched fingerprint, an expired
+-- command or a rejected replay (15); an engine 2 addition compared no unit (16); « no unit » was a prefix of the unit (17).
 -- Isolation justified: the rolled-back run, the comparison under the locks, the staging, the receipt and the replay are
 -- database contracts no journey can force deterministically. Written before the change: red on 986aea27 (no dry run, no
 -- outcome, no stamp of the mapping rules nor of the linked takeoffs, the staging overwritten, accumulation on engine 3
@@ -509,7 +512,7 @@ set local role authenticated;
 create temp table expired_answer as
 select pg_temp.answer((select body from commands where name = 'to-130') || jsonb_build_object('request_id', pg_temp.fx(150))) as body;
 reset role;
-select is((select coalesce(body ->> 'raised', body #>> '{error,message}') from expired_answer), null,
+select is((select coalesce(body ->> 'raised', body ->> 'error') from expired_answer), null,
   'a draft whose only lease expired is previewed');
 select results_eq($$select line ->> 'change', line ->> 'title', (line ->> 'quantity')::numeric
   from expired_answer cross join jsonb_array_elements(body #> '{outcome,lines}') as line$$,
@@ -535,9 +538,9 @@ set local role authenticated;
 create temp table refused_answer as
 select pg_temp.answer((select body from commands where name = 'to-130') || jsonb_build_object('request_id', pg_temp.fx(152))) as body;
 reset role;
-select results_eq($$select body ->> 'dry_run', body #>> '{error,message}', body ->> 'raised' from refused_answer$$,
-  $$values ('true'::text, 'TAKEOFF_SEND_DRAFT_LOCKED'::text, null::text)$$,
-  'a draft open by another member is refused by an answer of the preview');
+select results_eq($$select body ->> 'dry_run', body -> 'error', body ->> 'raised' from refused_answer$$,
+  $$values ('true'::text, '{"code": "TAKEOFF_SEND_DRAFT_LOCKED", "reason": null}'::jsonb, null::text)$$,
+  'a draft open by another member is refused by an answer of the preview: its code, nothing else');
 select is((select count(*) from private.takeoff_send_commands where request_id = pg_temp.fx(152)), 0::bigint,
   'the refused preview leaves no staged command either');
 delete from public.draft_locks where version_id = pg_temp.fx(130);
@@ -560,6 +563,139 @@ select results_eq($$select line ->> 'title', line ->> 'unit' from sand_shown cro
 select is((select description from public.estimate_items where version_id = pg_temp.fx(120) and title = 'Sable'),
   (select line ->> 'unit' from sand_shown cross join jsonb_array_elements(outcome -> 'lines') as line),
   'what is shown is what the line stores');
+
+-- 14. A first draft is created with the settings its preview showed, those the creation takes from the tenant's policy
+-- included: the sale coefficients of engine 3, which the payload leaves to the policy (as « Créer un devis » does). The
+-- policy changed between the preview and the confirmation refuses it, and nothing is written.
+select pg_temp.affaire(26, 10, 1, 'Affaire aux coefficients');
+select pg_temp.plan(37, 36, 26, 10);
+select pg_temp.prepare(26, 10, 1, 36, 1);
+select pg_temp.admit(74, 26, 37, 10, 1);
+select pg_temp.measure(96, 74, 10, 36, 'Lavabo', 2, 'u');
+insert into commands values ('coefficients', pg_temp.command(74, pg_temp.first_draft(160), pg_temp.new_section(161)));
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table coefficients_shown as select pg_temp.dry('coefficients') as outcome;
+reset role;
+select is((select (outcome #>> '{version,sale_coefficient_fo}')::numeric from coefficients_shown), 1.3::numeric,
+  'the preview shows the supplies coefficient the draft would be created with (the default, without a policy)');
+insert into public.tenant_calc_policies(tenant_id, new_estimate_calc_engine, default_sale_coefficient_fo, default_sale_coefficient_mo,
+  change_reason) values (pg_temp.fx(10), 3, 1.6, 1.2, 'Coefficient de fournitures relevé (fictif)');
+select pg_temp.sign_in(1);
+set local role authenticated;
+select throws_ok($$select pg_temp.confirm('coefficients', (select outcome from coefficients_shown))$$, '40001',
+  'TAKEOFF_SEND_PREVIEW_STALE', 'a policy changed since the preview refuses the confirmation');
+reset role;
+select is(jsonb_build_array((select count(*) from public.estimate_versions where project_id = pg_temp.fx(26)),
+    (select estimate_version_id from public.takeoff_jobs where id = pg_temp.fx(74))), '[0, null]'::jsonb,
+  'nothing is written: no draft at 1.6, the takeoff still to send');
+delete from public.tenant_calc_policies where tenant_id = pg_temp.fx(10);
+
+-- 15. A preview answers the send's named refusals by their code, nothing else, and its command goes in every answer: a
+-- mismatched fingerprint, an expired command, a request that has a receipt. Any other error aborts the call.
+create function pg_temp.call(p_request jsonb) returns jsonb language plpgsql as $$
+begin
+  return public.send_takeoff_job(p_request);
+exception when others then
+  return jsonb_build_object('raised', sqlerrm);
+end;
+$$;
+create function pg_temp.staged_rows(p_request uuid) returns bigint language sql as $$
+  select count(*) from private.takeoff_send_commands where request_id = p_request
+$$;
+-- A line the destination refuses with a check of its own, its row in the message (a fixture's trigger).
+create function pg_temp.refuse_line() returns trigger language plpgsql as $$
+begin
+  raise exception using errcode = '23514', message = 'new row for relation "estimate_items" violates check constraint "fixture_check"',
+    detail = 'Failing row contains (texte privé fictif).';
+end;
+$$;
+create trigger fixture_refuse_line before insert on public.estimate_items for each row
+  when (new.version_id = 'ab240000-0000-4000-8000-000000000130'::uuid) execute function pg_temp.refuse_line();
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table checked_answer as
+select pg_temp.answer((select body from commands where name = 'to-130') || jsonb_build_object('request_id', pg_temp.fx(153))) as body;
+reset role;
+drop trigger fixture_refuse_line on public.estimate_items;
+select is((select body ->> 'raised' from checked_answer), 'new row for relation "estimate_items" violates check constraint "fixture_check"',
+  'an error that is none of the send''s named refusals aborts the preview''s call');
+select is((select body -> 'error' from checked_answer), null, 'it is not turned into an answer');
+-- A mismatched fingerprint.
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.stage_body((select body from commands where name = 'to-130') || jsonb_build_object('request_id', pg_temp.fx(154)));
+create temp table mismatched_answer as select pg_temp.call(jsonb_build_object('request_id', pg_temp.fx(154), 'job_id', pg_temp.fx(72),
+  'fingerprint', repeat('e', 64))) as body;
+reset role;
+select results_eq($$select body -> 'error', (select pg_temp.staged_rows(pg_temp.fx(154))) from mismatched_answer$$,
+  $$values ('{"code": "TAKEOFF_SEND_PREVIEW_STALE", "reason": "command_not_staged"}'::jsonb, 0::bigint)$$,
+  'a preview called with another fingerprint is answered, and its command goes');
+-- An expired command.
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.stage_body((select body from commands where name = 'to-130') || jsonb_build_object('request_id', pg_temp.fx(155)));
+reset role;
+update private.takeoff_send_commands set expires_at = statement_timestamp() - interval '1 minute' where request_id = pg_temp.fx(155);
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table expired_command_answer as select pg_temp.call(jsonb_build_object('request_id', pg_temp.fx(155),
+  'job_id', pg_temp.fx(72), 'fingerprint', repeat('f', 64))) as body;
+reset role;
+select results_eq($$select body -> 'error', (select pg_temp.staged_rows(pg_temp.fx(155))) from expired_command_answer$$,
+  $$values ('{"code": "TAKEOFF_SEND_PREVIEW_STALE", "reason": "command_not_staged"}'::jsonb, 0::bigint)$$,
+  'a preview whose command expired is answered, and its command goes');
+-- A request that has a receipt (section 5's), staged again as a preview.
+insert into commands select 'replayed-preview', pg_temp.command(61, pg_temp.first_draft(100), pg_temp.new_section(110))
+  || jsonb_build_object('request_id', (select body -> 'request_id' from commands where name = 'lengths'), 'fingerprint', repeat('a', 64),
+    'client', jsonb_build_object('fingerprint', repeat('a', 64), 'preview', true));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.stage_body((select body from commands where name = 'replayed-preview'));
+create temp table replayed_answer as select pg_temp.call(jsonb_build_object(
+  'request_id', (select body -> 'request_id' from commands where name = 'lengths'), 'job_id', pg_temp.fx(61),
+  'fingerprint', repeat('a', 64))) as body;
+reset role;
+select results_eq($$select body -> 'error', (select pg_temp.staged_rows(((select body ->> 'request_id' from commands
+    where name = 'lengths'))::uuid)) from replayed_answer$$,
+  $$values ('{"code": "TAKEOFF_SEND_REQUEST_CONFLICT", "reason": null}'::jsonb, 0::bigint)$$,
+  'a preview under a request that has a receipt is answered, and its command goes');
+
+-- 16. On engine 2 a takeoff line adds to an earlier line of the same unit only, the unit as the outcome shows it (the
+-- description): two kilograms of sand never add to the three bags.
+select pg_temp.plan(35, 34, 22, 12);
+select pg_temp.prepare(22, 12, 6, 34, 4);
+select pg_temp.admit(75, 22, 35, 12, 6);
+select pg_temp.measure(97, 75, 12, 34, 'Sable', 2, 'kg');
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches,
+  pg_temp._takeoff_apply_unmatched;
+insert into commands select 'kilograms', pg_temp.command(75, pg_temp.draft(120), pg_temp.existing_section(121),
+  (select jsonb_build_array(jsonb_build_object('takeoff_item_id', pg_temp.fx(97), 'estimate_item_id', line.id,
+    'expected_updated_at', line.updated_at, 'expected_quantity', line.quantity))
+   from public.estimate_items line where line.version_id = pg_temp.fx(120) and line.title = 'Sable'));
+select pg_temp.sign_in(6);
+set local role authenticated;
+create temp table kilograms_answer as
+select pg_temp.answer((select body from commands where name = 'kilograms') || jsonb_build_object('request_id', pg_temp.fx(156))) as body;
+reset role;
+select is((select body -> 'error' from kilograms_answer), '{"code": "TAKEOFF_SEND_PREVIEW_STALE", "reason": "accumulation_changed"}'::jsonb,
+  'an addition of kilograms to a line in bags is refused');
+
+-- 17. « No unit » is a field of its own: a free unit written « status:lot » is a unit, shown and compared as such.
+select pg_temp.plan(33, 32, 22, 12);
+select pg_temp.prepare(22, 12, 6, 32, 5);
+select pg_temp.admit(76, 22, 33, 12, 6);
+select pg_temp.measure(98, 76, 12, 32, 'Gravier', 1, 'status:lot');
+insert into commands values ('literal', pg_temp.command(76, pg_temp.draft(120), pg_temp.existing_section(121)));
+select pg_temp.sign_in(6);
+set local role authenticated;
+create temp table literal_shown as select pg_temp.dry('literal') as outcome;
+reset role;
+select results_eq($$select line ->> 'title', line ->> 'unit', line ? 'unitless_status', line ->> 'unitless_status'
+  from literal_shown cross join jsonb_array_elements(outcome -> 'lines') as line$$,
+  $$values ('Gravier'::text, 'status:lot'::text, true, null::text)$$, 'the free unit is the line''s unit, and the line has one');
+select is(private.takeoff_send_line_unit(3::smallint, null, 'Texte libre'), null::text,
+  'an engine 3 line without a unit code has no unit, whatever its description says');
 
 select * from finish();
 rollback;

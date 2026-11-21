@@ -508,13 +508,20 @@ devis, ni version, ni section, ni quantité.
   L'unité est celle que la ligne garde : son code d'unité sur le moteur 3, le texte de sa
   description sur le moteur 2 (une unité libre, « sac », reste « sac »). La confirmation
   porte ce résultat ; si l'envoi écrirait autre chose, tout est refusé. Ce qui est comparé :
-  pour chaque ligne créée, modifiée ou retirée, sa section, son titre, son unité, sa quantité
-  (et celle d'avant), son prix unitaire et les lignes de métré qu'elle reçoit ; pour chaque
-  ligne de métré, sa cible (nouvelle ligne ou ligne antérieure, laquelle, dans quelle
-  section) ; les sections créées. Ce qui ne l'est pas : les identifiants des lignes créées,
+  pour chaque ligne créée, modifiée ou retirée, sa section, son titre, son unité (une ligne
+  sans unité est nommée par son statut de prix, à part : une unité libre « status:lot » reste
+  une unité), sa quantité (et celle d'avant), son prix unitaire et les lignes de métré qu'elle
+  reçoit ; pour chaque ligne de métré, sa cible (nouvelle ligne ou ligne antérieure, laquelle,
+  dans quelle section) ; les sections créées ; pour une version créée, ses réglages tels
+  qu'elle est enregistrée, dont ceux que la création prend à la politique de calcul du tenant
+  (les coefficients de vente du moteur 3). Ce qui ne l'est pas : les identifiants des lignes créées,
   leur position, et, pour une ligne qui réunit plusieurs mesures, la mesure qui la représente
   (sa page principale), que l'envoi choisit comme son écrivain. Un aperçu ne laisse rien : sa
-  commande déposée part dans la transaction qui lui répond, refus compris.
+  commande déposée part dans la transaction qui lui répond, refus compris (empreinte
+  différente, commande expirée ou demande déjà reçue aussi). Un refus de l'aperçu est une
+  réponse : le code d'un des refus nommés de l'envoi, et pour un aperçu périmé ou une décision
+  de page l'identifiant de sa raison, sans aucun texte de la base ; toute autre erreur
+  interrompt l'appel et n'est écrite que dans le journal du serveur.
 - **Destination** ([`send-plan.ts`](../../src/lib/takeoff/send-plan.ts)). Sans version :
   « Créer le premier brouillon et y envoyer N lignes », la section proposée
   « Métré — <jeu de plans> » créée avec lui. Un seul brouillon : il est proposé. Plusieurs
@@ -539,7 +546,8 @@ devis, ni version, ni section, ni quantité.
   une seconde (3 lavabos, puis 2 : une ligne de 5, son prix inchangé). Sur les deux moteurs :
   le moteur 3 complète la ligne comme son écrivain, le moteur 2 recalcule la version comme
   pour une ligne DPGF qui somme les métrés qu'elle garde ; une ligne du moteur 2 garde son
-  unité dans sa description. Seulement sur une ligne alimentée par des métrés seuls, qui les
+  unité dans sa description, et ne reçoit que la même unité écrite de même (« m » et « ml »
+  restent deux lignes, comme l'aperçu les montre). Seulement sur une ligne alimentée par des métrés seuls, qui les
   nomme, dont la quantité est encore la somme de leurs lignes (une quantité saisie à la
   main n'est jamais modifiée par un envoi), sans longueur arrondie ni hypothèse d'un côté ou
   de l'autre, et quand la désignation ne nomme qu'une ligne de la section (deux homonymes
@@ -564,8 +572,9 @@ devis, ni version, ni section, ni quantité.
   [`…_takeoff_send_receipts.sql`](../../supabase/migrations/20261121050138_takeoff_send_receipts.sql)).
   Le serveur recalcule l'aperçu, essai à blanc compris, et refuse (409) s'il diffère de celui
   confirmé. Un premier brouillon est créé avec les réglages de son aperçu (coefficients,
-  taux, arrondi, validité) : ils font partie de ce qui est confirmé, et un réglage changé
-  entre-temps refuse la confirmation sans rien écrire. Sa date est celle de sa création,
+  taux, arrondi, validité), ceux que la création prend à la politique du tenant compris : ils
+  font partie de ce qui est confirmé, et un réglage changé entre-temps refuse la confirmation
+  sans rien écrire. Sa date est celle de sa création,
   comme pour « Créer un devis » : une confirmation après minuit n'est pas refusée pour sa
   seule date. Il dépose ce qu'il a calculé (contrôles évalués pour la destination, plan de
   correspondance, parts, résultat que le membre a vu) par `public.stage_takeoff_send`,
@@ -602,7 +611,10 @@ devis, ni version, ni section, ni quantité.
   (`takeoff-rules:<version>`), le verrou de l'éditeur sur ce brouillon (la clé que prend
   l'acquisition de son bail, avant la ligne de la version) et la ligne de la version, puis
   le métré (ses verrous et sa ligne), les règles de correspondance du tenant (partagées) et
-  enfin les lignes. Jamais l'inverse. La ligne de l'affaire est tenue en `FOR NO KEY UPDATE` :
+  enfin les lignes. Jamais l'inverse. Les versions de l'affaire sont comparées dès qu'elle est
+  tenue, avant toute autre attente : un premier brouillon prévu avant qu'une version existe
+  est refusé aussitôt, sans faire échouer l'enregistrement de cette version dans l'éditeur.
+  La ligne de l'affaire est tenue en `FOR NO KEY UPDATE` :
   deux envois, et un envoi et la création d'une version (qui la tient en `FOR UPDATE`),
   s'attendent ; les versions de l'affaire ne sont comparées qu'une fois elle tenue, aucune
   version ne se crée après la comparaison ; les clés étrangères vers l'affaire (l'avis de fin

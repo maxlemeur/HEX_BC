@@ -1,4 +1,5 @@
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { readAllRows } from "@/lib/supabase/read-all";
 import {
   badRequest,
   forbidden,
@@ -138,14 +139,14 @@ export async function listActiveTakeoffMappingRules(input: {
   supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
   tenantId: string;
 }): Promise<TakeoffMappingRule[]> {
-  const { data, error } = await input.supabase
+  // Read in full, page by page in their order of application: a tenant may hold more rules than one response.
+  const { data, error } = await readAllRows(() => input.supabase
     .from("takeoff_mapping_rules" as never)
-    .select(TAKEOFF_MAPPING_RULES_SELECT as never)
+    .select(TAKEOFF_MAPPING_RULES_SELECT as never, { count: "exact" })
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("is_active" as never, true as never)
     .order("priority" as never, { ascending: true })
-    .order("created_at" as never, { ascending: true })
-    .order("id" as never, { ascending: true });
+    .order("created_at" as never, { ascending: true }));
 
   if (error) {
     throw toTakeoffError(

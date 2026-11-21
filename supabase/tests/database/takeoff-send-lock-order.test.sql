@@ -11,6 +11,9 @@
 --    the preview refused at once, without the preview taking anything the write needs; the member's own write in flight
 --    makes the preview answer that the estimate is being modified, within its short lock timeout (red on 2ad71cfb: the
 --    preview waited behind the write without bound).
+-- 5. A first draft previewed before another member created V1: the stale preview is refused as soon as it holds the
+--    affaire, before it waits for anything, and that member's save on V1 is not refused meanwhile (red on 9ed38ced: the
+--    preview held the affaire while it waited for the takeoff's lock, and the save's FOR SHARE NOWAIT on it failed).
 -- 4. The end of an analysis of another takeoff of the draft, with the notices activated, and a send of the same draft:
 --    the worker holds the draft's rule lock and inserts its notice (a foreign key to the affaire); the send holds the
 --    affaire and waits for the rule lock. Both complete (red on 2ad71cfb: the send held the affaire FOR UPDATE, the
@@ -54,13 +57,19 @@ insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
 select m.tenant_id, 'd3b00000-0000-4000-8000-000000000002', 'admin'::public.tenant_role, true
 from public.tenant_memberships m where m.user_id = 'd3b00000-0000-4000-8000-000000000001' and m.is_default;
 insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
-select 'd3b00000-0000-4000-8000-000000000010', m.tenant_id, m.user_id, 'Ordre des verrous (fictif)', false
-from public.tenant_memberships m where m.user_id = 'd3b00000-0000-4000-8000-000000000001' and m.is_default;
-insert into public.plan_sets (id, tenant_id, project_id, name)
-select plan.set_id, m.tenant_id, 'd3b00000-0000-4000-8000-000000000010', 'Plans fictifs ' || plan.n
+select project.id, m.tenant_id, m.user_id, project.name, false
 from public.tenant_memberships m cross join (values
-  (11, 'd3b00000-0000-4000-8000-000000000111'::uuid), (12, 'd3b00000-0000-4000-8000-000000000112'::uuid),
-  (13, 'd3b00000-0000-4000-8000-000000000113'::uuid)) as plan(n, set_id)
+  ('d3b00000-0000-4000-8000-000000000010'::uuid, 'Ordre des verrous (fictif)'),
+  ('d3b00000-0000-4000-8000-000000000020'::uuid, 'Premier brouillon dépassé (fictif)')) as project(id, name)
+where m.user_id = 'd3b00000-0000-4000-8000-000000000001' and m.is_default;
+insert into public.plan_sets (id, tenant_id, project_id, name)
+select plan.set_id, m.tenant_id, plan.project_id, 'Plans fictifs ' || plan.n
+from public.tenant_memberships m cross join (values
+  (11, 'd3b00000-0000-4000-8000-000000000111'::uuid, 'd3b00000-0000-4000-8000-000000000010'::uuid),
+  (12, 'd3b00000-0000-4000-8000-000000000112'::uuid, 'd3b00000-0000-4000-8000-000000000010'::uuid),
+  (13, 'd3b00000-0000-4000-8000-000000000113'::uuid, 'd3b00000-0000-4000-8000-000000000010'::uuid),
+  (21, 'd3b00000-0000-4000-8000-000000000121'::uuid, 'd3b00000-0000-4000-8000-000000000020'::uuid),
+  (22, 'd3b00000-0000-4000-8000-000000000122'::uuid, 'd3b00000-0000-4000-8000-000000000020'::uuid)) as plan(n, set_id, project_id)
 where m.user_id = 'd3b00000-0000-4000-8000-000000000001' and m.is_default;
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 select ('d3b00000-0000-4000-8000-000000000' || (200 + s.n))::uuid, s.tenant_id, s.id, 'plan-' || s.n || '.pdf',
@@ -68,7 +77,7 @@ select ('d3b00000-0000-4000-8000-000000000' || (200 + s.n))::uuid, s.tenant_id, 
 from (select set_row.*, substr(set_row.id::text, 34)::integer - 100 as n from public.plan_sets set_row
   where set_row.id::text like 'd3b00000-%') as s;
 commit;
-$setup$), 'COMMIT', 'members, the affaire and its plans committed');
+$setup$), 'COMMIT', 'members, the affaires and their plans committed');
 
 create function pg_temp.act_as(p_session text, p_member uuid) returns text language sql as $$
   select claims.sub from extensions.dblink(p_session, format($claims$select set_config('request.jwt.claims',
@@ -82,7 +91,8 @@ select is(pg_temp.act_as('lock_member', pg_temp.engineer()), pg_temp.engineer():
 select is(pg_temp.act_as('lock_editor', pg_temp.admin()), pg_temp.admin()::text, 'the editor''s session is the administrator''s');
 
 -- Each takeoff: its preparation confirmed, admitted, then completed with one washbasin line read on its plan.
-create function pg_temp.prepare_and_admit(p_job integer, p_set integer, p_revision integer, p_quantity integer)
+create function pg_temp.prepare_and_admit(p_job integer, p_set integer, p_revision integer, p_quantity integer,
+  p_project integer default 10)
 returns void language plpgsql as $$
 declare
   draft jsonb;
@@ -101,7 +111,7 @@ begin
       'preparation', %3$L::jsonb), '2026-11-20T00:00:00Z', m.user_id, m.user_id
     from public.tenant_memberships m where m.user_id = 'd3b00000-0000-4000-8000-000000000001' and m.is_default
     on conflict (tenant_id, project_id) do update set revision = excluded.revision, draft = excluded.draft,
-      confirmed_snapshot = excluded.confirmed_snapshot$prep$, pg_temp.fx(10), p_revision, draft));
+      confirmed_snapshot = excluded.confirmed_snapshot$prep$, pg_temp.fx(p_project), p_revision, draft));
   perform extensions.dblink_exec('lock_setup', 'set role authenticated');
   perform 1 from extensions.dblink('lock_setup', format($admit$
     select null::text from public.admit_prepared_takeoff_job(jsonb_build_object('id', %1$L, 'tenant_id',
@@ -109,7 +119,7 @@ begin
       'created_by', 'd3b00000-0000-4000-8000-000000000001', 'execution_provider', 'chatgpt_local',
       'execution_host_id', 'urn:uuid:d3b00000-0000-4000-8000-000000000090', 'processing_strategy', 'sync',
       'preparation_snapshot', (select confirmed_snapshot from public.takeoff_preparations where project_id = %2$L)))$admit$,
-    pg_temp.fx(p_job), pg_temp.fx(10), pg_temp.fx(100 + p_set))) as admitted(nothing text);
+    pg_temp.fx(p_job), pg_temp.fx(p_project), pg_temp.fx(100 + p_set))) as admitted(nothing text);
   perform extensions.dblink_exec('lock_setup', 'reset role');
   perform extensions.dblink_exec('lock_setup', format($done$
     update public.takeoff_jobs set status = 'completed' where id = %1$L;
@@ -126,8 +136,10 @@ $$;
 select pg_temp.prepare_and_admit(11, 11, 1, 3);
 select pg_temp.prepare_and_admit(12, 12, 2, 2);
 select pg_temp.prepare_and_admit(13, 13, 3, 1);
+select pg_temp.prepare_and_admit(21, 21, 1, 1, 20);
+select pg_temp.prepare_and_admit(22, 22, 2, 2, 20);
 select is((select count(*)::integer from public.takeoff_jobs where id::text like 'd3b00000-%' and status = 'completed'
-  and estimate_version_id is null), 3, 'three versionless takeoffs are ready to send');
+  and estimate_version_id is null), 5, 'five versionless takeoffs are ready to send');
 
 -- The command as the server builds it after its preview, from the committed state.
 create function pg_temp.command(p_job integer, p_destination jsonb, p_section jsonb) returns jsonb language sql as $$
@@ -219,13 +231,16 @@ $$;
 
 -- The draft: takeoff 11 sent to the affaire's first draft V1 (601), its section 701.
 create temp table commands (name text primary key, body jsonb);
-insert into commands values ('11', pg_temp.confirmed(pg_temp.command(11, jsonb_build_object('kind', 'first_draft', 'version_payload',
-  jsonb_build_object('id', pg_temp.fx(601), 'title', null, 'date_devis', '2026-11-21', 'validite_jours', 30, 'margin_multiplier', 1,
+create function pg_temp.first_draft(p_version integer) returns jsonb language sql immutable as $$
+  select jsonb_build_object('kind', 'first_draft', 'version_payload',
+  jsonb_build_object('id', pg_temp.fx(p_version), 'title', null, 'date_devis', '2026-11-21', 'validite_jours', 30, 'margin_multiplier', 1,
     'margin_mode', 'fixed', 'currency', 'EUR', 'margin_bp', 0, 'discount_bp', 0, 'discount_amount_cents', null,
     'discount_mode', 'simple', 'discount_steps', '[]'::jsonb, 'global_coefficient', 1, 'tax_rate_bp', 2000,
     'rounding_mode', 'none', 'rounding_step_cents', 1, 'max_section_depth', 3, 'contractor_role', 'principal',
     'calc_engine_version', 3, 'gross_ht_cents', 0, 'discount_applied_cents', 0, 'commercial_rounding_cents', 0,
-    'total_ht_cents', 0, 'total_tax_cents', 0, 'total_ttc_cents', 0)),
+    'total_ht_cents', 0, 'total_tax_cents', 0, 'total_ttc_cents', 0))
+$$;
+insert into commands values ('11', pg_temp.confirmed(pg_temp.command(11, pg_temp.first_draft(601),
   jsonb_build_object('kind', 'new', 'id', pg_temp.fx(701), 'title', 'Métré fictif'))));
 select is((select (x.receipt::jsonb ->> 'replayed') from extensions.dblink('lock_member',
   pg_temp.staged_call((select body from commands where name = '11'))) as x(receipt text)), 'false', 'takeoff 11 creates the draft V1');
@@ -254,7 +269,7 @@ create temp table answers (name text primary key, body jsonb);
 insert into answers select '1', x.body::jsonb from extensions.dblink_get_result('lock_member', false) as x(body text);
 select diag(concat('case 1, preview: ', extensions.dblink_error_message('lock_member'), '; editor: ',
   extensions.dblink_error_message('lock_editor')));
-select is((select body #>> '{error,message}' from answers where name = '1'), 'TAKEOFF_SEND_DRAFT_LOCKED',
+select is((select body -> 'error' from answers where name = '1'), '{"code": "TAKEOFF_SEND_DRAFT_LOCKED", "reason": null}'::jsonb,
   'the preview answers that the draft is open by another member, as an answer, not a database error');
 select is((select count(*)::integer from extensions.dblink_get_result('lock_member', false) as x(body text)), 0, 'the preview is done');
 select is(pg_temp.staged_rows((select body from commands where name = '12-while-acquired')), 0::bigint,
@@ -316,7 +331,7 @@ insert into observed values ('3', pg_temp.answered('lock_member'));
 select is(extensions.dblink_exec('lock_editor', 'commit'), 'COMMIT', 'the save commits');
 select ok((select answered from observed where name = '3'), 'the preview answered while the save was still open');
 insert into answers select '3', x.body::jsonb from extensions.dblink_get_result('lock_member', false) as x(body text);
-select is((select body #>> '{error,message}' from answers where name = '3'), 'TAKEOFF_SEND_DRAFT_LOCKED',
+select is((select body -> 'error' from answers where name = '3'), '{"code": "TAKEOFF_SEND_DRAFT_LOCKED", "reason": null}'::jsonb,
   'it is told the draft is open by another member');
 select is((select count(*)::integer from extensions.dblink_get_result('lock_member', false) as x(body text)), 0, 'the preview is done');
 select is(extensions.dblink_exec('lock_editor', 'set role authenticated'), 'SET', 'the editor acts as the administrator again');
@@ -337,14 +352,53 @@ insert into observed values ('3-own', pg_temp.answered('lock_member'));
 select is(extensions.dblink_exec('lock_editor', 'commit'), 'COMMIT', 'the save of the other tab commits');
 select ok((select answered from observed where name = '3-own'), 'the preview answered while the save was still open: its wait is bounded');
 insert into answers select '3-own', x.body::jsonb from extensions.dblink_get_result('lock_member', false) as x(body text);
-select is((select body #>> '{error,code}' from answers where name = '3-own'), '55P03',
-  'it answers that something it needs is busy');
-select isnt((select body #>> '{error,message}' from answers where name = '3-own'), 'TAKEOFF_SEND_DRAFT_LOCKED',
-  'not that another member holds the draft');
+select is((select body -> 'error' from answers where name = '3-own'), '{"code": "TAKEOFF_SEND_BUSY", "reason": null}'::jsonb,
+  'it answers that the estimate is being modified, not that another member holds the draft');
 select is((select count(*)::integer from extensions.dblink_get_result('lock_member', false) as x(body text)), 0, 'the preview is done');
 select is(extensions.dblink_exec('lock_editor', 'set role authenticated'), 'SET', 'the editor acts as the administrator again');
 select is(pg_temp.staged_rows((select body from commands where name = '12-own-save')), 0::bigint,
   'the preview leaves no staged command');
+
+-- 5. Takeoff 21's first draft is previewed after another member created V1 of affaire 2 (takeoff 22's send). The preview
+-- would wait for takeoff 21's lock (held here); that member saves on V1 meanwhile, the save reading the affaire FOR SHARE
+-- NOWAIT as the editor's saves do.
+insert into commands values ('21-stale', pg_temp.command(21, pg_temp.first_draft(621),
+  jsonb_build_object('kind', 'new', 'id', pg_temp.fx(721), 'title', 'Métré fictif')));
+insert into commands values ('22', pg_temp.confirmed(pg_temp.command(22, pg_temp.first_draft(622),
+  jsonb_build_object('kind', 'new', 'id', pg_temp.fx(722), 'title', 'Métré fictif'))));
+select is((select (x.receipt::jsonb ->> 'replayed') from extensions.dblink('lock_member',
+  pg_temp.staged_call((select body from commands where name = '22'))) as x(receipt text)), 'false', 'takeoff 22 creates V1 of affaire 2');
+create function pg_temp.answered_or_waits(p_session text, p_holding text) returns boolean language plpgsql as $$
+declare
+  waiting integer := (select pid from lock_order_pids where label = p_session);
+  holding integer := (select pid from lock_order_pids where label = p_holding);
+begin
+  for attempt in 1..400 loop
+    if extensions.dblink_is_busy(p_session) = 0 or holding = any(pg_catalog.pg_blocking_pids(waiting)) then return true; end if;
+    perform pg_catalog.pg_sleep(0.025);
+  end loop;
+  return false;
+end;
+$$;
+select is(extensions.dblink_exec('lock_setup', 'begin'), 'BEGIN', 'the fixture session starts');
+select is((select x.held from extensions.dblink('lock_setup', format(
+  'select pg_advisory_xact_lock(hashtextextended(%L, 0))::text', 'takeoff-job-rules:' || pg_temp.fx(21))) as x(held text)), '',
+  'it holds takeoff 21''s rule lock');
+select is(extensions.dblink_send_query('lock_member', pg_temp.staged_call((select body from commands where name = '21-stale'))), 1,
+  'the engineer previews takeoff 21''s first draft, read before V1 existed');
+select ok(pg_temp.answered_or_waits('lock_member', 'lock_setup'), 'the preview answered, or waits for the held lock');
+select is(extensions.dblink_exec('lock_editor', 'reset role'), 'RESET', 'the save on V1 runs as the owner here');
+select is((select count(*)::integer from extensions.dblink('lock_editor', format(
+  'select 1 from public.estimate_projects where id = %L for share nowait', pg_temp.fx(20)), false) as x(one integer)), 1,
+  'the save on V1 reads the affaire');
+select is(extensions.dblink_error_message('lock_editor'), 'OK', 'it is not refused');
+select is(extensions.dblink_exec('lock_editor', 'set role authenticated'), 'SET', 'the editor acts as the administrator again');
+select is(extensions.dblink_exec('lock_setup', 'commit'), 'COMMIT', 'the rule lock is released');
+insert into answers select '5', x.body::jsonb from extensions.dblink_get_result('lock_member', false) as x(body text);
+select is((select body -> 'error' from answers where name = '5'),
+  '{"code": "TAKEOFF_SEND_PREVIEW_STALE", "reason": "destination_changed"}'::jsonb,
+  'the stale preview is told a version was created, without having waited for the takeoff');
+select is((select count(*)::integer from extensions.dblink_get_result('lock_member', false) as x(body text)), 0, 'the preview is done');
 
 -- 4. The Mac ends a takeoff attached to V1 whose line carries rule inputs, once the notices are activated, while the
 -- engineer sends takeoff 13 to V1. The worker is stopped on V1's rule lock (held here) before it publishes its notice;

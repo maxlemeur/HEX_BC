@@ -125,6 +125,19 @@ describe("proposeTakeoffSendAccumulations — plan A then plan B feed one line",
     expect(proposeTakeoffSendAccumulations({ ...base, sectionLines: [engine2] }).get(id(301))?.id).toBe(id(200));
   });
 
+  // Closing round, point 4: the unit an engine 2 line adds by is the one the outcome shows, its description as stored;
+  // the send compares it so. Written before the fix: red on 9ed38ced (« m » and « ml » were read as one unit here, and
+  // the send would have been refused on its preview's proposal, again and again).
+  it("adds on engine 2 only to a line whose description is the very unit sent", () => {
+    const metres = earlier({ title: "Tube PER", unit_code: null, description: "m", source_metadata: { takeoff_contributions: {
+      version: 1, job_id: id(1), item_ids: [id(101)] } } });
+    const tube = [{ ...sent[0], designation: "Tube PER", unit: "ml" }];
+    expect(proposeTakeoffSendAccumulations({ ...base, sent: tube, sectionLines: [metres] }).size).toBe(0);
+    const units = earlier({ unit_code: null, description: "u", source_metadata: { takeoff_contributions: { version: 1, job_id: id(1),
+      item_ids: [id(101)] } } });
+    expect(proposeTakeoffSendAccumulations({ ...base, sent: [{ ...sent[0], unit: "U" }], sectionLines: [units] }).size).toBe(0);
+  });
+
   it("keeps apart an engine 2 line that names no takeoff line, as earlier applications left it: two lines, as the preview says", () => {
     expect(proposeTakeoffSendAccumulations({ ...base, sectionLines: [earlier({ unit_code: null, description: "u", source_metadata: {} })] })
       .size).toBe(0);

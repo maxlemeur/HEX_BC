@@ -6,6 +6,7 @@ import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+import { IN_FILTER_CHUNK_SIZE } from "@/lib/supabase/in-chunks";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { takeoffLinePageIdentity, type PageDocumentSource } from "@/lib/takeoff/page-contributions";
@@ -71,15 +72,19 @@ function failed(message: string, error: { message?: string } | null): never {
 
 async function readGeometries(supabase: ServiceClient, tenantId: string, jobIds: readonly string[]) {
   const rows: GeometryRow[] = [];
-  for (let offset = 0; ; offset += GEOMETRY_PAGE) {
-    const { data, error } = await supabase.from("takeoff_item_geometries" as never)
-      .select("takeoff_item_id, job_id, vector_page_id, geometry" as never)
-      .eq("tenant_id" as never, tenantId as never).in("job_id" as never, jobIds as never)
-      .order("takeoff_item_id" as never, { ascending: true }).range(offset, offset + GEOMETRY_PAGE - 1);
-    if (error) failed("Impossible de lire la géométrie des lignes pour les règles.", error);
-    rows.push(...((data ?? []) as unknown as GeometryRow[]));
-    if ((data ?? []).length < GEOMETRY_PAGE) return rows;
+  for (let start = 0; start < jobIds.length; start += IN_FILTER_CHUNK_SIZE) {
+    const chunk = jobIds.slice(start, start + IN_FILTER_CHUNK_SIZE);
+    for (let offset = 0; ; offset += GEOMETRY_PAGE) {
+      const { data, error } = await supabase.from("takeoff_item_geometries" as never)
+        .select("takeoff_item_id, job_id, vector_page_id, geometry" as never)
+        .eq("tenant_id" as never, tenantId as never).in("job_id" as never, chunk as never)
+        .order("takeoff_item_id" as never, { ascending: true }).range(offset, offset + GEOMETRY_PAGE - 1);
+      if (error) failed("Impossible de lire la géométrie des lignes pour les règles.", error);
+      rows.push(...((data ?? []) as unknown as GeometryRow[]));
+      if ((data ?? []).length < GEOMETRY_PAGE) break;
+    }
   }
+  return rows;
 }
 
 /** JSON with object keys sorted: stored jsonb comes back with its keys in another order than the code builds them. */
@@ -240,10 +245,11 @@ async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: s
   if (jobs.length === 0) return null;
   const jobIds = jobs.map((job) => job.id);
 
-  const { data: itemData, error: itemError } = await readAllRows(() => supabase.from("takeoff_items" as never)
+  // By chunks of identifiers: the peers of a destination can be a thousand, more than one request's URL holds.
+  const { data: itemData, error: itemError } = await readAllRowsInChunks(jobIds, (chunk) => supabase.from("takeoff_items" as never)
     .select(("id, job_id, designation, unit, quantity, is_excluded, exclusion_reason, updated_at, metadata, source_file_name, source_page, "
       + "rule_results, rules_stale, rules_stale_at, rules_evaluated_at, quantity_entry_category, is_verified") as never, { count: "exact" })
-    .eq("tenant_id" as never, tenantId as never).in("job_id" as never, jobIds as never));
+    .eq("tenant_id" as never, tenantId as never).in("job_id" as never, chunk as never));
   if (itemError) failed("Impossible de lire les lignes de la version pour les règles.", itemError as { message?: string });
   const items = ((itemData ?? []) as unknown as ItemRow[]).map((item) => ({ item, inputs: readRuleInputs(item.metadata) }));
   if (!items.some(({ inputs }) => inputs !== null)) return null;
@@ -255,9 +261,9 @@ async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: s
     return [job.id, parsed.success ? parsed.data : null];
   }));
   const vectorJobs = [...new Set(items.filter(({ inputs }) => inputs !== null).map(({ item }) => item.job_id))];
-  const { data: pageData, error: pageError } = await readAllRows(() => supabase.from("takeoff_vector_pages" as never)
+  const { data: pageData, error: pageError } = await readAllRowsInChunks(vectorJobs, (chunk) => supabase.from("takeoff_vector_pages" as never)
     .select("id, job_id, plan_file_id, source_file_name, source_page, reading, rule_anchors" as never, { count: "exact" })
-    .eq("tenant_id" as never, tenantId as never).in("job_id" as never, vectorJobs as never));
+    .eq("tenant_id" as never, tenantId as never).in("job_id" as never, chunk as never));
   if (pageError) failed("Impossible de lire les pages vectorielles pour les règles.", pageError as { message?: string });
   const geometries = new Map((await readGeometries(supabase, tenantId, vectorJobs)).flatMap((row) => {
     const geometry = VectorItemGeometrySchema.safeParse(row.geometry);

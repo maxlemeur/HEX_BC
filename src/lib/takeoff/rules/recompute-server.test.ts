@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 
+import { IN_FILTER_CHUNK_SIZE } from "@/lib/supabase/in-chunks";
 import { createSupabaseFake, servedRows } from "@/lib/takeoff/metre-m3.test-utils";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import {
@@ -298,7 +299,8 @@ describe("reading the plan page of each vector page", () => {
     });
     const evaluated = await evaluateTakeoffRulesForDestination({ tenantId: "t", projectId: "p", jobId: M2, destinationVersionId: "v",
       supabase: fake.client as never });
-    return evaluated.results.get(own.id)?.find((result) => result.rule === "zone_overlap");
+    return Object.assign(evaluated.results.get(own.id)?.find((result) => result.rule === "zone_overlap") ?? {}, {
+      queries: fake.queries });
   }
 
   it("compares the takeoff with the destination's thousand-and-first attached takeoff", async () => {
@@ -307,6 +309,16 @@ describe("reading the plan page of each vector page", () => {
 
   it("compares the takeoff with the destination's thousand-and-first takeoff carried over by a copy", async () => {
     expect(await evaluateBehind("carried")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+
+  // Closing round, point 5: the lines of a thousand peers are read by chunks of identifiers, never in one request whose URL
+  // the gateway refuses. Written before the fix: red on 9ed38ced (1,001 identifiers in one filter).
+  it("reads the lines of a thousand peers by chunks of identifiers", async () => {
+    const { queries } = await evaluateBehind("attached") as { queries: Array<{ table: string; filters: Array<{ column: string; value: unknown }> }> };
+    const filters = queries.filter((query) => query.table === "takeoff_items")
+      .map((query) => query.filters.find((filter) => filter.column === "job_id")?.value as string[]);
+    expect(filters.flat()).toHaveLength(1002);
+    expect(Math.max(...filters.map((ids) => ids.length))).toBeLessThanOrEqual(IN_FILTER_CHUNK_SIZE);
   });
 });
 

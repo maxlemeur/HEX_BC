@@ -358,6 +358,8 @@ select throws_ok($$select pg_temp.stage('injected')$$, '40001', 'TAKEOFF_SEND_RE
   'nor can it be staged again for this user');
 reset role;
 delete from private.takeoff_send_commands where request_id = pg_temp.fixture(140);
+-- A confirmation (a preview's call answers instead, outcome suite section 15).
+update commands set body = body || jsonb_build_object('mode', 'send', 'expected_outcome', pg_temp.unseen()) where name = 'injected';
 select pg_temp.stage('injected');
 set local role authenticated;
 select throws_ok($$select public.send_takeoff_job(jsonb_set(pg_temp.request('injected'), '{fingerprint}', to_jsonb(repeat('e', 64))))$$,
@@ -500,8 +502,21 @@ select is(pg_temp.counts(20), '{"versions":1,"lines":2,"receipts":1,"attached":1
 select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.refusal($$select pg_temp.confirm('again', (select outcome from again_shown))$$),
-  '40001 TAKEOFF_SEND_ALREADY_SENT', 'a job is sent once: its preview from another tab is refused once it is sent');
+  '40001 TAKEOFF_SEND_PREVIEW_STALE destination_changed',
+  'its first draft previewed from another tab is refused once V1 exists, as soon as the affaire is held');
 reset role;
+-- The same takeoff confirmed to V1 itself: a job is sent once.
+insert into commands values ('again-to-v1', jsonb_set(pg_temp.command(126, 61, jsonb_build_object('kind', 'existing_draft',
+  'version_id', pg_temp.fixture(100)), jsonb_build_object('kind', 'existing', 'id', pg_temp.fixture(110))),
+  '{expected,job_stamp}', '"read before the first send"'));
+insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+values (pg_temp.fixture(100), pg_temp.fixture(1), pg_temp.fixture(10), now() + interval '5 minutes', gen_random_uuid());
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.refusal($$select pg_temp.confirm('again-to-v1', pg_temp.unseen())$$), '40001 TAKEOFF_SEND_ALREADY_SENT',
+  'a job is sent once: its confirmation to the draft it is on is refused by name');
+reset role;
+delete from public.draft_locks where version_id = pg_temp.fixture(100);
 
 -- 7. B previewed a first draft before A was sent: its confirmation is refused; sent to V1, it adds its 2 to A's 3.
 select pg_temp.sign_in(1);

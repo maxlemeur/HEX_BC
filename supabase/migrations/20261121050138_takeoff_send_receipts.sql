@@ -1141,20 +1141,21 @@ $$;
 revoke all on function public.takeoff_send_peers_stamp(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.takeoff_send_peers_stamp(uuid, uuid) to service_role;
 
--- The unit of an estimate line as the line stores it, for the outcome a send is compared with: its unit code on engine 3,
--- the free text of its description on engine 2 (where the unit is kept); a line without one is named by its pricing status.
-create function private.takeoff_send_line_unit(p_engine smallint, p_unit_code text, p_description text, p_pricing_status text)
+-- The unit of an estimate line as the line stores it, for the outcome a send is compared with and for its additions to
+-- earlier lines: its unit code on engine 3, the free text of its description on engine 2 (where the unit is kept); null
+-- for a line without one, which the outcome then names by its pricing status, in a field of its own.
+create function private.takeoff_send_line_unit(p_engine smallint, p_unit_code text, p_description text)
 returns text language sql immutable set search_path = '' as $$
-  select case when p_engine = 3 then coalesce(p_unit_code, 'status:' || p_pricing_status)
-    else coalesce(nullif(pg_catalog.btrim(p_description), ''), p_unit_code, 'status:' || p_pricing_status) end
+  select case when p_engine = 3 then p_unit_code else coalesce(nullif(pg_catalog.btrim(p_description), ''), p_unit_code) end
 $$;
-revoke all on function private.takeoff_send_line_unit(smallint, text, text, text) from public, anon, authenticated, service_role;
+revoke all on function private.takeoff_send_line_unit(smallint, text, text) from public, anon, authenticated, service_role;
 
 -- 9. The send, run once by public.send_takeoff_job (and rolled back when the command is a dry run: the preview).
 --
 -- Lock order, one for every destination and shared with the import and the first creation of a version
 -- (persist_estimate_creation_atomic) and with the application (apply_takeoff_job_with_page_decisions): the tenant's
--- calculation policy (shared), the affaire's row, then for an existing draft its rule lock `takeoff-rules:<version>`, the
+-- calculation policy (shared), the affaire's row (and, at once, the comparison of its versions: a command read before a
+-- version was created waits for nothing else), then for an existing draft its rule lock `takeoff-rules:<version>`, the
 -- estimate editor's lock of the draft (the key its lease acquisition takes before the version's row) and the version's
 -- row, then the job's locks and row, then the tenant's mapping rules (shared), then the lines. Never the reverse.
 -- The affaire's row is held FOR NO KEY UPDATE: two sends, and a send and the creation of a version (which holds it FOR
@@ -1216,6 +1217,28 @@ begin
     or (p_role <> 'admin'::public.tenant_role and project.user_id is distinct from p_actor) then
     raise exception 'TAKEOFF_SEND_PROJECT_NOT_WRITABLE' using errcode = '42501';
   end if;
+  -- The affaire held, a command of this request that committed meanwhile is visible now (two sends of one affaire wait
+  -- for each other on its row).
+  if not p_dry_run then
+    select * into existing from public.takeoff_send_receipts as stored
+    where stored.tenant_id = p_tenant and stored.request_id = p_request;
+    if found then
+      return pg_catalog.jsonb_build_object('replay', existing.id);
+    end if;
+  end if;
+  -- The affaire's versions, compared as soon as its row is held and before any other wait: a command read before a version
+  -- was created or changed status (a first draft on an affaire that has one) is refused at once, and holds the affaire no
+  -- longer than that, so that the saves of that version's editor are not refused meanwhile. Their dates are compared again
+  -- once every lock is held, below.
+  if (select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', version.id, 'status', version.status)
+        order by version.id::text), '[]'::jsonb)
+      from public.estimate_versions as version where version.project_id = job.project_id and version.tenant_id = p_tenant)
+    is distinct from (select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', expected.value -> 'id',
+        'status', expected.value -> 'status') order by expected.value ->> 'id'), '[]'::jsonb)
+      from pg_catalog.jsonb_array_elements(p_command #> '{expected,versions}') as expected(value)) then
+    raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
+      detail = pg_catalog.jsonb_build_object('reason', 'destination_changed')::text;
+  end if;
   if kind = 'existing_draft' then
     target_version := (p_command #>> '{destination,version_id}')::uuid;
     perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-rules:' || target_version::text, 0));
@@ -1240,15 +1263,6 @@ begin
     if not found then
       raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
         detail = pg_catalog.jsonb_build_object('reason', 'destination_changed')::text;
-    end if;
-  end if;
-
-  -- The locks taken: a command of this request that committed meanwhile is visible now.
-  if not p_dry_run then
-    select * into existing from public.takeoff_send_receipts as stored
-    where stored.tenant_id = p_tenant and stored.request_id = p_request;
-    if found then
-      return pg_catalog.jsonb_build_object('replay', existing.id);
     end if;
   end if;
 
@@ -1373,7 +1387,9 @@ begin
   drop table if exists pg_temp._takeoff_send_before;
   create temporary table _takeoff_send_before on commit drop as
   select item.id, item.parent_id, item.title,
-    private.takeoff_send_line_unit(target_engine, item.unit_code, item.description, item.pricing_status::text) as unit,
+    private.takeoff_send_line_unit(target_engine, item.unit_code, item.description) as unit,
+    case when private.takeoff_send_line_unit(target_engine, item.unit_code, item.description) is null
+      then item.pricing_status::text end as unitless_status,
     item.quantity, item.unit_price_ht_cents, item.source_job_id, item.updated_at
   from public.estimate_items as item
   where item.version_id = target_version and item.tenant_id = p_tenant and item.item_type = 'line'::public.estimate_item_type;
@@ -1504,8 +1520,14 @@ begin
         and public.takeoff_item_hypothesis_cause(source.metadata, source.quantity_entry_category) is null
         and added.parent_id = earlier.parent_id
         and lower(regexp_replace(btrim(added.title), '\s+', ' ', 'g')) = lower(regexp_replace(btrim(earlier.title), '\s+', ' ', 'g'))
-        and coalesce(added.unit_code, 'status:' || added.pricing_status::text)
-          = coalesce(earlier.unit_code, 'status:' || earlier.pricing_status::text)
+        -- The same unit as the outcome shows (on engine 2 the description, where the unit is kept); lines without one by
+        -- their pricing status.
+        and (private.takeoff_send_line_unit(target_engine, added.unit_code, added.description),
+            case when private.takeoff_send_line_unit(target_engine, added.unit_code, added.description) is null
+              then added.pricing_status end)
+          is not distinct from (private.takeoff_send_line_unit(target_engine, earlier.unit_code, earlier.description),
+            case when private.takeoff_send_line_unit(target_engine, earlier.unit_code, earlier.description) is null
+              then earlier.pricing_status end)
     ) then
       raise exception 'TAKEOFF_SEND_PREVIEW_STALE' using errcode = '40001',
         detail = pg_catalog.jsonb_build_object('reason', 'accumulation_changed', 'estimate_item_id', entry.estimate_item_id)::text;
@@ -1559,7 +1581,9 @@ begin
   drop table if exists pg_temp._takeoff_send_after;
   create temporary table _takeoff_send_after on commit drop as
   select item.id, item.parent_id, item.title,
-    private.takeoff_send_line_unit(target_engine, item.unit_code, item.description, item.pricing_status::text) as unit,
+    private.takeoff_send_line_unit(target_engine, item.unit_code, item.description) as unit,
+    case when private.takeoff_send_line_unit(target_engine, item.unit_code, item.description) is null
+      then item.pricing_status::text end as unitless_status,
     item.quantity, item.unit_price_ht_cents, item.source_job_id,
     (select pg_catalog.jsonb_agg(output.value ->> 'takeoff_item_id' order by output.value ->> 'takeoff_item_id')
       from pg_catalog.jsonb_array_elements(links) as output(value)
@@ -1567,24 +1591,27 @@ begin
   from public.estimate_items as item
   where item.version_id = target_version and item.tenant_id = p_tenant and item.item_type = 'line'::public.estimate_item_type;
   with changes as (
-    select 'created' as change, null::text as ref, refs.ref as section, after_line.title, after_line.unit, after_line.quantity,
+    select 'created' as change, null::text as ref, refs.ref as section, after_line.title, after_line.unit,
+      after_line.unitless_status, after_line.quantity,
       null::numeric as quantity_before, after_line.unit_price_ht_cents, coalesce(after_line.takeoff_item_ids, '[]'::jsonb) as takeoff_item_ids
     from pg_temp._takeoff_send_after as after_line
     left join pg_temp._takeoff_send_refs as refs on refs.id = after_line.parent_id
     where not exists (select 1 from pg_temp._takeoff_send_before as before_line where before_line.id = after_line.id)
     union all
-    select 'changed', line_ref.ref, refs.ref, after_line.title, after_line.unit, after_line.quantity, before_line.quantity,
+    select 'changed', line_ref.ref, refs.ref, after_line.title, after_line.unit, after_line.unitless_status, after_line.quantity,
+      before_line.quantity,
       after_line.unit_price_ht_cents, coalesce(after_line.takeoff_item_ids, '[]'::jsonb)
     from pg_temp._takeoff_send_after as after_line
     join pg_temp._takeoff_send_before as before_line on before_line.id = after_line.id
     left join pg_temp._takeoff_send_refs as line_ref on line_ref.id = after_line.id
     left join pg_temp._takeoff_send_refs as refs on refs.id = after_line.parent_id
-    where (after_line.parent_id, after_line.title, after_line.unit, after_line.quantity, after_line.unit_price_ht_cents,
-        after_line.source_job_id)
-      is distinct from (before_line.parent_id, before_line.title, before_line.unit, before_line.quantity,
-        before_line.unit_price_ht_cents, before_line.source_job_id)
+    where (after_line.parent_id, after_line.title, after_line.unit, after_line.unitless_status, after_line.quantity,
+        after_line.unit_price_ht_cents, after_line.source_job_id)
+      is distinct from (before_line.parent_id, before_line.title, before_line.unit, before_line.unitless_status,
+        before_line.quantity, before_line.unit_price_ht_cents, before_line.source_job_id)
     union all
-    select 'removed', line_ref.ref, refs.ref, before_line.title, before_line.unit, before_line.quantity, before_line.quantity,
+    select 'removed', line_ref.ref, refs.ref, before_line.title, before_line.unit, before_line.unitless_status,
+      before_line.quantity, before_line.quantity,
       before_line.unit_price_ht_cents, '[]'::jsonb
     from pg_temp._takeoff_send_before as before_line
     left join pg_temp._takeoff_send_refs as line_ref on line_ref.id = before_line.id
@@ -1592,14 +1619,30 @@ begin
     where not exists (select 1 from pg_temp._takeoff_send_after as after_line where after_line.id = before_line.id)
   )
   select pg_catalog.jsonb_build_object('format_version', 1, 'engine', target_engine,
+    -- A version this send creates, with the settings it is stored with — the ones the payload names and the ones the
+    -- creation takes from the tenant's policy (the sale coefficients of engine 3): a policy changed since the preview
+    -- changes the outcome. Not its identifier nor its date (the day it is created).
+    'version', case when version_created then (select pg_catalog.jsonb_build_object('title', created_version.title,
+        'validite_jours', created_version.validite_jours, 'margin_multiplier', created_version.margin_multiplier,
+        'margin_mode', created_version.margin_mode, 'currency', created_version.currency, 'margin_bp', created_version.margin_bp,
+        'discount_bp', created_version.discount_bp, 'discount_amount_cents', created_version.discount_amount_cents,
+        'discount_mode', created_version.discount_mode, 'discount_steps', created_version.discount_steps,
+        'global_coefficient', created_version.global_coefficient, 'tax_rate_bp', created_version.tax_rate_bp,
+        'rounding_mode', created_version.rounding_mode, 'rounding_step_cents', created_version.rounding_step_cents,
+        'max_section_depth', created_version.max_section_depth, 'calc_engine_version', created_version.calc_engine_version,
+        'contractor_role', created_version.contractor_role, 'sale_coefficient_fo', created_version.sale_coefficient_fo,
+        'sale_coefficient_mo', created_version.sale_coefficient_mo)
+      from public.estimate_versions as created_version where created_version.id = target_version) end,
     'sections_created', case when section_created
       then pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('title', btrim(p_command #>> '{section,title}')))
       else '[]'::jsonb end,
     'lines', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('change', change.change, 'ref', change.ref,
-        'section', change.section, 'title', change.title, 'unit', change.unit, 'quantity', pg_catalog.trim_scale(change.quantity),
+        'section', change.section, 'title', change.title, 'unit', change.unit, 'unitless_status', change.unitless_status,
+        'quantity', pg_catalog.trim_scale(change.quantity),
         'quantity_before', pg_catalog.trim_scale(change.quantity_before), 'unit_price_ht_cents', change.unit_price_ht_cents,
         'takeoff_item_ids', change.takeoff_item_ids)
-      order by change.change, change.section collate "C", change.title collate "C", change.unit collate "C", change.quantity,
+      order by change.change, change.section collate "C", change.title collate "C", change.unit collate "C",
+        change.unitless_status collate "C", change.quantity,
         change.ref collate "C", change.takeoff_item_ids::text collate "C") from changes as change), '[]'::jsonb),
     'parts', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('takeoff_item_id', output.value ->> 'takeoff_item_id',
         'target', case when exists (select 1 from pg_temp._takeoff_send_before as before_line
@@ -1671,9 +1714,10 @@ begin
         select after_line.parent_id as section_id from pg_temp._takeoff_send_after as after_line
         left join pg_temp._takeoff_send_before as before_line on before_line.id = after_line.id
         where after_line.parent_id is not null and (before_line.id is null
-          or (after_line.parent_id, after_line.title, after_line.unit, after_line.quantity, after_line.unit_price_ht_cents,
-            after_line.source_job_id) is distinct from (before_line.parent_id, before_line.title, before_line.unit,
-            before_line.quantity, before_line.unit_price_ht_cents, before_line.source_job_id))
+          or (after_line.parent_id, after_line.title, after_line.unit, after_line.unitless_status, after_line.quantity,
+            after_line.unit_price_ht_cents, after_line.source_job_id) is distinct from (before_line.parent_id, before_line.title,
+            before_line.unit, before_line.unitless_status, before_line.quantity, before_line.unit_price_ht_cents,
+            before_line.source_job_id))
         union
         select before_line.parent_id from pg_temp._takeoff_send_before as before_line
         left join pg_temp._takeoff_send_after as after_line on after_line.id = before_line.id
@@ -1683,9 +1727,10 @@ begin
       where not exists (select 1 from pg_temp._takeoff_send_before as before_line where before_line.id = after_line.id)), '[]'::jsonb),
     'lines_changed', coalesce((select pg_catalog.jsonb_agg(after_line.id order by after_line.id)
       from pg_temp._takeoff_send_after as after_line join pg_temp._takeoff_send_before as before_line on before_line.id = after_line.id
-      where (after_line.parent_id, after_line.title, after_line.unit, after_line.quantity, after_line.unit_price_ht_cents,
-          after_line.source_job_id) is distinct from (before_line.parent_id, before_line.title, before_line.unit,
-          before_line.quantity, before_line.unit_price_ht_cents, before_line.source_job_id)), '[]'::jsonb),
+      where (after_line.parent_id, after_line.title, after_line.unit, after_line.unitless_status, after_line.quantity,
+          after_line.unit_price_ht_cents, after_line.source_job_id) is distinct from (before_line.parent_id, before_line.title,
+          before_line.unit, before_line.unitless_status, before_line.quantity, before_line.unit_price_ht_cents,
+          before_line.source_job_id)), '[]'::jsonb),
     'lines_removed', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id', before_line.id,
         'section_id', before_line.parent_id, 'title', before_line.title, 'quantity', pg_catalog.trim_scale(before_line.quantity),
         'unit', before_line.unit) order by before_line.id)
@@ -1737,6 +1782,44 @@ revoke all on function private.takeoff_send_replay(public.takeoff_send_receipts,
 -- over to the destination) or any other outcome refuses the whole command with TAKEOFF_SEND_PREVIEW_STALE and nothing is
 -- written. A replay of the same request returns its receipt, to a caller who may still read it, for the fingerprint it
 -- was confirmed with.
+-- A preview's refusal as its answer: the code of one of the send's named refusals, and for a stale preview or a page
+-- decision the identifier of its reason; no database text. Null for any other error, which aborts the call.
+create function private.takeoff_send_preview_refusal(p_state text, p_message text, p_detail text)
+returns jsonb language plpgsql immutable set search_path = '' as $$
+declare
+  code text;
+  reason text;
+begin
+  if p_state in ('55P03', '40P01') and p_message is distinct from 'TAKEOFF_SEND_DRAFT_LOCKED' then
+    code := 'TAKEOFF_SEND_BUSY';
+  elsif p_message in ('TAKEOFF_SEND_PREVIEW_STALE', 'TAKEOFF_SEND_DRAFT_LOCKED', 'TAKEOFF_SEND_ALREADY_SENT',
+    'TAKEOFF_SEND_JOB_NOT_READY', 'TAKEOFF_SEND_PROJECT_NOT_WRITABLE', 'TAKEOFF_SEND_DPGF_RECONCILIATION_REQUIRED',
+    'TAKEOFF_SEND_PREPARATION_ALREADY_SENT', 'TAKEOFF_SEND_PRICE_RULE_REFUSED', 'TAKEOFF_SEND_COMMAND_INVALID',
+    'TAKEOFF_SEND_REQUEST_CONFLICT', 'TAKEOFF_SEND_RECEIPT_NOT_READABLE', 'TAKEOFF_JOB_NOT_FOUND',
+    'TAKEOFF_APPLY_OPERATOR_REQUIRED', 'TAKEOFF_APPLY_GUARD_FAILED', 'TAKEOFF_APPLY_LOCK_REQUIRED',
+    'TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT', 'TAKEOFF_ALTERNATIVE_SOURCES_CONFLICT', 'TAKEOFF_PAGE_DECISION_INVALID',
+    'TAKEOFF_PAGE_DECISION_STALE', 'TAKEOFF_PAGE_ALREADY_APPLIED', 'TAKEOFF_PAGE_DECISIONS_FROZEN',
+    'TAKEOFF_PAGE_REPLACE_CONFLICT', 'TAKEOFF_V3_UNIT_UNRESOLVED', 'TAKEOFF_TARGET_VERSION_DRAFT_REQUIRED',
+    'ESTIMATE_CALC_POLICY_CONTEXT_CHANGED', 'ESTIMATE_V3_INPUT_INVALID', 'ESTIMATE_AMOUNT_OVERFLOW') then
+    code := p_message;
+  else
+    return null;
+  end if;
+  if code = 'TAKEOFF_SEND_PREVIEW_STALE' or code like 'TAKEOFF_PAGE_%' then
+    begin
+      reason := p_detail::jsonb ->> 'reason';
+    exception when others then
+      reason := null;
+    end;
+    if reason !~ '^[a-z][a-z0-9_]{0,63}$' then
+      reason := null;
+    end if;
+  end if;
+  return pg_catalog.jsonb_build_object('dry_run', true, 'error', pg_catalog.jsonb_build_object('code', code, 'reason', reason));
+end;
+$$;
+revoke all on function private.takeoff_send_preview_refusal(text, text, text) from public, anon, authenticated, service_role;
+
 -- The staged command as public.send_takeoff_job admits it: its shape, no price effect, and the actor an operator of the
 -- tenant. Returns the actor's role; raises the refusal.
 create function private.takeoff_send_admitted_role(p_command jsonb, p_request uuid, p_job_id uuid, p_actor uuid, p_tenant uuid)
@@ -1843,10 +1926,20 @@ begin
   select * into staged from private.takeoff_send_commands as command_row
   where command_row.request_id = request and command_row.tenant_id = tenant and command_row.actor_id = actor
     and command_row.job_id = target_job_id;
-  -- A preview's command does not outlive the call that answers it.
+  -- A preview's command does not outlive the call that answers it: the row read goes (a confirmation staged under the
+  -- same identifier is never this row), and its refusals below are answers.
   dry_run := staged.command ->> 'mode' is not distinct from 'dry_run';
   if dry_run then
-    delete from private.takeoff_send_commands as command_row where command_row.request_id = request;
+    delete from private.takeoff_send_commands as command_row
+    where command_row.request_id = request and command_row.payload_hash = staged.payload_hash
+      and command_row.command ->> 'mode' = 'dry_run';
+    if exists (select 1 from public.takeoff_send_receipts as stored where stored.tenant_id = tenant and stored.request_id = request) then
+      return private.takeoff_send_preview_refusal('40001', 'TAKEOFF_SEND_REQUEST_CONFLICT', null);
+    end if;
+    if staged.fingerprint is distinct from p_request ->> 'fingerprint' or staged.expires_at <= pg_catalog.statement_timestamp() then
+      return private.takeoff_send_preview_refusal('40001', 'TAKEOFF_SEND_PREVIEW_STALE',
+        pg_catalog.jsonb_build_object('reason', 'command_not_staged')::text);
+    end if;
   end if;
 
   -- A replay of a committed command returns its receipt, to the member who sent it, for the fingerprint it was confirmed
@@ -1863,8 +1956,9 @@ begin
   p_command := staged.command;
   if dry_run then
     -- The preview: the very send, in a block rolled back once it computed what it would leave. Its lock waits are short
-    -- (the estimate being saved or another send of it answers « busy », never a database error), and every refusal is an
-    -- answer: the transaction that answers it deletes its staged command (above), which a raised refusal would keep.
+    -- (the estimate being saved or another send of it answers « busy »), and each of the send's named refusals is an
+    -- answer: the transaction that answers it deletes its staged command (above), which a raised refusal would keep. Any
+    -- other error aborts the call.
     begin
       actor_role := private.takeoff_send_admitted_role(p_command, request, target_job_id, actor, tenant);
       perform pg_catalog.set_config('lock_timeout', '2s', true);
@@ -1875,8 +1969,11 @@ begin
       if failure_message = 'TAKEOFF_SEND_DRY_RUN_DONE' then
         return pg_catalog.jsonb_build_object('dry_run', true, 'outcome', executed -> 'outcome');
       end if;
-      return pg_catalog.jsonb_build_object('dry_run', true, 'error', pg_catalog.jsonb_build_object('code', failure_code,
-        'message', failure_message, 'details', nullif(failure_detail, '')));
+      executed := private.takeoff_send_preview_refusal(failure_code, failure_message, failure_detail);
+      if executed is null then
+        raise;
+      end if;
+      return executed;
     end;
   end if;
 

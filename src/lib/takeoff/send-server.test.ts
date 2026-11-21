@@ -18,15 +18,24 @@ import { createSupabaseFake, servedRows } from "@/lib/takeoff/metre-m3.test-util
 //   ceiling, a second draft's DPGF line was not seen and the preview read on (409 from the comparison loader).
 // - A/D: the preview's refusals are answers of the dry run; the estimate being modified (a lock wait that timed out) is
 //   said in French, with a retry, never as a database error.
+// Closing round, written before the fix (red on 9ed38ced):
+// - 1: the real creation helper leaves the engine 3 sale coefficients to the policy, so a policy changed between the
+//   preview and the confirmation kept the fingerprint (the earlier case mocked the helper with those very fields).
+// - 3: a preview's error that is none of the send's named refusals carried the database text to the HTTP body; the dry
+//   run answers a code from a closed list only.
+// - 4: a free unit written « status:lot » was shown without its unit (« no unit » was a prefix of the unit).
 
 vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/job-read-server")>(),
   getAuthenticatedTakeoffContext: vi.fn(),
 }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
-vi.mock("@/lib/estimates/calc-policy-server", () => ({ readTenantCalcPolicy: vi.fn(async () => ({ engine: 3 })) }));
+vi.mock("@/lib/estimates/calc-policy-server", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/estimates/calc-policy-server")>(), readTenantCalcPolicy: vi.fn(async () => ({ engine: 3 })),
+}));
 vi.mock("@/lib/estimates/canonical-v2-creation", () => ({
-  prepareCanonicalEstimateCreation: vi.fn(async () => ({ versionPayload: { id: "70000000-0000-4000-8000-000000000001" } })),
+  prepareCanonicalEstimateCreation: vi.fn(async () => ({ versionPayload: { id: "70000000-0000-4000-8000-000000000001",
+    calc_engine_version: 3 } })),
 }));
 vi.mock("@/lib/takeoff/mapping-preview-server", () => ({ buildTakeoffMappingPreviewForJob: vi.fn() }));
 vi.mock("@/lib/takeoff/rules/recompute-server", () => ({
@@ -45,6 +54,7 @@ vi.mock("@/lib/takeoff/audit", async (importOriginal) => ({
 }));
 
 import { prepareCanonicalEstimateCreation } from "@/lib/estimates/canonical-v2-creation";
+import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
 import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-server";
 import { buildTakeoffPageReplacementProposal } from "@/lib/takeoff/page-replacement-server";
@@ -81,6 +91,7 @@ function randomId() {
 
 function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options: {
   results?: Map<string, unknown[]>; dryRun?: (command: Record<string, unknown>) => unknown;
+  dryRunError?: Record<string, unknown>;
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
@@ -95,6 +106,9 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
         source_page: 1, quantity_entry_category: null, metadata: {}, confidence: 0.95, is_verified: false }], error: null, count: 1 }),
       // The draft as its session reads it (one section).
       takeoff_send_receipts: () => ({ data: null, error: null }),
+      // As « Créer un devis » reads them: the affaire, and its latest version (none).
+      estimate_projects: () => ({ data: { id: PROJECT, user_id: USER }, error: null }),
+      estimate_versions: () => ({ data: null, error: null }),
       estimate_items: () => ({ data: [{ id: "80000000-0000-4000-8000-000000000001", parent_id: null, item_type: "section", position: 1,
         title: "Lot", unit_code: null, pricing_status: null, description: null, quantity: null, updated_at: "2026-11-21T00:00:00Z",
         source_provider: null, source_job_id: null, source_metadata: null }], error: null, count: 1 }),
@@ -102,6 +116,7 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
     rpc: {
       send_takeoff_job: (args) => {
         const command = staged.get((args as { p_request: { request_id: string } }).p_request.request_id) ?? {};
+        if (command.mode === "dry_run" && options.dryRunError) return { data: null, error: options.dryRunError };
         if (command.mode === "dry_run") return { data: options.dryRun ? options.dryRun(command) : { dry_run: true, outcome: OUTCOME }, error: null };
         return { data: { id: "a0000000-0000-4000-8000-000000000001", job_id: JOB, request_id: command.request_id,
           target_version_id: (command.destination as { version_payload?: { id?: string } }).version_payload?.id ?? DPGF_DRAFT,
@@ -210,19 +225,42 @@ describe("previewTakeoffSend — destinations read in full", () => {
 
 describe("previewTakeoffSend — what its dry run answers", () => {
   it("says the estimate is being modified, with a retry, when a lock the preview needs stayed busy", async () => {
-    setUp([], { dryRun: () => ({ dry_run: true, error: { code: "55P03", message: "canceling statement due to lock timeout",
-      details: null } }) });
+    setUp([], { dryRun: () => ({ dry_run: true, error: { code: "TAKEOFF_SEND_BUSY", reason: null } }) });
 
     await expect(previewTakeoffSend(JOB, {})).rejects.toMatchObject({ status: 503, retryable: true,
       message: "Le devis est en cours de modification : réessayez dans un instant.", details: { guard: "send_estimate_busy" } });
   });
 
   it("names a refusal the dry run answered, as the confirmation would", async () => {
-    setUp([], { dryRun: () => ({ dry_run: true, error: { code: "40001", message: "TAKEOFF_SEND_PREVIEW_STALE",
-      details: JSON.stringify({ reason: "destination_changed" }) } }) });
+    setUp([], { dryRun: () => ({ dry_run: true, error: { code: "TAKEOFF_SEND_PREVIEW_STALE", reason: "destination_changed" } }) });
 
     await expect(previewTakeoffSend(JOB, {})).rejects.toMatchObject({ status: 409,
       details: { guard: "send_preview_stale", reason: "destination_changed" } });
+  });
+
+  it("turns an error that is none of the send's refusals into a failure of the server, without the database's text", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    setUp([], { dryRunError: { code: "23514", message: 'new row for relation "estimate_items" violates check constraint "fixture_check"',
+      details: "Failing row contains (texte privé fictif).", hint: null } });
+
+    const refused = await previewTakeoffSend(JOB, {}).then(() => null, (error: unknown) => error);
+
+    expect(refused).toMatchObject({ status: 500, details: { guard: "send_preview_failed" } });
+    expect(JSON.stringify(refused)).not.toMatch(/fixture_check|Failing row|texte privé/);
+    expect(log).toHaveBeenCalledWith("takeoff.send.preview_failed", { job_id: JOB, code: "23514" });
+    log.mockRestore();
+  });
+});
+
+describe("previewTakeoffSend — the unit of each line, as the line stores it", () => {
+  it("shows a free unit that reads like a status as the unit it is, and a line without a unit as one", async () => {
+    setUp([], { dryRun: () => ({ dry_run: true, outcome: { ...OUTCOME, lines: [
+      { ...OUTCOME.lines[0], title: "Gravier", unit: "status:lot", unitless_status: null },
+      { ...OUTCOME.lines[0], title: "Forfait pose", unit: null, unitless_status: "included" }] } }) });
+
+    const preview = await previewTakeoffSend(JOB, {});
+
+    expect(preview.estimate_lines?.map((line) => [line.title, line.unit])).toEqual([["Gravier", "status:lot"], ["Forfait pose", null]]);
   });
 });
 
@@ -252,5 +290,25 @@ describe("sendTakeoffJob — a first draft is created with the settings of its p
     const sent = fake.staged().find((command) => command.mode === "send");
     expect((sent?.destination as { version_payload: Record<string, unknown> }).version_payload)
       .toMatchObject({ date_devis: "2026-11-22", sale_coefficient_fo: 1.3 });
+  });
+});
+
+describe("sendTakeoffJob — the settings the creation takes from the policy", () => {
+  it("refuses a confirmation after the policy's supplies coefficient changed, through the real creation helper", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/estimates/canonical-v2-creation")>("@/lib/estimates/canonical-v2-creation");
+    vi.mocked(prepareCanonicalEstimateCreation).mockImplementation(actual.prepareCanonicalEstimateCreation);
+    let supplies = 1.3;
+    vi.mocked(readTenantCalcPolicy).mockImplementation(async () => ({ engine: 3, defaultSaleCoefficientFo: supplies,
+      defaultSaleCoefficientMo: 1.2, allowedTaxRatesBp: [2000, 1000, 550, 210] }));
+    const fake = setUp([]);
+    const preview = await previewTakeoffSend(JOB, {});
+    // What the helper hands the creation: the coefficients are left to the policy, read again by the database.
+    const previewed = fake.staged()[0].destination as { version_payload: Record<string, unknown> };
+    expect(previewed.version_payload).not.toHaveProperty("sale_coefficient_fo");
+
+    supplies = 1.6;
+    await expect(sendTakeoffJob(JOB, { request_id: REQUEST, fingerprint: preview.fingerprint, destination: { kind: "first_draft" },
+      section: { kind: "new" } })).rejects.toMatchObject({ status: 409, details: { guard: "send_preview_stale" } });
+    expect(fake.staged().map((command) => command.mode)).toEqual(["dry_run", "dry_run"]);
   });
 });

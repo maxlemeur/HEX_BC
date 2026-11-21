@@ -321,6 +321,12 @@ armyTest("TKAW02 the takeoff of an affaire without a version creates its first d
   dialog = await openSend();
   expect(await state()).toEqual(["0", "0", "0"]);
 
+  // A refused confirmation writes nothing at all, not even the default categories and labour roles a first draft gets:
+  // they come after the send commits. Their count is read before the first refusal.
+  const defaults = () => querySql(`select count(*) from public.estimate_categories where tenant_id = '${tenantId}';
+    select count(*) from public.labor_roles where tenant_id = '${tenantId}';`);
+  const defaultsBefore = await defaults();
+
   // A line's evidence revised between the preview and the confirmation, its quantity unchanged: refused, previewed again.
   const valve = completed.items.find((item) => item.designation === "ARMY envoi vanne");
   if (!valve) throw new Error("The controlled measure was not persisted.");
@@ -332,14 +338,12 @@ armyTest("TKAW02 the takeoff of an affaire without a version creates its first d
   await dialog.getByRole("button", "Créer le brouillon et envoyer", { exact: true }).click();
   await expect(dialog.getByText(/depuis l’aperçu/).first()).toBeVisible({ timeout: 30_000 });
   expect(await state()).toEqual(["0", "0", "0"]);
+  expect(await defaults()).toEqual(defaultsBefore);
 
   // A confirmation refused by the send itself, past every check of the server (its fingerprint matches), writes nothing
-  // at all: not the version nor its lines, and not the default categories and labour roles a first draft gets — they come
-  // after the send commits. The refusal is forced at the send's last write, its receipt, once.
+  // at all either: not the version nor its lines, nor the defaults. The refusal is forced at the send's last write, its
+  // receipt, once.
   await expect(dialog.getByText("Créer le premier brouillon et y envoyer 2 lignes", { exact: true })).toBeVisible({ timeout: 30_000 });
-  const defaults = () => querySql(`select count(*) from public.estimate_categories where tenant_id = '${tenantId}';
-    select count(*) from public.labor_roles where tenant_id = '${tenantId}';`);
-  const defaultsBefore = await defaults();
   const refusal = `army_send_refusal_${jobId.replaceAll("-", "")}`;
   await querySql(`create sequence public.${refusal}_seq;
     create function public.${refusal}() returns trigger language plpgsql set search_path = '' as $$

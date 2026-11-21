@@ -3,7 +3,8 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 
 import { prepareCanonicalEstimateCreation } from "@/lib/estimates/canonical-v2-creation";
-import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
+import { ABSENT_TENANT_CALC_POLICY, readTenantCalcPolicy, type TenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
+import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { ensureDefaultEstimateCategories, ensureDefaultLaborRoles } from "@/lib/estimates/version-creation-repository";
 import { forbidden, mapSupabaseError } from "@/lib/http/api-response";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
@@ -213,11 +214,17 @@ async function dryRunSend(ctx: Context, jobId: string, parts: StagedParts, overr
   if (stageError) throw mapSendTakeoffRpcError(stageError, jobId);
   const { data, error } = await ctx.supabase.rpc("send_takeoff_job" as never, {
     p_request: { request_id: requestId, job_id: jobId, fingerprint: staged.fingerprint } as unknown as Json } as never);
-  if (error) return { error: error as ApplyTakeoffRpcError, outcome: null };
-  // The dry run answers its refusals (its staged command goes with that answer), as the confirmation would raise them.
-  const answer = data as { outcome?: Record<string, unknown>; error?: { code?: string | null; message?: string; details?: string | null } } | null;
+  // Raised: none of the send's named refusals (a check of the database, a fault). Its text stays in the server's log.
+  if (error) {
+    console.error("takeoff.send.preview_failed", { job_id: jobId, code: (error as { code?: string }).code ?? null });
+    throw new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: true, jobId,
+      message: "L’aperçu de l’envoi n’a pas pu être calculé.", details: { guard: "send_preview_failed" } });
+  }
+  // The dry run answers the send's named refusals by their code (and, for a stale preview or a page decision, the
+  // identifier of its reason), as the confirmation would raise them; its staged command goes with that answer.
+  const answer = data as { outcome?: Record<string, unknown>; error?: { code?: string; reason?: string | null } } | null;
   if (answer?.error) {
-    return { error: { code: answer.error.code ?? undefined, message: answer.error.message ?? "", details: answer.error.details ?? null,
+    return { error: { message: answer.error.code ?? "", details: answer.error.reason ? JSON.stringify({ reason: answer.error.reason }) : null,
       hint: null } as ApplyTakeoffRpcError, outcome: null };
   }
   const outcome = answer?.outcome;
@@ -233,7 +240,7 @@ function dryRunOverride(blocked: readonly GuardBlockedItem[], guardItems: Awaite
   return overrideFromForced(blocked, forced, guardItems, threshold);
 }
 
-type OutcomeLine = { change: "created" | "changed" | "removed"; section: string | null; title: string; unit: string;
+type OutcomeLine = { change: "created" | "changed" | "removed"; section: string | null; title: string; unit: string | null;
   quantity: number; quantity_before: number | null; unit_price_ht_cents: number | null; takeoff_item_ids: string[] };
 
 async function computeSendPreview(ctx: Context, job: SendJob, request: {
@@ -473,7 +480,7 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     return found?.title ?? null;
   };
   const estimateLines = outcome ? ((outcome.lines ?? []) as OutcomeLine[]).map((line) => ({ change: line.change,
-    section_title: sectionTitleOf(line.section), title: line.title, unit: line.unit.startsWith("status:") ? null : line.unit,
+    section_title: sectionTitleOf(line.section), title: line.title, unit: line.unit,
     quantity: Number(line.quantity), quantity_before: line.quantity_before === null ? null : Number(line.quantity_before),
     unit_price_ht_cents: line.unit_price_ht_cents, takeoff_item_ids: line.takeoff_item_ids })) : null;
   // Each control between takeoffs is said evaluated only when it ran for a line of this takeoff: a line with rule inputs
@@ -488,8 +495,7 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   // its date: the draft is dated the day it is created, as « Créer un devis » dates it, so that a confirmation after
   // midnight is not refused by the date alone.
   const draftSettings = parts?.destination.kind === "first_draft"
-    ? Object.fromEntries(Object.entries(parts.destination.version_payload as Record<string, unknown>)
-      .filter(([key]) => key !== "id" && key !== "date_devis")) : null;
+    ? firstDraftSettings(parts.destination.version_payload as Record<string, unknown>, policy) : null;
   const fingerprint = sha256({
     format_version: 3, job_id: job.id, destination, engine, draft_settings: draftSettings,
     section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", title: newSectionTitle },
@@ -532,6 +538,24 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     preview, engine } };
 }
 
+/**
+ * The settings a first draft is stored with, read as persist_estimate_creation_atomic stores them: those its payload names,
+ * and those it leaves to the creation — the engine 3 sale coefficients of the tenant's policy (1.30 and 1.20 without
+ * one), the principal contractor role. Not its identifier nor its date.
+ */
+function firstDraftSettings(payload: Record<string, unknown>, policy: TenantCalcPolicy | null) {
+  const settings = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "id" && key !== "date_devis"));
+  if (usesSaleCoefficients(requireEstimateEngineVersion(payload))) {
+    settings.sale_coefficient_fo = payload.sale_coefficient_fo ?? policy?.defaultSaleCoefficientFo
+      ?? ABSENT_TENANT_CALC_POLICY.defaultSaleCoefficientFo;
+    settings.sale_coefficient_mo = payload.sale_coefficient_mo ?? policy?.defaultSaleCoefficientMo
+      ?? ABSENT_TENANT_CALC_POLICY.defaultSaleCoefficientMo;
+  }
+  settings.contractor_role = typeof payload.contractor_role === "string" && payload.contractor_role.trim()
+    ? payload.contractor_role.trim() : "principal";
+  return settings;
+}
+
 async function contextOf(): Promise<Context> {
   const context = await getAuthenticatedTakeoffContext();
   return { ...context, tenantRole: context.tenantRole ?? "" } as Context;
@@ -572,6 +596,11 @@ function detailReason(details: string | null | undefined) {
   }
 }
 
+function busyError(jobId: string) {
+  return new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: true, jobId,
+    message: "Le devis est en cours de modification : réessayez dans un instant.", details: { guard: "send_estimate_busy" } });
+}
+
 export function mapSendTakeoffRpcError(error: ApplyTakeoffRpcError, jobId: string): TakeoffError {
   const conflict = (message: string, guard: string, retryable = false) => new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
     message, details: { guard }, retryable, jobId });
@@ -595,16 +624,14 @@ export function mapSendTakeoffRpcError(error: ApplyTakeoffRpcError, jobId: strin
     case "TAKEOFF_SEND_COMMAND_INVALID":
       return new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false, jobId,
         message: "Envoi au tableau de chiffrage invalide.", details: { guard: "send_command_invalid" } });
+    case "TAKEOFF_SEND_BUSY": return busyError(jobId);
     case "TAKEOFF_SEND_PREPARATION_ALREADY_SENT":
       return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false, jobId,
         message: BLOCKER_MESSAGES.preparation_already_sent, details: { guard: "send_preparation_already_sent" } });
     default:
       // A lock the send needs stayed held past its short wait (the estimate being saved, another send of it), or two
       // writes crossed: nothing was written, the same request can be tried again.
-      if (error.code === "55P03" || error.code === "40P01") {
-        return new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: true, jobId,
-          message: "Le devis est en cours de modification : réessayez dans un instant.", details: { guard: "send_estimate_busy" } });
-      }
+      if (error.code === "55P03" || error.code === "40P01") return busyError(jobId);
       return mapApplyTakeoffRpcError(error, { jobId });
   }
 }
