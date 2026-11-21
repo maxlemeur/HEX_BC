@@ -659,8 +659,14 @@ revue des lignes, ni les contrôles d’envoi ne l’utilisent encore.
 Une analyse par plan est inactive tant que le propriétaire n’a pas posé sa date
 d’activation (`private.takeoff_plan_dispatch_activation`), après les deux dates du
 démarrage automatique et une fois le Mac autorisé passé à cette version. Avant,
-une demande scelle son unité groupée comme ci-dessus, et ses appels sont vérifiés
-comme avant, sans réservation. Tant que l’envoi partiel n’est pas livré,
+quelles que soient les activations du lot 2, une demande scelle son unité groupée
+comme ci-dessus et tout le travail groupé ou autonome garde ses écritures, ses
+comptes, ses codes publics et ses issues : ses appels sont vérifiés comme avant,
+sans réservation ; la demande groupée se clôt par les instructions du lot 2 ; la
+reprise hébergée suit les siennes pour tout job qui n’est pas un plan d’une
+analyse par plan ; une analyse groupée ne s’arrête pas plan par plan. Retirer
+l’activation n’arrête que les nouvelles admissions : les plans déjà admis restent
+lus un à la fois, sous le créneau du Mac. Tant que l’envoi partiel n’est pas livré,
 l’activer ferme l’envoi de toute nouvelle analyse, même d’un dossier d’un seul
 plan (voir le dernier point). La base en décide (migration
 `20261121181031_takeoff_plan_dispatcher.sql`) ; le serveur suit
@@ -684,8 +690,16 @@ plan (voir le dernier point). La base en décide (migration
   qu’il lit, détenu par le jeton du bail de ce job, avec une génération qui
   augmente à chaque prise. Le créneau est pris avec le job, sous le verrou du
   Mac, dans la même transaction ; renouvelé avec le bail ; rendu par la fin du
-  job avec le même jeton. Un second processus, un autre onglet, une reprise ou
-  une relance du même Mac ne démarre pas un second plan : il attend son tour. Le
+  job avec le même jeton, ou par le travailleur quand sa tentative finit. La
+  ligne du créneau est le seul point de sérialisation : une prise attend un
+  renouvellement en cours et décide sur sa dernière version, et un renouvellement
+  dont le Mac a été repris est refusé. Un plan ne démarre ni ne renouvelle son
+  bail que sous son créneau, quel que soit le processus qui le prend (la prise
+  directe d’un travailleur d’une version précédente est refusée). Un arrêt par un
+  membre ne libère pas le Mac : l’appel de la lecture arrêtée peut encore courir,
+  jusqu’à ce que son travailleur finisse ou que son bail expire. Un second
+  processus, un autre onglet, une reprise ou une relance du même Mac ne démarre
+  pas un second plan : il attend son tour. Le
   Mac sert la demande admise la plus ancienne, ses unités dans l’ordre
   enregistré ; un plan qui attend une nouvelle tentative technique ne retient
   pas les autres. Un job encore lu sans créneau (pris avant l’activation) retient
@@ -703,30 +717,42 @@ plan (voir le dernier point). La base en décide (migration
   lit (un plan dont le nombre de pages n’est pas connu au scellement pèse la
   moyenne des autres), arrondie au-dessus pour qu’une enveloppe positive ne
   laisse aucune unité sans rien ; les soixante pages de lecture vectorielle du
-  dossier sont réparties de même, dans l’ordre enregistré. La part d’un plan
-  est un plafond : ce qu’un plan lu n’a pas dépensé ne passe pas aux suivants.
+  dossier sont réparties de même, dans l’ordre enregistré. Un plan entier dont le
+  nombre de pages n’est pas enregistré pèse les pages comptées sur ses octets au
+  scellement (ou à la commande). La part d’un plan est un seuil d’arrêt pour
+  démarrer un nouvel appel, jamais empruntée aux autres plans : ce qu’un plan lu
+  n’a pas dépensé ne passe pas aux suivants, et un appel commencé sous le seuil
+  peut coûter plus que la part, le registre l’imputant une fois à son total réel.
 - **Chaque appel payant est réservé avant d’être envoyé**, identifiant en main,
   sous le verrou du job puis de la demande : il faut un solde positif de l’unité
   et de la demande, ce qui est réservé ou inconnu compris ; un appel n’est pas
   plafonné au solde (le forfait n’a pas de limite de sortie). Il réserve sa
   borne (le plus gros appel observé de sa branche dans la demande, sinon une
-  estimation de départ de 30 000 jetons) et est réglé une seule fois avec
-  l’usage de sa réponse. Un appel qui finit sans usage connu (pas de réponse, ou
-  une réponse sans son usage), ou encore réservé quand sa tentative finit, reste
-  retenu comme « consommation indéterminée » : rien n’est recrédité, aucun appel
-  n’est rejoué sur son compte, et sa tentative n’est pas reprise d’elle-même (le
-  plan s’arrête avec ce motif ; un membre peut le relancer). Les autres plans
-  continuent selon le solde, ce qui est retenu compris. Une nouvelle tentative
-  ne repart jamais de zéro.
+  estimation de départ de 30 000 jetons, à mesurer avant l’activation) et est
+  réglé une seule fois avec le total d’usage de sa réponse : `total_tokens`
+  entier, positif, et pas inférieur à `input_tokens` + `output_tokens` quand les
+  deux sont donnés. Un appel qui finit sans tel total (pas de réponse, une
+  réponse sans usage ou d’usage incomplet), ou encore réservé quand sa tentative
+  finit, reste retenu comme « consommation indéterminée » : rien n’est
+  recrédité, et **plus aucun appel payant de la demande n’est fait** ; sa
+  tentative n’est pas reprise d’elle-même, ses plans pas encore commencés sont
+  clos avec ce motif, que le membre lit sur chaque plan, et le nombre d’appels de
+  consommation indéterminée s’affiche dans le suivi. Un membre peut relancer les
+  plans à lire. Une nouvelle tentative ne repart jamais de zéro.
   Une question des groupes vectoriels attend la fin d’une autre question de sa
-  tentative quand seules elles retiennent le solde.
+  tentative quand seules elles retiennent le solde. Une question refusée (le
+  registre la refuse, le mandat est retiré, le bail perdu, la consommation non
+  enregistrée) arrête le plan, comme avant ; une question dont la réponse est
+  inutilisable mais dont l’usage est connu laisse ses groupes aux règles.
 - **Un plan qui échoue échoue seul** (PDF corrompu, source modifiée après
   l’admission), avec son motif ; les autres continuent si le mandat et le budget
-  le permettent. Quand l’enveloppe de la demande est épuisée avant le tour d’un
+  le permettent. Une source modifiée est enregistrée en échec définitif tant que
+  le travailleur tient son bail : le plan suivant démarre aussitôt. Quand l’enveloppe de la demande est épuisée avant le tour d’un
   plan, ce plan est clos sans avoir démarré, avec ce motif.
 - **Arrêter le reste** : un opérateur qui peut lancer sur l’affaire arrête les
   plans pas encore lus de la demande en cours ; une lecture en cours ne peut plus
-  rien écrire ni dépenser ; les plans lus restent.
+  rien écrire ni dépenser ; les plans lus restent. Une analyse groupée ne
+  s’arrête pas ainsi : elle s’annule comme un job.
 - **Couverture.** Chaque unité est dans un seul état : en attente, en lecture,
   lue, en échec, arrêtée, non démarrée (ses jobs le disent ; une ligne de
   résultat ne fait jamais un succès). « 1 plan lu sur 3 · 1 en lecture · 1 en
@@ -743,10 +769,12 @@ plan (voir le dernier point). La base en décide (migration
   reprise hébergée, à partir de ce qui est enregistré, sans appel.
 - **Relancer un plan** lit seulement les plans demandés : par défaut le plan de
   l’analyse qu’elle remplace (ou les plans d’une analyse groupée) ; un plan
-  ajouté au dossier après l’analyse se lit par une commande qui le nomme, sans
-  analyse remplacée. Les limites du jeu de plans s’appliquent à l’ensemble des
-  plans demandés, avant leurs unités. Les plans que l’analyse précédente de
-  l’affaire a lus et que la commande ne nomme pas sont notés comme non demandés,
+  ajouté au dossier après l’analyse se lit par une commande qui le nomme et
+  nomme l’analyse qu’elle complète : une commande sans analyse nommée est la
+  première analyse de l’affaire, refusée quand l’affaire en a déjà une. Les
+  limites du jeu de plans s’appliquent à l’ensemble des plans demandés, avant
+  leurs unités. Les plans dont l’analyse précédente de l’affaire a réellement lu
+  l’unité et que la commande ne nomme pas sont notés comme non demandés,
   avec la génération qu’elle a lue : l’affaire ne les montre pas comme ajoutés
   depuis, mais signale encore leur remplacement ou leur retrait ; un plan jamais
   lu reste signalé comme ajouté. Les copies écartées du jeu de plans sont notées
