@@ -12,7 +12,7 @@ droits du tenant actif et de l'affaire.
 
 ## Parcours pris en charge
 
-« Métrés » rouvre les métrés de la dernière affaire consultée. Si elle est archivée, inaccessible ou inconnue, choisissez une affaire dans la liste. Ouvrez ses plans ou ses métrés pour préparer une analyse. Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
+« Métrés » rouvre les métrés de la dernière affaire consultée. Si elle est archivée, inaccessible ou inconnue, choisissez une affaire dans la liste. Sur la page de l’affaire, la zone **Métré de l’affaire** donne l’état du métré et l’accès à ses options (voir [La zone du métré sur l’affaire](#la-zone-du-métré-sur-laffaire)). Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
 
 Le lancement présente une analyse **Détaillée** avec le forfait ChatGPT du
 membre qui la demande, et le modèle et l’effort de son profil. Sur un jeu de
@@ -30,7 +30,7 @@ des fichiers pour un jeu. Sinon la sélection revient au jeu du lien, au jeu par
 défaut de l’affaire ou au premier jeu qui a des fichiers, et à la version du
 lien ou à la première version proposée.
 
-Le menu **Options du métré** ouvre quatre étapes dans
+Dans la fenêtre de préparation, le bouton **Options du métré** ouvre quatre étapes dans
 [`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx).
 
 1. **Mes documents** permet de choisir les pièces et les pages, d’ouvrir leur
@@ -41,7 +41,9 @@ Le menu **Options du métré** ouvre quatre étapes dans
 3. **Points à préciser** permet de compléter les conventions d’un objectif
    spécialisé, de répondre aux inconnues et d’accepter les réserves admissibles.
 4. **Vérifier et lancer** réunit le périmètre, les sources, les conventions,
-   les réserves et la version de devis utilisée par le lancement manuel.
+   les réserves et, tant que le démarrage automatique est inactif, la version de
+   devis utilisée par le lancement manuel. Une fois actif, l’analyse n’a pas de
+   version : celle qui reçoit ses quantités se choisit à leur envoi.
 
 Les choix sont enregistrés avec un contrôle de révision. Une pièce ajoutée au
 dossier (plan du jeu choisi, CCTP ou DPGF) après l’ouverture, ou reclassée (une
@@ -173,7 +175,8 @@ la base en garantit l’unicité et l’admission (migration
 - **Dossier modifié depuis l’analyse.** Un plan ajouté, remplacé ou retiré après
   l’admission est signalé sur l’affaire ; rien n’est relancé sans un geste.
 - **Relancer** crée une nouvelle demande manuelle, un nouveau job et un lien vers
-  l’analyse qu’elle remplace (obligatoire), sur le forfait du membre qui clique,
+  l’analyse qu’elle remplace (aucune pour la première analyse d’une affaire, dont
+  l’intention est alors « initial »), sur le forfait du membre qui clique,
   qui en reçoit la fin. Son reçu (la clé, la commande : membre, intention,
   analyse remplacée, jeu de plans et révision de la préparation, et sa réponse)
   est tenu à part des demandes et répondu avant toute autre vérification : un
@@ -186,6 +189,56 @@ la base en garantit l’unicité et l’admission (migration
   lancer un métré sur l’affaire. Un membre rétrogradé après avoir mis une analyse
   en file, ou qui n’est plus propriétaire de l’affaire, ne dépense plus rien :
   l’analyse échoue avec ce motif.
+
+## La zone du métré sur l’affaire
+
+La zone **Métré de l’affaire** est la seule place du métré sur la page de
+l’affaire, dans la vue d’ensemble et dans « Chiffrage », y compris sans version
+de devis. Le modèle est dans
+[`affaire-takeoff-zone.ts`](../../src/lib/takeoff/affaire-takeoff-zone.ts), la
+lecture dans
+[`affaire-takeoff-zone-server.ts`](../../src/lib/takeoff/affaire-takeoff-zone-server.ts).
+Lire la zone ne dépense rien et n’écrit rien ; elle se relit seule tant qu’une
+demande s’évalue, tourne ou attend une cause passagère.
+
+- **Ce qu’elle montre.** La dernière demande de l’affaire (jamais un démarrage
+  mis de côté) : son état et son motif, les pièces qu’il nomme, la couverture
+  scellée (plans retenus, pièces non lues et pourquoi), « Dossier modifié depuis
+  l’analyse » avec les plans ajoutés, remplacés ou retirés, et la dernière fin
+  d’analyse de l’affaire, le même événement que la notification des membres.
+  Sans demande, elle montre la dernière analyse de l’affaire, quelle que soit sa
+  version, puis l’état du dossier. Une demande réservée est distinguée d’une
+  analyse prise par le Mac (« En attente du Mac », « En cours »).
+- **Les revues.** Chaque analyse de la demande dont le résultat se lit a son
+  lien de revue ; sinon la dernière analyse lisible de l’affaire reste
+  accessible (« Revoir l’analyse précédente ») : l’échec d’une relance ne cache
+  jamais une revue antérieure. « Ouvrir le métré » mène à l’historique des
+  analyses.
+- **Le geste.** Le membre qui peut payer voit le geste que la base lui permet :
+  « Reprendre avec mon forfait » (le payeur) ou « Prendre en charge avec mon
+  forfait » (un autre opérateur), avec « Mon profil » quand la connexion ChatGPT
+  est en cause ; loin du Mac connecté, il est invité à y ouvrir MergeOne. Un
+  directeur voit l’état et son motif, sans geste ni options.
+- **Les options du métré** (opérateurs, dès qu’il y a des plans). Tant que le
+  démarrage automatique est inactif, elles lancent comme avant : sur le brouillon
+  courant ou sur un nouveau brouillon d’une version choisie, sans demande (la base
+  n’écrit aucune demande avant l’activation). Une fois actif, elles ne créent
+  jamais de job sans demande : leur lancement est une demande manuelle, sans
+  version, sur le forfait du membre qui clique (la première analyse de l’affaire,
+  ou une relance qui nomme l’analyse de la demande affichée). Elles enregistrent
+  seulement, sans rien lancer, tant que la demande automatique peut encore
+  démarrer, qu’une analyse tourne ou qu’une affaire sans analyse attend la
+  confirmation de son dossier : le démarrage reprend alors les options
+  enregistrées. Après l’admission, une
+  option ne change jamais le job en cours.
+- **Les accès.** Le menu « Plus » (« État du métré »), le cockpit et sa
+  hiérarchie, l’exception du pilotage, la carte « Plans, preuves & exceptions » et
+  l’étape Plans de l’import mènent à la zone et ne lancent rien ; l’ancre `#metre`
+  y conduit et `metreOptions=1` ouvre ses options. Une fois le démarrage
+  automatique actif, les liens de lancement de la page des métrés
+  (`launch=1`, anciens favoris de version) ouvrent ces options, et cette page ne
+  lance plus rien elle-même. La fin d’une demande ouvre la zone depuis les
+  notifications. Il n’y a plus de proposition masquable ni de rappel à 24 h.
 
 ## Contenu de la fiche
 
