@@ -1276,10 +1276,13 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
     const readsBefore = await planReads();
 
     // The member who confirms is told who pays, at the gesture.
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}#brief`);
-    // The brief's section opens with the page's hydration: its button appears then.
+    // The brief is written once the dossier's analysis ends, and the page does not refresh by itself: it is opened
+    // again until the brief's button is there (its section opens with the page's hydration).
     const confirm = screen.getByRole("button", "Confirmer le brief", { exact: true });
-    await expect(confirm).toBeVisible(DEV_SERVER_WORK);
+    await expect.poll(async () => {
+      await ui.app.open(`/dashboard/affaires/${ids.projectId}#brief`);
+      return confirm.isVisible();
+    }, DEV_SERVER_WORK).toBe(true);
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText("Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.");
@@ -1383,10 +1386,13 @@ if (!existsSync(liveProbePath)) test("AUTO03 a confirmer without a ChatGPT conne
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
     const readsBefore = await planReads();
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}#brief`);
-    // The brief's section opens with the page's hydration: its button appears then.
+    // The brief is written once the dossier's analysis ends, and the page does not refresh by itself: it is opened
+    // again until the brief's button is there (its section opens with the page's hydration).
     const confirm = screen.getByRole("button", "Confirmer le brief", { exact: true });
-    await expect(confirm).toBeVisible(DEV_SERVER_WORK);
+    await expect.poll(async () => {
+      await ui.app.open(`/dashboard/affaires/${ids.projectId}#brief`);
+      return confirm.isVisible();
+    }, DEV_SERVER_WORK).toBe(true);
     // The connection is gone at the gesture (the dossier was classified and its brief written while it existed).
     await rm(store, { force: true });
     await confirm.click();
