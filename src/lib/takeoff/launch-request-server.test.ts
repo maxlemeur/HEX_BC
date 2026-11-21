@@ -3,15 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { assertTakeoffEnabled, isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { AFFAIRE_INTAKE_PLAN_SET_METADATA } from "@/lib/takeoff/default-import-plan-set";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import { assumeTakeoffLaunchRequest, evaluateTakeoffLaunchRequests, recordAutomaticTakeoffMandate } from "@/lib/takeoff/launch-request-server";
+import {
+  assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, evaluateTakeoffLaunchRequests, launchTakeoffRelaunch,
+  readAutomaticTakeoffPayerNotice,
+} from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import { createSupabaseFake, filterValue, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
 import { takeoffPreparationSourceSchema } from "@/lib/takeoff/preparation";
 import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
-import { loadPreparation } from "@/lib/takeoff/preparation-server";
+import { assertConfirmedTakeoffPreparation, loadPreparation } from "@/lib/takeoff/preparation-server";
 
 // The automatic start on the authorised Mac: the loop that evaluates and admits a request has no member's session (a
 // request would fail here: next/headers throws), reads the payer's subscription on this Mac, and names what stops it.
@@ -19,13 +23,14 @@ vi.mock("next/headers", () => ({ headers: () => { throw new Error("The Mac's loo
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
   isLocalChatGptEnabled: vi.fn(() => true), hasLocalChatGptPlanAccess: () => true, assertLocalChatGptHost: vi.fn(),
+  ensureLocalChatGptAuthorization: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("next/server", () => ({ after: vi.fn() }));
 vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjectAccess: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn().mockResolvedValue("urn:uuid:aaaaaaaa-0000-4000-8000-000000000099"), readChatGptStore: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
-  isTakeoffEnabled: vi.fn().mockResolvedValue(true),
-  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200 }),
+  isTakeoffEnabled: vi.fn().mockResolvedValue(true), assertTakeoffEnabled: vi.fn().mockResolvedValue(undefined),
+  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200, maxTotalTokens: 400000, maxCostCents: 2500 }),
 }));
 vi.mock("@/lib/takeoff/local-dispatch", () => ({ runLocalTakeoffAttempts: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/takeoff/preparation-server", () => ({ loadPreparation: vi.fn(), assertConfirmedTakeoffPreparation: vi.fn() }));
@@ -40,7 +45,7 @@ const PLAN_SET = "aaaaaaaa-0000-4000-8000-000000000040";
 const PLAN_FILE = "aaaaaaaa-0000-4000-8000-000000000050";
 const DOCUMENT = "aaaaaaaa-0000-4000-8000-000000000060";
 const BYTES = new TextEncoder().encode("%PDF-1.4 plan fictif du rez-de-chaussée");
-const SELECTION = { profileId: "profil-fictif", model: "modele-fictif", reasoningEffort: null, hostId: HOST };
+const SELECTION = { profileId: "profil-fictif", model: "modele-fictif", reasoningEffort: null, hostId: HOST, authorizationId: "autorisation-1" };
 const FILE_PATH = `${TENANT}/${PLAN_SET}/${PLAN_FILE}/plan-rdc.pdf`;
 
 function dossier(input: { classification?: string; copy?: "same" | "older" | "none"; executionHost?: string; running?: boolean } = {}) {
@@ -103,7 +108,9 @@ beforeEach(() => {
   vi.mocked(isLocalChatGptEnabled).mockReturnValue(true);
   vi.mocked(assertLocalChatGptHost).mockImplementation((host) => host ?? "");
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profil-fictif",
-    profiles: [{ id: "profil-fictif", model: "modele-fictif", reasoningEffort: null }] } as never);
+    profiles: [{ id: "profil-fictif", model: "modele-fictif", reasoningEffort: null, authorizationId: "autorisation-1" }] } as never);
+  vi.mocked(isTakeoffEnabled).mockResolvedValue(true);
+  vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
 });
 
 describe("evaluateTakeoffLaunchRequests", () => {
@@ -120,6 +127,7 @@ describe("evaluateTakeoffLaunchRequests", () => {
       units: [{ key: "grouped", plans: [PLAN_FILE] }],
       plans: [{ entry_key: PLAN_FILE, logical_id: DOCUMENT, intake_document_id: DOCUMENT, plan_file_id: PLAN_FILE,
         generation: "generation-2", content_sha256: createHash("sha256").update(BYTES).digest("hex"), pages: [] }],
+      budget: { tokens: 400000, cost_cents: 2500 },
     });
     expect(call.p_snapshot).toMatchObject({ confirmed_by: PAYER, execution_selection: SELECTION,
       preparation: { destination: { kind: "analysis_only", estimate_version_id: null }, processing: { level: "C", provider: "chatgpt" } } });
@@ -150,17 +158,38 @@ describe("evaluateTakeoffLaunchRequests", () => {
   it("does not spend on a subscription whose model changed since the mandate", async () => {
     const { admitted, recorded } = dossier();
     vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profil-fictif",
-      profiles: [{ id: "profil-fictif", model: "autre-modele", reasoningEffort: null }] } as never);
+      profiles: [{ id: "profil-fictif", model: "autre-modele", reasoningEffort: null, authorizationId: "autorisation-1" }] } as never);
     await evaluateTakeoffLaunchRequests();
     expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "CHATGPT_SELECTION_CHANGED" })]);
     expect(admitted).toEqual([]);
   });
 
+  // A disconnection withdraws the mandate: its reason is the revocation, for the payer's gesture (no longer « not
+  // connected », which a later connection alone would have seemed to lift).
   it("does not spend when the payer's subscription is no longer connected on this Mac", async () => {
     const { admitted, recorded } = dossier();
     vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] } as never);
     await evaluateTakeoffLaunchRequests();
-    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "CHATGPT_NOT_CONNECTED" })]);
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "CHATGPT_ACCESS_REVOKED" })]);
+    expect(admitted).toEqual([]);
+  });
+
+  it("never revives a mandate through a reconnection, even while the dossier is still being classified", async () => {
+    const { admitted, recorded } = dossier({ classification: "processing" });
+    // The same profile, model and effort, under the authorization of a new connection.
+    vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profil-fictif",
+      profiles: [{ id: "profil-fictif", model: "modele-fictif", reasoningEffort: null, authorizationId: "autorisation-2" }] } as never);
+    await evaluateTakeoffLaunchRequests();
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "CHATGPT_ACCESS_REVOKED" })]);
+    expect(admitted).toEqual([]);
+  });
+
+  it("spends nothing and reads no plan for a tenant whose takeoff module is off", async () => {
+    const { fake, admitted, recorded } = dossier();
+    vi.mocked(isTakeoffEnabled).mockResolvedValue(false);
+    await evaluateTakeoffLaunchRequests();
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "TAKEOFF_DISABLED" })]);
+    expect(fake.storageCalls).toEqual([]);
     expect(admitted).toEqual([]);
   });
 
@@ -188,44 +217,52 @@ describe("evaluateTakeoffLaunchRequests", () => {
   });
 });
 
-// The gesture: the brief's confirmation records who pays, on this Mac, or why nobody does.
-function gesture(input: { launchActive?: boolean; reply?: { state: string; reason_code: string | null; payer_id: string | null } } = {}) {
-  const mandates: Array<Record<string, unknown>> = [];
+// The gestures: the brief's confirmation records who pays, on this Mac, or why nobody does; a take-over and a relaunch.
+const NOTICE = "a".repeat(64);
+function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown>; outcome?: string; replayed?: Record<string, unknown> } = {}) {
+  const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+  const record = (fn: string, data: unknown) => (args: unknown) => { calls.push({ fn, args: args as Record<string, unknown> }); return { data, error: null }; };
+  const row = { request_id: REQUEST, state: "evaluating", reason_code: null, payer_id: PAYER, ...input.reply };
   const fake = createSupabaseFake({ rpc: {
     takeoff_launch_activation_state: () => ({ data: [{ launch_active_from: input.launchActive === false ? null : "2026-11-21T00:00:00Z",
       completion_active_from: "2026-11-21T00:00:00Z" }], error: null }),
-    record_takeoff_launch_mandate: (args) => {
-      mandates.push(args as Record<string, unknown>);
-      return { data: [{ request_id: REQUEST, ...(input.reply ?? { state: "evaluating", reason_code: null, payer_id: PAYER }) }], error: null };
-    },
+    confirm_affaire_brief_takeoff: record("confirm", [{ outcome: input.outcome ?? "confirmed", ...row }]),
+    take_on_takeoff_launch_request: record("take_on", [{ outcome: input.outcome ?? "mandated", mandate_revision: 2, ...row }]),
+    takeoff_payer_notice: record("notice", NOTICE),
+    replay_manual_takeoff_request: record("replay", input.replayed ? [input.replayed] : []),
     claim_takeoff_launch_evaluations: () => ({ data: [], error: null }),
   } });
   vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
-  return { mandates };
+  return { calls: (fn: string) => calls.filter((call) => call.fn === fn).map((call) => call.args) };
 }
 const member = (tenantRole: string) => ({ userId: PAYER, tenantId: TENANT, tenantRole, supabase: {} }) as never;
+const confirm = (tenantRole: string, notice: string | null = NOTICE) =>
+  confirmAffaireBriefWithTakeoff({ context: member(tenantRole), projectId: PROJECT, expectedUpdatedAt: "2026-11-21T08:00:00Z", notice, host: "127.0.0.1:3000" });
 
-describe("recordAutomaticTakeoffMandate", () => {
-  it("records the confirmer who may launch as the payer, with the selection of Mon profil on this Mac", async () => {
-    const { mandates } = gesture();
-    const result = await recordAutomaticTakeoffMandate({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" });
-    expect(mandates).toEqual([expect.objectContaining({ p_mode: "confirmation", p_actor: PAYER, p_host: HOST, p_selection: SELECTION })]);
-    expect(mandates[0]).not.toHaveProperty("p_blocked_reason");
-    expect(result).toMatchObject({ state: "evaluating", reason: null });
+describe("confirmAffaireBriefWithTakeoff", () => {
+  it("confirms with the notice that was shown and the selection of Mon profil on this Mac", async () => {
+    const { calls } = gesture();
+    const result = await confirm("engineer");
+    expect(calls("confirm")).toEqual([expect.objectContaining({ p_actor: PAYER, p_expected_updated_at: "2026-11-21T08:00:00Z",
+      p_notice: NOTICE, p_host: HOST, p_selection: SELECTION })]);
+    expect(calls("confirm")[0]).not.toHaveProperty("p_blocked_reason");
+    expect(result).toMatchObject({ outcome: "confirmed", takeoff: { state: "evaluating", reason: null } });
   });
 
-  it("records nothing before the owner's activation", async () => {
-    const { mandates } = gesture({ launchActive: false });
-    expect(await recordAutomaticTakeoffMandate({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" })).toBeNull();
-    expect(mandates).toEqual([]);
+  it("engages nobody before both cut-offs: the brief is confirmed without the notice", async () => {
+    const { calls } = gesture({ launchActive: false });
+    await confirm("engineer");
+    expect(calls("confirm")).toEqual([expect.objectContaining({ p_blocked_reason: "MANDATE_REQUIRED" })]);
+    expect(calls("confirm")[0].p_notice).toBeNull();
+    expect(readChatGptStore).not.toHaveBeenCalled();
   });
 
   it("never reads a reader's subscription: the request waits for an operator", async () => {
-    const { mandates } = gesture({ reply: { state: "blocked", reason_code: "OPERATOR_REQUIRED", payer_id: null } });
-    const result = await recordAutomaticTakeoffMandate({ context: member("director"), projectId: PROJECT, host: "127.0.0.1:3000" });
+    const { calls } = gesture({ reply: { state: "blocked", reason_code: "OPERATOR_REQUIRED", payer_id: null } });
+    const result = await confirm("director", null);
     expect(readChatGptStore).not.toHaveBeenCalled();
-    expect(mandates).toEqual([expect.objectContaining({ p_blocked_reason: "MANDATE_REQUIRED" })]);
-    expect(result).toMatchObject({ reason: "OPERATOR_REQUIRED", message: "Métré non démarré — prise en charge par un métreur requise" });
+    expect(calls("confirm")).toEqual([expect.objectContaining({ p_blocked_reason: "MANDATE_REQUIRED" })]);
+    expect(result.takeoff).toMatchObject({ reason: "OPERATOR_REQUIRED", message: "Métré non démarré — prise en charge par un métreur requise" });
   });
 
   it.each([
@@ -234,27 +271,88 @@ describe("recordAutomaticTakeoffMandate", () => {
     ["no ChatGPT connection", () => vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] } as never), "CHATGPT_NOT_CONNECTED"],
     ["no model chosen", () => vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profil-fictif",
       profiles: [{ id: "profil-fictif", model: null, reasoningEffort: null }] } as never), "CHATGPT_MODEL_MISSING"],
-  ] as const)("records the payer without a mandate from %s, with the reason", async (_case, arrange, reason) => {
+  ] as const)("confirms without a mandate from %s, with the reason", async (_case, arrange, reason) => {
     arrange();
-    const { mandates } = gesture({ reply: { state: "blocked", reason_code: reason, payer_id: PAYER } });
-    await recordAutomaticTakeoffMandate({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" });
-    expect(mandates).toEqual([expect.objectContaining({ p_mode: "confirmation", p_blocked_reason: reason })]);
-    expect(mandates[0]).not.toHaveProperty("p_selection");
+    const { calls } = gesture({ reply: { state: "blocked", reason_code: reason, payer_id: PAYER } });
+    await confirm("engineer");
+    expect(calls("confirm")).toEqual([expect.objectContaining({ p_blocked_reason: reason })]);
+    expect(calls("confirm")[0]).not.toHaveProperty("p_selection");
+  });
+
+  it("answers a stale form as a conflict", async () => {
+    gesture({ outcome: "conflict" });
+    expect(await confirm("engineer")).toEqual({ outcome: "conflict", takeoff: null });
   });
 });
 
+describe("readAutomaticTakeoffPayerNotice", () => {
+  it("gives the operator the notice and the digest of what it was shown with", async () => {
+    const { calls } = gesture();
+    expect(await readAutomaticTakeoffPayerNotice(member("engineer"), { id: PROJECT, user_id: PAYER }, "127.0.0.1:3000"))
+      .toEqual({ message: "Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.", digest: NOTICE });
+    expect(calls("notice")).toEqual([expect.objectContaining({ p_actor: PAYER, p_selection: SELECTION })]);
+  });
+
+  it("shows nothing to a reader, before both cut-offs, or with the module off", async () => {
+    gesture();
+    expect(await readAutomaticTakeoffPayerNotice(member("director"), { id: PROJECT, user_id: PAYER })).toBeNull();
+    vi.mocked(isTakeoffEnabled).mockResolvedValue(false);
+    expect(await readAutomaticTakeoffPayerNotice(member("engineer"), { id: PROJECT, user_id: PAYER })).toBeNull();
+    gesture({ launchActive: false });
+    vi.mocked(isTakeoffEnabled).mockResolvedValue(true);
+    expect(await readAutomaticTakeoffPayerNotice(member("engineer"), { id: PROJECT, user_id: PAYER })).toBeNull();
+  });
+});
+
+const takeOn = () => assumeTakeoffLaunchRequest({ context: member("engineer"), projectId: PROJECT, requestId: REQUEST, seenRevision: 1,
+  action: "take_on", host: "127.0.0.1:3000" });
+
 describe("assumeTakeoffLaunchRequest", () => {
-  it("takes the request on with the member's own subscription on this Mac", async () => {
-    const { mandates } = gesture();
-    await assumeTakeoffLaunchRequest({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" });
-    expect(mandates).toEqual([expect.objectContaining({ p_mode: "take_over", p_actor: PAYER, p_selection: SELECTION })]);
+  it("takes the request on with the member's own subscription on this Mac, naming the revision and action it saw", async () => {
+    const { calls } = gesture();
+    await takeOn();
+    expect(calls("take_on")).toEqual([expect.objectContaining({ p_actor: PAYER, p_request_id: REQUEST, p_seen_revision: 1,
+      p_action: "take_on", p_selection: SELECTION })]);
   });
 
   it("refuses, in French, a gesture whose subscription cannot pay, and records nothing", async () => {
     vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] } as never);
-    const { mandates } = gesture();
-    await expect(assumeTakeoffLaunchRequest({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" }))
-      .rejects.toMatchObject({ status: 422, message: expect.stringContaining("forfait ChatGPT non connecté") });
-    expect(mandates).toEqual([]);
+    const { calls } = gesture();
+    await expect(takeOn()).rejects.toMatchObject({ status: 422, message: expect.stringContaining("forfait ChatGPT non connecté") });
+    expect(calls("take_on")).toEqual([]);
+  });
+
+  it("refuses a gesture from a view whose mandate moved since", async () => {
+    gesture({ outcome: "moved" });
+    await expect(takeOn()).rejects.toMatchObject({ status: 409, message: expect.stringContaining("a changé depuis votre lecture") });
+  });
+
+  it("refuses any gesture for a tenant whose takeoff module is off", async () => {
+    const { calls } = gesture();
+    vi.mocked(assertTakeoffEnabled).mockRejectedValue(Object.assign(new Error("Le module Takeoff est désactivé pour ce tenant."),
+      { status: 403, code: "TAKEOFF_MODULE_DISABLED" }));
+    await expect(takeOn()).rejects.toMatchObject({ status: 403 });
+    expect(calls("take_on")).toEqual([]);
+  });
+});
+
+describe("launchTakeoffRelaunch", () => {
+  const relaunch = () => launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET,
+    preparationRevision: 2, intentKey: "AAAAAAAA-0000-4000-8000-0000000000AA", predecessorJobId: "aaaaaaaa-0000-4000-8000-0000000000bb" });
+
+  it("answers a replayed click with its recorded answer before reading the preparation", async () => {
+    const { calls } = gesture({ replayed: { outcome: "already_running", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000cc" } });
+    expect(await relaunch()).toEqual({ outcome: "already_running", requestId: REQUEST, jobId: "aaaaaaaa-0000-4000-8000-0000000000cc" });
+    expect(calls("replay")).toEqual([expect.objectContaining({ p_intent_key: "aaaaaaaa-0000-4000-8000-0000000000aa",
+      p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb" })]);
+    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+  });
+
+  it("refuses a relaunch for a tenant whose takeoff module is off", async () => {
+    const { calls } = gesture();
+    vi.mocked(assertTakeoffEnabled).mockRejectedValue(Object.assign(new Error("Le module Takeoff est désactivé pour ce tenant."),
+      { status: 403, code: "TAKEOFF_MODULE_DISABLED" }));
+    await expect(relaunch()).rejects.toMatchObject({ status: 403 });
+    expect(calls("replay")).toEqual([]);
   });
 });

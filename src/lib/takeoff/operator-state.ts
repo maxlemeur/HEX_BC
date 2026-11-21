@@ -410,7 +410,10 @@ export function resolveTakeoffLaunchDecision(input: {
   now?: Date;
 }): { action: TakeoffLaunchAction } {
   // A start set aside by a relaunch is final: a new analysis is a relaunch.
-  if (input.state === "admitted" || input.state === "closed" || input.reasonCode === "SUPERSEDED") return { action: "none" };
+  // A refused click is the record of its answer; the database applies the same rule (takeoff_launch_allowed_action).
+  if (input.state === "admitted" || input.state === "closed" || input.state === "refused" || input.reasonCode === "SUPERSEDED") {
+    return { action: "none" };
+  }
   const waitedMs = (input.now ?? new Date()).getTime() - (parseIsoTime(input.updatedAt) ?? Number.POSITIVE_INFINITY);
   const hostSilent = (input.state === "evaluating" || input.awaitsMac === true) && waitedMs >= TAKEOFF_LAUNCH_HOST_WAIT_MS;
   if (!hostSilent && input.state === "not_eligible") return { action: "none" };

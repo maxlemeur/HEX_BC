@@ -72,7 +72,9 @@ export function assertPinnedTakeoffSelection(snapshot: unknown, userId: string, 
   const parsed = takeoffExecutionSelectionSchema.safeParse(snapshot.execution_selection);
   if (!parsed.success || !("confirmed_by" in snapshot) || snapshot.confirmed_by !== userId ||
     parsed.data.hostId !== actual.hostId || parsed.data.profileId !== actual.profileId ||
-    parsed.data.model !== actual.model || parsed.data.reasoningEffort !== actual.reasoningEffort) {
+    parsed.data.model !== actual.model || parsed.data.reasoningEffort !== actual.reasoningEffort ||
+    // A launch request's mandate names its connection: a disconnection or a reconnection since withdrew it.
+    (parsed.data.authorizationId !== undefined && parsed.data.authorizationId !== actual.authorizationId)) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
       message: "Le compte, le modèle ou l’effort ChatGPT a changé depuis la confirmation. Préparez une nouvelle analyse avec votre forfait." });
   }
@@ -180,7 +182,8 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
     message: "Choisissez un modèle ChatGPT dans Mon profil avant de lancer le métré.",
   });
   const selection = { profileId: profile.id, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null };
-  const useProfileForVectorGroups = assertPinnedTakeoffSelection(job.preparation_snapshot, owner.userId, { ...selection, hostId });
+  const useProfileForVectorGroups = assertPinnedTakeoffSelection(job.preparation_snapshot, owner.userId,
+    { ...selection, hostId, authorizationId: profile.authorizationId });
   return {
     model: selection.model,
     reasoningEffort: selection.reasoningEffort,

@@ -152,14 +152,17 @@ export async function launchPreparedTakeoffFromSourceVersionPlanSetAction(input:
 // state never spends anything, only these gestures do.
 
 const takeoffLaunchStateSchema = z.object({ projectId: uuidSchema });
-const assumeTakeoffLaunchSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema.optional() });
+/** The request, the revision of its mandate and the action its options showed: a gesture is refused when either moved. */
+const assumeTakeoffLaunchSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema, seenRevision: z.number().int().nonnegative(),
+  action: z.enum(["take_on", "resume"]) });
 const relaunchTakeoffSchema = z.object({
   projectId: uuidSchema,
   planSetId: uuidSchema,
   preparationRevision: z.number().int().positive(),
   /** One key per click, kept by the dialogue across a double click, a timeout and a reload of the answer. */
   intentKey: uuidSchema,
-  predecessorJobId: uuidSchema.nullable().optional(),
+  /** The analysis it replaces: a relaunch always names it. */
+  predecessorJobId: uuidSchema,
 });
 
 export async function readTakeoffLaunchStateAction(input: z.input<typeof takeoffLaunchStateSchema>) {
@@ -173,8 +176,8 @@ export async function readTakeoffLaunchStateAction(input: z.input<typeof takeoff
 export async function assumeTakeoffLaunchRequestAction(input: z.input<typeof assumeTakeoffLaunchSchema>) {
   return runSafeTakeoffAction(async () => {
     const parsed = assumeTakeoffLaunchSchema.parse(input);
-    const result = await assumeTakeoffLaunchRequest({ context: await getAuthenticatedContext(), projectId: parsed.projectId,
-      requestId: parsed.requestId, host: (await headers()).get("host") });
+    const result = await assumeTakeoffLaunchRequest({ context: await getAuthenticatedContext(), ...parsed,
+      host: (await headers()).get("host") });
     revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
     return result;
   }, "Impossible de prendre en charge le métré. Rechargez l'affaire avant de réessayer.");

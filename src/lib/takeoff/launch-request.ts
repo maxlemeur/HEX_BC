@@ -1,12 +1,13 @@
 import { getAffaireDossierState, type AffaireDossierState, type AffaireIntakeReviewableDocument } from "@/lib/affaires/intake";
-import type { TakeoffPreparationSource } from "@/lib/takeoff/preparation";
+import type { TakeoffExecutionSelection, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 
 /**
  * The launch requests of a takeoff (migration 20261121111238_takeoff_launch_requests.sql): one execution of an affaire's
  * analysis on a sealed manifest. The automatic request is the one start of an affaire, when its dossier is confirmed; a
  * manual request is one explicit command (a relaunch). This module holds what the server and the screens decide alike.
  */
-export const TAKEOFF_LAUNCH_REQUEST_STATES = ["evaluating", "not_eligible", "blocked", "admitted", "closed"] as const;
+/** refused: a manual command that found another analysis of the affaire running, recorded so that its replay answers the same. */
+export const TAKEOFF_LAUNCH_REQUEST_STATES = ["evaluating", "not_eligible", "blocked", "admitted", "closed", "refused"] as const;
 export type TakeoffLaunchRequestState = (typeof TAKEOFF_LAUNCH_REQUEST_STATES)[number];
 
 /** The dossier does not allow an analysis yet: a change of the dossier evaluates it again. */
@@ -23,15 +24,26 @@ export const TAKEOFF_LAUNCH_MANDATE_REASONS = [
 /** The Mac of the mandate tries again on its own. */
 export const TAKEOFF_LAUNCH_TRANSIENT_REASONS = ["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING", "TAKEOFF_DISABLED"] as const;
 
+/** Why a closed request stopped before its units ended normally: its budget spent before a paid attempt. */
+export const TAKEOFF_LAUNCH_CLOSURE_REASONS = ["BUDGET_EXHAUSTED"] as const;
+
 export type TakeoffLaunchDossierReason = (typeof TAKEOFF_LAUNCH_DOSSIER_REASONS)[number];
 export type TakeoffLaunchMandateReason = (typeof TAKEOFF_LAUNCH_MANDATE_REASONS)[number];
 export type TakeoffLaunchTransientReason = (typeof TAKEOFF_LAUNCH_TRANSIENT_REASONS)[number];
-export type TakeoffLaunchReason = TakeoffLaunchDossierReason | TakeoffLaunchMandateReason | TakeoffLaunchTransientReason;
+export type TakeoffLaunchReason = TakeoffLaunchDossierReason | TakeoffLaunchMandateReason | TakeoffLaunchTransientReason
+  | (typeof TAKEOFF_LAUNCH_CLOSURE_REASONS)[number];
 /** The blockings a mandate check on the Mac (or at the gesture) can find. */
 export type TakeoffMandateIssue = Extract<TakeoffLaunchMandateReason,
   "LOCAL_RUNTIME_REQUIRED" | "HOST_NOT_AUTHORISED" | "CHATGPT_NOT_CONNECTED" | "CHATGPT_ACCESS_REVOKED" | "CHATGPT_MODEL_MISSING">;
 
-const REASONS = new Set<string>([...TAKEOFF_LAUNCH_DOSSIER_REASONS, ...TAKEOFF_LAUNCH_MANDATE_REASONS, ...TAKEOFF_LAUNCH_TRANSIENT_REASONS]);
+const REASONS = new Set<string>([...TAKEOFF_LAUNCH_DOSSIER_REASONS, ...TAKEOFF_LAUNCH_MANDATE_REASONS, ...TAKEOFF_LAUNCH_TRANSIENT_REASONS,
+  ...TAKEOFF_LAUNCH_CLOSURE_REASONS]);
+
+/**
+ * The selection a mandate is given under: the execution selection of Mon profil on this Mac, and the authorization of
+ * the connection it was read from. A disconnection, a lost access or a reconnection gives another authorization.
+ */
+export type TakeoffMandateSelection = TakeoffExecutionSelection & { authorizationId: string };
 export function isTakeoffLaunchReason(value: unknown): value is TakeoffLaunchReason {
   return typeof value === "string" && REASONS.has(value);
 }
@@ -68,8 +80,12 @@ export function decideTakeoffLaunch(facts: {
   otherPlans: number;
   payerEligible: boolean;
   mandateIssue: TakeoffMandateIssue | "CHATGPT_SELECTION_CHANGED" | null;
+  /** The connection the mandate was given under was withdrawn since (disconnected, access lost, reconnected). */
+  authorizationWithdrawn?: boolean;
 }): TakeoffLaunchDecision {
   if (!facts.takeoffEnabled) return { state: "blocked", reason: "TAKEOFF_DISABLED", pieces: [] };
+  // Whatever the dossier's state: a withdrawn connection is never revived by a later one, only by a new gesture.
+  if (facts.authorizationWithdrawn) return { state: "blocked", reason: "CHATGPT_ACCESS_REVOKED", pieces: [] };
   const dossier = getAffaireDossierState({ documents: facts.documents, briefStatus: facts.briefStatus });
   if (dossier !== "confirmed") return { state: "not_eligible", reason: DOSSIER_STATE_REASON[dossier], pieces: [] };
   if (facts.plansWithoutCopy.length > 0) return { state: "blocked", reason: "PLAN_COPY_MISSING", pieces: facts.plansWithoutCopy };
@@ -111,6 +127,8 @@ export type TakeoffLaunchManifest = {
     references_omitted: Array<{ id: string; name: string; reason: "unreadable" | "unsupported_format" | "limit" }>;
   };
   preparation: { revision: number; rule_version: 1 };
+  /** The request's budget over every attempt of its jobs (lot 2: the tenant's per-job budget of the detailed reading). */
+  budget: { tokens: number; cost_cents: number };
 };
 
 /** The manifest of the grouped unit, from the snapshot the request seals (its active plans and references). */
@@ -121,6 +139,7 @@ export function buildTakeoffLaunchManifest(input: {
   omittedPlans: TakeoffLaunchManifest["coverage"]["plans_omitted"];
   omittedReferences: TakeoffLaunchManifest["coverage"]["references_omitted"];
   preparationRevision: number;
+  budget: TakeoffLaunchManifest["budget"];
 }): TakeoffLaunchManifest {
   const plans = input.sources.filter((source) => source.active && source.kind === "plan")
     .sort((left, right) => left.document_id.localeCompare(right.document_id))
@@ -146,6 +165,7 @@ export function buildTakeoffLaunchManifest(input: {
     plans, references,
     coverage: { plans_retained: plans.length, plans_omitted: input.omittedPlans, references_omitted: input.omittedReferences },
     preparation: { revision: input.preparationRevision, rule_version: 1 },
+    budget: input.budget,
   };
 }
 
@@ -163,7 +183,7 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "PLAN_SET_TOO_LARGE": return "Métré non démarré — les plans dépassent les limites d’une analyse. Restreignez-les dans les options du métré.";
     case "TAKEOFF_DISABLED": return "Le métré n’est pas activé pour cette entreprise.";
     case "OPERATOR_REQUIRED": return "Métré non démarré — prise en charge par un métreur requise";
-    case "MANDATE_REQUIRED": return "Métré non démarré — la personne qui a confirmé le dossier doit le reprendre avec son forfait ChatGPT.";
+    case "MANDATE_REQUIRED": return "Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT. Un métreur peut le prendre en charge avec le sien.";
     case "LOCAL_RUNTIME_REQUIRED": return "Métré non démarré — ouvrez MergeOne sur le Mac connecté, puis reprenez avec votre forfait.";
     case "HOST_NOT_AUTHORISED": return "Métré non démarré — cette adresse ne peut pas utiliser le forfait ChatGPT. Ouvrez MergeOne sur le Mac connecté.";
     case "CHATGPT_NOT_CONNECTED": return "Métré non démarré — forfait ChatGPT non connecté. Connectez-le dans Mon profil, puis reprenez avec votre forfait.";
@@ -176,6 +196,7 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "ANOTHER_ANALYSIS_RUNNING": return "Métré en attente — une autre analyse de l’affaire est en cours.";
     case "EVALUATION_FAILED": return "Métré non démarré — la vérification du dossier a échoué plusieurs fois. Reprenez avec votre forfait pour réessayer.";
     case "SUPERSEDED": return "Métré automatique remplacé par une relance de l’analyse : une nouvelle analyse se lance depuis les options du métré.";
+    case "BUDGET_EXHAUSTED": return "Métré arrêté — le budget de cette analyse est épuisé. Une nouvelle analyse se lance depuis les options du métré.";
   }
 }
 

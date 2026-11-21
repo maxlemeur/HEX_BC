@@ -406,6 +406,8 @@ export type TakeoffPreparationSnapshot = {
 export const takeoffExecutionSelectionSchema = chatGptPreferencesSchema.extend({
   profileId: textSchema,
   hostId: textSchema,
+  /** The authorization of the connection a launch request's mandate was given under (launch-request.ts). */
+  authorizationId: textSchema.optional(),
 }).strict();
 
 export type TakeoffExecutionSelection = z.infer<typeof takeoffExecutionSelectionSchema>;

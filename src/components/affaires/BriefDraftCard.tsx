@@ -36,8 +36,11 @@ type BriefDraftCardProps = {
   isReadOnly?: boolean;
   hideConfirmAction?: boolean;
   hasPlans?: boolean;
-  /** Who pays for the automatic takeoff, told at the gesture to the member it will charge. */
-  payerNotice?: string | null;
+  /**
+   * Who pays for the automatic takeoff, told at the gesture to the member it will charge; its digest goes back with the
+   * confirmation, which engages that member's subscription only with the notice they were shown.
+   */
+  payerNotice?: { message: string; digest: string } | null;
   onOpenDocuments?: () => void;
   onBackToDossier?: () => void;
 };
@@ -435,7 +438,7 @@ export function BriefDraftCard({
     }
     startTransition(async () => {
       try {
-        await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt! });
+        await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, payerNotice: payerNotice?.digest ?? null });
         setAnnouncement("Brief confirmé.");
         toast.success({ title: "Brief confirmé." });
         router.refresh();
@@ -446,7 +449,7 @@ export function BriefDraftCard({
         });
       }
     });
-  }, [briefDraft, projectId, router, toast]);
+  }, [briefDraft, payerNotice, projectId, router, toast]);
 
   const handleResolvePlanGap = useCallback((entryIndex: number) => {
     if (!briefDraft?.updatedAt) return;
@@ -616,7 +619,7 @@ export function BriefDraftCard({
 
       <AffaireConfirmDialog open={showConfirmDialog && Boolean(briefDraft) && !isReadOnly && !isEditing}
         title="Confirmer ce brief ?"
-        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.${payerNotice ? ` ${payerNotice}` : ""}`}
+        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.${payerNotice ? ` ${payerNotice.message}` : ""}`}
         confirmLabel="Oui, confirmer" confirmDisabled={isPending} cancelDisabled={isPending}
         onConfirm={() => { setShowConfirmDialog(false); handleConfirm(); }} onCancel={() => setShowConfirmDialog(false)} />
 

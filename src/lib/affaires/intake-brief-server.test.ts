@@ -4,6 +4,12 @@ vi.mock("@/lib/auth/tenant-context", () => ({
   getAuthenticatedContext: vi.fn(),
 }));
 
+// The confirmation commits through the server's RPC (launch-request-server.ts, pgTAP takeoff-launch-confirmation): here
+// its answer for a brief that changed since the member read it.
+vi.mock("@/lib/takeoff/launch-request-server", () => ({
+  confirmAffaireBriefWithTakeoff: vi.fn().mockResolvedValue({ outcome: "conflict", takeoff: null }),
+}));
+vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "127.0.0.1:3000" }) }));
 vi.mock("@/lib/affaires/register-sync-server", () => ({
   syncAffaireRegisterFromBrief: vi.fn(),
   syncAffaireRegisterMissingPieces: vi.fn(),
@@ -284,6 +290,9 @@ describe("affaire intake server brief regressions", () => {
     await expect(confirmAffaireBrief({ projectId: PROJECT_ID, expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }))
       .rejects.toMatchObject({ status: 409 });
     expect(updatedBriefPayloads).toEqual([]);
+    const { confirmAffaireBriefWithTakeoff } = await import("@/lib/takeoff/launch-request-server");
+    expect(vi.mocked(confirmAffaireBriefWithTakeoff)).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: PROJECT_ID, expectedUpdatedAt: "2026-01-01T00:00:00.000Z", notice: null }));
   });
 
   it("rebuilds brief source links and resyncs assumptions after manual edits", async () => {

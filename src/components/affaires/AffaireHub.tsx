@@ -160,7 +160,7 @@ type AffaireHubProps = {
   liveDossier?: boolean;
   viewerProfileId?: string | null;
   /** The notice of who pays, shown in the brief's confirmation to the member the automatic takeoff will charge. */
-  automaticTakeoffPayerNotice?: string | null;
+  automaticTakeoffPayerNotice?: { message: string; digest: string } | null;
 };
 
 export function shouldShowAffaireCreatedOnboardingBanner(input: {

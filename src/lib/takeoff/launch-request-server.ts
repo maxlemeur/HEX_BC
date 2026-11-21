@@ -7,7 +7,9 @@ import { after } from "next/server";
 import { AFFAIRE_INTAKE_BUCKET, getAffaireIntakeFileExtension } from "@/lib/affaires/intake";
 import { findIntakePlansWithoutWorkingCopy, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
 import { DOCUMENT_SELECT, normalizeDocumentRow } from "@/lib/affaires/intake-rows";
-import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import {
+  assertLocalChatGptHost, ensureLocalChatGptAuthorization, hasLocalChatGptPlanAccess, isLocalChatGptEnabled,
+} from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
@@ -18,14 +20,14 @@ import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { assertTakeoffWorkerConfiguration } from "@/lib/takeoff/default-on-flags";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
-import { getTakeoffLevelCProcessingConfigForTenant, isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { assertTakeoffEnabled, getTakeoffLevelCProcessingConfigForTenant, isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { deriveDeterministicJobId } from "@/lib/takeoff/job-creation-input";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
   buildTakeoffLaunchManifest, decideTakeoffLaunch, describeTakeoffLaunchReason, isTakeoffLaunchReason,
   TAKEOFF_AUTOMATIC_PAYER_NOTICE, TAKEOFF_GROUPED_UNIT_KEY,
   type TakeoffLaunchManifest, type TakeoffLaunchPiece, type TakeoffLaunchReason, type TakeoffLaunchRequestState,
-  type TakeoffMandateIssue,
+  type TakeoffMandateIssue, type TakeoffMandateSelection,
 } from "@/lib/takeoff/launch-request";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import {
@@ -55,23 +57,25 @@ function databaseError(error: { code?: string; message: string }, message: strin
   throw mapSupabaseError({ ...error, code: error.code ?? "UNKNOWN" }, message);
 }
 
-/** The two cut-offs. Before the automatic start's, nothing of this module writes; an admission needs the notices' too. */
+/** The two cut-offs. Nothing of this module writes before both are set (a request closes on its jobs' recorded ends). */
 export async function readTakeoffLaunchActivation(service: Service = createServiceRoleClient()) {
   const { data, error } = await service.rpc("takeoff_launch_activation_state");
   if (error) databaseError(error, "Impossible de lire l’activation du démarrage automatique du métré.");
   const row = data?.[0];
   const now = Date.now();
-  const active = (value: string | null | undefined) => Boolean(value && Date.parse(value) <= now);
-  return { launchActive: active(row?.launch_active_from), completionActive: active(row?.completion_active_from),
-    launchActiveFrom: row?.launch_active_from ?? null };
+  const isActive = (value: string | null | undefined) => Boolean(value && Date.parse(value) <= now);
+  const launchActive = isActive(row?.launch_active_from);
+  const completionActive = isActive(row?.completion_active_from);
+  return { launchActive, completionActive, active: launchActive && completionActive, launchActiveFrom: row?.launch_active_from ?? null };
 }
 
 /**
- * The payer's subscription on this Mac: the selection that attests the mandate (opaque profile, model, effort, host), or
- * the reason it cannot. `host` is the address of the member's request at a gesture; the Mac's own loop has none.
+ * The payer's subscription on this Mac: the selection that attests the mandate (opaque profile, model, effort, host and
+ * the authorization of the current connection), or the reason it cannot. `host` is the address of the member's request
+ * at a gesture; the Mac's own loop has none.
  */
 export async function readLocalTakeoffMandate(owner: ChatGptOwner, host?: string | null): Promise<
-  { issue: TakeoffMandateIssue; selection: null } | { issue: null; selection: TakeoffExecutionSelection }> {
+  { issue: TakeoffMandateIssue; selection: null } | { issue: null; selection: TakeoffMandateSelection }> {
   if (!isLocalChatGptEnabled()) return { issue: "LOCAL_RUNTIME_REQUIRED", selection: null };
   if (host !== undefined) {
     try {
@@ -90,8 +94,10 @@ export async function readLocalTakeoffMandate(owner: ChatGptOwner, host?: string
   const profile = store.profiles.find((entry) => entry.id === store.selectedId);
   if (!profile || !hasLocalChatGptPlanAccess(profile)) return { issue: "CHATGPT_ACCESS_REVOKED", selection: null };
   if (!profile.model) return { issue: "CHATGPT_MODEL_MISSING", selection: null };
+  const authorizationId = profile.authorizationId ?? await ensureLocalChatGptAuthorization(owner);
+  if (!authorizationId) return { issue: "CHATGPT_ACCESS_REVOKED", selection: null };
   return { issue: null, selection: { profileId: profile.id, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null,
-    hostId: await getChatGptHostId() } };
+    hostId: await getChatGptHostId(), authorizationId } };
 }
 
 function sameSelection(left: unknown, right: TakeoffExecutionSelection) {
@@ -100,18 +106,93 @@ function sameSelection(left: unknown, right: TakeoffExecutionSelection) {
     && (stored!.reasoningEffort ?? null) === right.reasoningEffort && stored!.hostId === right.hostId;
 }
 
-type MandateRow = { request_id: string; state: string; reason_code: string | null; payer_id: string | null };
+/**
+ * Whether the connection the mandate was given under has been withdrawn since: a disconnection, a lost access, or a
+ * reconnection (each connection has its own authorization). A withdrawn mandate is never revived by a later connection.
+ */
+function isAuthorizationWithdrawn(stored: unknown, mandate: Awaited<ReturnType<typeof readLocalTakeoffMandate>>) {
+  if (mandate.issue === "CHATGPT_NOT_CONNECTED" || mandate.issue === "CHATGPT_ACCESS_REVOKED") return true;
+  return mandate.selection !== null && (stored as { authorizationId?: unknown } | null)?.authorizationId !== mandate.selection.authorizationId;
+}
 
-async function recordMandate(service: Service, input: {
-  tenantId: string; projectId: string; actorId: string; mode: "confirmation" | "take_over"; requestId?: string;
-  mandate: Awaited<ReturnType<typeof readLocalTakeoffMandate>> | { issue: "MANDATE_REQUIRED"; selection: null };
+function selectionParameters(mandate: Awaited<ReturnType<typeof readLocalTakeoffMandate>> | { issue: TakeoffLaunchReason; selection: null }) {
+  return mandate.selection
+    ? { p_host: mandate.selection.hostId, p_selection: mandate.selection as unknown as Json }
+    : { p_blocked_reason: mandate.issue };
+}
+
+type GestureRow = { request_id: string | null; state: string | null; reason_code: string | null; payer_id: string | null };
+
+/** What a gesture leaves: the request, its state and its reason, in French. */
+export type TakeoffLaunchGestureResult = {
+  requestId: string; state: TakeoffLaunchRequestState; reason: TakeoffLaunchReason | null; message: string | null;
+};
+function gestureResult(row: GestureRow): TakeoffLaunchGestureResult | null {
+  if (!row.request_id || !row.state) return null;
+  const reason = isTakeoffLaunchReason(row.reason_code) ? row.reason_code : null;
+  return { requestId: row.request_id, state: row.state as TakeoffLaunchRequestState, reason,
+    message: reason ? describeTakeoffLaunchReason(reason) : null };
+}
+
+/**
+ * The confirmation of an affaire's brief through the server, in one commit: the brief's compare-and-set on the revision
+ * the member saw, its event, the reservation of the affaire's automatic request and the member's mandate. The mandate is
+ * payable only when the confirmation carries the payer notice it was shown with (`notice`, from
+ * `readAutomaticTakeoffPayerNotice`): which payer, which subscription and settings, under which activation; otherwise
+ * the brief is confirmed and the request waits for a gesture. A replay returns the request as it is.
+ */
+export async function confirmAffaireBriefWithTakeoff(input: {
+  context: Context; projectId: string; expectedUpdatedAt: string; notice: string | null; host: string | null;
 }) {
-  const { data, error } = await service.rpc("record_takeoff_launch_mandate", {
-    p_tenant_id: input.tenantId, p_project_id: input.projectId, p_actor: input.actorId, p_mode: input.mode,
-    ...(input.mandate.selection
-      ? { p_host: input.mandate.selection.hostId, p_selection: input.mandate.selection as unknown as Json }
-      : { p_blocked_reason: input.mandate.issue }),
-    ...(input.requestId ? { p_request_id: input.requestId } : {}),
+  const { context } = input;
+  const service = createServiceRoleClient();
+  const engaged = (await readTakeoffLaunchActivation(service)).active
+    && await isTakeoffEnabled(context.tenantId, { supabase: service });
+  // A reader's subscription is never read: the database leaves their confirmation waiting for an operator.
+  const operator = context.tenantRole === "admin" || context.tenantRole === "engineer";
+  const mandate = engaged && operator
+    ? await readLocalTakeoffMandate({ userId: context.userId, tenantId: context.tenantId }, input.host)
+    : { issue: "MANDATE_REQUIRED" as const, selection: null };
+  const { data, error } = await service.rpc("confirm_affaire_brief_takeoff", {
+    p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
+    p_expected_updated_at: input.expectedUpdatedAt, // No notice: the brief is confirmed and engages nobody.
+    p_notice: (engaged ? input.notice : null) as string,
+    ...selectionParameters(mandate),
+  });
+  if (error?.code === "P0002") return { outcome: "not_found" as const, takeoff: null };
+  if (error) databaseError(error, "Impossible de confirmer le brief affaire.");
+  const row = ((data ?? []) as Array<GestureRow & { outcome: string }>)[0];
+  if (!row || row.outcome === "conflict") return { outcome: "conflict" as const, takeoff: null };
+  if (row.state === "evaluating") wakeTakeoffLaunchConsumer();
+  return { outcome: row.outcome as "confirmed" | "replayed", takeoff: gestureResult(row) };
+}
+
+/**
+ * « Reprendre avec mon forfait » / « Prendre en charge avec mon forfait »: an operator who may launch on the affaire takes
+ * its waiting request on their own subscription, on this Mac, by an explicit gesture; they then receive its end. The
+ * gesture names the revision of the mandate and the action the affaire's options showed (readAffaireTakeoffLaunchState):
+ * when either moved, it is refused. A blocked mandate is never lifted by a later connection alone.
+ */
+export async function assumeTakeoffLaunchRequest(input: {
+  context: Context; projectId: string; requestId: string; seenRevision: number; action: "take_on" | "resume"; host: string | null;
+}) {
+  const { context, projectId } = input;
+  await assertPreparationProjectAccess(context, projectId, true);
+  const service = createServiceRoleClient();
+  await assertTakeoffEnabled(context.tenantId, { supabase: service });
+  if (!(await readTakeoffLaunchActivation(service)).active) {
+    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+      message: "Le démarrage automatique du métré n’est pas activé." });
+  }
+  const mandate = await readLocalTakeoffMandate({ userId: context.userId, tenantId: context.tenantId }, input.host);
+  if (mandate.issue) {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: describeTakeoffLaunchReason(mandate.issue) });
+  }
+  const { data, error } = await service.rpc("take_on_takeoff_launch_request", {
+    p_tenant_id: context.tenantId, p_project_id: projectId, p_actor: context.userId, p_request_id: input.requestId,
+    p_seen_revision: input.seenRevision, p_action: input.action, p_host: mandate.selection.hostId,
+    p_selection: mandate.selection as unknown as Json,
   });
   if (error?.message === "TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE") {
     throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false,
@@ -122,74 +203,33 @@ async function recordMandate(service: Service, input: {
       message: "Aucun métré n’attend sa prise en charge sur cette affaire." });
   }
   if (error) databaseError(error, "Impossible d’enregistrer qui paie le métré de cette affaire.");
-  return ((data ?? []) as MandateRow[])[0] ?? null;
-}
-
-/** What a gesture leaves: the request, its state and its reason, in French. */
-export type TakeoffLaunchGestureResult = {
-  requestId: string; state: TakeoffLaunchRequestState; reason: TakeoffLaunchReason | null; message: string | null;
-};
-function gestureResult(row: MandateRow): TakeoffLaunchGestureResult {
-  const reason = isTakeoffLaunchReason(row.reason_code) ? row.reason_code : null;
-  return { requestId: row.request_id, state: row.state as TakeoffLaunchRequestState, reason,
-    message: reason ? describeTakeoffLaunchReason(reason) : null };
-}
-
-/**
- * After the brief's confirmation committed: the affaire's one automatic request is reserved and the confirmer is recorded
- * as its payer, on this Mac and with the selection of Mon profil, or the reason why not (a reader who confirms does not
- * pay; another address or the hosted application cannot hold a mandate). Nothing happens before the owner's activation,
- * or when the brief was not confirmed by this member (the database reads the brief again under the request's lock).
- */
-export async function recordAutomaticTakeoffMandate(input: { context: Context; projectId: string; host: string | null }) {
-  const { context, projectId } = input;
-  const service = createServiceRoleClient();
-  if (!(await readTakeoffLaunchActivation(service)).launchActive) return null;
-  if (!(await isTakeoffEnabled(context.tenantId, { supabase: service }))) return null;
-  const operator = context.tenantRole === "admin" || context.tenantRole === "engineer";
-  const mandate = operator
-    ? await readLocalTakeoffMandate({ userId: context.userId, tenantId: context.tenantId }, input.host)
-    : { issue: "MANDATE_REQUIRED" as const, selection: null };
-  const row = await recordMandate(service, { tenantId: context.tenantId, projectId, actorId: context.userId, mode: "confirmation", mandate });
-  if (!row) return null;
-  if (row.state === "evaluating") wakeTakeoffLaunchConsumer();
-  return gestureResult(row);
-}
-
-/**
- * « Reprendre avec mon forfait » / « Prendre en charge avec mon forfait »: an operator who may launch on the affaire takes
- * its waiting request on their own subscription, on this Mac, by an explicit gesture; they then receive its end. A
- * blocked mandate is never lifted by a later connection alone.
- */
-export async function assumeTakeoffLaunchRequest(input: { context: Context; projectId: string; requestId?: string; host: string | null }) {
-  const { context, projectId } = input;
-  await assertPreparationProjectAccess(context, projectId, true);
-  const service = createServiceRoleClient();
-  if (!(await readTakeoffLaunchActivation(service)).launchActive) {
+  const row = ((data ?? []) as Array<GestureRow & { outcome: string }>)[0];
+  if (!row || row.outcome === "moved") {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
-      message: "Le démarrage automatique du métré n’est pas activé." });
+      message: "Le métré de cette affaire a changé depuis votre lecture. Actualisez avant de le prendre en charge." });
   }
-  const mandate = await readLocalTakeoffMandate({ userId: context.userId, tenantId: context.tenantId }, input.host);
-  if (mandate.issue) {
-    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
-      message: describeTakeoffLaunchReason(mandate.issue) });
-  }
-  const row = await recordMandate(service, { tenantId: context.tenantId, projectId, actorId: context.userId, mode: "take_over",
-    requestId: input.requestId, mandate });
-  if (!row) throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
-    message: "Le démarrage automatique du métré n’est pas activé." });
   if (row.state === "evaluating") wakeTakeoffLaunchConsumer();
-  return gestureResult(row);
+  return gestureResult(row)!;
 }
 
-/** The notice of who pays, for the brief's confirmation: shown to the member whose subscription the analysis will use. */
-export async function readAutomaticTakeoffPayerNotice(context: Context, project: { id: string; user_id: string }) {
+/**
+ * The payer notice of the brief's confirmation, for the member whose subscription the analysis will use: its text and
+ * the digest the confirmation carries back (the member, the activation and the subscription and settings it was shown
+ * with on this Mac). None for a member who may not launch, before both cut-offs or with the module off.
+ */
+export async function readAutomaticTakeoffPayerNotice(context: Context, project: { id: string; user_id: string }, host?: string | null) {
   const operator = context.tenantRole === "admin" || (context.tenantRole === "engineer" && project.user_id === context.userId);
   if (!operator) return null;
   const service = createServiceRoleClient();
-  if (!(await readTakeoffLaunchActivation(service)).launchActive) return null;
+  if (!(await readTakeoffLaunchActivation(service)).active) return null;
   if (!(await isTakeoffEnabled(context.tenantId, { supabase: service }))) return null;
-  return TAKEOFF_AUTOMATIC_PAYER_NOTICE;
+  const mandate = await readLocalTakeoffMandate({ userId: context.userId, tenantId: context.tenantId }, host);
+  const { data, error } = await service.rpc("takeoff_payer_notice", {
+    p_tenant_id: context.tenantId, p_project_id: project.id, p_actor: context.userId,
+    p_selection: (mandate.selection ?? null) as unknown as Json,
+  });
+  if (error || typeof data !== "string") return null;
+  return { message: TAKEOFF_AUTOMATIC_PAYER_NOTICE, digest: data };
 }
 
 // The Mac's loop: evaluate the requests whose mandate it holds, then admit them.
@@ -358,7 +398,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
     ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
   ];
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
-    omittedPlans, omittedReferences, preparationRevision: snapshot.preparation_revision });
+    omittedPlans, omittedReferences, preparationRevision: snapshot.preparation_revision,
+    budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
   return { snapshot, manifest, sourceFile };
 }
 
@@ -406,6 +447,7 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
     otherPlans: files.filter((file) => file.metadata.source !== "affaire-intake").length,
     payerEligible,
     mandateIssue: mandate.issue ?? (sameSelection(request.mandate_selection, mandate.selection) ? null : "CHATGPT_SELECTION_CHANGED"),
+    authorizationWithdrawn: isAuthorizationWithdrawn(request.mandate_selection, mandate),
   });
   if (decision.state !== "ready") return refuse(decision);
   // The cheap checks before any download: another request of the affaire runs.
@@ -483,30 +525,55 @@ export function wakeTakeoffLaunchConsumer() {
 
 // An explicit command: a relaunch from the takeoff's options, on the subscription of the member who clicks.
 
+function relaunchConflict() {
+  return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+    message: "Cette commande a déjà été envoyée pour une autre analyse. Rechargez les options du métré." });
+}
+
 export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "already_running"; requestId: string; jobId: string | null };
 
 /**
- * A manual request created, sealed and admitted in one commit from the member's confirmed preparation; its end goes to
- * that member. The intent key survives a double click and a replay; the same key with other content is a conflict.
- * While another request of the affaire runs, the command returns that one and creates nothing.
+ * A manual request created, sealed and admitted in one commit from the member's confirmed preparation, naming the
+ * analysis it replaces; its end goes to that member. The intent key is answered first: a double click or a replay gets
+ * what the command answered (its job, or the analysis that was running then), whatever changed since; the same key for
+ * another command is a conflict. While another request of the affaire runs, the command is recorded as refused.
  */
 export async function launchTakeoffRelaunch(input: {
   context: Context; projectId: string; planSetId: string; preparationRevision: number; intentKey: string;
-  predecessorJobId?: string | null;
+  predecessorJobId: string;
 }): Promise<TakeoffRelaunchResult> {
   const { context } = input;
   await assertPreparationProjectAccess(context, input.projectId, true);
   const service = createServiceRoleClient();
-  const activation = await readTakeoffLaunchActivation(service);
-  if (!activation.launchActive || !activation.completionActive) {
+  await assertTakeoffEnabled(context.tenantId, { supabase: service });
+  if (!(await readTakeoffLaunchActivation(service)).active) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
       message: "Les demandes de métré ne sont pas encore activées. Lancez l’analyse depuis la préparation." });
   }
+  const intentKey = input.intentKey.toLowerCase();
+  const predecessorJobId = input.predecessorJobId.toLowerCase();
+  const { data: replayed, error: replayError } = await service.rpc("replay_manual_takeoff_request", {
+    p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId, p_intent_key: intentKey,
+    p_intent: "reread_plans", p_predecessor_job_id: predecessorJobId,
+  });
+  if (replayError?.message === "TAKEOFF_LAUNCH_INTENT_CONFLICT") throw relaunchConflict();
+  if (replayError) databaseError(replayError, "Impossible de relancer le métré.");
+  const recorded = replayed?.[0];
+  if (recorded) {
+    return { outcome: recorded.outcome as TakeoffRelaunchResult["outcome"], requestId: recorded.request_id, jobId: recorded.job_id };
+  }
   const snapshot = await assertConfirmedTakeoffPreparation({ context, estimateVersionId: null, projectId: input.projectId,
     preparationRevision: input.preparationRevision, planSetId: input.planSetId, level: "C", provider: "chatgpt" });
-  // The confirmer's own subscription, as pinned at the confirmation, on this Mac.
+  // The confirmer's own subscription, as pinned at the confirmation, on this Mac, under its current connection: the
+  // request's mandate names that connection, which a disconnection or a reconnection withdraws.
   const owner = await getConfirmedTakeoffExecutionOwner(context.supabase, context, snapshot);
-  const selection = snapshot.execution_selection!;
+  const mandate = await readLocalTakeoffMandate({ userId: context.userId, tenantId: context.tenantId });
+  if (mandate.issue) {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: describeTakeoffLaunchReason(mandate.issue) });
+  }
+  const selection: TakeoffMandateSelection = { ...snapshot.execution_selection!, authorizationId: mandate.selection.authorizationId };
+  const sealedSnapshot: TakeoffPreparationSnapshot = { ...snapshot, execution_selection: selection };
   const jobId = deriveDeterministicJobId(context.tenantId,
     `takeoff-request-command:${input.projectId.toLowerCase()}:${input.intentKey.toLowerCase()}:${TAKEOFF_GROUPED_UNIT_KEY}`);
   const config = await getTakeoffLevelCProcessingConfigForTenant(context.tenantId, { supabase: service });
@@ -522,18 +589,20 @@ export async function launchTakeoffRelaunch(input: {
       generation: typeof metadata.intake_generation === "string" ? metadata.intake_generation : null }] as const] : [];
   }));
   const manifest = buildTakeoffLaunchManifest({ intent: "reread_plans", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
-    omittedPlans: [], omittedReferences: [], preparationRevision: snapshot.preparation_revision });
+    omittedPlans: [], omittedReferences: [], preparationRevision: snapshot.preparation_revision,
+    budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents } });
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
-    p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId, p_intent_key: input.intentKey.toLowerCase(),
-    p_intent: "reread_plans", p_predecessor_job_id: input.predecessorJobId ?? (null as never), p_host: owner.execution_host_id,
-    p_selection: selection as unknown as Json, p_manifest: manifest as unknown as Json, p_snapshot: snapshot as unknown as Json,
+    p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId, p_intent_key: intentKey,
+    p_intent: "reread_plans", p_predecessor_job_id: predecessorJobId, p_host: owner.execution_host_id,
+    p_selection: selection as unknown as Json, p_manifest: manifest as unknown as Json, p_snapshot: sealedSnapshot as unknown as Json,
     p_job: { id: jobId, plan_set_id: input.planSetId, source_file_name: sourceFile.sourceFileName, source_file_type: sourceFile.sourceFileType,
       source_file_size_bytes: sourceFile.sourceFileSizeBytes, prompt_version: getTakeoffPromptVersion("C"),
       execution_host_id: owner.execution_host_id } as unknown as Json,
   });
-  if (error?.message === "TAKEOFF_LAUNCH_INTENT_CONFLICT") {
-    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
-      message: "Cette commande a déjà été envoyée pour une autre analyse. Rechargez les options du métré." });
+  if (error?.message === "TAKEOFF_LAUNCH_INTENT_CONFLICT") throw relaunchConflict();
+  if (error?.message === "TAKEOFF_LAUNCH_PREDECESSOR_INVALID") {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+      message: "L’analyse à relancer n’appartient pas à cette affaire." });
   }
   if (error?.message === "TAKEOFF_JOB_ADMISSION_LIMIT") {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.TAKEOFF_JOB_ADMISSION_LIMIT, retryable: true,
@@ -555,17 +624,17 @@ export async function launchTakeoffRelaunch(input: {
 // What the affaire shows: the state of its latest request, its reason and the gesture it allows, to its readers.
 
 export type AffaireTakeoffLaunchView = {
-  /** The owner turned the automatic start on. */
+  /** The owner set both cut-offs. */
   active: boolean;
-  /** A dossier confirmed before the activation is not armed: its last job, or the options of the takeoff. */
-  confirmedBeforeActivation: boolean;
   /**
-   * A dossier confirmed after the activation whose confirmation recorded no request (the call after its commit failed):
-   * shown as not started, and taken on by an operator's gesture, never left silent.
+   * A dossier confirmed with no request: confirmed before the activation (every confirmation since reserves its request in
+   * its own transaction), so it is not armed: its last job, or the options of the takeoff.
    */
-  confirmedWithoutRequest: null | { message: string; action: import("@/lib/takeoff/operator-state").TakeoffLaunchAction; actionLabel: string | null };
+  confirmedBeforeActivation: boolean;
   request: null | {
     id: string; origin: "automatic" | "manual"; state: TakeoffLaunchRequestState;
+    /** The revision of its mandate: a gesture names it, and is refused when it moved. */
+    mandateRevision: number;
     reason: TakeoffLaunchReason | null; message: string | null; pieces: TakeoffLaunchPiece[];
     hasPayer: boolean; payerIsViewer: boolean;
     createdAt: string; admittedAt: string | null; closedAt: string | null;
@@ -582,6 +651,7 @@ export type AffaireTakeoffLaunchView = {
 
 type RequestRow = {
   id: string; origin: string; state: string; reason_code: string | null; reason_details: unknown; payer_id: string | null;
+  mandate_revision: number;
   created_at: string; updated_at: string; admitted_at: string | null; closed_at: string | null; outcome: string | null;
   units_expected: number | null; units_succeeded: number; units_failed: number; units_canceled: number;
 };
@@ -593,8 +663,9 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
   const [activation, requests, brief, viewers] = await Promise.all([
     readTakeoffLaunchActivation(service),
     context.supabase.from("takeoff_launch_requests")
-      .select("id, origin, state, reason_code, reason_details, payer_id, created_at, updated_at, admitted_at, closed_at, outcome, units_expected, units_succeeded, units_failed, units_canceled")
-      .eq("tenant_id", context.tenantId).eq("project_id", projectId)
+      .select("id, origin, state, reason_code, reason_details, payer_id, mandate_revision, created_at, updated_at, admitted_at, closed_at, outcome, units_expected, units_succeeded, units_failed, units_canceled")
+      // A refused click is the record of its answer, never the affaire's analysis.
+      .eq("tenant_id", context.tenantId).eq("project_id", projectId).neq("state", "refused")
       .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1),
     context.supabase.from("affaire_briefs").select("status, confirmed_at").eq("tenant_id", context.tenantId).eq("project_id", projectId).maybeSingle(),
     import("@/lib/takeoff/resume-viewer-server").then(({ readTakeoffResumeViewers }) => readTakeoffResumeViewers({
@@ -603,16 +674,10 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
   if (requests.error) databaseError(requests.error, "Impossible de lire le métré de l’affaire.");
   if (brief.error) databaseError(brief.error, "Impossible de lire le brief de l’affaire.");
   const latest = (requests.data?.[0] ?? null) as RequestRow | null;
-  const confirmedBeforeActivation = Boolean(activation.launchActiveFrom && brief.data?.status === "confirme" && brief.data.confirmed_at
-    && Date.parse(brief.data.confirmed_at) < Date.parse(activation.launchActiveFrom));
   const { resolveTakeoffLaunchDecision, describeTakeoffLaunchAction } = await import("@/lib/takeoff/operator-state");
   if (!latest) {
-    const confirmedAfterActivation = activation.launchActive && brief.data?.status === "confirme" && !confirmedBeforeActivation;
-    const { action } = resolveTakeoffLaunchDecision({ state: "blocked", reasonCode: "MANDATE_REQUIRED", payerId: null, viewer: viewers(projectId) });
-    return { active: activation.launchActive, confirmedBeforeActivation, request: null, dossierChangedSinceAnalysis: null,
-      confirmedWithoutRequest: confirmedAfterActivation
-        ? { message: "Métré non démarré — la confirmation du dossier n’a pas été enregistrée pour le métré. Un métreur peut le prendre en charge avec son forfait.",
-          action, actionLabel: describeTakeoffLaunchAction(action) } : null };
+    return { active: activation.active, confirmedBeforeActivation: activation.active && brief.data?.status === "confirme",
+      request: null, dossierChangedSinceAnalysis: null };
   }
 
   const reason = isTakeoffLaunchReason(latest.reason_code) ? latest.reason_code : null;
@@ -631,9 +696,10 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
   if (jobError) databaseError(jobError, "Impossible de lire l’analyse du métré.");
 
   return {
-    active: activation.launchActive, confirmedBeforeActivation, confirmedWithoutRequest: null,
+    active: activation.active, confirmedBeforeActivation: false,
     request: {
       id: latest.id, origin: latest.origin === "manual" ? "manual" : "automatic", state: latest.state as TakeoffLaunchRequestState,
+      mandateRevision: latest.mandate_revision,
       reason, message: reason ? describeTakeoffLaunchReason(reason, pieces) : null, pieces,
       hasPayer: latest.payer_id !== null, payerIsViewer: latest.payer_id === context.userId,
       createdAt: latest.created_at, admittedAt: latest.admitted_at, closedAt: latest.closed_at,
@@ -646,11 +712,15 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
   };
 }
 
-/** The plans of the dossier's plan set against the plans the request sealed (read by the server after the access check). */
+/**
+ * The plans of the dossier against the plans the request sealed (read by the server after the access check): its plan
+ * set's copies, and every plan classified in the dossier since that has no working copy (it is named, never invisible).
+ */
 async function readDossierChangeSinceAnalysis(service: Service, tenantId: string, projectId: string, requestId: string) {
-  const [{ data: request, error }, planSet] = await Promise.all([
+  const [{ data: request, error }, planSet, documents] = await Promise.all([
     service.from("takeoff_launch_requests").select("manifest").eq("id", requestId).eq("tenant_id", tenantId).maybeSingle(),
     readDossierPlanSet(service, tenantId, projectId),
+    readDossierDocuments(service, tenantId, projectId),
   ]);
   if (error) databaseError(error, "Impossible de lire le métré de l’affaire.");
   const manifest = request?.manifest as TakeoffLaunchManifest | null;
@@ -660,7 +730,13 @@ async function readDossierChangeSinceAnalysis(service: Service, tenantId: string
   const current = planSet?.files ?? [];
   const currentIds = new Set(current.map((file) => file.id));
   const nameOf = (file: { file_name: string; metadata: Record<string, unknown> }) => getPlanFileDisplayName(file);
-  const added = current.filter((file) => !sealed.has(file.id) && !omitted.has(file.id)).map((file) => ({ id: file.id, name: nameOf(file) }));
+  const sealedDocuments = new Set(manifest.plans.flatMap((plan) => plan.intake_document_id ? [plan.intake_document_id] : []));
+  const added = [
+    ...current.filter((file) => !sealed.has(file.id) && !omitted.has(file.id)).map((file) => ({ id: file.id, name: nameOf(file) })),
+    ...findIntakePlansWithoutWorkingCopy(documents as unknown as SyncDocument[], current)
+      .filter((document) => !sealedDocuments.has(document.id) && !omitted.has(document.id))
+      .map((document) => ({ id: document.id, name: document.file_name })),
+  ];
   const replaced = current.filter((file) => {
     const plan = sealed.get(file.id);
     const generation = typeof file.metadata.intake_generation === "string" ? file.metadata.intake_generation : null;
@@ -674,8 +750,8 @@ async function readDossierChangeSinceAnalysis(service: Service, tenantId: string
 export async function readAffaireAutomaticTakeoffPayerNotice(projectId: string) {
   try {
     const { requireAffaireAccess } = await import("@/lib/affaires/access-server");
-    const { context, project } = await requireAffaireAccess(projectId, "read");
-    return await readAutomaticTakeoffPayerNotice(context, project);
+    const [{ context, project }, { headers }] = await Promise.all([requireAffaireAccess(projectId, "read"), import("next/headers")]);
+    return await readAutomaticTakeoffPayerNotice(context, project, (await headers()).get("host"));
   } catch {
     return null;
   }
