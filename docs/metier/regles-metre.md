@@ -26,27 +26,33 @@ DPGF renvoient au dossier. Le prix n’intervient jamais : la quantité de la DP
 une référence documentaire. Aucun texte libre de l’import n’est montré ni enregistré
 dans la liste : les notes d’une ligne n’y laissent qu’une empreinte, qui distingue deux
 lignes sans rien révéler à un lecteur qui ne voit pas l’import. L’empreinte est calculée
-avec une clé propre à l’entreprise, que seul le serveur lit : essayer des notes
-probables ne permet pas de la retrouver.
+avec une clé propre à l’affaire, dérivée d’une clé de l’entreprise que seul le serveur
+lit : essayer des notes probables ne permet pas de la retrouver, et deux affaires ne se
+comparent pas. Le serveur seul s’en sert ; elle n’est jamais envoyée au navigateur.
 
 **Choix de structure.** La confirmation d’un import enregistre ses choix : une ligne
 devenue section et son niveau, gardée comme ligne, ou ignorée. Elle enregistre aussi
 les lignes que l’import a écartées, avec leur raison : un total et les options qui le
 suivent, les paramètres du classeur, une ligne ignorée. La liste ne fait jamais un
-poste de ces lignes. La confirmation porte sur les lignes que sa correspondance a
-faites, toutes, une par ligne brute. Des lignes écrites par la correspondance d’un
-autre onglet, ou encore en cours d’écriture, la refusent : « Le mappage a changé dans
-un autre onglet : rechargez-le et vérifiez-le avant de confirmer. » Le serveur vérifie
-ces lignes, puis la base les compare de nouveau sous le verrou de l’import. Les choix
+poste de ces lignes. La confirmation porte sur les lignes que le membre a vues :
+l’aperçu de la structure en calcule une empreinte, que la confirmation renvoie. Le
+serveur la compare aux lignes dont il fait le devis, puis la base la compare de nouveau
+sous le verrou de l’import. Des lignes écrites par la correspondance d’un autre onglet,
+encore en cours d’écriture ou une valeur modifiée depuis l’aperçu la refusent ; le
+formulaire affiche alors « Le mappage a changé dans un autre onglet : rechargez-le et
+vérifiez-le avant de confirmer. » Les lignes enregistrées par une version antérieure de
+l’application, à plat dans leur charge, restent acceptées. Les choix
 s’enregistrent dans la transaction du devis créé. Sans devis, ils s’enregistrent juste
 après la correspondance, qui s’écrit en plusieurs requêtes et ne peut pas partager
-leur transaction : la confirmation ne réussit pas sans eux, et confirmer de nouveau
-les enregistre. Une preuve couvre ces choix, les lignes écartées, l’ordre des lignes,
+leur transaction : la confirmation ne réussit pas sans eux, le formulaire le dit, et
+confirmer de nouveau les enregistre. Une preuve couvre ces choix, les lignes écartées, l’ordre des lignes,
 leurs champs mesurés et la correspondance. Si l’import change, la preuve ne correspond
 plus. Si un devis est créé depuis l’import après la confirmation sans enregistrer de
-choix (une version antérieure de l’application), les choix ne sont plus établis. Une
-copie d’un devis (« Nouvelle version », variante, copie d’une préparation de métré)
-n’est pas une création : elle ne change rien aux choix. Dans
+choix (une version antérieure de l’application), les choix ne sont plus établis. La
+base retient, dans la transaction de chaque création, les imports dont viennent ses
+lignes : supprimer plus tard la section importée, ou la copier dans un autre devis, ne
+change rien. Une copie d’un devis (« Nouvelle version », variante, copie d’une
+préparation de métré) n’est pas une création : elle ne change rien aux choix. Dans
 ces deux cas, la liste lit les titres tels quels et le dit. Une ligne vide, illisible
 ou un en-tête répété ne devient jamais un poste, quel que soit le choix.
 
@@ -56,7 +62,8 @@ classeur importé depuis l’enregistrement de la ligne où commence son tableau
 donne la ligne de la feuille, telle qu’Excel la numérote, puis la ligne du tableau
 (« Ligne 5 de la feuille (ligne du tableau 3) »). Un classeur importé avant donne la
 ligne du tableau seule (« Ligne du tableau 3 »), comptée depuis le début de la plage
-lue. Pour un PDF, c’est la page.
+lue. La revue de la structure de l’import nomme les lignes de la même façon, et la
+ligne d’en-tête se saisit en ligne du tableau. Pour un PDF, c’est la page.
 
 **Identité.** Un poste reçoit un identifiant à sa première apparition, dérivé de son
 origine : ligne brute de la DPGF, ligne du gabarit ou ajout à la main. Il le garde
@@ -73,9 +80,10 @@ deux homonymes : la section et l’origine (ligne, page, référence, version du
 gabarit). Aucun rapprochement n’est coché d’avance. Rien n’est appliqué sans
 « Accepter la révision proposée ». Le serveur recalcule la proposition et refuse
 celle qui a changé depuis l’affichage. Une révision garde les choix de structure qu’elle a
-appliqués et les lignes écartées avec leur raison, par leur position seule : elle dit
-encore pourquoi une ligne n’est pas un poste quand l’import ou sa correspondance a
-disparu. Les postes ajoutés à la main restent à leur place. La première liste d’une
+appliqués et les lignes écartées avec leur raison, par leur position seule. La liste
+les montre pour la révision enregistrée et pour chaque révision de l’historique, depuis
+la révision elle-même : elle dit encore pourquoi une ligne n’est pas un poste quand
+l’import ou sa correspondance a disparu. Les postes ajoutés à la main restent à leur place. La première liste d’une
 affaire s’enregistre par « Enregistrer la liste proposée », par le premier ajout, ou
 par la première demande d’analyse qui la scelle.
 
@@ -95,7 +103,8 @@ poste nouveau ne reprend jamais l’identifiant d’un poste que le gabarit a eu
 retiré : la base le refuse à la publication, et une affaire se voit proposer un
 rapprochement au lieu de le subir. Un onglet périmé ne publie, n’abandonne ni
 n’écrase le brouillon d’un autre administrateur : chaque enregistrement du brouillon
-lui donne un jeton jamais réutilisé. La nouvelle version vaut pour les affaires sans
+lui donne un jeton jamais réutilisé. Rejouer une publication ne rend son reçu que pour
+le brouillon qu’elle a publié. La nouvelle version vaut pour les affaires sans
 liste. Une affaire qui a déjà une liste se voit proposer l’écart. Une publication ne
 modifie aucun devis, aucune analyse et aucune demande déjà scellée.
 
