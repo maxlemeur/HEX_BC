@@ -221,6 +221,19 @@ describe("TakeoffActivityCenter", () => {
     expect(screen.getByRole("button", { name: "Plus anciennes" })).toBeInTheDocument();
   });
 
+  it("keeps the affaire's ends and their pager under a job filter", () => {
+    searchParams = new URLSearchParams("status=failed");
+    const matching = { jobId: "a1000000-0000-4000-8000-000000000010" } as TakeoffActivityCenterResponse["jobs"][number];
+    const filtered: TakeoffActivityCenterResponse = {
+      ...EMPTY_RESPONSE, jobs: [matching], pagination: { limit: 20, offset: 0, total: 1 }, analysisCompletionsHasOlder: true,
+      analysisCompletions: [{ eventId: "event-older", outcome: "success", finishedAt: "2026-11-17T08:00:00.000Z", failureReason: null }],
+    };
+    renderCenter({ response: filtered, listResponse: filtered });
+    expect(screen.getByText(matching.jobId)).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Fins d’analyse de l’affaire" })).toHaveTextContent("Analyse terminée");
+    expect(screen.getByRole("button", { name: "Plus anciennes" })).toBeInTheDocument();
+  });
+
   it("opens a usable non-default plan set from a deep link", () => {
     searchParams = new URLSearchParams(
       "launch=1&launchPlanSet=plan-set-2"

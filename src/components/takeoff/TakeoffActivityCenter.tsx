@@ -734,7 +734,8 @@ export default function TakeoffActivityCenter({
                 </div>
               )
                 ) : null}
-                {sharedCompletions.length > 0 && !hasActiveJobFilters ? (
+                {/* The affaire's ends, whatever the job list's filters. */}
+                {sharedCompletions.length > 0 ? (
                   <>
                     <AnalysisCompletionList label="Fins d’analyse de l’affaire" completions={sharedCompletions} />
                     {endsOffset > 0 || listData?.analysisCompletionsHasOlder ? (

@@ -92,8 +92,8 @@ update public.takeoff_jobs set created_at = (select t from clock) where id in (p
 -- The Mac's own timestamps of that attempt, and its work in database time, are six hours before T.
 update public.takeoff_jobs set started_at = t - interval '6 hours', completed_at = t - interval '6 hours',
   last_error_at = t - interval '6 hours' from clock where id = pg_temp.job('22');
-update private.takeoff_local_host_activity set worked_at = (select t from clock) - interval '6 hours' -- after-fix
-where host_id = 'urn:uuid:8f700000-0000-4000-8000-0000000000a1'; -- after-fix
+update private.takeoff_local_job_work set worked_at = (select t from clock) - interval '6 hours'
+where job_id = pg_temp.job('22');
 insert into public.takeoff_processing_admissions (job_id, attempt_number, tenant_id, created_by, admitted_at)
 select gen_random_uuid(), 0, tenant_id, pg_temp.member('03'), now() - interval '1 hour' from fixture, generate_series(1, 20);
 
@@ -115,43 +115,40 @@ select is(array(select pg_temp.recover_at(interval '31 minutes')), array[pg_temp
 select results_eq($$select pg_temp.state('21'), pg_temp.state('22')$$,
   $$values ('failed TAKEOFF_WORKER_NOT_STARTED'::text, 'failed TAKEOFF_WORKER_NOT_STARTED'::text)$$, 'nobody took them');
 
--- 3. A relaunch accepted before this migration was installed recorded no requester. The activation precondition
--- (the pull request's query, verbatim) lists every open job relaunched without a recorded requester, unless an
--- audit row proves its launcher relaunched it: the previous application's « Soumettre à nouveau » writes an audit
--- action that audit_logs_action_check refuses, so its actor is not stored anywhere. Where an audit names another
--- member, the end is recorded as unavailable instead of being sent to a member who did not ask.
-create temporary view relaunched_by_another_member as
-select j.id, j.tenant_id, j.status, j.created_by, j.retry_count, last_relaunch.user_id as relaunched_by
+-- 3. A job sent back to pending before this migration was installed recorded no requester, and who asked cannot be
+-- known: the release's « Soumettre à nouveau » cannot store its audit row, and a stored one need not be the last.
+-- A job created before installation that was retried or relaunched without a captured requester never has its end
+-- sent to anyone, whatever the audit says; the activation precondition (the pull request's query, verbatim) lists
+-- those still open. After installation only the launcher relaunches, and the requester is captured.
+create temporary view open_jobs_without_requester as
+select j.id, j.tenant_id, j.status, j.created_by, j.retry_count
 from public.takeoff_jobs j
-left join lateral (
-  select a.user_id from public.audit_logs a
-  where a.tenant_id = j.tenant_id and a.table_name = 'takeoff_jobs' and a.record_id = j.id
-    and a.action in ('takeoff.job.resubmitted', 'takeoff.job.retried') and a.user_id is not null
-    and a.created_at >= j.created_at
-  order by a.created_at desc limit 1
-) as last_relaunch on true
 where j.analysis_outcome is null and j.analysis_requested_by is null and j.retry_count > 0
-  and (j.status in ('pending', 'processing') or (j.status = 'failed' and j.next_retry_at is not null))
-  and last_relaunch.user_id is distinct from j.created_by;
+  and j.created_at < (select captured_from from private.takeoff_requester_capture)
+  and (j.status in ('pending', 'processing') or (j.status = 'failed' and j.next_retry_at is not null));
 
-select pg_temp.add_job(x.n, '01', 'a3') from (values ('41'), ('42'), ('44'), ('45')) as x(n);
+-- 41, 42 and 44 were created before installation, 46 after it.
+select pg_temp.add_job(x.n, '01', 'a3') from (values ('41'), ('42'), ('44'), ('46')) as x(n);
+update public.takeoff_jobs set created_at = (select t from clock) - interval '1 day'
+where id in (pg_temp.job('41'), pg_temp.job('42'), pg_temp.job('44'));
 select pg_temp.claim(x.n, 'pending', 0, ('bbbbbbbb-0000-4000-8000-0000000000' || x.n)::uuid)
-from (values ('41'), ('42'), ('44'), ('45')) as x(n);
+from (values ('41'), ('42'), ('44'), ('46')) as x(n);
 select pg_temp.fail(x.n, ('bbbbbbbb-0000-4000-8000-0000000000' || x.n)::uuid, 'AI_PROVIDER', null, null)
-from (values ('41'), ('42'), ('44'), ('45')) as x(n);
--- The previous application relaunched the four before installation, leaving no requester. Its v0.7.0 retry audits
--- the administrator for 41 and 42 and the launcher for 44; 45 has no audit, as after a « Soumettre à nouveau ».
+from (values ('41'), ('42')) as x(n);
+-- The previous application relaunched 41 and 42 before installation, capturing nobody. A v0.7.0 retry audit names
+-- the launcher for 41: it proves nothing about the last relaunch.
 update public.takeoff_jobs set status = 'pending', retry_count = retry_count + 1, next_retry_at = null, error_code = null,
   error_message = null, last_error_at = null, started_at = null, completed_at = null
-where id in (pg_temp.job('41'), pg_temp.job('42'), pg_temp.job('44'), pg_temp.job('45'));
+where id in (pg_temp.job('41'), pg_temp.job('42'));
 insert into public.audit_logs (tenant_id, user_id, table_name, record_id, action, created_at)
-select tenant_id, x.member, 'takeoff_jobs', x.id, 'takeoff.job.retried', clock_timestamp()
-from fixture cross join (values (pg_temp.job('41'), pg_temp.member('02')), (pg_temp.job('42'), pg_temp.member('02')),
-  (pg_temp.job('44'), pg_temp.member('01'))) as x(id, member);
-select results_eq($$select id from relaunched_by_another_member where tenant_id = (select tenant_id from fixture) order by id$$,
-  $$values (pg_temp.job('41')), (pg_temp.job('42')), (pg_temp.job('45'))$$,
-  'the precondition lists the open jobs relaunched by another member or by nobody known, not the launcher''s own');
--- 42 fails again; its launcher relaunches it under this migration, and the audit of that relaunch is not written yet.
+select tenant_id, pg_temp.member('01'), 'takeoff_jobs', pg_temp.job('41'), 'takeoff.job.retried', clock_timestamp() from fixture;
+-- 46 is retried by its worker, as any job may be.
+select pg_temp.fail('46', 'bbbbbbbb-0000-4000-8000-000000000046', 'AI_TIMEOUT', clock_timestamp() - interval '1 second', null);
+select pg_temp.claim('46', 'failed', 0, 'bbbbbbbb-0000-4000-8000-000000000146');
+select results_eq($$select id from open_jobs_without_requester where tenant_id = (select tenant_id from fixture) order by id$$,
+  $$values (pg_temp.job('41')), (pg_temp.job('42'))$$,
+  'the precondition lists the open jobs relaunched before installation, whatever the audit says');
+-- 42 fails again; its launcher relaunches it under this migration.
 select pg_temp.claim('42', 'pending', 1, 'bbbbbbbb-0000-4000-8000-000000000142');
 select pg_temp.fail('42', 'bbbbbbbb-0000-4000-8000-000000000142', 'AI_PROVIDER', null, null);
 -- Past the relaunch backoff of the previous application.
@@ -165,18 +162,21 @@ where id = pg_temp.job('42');
 reset role;
 select results_eq($$select status::text, analysis_requested_by from public.takeoff_jobs where id = pg_temp.job('42')$$,
   $$values ('pending'::text, pg_temp.member('01'))$$, 'the launcher''s relaunch is accepted and captured');
-select results_eq($$select id from relaunched_by_another_member where tenant_id = (select tenant_id from fixture) order by id$$,
-  $$values (pg_temp.job('41')), (pg_temp.job('45'))$$, 'the precondition no longer lists the job its launcher relaunched');
+select results_eq($$select id from open_jobs_without_requester where tenant_id = (select tenant_id from fixture) order by id$$,
+  $$values (pg_temp.job('41'))$$, 'the precondition no longer lists the job its launcher relaunched');
 select pg_temp.claim(x.n, 'pending', x.retry, ('bbbbbbbb-0000-4000-8000-0000000002' || x.n)::uuid)
 from (values ('41', 1), ('42', 2)) as x(n, retry);
 select pg_temp.succeed(x.n, ('bbbbbbbb-0000-4000-8000-0000000002' || x.n)::uuid) from (values ('41'), ('42')) as x(n);
+select pg_temp.succeed('44', 'bbbbbbbb-0000-4000-8000-000000000044');
+select pg_temp.succeed('46', 'bbbbbbbb-0000-4000-8000-000000000146');
 select results_eq($$select job_id, recipient_user_id, delivery_state, last_delivery_code from public.takeoff_completion_notifications
-    where job_id in (pg_temp.job('41'), pg_temp.job('42')) order by job_id$$,
+    where job_id in (pg_temp.job('41'), pg_temp.job('42'), pg_temp.job('44'), pg_temp.job('46')) order by job_id$$,
   $$values (pg_temp.job('41'), null::uuid, 'unavailable'::text, 'REQUESTER_UNKNOWN'::text),
-    (pg_temp.job('42'), pg_temp.member('01'), 'pending'::text, null::text)$$,
-  'an end whose requester was never recorded is not sent to its launcher; a captured requester wins over the audit');
-update public.takeoff_jobs set status = 'canceled' where id in (pg_temp.job('44'), pg_temp.job('45'));
-select is((select count(*) from relaunched_by_another_member where tenant_id = (select tenant_id from fixture)), 0::bigint,
+    (pg_temp.job('42'), pg_temp.member('01'), 'pending'::text, null::text),
+    (pg_temp.job('44'), pg_temp.member('01'), 'pending'::text, null::text),
+    (pg_temp.job('46'), pg_temp.member('01'), 'pending'::text, null::text)$$,
+  'an end whose requester is unknown is sent to nobody; a captured requester, a job never relaunched and a later job are');
+select is((select count(*) from open_jobs_without_requester where tenant_id = (select tenant_id from fixture)), 0::bigint,
   'once the jobs ended, the precondition is empty');
 
 -- 4. At dispatch, the recipient is checked again: a changed address or a lost membership ends the delivery.
@@ -201,6 +201,37 @@ select results_eq($$select delivery_state, last_delivery_code, lease_token is nu
   $$values ('unavailable'::text, 'RECIPIENT_UNAVAILABLE'::text, true), ('unavailable'::text, 'RECIPIENT_UNAVAILABLE'::text, true)$$,
   'both deliveries end as unavailable');
 
+-- 5. A sender whose lease has already expired when it prepares or confirms gives its attempt back: claims that never
+-- call the provider do not exhaust the delivery.
+create function pg_temp.expired_round(p_suffix text, p_step text) returns boolean language plpgsql as $$
+declare
+  claimed public.takeoff_completion_notifications;
+  answer boolean;
+begin
+  -- Due before this statement began, which is the time the claim compares with.
+  update public.takeoff_completion_notifications set next_attempt_at = now() - interval '1 second'
+  where job_id = pg_temp.job(p_suffix) and delivery_state = 'pending';
+  select * into claimed from public.claim_takeoff_completion_email(
+    (select id from public.takeoff_completion_notifications where job_id = pg_temp.job(p_suffix)));
+  update public.takeoff_completion_notifications set lease_expires_at = clock_timestamp() - interval '1 second'
+  where id = claimed.id;
+  if p_step = 'prepare' then
+    answer := public.prepare_takeoff_completion_email(claimed.id, claimed.lease_token, 'redirect', 'collector@example.test', 'fixture');
+  else
+    answer := public.confirm_takeoff_completion_email_dispatch(claimed.id, claimed.lease_token) is not null;
+  end if;
+  return answer;
+end;
+$$;
+select ok(not pg_temp.expired_round('44', 'prepare'), 'a sender whose lease expired before preparing may not prepare');
+select ok(not pg_temp.expired_round('44', 'confirm'), 'nor send');
+select ok(bool_and(not pg_temp.expired_round('44', case when round % 2 = 0 then 'prepare' else 'confirm' end)),
+  'nine more claims expire the same way') from generate_series(1, 9) as round;
+select results_eq($$select delivery_state, attempt_count, lease_token is null, next_attempt_at is not null, last_delivery_code
+    from public.takeoff_completion_notifications where job_id = pg_temp.job('44')$$,
+  $$values ('pending'::text, 0, true, true, 'DISPATCH_LEASE_EXPIRED'::text)$$,
+  'each gave its attempt back: the delivery is pending, with no attempt spent');
+
 -- 6. A reader who cannot read the job sees only codes that have a public French reason.
 select pg_temp.add_job(x.n, '05', 'a3') from (values ('51'), ('52')) as x(n);
 select pg_temp.claim(x.n, 'pending', 0, ('bbbbbbbb-0000-4000-8000-0000000000' || x.n)::uuid) from (values ('51'), ('52')) as x(n);
@@ -210,11 +241,11 @@ select results_eq($$select job_id, reason_code from public.takeoff_completion_no
     where job_id in (pg_temp.job('51'), pg_temp.job('52')) order by job_id$$,
   $$values (pg_temp.job('51'), null::text), (pg_temp.job('52'), 'AI_SAFETY'::text)$$,
   'an internal code is not published; a code with a public reason is');
-select is(private.takeoff_public_failure_codes(), array['AI_PROVIDER', 'AI_SAFETY', 'AI_SCHEMA', 'AI_TIMEOUT', 'FORBIDDEN', -- after-fix
-  'TAKEOFF_FILE_TOO_LARGE', 'TAKEOFF_FILE_TYPE_INVALID', 'TAKEOFF_LEVEL_C_BUDGET_EXCEEDED', 'TAKEOFF_LEVEL_C_INVALID_SCHEMA', -- after-fix
-  'TAKEOFF_LEVEL_C_TIMEOUT', 'TAKEOFF_PDF_CORRUPTED', 'TAKEOFF_PDF_NOT_INTERPRETABLE', 'TAKEOFF_WORKER_HOST_SILENT', -- after-fix
-  'TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', 'TAKEOFF_WORKER_QUEUE_EXPIRED'], -- after-fix
-  'the allow-list holds the codes the application labels in French (src/lib/takeoff/visible-status.ts)'); -- after-fix
+select is(private.takeoff_public_failure_codes(), array['AI_PROVIDER', 'AI_SAFETY', 'AI_SCHEMA', 'AI_TIMEOUT', 'FORBIDDEN',
+  'TAKEOFF_FILE_TOO_LARGE', 'TAKEOFF_FILE_TYPE_INVALID', 'TAKEOFF_LEVEL_C_BUDGET_EXCEEDED', 'TAKEOFF_LEVEL_C_INVALID_SCHEMA',
+  'TAKEOFF_LEVEL_C_TIMEOUT', 'TAKEOFF_PDF_CORRUPTED', 'TAKEOFF_PDF_NOT_INTERPRETABLE', 'TAKEOFF_WORKER_HOST_SILENT',
+  'TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', 'TAKEOFF_WORKER_QUEUE_EXPIRED'],
+  'the allow-list holds the codes the application labels in French (src/lib/takeoff/visible-status.ts)');
 
 select * from finish();
 rollback;

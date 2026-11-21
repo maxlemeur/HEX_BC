@@ -292,8 +292,9 @@ select pg_temp.claim_old('8f600000-0000-4000-8000-000000000059', (select t from 
 update public.takeoff_jobs set status = 'failed', error_code = 'AI_TIMEOUT', last_error_at = (select t from clock),
   next_retry_at = (select t from clock) + interval '1 hour', processing_lease_token = null, processing_lease_expires_at = null
 where id = '8f600000-0000-4000-8000-000000000059';
--- b5 has given no sign since: the stamp of that worker's claim and failure is removed with its Mac.
-delete from private.takeoff_local_host_activity where host_id = 'urn:uuid:8f600000-0000-4000-8000-0000000000b5';
+-- b5 has given no sign of life: it has no activity row, only the stamps of that claim and failure.
+select is((select count(*) from private.takeoff_local_host_activity where host_id = 'urn:uuid:8f600000-0000-4000-8000-0000000000b5'),
+  0::bigint, 'a job write gives no sign of life: only the poller does');
 select is((select analysis_outcome from public.takeoff_jobs where id = '8f600000-0000-4000-8000-000000000059'), null,
   'the scheduled retry has no end');
 
@@ -301,9 +302,9 @@ insert into private.takeoff_local_host_activity as a (host_id, live_since, seen_
 select 'urn:uuid:8f600000-0000-4000-8000-0000000000' || host, t - interval '1 hour', t - interval '1 hour'
 from clock cross join (values ('b1'), ('b2'), ('b3'), ('b4'), ('b6')) as hosts(host)
 on conflict (host_id) do update set live_since = excluded.live_since, seen_at = excluded.seen_at;
--- The claims above stamped their Macs' work in database time, that is now; b2's last work ended at T - 1 h.
-update private.takeoff_local_host_activity set worked_at = (select t from clock) - interval '1 hour'
-where host_id = 'urn:uuid:8f600000-0000-4000-8000-0000000000b2';
+-- The claims above stamped their jobs' work in database time, that is now; b2's last work ended at T - 1 h.
+update private.takeoff_local_job_work set worked_at = (select t from clock) - interval '1 hour'
+where job_id = '8f600000-0000-4000-8000-000000000054';
 
 create function pg_temp.recover_at(p_offset interval) returns setof uuid language plpgsql as $$
 declare
@@ -312,9 +313,10 @@ begin
   -- The live Macs gave their last sign just now, in database time; b3 woke up two minutes before the instant, and
   -- b4 ended a job five minutes before it.
   update private.takeoff_local_host_activity set seen_at = clock_timestamp(),
-    live_since = case when host_id like '%b3' then at - interval '2 minutes' else live_since end,
-    worked_at = case when host_id like '%b4' then at - interval '5 minutes' else worked_at end
+    live_since = case when host_id like '%b3' then at - interval '2 minutes' else live_since end
   where host_id like 'urn:uuid:8f600000-0000-4000-8000-0000000000b_';
+  update private.takeoff_local_job_work set worked_at = at - interval '5 minutes'
+  where job_id = '8f600000-0000-4000-8000-000000000057';
   return query select r.job_id from public.recover_stale_local_takeoff_jobs(at) r;
 end;
 $$;
@@ -416,8 +418,10 @@ where id = '8f600000-0000-4000-8000-00000000005e';
 update public.takeoff_jobs set created_at = (select t from clock) + interval '40 hours 5 minutes'
 where id = '8f600000-0000-4000-8000-00000000005f';
 -- b7 has been live since T + 39 h; its last own work is that failure at T + 40 h.
-update private.takeoff_local_host_activity set live_since = t + interval '39 hours', seen_at = clock_timestamp(),
-  worked_at = t + interval '40 hours' from clock where host_id = 'urn:uuid:8f600000-0000-4000-8000-0000000000b7';
+insert into private.takeoff_local_host_activity (host_id, live_since, seen_at)
+select 'urn:uuid:8f600000-0000-4000-8000-0000000000b7', t + interval '39 hours', clock_timestamp() from clock;
+update private.takeoff_local_job_work set worked_at = t + interval '40 hours' from clock
+where job_id = '8f600000-0000-4000-8000-00000000005e';
 select is(array(select pg_temp.recover_at(interval '40 hours 11 minutes') order by 1),
   array['8f600000-0000-4000-8000-00000000005e'::uuid], 'the due retry the live, idle Mac leaves untaken is closed');
 select is(pg_temp.state('8f600000-0000-4000-8000-00000000005e'), 'failed TAKEOFF_WORKER_NOT_STARTED',

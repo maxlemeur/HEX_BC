@@ -1,9 +1,9 @@
 -- Follow-up of 20261121011212_takeoff_analysis_completion.sql, to apply before the cutoff in
 -- private.takeoff_completion_activation is set. While that table stays empty, one write of the previous application
 -- changes, deliberately: a member who did not launch a job can no longer send it back to pending (42501). Otherwise
--- the requester and queue time of an accepted relaunch go to M3's own columns and the Mac's work to a private table,
--- which no previous writer reads, and everything else starts with activation. This migration takes no lock on
--- takeoff_jobs.
+-- the requester and queue time of an accepted relaunch go to M3's own columns, which no previous writer reads, and
+-- everything else starts with activation: no write of a job touches another table before it. This migration takes no
+-- lock on takeoff_jobs.
 begin;
 
 -- Every statement below takes its lock on a small table or a function. Give up instead of queueing the job
@@ -41,16 +41,34 @@ alter table public.takeoff_completion_notifications
   );
 grant select (reason_code) on public.takeoff_completion_notifications to authenticated;
 
--- What each authorised Mac last did, in database time: its poller's sign of life every minute, on a timer of its
--- own, and its worker's claims, lease renewals and ends (worked_at), stamped by the trigger below.
+-- Whether each authorised Mac is live, in database time: its poller's sign of life every minute, on a timer of its own.
 create table private.takeoff_local_host_activity (
   host_id text primary key check (host_id ~ '^urn:uuid:[0-9a-f-]{36}$'),
   live_since timestamptz not null,
   seen_at timestamptz not null,
-  worked_at timestamptz,
   constraint takeoff_local_host_activity_order_check check (live_since <= seen_at)
 );
 revoke all on private.takeoff_local_host_activity from public, anon, authenticated, service_role;
+
+-- What each Mac last did, in database time: its worker's claims, lease renewals and ends, stamped by the trigger below
+-- from activation on. One row per job, so that two jobs of one Mac never write the same row: the writes of one job are
+-- already serialized by its own row. No foreign key, so that this table takes no lock on takeoff_jobs; a deleted job
+-- leaves a stamp that only makes its Mac look busier.
+create table private.takeoff_local_job_work (
+  job_id uuid primary key,
+  host_id text not null,
+  worked_at timestamptz not null
+);
+create index takeoff_local_job_work_host_idx on private.takeoff_local_job_work (host_id, worked_at desc);
+revoke all on private.takeoff_local_job_work from public, anon, authenticated, service_role;
+
+-- From when the requester of a relaunch is captured: the end of this migration's transaction. A job created before
+-- it and retried or relaunched without a captured requester has an unknown requester. The row is written last.
+create table private.takeoff_requester_capture (
+  singleton boolean primary key default true check (singleton),
+  captured_from timestamptz not null
+);
+revoke all on private.takeoff_requester_capture from public, anon, authenticated, service_role;
 
 -- A host is live while its last sign is this recent; five missed beats of the poller's one-minute timer.
 create function private.takeoff_local_host_live_window()
@@ -59,32 +77,23 @@ returns interval language sql immutable set search_path = pg_catalog as $$
 $$;
 revoke all on function private.takeoff_local_host_live_window() from public, anon, authenticated, service_role;
 
--- A gap longer than the live window starts a new live period: a laptop that wakes up is not yet known to poll.
-create function private.note_local_takeoff_host_activity(p_host_id text, p_worked boolean)
-returns void language plpgsql security definer set search_path = pg_catalog as $$
-declare
-  seen timestamptz := clock_timestamp();
-begin
-  insert into private.takeoff_local_host_activity as a (host_id, live_since, seen_at, worked_at)
-  values (p_host_id, seen, seen, case when p_worked then seen end)
-  on conflict (host_id) do update set
-    live_since = case when a.seen_at < seen - private.takeoff_local_host_live_window() then seen else a.live_since end,
-    seen_at = greatest(a.seen_at, seen),
-    worked_at = case when p_worked then greatest(coalesce(a.worked_at, seen), seen) else a.worked_at end;
-end;
-$$;
-revoke all on function private.note_local_takeoff_host_activity(text, boolean) from public, anon, authenticated, service_role;
-
 create function public.record_local_takeoff_host_activity(p_host_id text)
 returns void
 language plpgsql security definer
 set search_path = pg_catalog
 as $$
+declare
+  seen timestamptz := clock_timestamp();
 begin
   if p_host_id is null or p_host_id !~ '^urn:uuid:[0-9a-f-]{36}$' then
     raise exception 'TAKEOFF_HOST_ACTIVITY_INVALID' using errcode = '22023';
   end if;
-  perform private.note_local_takeoff_host_activity(p_host_id, false);
+  -- A gap longer than the live window starts a new live period: a laptop that wakes up is not yet known to poll.
+  insert into private.takeoff_local_host_activity as a (host_id, live_since, seen_at)
+  values (p_host_id, seen, seen)
+  on conflict (host_id) do update set
+    live_since = case when a.seen_at < seen - private.takeoff_local_host_live_window() then seen else a.live_since end,
+    seen_at = greatest(a.seen_at, seen);
 end;
 $$;
 revoke all on function public.record_local_takeoff_host_activity(text) from public, anon, authenticated;
@@ -99,8 +108,8 @@ revoke all on function private.takeoff_local_host_lock_key(text) from public, an
 
 -- M3's trigger, with three changes. An authenticated member sends a failed or canceled job back to pending only if
 -- they launched it. The requester and the queue time of an accepted relaunch are recorded whichever side of the
--- cutoff it falls on. And the worker's own claims, renewals and ends stamp the Mac's work in database time. Before
--- activation nothing else differs: no previous writer reads either column or the private table.
+-- cutoff it falls on. And from activation on, the worker's own claims, renewals and ends stamp the job's work in
+-- database time. Before activation nothing else differs: no previous writer reads either column.
 create or replace function private.set_takeoff_analysis_outcome()
 returns trigger
 language plpgsql security definer
@@ -153,9 +162,6 @@ begin
     new.analysis_outcome := null;
     new.analysis_finished_at := old.analysis_finished_at;
     new.analysis_completion_event_id := old.analysis_completion_event_id;
-    if host_work then
-      perform private.note_local_takeoff_host_activity(new.execution_host_id, true);
-    end if;
     return new;
   end if;
 
@@ -213,8 +219,11 @@ begin
       new.analysis_completion_event_id := gen_random_uuid();
     end if;
   end if;
-  if host_work then
-    perform private.note_local_takeoff_host_activity(new.execution_host_id, true);
+  -- Only once the cutoff is set: before it, no write of a job touches another table.
+  if host_work and activated then
+    insert into private.takeoff_local_job_work as w (job_id, host_id, worked_at)
+    values (new.id, new.execution_host_id, finished_at)
+    on conflict (job_id) do update set worked_at = greatest(w.worked_at, excluded.worked_at);
   end if;
   return new;
 end;
@@ -284,6 +293,9 @@ declare
   recovery_at timestamptz := least(p_now, clock_timestamp());
   live_window constant interval := private.takeoff_local_host_live_window();
   waiting_host text;
+  waiting_tenant uuid;
+  decided_hosts text[] := '{}';
+  admitting_tenants uuid[] := '{}';
 begin
   if p_now is null or p_stale_after < interval '1 minute' then
     raise exception 'TAKEOFF_RECOVERY_ARGUMENT_INVALID' using errcode = '22023';
@@ -313,7 +325,8 @@ begin
   end if;
 
   -- Decide for each Mac while none of its claims is in flight: this application's claim takes the same lock, so a
-  -- claim committed before the decision is read below and one that starts after it waits for this transaction.
+  -- claim committed before the decision is read below and one that starts after it waits for this transaction. Only
+  -- the Macs locked here are decided for in this run.
   for waiting_host in
     select distinct j.execution_host_id from public.takeoff_jobs j
     where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
@@ -321,6 +334,20 @@ begin
     order by 1
   loop
     perform pg_advisory_xact_lock(private.takeoff_local_host_lock_key(waiting_host));
+    decided_hosts := decided_hosts || waiting_host;
+  end loop;
+  -- Judge a tenant's admission limits only under its admission lock, as a claim does (the key of
+  -- 20261022075204_bound_takeoff_job_admission.sql). A tenant whose admission is in flight is waiting its turn; the
+  -- lock is only tried, so the recovery never waits behind an admission.
+  for waiting_tenant in
+    select distinct j.tenant_id from public.takeoff_jobs j
+    where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
+      and j.status in ('pending', 'failed') and j.execution_host_id = any (decided_hosts)
+    order by 1
+  loop
+    if not pg_try_advisory_xact_lock(hashtextextended('takeoff-admission:' || waiting_tenant::text, 0)) then
+      admitting_tenants := admitting_tenants || waiting_tenant;
+    end if;
   end loop;
 
   -- A processing job whose lease expired is closed as before. A job that waits for its Mac (pending, or a due
@@ -338,8 +365,15 @@ begin
     from public.takeoff_jobs j
     join public.tenants t on t.id = j.tenant_id
     where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
+      and j.execution_host_id = any (decided_hosts)
       and (j.status = 'pending'
         or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= recovery_at))
+  ),
+  host_work as (
+    select w.host_id, max(w.worked_at) as worked_at
+    from private.takeoff_local_job_work w
+    where w.host_id in (select waiting.host_id from waiting)
+    group by w.host_id
   ),
   host_busy as (
     select k.execution_host_id as host_id, true as busy
@@ -352,12 +386,15 @@ begin
     select w.*,
       coalesce(a.seen_at >= recovery_at - live_window and a.seen_at >= clock_timestamp() - live_window, false) as live,
       a.live_since,
-      -- What is ahead of it: a job under lease, recent work of the Mac, or the tenant's limits refusing its claim.
-      coalesce(hb.busy, false) or coalesce(a.worked_at > recovery_at - activation.pickup_grace, false)
+      -- What is ahead of it: a job under lease, recent work of the Mac, an admission of the tenant in flight, or the
+      -- tenant's limits refusing its claim.
+      coalesce(hb.busy, false) or coalesce(hw.worked_at > recovery_at - activation.pickup_grace, false)
+        or w.tenant_id = any (admitting_tenants)
         or not private.local_takeoff_claim_admissible(w.tenant_id, w.created_by, w.status = 'failed') as waiting_turn
     from waiting w
     left join private.takeoff_local_host_activity a on a.host_id = w.host_id
     left join host_busy hb on hb.host_id = w.host_id
+    left join host_work hw on hw.host_id = w.host_id
   ),
   closing as (
     select j.id, j.status, j.retry_count, j.next_retry_at, null::timestamptz as queued_at,
@@ -445,9 +482,10 @@ begin
 end;
 $$;
 
--- M3's publication, which now records the public code of a failure and never sends an end to a member who did not
--- ask for it: a relaunch accepted before this migration recorded no requester, and when an audit names another
--- member than the launcher as the last to relaunch, the end is kept as unavailable.
+-- M3's publication, which now records the public code of a failure and never sends an end to a member who may not
+-- have asked for it: a job created before this migration and retried or relaunched without a captured requester has
+-- an unknown requester, whatever the audit says (the release cannot even store its relaunch audit), and its end is
+-- kept as unavailable.
 create or replace function private.publish_takeoff_analysis_completion()
 returns trigger
 language plpgsql security definer
@@ -457,7 +495,6 @@ declare
   -- M1 (applied first) froze the job's own affaire on every job, versionless ones included.
   affaire_id uuid := new.project_id;
   requester_id uuid := new.analysis_requested_by;
-  last_relauncher uuid;
   logical_email text;
   initial_state text := 'unavailable';
   unavailable_code text := 'RECIPIENT_UNAVAILABLE';
@@ -473,15 +510,10 @@ begin
   end if;
 
   if requester_id is null then
-    select a.user_id into last_relauncher from public.audit_logs a
-    where a.tenant_id = new.tenant_id and a.table_name = 'takeoff_jobs' and a.record_id = new.id
-      and a.action in ('takeoff.job.resubmitted', 'takeoff.job.retried') and a.user_id is not null
-      and a.created_at >= new.created_at
-    order by a.created_at desc limit 1;
-    if last_relauncher is null or last_relauncher = new.created_by then
-      requester_id := new.created_by;
-    else
+    if new.retry_count > 0 and new.created_at < (select c.captured_from from private.takeoff_requester_capture c) then
       unavailable_code := 'REQUESTER_UNKNOWN';
+    else
+      requester_id := new.created_by;
     end if;
   end if;
 
@@ -536,6 +568,72 @@ $$;
 revoke all on function public.list_affaire_takeoff_completions(uuid, integer, integer, uuid) from public, anon, service_role;
 grant execute on function public.list_affaire_takeoff_completions(uuid, integer, integer, uuid) to authenticated;
 
+-- A sender that still holds its token but whose lease expired before it called the provider gives its attempt back.
+create function private.give_back_takeoff_completion_attempt(p_id uuid)
+returns void language sql security definer set search_path = pg_catalog as $$
+  update public.takeoff_completion_notifications
+  set delivery_state = 'pending', attempt_count = greatest(attempt_count - 1, 0),
+    next_attempt_at = clock_timestamp() + interval '30 seconds', lease_token = null, lease_expires_at = null,
+    last_delivery_code = 'DISPATCH_LEASE_EXPIRED'
+  where id = p_id;
+$$;
+revoke all on function private.give_back_takeoff_completion_attempt(uuid) from public, anon, authenticated, service_role;
+
+-- M3's preparation, which now gives the attempt back when the lease expired before it.
+create or replace function public.prepare_takeoff_completion_email(
+  p_id uuid, p_lease_token uuid, p_routing_mode text, p_effective_email text, p_payload_hash text
+)
+returns boolean
+language plpgsql security definer
+set search_path = pg_catalog
+as $$
+declare
+  n public.takeoff_completion_notifications;
+  current_email text;
+  blocked_code text;
+  blocked_state text := 'unknown';
+begin
+  select * into n from public.takeoff_completion_notifications
+    where id = p_id and delivery_state = 'sending' and lease_token = p_lease_token
+    for update;
+  if not found then return false; end if;
+  if n.lease_expires_at <= clock_timestamp() then
+    perform private.give_back_takeoff_completion_attempt(n.id);
+    return false;
+  end if;
+
+  select nullif(trim(u.email), '') into current_email from auth.users u
+    where u.id = n.recipient_user_id and u.email_confirmed_at is not null and u.deleted_at is null;
+  if current_email is null or current_email is distinct from n.recipient_email
+    or not private.takeoff_completion_recipient_can_read(n.tenant_id, n.project_id, n.recipient_user_id)
+  then
+    blocked_state := 'unavailable';
+    blocked_code := 'RECIPIENT_UNAVAILABLE';
+  elsif n.first_send_at <= clock_timestamp() - interval '23 hours' then
+    blocked_code := 'IDEMPOTENCY_WINDOW_EXPIRED';
+  elsif n.first_send_at is not null and (n.routing_mode, n.effective_email, n.payload_hash)
+    is distinct from (p_routing_mode, p_effective_email, p_payload_hash)
+  then
+    blocked_code := 'DELIVERY_ROUTE_OR_PAYLOAD_CHANGED';
+  end if;
+  if blocked_code is not null then
+    update public.takeoff_completion_notifications
+    set delivery_state = blocked_state, last_delivery_code = blocked_code,
+      lease_token = null, lease_expires_at = null
+    where id = n.id;
+    return false;
+  end if;
+
+  update public.takeoff_completion_notifications
+  set first_send_at = coalesce(first_send_at, clock_timestamp()),
+    routing_mode = p_routing_mode, effective_email = p_effective_email, payload_hash = p_payload_hash
+  where id = n.id;
+  return true;
+end;
+$$;
+revoke all on function public.prepare_takeoff_completion_email(uuid, uuid, text, text, text) from public, anon, authenticated;
+grant execute on function public.prepare_takeoff_completion_email(uuid, uuid, text, text, text) to service_role;
+
 -- Called at the moment of sending, after prepare. It checks again, as prepare does, who may receive and where: the
 -- recipient's confirmed address and read access to the affaire; a change ends the delivery as unavailable. Then
 -- that the sender still holds its lease and that the provider still keeps the first attempt's key. It returns how
@@ -554,7 +652,14 @@ begin
   select * into n from public.takeoff_completion_notifications
     where id = p_id and delivery_state = 'sending' and lease_token = p_lease_token
     for update;
-  if not found or n.first_send_at is null or n.lease_expires_at <= checked_at then
+  if not found then
+    return null;
+  end if;
+  if n.lease_expires_at <= checked_at then
+    perform private.give_back_takeoff_completion_attempt(n.id);
+    return null;
+  end if;
+  if n.first_send_at is null then
     return null;
   end if;
   select nullif(trim(u.email), '') into current_email from auth.users u
@@ -580,5 +685,8 @@ end;
 $$;
 revoke all on function public.confirm_takeoff_completion_email_dispatch(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.confirm_takeoff_completion_email_dispatch(uuid, uuid) to service_role;
+
+-- Last: the requester of every relaunch accepted from here on is captured.
+insert into private.takeoff_requester_capture (captured_from) values (clock_timestamp());
 
 commit;
