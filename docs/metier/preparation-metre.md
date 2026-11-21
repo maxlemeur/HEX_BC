@@ -162,15 +162,22 @@ la base en garantit l’unicité et l’admission (migration
   relance reçoit alors cette analyse, sans demande, et un démarrage automatique
   attend sa fin (« autre analyse en cours », réessayé par le Mac). Un échec ancien
   que rien ne relancera (l’ancien fournisseur, un lot, trois tentatives passées ou
-  le délai dépassé) ne bloque rien.
+  le délai dépassé) ne bloque rien. La zone du métré lit cette même règle dans la
+  base (`public.takeoff_running_analysis_outside_request`). Une nouvelle tentative
+  qui a attendu plus que le délai maximal n’est plus jamais lancée, seulement
+  close par sa reprise : le Mac ne la sélectionne plus (le délai lu dans la base,
+  `public.takeoff_local_retry_floor`) et la base refuse de la relancer
+  (`TAKEOFF_JOB_RETRY_EXPIRED`).
 - **Une relance et le démarrage automatique.** Tant que le démarrage automatique
   de l’affaire peut encore commencer sans nouveau changement du dossier (son
   payeur peut encore payer et son Mac l’évalue ou a du travail en attente, ou le
   membre qui relance peut le prendre en charge ou le reprendre), la base refuse la
   relance : il se prend en charge depuis la zone du métré. Sinon (il attend un
   changement du dossier, ou personne ne peut le faire démarrer), une relance admise
-  le met de côté pour de bon (un état final) : ni une nouvelle confirmation ni une
-  prise en charge ne le réarment ; une nouvelle analyse est une relance, et
+  le met de côté pour de bon (un état final), après avoir compté, comme
+  l’admission automatique, un changement du dossier validé entre-temps : s’il permet
+  au démarrage de commencer, la relance est refusée. Ni une nouvelle confirmation ni
+  une prise en charge ne le réarment ; une nouvelle analyse est une relance, et
   l’affaire montre la relance, jamais le démarrage mis de côté. Le job d’une
   demande en cours ne peut pas être supprimé.
 - **Une fois le démarrage automatique actif, toute nouvelle analyse est une
@@ -219,7 +226,10 @@ la base en garantit l’unicité et l’admission (migration
   remplaçait, son jeu de plans, sa révision) avant toute nouvelle commande, même si
   son analyse a fini entre-temps, et en montre la réponse ; seul un clic après
   cette réponse est une nouvelle commande. Une clé répondue dans un onglet n’est
-  plus jamais renvoyée. La base refuse aussi une première analyse (« initial »)
+  plus jamais renvoyée. Une relance qui croise une autre opération de l’affaire
+  dans la base (annulée sans rien enregistrer) répond « Réessayez dans un instant »
+  et garde sa clé ; elle prend l’analyse qu’elle remplace avant le verrou de
+  l’affaire, comme la nouvelle tentative du Mac. La base refuse aussi une première analyse (« initial »)
   sur une affaire qui en a déjà une. Le module du métré désactivé refuse la
   relance, la prise en charge et la reprise.
 - **Avant chaque appel payant**, le worker vérifie que le payeur peut toujours
