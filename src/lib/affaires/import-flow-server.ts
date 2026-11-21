@@ -10,8 +10,6 @@ import type {
   ValidImportFlowLine,
 } from "@/lib/affaires/import-flow";
 import { DEFAULT_TAX_RATE_BP } from "@/lib/estimates/constants";
-import { applyMappingToPayload } from "@/lib/mappings/schemas";
-import { asRecord } from "@/lib/value-guards";
 import type { EstimateV3PricingStatus } from "@/lib/estimates/engine-v3";
 
 export type Supabase = SupabaseClient<Database>;
@@ -266,14 +264,14 @@ export async function fetchMappedRowsForImport(input: {
   tenantId: string;
 }) {
   const pageSize = 500;
-  const rows: Array<{ id: string; payload: Json }> = [];
+  const rows: Array<{ id: string; raw_row_id: string | null; status: string; payload: Json }> = [];
   const ids = new Set<string>();
   let expectedCount: number | null = null;
 
   for (let offset = 0; ; offset += pageSize) {
     const { data, error, count } = await input.supabase
       .from("dpgf_rows_mapped")
-      .select("id, payload", { count: "exact" })
+      .select("id, raw_row_id, status, payload", { count: "exact" })
       .eq("tenant_id", input.tenantId)
       .eq("import_id", input.importId)
       .order("created_at", { ascending: true })
@@ -294,7 +292,7 @@ export async function fetchMappedRowsForImport(input: {
         throw new Error("Les lignes mappées ont changé. Rechargez l'import avant de continuer.");
       }
       ids.add(row.id);
-      rows.push({ id: row.id, payload: row.payload });
+      rows.push({ id: row.id, raw_row_id: row.raw_row_id, status: row.status, payload: row.payload });
     }
     if (batch.length < pageSize) {
       if (rows.length !== expectedCount) {
@@ -331,44 +329,9 @@ export async function fetchLatestMapping(input: {
 export const IMPORT_MAPPING_CHANGED_MESSAGE =
   "Le mappage a changé dans un autre onglet : rechargez-le et vérifiez-le avant de confirmer.";
 
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-      .map(([key, entry]) => [key, canonicalValue(entry)]));
-  }
-  return value;
-}
-
-/**
- * The rows a confirmation records are those its mapping made from the import's raw rows: one per raw row, all of
- * them, each the mapping applied to its raw row. Rows of another tab's mapping, or a replacement still being written,
- * refuse the confirmation before anything is written; the identifiers checked here are compared again under the
- * confirmation's lock (`record_dpgf_import_confirmation`).
- */
-export function assertMappedRowsFollowMapping(
-  rows: ReadonlyArray<{ id: string; payload: Json }>,
-  input: { columnMapping: unknown; rowCount: number | null }
-) {
-  const columns = asRecord(input.columnMapping);
-  const mapping = columns
-    ? Object.fromEntries(Object.entries(columns).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
-    : null;
-  const rawRowIds = new Set<string>();
-  for (const row of rows) {
-    const payload = asRecord(row.payload);
-    const raw = asRecord(payload?.raw_row);
-    const mapped = asRecord(payload?.mapped_row);
-    const rawRowId = typeof payload?.raw_row_id === "string" ? payload.raw_row_id : null;
-    if (!mapping || !raw || !mapped || !rawRowId || rawRowIds.has(rawRowId)
-      || JSON.stringify(canonicalValue(mapped)) !== JSON.stringify(canonicalValue(applyMappingToPayload(raw, mapping)))) {
-      throw new Error(IMPORT_MAPPING_CHANGED_MESSAGE);
-    }
-    rawRowIds.add(rawRowId);
-  }
-  if (input.rowCount === null || rows.length !== input.rowCount) throw new Error(IMPORT_MAPPING_CHANGED_MESSAGE);
-}
+/** What the member reads when a mapping-only confirmation's decisions were not recorded. */
+export const IMPORT_DECISIONS_NOT_RECORDED_MESSAGE =
+  "Le mappage est enregistré, mais pas les choix de structure de l’import : confirmez de nouveau pour les enregistrer.";
 
 export function toRpcImportLines(lines: ValidImportFlowLine[]): RpcImportLinesPayload[] {
   return lines.map((line) => ({

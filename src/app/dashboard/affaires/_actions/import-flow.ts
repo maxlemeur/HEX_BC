@@ -20,8 +20,8 @@ import {
   type Supabase,
   DEFAULT_MARGIN_MULTIPLIER,
   DEFAULT_TAX_RATE_BP,
+  IMPORT_DECISIONS_NOT_RECORDED_MESSAGE,
   IMPORT_MAPPING_CHANGED_MESSAGE,
-  assertMappedRowsFollowMapping,
   assertProjectAccessOrThrow,
   ensureImportProjectLink,
   fetchLatestMapping,
@@ -48,7 +48,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { ImportStructureDecision } from "@/lib/imports/structure";
 import type { Json } from "@/types/database";
-import type { ConfirmUnifiedImportFlowResult, ImportFlowLinesPreview } from "@/lib/affaires/import-flow-results";
+import type {
+  ConfirmUnifiedImportFlowOutcome,
+  ConfirmUnifiedImportFlowRefusal,
+  ImportFlowLinesPreview,
+} from "@/lib/affaires/import-flow-results";
+import { dpgfImportRowsDigest } from "@/lib/imports/rows-digest";
 import type {
   TakeoffCarryOverStatus,
   TakeoffCarryOverSummary,
@@ -97,6 +102,9 @@ const confirmUnifiedImportFlowSchema = z.object({
   versionTitle: z.string().trim().max(200).nullable().optional(),
   sectionTitle: z.string().trim().max(200).nullable().optional(),
   structurePlan: z.object({ decisions: z.array(structureDecisionSchema).max(10_000) }).optional(),
+  // The digest of the rows the member reviewed (the structure preview's rows_digest): the confirmation records only
+  // those rows (lot 4).
+  rowsDigest: z.string().regex(/^[0-9a-f]{64}$/, "rowsDigest invalide."),
   // Labour role of the imported hours chosen at the preview (E17). Omitted: the workbook rate
   // decides; null: the explicit « no role » choice (MO valued at 0 €/h, warned in the preview).
   laborRoleId: z.string().uuid("laborRoleId invalide.").nullable().optional(),
@@ -265,6 +273,11 @@ export async function getUnifiedImportFlowTakeoffCarryOverPreview(
   });
 }
 
+function refusal(importId: string, reason: ConfirmUnifiedImportFlowRefusal["reason"]): ConfirmUnifiedImportFlowRefusal {
+  return { mode: "refused", reason, importId,
+    message: reason === "mapping_changed" ? IMPORT_MAPPING_CHANGED_MESSAGE : IMPORT_DECISIONS_NOT_RECORDED_MESSAGE };
+}
+
 /** Whether a refusal comes from the confirmation's own check: its mapping or its rows are no longer the import's. */
 function isImportConfirmationChanged(error: unknown) {
   for (let cause = error, depth = 0; cause && depth < 5; depth += 1) {
@@ -280,8 +293,8 @@ function isImportConfirmationChanged(error: unknown) {
 /**
  * The structure decisions of a confirmation that keeps the mapping alone. The mapping writer commits in several
  * requests (header, deletion, inserts by 500) and cannot share a transaction with them: this record is the
- * confirmation's own transaction, and the confirmation does not report success without it. A refusal gives a French
- * error; confirming again (the same gesture) writes the same mapping again and records it.
+ * confirmation's own transaction, and the confirmation does not report success without it. A refusal is returned with
+ * its French reason; confirming again (the same gesture) writes the same mapping again and records it.
  */
 async function recordMappingOnlyConfirmation(input: {
   tenantId: string;
@@ -292,7 +305,8 @@ async function recordMappingOnlyConfirmation(input: {
   decisions: readonly ImportStructureDecision[];
   exclusions: ReturnType<typeof importStructuralExclusions>;
   mappedRowIds: string[];
-}) {
+  rowsDigest: string;
+}): Promise<ConfirmUnifiedImportFlowRefusal | null> {
   let failure: unknown = null;
   try {
     const { error } = await createServiceRoleClient().rpc("record_dpgf_import_confirmation", {
@@ -305,22 +319,20 @@ async function recordMappingOnlyConfirmation(input: {
       p_decisions: input.decisions as unknown as Json,
       p_exclusions: input.exclusions as unknown as Json,
       p_mapped_row_ids: input.mappedRowIds,
+      p_rows_sha256: input.rowsDigest,
     });
     failure = error;
   } catch (error) {
     failure = error ?? new Error("record failed");
   }
-  if (!failure) return;
+  if (!failure) return null;
   console.warn("dpgf import confirmation decisions not recorded", { importId: input.importId });
-  if (isImportConfirmationChanged(failure)) throw new Error(IMPORT_MAPPING_CHANGED_MESSAGE);
-  throw new Error(
-    "Le mappage est enregistré, mais pas les choix de structure de l’import : confirmez de nouveau pour les enregistrer."
-  );
+  return refusal(input.importId, isImportConfirmationChanged(failure) ? "mapping_changed" : "decisions_not_recorded");
 }
 
 export async function confirmUnifiedImportFlow(
   input: ConfirmUnifiedImportFlowInput
-): Promise<ConfirmUnifiedImportFlowResult> {
+): Promise<ConfirmUnifiedImportFlowOutcome> {
   const parsed = confirmUnifiedImportFlowSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error("Payload de confirmation invalide.");
@@ -409,10 +421,11 @@ export async function confirmUnifiedImportFlow(
     importId: parsed.data.importId,
     tenantId: membership.tenant_id,
   });
-  // The rows confirmed are those the mapping made, all of them: another tab's mapping, or its rows still being
-  // written, refuse the confirmation before anything else is written.
-  if (mapping) {
-    assertMappedRowsFollowMapping(mappedRows, { columnMapping: mapping.columnMapping, rowCount: importRow.row_count });
+  // The rows confirmed are those the member reviewed (any payload shape an import ever stored): another tab's
+  // mapping, a replacement still being written or a value changed since refuse the confirmation before anything else
+  // is written; the database compares them again under the import's lock.
+  if (dpgfImportRowsDigest(mappedRows) !== parsed.data.rowsDigest) {
+    return refusal(parsed.data.importId, "mapping_changed");
   }
 
   const versionContext = effectiveProjectId
@@ -493,7 +506,7 @@ export async function confirmUnifiedImportFlow(
   if (!parsed.data.createEstimate) {
     const stats = buildImportFlowStats(normalizedRows, 0);
     if (mappingId) {
-      await recordMappingOnlyConfirmation({
+      const refused = await recordMappingOnlyConfirmation({
         tenantId: membership.tenant_id,
         actorUserId: user.id,
         importId: parsed.data.importId,
@@ -502,7 +515,9 @@ export async function confirmUnifiedImportFlow(
         decisions: normalizationOptions.structureDecisions,
         exclusions: importStructuralExclusions(normalizedRows),
         mappedRowIds: mappedRows.map(({ id }) => id),
+        rowsDigest: parsed.data.rowsDigest,
       });
+      if (refused) return refused;
     }
     revalidateImportFlowPaths(effectiveProjectId, null);
 
@@ -567,13 +582,12 @@ export async function confirmUnifiedImportFlow(
           decisions: normalizationOptions.structureDecisions,
           exclusions: importStructuralExclusions(normalizedRows),
           mappedRowIds: mappedRows.map(({ id }) => id),
+          rowsDigest: parsed.data.rowsDigest,
         } }
         : {}),
     });
   } catch (error) {
-    if (isImportConfirmationChanged(error)) {
-      throw new Error(IMPORT_MAPPING_CHANGED_MESSAGE, { cause: error });
-    }
+    if (isImportConfirmationChanged(error)) return refusal(parsed.data.importId, "mapping_changed");
     throw new Error("Impossible de créer la version depuis l'import.", {
       cause: error,
     });

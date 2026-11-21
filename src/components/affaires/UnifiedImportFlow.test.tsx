@@ -151,6 +151,7 @@ describe("UnifiedImportFlow", () => {
     });
     currentLastImportId = "11111111-1111-4111-8111-111111111111";
     structurePreviewResponse = {
+      rows_digest: "d".repeat(64),
       candidates: [],
       footer_row_indexes: [],
       summary: {
@@ -327,6 +328,45 @@ describe("UnifiedImportFlow", () => {
         })
       );
     });
+  });
+
+  it("shows a refused confirmation's French reason and way forward, and sends the rows it previewed", async () => {
+    const user = userEvent.setup();
+    const message = "Le mappage a changé dans un autre onglet : rechargez-le et vérifiez-le avant de confirmer.";
+    confirmUnifiedImportFlowMock.mockResolvedValue({
+      mode: "refused", reason: "mapping_changed", importId: "11111111-1111-4111-8111-111111111111", message,
+    });
+
+    render(<UnifiedImportFlow projectId="22222222-2222-4222-8222-222222222222" />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Suivant : Aperçu/i })).toBeInTheDocument();
+    });
+    await advanceToConfirmation(user);
+    await user.click(await screen.findByRole("button", { name: /Créer le chiffrage/i }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(confirmUnifiedImportFlowMock).toHaveBeenCalledWith(expect.objectContaining({ rowsDigest: "d".repeat(64) }));
+    expect(screen.queryByText("Devis créé")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Créer le chiffrage/i })).toBeEnabled();
+  });
+
+  it("names the worksheet's row where the member classifies a line", async () => {
+    const user = userEvent.setup();
+    structurePreviewResponse = {
+      ...structurePreviewResponse,
+      sheet_first_row: 3,
+      candidates: [{ row_index: 2, title: "Bâtiment B", confidence: "high", suggested_kind: "section",
+        suggested_level: 1, reasons: [], sheet_name: "DPGF", source_row_number: 3 }],
+      summary: { ...(structurePreviewResponse.summary as object), candidate_rows: 1, high_confidence_candidates: 1 },
+    };
+
+    render(<UnifiedImportFlow projectId="22222222-2222-4222-8222-222222222222" />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Suivant : Aperçu/i })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Suivant : Aperçu/i }));
+    expect(await screen.findByText("DPGF · Ligne 5 de la feuille (ligne du tableau 3) · détection sémantique"))
+      .toBeInTheDocument();
   });
 
   it("waits for the carry-over preview before enabling version creation", async () => {

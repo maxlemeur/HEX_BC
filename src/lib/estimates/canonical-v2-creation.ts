@@ -211,6 +211,8 @@ export type PersistCanonicalEstimateV2Input = {
     decisions: readonly ImportStructureDecision[];
     exclusions: readonly DpgfStructuralExclusion[];
     mappedRowIds: readonly string[];
+    /** The digest of the rows the member reviewed (src/lib/imports/rows-digest.ts), compared under the lock. */
+    rowsDigest: string;
   };
 };
 
@@ -1146,6 +1148,7 @@ export async function persistCanonicalEstimateV2(
       p_decisions: input.importConfirmation.decisions as unknown as Json,
       p_exclusions: input.importConfirmation.exclusions as unknown as Json,
       p_mapped_row_ids: [...input.importConfirmation.mappedRowIds],
+      p_rows_sha256: input.importConfirmation.rowsDigest,
     })
     : await persistenceClient.rpc("persist_estimate_creation_atomic", creation);
   if (isCalcPolicyContextChangedError(error)) throw calcPolicyContextChanged();
