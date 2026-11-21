@@ -35,9 +35,11 @@ devenue section et son niveau, gardée comme ligne, ou ignorée. Elle enregistre
 les lignes que l’import a écartées, avec leur raison : un total et les options qui le
 suivent, les paramètres du classeur, une ligne ignorée. La liste ne fait jamais un
 poste de ces lignes. La confirmation porte sur les lignes que le membre a vues :
-l’aperçu de la structure en calcule une empreinte, que la confirmation renvoie. Le
-serveur la compare aux lignes dont il fait le devis, puis la base la compare de nouveau
-sous le verrou de l’import. Des lignes écrites par la correspondance d’un autre onglet,
+l’aperçu de la structure en calcule une empreinte (toutes les lignes, rejetées
+comprises, leur rang, leurs champs mesurés et leur structure), que la confirmation
+renvoie. Le serveur la compare aux lignes dont il fait le devis, puis la base la compare
+de nouveau sous le verrou de l’import, dans la même lecture que la preuve qu’elle
+enregistre. Des lignes écrites par la correspondance d’un autre onglet,
 encore en cours d’écriture ou une valeur modifiée depuis l’aperçu la refusent ; le
 formulaire affiche alors « Le mappage a changé dans un autre onglet : rechargez-le et
 vérifiez-le avant de confirmer. » Les lignes enregistrées par une version antérieure de
@@ -48,10 +50,10 @@ leur transaction : la confirmation ne réussit pas sans eux, le formulaire le di
 confirmer de nouveau les enregistre. Une preuve couvre ces choix, les lignes écartées, l’ordre des lignes,
 leurs champs mesurés et la correspondance. Si l’import change, la preuve ne correspond
 plus. Si un devis est créé depuis l’import après la confirmation sans enregistrer de
-choix (une version antérieure de l’application), les choix ne sont plus établis. La
-base retient, dans la transaction de chaque création, les imports dont viennent ses
-lignes : supprimer plus tard la section importée, ou la copier dans un autre devis, ne
-change rien. Une copie d’un devis (« Nouvelle version », variante, copie d’une
+choix (une version antérieure de l’application), les choix ne sont plus établis. Chaque
+création retient elle-même, avant de rendre la main, les imports dont viennent ses
+lignes : supprimer plus tard la section importée, ou copier une section dans le devis
+créé, même aussitôt, ne change rien. Une copie d’un devis (« Nouvelle version », variante, copie d’une
 préparation de métré) n’est pas une création : elle ne change rien aux choix. Dans
 ces deux cas, la liste lit les titres tels quels et le dit. Une ligne vide, illisible
 ou un en-tête répété ne devient jamais un poste, quel que soit le choix.
