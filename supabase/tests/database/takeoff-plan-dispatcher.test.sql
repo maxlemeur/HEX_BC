@@ -77,17 +77,18 @@ create function pg_temp.snapshot(project integer, reference boolean default fals
 $$;
 create function pg_temp.manifest(project integer, tokens integer default 400000, cents integer default 2500) returns jsonb language sql as $$
   with plans as (
-    select f.id, f.file_name, row_number() over (order by f.file_name, f.id) as ordinal, count(*) over () as units
+    select f.id, f.file_name, row_number() over (order by f.file_name, f.id) as ordinal, count(*) over () as units,
+      case when f.file_name = 'plan-1.pdf' then '[2, 7]'::jsonb else '[]'::jsonb end as pages
     from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)
   )
   select jsonb_build_object('format_version', 2, 'intent', 'initial',
     'order', jsonb_build_object('kind', 'free_extraction', 'version', 1, 'list', null),
     'dispatch', jsonb_build_object('order', 'display_name', 'version', 1),
     'units', (select jsonb_agg(jsonb_build_object('key', 'plan:' || p.id, 'ordinal', p.ordinal, 'plans', jsonb_build_array(p.id),
-      'pages', '[]'::jsonb, 'page_count', 9, 'vector_pages', 0,
+      'pages', p.pages, 'page_count', 9, 'vector_pages', 0,
       'budget', jsonb_build_object('tokens', ceil(tokens::numeric / p.units), 'cost_cents', ceil(cents::numeric / p.units))) order by p.ordinal) from plans p),
     'plans', (select jsonb_agg(jsonb_build_object('entry_key', p.id, 'plan_file_id', p.id, 'name', p.file_name, 'logical_id', p.id,
-      'pages', '[]'::jsonb) order by p.ordinal) from plans p),
+      'pages', p.pages, 'page_count', 9) order by p.ordinal) from plans p),
     'coverage', jsonb_build_object('plans_retained', (select count(*) from plans), 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
     'budget', jsonb_build_object('tokens', tokens, 'cost_cents', cents))
 $$;
@@ -214,6 +215,23 @@ select throws_ok($$select * from public.launch_manual_takeoff_plan_request(pg_te
 select throws_ok($$select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1), pg_temp.f(604),
   'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(21), pg_temp.snapshot(21), pg_temp.jobs(21), pg_temp.f(41), 1,
   array[pg_temp.f(121)])$$, '22023', 'TAKEOFF_LAUNCH_COMMAND_INVALID', 'a command names exactly the plans it seals');
+-- What the worker reads and what the activity shows are the same: each plan as its source, each unit as its plan.
+select throws_ok($$select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1), pg_temp.f(605),
+  'initial', null, pg_temp.host(), pg_temp.selection(), jsonb_set(pg_temp.manifest(21), '{plans,0,pages}', '[]'), pg_temp.snapshot(21),
+  pg_temp.jobs(21), pg_temp.f(41), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(41)))$$,
+  '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'a plan that declares other pages than its source reads (the whole plan for 2 and 7) is refused');
+select throws_ok($$select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1), pg_temp.f(606),
+  'initial', null, pg_temp.host(), pg_temp.selection(), jsonb_set(pg_temp.manifest(21), '{units,0,pages}', '[]'), pg_temp.snapshot(21),
+  pg_temp.jobs(21), pg_temp.f(41), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(41)))$$,
+  '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'a unit that declares other pages than its plan is refused');
+select throws_ok($$select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1), pg_temp.f(607),
+  'initial', null, pg_temp.host(), pg_temp.selection(), jsonb_set(pg_temp.manifest(21), '{plans,0,name}', '"autre-plan.pdf"'),
+  pg_temp.snapshot(21), pg_temp.jobs(21), pg_temp.f(41), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(41)))$$,
+  '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'a plan named otherwise than its source is refused');
+select throws_ok($$select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1), pg_temp.f(608),
+  'initial', null, pg_temp.host(), pg_temp.selection(), jsonb_set(pg_temp.manifest(21), '{units,0,page_count}', '3'),
+  pg_temp.snapshot(21), pg_temp.jobs(21), pg_temp.f(41), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(41)))$$,
+  '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'a unit that counts other pages than its plan is refused');
 select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.f(21)), 0, 'none of them left a request');
 -- A job cannot be attached to a unit outside its admission, nor to a unit the manifest does not hold.
 select throws_ok($$insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, created_by, execution_provider,
@@ -284,12 +302,11 @@ select results_eq($$select outcome from pg_temp.reserve(pg_temp.unit(20, 3), 903
   'a call of the third plan is reserved');
 select is(public.record_takeoff_launch_call_unknown(pg_temp.unit(20, 3), pg_temp.f(903), 'call:1'), true,
   'its call ended without a known usage: it stays held as unknown');
-select results_eq($$select outcome, reserved_tokens from pg_temp.reserve(pg_temp.unit(20, 3), 903, 'call:2')$$,
-  $$values ('reserved'::text, 120000::bigint)$$, 'what is left of the share still allows a call, counted against what is held');
+select results_eq($$select outcome, reason from pg_temp.reserve(pg_temp.unit(20, 3), 903, 'call:2')$$,
+  $$values ('refused'::text, 'USAGE_UNKNOWN'::text)$$, 'then no further paid call of the request is made, whatever its share');
 select pg_temp.complete(pg_temp.unit(20, 3));
 select results_eq($$select call_key, state from private.takeoff_launch_usage where job_id = pg_temp.unit(20, 3) order by call_key$$,
-  $$values ('call:1'::text, 'unknown'::text), ('call:2'::text, 'unknown'::text)$$,
-  'a call still reserved when its attempt ends is held as unknown too');
+  $$values ('call:1'::text, 'unknown'::text)$$, 'the call stays held as unknown');
 
 -- 6. The end of the last unit closes the request with one notice: two plans read of three.
 select results_eq($$select state, outcome, units_succeeded, units_failed, units_not_started, units_canceled, reason_code
@@ -309,7 +326,7 @@ select results_eq($$select (u ->> 'ordinal')::integer, u ->> 'state', (u ->> 'jo
   $$values (1, 'succeeded'::text, pg_temp.unit(20, 1)), (2, 'failed'::text, pg_temp.unit(20, 2)), (3, 'succeeded'::text, pg_temp.unit(20, 3))$$,
   'each unit in exactly one state, in the recorded order');
 select is((public.read_takeoff_launch_request_units(pg_temp.f(10), pg_temp.f(20), pg_temp.request(20)) #>> '{usage,unknown_calls}')::integer,
-  2, 'the consumption left unknown is told');
+  1, 'the consumption left unknown is told');
 select is(public.read_takeoff_launch_request_units(pg_temp.f(10), pg_temp.f(21), pg_temp.request(20)), null::jsonb,
   'a request is read only with its own affaire');
 
@@ -331,6 +348,8 @@ select throws_ok($$select * from pg_temp.reserve(pg_temp.unit(22, 2), 912, 'call
   'a plan stopped while read can no longer spend');
 select pg_temp.complete(pg_temp.unit(22, 2));
 select is((select status::text from public.takeoff_jobs where id = pg_temp.unit(22, 2)), 'canceled', 'it stays cancelled');
+select is(pg_temp.dispatch(), null::uuid, 'its provider call may still run: the Mac stays held until its worker ends');
+select is(public.release_takeoff_host_slot(pg_temp.host(), pg_temp.f(912)), true, 'then its worker gives the Mac back');
 select is((select count(*)::integer from public.audit_logs where action = 'takeoff.job.canceled'
   and after_data #>> '{metadata,launch_request_id}' = pg_temp.request(22)::text), 2, 'each cancellation is traced');
 -- A stop after a plan failed and before any was read: a failure, not a partial end (nothing was read).
@@ -407,10 +426,6 @@ select results_eq($$select outcome, job_id from public.launch_manual_takeoff_pla
   'a command meanwhile gets the running request''s first unit by its place, not by its key');
 select is(pg_temp.dispatch(), pg_temp.unit(29, 1), 'the dispatcher hands its first unit');
 select is(pg_temp.claim(pg_temp.unit(29, 1), 951), 1, 'which the Mac reads');
--- A job read without the slot (claimed before the activation) holds the Mac all the same.
-delete from private.takeoff_host_slots where host_id = pg_temp.host();
-select is(pg_temp.claim(pg_temp.unit(29, 2), 952), 0, 'a job read without the slot still keeps a second plan from starting');
-select is(pg_temp.dispatch(), null::uuid, 'and the dispatcher hands nothing meanwhile');
 -- A failure after calls whose usage is known keeps its technical retry.
 select results_eq($$select outcome from pg_temp.reserve(pg_temp.unit(29, 1), 951, 'call:1')$$, $$values ('reserved'::text)$$,
   'a call of its first attempt is reserved');
@@ -423,16 +438,11 @@ select results_eq($$select status::text, next_retry_at is not null, analysis_out
 select results_eq($$select job_id, trigger_kind from public.dispatch_next_takeoff_host_job(pg_temp.host())$$,
   $$values (pg_temp.unit(29, 1), 'retry'::text)$$, 'a due retry is handed while six units of its own request wait');
 select is(pg_temp.claim(pg_temp.unit(29, 1), 953, 'failed', 0), 1, 'and its claim is admitted alike');
--- An attempt that holds a call of unknown outcome is never retried on its own: the retry would send that call again.
-select results_eq($$select outcome from pg_temp.reserve(pg_temp.unit(29, 1), 953, 'call:1')$$, $$values ('reserved'::text)$$,
-  'a call of the retry is reserved');
-select is(public.record_takeoff_launch_call_unknown(pg_temp.unit(29, 1), pg_temp.f(953), 'call:1'), true,
-  'and ends without a known usage');
-select results_eq($$select f ->> 'error_code', (f ->> 'retry_scheduled')::boolean from pg_temp.fail_attempt(pg_temp.unit(29, 1), 953) f$$,
-  $$values ('TAKEOFF_USAGE_UNRECORDED'::text, false)$$, 'the attempt ends on a failure its worker would retry: the writer answers what it recorded');
-select results_eq($$select status::text, next_retry_at is null, analysis_outcome::text, error_code from public.takeoff_jobs
-    where id = pg_temp.unit(29, 1)$$, $$values ('failed'::text, true, 'failure'::text, 'TAKEOFF_USAGE_UNRECORDED'::text)$$,
-  'its unit ends without a retry, the unknown consumption named');
+-- A job read without the slot (claimed before the activation) holds the Mac all the same.
+delete from private.takeoff_host_slots where host_id = pg_temp.host();
+select is(pg_temp.claim(pg_temp.unit(29, 2), 952), 0, 'a job read without the slot still keeps a second plan from starting');
+select is(pg_temp.dispatch(), null::uuid, 'and the dispatcher hands nothing meanwhile');
+select pg_temp.complete(pg_temp.unit(29, 1));
 -- Twenty attempts of the member today, far fewer analyses: the next unit is handed, and its claim admitted.
 insert into public.takeoff_processing_admissions (job_id, attempt_number, tenant_id, created_by, admitted_at)
 select j.id, 0, j.tenant_id, j.created_by, clock_timestamp() from public.takeoff_jobs j
@@ -450,6 +460,87 @@ select is(public.finalize_local_takeoff_result(pg_temp.unit(29, 2), pg_temp.f(10
     "run_metrics": []}', '[]'), null, 'and so is its result');
 select results_eq($$select status::text, analysis_outcome::text from public.takeoff_jobs where id = pg_temp.unit(29, 2)$$,
   $$values ('canceled'::text, 'canceled'::text)$$, 'it stays cancelled');
+-- Its worker gives the Mac back when it ends: the slot is free again for what follows.
+select is(public.release_takeoff_host_slot(pg_temp.host(), pg_temp.f(954)), true, 'the stopped worker gives the Mac back');
+
+-- 12. One plan at a time against a renewal, a stop and a withdrawal; an unknown outcome freezes the request.
+-- A request's jobs of a later round: their own identifiers and keys, the same manifest and snapshot.
+create function pg_temp.round_unit(project integer, round integer, ordinal integer) returns uuid language sql immutable as $$
+  select pg_temp.f(3000 + 100 * round + 10 * (project - 20) + ordinal)
+$$;
+create function pg_temp.round_launch(project integer, round integer) returns table (outcome text, request_id uuid, job_id uuid)
+language sql as $$
+  select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(project), pg_temp.f(1),
+    pg_temp.f(700 + 10 * round + project - 20), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(project),
+    pg_temp.snapshot(project), (select jsonb_agg(j.value || jsonb_build_object('id',
+        pg_temp.round_unit(project, round, (u.value ->> 'ordinal')::integer)) order by (u.value ->> 'ordinal')::integer)
+      from jsonb_array_elements(pg_temp.jobs(project)) with ordinality as j(value, position)
+      join jsonb_array_elements(pg_temp.manifest(project) -> 'units') with ordinality as u(value, position) using (position)),
+    pg_temp.f(project + 20), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)))
+$$;
+-- A new day for the member: the admission ledgers of the cases above are set aside (their limits are section 2's and 11's).
+delete from public.takeoff_job_admissions where tenant_id = pg_temp.f(10);
+delete from public.takeoff_processing_admissions where tenant_id = pg_temp.f(10);
+-- A renewal that lost the Mac: the first worker's clock is behind; after its lease lapsed, another process took the Mac.
+select results_eq($$select outcome from pg_temp.round_launch(28, 1)$$, $$values ('admitted'::text)$$, 'a request of three plans');
+select is(pg_temp.claim(pg_temp.round_unit(28, 1, 1), 961), 1, 'its first plan is read');
+update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second' where id = pg_temp.round_unit(28, 1, 1);
+select is(pg_temp.claim(pg_temp.round_unit(28, 1, 2), 962), 1, 'its lease lapsed: another process takes the Mac with the next plan');
+select throws_ok($$select public.renew_takeoff_processing_lease(pg_temp.round_unit(28, 1, 1), pg_temp.f(10), pg_temp.f(961),
+    clock_timestamp() - interval '1 hour', clock_timestamp() + interval '30 minutes')$$, '40001', 'TAKEOFF_HOST_SLOT_LOST',
+  'the first worker''s late renewal is refused: it no longer holds the Mac');
+select is((select count(*)::integer from public.takeoff_jobs where execution_host_id = pg_temp.host() and status = 'processing'
+  and processing_lease_expires_at > clock_timestamp()), 1, 'one live lease on the Mac');
+select throws_ok($$select * from pg_temp.reserve(pg_temp.round_unit(28, 1, 1), 961, 'call:1')$$, '42501', 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED',
+  'nor can it reserve a call');
+-- A member's stop while the second plan is read: its provider call may still run, so the Mac stays held until its worker
+-- ends (or its lease lapses).
+select results_eq($$select request_state from public.stop_takeoff_launch_request(pg_temp.f(10), pg_temp.f(28), pg_temp.f(1),
+  pg_temp.request(28))$$, $$values ('closed'::text)$$, 'the rest of the request is stopped');
+select results_eq($$select job_id, holder_token from private.takeoff_host_slots where host_id = pg_temp.host()$$,
+  $$values (pg_temp.round_unit(28, 1, 2), pg_temp.f(962))$$, 'the stopped reading still holds the Mac');
+select results_eq($$select outcome from pg_temp.round_launch(20, 1)$$, $$values ('admitted'::text)$$, 'another request waits for it');
+select is(pg_temp.dispatch(), null::uuid, 'the dispatcher hands nothing while the stopped reading may still call');
+select is(pg_temp.claim(pg_temp.round_unit(20, 1, 1), 963), 0, 'and no other plan starts meanwhile');
+select is(public.release_takeoff_host_slot(pg_temp.host(), pg_temp.f(961)), false, 'a worker that does not hold the Mac gives nothing back');
+select is(public.release_takeoff_host_slot(pg_temp.host(), pg_temp.f(962)), true, 'the stopped worker gives the Mac back when it ends');
+select is(pg_temp.dispatch(), pg_temp.round_unit(20, 1, 1), 'then the next request''s first plan is handed');
+-- A call of unknown outcome freezes every further paid call of its request; its attempt is not retried on its own.
+select is(pg_temp.claim(pg_temp.round_unit(20, 1, 1), 964), 1, 'its first plan is read');
+select results_eq($$select outcome from pg_temp.reserve(pg_temp.round_unit(20, 1, 1), 964, 'call:1')$$, $$values ('reserved'::text)$$,
+  'a call is reserved');
+select is(public.record_takeoff_launch_call_unknown(pg_temp.round_unit(20, 1, 1), pg_temp.f(964), 'call:1'), true,
+  'and ends without a known usage');
+select results_eq($$select outcome, reason from pg_temp.reserve(pg_temp.round_unit(20, 1, 1), 964, 'call:2')$$,
+  $$values ('refused'::text, 'USAGE_UNKNOWN'::text)$$, 'no further paid call of the request is made');
+select results_eq($$select f ->> 'error_code', (f ->> 'retry_scheduled')::boolean from pg_temp.fail_attempt(pg_temp.round_unit(20, 1, 1), 964) f$$,
+  $$values ('TAKEOFF_USAGE_UNRECORDED'::text, false)$$, 'the failure its worker would retry ends the plan: the writer answers what it recorded');
+select results_eq($$select status::text, next_retry_at is null, analysis_outcome::text from public.takeoff_jobs
+    where id = pg_temp.round_unit(20, 1, 1)$$, $$values ('failed'::text, true, 'failure'::text)$$, 'without a retry');
+select results_eq($$select array_length(closed_jobs, 1), job_id from public.dispatch_next_takeoff_host_job(pg_temp.host())$$,
+  $$values (2, null::uuid)$$, 'the plans not started are closed, never started');
+select results_eq($$select r.outcome, r.units_failed, r.units_not_started from public.takeoff_launch_requests r
+    where r.id = pg_temp.request(20)$$, $$values ('failure'::text, 1, 2)$$, 'the request ends, one plan failed and two not started');
+select results_eq($$select u ->> 'reason_code', count(*)::integer from
+    jsonb_array_elements(public.read_takeoff_launch_request_units(pg_temp.f(10), pg_temp.f(20), pg_temp.request(20)) -> 'units') u
+    group by 1$$, $$values ('TAKEOFF_USAGE_UNRECORDED'::text, 3)$$, 'each plan names the reason the member reads in the activity');
+select results_eq($$select request_id, unknown_calls from public.read_takeoff_launch_unknown_calls(pg_temp.f(10), pg_temp.f(20),
+    array[pg_temp.request(20)]) order by request_id$$, $$values (pg_temp.request(20), 1::bigint)$$,
+  'the durable count of calls of unknown consumption, read in bulk for a page''s requests');
+select is((select count(*)::integer from public.read_takeoff_launch_unknown_calls(pg_temp.f(10), pg_temp.f(21), array[pg_temp.request(20)])),
+  0, 'only with its own affaire');
+-- The owner withdraws the activation: the plans already admitted keep one at a time on the Mac.
+select results_eq($$select outcome from pg_temp.round_launch(21, 1)$$, $$values ('admitted'::text)$$, 'a request of three plans is admitted');
+delete from private.takeoff_plan_dispatch_activation;
+select is(public.takeoff_plan_dispatch_is_active(), false, 'then one analysis per plan is withdrawn');
+select is(pg_temp.dispatch(), pg_temp.round_unit(21, 1, 1), 'the dispatcher still serves the plans already admitted');
+select is(pg_temp.claim(pg_temp.round_unit(21, 1, 1), 971), 1, 'a first process reads one');
+select is(pg_temp.claim(pg_temp.round_unit(21, 1, 2), 972), 0, 'a second process cannot read another at the same time');
+select throws_ok($$select count(*) from public.claim_local_takeoff_job(pg_temp.round_unit(21, 1, 3), pg_temp.f(10), pg_temp.host(),
+    clock_timestamp(), pg_temp.f(973), clock_timestamp() + interval '30 minutes', 'modele-fictif', 'fixture')$$, '42501',
+  'TAKEOFF_HOST_SLOT_REQUIRED', 'nor can a released worker''s direct claim, which never holds the Mac');
+select results_eq($$select outcome from pg_temp.reserve(pg_temp.round_unit(21, 1, 1), 971, 'call:1')$$, $$values ('reserved'::text)$$,
+  'the reading in progress still reserves its calls');
 
 select * from finish();
 rollback;

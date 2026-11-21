@@ -3,29 +3,26 @@
 -- slot); every paid call is reserved in the request's ledger before it is sent and settled after; the request closes
 -- on the end of its last unit with one notice. Lot 2's grouped format (format 1) and every historical job keep working.
 --
--- Inert until the owner sets private.takeoff_plan_dispatch_activation (after the automatic start's and the notices'
--- cut-offs, and once the authorised Mac runs this application): before it, no admission seals format 2, no claim takes
--- a slot and no dispatch closes anything. What the previous application version sees while this is applied: its
--- claim, its admissions of format 1, its usage records and its checks before each paid call answer as before (the
--- functions it calls keep their signatures; their new branches only concern format 2 requests, which it never makes,
--- and reservations, which it never writes); its inserts of jobs and its claims are counted by the admission limits as
--- before (one request of format 1 has one job). This application does not reserve a call before the activation either.
--- Drain the authorised Mac's takeoff worker and its evaluation loop, and pause the hosted recovery, while this is
--- applied. The send of a per-plan analysis stays closed until the partial send (TAKEOFF_SEND_JOB_NOT_READY): activating
--- before it closes the send of every new analysis, a dossier of one plan included.
+-- Before the owner sets private.takeoff_plan_dispatch_activation (after lot 2's cut-offs, and once the authorised Mac runs
+-- this application), whatever lot 2's activations: no admission seals format 2, and grouped (format 1) and standalone
+-- work keep every write, count, public code and outcome they had. A grouped request is settled by M4's own statements;
+-- its admissions record what lot 2 records; its paid calls are checked as lot 2 checks them and reserve nothing; the
+-- hosted recovery follows M3's statements for every job that is not a plan of one analysis per plan; the notices keep
+-- M3's public codes; a grouped analysis is not stopped by plan. The previous application version calls these functions
+-- with their signatures and gets those answers.
+--
+-- Once activated, and after it is withdrawn for the plans already admitted, a plan of one analysis per plan is read only
+-- under the Mac's slot (one at a time on the Mac, whatever process claims it); every paid call of its request is reserved
+-- before it is sent, a call of unknown outcome freezes the request's further paid calls. The send of a per-plan analysis
+-- stays closed until the partial send (TAKEOFF_SEND_JOB_NOT_READY): activating before it closes the send of every new
+-- analysis, a dossier of one plan included.
+--
+-- Section 14 takes the locks, last and as briefly as possible; the application procedure (which writers to stop, the
+-- read-only pre-check, what to do on a lock timeout or a deadlock) is in the pull request.
 begin;
 
--- Every statement takes a short lock: give up instead of queueing the job writers.
+-- A lock that is not granted in 5 seconds stops the migration, with nothing applied, rather than queue the job writers.
 set local lock_timeout = '5s';
--- The tables this migration alters or adds triggers to, locked first, in the order in which the previous application
--- version's paid path writes them while this is applied: a job's end writes the job first; the settlement of a call
--- (M4's record_takeoff_launch_usage) locks the job, writes its ledger, then its request. Either waits for this migration,
--- never in a cycle with it. A transaction that reads a request before it writes a job (an admission, or a member's
--- command or cancellation) may still meet it in a cycle: it is rolled back whole, with no call made, and the member or
--- the evaluation tries again. Drain the takeoff worker anyway (see above): it is what makes this order sufficient.
-lock table public.takeoff_jobs in share row exclusive mode;
-lock table private.takeoff_launch_usage in access exclusive mode;
-lock table public.takeoff_launch_requests in access exclusive mode;
 
 -- 1. The activation of one analysis per plan. Empty until the owner sets it.
 create table private.takeoff_plan_dispatch_activation (
@@ -68,32 +65,19 @@ returns text language sql immutable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_unit_state(text, text, text, timestamptz) from public, anon, authenticated, service_role;
 
--- The codes of an end with a public French reason (TAKEOFF_PUBLIC_FAILURE_CODES, src/lib/takeoff/completion-outcome.ts),
--- with the two of the launch requests: a request's budget spent and a usage that could not be recorded. Only widens.
-create or replace function private.takeoff_public_failure_codes()
+-- The codes of an end of one analysis per plan with a public French reason (TAKEOFF_PLAN_PUBLIC_FAILURE_CODES,
+-- src/lib/takeoff/completion-outcome.ts): M3's list (private.takeoff_public_failure_codes, unchanged for every other
+-- notice) with a request's budget spent, a usage unknown or unrecorded, and a plan's source changed after its admission.
+create function private.takeoff_plan_public_failure_codes()
 returns text[] language sql immutable set search_path = pg_catalog as $$
-  select array['AI_PROVIDER', 'AI_RATE_LIMIT', 'AI_SAFETY', 'AI_SCHEMA', 'AI_TIMEOUT', 'FORBIDDEN', 'INTERNAL_ERROR',
-    'TAKEOFF_FILE_TOO_LARGE',
-    'TAKEOFF_FILE_TYPE_INVALID', 'TAKEOFF_LEVEL_C_BUDGET_EXCEEDED', 'TAKEOFF_LEVEL_C_INVALID_SCHEMA',
-    'TAKEOFF_LEVEL_C_TIMEOUT', 'TAKEOFF_PDF_CORRUPTED', 'TAKEOFF_PDF_NOT_INTERPRETABLE', 'TAKEOFF_REQUEST_BUDGET_EXHAUSTED',
-    'TAKEOFF_USAGE_UNRECORDED', 'TAKEOFF_WORKER_HOST_SILENT',
-    'TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', 'TAKEOFF_WORKER_QUEUE_EXPIRED']::text[];
+  select private.takeoff_public_failure_codes()
+    || array['TAKEOFF_PREPARATION_SOURCE_CHANGED', 'TAKEOFF_REQUEST_BUDGET_EXHAUSTED', 'TAKEOFF_USAGE_UNRECORDED']::text[];
 $$;
+revoke all on function private.takeoff_plan_public_failure_codes() from public, anon, authenticated, service_role;
 
--- 3. The request's counters: a unit that never started is told apart from one that failed, and a member's stop of the
--- rest of the request is recorded (its cancelled units were stopped at a member's request).
-alter table public.takeoff_launch_requests
-  add column units_not_started integer not null default 0 check (units_not_started >= 0),
-  add column stop_requested_at timestamptz,
-  add column stop_requested_by uuid,
-  add constraint takeoff_launch_requests_stop_check check ((stop_requested_at is null) = (stop_requested_by is null)),
-  drop constraint takeoff_launch_requests_closure_check,
-  add constraint takeoff_launch_requests_closure_check check (
-    (state = 'closed') = (outcome is not null) and (outcome is null) = (closed_at is null)
-    and (outcome is null) = (completion_event_id is null)
-    and (units_expected is null or units_succeeded + units_failed + units_canceled + units_not_started <= units_expected)
-  );
-grant select (units_not_started, stop_requested_at) on public.takeoff_launch_requests to authenticated;
+-- 3. The request's counters (their columns are added in section 14): a unit that never started is told apart from one
+-- that failed, and a member's stop of the rest of the request is recorded (its cancelled units were stopped at a member's
+-- request).
 
 -- 4. The seal of format 2 and the projection of one unit. A request's job attests the exact projection of its unit: the
 -- request's sealed snapshot with only that unit's plan among the plans (its retained pages, original and 1-based), the
@@ -187,7 +171,25 @@ begin
         or jsonb_typeof(u.value -> 'vector_pages') is distinct from 'number'
         or (u.value #>> '{budget,tokens}')::numeric not between 1 and (p_manifest #>> '{budget,tokens}')::numeric
         or (u.value #>> '{budget,cost_cents}')::numeric not between 0 and (p_manifest #>> '{budget,cost_cents}')::numeric
-        or (u.value ->> 'vector_pages')::numeric not between 0 and 60)
+        or (u.value ->> 'vector_pages')::numeric not between 0 and 60
+        -- The unit reads its plan's pages, and counts its plan's pages.
+        or u.value -> 'pages' is distinct from p.value -> 'pages'
+        or u.value -> 'page_count' is distinct from p.value -> 'page_count')
+    -- Each plan is its source as the snapshot reads it: the same copy, name, digest and retained pages (in order), so
+    -- that what the worker reads and what the activity shows are the same pages.
+    or exists (
+      select 1 from jsonb_array_elements(p_manifest -> 'plans') p(value)
+      left join lateral (select s.value from jsonb_array_elements(p_snapshot #> '{preparation,sources}') s(value)
+        where s.value -> 'active' = 'true'::jsonb and s.value ->> 'kind' = 'plan' and s.value ->> 'document_id' = p.value ->> 'entry_key'
+        limit 1) source on true
+      where source.value is null
+        or p.value ->> 'plan_file_id' is distinct from p.value ->> 'entry_key'
+        or p.value ->> 'name' is distinct from source.value ->> 'document_name'
+        or p.value ->> 'content_sha256' is distinct from source.value ->> 'content_hash'
+        or jsonb_typeof(p.value -> 'pages') is distinct from 'array'
+        or p.value -> 'pages' is distinct from (select coalesce(jsonb_agg(page.value order by (page.value #>> '{}')::numeric), '[]'::jsonb)
+          from jsonb_array_elements(case when jsonb_typeof(source.value -> 'pages') = 'array' then source.value -> 'pages'
+            else '[]'::jsonb end) page(value)))
     or (select sum((u.value #>> '{budget,tokens}')::numeric) from jsonb_array_elements(p_manifest -> 'units') u(value))
       not between (p_manifest #>> '{budget,tokens}')::numeric and (p_manifest #>> '{budget,tokens}')::numeric + units - 1
     or (select sum((u.value #>> '{budget,cost_cents}')::numeric) from jsonb_array_elements(p_manifest -> 'units') u(value))
@@ -361,8 +363,8 @@ begin
     admitted_jobs := private.insert_takeoff_launch_jobs(request, p_job);
     perform private.record_takeoff_launch_audit(request, request.payer_id, 'takeoff.request.admitted', jsonb_build_object(
       'job_ids', to_jsonb(admitted_jobs), 'manifest_digest', request.manifest_digest,
-      'format_version', request.manifest -> 'format_version',
-      'execution_host_id', request.execution_host_id, 'mandate_kind', request.mandate_kind));
+      'execution_host_id', request.execution_host_id, 'mandate_kind', request.mandate_kind)
+      || case when request.manifest -> 'format_version' = '2'::jsonb then jsonb_build_object('format_version', 2) else '{}'::jsonb end);
     -- The final comparison, last of everything this admission locks: the dossier key exclusively, which each transaction
     -- that marks a change of the dossier holds shared until it commits. A change committed after the count above (an
     -- annex back to classification, a saved restriction) is counted here, and the admission rolls back with it.
@@ -478,8 +480,8 @@ begin
     admitted_jobs := private.insert_takeoff_launch_jobs(request, p_job);
     perform private.record_takeoff_launch_audit(request, p_actor, 'takeoff.request.admitted', jsonb_build_object(
       'job_ids', to_jsonb(admitted_jobs), 'manifest_digest', request.manifest_digest, 'intent', p_intent,
-      'format_version', request.manifest -> 'format_version',
-      'predecessor_job_id', p_predecessor_job_id, 'execution_host_id', p_host, 'mandate_kind', 'command'));
+      'predecessor_job_id', p_predecessor_job_id, 'execution_host_id', p_host, 'mandate_kind', 'command')
+      || case when request.manifest -> 'format_version' = '2'::jsonb then jsonb_build_object('format_version', 2) else '{}'::jsonb end);
     -- An automatic start that had not begun is set aside by this explicit analysis, for good: it never spends later.
     update public.takeoff_launch_requests r set state = 'superseded', reason_code = null,
       reason_details = jsonb_build_object('request_id', request.id), evaluation_lease_token = null, evaluation_lease_expires_at = null,
@@ -767,7 +769,7 @@ revoke all on function private.takeoff_job_claim_admissible(uuid) from public, a
 -- 7. The slot of each authorised Mac: the one job its dispatcher reads now, held by that job's processing lease token
 -- (its holder), with a generation that grows at each acquisition. It is taken with the job's claim, under the Mac's
 -- lock and in the same transaction, renewed with the job's lease and given back by the job's end with the same token
--- (section 13). A slot whose holder's lease expired is free: the next claim takes it over. No foreign key: the slot
+-- (section 13). A slot whose holder's lease lapsed is free: the next claim takes it over. No foreign key: the slot
 -- never takes a lock on takeoff_jobs.
 create table private.takeoff_host_slots (
   host_id text primary key check (host_id ~ '^urn:uuid:[0-9a-f-]{36}$'),
@@ -783,15 +785,15 @@ create table private.takeoff_host_slots (
 );
 revoke all on private.takeoff_host_slots from public, anon, authenticated, service_role;
 
--- Whether another job holds the Mac now: its slot's holder is a job still processing under that very lease.
+-- Whether another job holds the Mac now: its slot's holder, until that worker gives the slot back with its end or its
+-- lease lapses (the slot's expiry follows the lease). A member's stop does not free it: the stopped worker's provider call
+-- may still run.
 create function private.takeoff_host_slot_busy(p_host_id text, p_job_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
   select exists (
     select 1 from private.takeoff_host_slots s
-    join public.takeoff_jobs j on j.id = s.job_id
-    where s.host_id = p_host_id and s.job_id is distinct from p_job_id
-      and s.expires_at > pg_catalog.clock_timestamp() and j.status = 'processing'
-      and j.processing_lease_token = s.holder_token and j.processing_lease_expires_at > pg_catalog.clock_timestamp()
+    where s.host_id = p_host_id and s.holder_token is not null and s.job_id is distinct from p_job_id
+      and s.expires_at > pg_catalog.clock_timestamp()
   )
 $$;
 revoke all on function private.takeoff_host_slot_busy(text, uuid) from public, anon, authenticated, service_role;
@@ -807,13 +809,13 @@ returns boolean language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_host_busy(text, uuid) from public, anon, authenticated, service_role;
 
--- The live jobs of each Mac: its dispatcher's queue and its next retry, without a scan of every job at each pass (whether
--- it reads a job now is answered by takeoff_jobs_processing_lease_due_idx).
-create index takeoff_jobs_local_host_live_idx on public.takeoff_jobs (execution_host_id, status, next_retry_at)
-  where execution_provider = 'chatgpt_local' and analysis_outcome is null and status in ('pending', 'processing', 'failed');
 
--- The application's claim (M3, 20261121020321), which from activation on takes the Mac's slot with the job, in one
--- transaction under the Mac's lock: a second process, tab or gesture of the same Mac cannot start a second plan.
+-- The application's claim (M3, 20261121020321), which takes the Mac's slot with the job, in one transaction under the
+-- Mac's lock, for every job of one analysis per plan (whatever the activation: withdrawing it keeps one plan at a time for
+-- the plans already admitted) and, from the activation on, for every job of the Mac. The slot's row is the one point of
+-- serialisation with a renewal of the job that holds it (section 13): it is locked and read after any renewal in flight
+-- commits, so a lease renewed just before it lapsed keeps the Mac. The slot is taken before the job, then the job claimed;
+-- a claim that finds nothing gives the slot back as it was.
 create or replace function public.claim_observed_local_takeoff_job(
   p_job_id uuid, p_tenant_id uuid, p_host_id text, p_started_at timestamptz, p_lease_token uuid,
   p_lease_expires_at timestamptz, p_model text, p_prompt_version text,
@@ -821,7 +823,9 @@ create or replace function public.claim_observed_local_takeoff_job(
 )
 returns setof public.takeoff_jobs language plpgsql security definer set search_path = pg_catalog as $$
 declare
-  slotted boolean := p_host_id is not null and private.takeoff_plan_dispatch_active();
+  plan_unit boolean;
+  slotted boolean;
+  slot private.takeoff_host_slots%rowtype;
 begin
   if p_observed_status is null or p_observed_status not in ('pending', 'failed') or p_observed_retry_count is null then
     raise exception 'TAKEOFF_LOCAL_CLAIM_INVALID' using errcode = '22023';
@@ -829,24 +833,53 @@ begin
   if p_host_id is not null then
     perform pg_advisory_xact_lock(private.takeoff_local_host_lock_key(p_host_id));
   end if;
-  perform 1 from public.takeoff_jobs j
+  select j.launch_unit_key like 'plan:%' into plan_unit from public.takeoff_jobs j
   where j.id = p_job_id and j.tenant_id = p_tenant_id
     and j.status::text = p_observed_status and j.retry_count = p_observed_retry_count
   for update;
   if not found then return; end if;
-  -- Another plan is read on this Mac now: this one waits for its turn.
-  if slotted and private.takeoff_host_busy(p_host_id, p_job_id) then return; end if;
+  slotted := p_host_id is not null and (coalesce(plan_unit, false) or private.takeoff_plan_dispatch_active());
+  if slotted then
+    insert into private.takeoff_host_slots (host_id) values (p_host_id) on conflict (host_id) do nothing;
+    select * into slot from private.takeoff_host_slots s where s.host_id = p_host_id for update;
+    -- Another plan is read on this Mac now: this one waits for its turn.
+    if private.takeoff_host_busy(p_host_id, p_job_id) then return; end if;
+    update private.takeoff_host_slots s set job_id = p_job_id, holder_token = p_lease_token, generation = s.generation + 1,
+      acquired_at = clock_timestamp(), expires_at = p_lease_expires_at
+    where s.host_id = p_host_id;
+  end if;
   -- Planned per call: a session keeps working after a column joins the job row.
   return query execute 'select * from public.claim_local_takeoff_job($1, $2, $3, $4, $5, $6, $7, $8)'
     using p_job_id, p_tenant_id, p_host_id, p_started_at, p_lease_token, p_lease_expires_at, p_model, p_prompt_version;
-  if found and slotted then
-    insert into private.takeoff_host_slots as s (host_id, job_id, holder_token, generation, acquired_at, expires_at)
-    values (p_host_id, p_job_id, p_lease_token, 1, clock_timestamp(), p_lease_expires_at)
-    on conflict (host_id) do update set job_id = excluded.job_id, holder_token = excluded.holder_token,
-      generation = s.generation + 1, acquired_at = excluded.acquired_at, expires_at = excluded.expires_at;
+  if not found and slotted then
+    update private.takeoff_host_slots s set job_id = slot.job_id, holder_token = slot.holder_token, generation = slot.generation,
+      acquired_at = slot.acquired_at, expires_at = slot.expires_at
+    where s.host_id = p_host_id;
   end if;
 end;
 $$;
+
+-- The worker's end of an attempt it held the Mac for, whatever ended the job (its own write, or a member's stop that made
+-- its write refused): the slot is given back when its holder is this lease and no job still runs under it.
+create function public.release_takeoff_host_slot(p_host_id text, p_lease_token uuid)
+returns boolean language plpgsql security definer set search_path = '' as $$
+declare
+  released boolean;
+begin
+  if p_host_id is null or p_lease_token is null then
+    raise exception 'TAKEOFF_HOST_SLOT_INVALID' using errcode = '22023';
+  end if;
+  perform pg_catalog.pg_advisory_xact_lock(private.takeoff_local_host_lock_key(p_host_id));
+  update private.takeoff_host_slots s set job_id = null, holder_token = null, acquired_at = null, expires_at = null
+  where s.host_id = p_host_id and s.holder_token = p_lease_token
+    and not exists (select 1 from public.takeoff_jobs j where j.id = s.job_id and j.status = 'processing'
+      and j.processing_lease_token = p_lease_token and j.processing_lease_expires_at > pg_catalog.clock_timestamp())
+  returning true into released;
+  return coalesce(released, false);
+end;
+$$;
+revoke all on function public.release_takeoff_host_slot(text, uuid) from public, anon, authenticated;
+grant execute on function public.release_takeoff_host_slot(text, uuid) to service_role;
 
 -- 8. The ledger of a request's paid calls (M4's private.takeoff_launch_usage, keyed by job, attempt lease and call): a
 -- call is reserved before it is sent, under the job's lock then the request's, and settled once after its answer. A
@@ -854,43 +887,7 @@ $$;
 -- gives) until it is settled; a call that ended without a known usage, or whose attempt ended first, stays held as
 -- unknown: it is never credited back, and the balance a new call needs counts it. A row M4's settlement wrote is an
 -- observed call.
-alter table private.takeoff_launch_usage
-  add column state text not null default 'observed' check (state in ('reserved', 'observed', 'unknown')),
-  add column branch text check (branch in ('pdf', 'vector_group', 'other')),
-  add column reserved_tokens bigint not null default 0 check (reserved_tokens >= 0),
-  add column reserved_at timestamptz,
-  add column settled_at timestamptz,
-  add constraint takeoff_launch_usage_reservation_check check (
-    (state = 'observed') or (tokens = 0 and cost_cents = 0 and reserved_at is not null)
-  );
-create index takeoff_launch_usage_request_idx on private.takeoff_launch_usage (request_id, state);
 
--- What a job of a request may still spend: its unit's share (format 2; the request's envelope for format 1) and the
--- request's envelope, each less what was observed and what is held; and the calls of the job in flight.
-create function private.takeoff_launch_job_balance(p_job public.takeoff_jobs, p_request public.takeoff_launch_requests)
-returns table (tokens_left bigint, cost_left bigint, in_flight bigint)
-language sql stable security definer set search_path = '' as $$
-  with unit as (
-    select coalesce(case when p_request.manifest -> 'format_version' = '2'::jsonb
-        then private.takeoff_launch_unit(p_request.manifest, p_job.launch_unit_key) -> 'budget' end,
-      jsonb_build_object('tokens', p_request.token_budget, 'cost_cents', p_request.cost_budget_cents)) as budget
-  ), job_usage as (
-    select coalesce(sum(l.tokens) filter (where l.state = 'observed'), 0) as tokens,
-      coalesce(sum(l.reserved_tokens) filter (where l.state <> 'observed'), 0) as held,
-      coalesce(sum(l.cost_cents), 0) as cost, count(*) filter (where l.state = 'reserved') as in_flight
-    from private.takeoff_launch_usage l where l.job_id = p_job.id
-  ), request_usage as (
-    select coalesce(sum(l.reserved_tokens), 0) as held from private.takeoff_launch_usage l
-    where l.request_id = p_request.id and l.state <> 'observed'
-  )
-  select least((unit.budget ->> 'tokens')::bigint - job_usage.tokens - job_usage.held,
-      p_request.token_budget - p_request.tokens_observed - request_usage.held),
-    least((unit.budget ->> 'cost_cents')::bigint - job_usage.cost, p_request.cost_budget_cents - p_request.cost_cents_observed),
-    job_usage.in_flight
-  from unit, job_usage, request_usage
-$$;
-revoke all on function private.takeoff_launch_job_balance(public.takeoff_jobs, public.takeoff_launch_requests)
-  from public, anon, authenticated, service_role;
 
 -- The one rule before each paid call of any job: the module is on and its creator may still launch on its affaire.
 create function private.takeoff_job_payment_refusal(p_job public.takeoff_jobs, p_module_default boolean)
@@ -923,6 +920,8 @@ begin
   select * into request from public.takeoff_launch_requests r where r.id = job.launch_request_id;
   select * into balance from private.takeoff_launch_job_balance(job, request);
   return query select coalesce(private.takeoff_job_payment_refusal(job, p_module_default),
+      case when exists (select 1 from private.takeoff_launch_usage l where l.request_id = request.id and l.state = 'unknown')
+        then 'USAGE_UNKNOWN' end,
       case when balance.tokens_left <= 0 or balance.cost_left <= 0 then 'BUDGET_EXHAUSTED' end),
     balance.tokens_left, balance.cost_left;
 end;
@@ -967,7 +966,14 @@ begin
     raise exception 'TAKEOFF_LAUNCH_CALL_INVALID' using errcode = '22023';
   end if;
   job := private.lock_takeoff_paying_job(p_job_id, p_lease_token);
-  if job.execution_host_id is not null and private.takeoff_plan_dispatch_active()
+  -- A plan of one analysis per plan pays only while it holds the Mac (its slot, under this very lease); another job of
+  -- the Mac, from the activation on, only while no other job holds it.
+  if job.launch_unit_key like 'plan:%' then
+    if not exists (select 1 from private.takeoff_host_slots s where s.host_id = job.execution_host_id and s.job_id = job.id
+        and s.holder_token = p_lease_token and s.expires_at > pg_catalog.clock_timestamp()) then
+      raise exception 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED' using errcode = '42501';
+    end if;
+  elsif job.execution_host_id is not null and private.takeoff_plan_dispatch_active()
     and private.takeoff_host_slot_busy(job.execution_host_id, job.id) then
     raise exception 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED' using errcode = '42501';
   end if;
@@ -989,6 +995,12 @@ begin
     return query select case when balance.tokens_left > 0 and balance.cost_left > 0 then 'unreserved' else 'refused' end,
       case when balance.tokens_left > 0 and balance.cost_left > 0 then null else 'BUDGET_EXHAUSTED' end,
       null::bigint, balance.tokens_left, balance.cost_left;
+    return;
+  end if;
+  -- A call of the request whose outcome is unknown freezes every further paid call of the request: it may have consumed
+  -- what is left. A member's relaunch starts a new request.
+  if exists (select 1 from private.takeoff_launch_usage l where l.request_id = request.id and l.state = 'unknown') then
+    return query select 'refused'::text, 'USAGE_UNKNOWN'::text, null::bigint, null::bigint, null::bigint;
     return;
   end if;
   select * into existing from private.takeoff_launch_usage l
@@ -1047,8 +1059,9 @@ begin
   where l.job_id = p_job_id and l.lease_token = p_lease_token and l.call_key = p_call_key and l.state = 'reserved'
   returning true into counted;
   if counted is null then
-    insert into private.takeoff_launch_usage (job_id, lease_token, call_key, request_id, tokens, cost_cents, settled_at)
-    values (p_job_id, p_lease_token, p_call_key, job.launch_request_id, v_tokens, v_cost, pg_catalog.clock_timestamp())
+    -- A call without a reservation (lot 2's writer, or this one before the activation): the row lot 2 writes.
+    insert into private.takeoff_launch_usage (job_id, lease_token, call_key, request_id, tokens, cost_cents)
+    values (p_job_id, p_lease_token, p_call_key, job.launch_request_id, v_tokens, v_cost)
     on conflict do nothing
     returning true into counted;
   end if;
@@ -1190,7 +1203,7 @@ declare
   failure_code text;
 begin
   select * into request from public.takeoff_launch_requests r where r.id = p_request_id for update;
-  if not found or request.state <> 'admitted' then
+  if not found or request.state <> 'admitted' or request.manifest -> 'format_version' is distinct from '2'::jsonb then
     return;
   end if;
   select count(*) as jobs,
@@ -1263,23 +1276,100 @@ begin
       || coalesce(recipient::text, 'unavailable'),
     case when initial_state = 'pending' then request.closed_at end,
     case when initial_state = 'unavailable' then 'RECIPIENT_UNAVAILABLE' end,
+    -- The notices keep M3's public codes (their constraint); a plan's own reason is told on the plan, in the activity.
     case when request.outcome = 'failure' and failure_code = any (private.takeoff_public_failure_codes()) then failure_code end
   );
 end;
 $$;
 revoke all on function private.close_takeoff_launch_request(uuid, timestamptz, text) from public, anon, authenticated, service_role;
 
--- M4's trigger on the recorded end of a unit, now through the recomputation above.
+-- M4's trigger on the recorded end of a unit (20261121170448_takeoff_launch_requests.sql): one analysis per plan through
+-- the recomputation above; a grouped request (format 1) by M4's own statements, unchanged.
 create or replace function private.settle_takeoff_launch_request()
 returns trigger language plpgsql security definer set search_path = pg_catalog as $$
+declare
+  request public.takeoff_launch_requests%rowtype;
+  ended integer;
+  plans integer;
+  recipient uuid;
+  logical_email text;
+  initial_state text := 'unavailable';
+  not_started boolean := new.error_code in ('TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_QUEUE_EXPIRED', 'TAKEOFF_WORKER_HOST_SILENT');
 begin
-  perform private.close_takeoff_launch_request(new.launch_request_id, new.analysis_finished_at, new.error_code);
+  -- One analysis per plan: the recomputation above, from its units' jobs.
+  if exists (select 1 from public.takeoff_launch_requests r where r.id = new.launch_request_id
+      and r.manifest -> 'format_version' = '2'::jsonb) then
+    perform private.close_takeoff_launch_request(new.launch_request_id, new.analysis_finished_at, new.error_code);
+    return null;
+  end if;
+  -- Lot 2's request (format 1), settled exactly as M4 settles it.
+  select * into request from public.takeoff_launch_requests r where r.id = new.launch_request_id for update;
+  if not found or request.state <> 'admitted' then
+    return null;
+  end if;
+  update public.takeoff_launch_requests r set
+    units_succeeded = r.units_succeeded + (new.analysis_outcome = 'success')::integer,
+    units_failed = r.units_failed + (new.analysis_outcome = 'failure')::integer,
+    units_canceled = r.units_canceled + (new.analysis_outcome = 'canceled')::integer
+  where r.id = request.id
+  returning * into request;
+  ended := request.units_succeeded + request.units_failed + request.units_canceled;
+  if ended < request.units_expected then
+    return null;
+  end if;
+  update public.takeoff_launch_requests r set state = 'closed', closed_at = new.analysis_finished_at,
+    completion_event_id = gen_random_uuid(),
+    reason_code = case when new.error_code in ('TAKEOFF_REQUEST_BUDGET_EXHAUSTED', 'TAKEOFF_LEVEL_C_BUDGET_EXCEEDED')
+      then 'BUDGET_EXHAUSTED' end,
+    outcome = case
+      when r.units_succeeded = r.units_expected then 'success'
+      when r.units_failed = r.units_expected then 'failure'
+      when r.units_canceled = r.units_expected then 'canceled'
+      else 'partial' end
+  where r.id = request.id
+  returning * into request;
+
+  -- From the notices' cut-off on, as for a job: one notice and one e-mail to the request's payer.
+  if not exists (select 1 from private.takeoff_completion_activation a where request.closed_at >= a.active_from) then
+    return null;
+  end if;
+  -- The member who pays receives the end: the confirmer, who took it on, or who clicked.
+  recipient := request.payer_id;
+  plans := jsonb_array_length(request.manifest -> 'plans');
+  if request.outcome = 'canceled' then
+    initial_state := 'suppressed';
+  elsif recipient is not null and private.takeoff_completion_recipient_can_read(request.tenant_id, request.project_id, recipient) then
+    select nullif(trim(u.email), '') into logical_email from auth.users u
+      where u.id = recipient and u.email_confirmed_at is not null and u.deleted_at is null;
+    if logical_email is not null then
+      initial_state := 'pending';
+    end if;
+  end if;
+  insert into public.takeoff_completion_notifications (
+    id, tenant_id, project_id, subject_kind, request_id, recipient_user_id, outcome, finished_at,
+    plans_read_count, plans_failed_count, plans_not_started_count,
+    recipient_email, delivery_state, provider_key, next_attempt_at, last_delivery_code, reason_code
+  ) values (
+    request.completion_event_id, request.tenant_id, request.project_id, 'request', request.id, recipient, request.outcome,
+    request.closed_at,
+    case when request.outcome = 'success' then plans else 0 end,
+    case when request.outcome = 'failure' and not not_started then plans else 0 end,
+    case when request.outcome = 'failure' and not_started then plans else 0 end,
+    logical_email, initial_state,
+    'takeoff-completion/' || request.tenant_id::text || '/request/' || request.id::text || '/'
+      || coalesce(recipient::text, 'unavailable'),
+    case when initial_state = 'pending' then request.closed_at end,
+    case when initial_state = 'unavailable' then 'RECIPIENT_UNAVAILABLE' end,
+    case when request.outcome = 'failure' and new.error_code = any (private.takeoff_public_failure_codes())
+      then new.error_code end
+  );
   return null;
 end;
 $$;
 
--- A request whose units have all ended but which is still open (an end recorded while its trigger could not settle it):
--- the same recomputation, without any AI call; idempotent.
+-- A request of one analysis per plan whose units have all ended but which is still open (an end recorded while its
+-- trigger could not settle it): the same recomputation, without any AI call; idempotent. A grouped request is settled by
+-- its job's end only, as in lot 2.
 create function public.reconcile_takeoff_launch_requests(p_limit integer default 20)
 returns table (request_id uuid, state text)
 language plpgsql security definer set search_path = '' as $$
@@ -1289,7 +1379,8 @@ declare
 begin
   for candidate in
     select r.id from public.takeoff_launch_requests r
-    where r.state = 'admitted' and r.units_expected = (select count(*) from public.takeoff_jobs j where j.launch_request_id = r.id)
+    where r.state = 'admitted' and r.manifest -> 'format_version' = '2'::jsonb
+      and r.units_expected = (select count(*) from public.takeoff_jobs j where j.launch_request_id = r.id)
       and not exists (select 1 from public.takeoff_jobs j where j.launch_request_id = r.id
         and private.takeoff_unit_state(j.status::text, j.analysis_outcome, j.error_code, j.started_at) in ('queued', 'running'))
     order by r.admitted_at, r.id
@@ -1303,8 +1394,9 @@ $$;
 revoke all on function public.reconcile_takeoff_launch_requests(integer) from public, anon, authenticated;
 grant execute on function public.reconcile_takeoff_launch_requests(integer) to service_role;
 
--- 10. M3's trigger on the end of an analysis (20261121020321), with one change: a unit failed with its technical retry
--- still to run that a member stops is cancelled, with its outcome (before, only a pending or processing job could be).
+-- 10. M3's trigger on the end of an analysis (20261121020321), with one change for a plan of one analysis per plan only:
+-- failed with its technical retry still to run, a member's stop cancels it with its outcome (a pending or processing job
+-- only could be). Every other job keeps M3's rule.
 create or replace function private.set_takeoff_analysis_outcome()
 returns trigger
 language plpgsql security definer
@@ -1388,7 +1480,8 @@ begin
   end if;
 
   if new.status = 'canceled' and (old.status in ('pending', 'processing')
-    or (old.status = 'failed' and old.analysis_outcome is null and new.next_retry_at is null)) then
+    or (old.status = 'failed' and old.analysis_outcome is null and new.next_retry_at is null
+      and old.launch_unit_key like 'plan:%')) then
     new.analysis_outcome := 'canceled';
   elsif old.execution_provider = 'chatgpt_local' and old.status = 'processing'
     and new.status in ('completed', 'failed') then
@@ -1456,6 +1549,10 @@ begin
     return query select 'not_running'::text, request.state, 0;
     return;
   end if;
+  -- A grouped analysis (lot 2) is one reading: it is cancelled as a job, never stopped by plan.
+  if request.manifest -> 'format_version' is distinct from '2'::jsonb then
+    raise exception 'TAKEOFF_LAUNCH_STOP_GROUPED' using errcode = '22023';
+  end if;
   update public.takeoff_launch_requests r set stop_requested_at = coalesce(r.stop_requested_at, pg_catalog.clock_timestamp()),
     stop_requested_by = coalesce(r.stop_requested_by, p_actor)
   where r.id = request.id;
@@ -1496,11 +1593,16 @@ declare
   closed uuid[] := '{}';
   balance record;
   due timestamptz;
+  active boolean;
 begin
   if p_host_id is null or p_host_id !~ '^urn:uuid:[0-9a-f-]{36}$' then
     raise exception 'TAKEOFF_DISPATCH_INVALID' using errcode = '22023';
   end if;
-  if not private.takeoff_plan_dispatch_active() then
+  active := private.takeoff_plan_dispatch_active();
+  -- Withdrawn, it still serves the plans of one analysis per plan already admitted, one at a time; with none, it answers
+  -- nothing (the Mac keeps its former order).
+  if not active and not exists (select 1 from public.takeoff_jobs j where j.execution_host_id = p_host_id
+      and j.launch_unit_key like 'plan:%' and j.analysis_outcome is null and j.status in ('pending', 'processing', 'failed')) then
     return;
   end if;
   perform pg_catalog.pg_advisory_xact_lock(private.takeoff_local_host_lock_key(p_host_id));
@@ -1519,6 +1621,7 @@ begin
       and j.analysis_outcome is null
       and (j.status = 'pending' or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= pg_catalog.clock_timestamp()))
       and (j.launch_request_id is null or r.state = 'admitted')
+      and (active or j.launch_unit_key like 'plan:%')
       and private.takeoff_module_enabled(j.tenant_id, p_module_default)
       -- A pending job whose creation has not finished may still be withdrawn: its record says it was admitted.
       and (j.status <> 'pending' or exists (select 1 from public.audit_logs a where a.tenant_id = j.tenant_id
@@ -1529,6 +1632,17 @@ begin
     for update of j skip locked
   loop
     if candidate.launch_request_id is not null and candidate.status = 'pending' and candidate.started_at is null then
+      -- A request with a call of unknown outcome makes no further paid call: its plans not started are closed so.
+      if exists (select 1 from private.takeoff_launch_usage l where l.request_id = candidate.launch_request_id
+          and l.state = 'unknown') then
+        update public.takeoff_jobs j set status = 'failed', completed_at = pg_catalog.clock_timestamp(), next_retry_at = null,
+          last_error_at = pg_catalog.clock_timestamp(), error_code = 'TAKEOFF_USAGE_UNRECORDED',
+          error_message = 'Un appel de cette analyse s’est terminé sans consommation connue : ce plan n’a pas été lu. Relancez-le depuis les options du métré.',
+          analysis_outcome = 'failure'
+        where j.id = candidate.id;
+        closed := closed || candidate.id;
+        continue;
+      end if;
       select * into balance from private.takeoff_launch_job_balance(
         (select j from public.takeoff_jobs j where j.id = candidate.id),
         (select r from public.takeoff_launch_requests r where r.id = candidate.launch_request_id));
@@ -1553,10 +1667,11 @@ $$;
 revoke all on function public.dispatch_next_takeoff_host_job(text, boolean) from public, anon, authenticated;
 grant execute on function public.dispatch_next_takeoff_host_job(text, boolean) to service_role;
 
--- The hosted recovery (M3, 20261121020321_takeoff_completion_before_activation.sql), same signature, with two changes from
--- the activation of the notices on: a job waits for its turn by the rule its claim's triggers apply (a request of plans is
--- one analysis), and the jobs it may close are locked in identifier order first. Before that activation it answers as
--- before.
+-- The hosted recovery (M3, 20261121020321_takeoff_completion_before_activation.sql), same signature. Every job that is
+-- not a plan of one analysis per plan follows M3's statements as they were: its turn by M3's rule, its row locked only if
+-- it is closed. A plan of one analysis per plan (A's work, whatever the activation) waits for its turn by the rule of its
+-- claim's triggers (a request of plans is one analysis), and is locked in identifier order before any write, without
+-- waiting (skip locked): a plan held by another writer (a claim, a member's stop) is left to the next run.
 create or replace function public.recover_stale_local_takeoff_jobs(
   p_now timestamptz,
   p_stale_after interval default interval '10 minutes'
@@ -1573,6 +1688,7 @@ declare
   waiting_tenant uuid;
   decided_hosts text[] := '{}';
   admitting_tenants uuid[] := '{}';
+  plan_units uuid[] := '{}';
 begin
   if p_now is null or p_stale_after < interval '1 minute' then
     raise exception 'TAKEOFF_RECOVERY_ARGUMENT_INVALID' using errcode = '22023';
@@ -1627,16 +1743,17 @@ begin
     end if;
   end loop;
 
-  -- The jobs this run may close, locked in identifier order before any of them is written: a member's stop locks a
-  -- request's jobs in that order, then the request, so neither waits for the other in a cycle.
-  perform 1 from public.takeoff_jobs j
-  where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
-    and ((j.status = 'processing' and (j.processing_lease_expires_at <= recovery_at
-        or (j.processing_lease_expires_at is null and coalesce(j.started_at, j.updated_at) <= recovery_at - p_stale_after)))
-      or (j.execution_host_id = any (decided_hosts)
-        and (j.status = 'pending' or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= recovery_at))))
-  order by j.id
-  for update;
+  -- The plans of one analysis per plan this run may close, locked in identifier order before any write and never waited
+  -- for: a stop locks a request's plans in that order too, and a claim's row is left to the next run.
+  plan_units := array(select j.id from public.takeoff_jobs j
+    where j.execution_provider = 'chatgpt_local' and j.provider_batch_id is null and j.analysis_outcome is null
+      and j.launch_unit_key like 'plan:%'
+      and ((j.status = 'processing' and (j.processing_lease_expires_at <= recovery_at
+          or (j.processing_lease_expires_at is null and coalesce(j.started_at, j.updated_at) <= recovery_at - p_stale_after)))
+        or (j.execution_host_id = any (decided_hosts)
+          and (j.status = 'pending' or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= recovery_at))))
+    order by j.id
+    for update skip locked);
 
   -- A processing job whose lease expired is closed as before. A job that waits for its Mac (pending, or a due
   -- retry) is never closed for its age alone: only when its live Mac could take it and, idle with nothing claimed,
@@ -1645,6 +1762,7 @@ begin
   return query
   with waiting as (
     select j.id, j.tenant_id, j.created_by, j.execution_host_id as host_id, j.status, j.retry_count, j.next_retry_at,
+      coalesce(j.launch_unit_key like 'plan:%', false) as plan_unit,
       coalesce(j.analysis_queued_at, j.created_at) as queued_at,
       greatest(activation.active_from,
         case when j.status = 'pending' then coalesce(j.analysis_queued_at, j.created_at) else j.next_retry_at end
@@ -1678,7 +1796,8 @@ begin
       -- tenant's limits refusing its claim.
       coalesce(hb.busy, false) or coalesce(hw.worked_at > recovery_at - activation.pickup_grace, false)
         or w.tenant_id = any (admitting_tenants)
-        or not private.takeoff_job_claim_admissible(w.id) as waiting_turn
+        or not case when w.plan_unit then private.takeoff_job_claim_admissible(w.id)
+          else private.local_takeoff_claim_admissible(w.tenant_id, w.created_by, w.status = 'failed') end as waiting_turn
     from waiting w
     left join private.takeoff_local_host_activity a on a.host_id = w.host_id
     left join host_busy hb on hb.host_id = w.host_id
@@ -1726,6 +1845,7 @@ begin
   from closing
   -- Rechecked on the locked row: a claim, a renewal or a relaunch that commits first keeps the job.
   where job_row.id = closing.id
+    and (job_row.launch_unit_key is null or job_row.launch_unit_key not like 'plan:%' or job_row.id = any (plan_units))
     and job_row.execution_provider = 'chatgpt_local' and job_row.provider_batch_id is null
     and job_row.analysis_outcome is null and job_row.status = closing.status
     and job_row.retry_count = closing.retry_count
@@ -1740,7 +1860,140 @@ begin
 end;
 $$;
 
--- 13. The units of a request, for the affaire's activity, read by the server after it checked the reader's access to
+
+-- 13. The slot and the ledger follow the job's lease: renewed with it, given back by its end with the same token; the
+-- calls of an attempt that ends while reserved stay held as unknown.
+create function private.follow_takeoff_job_lease()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if new.status = 'processing' and new.processing_lease_token is not distinct from old.processing_lease_token then
+    update private.takeoff_host_slots s set expires_at = new.processing_lease_expires_at
+    where s.host_id = new.execution_host_id and s.job_id = new.id and s.holder_token = new.processing_lease_token
+      and new.processing_lease_expires_at is not null;
+    return null;
+  end if;
+  -- The worker's own end, or the recovery's closure of a lapsed lease, gives the Mac back; a member's cancellation does
+  -- not: the stopped worker's provider call may still run, until it ends (release_takeoff_host_slot) or its lease lapses.
+  if new.status in ('completed', 'failed') then
+    update private.takeoff_host_slots s set job_id = null, holder_token = null, acquired_at = null, expires_at = null
+    where s.host_id = old.execution_host_id and s.job_id = old.id and s.holder_token = old.processing_lease_token;
+  end if;
+  if old.launch_request_id is not null and old.processing_lease_token is not null then
+    update private.takeoff_launch_usage l set state = 'unknown', settled_at = pg_catalog.clock_timestamp()
+    where l.job_id = old.id and l.lease_token = old.processing_lease_token and l.state = 'reserved';
+  end if;
+  return null;
+end;
+$$;
+revoke all on function private.follow_takeoff_job_lease() from public, anon, authenticated, service_role;
+
+-- A plan of one analysis per plan starts, or renews its lease, only while it holds the Mac's slot under that lease: a
+-- released worker's direct claim (claim_local_takeoff_job without the slot) is refused, and so is a renewal of a worker
+-- whose lease lapsed and whose Mac another process took. The slot's row is locked: a claim of the Mac waits for this
+-- renewal, then reads it.
+create function private.require_takeoff_plan_unit_slot()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare
+  slot private.takeoff_host_slots%rowtype;
+begin
+  select * into slot from private.takeoff_host_slots s where s.host_id = new.execution_host_id for update;
+  if slot.job_id is distinct from new.id or slot.holder_token is distinct from new.processing_lease_token then
+    if old.status = 'processing' then
+      raise exception 'TAKEOFF_HOST_SLOT_LOST' using errcode = '40001';
+    end if;
+    raise exception 'TAKEOFF_HOST_SLOT_REQUIRED' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function private.require_takeoff_plan_unit_slot() from public, anon, authenticated, service_role;
+
+-- The send of one analysis per plan stays closed until the partial-send pull request: its job is never attached to a
+-- version (the send's only way to write it), and the send answers « not ready ». Lot 2's grouped analyses are unchanged.
+create function private.guard_takeoff_plan_unit_send()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (select 1 from public.takeoff_launch_requests r where r.id = new.launch_request_id
+      and r.manifest -> 'format_version' = '2'::jsonb) then
+    raise exception 'TAKEOFF_SEND_JOB_NOT_READY' using errcode = '40001',
+      detail = jsonb_build_object('reason', 'plan_unit_send_closed')::text;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function private.guard_takeoff_plan_unit_send() from public, anon, authenticated, service_role;
+
+-- 14. Last, the statements that lock the tables of the paid path, kept as short as possible: everything above takes no
+-- lock on them. In the order in which the previous application version's paid path writes them while this is applied (a
+-- job's end writes the job first; M4's settlement of a call locks the job, writes its ledger, then its request): the jobs
+-- (their index, then their triggers), the ledger, the requests last (their access exclusive lock also stops reads, held
+-- for milliseconds). A worker that ends a job, renews its lease or settles a call meanwhile waits for this migration,
+-- never in a cycle with it. A transaction that reads a request before it writes a job (an admission, a member's command
+-- or cancellation) may meet it in a cycle: either side is rolled back whole (with no call made); which writers to stop
+-- first, and what to do then, is the application procedure of the pull request.
+lock table public.takeoff_jobs in share row exclusive mode;
+-- The live jobs of each Mac: its dispatcher's queue and its next retry, without a scan of every job at each pass (whether
+-- it reads a job now is answered by takeoff_jobs_processing_lease_due_idx).
+create index takeoff_jobs_local_host_live_idx on public.takeoff_jobs (execution_host_id, status, next_retry_at)
+  where execution_provider = 'chatgpt_local' and analysis_outcome is null and status in ('pending', 'processing', 'failed');
+
+lock table private.takeoff_launch_usage in access exclusive mode;
+-- The ledger's states (section 8): a call reserved before it is sent, observed once settled, unknown when its usage never
+-- came back. A row lot 2's writer recorded is an observed call.
+alter table private.takeoff_launch_usage
+  add column state text not null default 'observed' check (state in ('reserved', 'observed', 'unknown')),
+  add column branch text check (branch in ('pdf', 'vector_group', 'other')),
+  add column reserved_tokens bigint not null default 0 check (reserved_tokens >= 0),
+  add column reserved_at timestamptz,
+  add column settled_at timestamptz,
+  add constraint takeoff_launch_usage_reservation_check check (
+    (state = 'observed') or (tokens = 0 and cost_cents = 0 and reserved_at is not null)
+  );
+create index takeoff_launch_usage_request_idx on private.takeoff_launch_usage (request_id, state);
+
+lock table public.takeoff_launch_requests in access exclusive mode;
+-- The request's counters (section 3).
+alter table public.takeoff_launch_requests
+  add column units_not_started integer not null default 0 check (units_not_started >= 0),
+  add column stop_requested_at timestamptz,
+  add column stop_requested_by uuid,
+  add constraint takeoff_launch_requests_stop_check check ((stop_requested_at is null) = (stop_requested_by is null)),
+  drop constraint takeoff_launch_requests_closure_check,
+  add constraint takeoff_launch_requests_closure_check check (
+    (state = 'closed') = (outcome is not null) and (outcome is null) = (closed_at is null)
+    and (outcome is null) = (completion_event_id is null)
+    and (units_expected is null or units_succeeded + units_failed + units_canceled + units_not_started <= units_expected)
+  );
+grant select (units_not_started, stop_requested_at) on public.takeoff_launch_requests to authenticated;
+
+-- What a job of a request may still spend: its unit's share (format 2; the request's envelope for format 1) and the
+-- request's envelope, each less what was observed and what is held; and the calls of the job in flight.
+create function private.takeoff_launch_job_balance(p_job public.takeoff_jobs, p_request public.takeoff_launch_requests)
+returns table (tokens_left bigint, cost_left bigint, in_flight bigint)
+language sql stable security definer set search_path = '' as $$
+  with unit as (
+    select coalesce(case when p_request.manifest -> 'format_version' = '2'::jsonb
+        then private.takeoff_launch_unit(p_request.manifest, p_job.launch_unit_key) -> 'budget' end,
+      jsonb_build_object('tokens', p_request.token_budget, 'cost_cents', p_request.cost_budget_cents)) as budget
+  ), job_usage as (
+    select coalesce(sum(l.tokens) filter (where l.state = 'observed'), 0) as tokens,
+      coalesce(sum(l.reserved_tokens) filter (where l.state <> 'observed'), 0) as held,
+      coalesce(sum(l.cost_cents), 0) as cost, count(*) filter (where l.state = 'reserved') as in_flight
+    from private.takeoff_launch_usage l where l.job_id = p_job.id
+  ), request_usage as (
+    select coalesce(sum(l.reserved_tokens), 0) as held from private.takeoff_launch_usage l
+    where l.request_id = p_request.id and l.state <> 'observed'
+  )
+  select least((unit.budget ->> 'tokens')::bigint - job_usage.tokens - job_usage.held,
+      p_request.token_budget - p_request.tokens_observed - request_usage.held),
+    least((unit.budget ->> 'cost_cents')::bigint - job_usage.cost, p_request.cost_budget_cents - p_request.cost_cents_observed),
+    job_usage.in_flight
+  from unit, job_usage, request_usage
+$$;
+revoke all on function private.takeoff_launch_job_balance(public.takeoff_jobs, public.takeoff_launch_requests)
+  from public, anon, authenticated, service_role;
+
+-- The units of a request, for the affaire's activity, read by the server after it checked the reader's access to
 -- the affaire: each unit in its recorded order with its state (section 2), its public reason, its plan as the dossier
 -- names it, its job; and what the request consumed. Never the Mac, the account, the lease, the selection or a
 -- provider's text.
@@ -1758,7 +2011,8 @@ returns jsonb language sql stable security definer set search_path = '' as $$
           'pages', coalesce(p.value -> 'pages', '[]'::jsonb),
           'job_id', j.id,
           'state', private.takeoff_unit_state(j.status::text, j.analysis_outcome, j.error_code, j.started_at),
-          'reason_code', case when j.error_code = any (private.takeoff_public_failure_codes())
+          'reason_code', case when j.error_code = any (case when r.manifest -> 'format_version' = '2'::jsonb
+              then private.takeoff_plan_public_failure_codes() else private.takeoff_public_failure_codes() end)
             and private.takeoff_unit_state(j.status::text, j.analysis_outcome, j.error_code, j.started_at) in ('failed', 'not_started')
             then j.error_code end,
           'retry_at', case when j.status = 'failed' and j.analysis_outcome is null then j.next_retry_at end,
@@ -1777,48 +2031,31 @@ $$;
 revoke all on function public.read_takeoff_launch_request_units(uuid, uuid, uuid) from public, anon, authenticated;
 grant execute on function public.read_takeoff_launch_request_units(uuid, uuid, uuid) to service_role;
 
--- 14. The slot and the ledger follow the job's lease: renewed with it, given back by its end with the same token; the
--- calls of an attempt that ends while reserved stay held as unknown.
-create function private.follow_takeoff_job_lease()
-returns trigger language plpgsql security definer set search_path = '' as $$
-begin
-  if new.status = 'processing' and new.processing_lease_token is not distinct from old.processing_lease_token then
-    update private.takeoff_host_slots s set expires_at = new.processing_lease_expires_at
-    where s.host_id = new.execution_host_id and s.job_id = new.id and s.holder_token = new.processing_lease_token
-      and new.processing_lease_expires_at is not null;
-    return null;
-  end if;
-  update private.takeoff_host_slots s set job_id = null, holder_token = null, acquired_at = null, expires_at = null
-  where s.host_id = old.execution_host_id and s.job_id = old.id and s.holder_token = old.processing_lease_token;
-  if old.launch_request_id is not null and old.processing_lease_token is not null then
-    update private.takeoff_launch_usage l set state = 'unknown', settled_at = pg_catalog.clock_timestamp()
-    where l.job_id = old.id and l.lease_token = old.processing_lease_token and l.state = 'reserved';
-  end if;
-  return null;
-end;
+-- The calls of unknown consumption of a page's requests, in one read, by the server after it checked the reader's access to
+-- the affaire: a call sent whose usage never came back stays held, and freezes its request's further paid calls.
+create function public.read_takeoff_launch_unknown_calls(p_tenant_id uuid, p_project_id uuid, p_request_ids uuid[])
+returns table (request_id uuid, unknown_calls bigint)
+language sql stable security definer set search_path = '' as $$
+  select r.id, count(l.call_key) filter (where l.state = 'unknown')
+  from public.takeoff_launch_requests r
+  left join private.takeoff_launch_usage l on l.request_id = r.id
+  where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.id = any (p_request_ids)
+  group by r.id
 $$;
-revoke all on function private.follow_takeoff_job_lease() from public, anon, authenticated, service_role;
+revoke all on function public.read_takeoff_launch_unknown_calls(uuid, uuid, uuid[]) from public, anon, authenticated;
+grant execute on function public.read_takeoff_launch_unknown_calls(uuid, uuid, uuid[]) to service_role;
 
--- The send of one analysis per plan stays closed until the partial-send pull request: its job is never attached to a
--- version (the send's only way to write it), and the send answers « not ready ». Lot 2's grouped analyses are unchanged.
-create function private.guard_takeoff_plan_unit_send()
-returns trigger language plpgsql security definer set search_path = '' as $$
-begin
-  if exists (select 1 from public.takeoff_launch_requests r where r.id = new.launch_request_id
-      and r.manifest -> 'format_version' = '2'::jsonb) then
-    raise exception 'TAKEOFF_SEND_JOB_NOT_READY' using errcode = '40001',
-      detail = jsonb_build_object('reason', 'plan_unit_send_closed')::text;
-  end if;
-  return new;
-end;
-$$;
-revoke all on function private.guard_takeoff_plan_unit_send() from public, anon, authenticated, service_role;
-
--- 15. Last, just before the commit: the triggers on takeoff_jobs (a short SHARE ROW EXCLUSIVE lock each).
+-- The triggers on takeoff_jobs.
 create trigger takeoff_job_lease_follow after update of status, processing_lease_expires_at on public.takeoff_jobs
   for each row when (old.status = 'processing' and (new.status <> 'processing'
     or new.processing_lease_expires_at is distinct from old.processing_lease_expires_at))
   execute function private.follow_takeoff_job_lease();
+create trigger aa1_require_takeoff_plan_unit_slot before update of status, processing_lease_token, processing_lease_expires_at
+  on public.takeoff_jobs
+  for each row when (new.launch_unit_key like 'plan:%' and new.status = 'processing' and (old.status <> 'processing'
+    or new.processing_lease_token is distinct from old.processing_lease_token
+    or new.processing_lease_expires_at is distinct from old.processing_lease_expires_at))
+  execute function private.require_takeoff_plan_unit_slot();
 -- First of the job's triggers (« aa0 »): before the identity guard, so that its refusal is the one a send reads.
 create trigger aa0_guard_takeoff_plan_unit_send before update of estimate_version_id on public.takeoff_jobs
   for each row when (old.estimate_version_id is null and new.estimate_version_id is not null and new.launch_request_id is not null)

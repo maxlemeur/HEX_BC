@@ -239,6 +239,9 @@ select is((select after_data #>> '{metadata,launch_request_id}' from public.audi
   and record_id = pg_temp.f(60)), pg_temp.request(20)::text, 'the job''s creation record names its request');
 select is((select count(*)::integer from public.audit_logs where action = 'takeoff.request.admitted'
   and record_id = pg_temp.request(20)), 1, 'the request''s admission is recorded');
+-- Migration A (20261121181031_takeoff_plan_dispatcher.sql), not activated: a grouped admission records exactly what lot 2 does.
+select is((select after_data -> 'metadata' ? 'format_version' from public.audit_logs where action = 'takeoff.request.admitted'
+  and record_id = pg_temp.request(20)), false, 'its admission record is the one lot 2 writes');
 select results_eq($$select outcome, job_id from public.admit_takeoff_launch_request(pg_temp.request(20), pg_temp.f(92), 0,
   pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(61))$$, $$values ('replayed'::text, pg_temp.f(60))$$,
   'a replay of the admission returns the same job');
@@ -278,6 +281,8 @@ select is((select count(*)::integer from private.takeoff_launch_usage where job_
 -- Its reading answered in one call of 1200 tokens, recorded by the worker under its lease and counted on the request.
 select results_eq($$select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.f(60), pg_temp.f(95), 'C:0', 1200, 0)$$,
   $$values (398800::bigint)$$, 'the call is recorded and the request has the rest of its budget');
+select results_eq($$select tokens, state, settled_at, reserved_at from private.takeoff_launch_usage where job_id = pg_temp.f(60)$$,
+  $$values (1200::bigint, 'observed'::text, null::timestamptz, null::timestamptz)$$, 'its row is the one lot 2 writes');
 select isnt(public.finalize_local_takeoff_result(pg_temp.f(60), pg_temp.f(10), pg_temp.f(95), clock_timestamp(), 'fixture', 'fixture',
   '{"extracted_json": {"items": []}, "warnings": [], "tables": [], "provider_meta": {}, "token_count": 1200, "cost_cents": 0,
     "run_metrics": [{"level": "C", "provider": "chatgpt", "model": "fixture", "chunk_index": 0, "chunk_start_page": 1,
@@ -306,6 +311,9 @@ select results_eq($$select origin, intent, predecessor_request_id, predecessor_j
   from public.takeoff_launch_requests where intent_key = pg_temp.f(71)$$,
   $$values ('manual'::text, 'reread_plans'::text, pg_temp.request(20), pg_temp.f(60), pg_temp.f(1), 'command'::text)$$,
   'it points to what it replaces and is paid by who clicked');
+select is((select after_data -> 'metadata' ? 'format_version' from public.audit_logs where action = 'takeoff.request.admitted'
+  and record_id = (select id from public.takeoff_launch_requests where intent_key = pg_temp.f(71))), false,
+  'its admission record is the one lot 2 writes');
 select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
   pg_temp.f(71), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(64), pg_temp.f(40), 1)$$,
   $$values ('replayed'::text, pg_temp.f(63))$$, 'a double click returns the same request and job');
@@ -318,6 +326,9 @@ select is((select count(*)::integer from public.takeoff_jobs where project_id = 
 select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
   pg_temp.f(72), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(65), pg_temp.f(40), 1)$$,
   $$values ('already_running'::text)$$, 'the relaunch still runs');
+select throws_ok($$select * from public.stop_takeoff_launch_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
+  (select id from public.takeoff_launch_requests where intent_key = pg_temp.f(71)))$$,
+  '22023', 'TAKEOFF_LAUNCH_STOP_GROUPED', 'a grouped analysis is one reading: no « stop the rest » by plan');
 update public.takeoff_jobs set status = 'canceled' where id = pg_temp.f(63);
 select is((select state from public.takeoff_launch_requests where intent_key = pg_temp.f(71)), 'closed', 'a canceled job closes its request');
 select is((select delivery_state from public.takeoff_completion_notifications where request_id = (select id from public.takeoff_launch_requests
@@ -385,10 +396,8 @@ select results_eq($$select outcome, job_id from public.admit_takeoff_launch_requ
 update public.takeoff_jobs set status = 'failed', error_code = 'TAKEOFF_WORKER_NOT_STARTED', error_message = 'Aucun Mac fictif',
   analysis_outcome = 'failure', completed_at = clock_timestamp(), next_retry_at = null
 where id = pg_temp.f(68) and status = 'pending';
--- Lot 3 (20261121181031_takeoff_plan_dispatcher.sql) counts a unit that never started apart from one that failed: each
--- unit in exactly one state. A unit that started and failed still counts as failed (takeoff-plan-dispatcher.test.sql).
-select results_eq($$select state, outcome, units_failed, units_not_started from public.takeoff_launch_requests where id = pg_temp.request(23)$$,
-  $$values ('closed'::text, 'failure'::text, 0, 1)$$, 'an admitted request whose job never started ends visibly');
+select results_eq($$select state, outcome, units_failed from public.takeoff_launch_requests where id = pg_temp.request(23)$$,
+  $$values ('closed'::text, 'failure'::text, 1)$$, 'an admitted request whose job never started ends visibly');
 select results_eq($$select outcome, plans_read_count, plans_failed_count, plans_not_started_count, recipient_user_id
   from public.takeoff_completion_notifications where request_id = pg_temp.request(23)$$,
   $$values ('failure'::text, 0, 0, 1, pg_temp.f(1))$$, 'its notice counts the plan as not started, for its payer');
@@ -411,6 +420,14 @@ select results_eq($$select state, reason_code from public.takeoff_launch_request
   $$values ('superseded'::text, null::text)$$, 'a later confirmation of its dossier never re-arms it');
 select results_eq($$select outcome, state, reason_code from pg_temp.take_on(21, 1, 'take_on')$$,
   $$values ('moved'::text, 'superseded'::text, null::text)$$, 'nor a take-over: a new analysis is a relaunch');
+-- A grouped request is settled by its own job's end, as lot 2 does: migration A's reconciliation leaves it alone.
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'completed', analysis_outcome = 'success', analysis_finished_at = clock_timestamp()
+where id = pg_temp.f(69);
+set local session_replication_role = origin;
+select is((select count(*)::integer from public.reconcile_takeoff_launch_requests() r
+  join public.takeoff_launch_requests q on q.id = r.request_id where q.intent_key = pg_temp.f(74)), 0,
+  'the reconciliation of one analysis per plan never closes a grouped request');
 select is(public.takeoff_launch_request_awaits_mac(pg_temp.request(21)), false, 'a set-aside start waits for no Mac');
 
 -- A dossier confirmed by a reader outside the server: its request is reserved in that transaction, and taken on later.
