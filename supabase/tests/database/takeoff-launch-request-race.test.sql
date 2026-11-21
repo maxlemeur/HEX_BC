@@ -140,7 +140,8 @@ $$;
 -- revision of the brief read now.
 create function pg_temp.confirm_sql(p_project uuid, p_member integer, p_notified boolean default true) returns text language sql stable as $$
   select format($confirm$select c.outcome, coalesce(c.request_id::text, ''), coalesce(c.state, ''), coalesce(c.reason_code, '')
-    from public.confirm_affaire_brief_takeoff(%1$L, %2$L, %3$L, %4$L, %5$L, %6$L, %7$L, null) c$confirm$,
+    from public.confirm_affaire_brief_takeoff(%1$L, %2$L, %3$L, %4$L, %5$L, %6$L, %7$L, null,
+      p_actor_claims => jsonb_build_object('sub', %3$L, 'role', 'authenticated')) c$confirm$,
     pg_temp.tenant(), p_project, pg_temp.fx(p_member), (select updated_at from public.affaire_briefs where project_id = p_project),
     case when p_notified then public.takeoff_payer_notice(pg_temp.tenant(), p_project, pg_temp.fx(p_member), pg_temp.selection()) end,
     pg_temp.host(), pg_temp.selection())
@@ -169,7 +170,8 @@ select is((select count(*)::integer from extensions.dblink_get_result('race_b', 
   reason_code text)), 0, 'and is done');
 select is((select state from reserved where session = 'b'), 'replayed',
   'the second is the same member''s identical submission: it gets the answer of the first');
-select is((select count(distinct request_id)::integer from reserved), 1, 'both find the same request');
+select results_eq($$select a.request_id is not null, a.request_id = b.request_id from reserved a, reserved b
+  where a.session = 'a' and b.session = 'b'$$, $$values (true, true)$$, 'both find the same request, named by each');
 select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.fx(10)), 1,
   'the affaire has one automatic request');
 

@@ -11,6 +11,10 @@ select no_plan();
 create function pg_temp.f(n integer) returns uuid language sql immutable as $$
   select ('d4c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
 $$;
+-- The verified claims of a member's session, which the server's confirmation evaluates the brief policy under.
+create function pg_temp.session(member uuid) returns jsonb language sql immutable as $$
+  select jsonb_build_object('sub', member, 'role', 'authenticated', 'aud', 'authenticated')
+$$;
 create function pg_temp.host() returns text language sql immutable as $$ select 'urn:uuid:d4c00000-0000-4000-8000-000000000099' $$;
 create function pg_temp.selection() returns jsonb language sql immutable as $$
   select jsonb_build_object('profileId', 'profil-fictif', 'model', 'modele-fictif', 'reasoningEffort', null,
@@ -61,7 +65,7 @@ create function pg_temp.confirm(project integer, member integer, tenant integer 
 returns table (outcome text, request_id uuid, state text, reason_code text, payer_id uuid) language sql as $$
   select c.outcome, c.request_id, c.state, c.reason_code, c.payer_id from public.confirm_affaire_brief_takeoff(pg_temp.f(tenant),
     pg_temp.f(project), pg_temp.f(member), pg_temp.brief_at(project), pg_temp.notice(project, member, tenant), pg_temp.host(),
-    pg_temp.selection(), null, false) c
+    pg_temp.selection(), null, false, p_actor_claims => jsonb_build_object('sub', pg_temp.f(member), 'role', 'authenticated')) c
 $$;
 
 -- What the server seals for affaire n's plan (its manifest, the snapshot of member 1, the job).
@@ -99,7 +103,8 @@ delete from private.takeoff_completion_activation;
 insert into private.takeoff_completion_activation (active_from) values (now() - interval '30 seconds');
 select isnt(pg_temp.notice(25, 1), (select digest from old_notice), 'a new notices cut-off makes another notice');
 select results_eq($$select c.outcome, c.state, c.reason_code from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(25),
-  pg_temp.f(1), pg_temp.brief_at(25), (select digest from old_notice), pg_temp.host(), pg_temp.selection(), null, false) c$$,
+  pg_temp.f(1), pg_temp.brief_at(25), (select digest from old_notice), pg_temp.host(), pg_temp.selection(), null, false,
+  p_actor_claims => pg_temp.session(pg_temp.f(1))) c$$,
   $$values ('confirmed'::text, 'blocked'::text, 'MANDATE_REQUIRED'::text)$$, 'and the old notice engages nobody');
 
 -- 2. A brief without an upload, or whose upload belongs to another affaire, is confirmed; its event is the brief's
@@ -120,18 +125,20 @@ set local session_replication_role = origin;
 select results_eq($$select c.outcome, c.request_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(26), pg_temp.f(1),
   (select (e.before_payload ->> 'updated_at')::timestamptz from public.affaire_intake_events e
     where e.project_id = pg_temp.f(26) and e.event_type = 'brief.confirmed'), pg_temp.notice(26, 1), pg_temp.host(), pg_temp.selection(),
-  null, false) c$$, $$select 'replayed'::text, request_id from first_answer$$,
+  null, false, p_actor_claims => pg_temp.session(pg_temp.f(1))) c$$, $$select 'replayed'::text, request_id from first_answer$$,
   'the same submission, replayed with the revision it was sent with, gets the request it reserved');
 select results_eq($$select c.outcome from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(26), pg_temp.f(5),
   (select (e.before_payload ->> 'updated_at')::timestamptz from public.affaire_intake_events e
-    where e.project_id = pg_temp.f(26) and e.event_type = 'brief.confirmed'), null, pg_temp.host(), pg_temp.selection(), null, false) c$$,
+    where e.project_id = pg_temp.f(26) and e.event_type = 'brief.confirmed'), null, pg_temp.host(), pg_temp.selection(), null, false,
+  p_actor_claims => pg_temp.session(pg_temp.f(5))) c$$,
   $$values ('conflict'::text)$$, 'another member''s form of that revision is stale');
 
 -- 4. The takeoff module, decided in SQL with the server's default: off, the confirmation reserves nothing.
 select results_eq($$select outcome, request_id from pg_temp.confirm(29, 6, 11)$$, $$values ('confirmed'::text, null::uuid)$$,
   'with the module off a confirmation reserves no request');
 select results_eq($$select c.outcome, c.state from public.confirm_affaire_brief_takeoff(pg_temp.f(11), pg_temp.f(29), pg_temp.f(6),
-  pg_temp.brief_at(29), null, pg_temp.host(), pg_temp.selection(), null, true) c$$, $$values ('replayed'::text, null::text)$$,
+  pg_temp.brief_at(29), null, pg_temp.host(), pg_temp.selection(), null, true,
+  p_actor_claims => pg_temp.session(pg_temp.f(6))) c$$, $$values ('replayed'::text, null::text)$$,
   'a replay with the module on by default still finds no request: the brief was confirmed while it was off');
 select is(public.takeoff_launch_is_active(), true, 'the activation is one boolean the server reads');
 select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(11), pg_temp.f(29), pg_temp.f(6), gen_random_uuid(),

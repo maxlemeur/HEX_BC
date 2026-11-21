@@ -10,6 +10,10 @@ select no_plan();
 create function pg_temp.f(n integer) returns uuid language sql immutable as $$
   select ('d4700000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
 $$;
+-- The verified claims of a member's session, which the server's confirmation evaluates the brief policy under.
+create function pg_temp.session(member uuid) returns jsonb language sql immutable as $$
+  select jsonb_build_object('sub', member, 'role', 'authenticated', 'aud', 'authenticated')
+$$;
 create function pg_temp.host() returns text language sql immutable as $$ select 'urn:uuid:d4700000-0000-4000-8000-000000000099' $$;
 create function pg_temp.selection() returns jsonb language sql immutable as $$
   select jsonb_build_object('profileId', 'profil-fictif', 'model', 'modele-fictif', 'reasoningEffort', null, 'hostId', pg_temp.host(),
@@ -22,7 +26,8 @@ returns table (outcome text, request_id uuid, state text, reason_code text, paye
   select c.outcome, c.request_id, c.state, c.reason_code, c.payer_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10),
     pg_temp.f(project), pg_temp.f(member), (select b.updated_at from public.affaire_briefs b where b.project_id = pg_temp.f(project)),
     public.takeoff_payer_notice(pg_temp.f(10), pg_temp.f(project), pg_temp.f(member), pg_temp.selection()),
-    pg_temp.host(), pg_temp.selection(), null) c
+    pg_temp.host(), pg_temp.selection(), null,
+  p_actor_claims => jsonb_build_object('sub', pg_temp.f(member), 'role', 'authenticated')) c
 $$;
 create function pg_temp.take_on(project integer, member integer, action text default null)
 returns table (outcome text, state text, reason_code text, payer_id uuid) language sql as $$
@@ -93,7 +98,8 @@ select ok((select count(*) from private.takeoff_launch_marks where project_id = 
 -- The member who did not win the brief's confirmation never pays (a director, who may confirm the affaire).
 select results_eq($$select outcome, request_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(20), pg_temp.f(3),
   (select updated_at - interval '1 second' from seen_brief), public.takeoff_payer_notice(pg_temp.f(10), pg_temp.f(20), pg_temp.f(3), pg_temp.selection()),
-  pg_temp.host(), pg_temp.selection(), null)$$, $$values ('conflict'::text, null::uuid)$$,
+  pg_temp.host(), pg_temp.selection(), null,
+  p_actor_claims => pg_temp.session(pg_temp.f(3)))$$, $$values ('conflict'::text, null::uuid)$$,
   'a member whose confirmation lost the brief''s compare-and-set reserves nothing');
 select results_eq($$select origin, intent, confirmed_by, payer_id, mandate_kind, execution_host_id, mandate_selection = pg_temp.selection()
   from public.takeoff_launch_requests where project_id = pg_temp.f(20)$$,
@@ -115,7 +121,8 @@ select is((select count(*)::integer from pg_temp.confirm(22, 1) where request_id
 
 -- A director confirms: the brief is confirmed, nobody pays until an operator takes it on.
 select results_eq($$select state, reason_code, payer_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(21),
-  pg_temp.f(3), (select updated_at from public.affaire_briefs where id = pg_temp.f(36)), null, null, null, 'LOCAL_RUNTIME_REQUIRED')$$,
+  pg_temp.f(3), (select updated_at from public.affaire_briefs where id = pg_temp.f(36)), null, null, null, 'LOCAL_RUNTIME_REQUIRED',
+  p_actor_claims => pg_temp.session(pg_temp.f(3)))$$,
   $$values ('blocked'::text, 'OPERATOR_REQUIRED'::text, null::uuid)$$, 'a reader who confirms does not pay');
 select throws_ok($$select * from pg_temp.take_on(21, 3)$$, '42501', 'TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE', 'a reader cannot take it on');
 select throws_ok($$select * from pg_temp.take_on(21, 2)$$, '42501', 'TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE',
@@ -298,8 +305,8 @@ select results_eq($$select outcome, job_id from public.launch_manual_takeoff_req
   pg_temp.f(71), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(64), pg_temp.f(40), 1)$$,
   $$values ('replayed'::text, pg_temp.f(63))$$, 'a double click returns the same request and job');
 select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
-  pg_temp.f(71), 'initial', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(64), pg_temp.f(40), 1)$$,
-  '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT', 'the same key with other content is a conflict');
+  pg_temp.f(71), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(64), pg_temp.f(40), 1)$$,
+  '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT', 'the same key with other content (a first analysis, without predecessor) is a conflict');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.f(20)), 2, 'two jobs in all: the first and the relaunch');
 
 -- 9. The admission and its records roll back together: a payer over the admission limit is blocked, visibly.

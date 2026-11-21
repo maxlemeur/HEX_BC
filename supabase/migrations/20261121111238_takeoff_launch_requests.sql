@@ -489,27 +489,37 @@ $$;
 revoke all on function public.takeoff_payer_may_launch(uuid, uuid, uuid) from public, anon, authenticated;
 grant execute on function public.takeoff_payer_may_launch(uuid, uuid, uuid) to service_role;
 
--- Who may confirm an affaire's brief, as the released brief policy decides it (20260306224500_est372_affaire_brief.sql:
--- the affaire's owner, or an administrator or director of its tenant), on rows locked until the confirmation commits: a
--- member demoted or an affaire moved meanwhile waits for it, or is seen.
-create function private.takeoff_member_may_confirm_brief(p_tenant_id uuid, p_project_id uuid, p_actor uuid)
+-- Who may confirm an affaire's brief: exactly whom the released brief policy lets update it
+-- (20260306224500_est372_affaire_brief.sql), by that policy's own functions evaluated under the member's verified session
+-- claims (`p_claims`, which the server read from the member's session): the affaire in the tenant the member works in now
+-- (public.current_tenant_id()), and its owner, an administrator or director of that tenant, or an administrator by the
+-- JWT (public.can_read_affaire_intake_project). The rows those functions read are locked until the confirmation commits:
+-- a member who switches tenant, is demoted, or an affaire that moves meanwhile waits for it, or is seen.
+create function private.takeoff_member_may_confirm_brief(p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_claims jsonb)
 returns boolean language plpgsql security definer set search_path = '' as $$
 declare
-  owner uuid;
-  role text;
+  saved_claims text := pg_catalog.current_setting('request.jwt.claims', true);
+  saved_claim text := pg_catalog.current_setting('request.jwt.claim', true);
+  saved_sub text := pg_catalog.current_setting('request.jwt.claim.sub', true);
+  allowed boolean;
 begin
-  select p.user_id into owner from public.estimate_projects p
-  join public.tenants t on t.id = p.tenant_id and t.is_active
-  where p.id = p_project_id and p.tenant_id = p_tenant_id for share of p;
-  if not found then
+  if p_actor is null or p_claims is null or jsonb_typeof(p_claims) <> 'object' or p_claims ->> 'sub' is distinct from p_actor::text then
     return false;
   end if;
-  select m.role::text into role from public.tenant_memberships m
-  where m.tenant_id = p_tenant_id and m.user_id = p_actor for share;
-  return role is not null and (owner = p_actor or role in ('admin', 'director'));
+  perform 1 from public.estimate_projects p where p.id = p_project_id and p.tenant_id = p_tenant_id for share;
+  perform 1 from public.tenant_memberships m join public.tenants t on t.id = m.tenant_id where m.user_id = p_actor for share of m, t;
+  -- auth.uid() and auth.jwt() read these settings: for this evaluation only, they are the member's.
+  perform pg_catalog.set_config('request.jwt.claims', p_claims::text, true);
+  perform pg_catalog.set_config('request.jwt.claim', '', true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', '', true);
+  allowed := p_tenant_id = public.current_tenant_id() and public.can_read_affaire_intake_project(p_project_id, p_tenant_id);
+  perform pg_catalog.set_config('request.jwt.claims', coalesce(saved_claims, ''), true);
+  perform pg_catalog.set_config('request.jwt.claim', coalesce(saved_claim, ''), true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(saved_sub, ''), true);
+  return coalesce(allowed, false);
 end;
 $$;
-revoke all on function private.takeoff_member_may_confirm_brief(uuid, uuid, uuid) from public, anon, authenticated, service_role;
+revoke all on function private.takeoff_member_may_confirm_brief(uuid, uuid, uuid, jsonb) from public, anon, authenticated, service_role;
 
 -- The affaire's automatic request, reserved if it has none: without a mandate, waiting for a gesture of its confirmer
 -- when they may launch (MANDATE_REQUIRED) or of an operator (OPERATOR_REQUIRED), or already set aside when an explicit
@@ -638,6 +648,17 @@ end;
 $$;
 revoke all on function private.assert_takeoff_launch_gesture(text, jsonb, text) from public, anon, authenticated;
 
+-- The receipt of the server's last confirmation of an affaire's brief: who confirmed it, from which revision, and when
+-- (the brief's confirmed_at). The identical retry of a confirmation whose answer was lost is recognised by it.
+create table private.takeoff_brief_confirmations (
+  project_id uuid primary key,
+  tenant_id uuid not null,
+  confirmed_by uuid not null,
+  seen_revision timestamptz not null,
+  confirmed_at timestamptz not null
+);
+revoke all on private.takeoff_brief_confirmations from public, anon, authenticated, service_role;
+
 -- The server's confirmation of a brief, in one commit: the actor's right to confirm that affaire on the rows it locks,
 -- the brief's compare-and-set on the revision the member saw, its event (in the brief's own affaire: its upload if it is
 -- the affaire's, otherwise the affaire's latest; a brief and an affaire without any upload are confirmed without one),
@@ -646,7 +667,8 @@ revoke all on function private.assert_takeoff_launch_gesture(text, jsonb, text) 
 -- the request as it is, also when the member's identical submission already confirmed it and its answer was lost.
 create function public.confirm_affaire_brief_takeoff(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_expected_updated_at timestamptz, p_notice text,
-  p_host text default null, p_selection jsonb default null, p_blocked_reason text default null, p_module_default boolean default false
+  p_host text default null, p_selection jsonb default null, p_blocked_reason text default null, p_module_default boolean default false,
+  p_actor_claims jsonb default null
 ) returns table (outcome text, brief_updated_at timestamptz, request_id uuid, state text, reason_code text, payer_id uuid)
 language plpgsql security definer set search_path = '' as $$
 #variable_conflict use_column
@@ -664,17 +686,18 @@ begin
   if not found then
     raise exception 'AFFAIRE_BRIEF_NOT_FOUND' using errcode = 'P0002';
   end if;
-  if not private.takeoff_member_may_confirm_brief(p_tenant_id, p_project_id, p_actor) then
+  if not private.takeoff_member_may_confirm_brief(p_tenant_id, p_project_id, p_actor, p_actor_claims) then
     raise exception 'TAKEOFF_BRIEF_CONFIRMATION_FORBIDDEN' using errcode = '42501';
   end if;
   select * into request from public.takeoff_launch_requests r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic';
   if brief.updated_at <> p_expected_updated_at then
-    -- The member's own submission of that revision confirmed the brief and its answer was lost: the same answer again.
+    -- The member's own submission of that revision confirmed the brief and its answer was lost: the same answer again,
+    -- found from that confirmation's receipt (an affaire without any upload has no intake event).
     if brief.status = 'confirme' and brief.confirmed_by = p_actor and exists (
-        select 1 from (select e.actor_user_id, e.before_payload from public.affaire_intake_events e
-          where e.project_id = p_project_id and e.event_type = 'brief.confirmed' order by e.created_at desc, e.id desc limit 1) latest
-        where latest.actor_user_id = p_actor and (latest.before_payload ->> 'updated_at')::timestamptz = p_expected_updated_at) then
+        select 1 from private.takeoff_brief_confirmations c
+        where c.project_id = p_project_id and c.tenant_id = p_tenant_id and c.confirmed_by = p_actor
+          and c.seen_revision = p_expected_updated_at and c.confirmed_at = brief.confirmed_at) then
       return query select 'replayed'::text, brief.updated_at, request.id, request.state, request.reason_code, request.payer_id;
       return;
     end if;
@@ -705,6 +728,10 @@ begin
   where b.id = brief.id
   returning * into brief;
   perform pg_catalog.set_config('mergeone.takeoff_brief_confirmation', '', true);
+  insert into private.takeoff_brief_confirmations as c (tenant_id, project_id, confirmed_by, seen_revision, confirmed_at)
+  values (p_tenant_id, p_project_id, p_actor, p_expected_updated_at, at)
+  on conflict (project_id) do update set tenant_id = excluded.tenant_id, confirmed_by = excluded.confirmed_by,
+    seen_revision = excluded.seen_revision, confirmed_at = excluded.confirmed_at;
   -- Never another affaire's upload: an event takes its scope from its upload.
   select u.id into event_upload from public.affaire_intake_uploads u
   where u.project_id = p_project_id and u.tenant_id = p_tenant_id
@@ -718,9 +745,9 @@ begin
   return query select 'confirmed'::text, brief.updated_at, request.id, request.state, request.reason_code, request.payer_id;
 end;
 $$;
-revoke all on function public.confirm_affaire_brief_takeoff(uuid, uuid, uuid, timestamptz, text, text, jsonb, text, boolean)
+revoke all on function public.confirm_affaire_brief_takeoff(uuid, uuid, uuid, timestamptz, text, text, jsonb, text, boolean, jsonb)
   from public, anon, authenticated;
-grant execute on function public.confirm_affaire_brief_takeoff(uuid, uuid, uuid, timestamptz, text, text, jsonb, text, boolean)
+grant execute on function public.confirm_affaire_brief_takeoff(uuid, uuid, uuid, timestamptz, text, text, jsonb, text, boolean, jsonb)
   to service_role;
 
 -- Any other confirmation of a brief (a released client's own update, an import): the request is reserved in that
@@ -1198,6 +1225,9 @@ begin
   if p_intent <> 'initial' and p_predecessor_job_id is null then
     raise exception 'TAKEOFF_LAUNCH_PREDECESSOR_REQUIRED' using errcode = '22023';
   end if;
+  if p_intent = 'initial' and p_predecessor_job_id is not null then
+    raise exception 'TAKEOFF_LAUNCH_PREDECESSOR_INVALID' using errcode = '22023';
+  end if;
   perform private.assert_takeoff_launch_selection(p_host, p_selection);
   if not private.takeoff_launch_active() then
     raise exception 'TAKEOFF_LAUNCH_INACTIVE' using errcode = '55000';
@@ -1394,9 +1424,10 @@ declare
   request public.takeoff_launch_requests%rowtype;
   inserted boolean;
 begin
-  select * into job from public.takeoff_jobs j where j.id = p_job_id;
-  if not found or job.status::text <> 'processing' or job.processing_lease_token is distinct from p_lease_token
-    or p_lease_token is null then
+  -- The job row locked while its lease is checked: a claim, a renewal or an end cannot change it meanwhile.
+  select * into job from public.takeoff_jobs j where j.id = p_job_id for no key update;
+  if not found or job.status::text <> 'processing' or p_lease_token is null or job.processing_lease_token is distinct from p_lease_token
+    or job.processing_lease_expires_at is null or job.processing_lease_expires_at <= pg_catalog.clock_timestamp() then
     raise exception 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED' using errcode = '42501';
   end if;
   if job.launch_request_id is null then
@@ -1430,7 +1461,7 @@ language sql stable security definer set search_path = '' as $$
   select case
       when not private.takeoff_module_enabled(j.tenant_id, p_module_default) then 'TAKEOFF_DISABLED'
       when not private.takeoff_launch_payer_eligible(j.tenant_id, j.project_id, j.created_by) then 'PAYER_NOT_ELIGIBLE'
-      when r.id is not null and (r.token_budget - r.tokens_observed <= 0 or r.cost_budget_cents - r.cost_cents_observed < 0)
+      when r.id is not null and (r.token_budget - r.tokens_observed <= 0 or r.cost_budget_cents - r.cost_cents_observed <= 0)
         then 'BUDGET_EXHAUSTED'
     end,
     r.token_budget - r.tokens_observed, r.cost_budget_cents - r.cost_cents_observed
@@ -1485,6 +1516,8 @@ alter table public.audit_logs add constraint audit_logs_action_check check (
   )
 ) not valid;
 alter table public.takeoff_launch_requests add constraint takeoff_launch_requests_project_fkey foreign key (project_id, tenant_id)
+  references public.estimate_projects (id, tenant_id) on delete cascade;
+alter table private.takeoff_brief_confirmations add constraint takeoff_brief_confirmations_project_fkey foreign key (project_id, tenant_id)
   references public.estimate_projects (id, tenant_id) on delete cascade;
 alter table private.takeoff_launch_commands add constraint takeoff_launch_commands_project_fkey foreign key (project_id, tenant_id)
   references public.estimate_projects (id, tenant_id) on delete cascade;

@@ -11,6 +11,10 @@ select no_plan();
 create function pg_temp.f(n integer) returns uuid language sql immutable as $$
   select ('d4a00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
 $$;
+-- The verified claims of a member's session, which the server's confirmation evaluates the brief policy under.
+create function pg_temp.session(member uuid) returns jsonb language sql immutable as $$
+  select jsonb_build_object('sub', member, 'role', 'authenticated', 'aud', 'authenticated')
+$$;
 create function pg_temp.host() returns text language sql immutable as $$ select 'urn:uuid:d4a00000-0000-4000-8000-000000000099' $$;
 create function pg_temp.selection(authorization_id text default 'autorisation-1') returns jsonb language sql immutable as $$
   select jsonb_build_object('profileId', 'profil-fictif', 'model', 'modele-fictif', 'reasoningEffort', null,
@@ -203,23 +207,25 @@ select isnt(public.takeoff_payer_notice(pg_temp.f(10), pg_temp.f(25), pg_temp.f(
   'the owning engineer is shown one');
 select results_eq($$select outcome, state, reason_code, payer_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(25),
   pg_temp.f(1), pg_temp.brief_at(25), public.takeoff_payer_notice(pg_temp.f(10), pg_temp.f(25), pg_temp.f(1), pg_temp.selection()),
-  pg_temp.host(), pg_temp.selection(), null)$$,
+  pg_temp.host(), pg_temp.selection(), null, p_actor_claims => pg_temp.session(pg_temp.f(1)))$$,
   $$values ('confirmed'::text, 'evaluating'::text, null::text, pg_temp.f(1))$$, 'a notified confirmation mandates its member');
 select results_eq($$select b.status, b.confirmed_by, (select count(*)::integer from public.affaire_intake_events e
   where e.project_id = b.project_id and e.event_type = 'brief.confirmed' and e.actor_user_id = pg_temp.f(1))
   from public.affaire_briefs b where b.project_id = pg_temp.f(25)$$, $$values ('confirme'::text, pg_temp.f(1), 1)$$,
   'the brief and its event are written in the same commit');
 select results_eq($$select outcome, state, reason_code, payer_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(26),
-  pg_temp.f(1), pg_temp.brief_at(26), null, pg_temp.host(), pg_temp.selection(), null)$$,
+  pg_temp.f(1), pg_temp.brief_at(26), null, pg_temp.host(), pg_temp.selection(), null,
+  p_actor_claims => pg_temp.session(pg_temp.f(1)))$$,
   $$values ('confirmed'::text, 'blocked'::text, 'MANDATE_REQUIRED'::text, null::uuid)$$,
   'a confirmation that carries no notice confirms the brief and engages nobody');
 select results_eq($$select outcome, state, reason_code, payer_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(27),
   pg_temp.f(1), pg_temp.brief_at(27), public.takeoff_payer_notice(pg_temp.f(10), pg_temp.f(27), pg_temp.f(1), pg_temp.selection('autorisation-0')),
-  pg_temp.host(), pg_temp.selection(), null)$$,
+  pg_temp.host(), pg_temp.selection(), null, p_actor_claims => pg_temp.session(pg_temp.f(1)))$$,
   $$values ('confirmed'::text, 'blocked'::text, 'MANDATE_REQUIRED'::text, null::uuid)$$,
   'a notice shown for another subscription or settings engages nobody either');
 select results_eq($$select outcome from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(28), pg_temp.f(1),
-  '2001-01-01T00:00:00Z', null, null, null, 'CHATGPT_NOT_CONNECTED')$$, $$values ('conflict'::text)$$,
+  '2001-01-01T00:00:00Z', null, null, null, 'CHATGPT_NOT_CONNECTED',
+  p_actor_claims => pg_temp.session(pg_temp.f(1)))$$, $$values ('conflict'::text)$$,
   'a form older than the brief is refused, and nothing is written');
 select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.f(28)), 0, 'no request is reserved');
 
@@ -230,7 +236,8 @@ select results_eq($$select payer_id, mandate_revision from public.take_on_takeof
   $$values (pg_temp.f(5), 1)$$, 'an administrator takes the unmandated request on');
 select results_eq($$select outcome, payer_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(26), pg_temp.f(1),
   pg_temp.brief_at(26), public.takeoff_payer_notice(pg_temp.f(10), pg_temp.f(26), pg_temp.f(1), pg_temp.selection()),
-  pg_temp.host(), pg_temp.selection(), null)$$, $$values ('replayed'::text, pg_temp.f(5))$$,
+  pg_temp.host(), pg_temp.selection(), null,
+  p_actor_claims => pg_temp.session(pg_temp.f(1)))$$, $$values ('replayed'::text, pg_temp.f(5))$$,
   'the confirmer''s late replay leaves the newer mandate and its payer');
 select results_eq($$select outcome, payer_id from public.take_on_takeoff_launch_request(pg_temp.f(10), pg_temp.f(26), pg_temp.f(1),
   pg_temp.request(26), 0, 'take_on', pg_temp.host(), pg_temp.selection(), null)$$, $$values ('moved'::text, pg_temp.f(5))$$,
@@ -245,7 +252,8 @@ select results_eq($$select outcome, mandate_revision from public.take_on_takeoff
 -- A gesture from a view of an earlier mandate is refused even when the action it saw is still offered: an operator took
 -- the request on from a Mac without the subscription connected (it waits for that operator's gesture again).
 select results_eq($$select outcome, reason_code from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(29), pg_temp.f(1),
-  pg_temp.brief_at(29), null, pg_temp.host(), pg_temp.selection(), null)$$, $$values ('confirmed'::text, 'MANDATE_REQUIRED'::text)$$,
+  pg_temp.brief_at(29), null, pg_temp.host(), pg_temp.selection(), null,
+  p_actor_claims => pg_temp.session(pg_temp.f(1)))$$, $$values ('confirmed'::text, 'MANDATE_REQUIRED'::text)$$,
   'a sixth affaire is confirmed without the notice');
 select results_eq($$select outcome, state, reason_code, mandate_revision from public.take_on_takeoff_launch_request(pg_temp.f(10),
   pg_temp.f(29), pg_temp.f(5), pg_temp.request(29), 0, 'take_on', null, null, 'CHATGPT_NOT_CONNECTED')$$,
