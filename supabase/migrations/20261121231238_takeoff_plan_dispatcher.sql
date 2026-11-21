@@ -306,8 +306,9 @@ end;
 $$;
 revoke all on function private.insert_takeoff_launch_jobs(public.takeoff_launch_requests, jsonb) from public, anon, authenticated, service_role;
 
--- M4's admission, its jobs inserted by the function above: its signature, its checks and its answers are unchanged; the
--- answer names the first unit's job, the audit all of them.
+-- The admission as 20261121193413_takeoff_launch_exclusion_and_send_requests.sql left it (an analysis outside any request
+-- that runs makes it wait), its jobs inserted by the function above: its signature, its checks and its answers are
+-- unchanged; the answer names the first unit's job, the audit all of them.
 create or replace function public.admit_takeoff_launch_request(
   p_request_id uuid, p_token uuid, p_mark bigint, p_manifest jsonb, p_snapshot jsonb, p_job jsonb, p_module_default boolean default false
 ) returns table (outcome text, job_id uuid, reason_code text)
@@ -349,7 +350,8 @@ begin
     when request.origin = 'automatic' and brief.status is distinct from 'confirme' then 'BRIEF_NOT_CONFIRMED'
     when not private.takeoff_launch_payer_eligible(request.tenant_id, request.project_id, request.payer_id) then 'PAYER_NOT_ELIGIBLE'
     when exists (select 1 from public.takeoff_launch_requests other where other.tenant_id = request.tenant_id
-      and other.project_id = request.project_id and other.state = 'admitted' and other.id <> request.id) then 'ANOTHER_ANALYSIS_RUNNING'
+      and other.project_id = request.project_id and other.state = 'admitted' and other.id <> request.id)
+      or private.takeoff_unrequested_analysis_running(request.tenant_id, request.project_id) is not null then 'ANOTHER_ANALYSIS_RUNNING'
   end;
   if failure is not null then
     perform private.release_takeoff_launch_evaluation(request.id,
@@ -403,9 +405,13 @@ begin
 end;
 $$;
 
--- 5. Explicit commands. M4's command keeps its signature and its identity (format 1, or format 2 of the plans of the
--- member's preparation); a command of format 2 that names its plans (« relancer ce plan », « lire ce plan ajouté ») has
--- its own identity, the plans named included, so that two commands on two plans never share a receipt.
+-- 5. Explicit commands. The command of 20261121193413_takeoff_launch_exclusion_and_send_requests.sql (its refusals of an
+-- automatic start that can still begin and of a second first analysis, the analysis outside any request that runs, the
+-- analysis it replaces locked before the affaire's key), shared by both manual entry points: M4's command keeps its
+-- signature and its identity (format 1, or format 2 of the plans of the member's preparation); a command of format 2 that
+-- names its plans (« relancer ce plan », « lire ce plan ajouté ») has its own identity, the plans named included, so that
+-- two commands on two plans never share a receipt. Its jobs are inserted in the order of their units, its answer names the
+-- first unit's job and its admission record all of them.
 create function private.launch_manual_takeoff_command(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
   p_host text, p_selection jsonb, p_manifest jsonb, p_snapshot jsonb, p_job jsonb, p_plan_set_id uuid,
@@ -420,6 +426,8 @@ declare
   predecessor_request uuid;
   admitted_jobs uuid[];
   violated text;
+  running_unrequested uuid;
+  decided_mark bigint;
 begin
   if p_intent not in ('initial', 'reread_plans') or p_intent_key is null or p_actor is null or p_plan_set_id is null
     or p_preparation_revision is null then
@@ -437,6 +445,13 @@ begin
   end if;
   if not private.takeoff_module_enabled(p_tenant_id, p_module_default) then
     raise exception 'TAKEOFF_LAUNCH_MODULE_DISABLED' using errcode = '55000';
+  end if;
+  -- The analysis it replaces, when launched outside any request, before the affaire's key: its Mac's claim of a retry holds
+  -- that row and then waits for the key (the restart guard of 20261121193413), while this command's request names it (a
+  -- key share). Both take the analysis first, never the reverse. A request's analysis is never restarted that way.
+  if p_predecessor_job_id is not null then
+    perform 1 from public.takeoff_jobs j where j.id = p_predecessor_job_id and j.tenant_id = p_tenant_id
+      and j.project_id = p_project_id and j.launch_request_id is null for key share;
   end if;
   -- Commands and reservations of one affaire are serialized on its key: the replay and the one-running rule read
   -- committed rows, and the automatic request a confirmation reserved is always found.
@@ -456,6 +471,20 @@ begin
   -- (it runs, the command is refused) or waits for this command, which then sets it aside.
   perform 1 from public.takeoff_launch_requests r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic' for update;
+  -- An automatic start that can still begin without a new dossier change (its eligible payer's Mac, or a gesture this
+  -- member may make) is taken on from the affaire's takeoff zone: refused, nothing is recorded. One that waits for a
+  -- dossier change or for nobody is set aside below by this explicit analysis.
+  decided_mark := private.takeoff_launch_mark_position(p_tenant_id, p_project_id);
+  if exists (select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
+      and private.takeoff_automatic_request_can_start(r, p_actor)) then
+    raise exception 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING' using errcode = '55000';
+  end if;
+  -- The first analysis only on an affaire that has none, whatever launched it: any other command names the analysis it
+  -- replaces or extends.
+  if p_intent = 'initial' and exists (select 1 from public.takeoff_jobs j
+      where j.tenant_id = p_tenant_id and j.project_id = p_project_id) then
+    raise exception 'TAKEOFF_LAUNCH_ANALYSIS_EXISTS' using errcode = '22023';
+  end if;
   select r.id, private.takeoff_launch_first_job(r.id) as job
   into running from public.takeoff_launch_requests r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted';
@@ -463,6 +492,15 @@ begin
     insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
     values (p_tenant_id, p_project_id, p_intent_key, p_digest, 'already_running', running.id, running.job, p_actor);
     return query select 'already_running'::text, running.id, running.job;
+    return;
+  end if;
+  -- An analysis launched outside any request (the dialogue's launch on a version, before the activation) that has not
+  -- ended runs too: the command is recorded with it, as with a running request, and no request is created.
+  running_unrequested := private.takeoff_unrequested_analysis_running(p_tenant_id, p_project_id);
+  if running_unrequested is not null then
+    insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
+    values (p_tenant_id, p_project_id, p_intent_key, p_digest, 'already_running', null, running_unrequested, p_actor);
+    return query select 'already_running'::text, null::uuid, running_unrequested;
     return;
   end if;
   if not private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_actor) then
@@ -482,6 +520,18 @@ begin
       'job_ids', to_jsonb(admitted_jobs), 'manifest_digest', request.manifest_digest, 'intent', p_intent,
       'predecessor_job_id', p_predecessor_job_id, 'execution_host_id', p_host, 'mandate_kind', 'command')
       || case when request.manifest -> 'format_version' = '2'::jsonb then jsonb_build_object('format_version', 2) else '{}'::jsonb end);
+    -- Before setting an automatic start aside: the dossier key exclusively, last of everything this command locks, as the
+    -- automatic admission takes it. A dossier change committed since the decision above is counted, and a start it lets
+    -- begin again is decided again, under the same lock: refused, nothing is recorded.
+    if exists (select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
+        and r.origin = 'automatic' and private.takeoff_launch_request_open(r)) then
+      perform pg_catalog.pg_advisory_xact_lock(private.takeoff_dossier_lock_key(p_project_id));
+      if private.takeoff_launch_mark_position(p_tenant_id, p_project_id) <> decided_mark and exists (
+          select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
+            and private.takeoff_automatic_request_can_start(r, p_actor)) then
+        raise exception 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING' using errcode = '55000';
+      end if;
+    end if;
     -- An automatic start that had not begun is set aside by this explicit analysis, for good: it never spends later.
     update public.takeoff_launch_requests r set state = 'superseded', reason_code = null,
       reason_details = jsonb_build_object('request_id', request.id), evaluation_lease_token = null, evaluation_lease_expires_at = null,
@@ -1619,7 +1669,9 @@ begin
     left join public.takeoff_launch_requests r on r.id = j.launch_request_id
     where j.execution_provider = 'chatgpt_local' and j.execution_host_id = p_host_id and j.provider_batch_id is null
       and j.analysis_outcome is null
-      and (j.status = 'pending' or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= pg_catalog.clock_timestamp()))
+      -- A retry past the wait ceiling is only closed by its recovery, never run (20261121193413's floor, as the Mac's poll).
+      and (j.status = 'pending' or (j.status = 'failed' and j.retry_count < 3 and j.next_retry_at <= pg_catalog.clock_timestamp()
+        and j.next_retry_at > coalesce(private.takeoff_retry_expiry_floor(), '-infinity'::timestamptz)))
       and (j.launch_request_id is null or r.state = 'admitted')
       and (active or j.launch_unit_key like 'plan:%')
       and private.takeoff_module_enabled(j.tenant_id, p_module_default)

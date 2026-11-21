@@ -419,9 +419,10 @@ select is((select count(*)::integer from public.reconcile_takeoff_launch_request
 -- answers name the first unit by its place, and a stopped reading's late end is refused.
 select results_eq($$select outcome, job_id from pg_temp.launch(29)$$, $$values ('admitted'::text, pg_temp.unit(29, 1))$$,
   'a request of seven plans whose names run against their identifiers');
+-- A command meanwhile names the analysis it replaces (a first analysis is refused once the affaire has one, 20261121193413).
 select results_eq($$select outcome, job_id from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(29), pg_temp.f(1),
-  pg_temp.f(629), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(29), pg_temp.snapshot(29), pg_temp.jobs(29),
-  pg_temp.f(49), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(49)))$$,
+  pg_temp.f(629), 'reread_plans', pg_temp.unit(29, 7), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(29), pg_temp.snapshot(29),
+  pg_temp.jobs(29), pg_temp.f(49), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(49)))$$,
   $$values ('already_running'::text, pg_temp.unit(29, 1))$$,
   'a command meanwhile gets the running request''s first unit by its place, not by its key');
 select is(pg_temp.dispatch(), pg_temp.unit(29, 1), 'the dispatcher hands its first unit');
@@ -468,15 +469,24 @@ select is(public.release_takeoff_host_slot(pg_temp.host(), pg_temp.f(954)), true
 create function pg_temp.round_unit(project integer, round integer, ordinal integer) returns uuid language sql immutable as $$
   select pg_temp.f(3000 + 100 * round + 10 * (project - 20) + ordinal)
 $$;
-create function pg_temp.round_launch(project integer, round integer) returns table (outcome text, request_id uuid, job_id uuid)
-language sql as $$
+create function pg_temp.plan_command(project integer, round integer, intent text, predecessor uuid)
+returns table (outcome text, request_id uuid, job_id uuid) language sql as $$
   select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(project), pg_temp.f(1),
-    pg_temp.f(700 + 10 * round + project - 20), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(project),
+    pg_temp.f(700 + 10 * round + project - 20), intent, predecessor, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(project),
     pg_temp.snapshot(project), (select jsonb_agg(j.value || jsonb_build_object('id',
         pg_temp.round_unit(project, round, (u.value ->> 'ordinal')::integer)) order by (u.value ->> 'ordinal')::integer)
       from jsonb_array_elements(pg_temp.jobs(project)) with ordinality as j(value, position)
       join jsonb_array_elements(pg_temp.manifest(project) -> 'units') with ordinality as u(value, position) using (position)),
     pg_temp.f(project + 20), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)))
+$$;
+-- The affaire's latest analysis: a later command names it (a first analysis only on an affaire that has none).
+create function pg_temp.latest_job(project integer) returns uuid language sql as $$
+  select j.id from public.takeoff_jobs j where j.project_id = pg_temp.f(project) order by j.created_at desc, j.id desc limit 1
+$$;
+create function pg_temp.round_launch(project integer, round integer) returns table (outcome text, request_id uuid, job_id uuid)
+language sql as $$
+  select * from pg_temp.plan_command(project, round, case when pg_temp.latest_job(project) is null then 'initial' else 'reread_plans' end,
+    pg_temp.latest_job(project))
 $$;
 -- A new day for the member: the admission ledgers of the cases above are set aside (their limits are section 2's and 11's).
 delete from public.takeoff_job_admissions where tenant_id = pg_temp.f(10);
@@ -541,6 +551,62 @@ select throws_ok($$select count(*) from public.claim_local_takeoff_job(pg_temp.r
   'TAKEOFF_HOST_SLOT_REQUIRED', 'nor can a released worker''s direct claim, which never holds the Mac');
 select results_eq($$select outcome from pg_temp.reserve(pg_temp.round_unit(21, 1, 1), 971, 'call:1')$$, $$values ('reserved'::text)$$,
   'the reading in progress still reserves its calls');
+
+
+-- 13. The launch rules of lot 2 PR 6 (20261121193413_takeoff_launch_exclusion_and_send_requests.sql) hold for a command of
+-- plans too, through the command both manual entry points share; the dispatcher never hands a retry past the wait ceiling,
+-- which only its recovery closes. Written before migration A was rebuilt on that migration's bodies: red then (the command
+-- of plans admitted each case, and the expired retry was handed first).
+insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute');
+-- The Mac is free again: the reading in progress is stopped, and its worker ends.
+select results_eq($$select request_state from public.stop_takeoff_launch_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
+  pg_temp.request(21))$$, $$values ('closed'::text)$$, 'the request read since the withdrawal is stopped');
+select is(public.release_takeoff_host_slot(pg_temp.host(), pg_temp.f(971)), true, 'and its worker gives the Mac back');
+-- A first analysis of an affaire that has one is refused: a command names the analysis it replaces or extends.
+select throws_ok($$select * from pg_temp.plan_command(22, 2, 'initial', null)$$, '22023', 'TAKEOFF_LAUNCH_ANALYSIS_EXISTS',
+  'a first analysis of plans on an affaire that has one is refused');
+-- An analysis of the affaire launched outside any request still runs (another Mac's, waiting): the command is answered
+-- with it, its receipt names no request, and nothing is admitted.
+set local session_replication_role = replica;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+  execution_host_id, created_at)
+values (pg_temp.f(3901), pg_temp.f(10), pg_temp.f(23), pg_temp.f(43), 'C', 'pending', pg_temp.f(1), 'chatgpt_local',
+  'urn:uuid:d5100000-0000-4000-8000-000000000098', now() + interval '1 second');
+set local session_replication_role = origin;
+select results_eq($$select outcome, request_id, job_id from pg_temp.plan_command(23, 2, 'reread_plans', pg_temp.unit(23, 1))$$,
+  $$values ('already_running'::text, null::uuid, pg_temp.f(3901))$$, 'a command of plans is answered with the analysis outside any request');
+select results_eq($$select answer, request_id, job_id from private.takeoff_launch_commands where intent_key = pg_temp.f(723)$$,
+  $$values ('already_running'::text, null::uuid, pg_temp.f(3901))$$, 'its receipt names that analysis and no request');
+select is((select count(*)::integer from public.takeoff_jobs where id = pg_temp.round_unit(23, 2, 1)), 0, 'nothing is admitted');
+-- While the affaire's automatic start can still begin (evaluated for its eligible payer), it is taken on from the zone: a
+-- command of plans is refused and records nothing.
+set local session_replication_role = replica;
+insert into public.takeoff_launch_requests (id, tenant_id, project_id, origin, intent, intent_key, state, reason_code, payer_id,
+  mandate_kind, mandated_at, execution_host_id, mandate_selection, mandate_revision, evaluated_mark, evaluated_at, confirmed_by,
+  updated_at) values
+  (pg_temp.f(3902), pg_temp.f(10), pg_temp.f(24), 'automatic', 'initial', pg_temp.f(3902), 'evaluating', null,
+    pg_temp.f(1), 'confirmation', now(), pg_temp.host(), pg_temp.selection(), 1, null, null, pg_temp.f(1), now());
+set local session_replication_role = origin;
+select throws_ok($$select * from pg_temp.plan_command(24, 2, 'reread_plans', pg_temp.unit(24, 1))$$, '55000',
+  'TAKEOFF_LAUNCH_AUTOMATIC_PENDING', 'a command of plans while the automatic start can still begin is refused');
+select results_eq($$select state, reason_code from public.takeoff_launch_requests where id = pg_temp.f(3902)$$,
+  $$values ('evaluating'::text, null::text)$$, 'the automatic start is never set aside');
+select is((select count(*)::integer from private.takeoff_launch_commands where intent_key = pg_temp.f(724)), 0, 'nothing is recorded');
+-- Two retries of analyses outside any request on this Mac, both due: the older one has waited past the wait ceiling, which
+-- the notices' activation started long ago. Only its recovery closes it; the dispatcher hands the other one.
+update private.takeoff_completion_activation set active_from = now() - interval '3 days';
+set local session_replication_role = replica;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+  execution_host_id, retry_count, next_retry_at, analysis_queued_at)
+values
+  (pg_temp.f(3903), pg_temp.f(10), pg_temp.f(25), pg_temp.f(45), 'C', 'failed', pg_temp.f(1), 'chatgpt_local', pg_temp.host(), 1,
+    clock_timestamp() - interval '25 hours', now() - interval '26 hours'),
+  (pg_temp.f(3904), pg_temp.f(10), pg_temp.f(25), pg_temp.f(45), 'C', 'failed', pg_temp.f(1), 'chatgpt_local', pg_temp.host(), 1,
+    clock_timestamp() - interval '1 minute', now() - interval '2 hours');
+set local session_replication_role = origin;
+select is(public.takeoff_local_retry_floor() > (select next_retry_at from public.takeoff_jobs where id = pg_temp.f(3903)), true,
+  'the older retry is past the wait ceiling');
+select is(pg_temp.dispatch(), pg_temp.f(3904), 'the dispatcher hands the retry within the ceiling, never the expired one');
 
 select * from finish();
 rollback;
