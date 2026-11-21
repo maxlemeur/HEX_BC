@@ -15,8 +15,9 @@ import {
 
 type Props = {
   templateKey: string;
-  published: { version: number; definition: ItemTemplateDefinition; publishedAt: string | null };
-  draft: { revision: number; definition: ItemTemplateDefinition } | null;
+  /** usedLineIds: every identifier the template ever used, which a new line never takes. */
+  published: { version: number; definition: ItemTemplateDefinition; publishedAt: string | null; usedLineIds: string[] };
+  draft: { revision: number; token: string; definition: ItemTemplateDefinition } | null;
 };
 
 function slug(text: string) {
@@ -32,7 +33,7 @@ function freshId(base: string, taken: Set<string>) {
 
 async function send(method: string, url: string, body: unknown) {
   const response = await fetch(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const payload = await response.json().catch(() => null) as { data?: { revision?: number; version?: number };
+  const payload = await response.json().catch(() => null) as { data?: { revision?: number; token?: string; version?: number };
     error?: { message?: string } } | null;
   if (!response.ok) throw new Error(payload?.error?.message ?? "Le gabarit n’a pas pu être enregistré.");
   return payload?.data ?? {};
@@ -47,6 +48,7 @@ export function ItemTemplateEditor({ templateKey, published, draft }: Props) {
   const router = useRouter();
   const [definition, setDefinition] = useState<ItemTemplateDefinition>(draft?.definition ?? published.definition);
   const [revision, setRevision] = useState(draft?.revision ?? 0);
+  const [token, setToken] = useState<string | null>(draft?.token ?? null);
   const [saved, setSaved] = useState(JSON.stringify(draft?.definition ?? published.definition));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -63,7 +65,8 @@ export function ItemTemplateEditor({ templateKey, published, draft }: Props) {
     setDefinition((current) => ({ ...current, families: current.families.map((family, index) => index !== familyIndex ? family
       : { ...family, lines: family.lines.filter((_, position) => position !== lineIndex) }) }));
   const addLine = (familyIndex: number, label: string) => setDefinition((current) => {
-    const taken = new Set(current.families.flatMap((family) => family.lines.map(({ id }) => id)));
+    // Never an identifier the template ever used: an item made from a retired line would follow it.
+    const taken = new Set([...published.usedLineIds, ...current.families.flatMap((family) => family.lines.map(({ id }) => id))]);
     const line: ItemTemplateLine = { id: freshId(label, taken), label, expectedUnit: null, measurementBasis: null,
       qualifiers: {}, synonyms: [] };
     return { ...current, families: current.families.map((family, index) => index !== familyIndex ? family
@@ -81,17 +84,18 @@ export function ItemTemplateEditor({ templateKey, published, draft }: Props) {
     }
   };
   const save = () => run(async () => {
-    const result = await send("PUT", `${base}/draft`, { expected_revision: revision, base_version: published.version, definition });
+    const result = await send("PUT", `${base}/draft`, { expected_token: token, base_version: published.version, definition });
     setRevision(result.revision ?? revision + 1);
+    setToken(result.token ?? null);
     setSaved(JSON.stringify(definition));
   });
   const publish = () => run(async () => {
-    await send("POST", `${base}/publish`, { expected_revision: revision, intent_key: intent.current });
+    await send("POST", `${base}/publish`, { expected_token: token, intent_key: intent.current });
     intent.current = crypto.randomUUID();
     router.refresh();
   });
   const discard = () => run(async () => {
-    await send("DELETE", `${base}/draft`, { expected_revision: revision });
+    await send("DELETE", `${base}/draft`, { expected_token: token });
     router.refresh();
   });
 

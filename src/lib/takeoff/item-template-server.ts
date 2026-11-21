@@ -24,6 +24,11 @@ const SHIPPED: Record<ItemTemplateKey, PosteTemplate> = { plomberie: PLUMBING_TE
 export type PublishedItemTemplate = {
   key: ItemTemplateKey;
   version: number;
+  /**
+   * Every line identifier the template ever used (this version's, the earlier versions', the shipped one's): a line
+   * added later never takes one of them, so that an item never follows a retired line without a decision.
+   */
+  usedLineIds: string[];
   /** Null for the definition shipped with the application. */
   publicationId: string | null;
   publishedAt: string | null;
@@ -32,16 +37,21 @@ export type PublishedItemTemplate = {
   template: PosteTemplate;
 };
 
+/** The line identifiers of the shipped definition, which the database cannot know: the server names them. */
+export function shippedItemTemplateLineIds(key: ItemTemplateKey) {
+  return SHIPPED[key].families.flatMap(({ lines }) => lines.map(({ id }) => id));
+}
+
 function shipped(key: ItemTemplateKey): PublishedItemTemplate {
   const template = SHIPPED[key];
-  return { key, version: template.version, publicationId: null, publishedAt: null, publishedBy: null,
-    definition: itemTemplateDefinitionFromTemplate(template), template };
+  return { key, version: template.version, usedLineIds: shippedItemTemplateLineIds(key), publicationId: null,
+    publishedAt: null, publishedBy: null, definition: itemTemplateDefinitionFromTemplate(template), template };
 }
 
 /** The latest version a tenant published, else the shipped one. A stored definition that no longer reads fails loudly. */
 export async function readPublishedItemTemplate(service: Service, tenantId: string, key: ItemTemplateKey): Promise<PublishedItemTemplate> {
   const { data, error } = await service.from("takeoff_item_template_versions")
-    .select("id, version, definition, published_at, published_by")
+    .select("id, version, definition, used_line_ids, published_at, published_by")
     .eq("tenant_id", tenantId).eq("template_key", key).order("version", { ascending: false }).limit(1);
   if (error) throw mapSupabaseError(error, "Impossible de lire le gabarit de l’entreprise.");
   const [row] = data;
@@ -49,13 +59,16 @@ export async function readPublishedItemTemplate(service: Service, tenantId: stri
   const parsed = itemTemplateDefinitionSchema.safeParse(row.definition);
   if (!parsed.success) throw internalError("Le gabarit publié de l’entreprise est illisible.");
   return {
-    key, version: row.version, publicationId: row.id, publishedAt: row.published_at, publishedBy: row.published_by,
-    definition: parsed.data,
+    key, version: row.version, usedLineIds: row.used_line_ids, publicationId: row.id, publishedAt: row.published_at,
+    publishedBy: row.published_by, definition: parsed.data,
     template: itemTemplateFromDefinition({ key, version: row.version, publicationId: row.id, definition: parsed.data }),
   };
 }
 
-export type ItemTemplateDraft = { revision: number; baseVersion: number; definition: ItemTemplateDefinition; updatedAt: string };
+/** A draft and its token: what a later save, discard or publication names (renewed at each save, never reused). */
+export type ItemTemplateDraft = {
+  revision: number; token: string; baseVersion: number; definition: ItemTemplateDefinition; updatedAt: string;
+};
 
 export type ItemTemplateAdministration = {
   published: Omit<PublishedItemTemplate, "template">;
@@ -77,17 +90,18 @@ export async function loadItemTemplateAdministration(key: ItemTemplateKey): Prom
   const service = createServiceRoleClient();
   const [published, draftRead] = await Promise.all([
     readPublishedItemTemplate(service, context.tenantId, key),
-    service.from("takeoff_item_template_drafts").select("revision, base_version, definition, updated_at")
+    service.from("takeoff_item_template_drafts").select("revision, token, base_version, definition, updated_at")
       .eq("tenant_id", context.tenantId).eq("template_key", key).maybeSingle(),
   ]);
   if (draftRead.error) throw mapSupabaseError(draftRead.error, "Impossible de lire le brouillon du gabarit.");
   const parsed = draftRead.data ? itemTemplateDefinitionSchema.safeParse(draftRead.data.definition) : null;
   const draft = draftRead.data && parsed?.success ? {
-    revision: draftRead.data.revision, baseVersion: draftRead.data.base_version, definition: parsed.data,
-    updatedAt: draftRead.data.updated_at,
+    revision: draftRead.data.revision, token: draftRead.data.token, baseVersion: draftRead.data.base_version,
+    definition: parsed.data, updatedAt: draftRead.data.updated_at,
   } : null;
   return {
-    published: { key: published.key, version: published.version, publicationId: published.publicationId,
+    published: { key: published.key, version: published.version, usedLineIds: published.usedLineIds,
+      publicationId: published.publicationId,
       publishedAt: published.publishedAt, publishedBy: published.publishedBy, definition: published.definition },
     draft, diff: draft ? diffItemTemplateDefinitions(published.definition, draft.definition) : null,
   };
@@ -103,6 +117,10 @@ function templateWriteFailure(error: { code?: string; message?: string }): never
     throw conflict("Le gabarit a changé depuis votre lecture : rechargez la page avant d’enregistrer.", undefined,
       "TAKEOFF_ITEM_TEMPLATE_STALE");
   }
+  if (message.includes("TAKEOFF_ITEM_TEMPLATE_LINE_REUSED")) {
+    throw unprocessableEntity("Un poste ajouté reprend l’identifiant d’un poste retiré : donnez-lui un nouvel identifiant.",
+      undefined, "TAKEOFF_ITEM_TEMPLATE_LINE_REUSED");
+  }
   if (message.includes("TAKEOFF_ITEM_TEMPLATE_INVALID")) {
     throw unprocessableEntity("Le gabarit n’est pas valide : vérifiez les postes et leurs identifiants.", undefined,
       "TAKEOFF_ITEM_TEMPLATE_INVALID");
@@ -111,11 +129,12 @@ function templateWriteFailure(error: { code?: string; message?: string }): never
 }
 
 /**
- * Save the draft the administrator edits: the revision it replaces (0 for none) and the published version its form
- * started from. A publication or another save in between refuses, so that a correction never reverts one it did not see.
+ * Save the draft the administrator edits: the token of the draft it replaces (null for none) and the published version
+ * its form started from. A publication, a discard or another save in between refuses, so that a correction never
+ * reverts or overwrites one it did not see.
  */
 export async function saveItemTemplateDraft(key: ItemTemplateKey, input: {
-  expectedRevision: number; baseVersion: number; definition: unknown;
+  expectedToken: string | null; baseVersion: number; definition: unknown;
 }) {
   const context = await requireTemplateAdministrator();
   const parsed = itemTemplateDefinitionSchema.safeParse(input.definition);
@@ -133,26 +152,29 @@ export async function saveItemTemplateDraft(key: ItemTemplateKey, input: {
   }
   const { data, error } = await service.rpc("save_takeoff_item_template_draft", {
     p_tenant_id: context.tenantId, p_actor: context.userId, p_template_key: key,
-    p_expected_revision: input.expectedRevision, p_base_version: input.baseVersion, p_definition: parsed.data as unknown as Json,
+    p_expected_token: input.expectedToken as string, p_base_version: input.baseVersion,
+    p_definition: parsed.data as unknown as Json, p_shipped_line_ids: shippedItemTemplateLineIds(key),
   });
   if (error) templateWriteFailure(error);
-  return { revision: data as number };
+  const [saved] = (data ?? []) as Array<{ revision: number; token: string }>;
+  if (!saved) throw internalError("Impossible d’enregistrer le gabarit.");
+  return { revision: saved.revision, token: saved.token };
 }
 
-export async function discardItemTemplateDraft(key: ItemTemplateKey, input: { expectedRevision: number }) {
+export async function discardItemTemplateDraft(key: ItemTemplateKey, input: { expectedToken: string }) {
   const context = await requireTemplateAdministrator();
   const { error } = await createServiceRoleClient().rpc("discard_takeoff_item_template_draft", {
-    p_tenant_id: context.tenantId, p_actor: context.userId, p_template_key: key, p_expected_revision: input.expectedRevision,
+    p_tenant_id: context.tenantId, p_actor: context.userId, p_template_key: key, p_expected_token: input.expectedToken,
   });
   if (error) templateWriteFailure(error);
   return { discarded: true };
 }
 
-export async function publishItemTemplate(key: ItemTemplateKey, input: { expectedRevision: number; intentKey: string }) {
+export async function publishItemTemplate(key: ItemTemplateKey, input: { expectedToken: string; intentKey: string }) {
   const context = await requireTemplateAdministrator();
   const { data, error } = await createServiceRoleClient().rpc("publish_takeoff_item_template", {
     p_tenant_id: context.tenantId, p_actor: context.userId, p_template_key: key,
-    p_expected_revision: input.expectedRevision, p_intent_key: input.intentKey,
+    p_expected_token: input.expectedToken, p_intent_key: input.intentKey, p_shipped_line_ids: shippedItemTemplateLineIds(key),
   });
   if (error) templateWriteFailure(error);
   const [published] = (data ?? []) as Array<{ version_id: string; version: number; replayed: boolean }>;

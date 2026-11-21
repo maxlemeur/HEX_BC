@@ -22,8 +22,9 @@ export default async function AdminTakeoffItemTemplatePage() {
         key={`${administration.published.version}:${administration.draft?.revision ?? 0}`}
         templateKey="plomberie"
         published={{ version: administration.published.version, definition: administration.published.definition,
-          publishedAt: administration.published.publishedAt }}
-        draft={administration.draft ? { revision: administration.draft.revision, definition: administration.draft.definition } : null}
+          publishedAt: administration.published.publishedAt, usedLineIds: administration.published.usedLineIds }}
+        draft={administration.draft ? { revision: administration.draft.revision, token: administration.draft.token,
+          definition: administration.draft.definition } : null}
       />
     </div>
   );

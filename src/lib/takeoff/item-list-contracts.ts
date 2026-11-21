@@ -41,14 +41,15 @@ export const itemListRecordedSchema = z.object({
 export const itemTemplateKeySchema = z.enum(ITEM_TEMPLATE_KEYS);
 
 export const itemTemplateSaveRequestSchema = z.object({
-  expected_revision: z.number().int().min(0),
+  /** The draft's token as read (null when there was none). */
+  expected_token: uuid.nullable(),
   base_version: z.number().int().min(1),
   definition: itemTemplateDefinitionSchema,
 }).strict();
 
-export const itemTemplateDiscardRequestSchema = z.object({ expected_revision: z.number().int().min(1) }).strict();
+export const itemTemplateDiscardRequestSchema = z.object({ expected_token: uuid }).strict();
 
 export const itemTemplatePublishRequestSchema = z.object({
-  expected_revision: z.number().int().min(1),
+  expected_token: uuid,
   intent_key: uuid,
 }).strict();

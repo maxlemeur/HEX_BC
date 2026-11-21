@@ -10,7 +10,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tem
     if (!key.success) throw notFound("Gabarit introuvable.");
     const body = itemTemplatePublishRequestSchema.safeParse(await parseJsonBody(request, badRequest));
     if (!body.success) throw unprocessableEntity("Demande invalide : rechargez la page.", undefined, "VALIDATION_ERROR");
-    return ok(await publishItemTemplate(key.data, { expectedRevision: body.data.expected_revision,
+    return ok(await publishItemTemplate(key.data, { expectedToken: body.data.expected_token,
       intentKey: body.data.intent_key }));
   } catch (error) {
     return toErrorResponse(error);
