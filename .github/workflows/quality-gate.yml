@@ -3,10 +3,9 @@ name: Quality Gate
 # Garde-fou sans secret, decoupe en jobs paralleles : le retour arrive en ~3 min
 # et le nom du job en echec dit deja ou chercher.
 #
-# Sur une PR, seuls « Statique » et « Tests » tournent : c'est le retour utile,
-# pour deux runners. Le build de production tourne sur main et sur demande
-# manuelle. La publication reste manuelle ; une nouvelle nuit sans changement
-# ne relance pas toute la validation. Les jobs et leurs controles sont identiques.
+# « Statique », « Tests » et « Build » tournent sur les PR, sur main et à la
+# demande. « Build » compile avec Webpack et vérifie le serveur de production.
+# La publication reste manuelle.
 #
 # Aucun job de plus pour gagner du temps : tsc et ESLint reprennent l'etat que
 # main a mis en cache (job « Statique »), et le projet Vitest jsdom tourne dans
@@ -170,7 +169,6 @@ jobs:
     name: Build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    if: ${{ github.event_name != 'pull_request' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -202,17 +200,10 @@ jobs:
           echo "statique : ${{ needs.static.result }}"
           echo "tests    : ${{ needs.tests.result }}"
           echo "build    : ${{ needs.build.result }}"
-          for result in "${{ needs.static.result }}" "${{ needs.tests.result }}"; do
+          for result in "${{ needs.static.result }}" "${{ needs.tests.result }}" "${{ needs.build.result }}"; do
             if [ "$result" != "success" ]; then
               echo "Quality Gate en echec : voir le job ci-dessus qui n'est pas 'success'."
               exit 1
             fi
           done
-          # Seul le build d'une PR peut être omis ; les autres jobs sont requis.
-          if [ "${{ needs.build.result }}" != "success" ]; then
-            if [ "$GITHUB_EVENT_NAME" != "pull_request" ] || [ "${{ needs.build.result }}" != "skipped" ]; then
-              echo "Quality Gate en echec : build requis hors pull request."
-              exit 1
-            fi
-          fi
           echo "Quality Gate au vert."

@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "MERGEONE_SKIP_BUILD_TYPECHECK=1 npm run build:compile",
   "regions": ["fra1"],
   "git": {
     "deploymentEnabled": false

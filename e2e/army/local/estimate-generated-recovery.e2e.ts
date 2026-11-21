@@ -6,6 +6,7 @@ import {
   action, assertApplied, capture, cost, installProbe, prepare, replies,
   resumeDialog, review, saved, selectOnly, stableRows, totals, type Json, type Prepared, type Ui,
 } from "./generated-ouvrage-recovery-support";
+import { readJsonlWitness } from "./jsonl-witness";
 
 // Observable failures and exact oracles were written before this implementation:
 // docs/testing/generated-ouvrage-recovery-e2e.md. No model or hidden repair.
@@ -507,7 +508,7 @@ armyTest("GO06 two real local fallback generations discard the previous pending 
     expect(calls).toHaveLength(2); expect(calls.every((call) => call.sessionPresent)).toBe(true); expect(bulk).toHaveLength(0);
     const networkFile = process.env.E2E_COVERAGE_NETWORK_LOG;
     if (!networkFile) throw new Error("Real server network guard evidence is required for the local fallback.");
-    const network = (await readFile(networkFile, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    const network = await readJsonlWitness<{ kind?: string; allowed?: boolean }>(networkFile);
     const denied = network.filter((entry) => entry.allowed === false);
     await recordEvidence(ui.army, "GO06-no-model-proof", { calls, bulk, guardInstalled: network.some((entry) => entry.kind === "guard-installed"), denied,
       generationMetadata: final.rows.drafts.map((row) => ({ id: row.id, metadata: row.generation_metadata })), modelCounterAloneIsInsufficient: true });

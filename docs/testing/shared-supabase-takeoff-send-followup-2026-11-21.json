@@ -1,0 +1,225 @@
+{
+  "date_utc": "2026-11-21",
+  "source_commit": "0c24ac99ec47f73f7ed93cc25531432c41624502",
+  "applied_and_verified": 1,
+  "applied": {
+    "file": "20261121085058_takeoff_send_grouped_lines_and_parts.sql",
+    "pr": 434,
+    "merge_commit": "0c24ac99ec47f73f7ed93cc25531432c41624502",
+    "remote_version": "20261121112355",
+    "applied_at_utc": "2026-11-21T11:23:55Z",
+    "attempts": 1,
+    "bytes": 99174,
+    "sha256": "dddbaaf69c7818e310b20f14b7af506fe85e6cb2d81fba4387cc5295c2e33c56",
+    "stored_form": "full_file_including_final_lf"
+  },
+  "history": {
+    "before": 417,
+    "after": 418,
+    "prior_417_rows_identical": true,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "prior_nine_match_m2_receipt": true
+  },
+  "precheck": {
+    "effects_table_absent": true,
+    "receipts": 0,
+    "commands": 0,
+    "jobs": 0,
+    "activation": 0,
+    "replaced_signatures_present": 7,
+    "new_function_names_absent": 3,
+    "lines_with_stale_parts": 0,
+    "db_utc": "2026-11-21 11:23:50.133493+00",
+    "allowed_window": true,
+    "other_locks": 0,
+    "relations_checked": [
+      "public.takeoff_send_receipts",
+      "public.takeoff_jobs",
+      "public.estimate_items",
+      "public.estimate_versions",
+      "public.estimate_projects"
+    ]
+  },
+  "functions": [
+    {
+      "signature": "private.finalize_takeoff_lengths(uuid,integer,integer,integer,uuid[],text,jsonb,jsonb)",
+      "operation": "replace",
+      "body_md5": "bc3944898bf158de49be4054a46e2f08",
+      "previous_body_md5": "d44df99a9a0a531d2e1265a4d67d854d",
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres}",
+      "security_definer": false
+    },
+    {
+      "signature": "private.takeoff_line_parts(uuid[],jsonb,uuid)",
+      "operation": "create",
+      "body_md5": "ca1dc9a9101efda22261b62321ab3e12",
+      "previous_body_md5": null,
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres}",
+      "security_definer": false
+    },
+    {
+      "signature": "private.takeoff_replace_pages(uuid,uuid,uuid,jsonb,uuid[])",
+      "operation": "replace",
+      "body_md5": "d66de8d645c5600e348362c7effbd41e",
+      "previous_body_md5": "29d13dad156c606dac124021f48e697e",
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres}",
+      "security_definer": false
+    },
+    {
+      "signature": "private.takeoff_send_admitted_role(jsonb,uuid,uuid,uuid,uuid)",
+      "operation": "replace",
+      "body_md5": "ce572bddcdac1cfe771eaa0044fd5cde",
+      "previous_body_md5": "76c4704c9e5a733d39d4b037998ca924",
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres}",
+      "security_definer": false
+    },
+    {
+      "signature": "private.takeoff_send_execute(uuid,uuid,public.tenant_role,uuid,jsonb,boolean)",
+      "operation": "replace",
+      "body_md5": "51d4599c9e619a473ca34285483216f2",
+      "previous_body_md5": "9a1fa54472f548a3a5842b6c71ad18cd",
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres}",
+      "security_definer": false
+    },
+    {
+      "signature": "private.takeoff_send_receipt_effects_of(uuid)",
+      "operation": "create",
+      "body_md5": "8312e744bbc7361ba3b48da1f719fca0",
+      "previous_body_md5": null,
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres}",
+      "security_definer": false
+    },
+    {
+      "signature": "public.complete_takeoff_send_effects(uuid,text)",
+      "operation": "create",
+      "body_md5": "ed6b490c9f0fc49bb0604d5111903994",
+      "previous_body_md5": null,
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "security_definer": true
+    },
+    {
+      "signature": "public.stage_takeoff_send(uuid,jsonb)",
+      "operation": "replace",
+      "body_md5": "758b422afe46df8d48f4c3871e78af23",
+      "previous_body_md5": "2810d2f12fc154b273b9eb5204499c38",
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "security_definer": true
+    },
+    {
+      "signature": "private.takeoff_send_replay(public.takeoff_send_receipts,uuid,uuid,text,text)",
+      "operation": "replace",
+      "body_md5": "1f5e62e4fd3ff173cf95fcfe9bab2958",
+      "previous_body_md5": "8417a6602a7399e0a0a52ebce5ea9080",
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres}",
+      "security_definer": false
+    },
+    {
+      "signature": "public.send_takeoff_job(jsonb)",
+      "operation": "replace",
+      "body_md5": "07c3ae25c09e48f8f4fa2426445376f0",
+      "previous_body_md5": "b9502915ee80c3e6a8f7c3b367c24a3e",
+      "owner": "postgres",
+      "execute_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "security_definer": true
+    }
+  ],
+  "table": {
+    "relation": "private.takeoff_send_receipt_effects",
+    "owner": "postgres",
+    "rls": false,
+    "force_rls": false,
+    "acl": "{postgres=arwdDxtm/postgres}",
+    "columns": [
+      [
+        "receipt_id",
+        "uuid",
+        true,
+        null
+      ],
+      [
+        "command_format",
+        "smallint",
+        true,
+        null
+      ],
+      [
+        "affaire_owner_id",
+        "uuid",
+        false,
+        null
+      ],
+      [
+        "defaults_completed_at",
+        "timestamp with time zone",
+        false,
+        null
+      ],
+      [
+        "completed_at",
+        "timestamp with time zone",
+        false,
+        null
+      ]
+    ],
+    "constraints": {
+      "takeoff_send_receipt_effects_pkey": "PRIMARY KEY (receipt_id)",
+      "takeoff_send_receipt_effects_receipt_id_fkey": "FOREIGN KEY (receipt_id) REFERENCES takeoff_send_receipts(id) ON DELETE CASCADE",
+      "takeoff_send_receipt_effects_command_format_check": "CHECK ((command_format = ANY (ARRAY[1, 2])))"
+    },
+    "all_valid": true,
+    "indexes": [
+      "CREATE UNIQUE INDEX takeoff_send_receipt_effects_pkey ON private.takeoff_send_receipt_effects USING btree (receipt_id)"
+    ],
+    "policies": 0,
+    "user_triggers": 0
+  },
+  "postcheck": {
+    "effects": 0,
+    "activation": 0
+  },
+  "security_advisors": {
+    "before": [
+      [
+        "rls_enabled_no_policy",
+        26
+      ],
+      [
+        "authenticated_security_definer_function_executable",
+        88
+      ],
+      [
+        "auth_leaked_password_protection",
+        1
+      ]
+    ],
+    "after": [
+      [
+        "rls_enabled_no_policy",
+        26
+      ],
+      [
+        "authenticated_security_definer_function_executable",
+        88
+      ],
+      [
+        "auth_leaked_password_protection",
+        1
+      ]
+    ],
+    "added": [],
+    "removed": []
+  },
+  "notices_activated": false,
+  "deployed": false,
+  "flags_changed": false
+}

@@ -58,8 +58,8 @@ function makeDatabase() {
     return Promise.resolve(result).then((value) => { traffic.inFlight -= 1; return resolve(value); });
   };
   let insertedCount = 0;
-  function builder(table: string) {
-    const filters: Array<(row: Row) => boolean> = [];
+  function builder(table: string, scope: Row = {}) {
+    const filters: Array<(row: Row) => boolean> = Object.entries(scope).map(([key, value]) => (row: Row) => row[key] === value);
     let patch: Row | null = null;
     let pendingInsert: Row[] | null = null;
     let mode: "all" | "one" = "all";
@@ -108,7 +108,10 @@ function makeDatabase() {
   }
   const supabase = {
     from: vi.fn((table: string) => builder(table)),
-    rpc: vi.fn(() => builder("risk_items")),
+    // The alerts of one job and version (public.read_takeoff_risk_alerts): the table's rows under its arguments.
+    rpc: vi.fn((fn: string, args: Row) => fn === "read_takeoff_risk_alerts"
+      ? builder("estimate_risk_alerts", { tenant_id: args.p_tenant_id, version_id: args.p_version_id, takeoff_job_id: args.p_job_id })
+      : builder("risk_items")),
   };
   return { tables, writes, supabase, access, traffic, hooks };
 }
@@ -165,6 +168,9 @@ describe("risk radar operations", () => {
       tenant_id: TENANT, version_id: VERSION, takeoff_job_id: JOB, is_active: true,
     })]);
     expect(db.supabase.rpc).toHaveBeenCalledWith("read_estimate_version_items", { p_tenant_id: TENANT, p_version_id: VERSION }, { count: "exact", get: true });
+    // The stored projection is read with one access check per statement, not the table's per-alert policy.
+    expect(db.supabase.rpc).toHaveBeenCalledWith("read_takeoff_risk_alerts",
+      { p_tenant_id: TENANT, p_version_id: VERSION, p_job_id: JOB }, { count: "exact", get: true });
   });
 
   it("answers a large radar GET with every alert of its projection: reviewed ones keep their decision, inactive ones return, stale ones leave", async () => {
@@ -322,6 +328,9 @@ describe("risk radar operations", () => {
     ];
     const alerts = await fetchTakeoffActiveRiskAlerts(JOB, { version_id: VERSION });
     expect(alerts.map((alert) => alert.alert_id)).toEqual([ALERT]);
+    expect(db.supabase.rpc).toHaveBeenCalledWith("read_takeoff_risk_alerts",
+      { p_tenant_id: TENANT, p_version_id: VERSION, p_job_id: JOB }, { count: "exact", get: true });
+    expect(db.supabase.from).not.toHaveBeenCalledWith("estimate_risk_alerts");
     expect(assertTakeoffJobAccessibleForVersion).toHaveBeenCalledWith({ supabase: db.supabase, tenantId: TENANT, versionId: VERSION, jobId: JOB });
     expect(db.writes).toEqual([]);
     expect(loadTakeoffDpgfComparisonContext).not.toHaveBeenCalled();

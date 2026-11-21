@@ -8,6 +8,7 @@ import type { Browser } from "@e2e-dev/web";
 import { apiRequest, createEstimateViaWizard, readEstimate, setLineCoreValues, type ArmyItem, type ArmyState } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
 import { allowOfferLaborRoleUpdate, allowOfferLifecycleTransition, offerTest, recordOfferEvidence } from "./offer-emission-fixtures";
+import { readJsonlWitness } from "./jsonl-witness";
 import { CALC_V3_EMAIL_REDIRECT_TO } from "../../../scripts/tester-army/calc-v3-phases";
 
 // Failure modes precede this harness in docs/testing/offer-emission-business-cases.md.
@@ -351,7 +352,7 @@ async function send(ui: OfferUi, caseId: string, versionId: string, resend = fal
   await modal.getByLabel("Message *", { exact: true }).fill("Veuillez consulter notre proposition et son PDF contractuel.");
   const networkFile = process.env.E2E_OFFER_NETWORK_LOG;
   if (!networkFile) throw new Error("App preload network witness required before confirmation.");
-  const networkEntries = JSON.parse(`[${(await readFile(networkFile, "utf8")).trim().split(/\r?\n/).join(",")}]`) as { kind: string; pid: number; allowed: boolean; role: string }[];
+  const networkEntries = await readJsonlWitness<{ kind: string; pid: number; allowed: boolean; role: string }>(networkFile);
   const installed = networkEntries.filter((entry) => entry.kind === "guard-installed" && entry.pid !== process.pid);
   await recordOfferEvidence(ui.army, `${caseId}-preload-${resend ? "resend" : "initial"}`, { installed, beforeSendPosts: sendPosts });
   expect(installed.length > 0).toBe(true);
@@ -361,7 +362,7 @@ async function send(ui: OfferUi, caseId: string, versionId: string, resend = fal
   ]);
   const reply = await response.json<{ ok: boolean; data?: { message_id: string; redirected: boolean }; error?: { code: string; message: string; details?: unknown } }>();
   const state = await readEstimate(ui.browser, versionId);
-  const networkAfter = JSON.parse(`[${(await readFile(networkFile, "utf8")).trim().split(/\r?\n/).join(",")}]`) as { kind: string; pid: number; allowed: boolean; role: string }[];
+  const networkAfter = await readJsonlWitness<{ kind: string; pid: number; allowed: boolean; role: string }>(networkFile);
   await recordOfferEvidence(ui.army, `${caseId}-send-${resend ? "resend" : "initial"}`, {
     responseStatus: response.status, ok: reply.ok, errorCode: reply.error?.code ?? null,
     providerError: reply.error?.details ?? null, sendPosts, receiptCountBefore: before.length,
@@ -644,7 +645,7 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
   const receiptsBefore = await receiptNames();
   const networkFile = process.env.E2E_OFFER_NETWORK_LOG;
   if (!networkFile) throw new Error("OF04 missing server network witness.");
-  const networkBefore = (await readFile(networkFile, "utf8")).trim().split(/\r?\n/).filter(Boolean).map((entry) => JSON.parse(entry) as { role: string });
+  const networkBefore = await readJsonlWitness<{ role: string }>(networkFile);
   const statusEndpoint = new URL(`/api/estimates/${p.ids.versionId}/status`, ui.app.baseUrl!).href;
   const sendEndpoint = new URL(`/api/estimates/${p.ids.versionId}/send`, ui.app.baseUrl!).href;
   let sendPosts = 0;
@@ -684,7 +685,7 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
     ]);
     const reply = await response.json<{ ok: boolean; error?: { code?: string } }>();
     const actual = await readEstimate(ui.browser, p.ids.versionId);
-    const networkAfter = (await readFile(networkFile, "utf8")).trim().split(/\r?\n/).filter(Boolean).map((entry) => JSON.parse(entry) as { role: string });
+    const networkAfter = await readJsonlWitness<{ role: string }>(networkFile);
     const collectorCallsBefore = networkBefore.filter((entry) => entry.role === "collector").length;
     const collectorCallsAfter = networkAfter.filter((entry) => entry.role === "collector").length;
     await recordOfferEvidence(ui.army, "OF04-manual-observed", {
@@ -749,7 +750,7 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
       ]);
       const lifecycleReply = await lifecycleResponse.json<{ ok: boolean; error?: { code?: string } }>();
       const changed = await readEstimate(ui.browser, p.ids.versionId);
-      const lifecycleNetwork = (await readFile(networkFile, "utf8")).trim().split(/\r?\n/).filter(Boolean).map((entry) => JSON.parse(entry) as { role: string });
+      const lifecycleNetwork = await readJsonlWitness<{ role: string }>(networkFile);
       await recordOfferEvidence(ui.army, `OF04-lifecycle-${transition.status}`, { versionId: p.ids.versionId,
         responseStatus: lifecycleResponse.status, ok: lifecycleReply.ok, errorCode: lifecycleReply.error?.code ?? null,
         expectedStatus: transition.status, actualStatus: changed.version.status, totals: totals(changed.version),
@@ -2530,7 +2531,7 @@ offerTest("NF03 first Affaire opening after editor PDF sends its original projec
     await modal.getByLabel("Message *", { exact: true }).fill("ARMY confirmation depuis la première projection Affaire.");
     const networkFile = process.env.E2E_OFFER_NETWORK_LOG;
     if (!networkFile) throw new Error("NF03 missing owned app network witness.");
-    const eventsBefore = (await readFile(networkFile, "utf8")).split(/\r?\n/).filter(Boolean).map((row) => JSON.parse(row) as { kind: string; pid: number; role: string; allowed?: boolean });
+    const eventsBefore = await readJsonlWitness<{ kind: string; pid: number; role: string; allowed?: boolean }>(networkFile);
     const installed = eventsBefore.filter((row) => row.kind === "guard-installed" && row.pid !== process.pid);
     await recordOfferEvidence(ui.army, "NF03-before-confirmation", { ids, source: afterSource, gating: afterGating, leases, pages, explicitAffaireOpenCount, networkGuardInstalled: installed.length > 0,
       receiptCount: (await receiptNames()).length, noReloadBeforeConfirm: true, outgoingHeadersUnmodified: true });
@@ -2540,7 +2541,7 @@ offerTest("NF03 first Affaire opening after editor PDF sends its original projec
     const [response] = await Promise.all([ui.browser.waitForResponse(sendUrl, { timeout: 120000 }), modal.getByRole("button", "Envoyer", { exact: true }).click()]);
     const reply = await response.json<{ ok: boolean; data?: { message_id?: string }; error?: { code?: string } }>();
     const after = await readEstimate(ui.browser, ids.versionId), receiptsAfter = await receiptNames();
-    const eventsAfter = (await readFile(networkFile, "utf8")).split(/\r?\n/).filter(Boolean).map((row) => JSON.parse(row) as { kind: string; pid: number; role: string });
+    const eventsAfter = await readJsonlWitness<{ kind: string; pid: number; role: string }>(networkFile);
     await recordOfferEvidence(ui.army, "NF03-actual-response", { ids, originalName, responseStatus: response.status, ok: reply.ok, errorCode: reply.error?.code ?? null,
       requests, leases, beforeAffaire: beforeSource, currentAfterAffaire: afterSource, after: nf03Source(after), pages, explicitAffaireOpenCount,
       sealPayloadVersion: after.version.seal_payload_version ?? null, sealHashPresent: typeof after.version.seal_hash === "string" && /^[a-f0-9]{64}$/.test(after.version.seal_hash),
