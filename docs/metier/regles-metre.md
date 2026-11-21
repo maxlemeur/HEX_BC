@@ -23,22 +23,36 @@ liste lorsque son import est terminé, que ses colonnes sont validées et que se
 sont attestées. Sans DPGF, la liste vient du gabarit publié par l’entreprise, à
 défaut de la version livrée avec l’application. Une DPGF à préparer ou plusieurs
 DPGF renvoient au dossier. Le prix n’intervient jamais : la quantité de la DPGF reste
-une référence documentaire.
+une référence documentaire. Aucun texte libre de l’import n’est montré ni enregistré
+dans la liste : les notes d’une ligne n’y laissent qu’une empreinte, qui distingue deux
+lignes sans rien révéler à un lecteur qui ne voit pas l’import.
 
 **Choix de structure.** La confirmation d’un import enregistre ses choix : une ligne
-devenue section et son niveau, gardée comme ligne, ou ignorée. Elle les enregistre
-dans la transaction du devis qu’elle crée, ou juste après la seule correspondance.
-Une preuve couvre ces choix, l’ordre des lignes, leurs champs mesurés et la
-correspondance. Si l’import change, par exemple après une nouvelle confirmation par
-une version antérieure de l’application, la preuve ne correspond plus. La liste lit
-alors les titres tels quels et le dit. Un total, une ligne vide, illisible ou un
-en-tête répété ne devient jamais un poste, quel que soit le choix.
+devenue section et son niveau, gardée comme ligne, ou ignorée. Elle enregistre aussi
+les lignes que l’import a écartées, avec leur raison : un total et les options qui le
+suivent, les paramètres du classeur, une ligne ignorée. La liste ne fait jamais un
+poste de ces lignes. La confirmation porte sur les lignes que sa correspondance a
+faites, toutes, une par ligne brute. Des lignes écrites par la correspondance d’un
+autre onglet, ou encore en cours d’écriture, la refusent : « Le mappage a changé dans
+un autre onglet : rechargez-le et vérifiez-le avant de confirmer. » Le serveur vérifie
+ces lignes, puis la base les compare de nouveau sous le verrou de l’import. Les choix
+s’enregistrent dans la transaction du devis créé. Sans devis, ils s’enregistrent juste
+après la correspondance, qui s’écrit en plusieurs requêtes et ne peut pas partager
+leur transaction : la confirmation ne réussit pas sans eux, et confirmer de nouveau
+les enregistre. Une preuve couvre ces choix, les lignes écartées, l’ordre des lignes,
+leurs champs mesurés et la correspondance. Si l’import change, la preuve ne correspond
+plus. Si un devis est créé depuis l’import après la confirmation sans enregistrer de
+choix (une version antérieure de l’application), les choix ne sont plus établis. Dans
+ces deux cas, la liste lit les titres tels quels et le dit. Une ligne vide, illisible
+ou un en-tête répété ne devient jamais un poste, quel que soit le choix.
 
 **Emplacement d’origine.** Pour un CSV, la position est le rang de l’enregistrement
 importé (« Enregistrement importé N »), jamais une ligne physique du fichier. Pour un
-classeur, c’est la ligne du tableau importé (« Ligne du tableau N »), comptée depuis
-le début de la plage lue. Ce n’est pas encore la ligne de la feuille Excel : l’import
-ne l’enregistre pas. Pour un PDF, c’est la page.
+classeur importé depuis l’enregistrement de la ligne où commence son tableau, la liste
+donne la ligne de la feuille, telle qu’Excel la numérote, puis la ligne du tableau
+(« Ligne 5 de la feuille (ligne du tableau 3) »). Un classeur importé avant donne la
+ligne du tableau seule (« Ligne du tableau 3 »), comptée depuis le début de la plage
+lue. Pour un PDF, c’est la page.
 
 **Identité.** Un poste reçoit un identifiant à sa première apparition, dérivé de son
 origine : ligne brute de la DPGF, ligne du gabarit ou ajout à la main. Il le garde
@@ -49,26 +63,37 @@ opérateur ; le poste garde alors ses deux origines. La base de données refuse 
 autre réutilisation, et l’identifiant d’un poste d’une autre affaire.
 
 **Révisions.** Quand le dossier ou le gabarit change, la page propose une révision :
-postes ajoutés, retirés, modifiés et rapprochements possibles. Aucun rapprochement
-n’est coché d’avance. Rien n’est appliqué sans « Accepter la révision proposée ». Le
-serveur recalcule la proposition et refuse celle qui a changé depuis l’affichage. Les
-postes ajoutés à la main restent à leur place. La première liste d’une affaire
-s’enregistre par « Enregistrer la liste proposée », par le premier ajout, ou par la
-première demande d’analyse qui la scelle.
+postes ajoutés, retirés, modifiés et rapprochements possibles. Tous les changements
+s’ouvrent avant d’accepter. Un rapprochement montre, des deux côtés, ce qui distingue
+deux homonymes : la section et l’origine (ligne, page, référence, version du
+gabarit). Aucun rapprochement n’est coché d’avance. Rien n’est appliqué sans
+« Accepter la révision proposée ». Le serveur recalcule la proposition et refuse
+celle qui a changé depuis l’affichage. Une révision garde les choix de structure qu’elle a
+appliqués et les lignes écartées avec leur raison, par leur position seule : elle dit
+encore pourquoi une ligne n’est pas un poste quand l’import ou sa correspondance a
+disparu. Les postes ajoutés à la main restent à leur place. La première liste d’une
+affaire s’enregistre par « Enregistrer la liste proposée », par le premier ajout, ou
+par la première demande d’analyse qui la scelle.
 
 **Ajout d’un poste.** « Ajouter un poste » est possible à toute date : avant, pendant
 ou après une analyse, et après un premier envoi. L’opérateur donne une désignation,
 une unité ou « à préciser », une base de mesure, des discriminants (réseau, matière,
 diamètre) et une section. Il ne saisit ni quantité ni prix. L’auteur et la date sont
-ceux du serveur. Un double clic ne crée qu’un poste.
+ceux du serveur. Un double clic ne crée qu’un poste. Le même geste rejoué rend son
+reçu ; un autre contenu sous la même clé (une autre section, une autre sélection de
+rapprochements) est refusé.
 
 **Gabarit.** L’administrateur corrige le gabarit de plomberie dans **Administration
 › Gabarit de postes**. Il enregistre un brouillon et voit les ajouts, retraits et
 modifications par rapport à la version publiée. Il publie ensuite une version
-numérotée. Chaque poste du gabarit garde son identifiant d’une version à l’autre. La
-nouvelle version vaut pour les affaires sans liste. Une affaire qui a déjà une liste
-se voit proposer l’écart. Une publication ne modifie aucun devis, aucune analyse et
-aucune demande déjà scellée.
+numérotée. Chaque poste du gabarit garde son identifiant d’une version à l’autre. Un
+poste nouveau ne reprend jamais l’identifiant d’un poste que le gabarit a eu, même
+retiré : la base le refuse à la publication, et une affaire se voit proposer un
+rapprochement au lieu de le subir. Un onglet périmé ne publie, n’abandonne ni
+n’écrase le brouillon d’un autre administrateur : chaque enregistrement du brouillon
+lui donne un jeton jamais réutilisé. La nouvelle version vaut pour les affaires sans
+liste. Une affaire qui a déjà une liste se voit proposer l’écart. Une publication ne
+modifie aucun devis, aucune analyse et aucune demande déjà scellée.
 
 **Demande d’analyse.** Une demande scelle la liste à son admission derrière
 l’activation du second ordre de mesure : la révision enregistrée, son numéro,
@@ -78,8 +103,8 @@ activée, une DPGF à préparer suspend l’admission avec un motif. Le Mac du m
 réessaie alors seul.
 
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
-ligne mappée. La base enregistre, à la création de chaque ligne mappée, la ligne
-brute dont elle vient. Après une nouvelle correspondance, la ligne de devis et ses
+ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
+nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses
 copies retrouvent donc leur ligne brute par une jointure prouvée, sans rien ajouter à
 leurs métadonnées.
 

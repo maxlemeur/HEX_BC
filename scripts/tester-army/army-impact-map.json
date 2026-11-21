@@ -909,6 +909,7 @@
         "src/components/affaires/AffaireHub.tsx",
         "src/components/affaires/AffaireWorkbench.tsx",
         "src/hooks/useImportFlow.ts",
+        "src/hooks/useFileParser.ts",
         "src/workers/xlsx-parser.worker.ts",
         "src/lib/affaires/import-flow*.ts",
         "src/lib/estimates/linked-dpgf-read-server.ts",

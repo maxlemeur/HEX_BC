@@ -1,11 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { createClient } from "@supabase/supabase-js";
 import ExcelJS from "exceljs";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as XLSX from "xlsx";
 
 import { recordEvidence } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
+import { querySql } from "../local/calculation-gate-support";
+import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { describe, expect, fixtureFile, localClient, nativeTest as test, type NativeUi } from "./native-ui";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local", "import-formats"], timeout: 180_000 };
@@ -179,6 +182,11 @@ describe("Aperçu des postes à mesurer", () => {
     const other = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`,
       { data: { ...gesture, label: "Autre poste" }, failOnStatusCode: false });
     expect(other.status()).toBe(409);
+    // The same definition in another section is another gesture too: its key never returns the first one's receipt.
+    const elsewhere = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`,
+      { data: { ...gesture, section_of_item_id: proposedId!.replace(/^poste-/, "") }, failOnStatusCode: false });
+    expect(elsewhere.status()).toBe(409);
+    expect((await elsewhere.json() as { error: { code: string } }).error.code).toBe("TAKEOFF_ITEM_LIST_INTENT_CONFLICT");
     await ui.browser.reload();
     await expect(screen.getByText("Liste enregistrée · révision 3 · 25 postes", { exact: false })).toBeVisible();
     const added = table.getByRole("row", /^Siphon de sol /);
@@ -195,6 +203,64 @@ describe("Aperçu des postes à mesurer", () => {
     const versions = await client.from("estimate_versions").select("id").eq("project_id", projectId);
     expect(versions.data).toEqual([]);
     await recordEvidence(army, "POSTE-gabarit", { projectId, versions: versions.data, posts: 25, ids: [proposedId, addedId] });
+  });
+
+  test("POSTE ne révèle à un directeur aucune note d’un import qu’il ne lit pas", options, async ({ ui }) => {
+    const { app, browser, army } = ui;
+    const notes = "PU négocié 85 € HT";
+    const disclosed = /négocié|85 €/;
+    await app.open("/dashboard/affaires");
+    const admin = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "NOTEA" });
+    const projectId = randomUUID();
+    await querySql(`insert into public.estimate_projects (id, tenant_id, user_id, name)
+      values ('${projectId}', '${admin.tenantId}', '${admin.userId}', '${army.runPrefix} notes d’import');`);
+    // The administrator's direct import, mapped: one line whose notes carry a negotiated price.
+    const created = await ui.request.post("/api/imports", { data: {
+      filename: "notes-fictives.csv", sourceFormat: "csv", projectId,
+      rows: [{ Designation: "Lavabo en céramique", Unite: "u", Qte: "2", Notes: notes }],
+    } });
+    expect(created.status()).toBe(201);
+    const importId = (await created.json() as { data: { id: string } }).data.id;
+    const mapping = await ui.request.post("/api/mappings", { data: { action: "create", import_id: importId,
+      mapping: { Designation: "designation", Unite: "unit", Qte: "quantity", Notes: "notes" } } });
+    expect(mapping.status()).toBe(201);
+
+    // The administrator records the list the import gives: its entries hold no text of the notes.
+    const read = async () => {
+      const response = await ui.request.get(`/api/affaires/${projectId}/takeoff/item-list`);
+      expect(response.status()).toBe(200);
+      return { text: await response.text(), view: (await response.json() as {
+        data: { proposal: { digest: string; items: Array<{ label: string }> } | null; current: { items: Array<{ label: string }> } | null };
+      }).data };
+    };
+    const proposed = await read();
+    expect(proposed.view.proposal?.items.map(({ label }) => label)).toEqual(["Lavabo en céramique"]);
+    expect(proposed.text).not.toMatch(disclosed);
+    const recorded = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/revisions`, { data: {
+      expected_revision: 0, proposal_digest: proposed.view.proposal!.digest, intent_key: randomUUID(), continuities: [],
+    } });
+    expect(recorded.status()).toBe(200);
+    const entries = await querySql(`select coalesce(jsonb_agg(to_jsonb(e) order by e.position), '[]'::jsonb)::text
+      from public.takeoff_list_revision_entries e join public.takeoff_list_revisions r on r.id = e.revision_id
+      where r.project_id = '${projectId}';`);
+    expect(entries.join("\n")).toContain("Lavabo en céramique");
+    expect(entries.join("\n")).not.toMatch(disclosed);
+
+    // A director of the tenant reads the affaire, never the import: the list answers without the notes.
+    const password = `Army-${randomUUID()}-D1!`;
+    const director = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "NOTED", password });
+    await querySql(`update public.tenant_memberships set is_default = false where user_id = '${director.userId}';
+      insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
+      values ('${admin.tenantId}', '${director.userId}', 'director', true);`);
+    const session = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } });
+    expect((await session.auth.signInWithPassword({ email: director.email, password })).error).toBeNull();
+    const hidden = await session.from("dpgf_imports").select("id").eq("id", importId);
+    expect(hidden).toMatchObject({ error: null, data: [] });
+    const answer = await read();
+    expect(answer.view.current?.items.map(({ label }) => label)).toEqual(["Lavabo en céramique"]);
+    expect(answer.text).not.toMatch(disclosed);
+    await recordEvidence(army, "POSTE-notes", { projectId, importId, entries: entries.length });
   });
 
   test("POSTE demande de préparer la DPGF importée sans correspondances", options, async ({ ui }) => {
@@ -243,9 +309,11 @@ describe("Aperçu des postes à mesurer", () => {
       await expect(screen.getByText("DPGF à préparer", { exact: false })).toHaveCount(0);
       const homonyms = table.getByRole("row").filter({ hasText: "Lavabo en céramique" });
       await expect(homonyms).toHaveCount(2);
+      // A workbook gives the row Excel shows, then the row of the table: the XLSX table starts on sheet row 3.
       const sourceLocations = format === "pdf" ? ["Page 1", "Page 2"]
         : format === "csv" ? ["Enregistrement importé 2", "Enregistrement importé 4"]
-          : ["Ligne du tableau 3", "Ligne du tableau 5"];
+          : format === "xlsx" ? ["Ligne 5 de la feuille (ligne du tableau 3)", "Ligne 7 de la feuille (ligne du tableau 5)"]
+            : ["Ligne 3 de la feuille (ligne du tableau 3)", "Ligne 5 de la feuille (ligne du tableau 5)"];
       await expect(homonyms.nth(0)).toContainText(sourceLocations[0]);
       await expect(homonyms.nth(1)).toContainText(sourceLocations[1]);
       await expect(homonyms.nth(0).getByRole("cell", "2", { exact: true })).toBeVisible();

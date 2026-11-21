@@ -92,7 +92,8 @@ export const nativeTest = armyTest.extend<{ ui: NativeUi }>({
           return { status: response.status, body: await response.json() as JsonValue };
         }, { method, pathname, headers: options.headers ?? {}, parts });
       } else {
-        result = await apiRequest<JsonValue>(browser, method as "GET" | "POST" | "PATCH" | "DELETE", pathname, options.data, options.headers);
+        result = await apiRequest<JsonValue>(browser, method as "GET" | "POST" | "PUT" | "PATCH" | "DELETE", pathname, options.data,
+          options.headers);
       }
       if (method === "POST" && pathname === "/api/estimates" && result.status === 201) {
         const data = result.body as { data: { project: { id: string }; version: { id: string } } };
@@ -110,6 +111,7 @@ export const nativeTest = armyTest.extend<{ ui: NativeUi }>({
       request: {
         get: (pathname: string, options?: RequestOptions) => request("GET", pathname, options),
         post: (pathname: string, options?: RequestOptions) => request("POST", pathname, options),
+        put: (pathname: string, options?: RequestOptions) => request("PUT", pathname, options),
         patch: (pathname: string, options?: RequestOptions) => request("PATCH", pathname, options),
         delete: (pathname: string, options?: RequestOptions) => request("DELETE", pathname, options),
       },
@@ -129,7 +131,7 @@ export type NativeUi = {
   getByLabel: Parameters<typeof createWizard>[0]["screen"]["getByLabel"];
   getByTestId: Parameters<typeof createWizard>[0]["screen"]["getByTestId"];
   keyboard: Browser["keyboard"]; mouse: Browser["mouse"];
-  request: Record<"get" | "post" | "patch" | "delete", (pathname: string, options?: RequestOptions) => Promise<{
+  request: Record<"get" | "post" | "put" | "patch" | "delete", (pathname: string, options?: RequestOptions) => Promise<{
     status: () => number; ok: () => boolean; json: () => Promise<JsonValue>; text: () => Promise<string>;
   }>>;
 };
