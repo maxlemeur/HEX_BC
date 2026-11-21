@@ -1382,12 +1382,13 @@ if (!existsSync(liveProbePath)) test("AUTO03 a confirmer without a ChatGPT conne
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Sans forfait connecté" }, army);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
-    await rm(store, { force: true });
     const readsBefore = await planReads();
     await ui.app.open(`/dashboard/affaires/${ids.projectId}#brief`);
     // The brief's section opens with the page's hydration: its button appears then.
     const confirm = screen.getByRole("button", "Confirmer le brief", { exact: true });
     await expect(confirm).toBeVisible(DEV_SERVER_WORK);
+    // The connection is gone at the gesture (the dossier was classified and its brief written while it existed).
+    await rm(store, { force: true });
     await confirm.click();
     await screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true }).getByRole("button", "Oui, confirmer", { exact: true }).click();
     await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code]),
