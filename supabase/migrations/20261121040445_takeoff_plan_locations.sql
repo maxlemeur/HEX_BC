@@ -10,7 +10,8 @@
 -- The annotation is descriptive. No admission, worker, sending guard or e-mail reads it. The previous application
 -- versions never read or write these objects. The one effect on their writes: inserting a plan file also records its
 -- source in takeoff_plan_location_sources (an insert that never refuses), and deleting an affaire also deletes its
--- annotations. No existing table, policy, grant or check changes.
+-- annotations. No existing table, policy, grant or check changes. Applying it locks plan_files, plan_sets and
+-- estimate_projects against writes (SHARE ROW EXCLUSIVE) for the length of its transaction, bounded by lock_timeout.
 -- Requires 20261120204437_takeoff_jobs_by_affaire.sql (private.can_access_takeoff_scope).
 begin;
 
@@ -73,18 +74,22 @@ create table public.takeoff_plan_location_events (
 create index takeoff_plan_location_events_project_idx on public.takeoff_plan_location_events(tenant_id, project_id);
 
 -- The source of every plan file, kept after a working copy is deleted: an analysis names its copy, not its piece.
+-- Its foreign key is the plan set's (id, affaire, tenant): the plan file insert already holds that row, so recording a
+-- source takes no lock a plan file insert did not take before, and a plan set an analysis still references is kept.
 create table public.takeoff_plan_location_sources (
   plan_file_id uuid primary key,
+  plan_set_id uuid not null,
   tenant_id uuid not null,
   project_id uuid not null,
   source_kind text not null check (source_kind in ('intake_document', 'plan_file')),
   source_id uuid not null,
   recorded_at timestamptz not null default now(),
   constraint takeoff_plan_location_sources_kind_check check (source_kind = 'intake_document' or source_id = plan_file_id),
-  constraint takeoff_plan_location_sources_project_fkey foreign key (project_id, tenant_id)
-    references public.estimate_projects(id, tenant_id) on delete cascade
+  constraint takeoff_plan_location_sources_plan_set_fkey foreign key (plan_set_id, project_id, tenant_id)
+    references public.plan_sets(id, project_id, tenant_id) on delete cascade
 );
 create index takeoff_plan_location_sources_project_idx on public.takeoff_plan_location_sources(tenant_id, project_id);
+create index takeoff_plan_location_sources_plan_set_idx on public.takeoff_plan_location_sources(plan_set_id);
 
 -- The source of a plan file row: its dossier piece when it is a copy of a piece of the same affaire, itself when it
 -- was uploaded outside the dossier; nothing for a copy whose piece is not of its affaire.
@@ -109,8 +114,8 @@ revoke all on function private.takeoff_plan_file_source(uuid, uuid, uuid, jsonb)
 create function private.record_takeoff_plan_location_source()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
-  insert into public.takeoff_plan_location_sources (plan_file_id, tenant_id, project_id, source_kind, source_id)
-  select new.id, new.tenant_id, source.project_id, source.source_kind, source.source_id
+  insert into public.takeoff_plan_location_sources (plan_file_id, plan_set_id, tenant_id, project_id, source_kind, source_id)
+  select new.id, new.plan_set_id, new.tenant_id, source.project_id, source.source_kind, source.source_id
   from private.takeoff_plan_file_source(new.tenant_id, new.plan_set_id, new.id, new.metadata) source
   on conflict (plan_file_id) do nothing;
   return null;
@@ -120,21 +125,25 @@ revoke all on function private.record_takeoff_plan_location_source() from public
 create trigger record_takeoff_plan_location_source after insert on public.plan_files
   for each row execute function private.record_takeoff_plan_location_source();
 
--- The plan files that exist today. A copy whose piece is not of its affaire is not recorded (nothing is repaired):
--- the pre-check of the pull request counts them, and this notice repeats the count.
+-- The plan files that exist today. A plan file whose source cannot be named (a dossier copy whose piece is not of its
+-- affaire, a file of another tenant than its plan set) stops the migration with their count: nothing is repaired, and
+-- the pre-check of the pull request counts them in advance.
 do $$
 declare
   recorded bigint;
-  skipped bigint;
+  unnamed bigint;
 begin
-  insert into public.takeoff_plan_location_sources (plan_file_id, tenant_id, project_id, source_kind, source_id)
-  select f.id, f.tenant_id, source.project_id, source.source_kind, source.source_id
+  insert into public.takeoff_plan_location_sources (plan_file_id, plan_set_id, tenant_id, project_id, source_kind, source_id)
+  select f.id, f.plan_set_id, f.tenant_id, source.project_id, source.source_kind, source.source_id
   from public.plan_files f
   cross join lateral private.takeoff_plan_file_source(f.tenant_id, f.plan_set_id, f.id, f.metadata) source;
   get diagnostics recorded = row_count;
-  select count(*) into skipped from public.plan_files f
+  select count(*) into unnamed from public.plan_files f
   where not exists (select 1 from public.takeoff_plan_location_sources l where l.plan_file_id = f.id);
-  raise notice 'TAKEOFF_PLAN_LOCATION_SOURCES recorded %, copies without a piece of their affaire %', recorded, skipped;
+  if unnamed > 0 then
+    raise exception 'TAKEOFF_PLAN_LOCATION_SOURCES_BACKFILL_REFUSED: % plan files without a source of their affaire', unnamed;
+  end if;
+  raise notice 'TAKEOFF_PLAN_LOCATION_SOURCES recorded %', recorded;
 end;
 $$;
 
@@ -207,7 +216,9 @@ language sql stable set search_path = '' as $$
         and d.deleted_at is null and d.deletion_token is null and d.upload_status = 'uploaded'
         and d.classification_status = 'classified' and d.document_kind = 'plans'
         and copy.metadata ->> 'intake_storage_path' is not distinct from d.storage_path
-        and (d.storage_path is not null or copy.metadata ->> 'intake_drive_file_id' is not distinct from d.drive_file_id)
+        and (d.storage_path is not null
+          or (d.source_provider = 'google_drive' and copy.metadata ->> 'intake_drive_file_id' = d.drive_file_id))
+        and (lower(d.mime_type) = 'application/pdf' or lower(d.file_name) like '%.pdf')
         and (not (copy.metadata ? 'intake_generation')
           or copy.metadata ->> 'intake_generation' = d.plan_copy_generation::text)
         and (not (copy.metadata ? 'intake_classified_at')

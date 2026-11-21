@@ -320,6 +320,18 @@ $$;
 insert into location_race_pids select 'location_b', pid
 from extensions.dblink('location_b', 'select pg_backend_pid()') as remote(pid integer);
 
+-- A plan file insert in flight records its source without locking the affaire: a previous-version writer that takes
+-- the affaire's row at once (FOR UPDATE NOWAIT, as the source coverage command and the legacy retirement do) still can.
+select is(extensions.dblink_exec('location_a', $insert$begin;
+insert into public.plan_files(id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+values ('b3100000-0000-4000-8000-000000000151', 'b3100000-0000-4000-8000-000000000110', 'b3100000-0000-4000-8000-000000000140', 'second.pdf',
+  'b3100000-0000-4000-8000-000000000110/b3100000-0000-4000-8000-000000000140/b3100000-0000-4000-8000-000000000151/second.pdf',
+  'application/pdf', 8, 1);$insert$), 'INSERT 0 1', 'a plan file is being inserted, not yet committed');
+select is((select count(*)::integer from extensions.dblink('location_b', $lock$select id from public.estimate_projects
+  where id = 'b3100000-0000-4000-8000-000000000120' for update nowait$lock$) as remote(id uuid)), 1,
+  'the affaire''s row is not locked by the insert''s recorded source');
+select is(extensions.dblink_exec('location_a', 'rollback'), 'ROLLBACK', 'the insert is rolled back');
+
 -- Both create the first annotation of the revision: B waits on A's uncommitted row, then gets the conflict.
 select is(pg_temp.as_operator('location_a', 'b3100000-0000-4000-8000-000000000101'), 'SET', 'A opens its save');
 select is((select value from extensions.dblink('location_a', pg_temp.save_call(0, 'A')) as remote(value text)), '1:A',

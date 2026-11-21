@@ -132,7 +132,7 @@ async function fieldAuthors(supabase: Supabase, annotations: readonly Annotation
   const events: EventRow[] = [];
   if (ids.length) {
     const { data, error } = await readAllRowsInChunks(ids, (chunk) => supabase.from("takeoff_plan_location_events")
-      .select("location_id,revision,action,building_before,level_before,building,level,actor_id,created_at", { count: "exact" })
+      .select("id,location_id,revision,action,building_before,level_before,building,level,actor_id,created_at", { count: "exact" })
       .in("location_id", chunk));
     if (error) readFailure(error, "Impossible de charger l’historique des localisations.");
     events.push(...((data ?? []) as unknown as EventRow[]));

@@ -94,7 +94,8 @@ function LocationForm({ data, onSaved, onConflict }: {
     try {
       onSaved(await saveTakeoffPlanFileLocation(data.plan_set_id, data.plan_file_id, {
         content_hash: data.revision.content_hash, expected_revision: data.annotation?.revision ?? 0,
-        building, level, carried_from_id: carrying?.id ?? null,
+        // The earlier correction is the origin only when its values are the ones validated.
+        building, level, carried_from_id: carrying && carrying.building === building && carrying.level === level ? carrying.id : null,
       }));
     } catch (cause) {
       const rejected = `Votre saisie (bâtiment ${building ?? "sans correction"}, niveau ${level ?? "sans correction"}) n’a pas été enregistrée.`;
