@@ -22,7 +22,6 @@ import {
   launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
-import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
 import { loadPreparationReferenceFiles } from "@/lib/takeoff/preparation-reference-loader";
@@ -964,6 +963,8 @@ describe("launchTakeoffRelaunch", () => {
   function command(answer: { data?: unknown; error?: { code: string; message: string } }) {
     const calls: string[] = [];
     const service = createSupabaseFake({ rpc: {
+      // One analysis per plan not activated: the grouped command (lot 3's command of plans has its own cases above).
+      takeoff_plan_dispatch_is_active: () => ({ data: false, error: null }),
       replay_manual_takeoff_request: () => ({ data: [], error: null }),
       launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
     } });
