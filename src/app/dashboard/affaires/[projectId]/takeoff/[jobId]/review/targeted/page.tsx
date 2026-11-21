@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { TakeoffTargetedReview } from "@/components/takeoff/review/TakeoffTargetedReview";
 import { getUserContext } from "@/lib/auth/server";
+import { resolveTakeoffReviewScope } from "@/lib/takeoff/version-access-server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 export const metadata = { title: "Revue ciblée du métré" };
@@ -19,8 +20,11 @@ export default async function AffaireTakeoffTargetedReviewPage({ params, searchP
   const [{ projectId, jobId }, { versionId }] = await Promise.all([params, searchParams]);
   const { tenantId } = await getUserContext();
 
-  if (!tenantId || !versionId) notFound();
+  if (!tenantId) notFound();
   if (!(await isTakeoffEnabled(tenantId))) notFound();
 
-  return <TakeoffTargetedReview jobId={jobId} versionId={versionId} projectId={projectId} />;
+  const scope = await resolveTakeoffReviewScope({ projectId, jobId, versionId });
+  if (!scope) notFound();
+
+  return <TakeoffTargetedReview jobId={jobId} versionId={scope.versionId} canEdit={scope.canEdit} projectId={projectId} />;
 }

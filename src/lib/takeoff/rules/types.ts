@@ -117,6 +117,8 @@ export type TakeoffRuleDetails = {
   /** Coverage: what the line's duplicates still take of a reduction before it removes that length (absent when nothing). */
   owed_m?: number;
   level?: string | null;
+  evaluation_scope?: "job";
+  cross_job_comparison?: "deferred";
   printed_m2?: number;
   measured_m2?: number;
   /** The basis the price line expects (TI-686 D9): a printed surface declared on it compares with the line (D17). */

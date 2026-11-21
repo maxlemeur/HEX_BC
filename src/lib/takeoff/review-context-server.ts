@@ -18,6 +18,9 @@ export async function getTakeoffReviewContext(jobId: string) {
   const detail = await getTakeoffJobDetails(jobId, { items_limit: 1, items_offset: 0 });
   const auth = await getAuthenticatedTakeoffContext();
   const versionId = detail.job.estimate_version_id;
+  if (versionId === null) {
+    return takeoffReviewContextResponseSchema.parse({ version_id: null, posts: [], unlinked_item_ids: [], item_pricing: [] });
+  }
   const context = await loadTakeoffDpgfComparisonContext({ jobId, versionId, auth });
   const versionRead = await auth.supabase.from("estimate_versions").select("*")
     .eq("id", versionId).eq("tenant_id", auth.tenantId).single();

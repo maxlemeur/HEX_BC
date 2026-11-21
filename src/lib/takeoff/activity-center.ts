@@ -40,7 +40,7 @@ type SupabaseClient = AuthenticatedTakeoffContext["supabase"];
 
 type JobRow = {
   id: string;
-  estimate_version_id: string;
+  estimate_version_id: string | null;
   plan_set_id: string | null;
   source_file_name: string | null;
   source_file_type: string | null;
@@ -90,7 +90,7 @@ function toNormalizedSourceFileKey(value: string | null | undefined): string | n
 function comparePlanSourceCandidates(
   left: PlanSourceCandidate,
   right: PlanSourceCandidate,
-  estimateVersionId: string
+  estimateVersionId: string | null
 ) {
   const leftRank =
     left.estimateVersionId === estimateVersionId
@@ -121,7 +121,8 @@ async function listMatchingJobs(
   supabase: SupabaseClient,
   tenantId: string,
   filterOpts: {
-    versionIds: string[];
+    projectId: string;
+    versionId?: string | null;
     level?: string | null;
     period?: string | null;
   }
@@ -139,7 +140,8 @@ async function listMatchingJobs(
         )
         .eq("tenant_id" as never, tenantId as never),
       {
-        version_ids: filterOpts.versionIds,
+        project_id: filterOpts.projectId,
+        estimate_version_id: filterOpts.versionId,
         level: filterOpts.level,
         period: filterOpts.period,
       }
@@ -274,7 +276,7 @@ function resolveJobSource(
     planSources: PlanSources;
     jobPlanSetId: string | null;
     sourceFileName: string | null;
-    estimateVersionId: string;
+    estimateVersionId: string | null;
     lot?: string | null;
     planSetId?: string | null;
   }
@@ -394,7 +396,7 @@ type EnrichmentResult = {
 async function batchEnrich(
   supabase: SupabaseClient,
   tenantId: string,
-  jobs: Array<{ id: string; estimate_version_id: string }>
+  jobs: Array<{ id: string; estimate_version_id: string | null }>
 ): Promise<EnrichmentResult> {
   if (jobs.length === 0) {
     return {
@@ -477,7 +479,7 @@ async function batchEnrich(
       })(),
 
       (async () => {
-        const versionIds = [...new Set(jobs.map((j) => j.estimate_version_id))];
+        const versionIds = [...new Set(jobs.flatMap((job) => job.estimate_version_id ? [job.estimate_version_id] : []))];
         const { data, error } = await readAllRowsInChunks(versionIds, (pageIds) => supabase
           .from("estimate_items" as never)
           .select("id, version_id" as never, { count: "exact" })
@@ -548,7 +550,7 @@ async function batchEnrich(
 
   const coverage = new Map<string, number | null>();
   for (const job of jobs) {
-    const total = lineIdsByVersion.get(job.estimate_version_id)?.size ?? 0;
+    const total = job.estimate_version_id ? lineIdsByVersion.get(job.estimate_version_id)?.size ?? 0 : 0;
     const linked = linkedLineIdsByJob.get(job.id)?.size ?? 0;
     coverage.set(
       job.id,
@@ -581,24 +583,11 @@ export async function listActivityCenterJobs(
     tenantId,
     projectId: input.project_id,
   });
-  const versionIds = versions.map((v) => v.id);
   const versionNumberMap = new Map(versions.map((v) => [v.id, v.version_number]));
 
-  if (versionIds.length === 0) {
-    return {
-      counters: { technicalJobs: 0, usableJobs: 0, blockingExceptionsJobs: 0 },
-      jobs: [],
-      pagination: { limit, offset, total: 0 },
-    };
-  }
-
-  const effectiveVersionIds =
-    input.versionId && versionIds.includes(input.versionId)
-      ? [input.versionId]
-      : versionIds;
-
   const baseFilterOpts = {
-    versionIds: effectiveVersionIds,
+    projectId: input.project_id,
+    versionId: input.versionId,
     level: input.level,
     period: input.period,
   };
@@ -702,7 +691,7 @@ export async function listActivityCenterJobs(
   };
 
   const jobs: TakeoffActivityCenterJobRow[] = pagedRows.map((row) => {
-    const versionNumber = versionNumberMap.get(row.estimate_version_id);
+    const versionNumber = row.estimate_version_id ? versionNumberMap.get(row.estimate_version_id) : undefined;
     const isEnrichable = row.status === "completed" || row.status === "applied";
     const avgConfidence = isEnrichable
       ? (confidenceMap.get(row.id) ?? null)
@@ -757,7 +746,7 @@ export async function listActivityCenterJobs(
     return {
       jobId: row.id,
       estimateVersionId: row.estimate_version_id,
-      versionLabel: versionNumber != null ? `V${versionNumber}` : row.estimate_version_id,
+      versionLabel: versionNumber != null ? `V${versionNumber}` : row.estimate_version_id ?? "Sans devis",
       lotLabel: resolvedSource?.lotLabel ?? null,
       planSetLabel: resolvedSource?.planSetLabel ?? null,
       levelLabel: getBusinessLevelLabel(row.level) as TakeoffActivityCenterJobRow["levelLabel"],

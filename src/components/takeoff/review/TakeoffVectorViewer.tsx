@@ -105,8 +105,8 @@ async function readJson(url: string) {
  * of the first of those lines and draws them over the others, dimmed; `fill` lets the viewer take the height of a
  * tool layout panel instead of its fixed frame.
  */
-export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = false }: {
-  jobId: string; planSetId: string | null; focusItemIds?: readonly string[]; fill?: boolean;
+export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = false, attestedPlan = false }: {
+  jobId: string; planSetId: string | null; focusItemIds?: readonly string[]; fill?: boolean; attestedPlan?: boolean;
 }) {
   const [reading, setReading] = useState<TakeoffVectorReadingResponse | null>(null);
   const [error, setError] = useState("");
@@ -171,11 +171,13 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
   const surfaces = useMemo(() => (page?.items ?? []).filter((item) => item.geometry.kind === "surface"), [page]);
   const sources = useMemo(() => networkSources(page), [page]);
 
-  // The page's PDF: its plan file's signed URL (plan set), else the job's own upload, signed with the reading.
   const hasPage = page !== null;
   const planFileId = page?.plan_file_id ?? null;
   const uploadUrl = page && !planFileId ? reading?.source_download_url ?? null : null;
-  const sourceKey = planFileId ?? uploadUrl;
+  const attestedUrl = attestedPlan && planFileId
+    ? `/api/takeoff/jobs/${encodeURIComponent(jobId)}/vector-plans/${encodeURIComponent(planFileId)}` : null;
+  const sourceKey = attestedUrl ?? planFileId ?? uploadUrl;
+  const unavailable = attestedPlan ? "Le plan d’origine n’est plus disponible ; la géométrie reste visible." : null;
   useEffect(() => {
     let active = true;
     let task: PDFDocumentLoadingTask | undefined;
@@ -188,15 +190,15 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
       canvas.current.height = 0;
     }
     if (!hasPage) return;
-    const source = planFileId && planSetId
+    const source = !attestedPlan && planFileId && planSetId
       ? readJson(`/api/takeoff/plan-sets/${encodeURIComponent(planSetId)}/files/${encodeURIComponent(planFileId)}?include_download_url=true`)
         .then((body) => (body.data as { plan_file?: { download_url?: string | null } } | undefined)?.plan_file?.download_url ?? null)
-      : Promise.resolve(uploadUrl);
+      : Promise.resolve(attestedPlan ? attestedUrl : uploadUrl);
     void source
       .then(async (url) => {
         if (!active) return;
         if (!url) {
-          setPlanError("Le plan source de cette page n’est pas disponible ; la géométrie reste visible.");
+          setPlanError(unavailable ?? "Le plan source de cette page n’est pas disponible ; la géométrie reste visible.");
           return;
         }
         const pdfjs = await import("pdfjs-dist");
@@ -205,14 +207,14 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
         task = pdfjs.getDocument({ url, useSystemFonts: true, cMapUrl: `${assetRoot}cmaps/`, cMapPacked: true,
           standardFontDataUrl: `${assetRoot}standard_fonts/`, wasmUrl: `${assetRoot}wasm/`, iccUrl: `${assetRoot}iccs/` });
         const document = await task.promise;
-        if (active) setPdf({ source: planFileId ?? url, document });
+        if (active) setPdf({ source: sourceKey ?? url, document });
       })
-      .catch(() => active && setPlanError("Le plan de cette page n’a pas pu être affiché ; la géométrie reste visible."));
+      .catch(() => active && setPlanError(unavailable ?? "Le plan de cette page n’a pas pu être affiché ; la géométrie reste visible."));
     return () => {
       active = false;
       void task?.destroy().catch(() => undefined);
     };
-  }, [hasPage, planFileId, planSetId, uploadUrl]);
+  }, [attestedPlan, attestedUrl, hasPage, planFileId, planSetId, sourceKey, unavailable, uploadUrl]);
 
   // The frame's width, measured once the frame is mounted (it appears with the reading, after the loading message)
   // and before it is painted, then followed: the page fits it again when its panel or the window changes width.

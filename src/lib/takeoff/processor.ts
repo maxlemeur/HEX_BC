@@ -62,6 +62,7 @@ import { discardTakeoffVectorReading, persistTakeoffVectorReading } from "@/lib/
 import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import { hypothesisPreselection } from "@/lib/takeoff/hypothesis";
+import { resolveTakeoffExecutionProvider } from "@/lib/takeoff/execution-scope-server";
 import { isTakeoffRulesEnabled, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import {
   isTakeoffVectorReadingEnabled, readTakeoffVectorPages, takeoffVectorLocalGroupsHook, type VectorPageOutcome,
@@ -908,8 +909,13 @@ async function updateJobAsCompleted(input: {
     // TI-664: the fixed rules of the version, now that this job's lines join it; never fails the job (its lines with
     // rule inputs were written stale, they block until a later computation: an edit, or the application).
     if (input.level !== TAKEOFF_LEVEL_A) {
-      await recomputeTakeoffRulesQuietly({ tenantId: input.job.tenant_id, estimateVersionId: input.job.estimate_version_id,
-        context: "worker", supabase: input.supabase });
+      const { estimate_version_id, project_id, id } = input.job;
+      const scope = estimate_version_id !== null
+        ? { estimateVersionId: estimate_version_id }
+        : project_id ? { projectId: project_id, jobId: id } : null;
+      if (scope) await recomputeTakeoffRulesQuietly({
+        tenantId: input.job.tenant_id, ...scope, context: "worker", supabase: input.supabase,
+      });
     }
     return;
   }
@@ -2821,7 +2827,7 @@ async function processTakeoffLevel(
 
     const hostId = await assertLocalTakeoffExecutionHost(job);
     let resolved: { provider: LocalTakeoffProvider } | { error: unknown };
-    try { resolved = { provider: await resolveProvider(context.supabase, job) }; }
+    try { resolved = { provider: await resolveTakeoffExecutionProvider(context.supabase, job, resolveProvider) }; }
     catch (error) { resolved = { error }; }
     if ("provider" in resolved) model = resolved.provider.model;
 

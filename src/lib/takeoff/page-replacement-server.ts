@@ -8,7 +8,7 @@ import { loadTakeoffDpgfComparisonContext } from "@/lib/takeoff/dpgf-comparison-
 import { hasTakeoffDpgfTargetLines } from "@/lib/takeoff/dpgf-comparison-repository";
 import { dpgfTargetFeeds, dpgfTargetsFedAgain } from "@/lib/takeoff/dpgf-apply-quantities";
 import { computeTakeoffDpgfRows } from "@/lib/takeoff/dpgf-compare";
-import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { getAuthenticatedTakeoffContext, getTakeoffJobDetailByIdOrThrow, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-server";
 import {
@@ -107,6 +107,10 @@ export async function getTakeoffJobPageReplacement(jobId: string, body: unknown)
   const job = await getTakeoffJobDetailByIdOrThrow({ supabase, tenantId, jobId: normalizedJobId });
   // The application writes into the takeoff's own version (apply_takeoff_job_atomic reads takeoff_jobs.estimate_version_id).
   const versionId = job.estimate_version_id;
+  if (versionId === null) {
+    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+      message: "Aucun devis n’est rattaché à ce métré.", retryable: false, jobId: normalizedJobId });
+  }
 
   // The lines that reach the estimate, as the application computes them: the plan's skips and assemblies, and on a DPGF
   // version the lines its reconciliation decided out of scope.

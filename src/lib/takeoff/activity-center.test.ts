@@ -159,6 +159,7 @@ function createSupabaseMock(input?: {
   const takeoffJobs = [
     {
       id: JOB_A_ID,
+      project_id: PROJECT_ID,
       estimate_version_id: VERSION_ID,
       source_file_name: "cvc-a.pdf",
       source_file_type: "application/pdf",
@@ -176,6 +177,7 @@ function createSupabaseMock(input?: {
     },
     {
       id: JOB_B_ID,
+      project_id: PROJECT_ID,
       estimate_version_id: VERSION_ID,
       source_file_name: "cvc-b.pdf",
       source_file_type: "application/pdf",
@@ -193,6 +195,7 @@ function createSupabaseMock(input?: {
     },
     {
       id: JOB_C_ID,
+      project_id: PROJECT_ID,
       estimate_version_id: VERSION_ID,
       source_file_name: "manual-upload.xlsx",
       source_file_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -516,6 +519,23 @@ describe("listActivityCenterJobs", () => {
 
     expect(response.jobs.find((job) => job.jobId === JOB_A_ID)?.coveragePercent).toBeNull();
     expect(response.jobs.find((job) => job.jobId === JOB_B_ID)?.coveragePercent).toBeNull();
+  });
+
+  it("includes affaire-only jobs and excludes them when a version is selected", async () => {
+    const supabase = createSupabaseMock({
+      jobPatches: { [JOB_C_ID]: { estimate_version_id: null, plan_set_id: PLAN_SET_B_ID, status: "completed" } },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase, tenantId: TENANT_ID, tenantRole: "admin",
+    } as never);
+
+    const all = await listActivityCenterJobs({ project_id: PROJECT_ID });
+    const version = await listActivityCenterJobs({ project_id: PROJECT_ID, versionId: VERSION_ID });
+
+    expect(all.jobs.find(job => job.jobId === JOB_C_ID)).toMatchObject({
+      estimateVersionId: null, versionLabel: "Sans devis", coveragePercent: null,
+    });
+    expect(version.jobs.map(job => job.jobId)).toEqual([JOB_A_ID, JOB_B_ID]);
   });
 
   it("filters jobs by visible status instead of the raw database status", async () => {

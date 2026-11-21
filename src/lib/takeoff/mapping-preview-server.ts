@@ -68,6 +68,11 @@ export async function previewTakeoffJobConversion(
     jobId: normalizedJobId,
   });
 
+  if (jobRow.estimate_version_id === null) {
+    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+      message: "Aucun devis n’est rattaché à ce métré.", retryable: false, jobId: normalizedJobId });
+  }
+
   if (jobRow.status !== "completed") {
     throw new TakeoffError({
       status: 409,

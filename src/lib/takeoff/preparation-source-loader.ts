@@ -39,6 +39,14 @@ export async function loadPreparedPlanSource(input: {
   if (!selected.length || selected.some((source) => source.plan_set_id !== input.job.plan_set_id)) {
     changedSource(input.job, "Les sources confirmées ne correspondent pas au jeu de plans de l'analyse.");
   }
+  if (input.job.estimate_version_id === null) {
+    const projectId = input.job.project_id;
+    if (!projectId) changedSource(input.job, "L’affaire de l’analyse est introuvable.");
+    const { data: set, error } = await input.supabase.from("plan_sets").select("id")
+      .eq("tenant_id", input.job.tenant_id).eq("id", input.job.plan_set_id!)
+      .eq("project_id", projectId).is("estimate_version_id", null).maybeSingle();
+    if (error || !set) changedSource(input.job, "Le jeu de plans de l’analyse n’appartient plus à cette affaire.");
+  }
   const { data, error } = await readAllRows(() => input.supabase.from("plan_files")
     .select("id,plan_set_id,file_path,file_name,file_size_bytes,file_hash,page_count,updated_at,metadata", { count: "exact" })
     .eq("tenant_id", input.job.tenant_id).eq("plan_set_id", input.job.plan_set_id!)

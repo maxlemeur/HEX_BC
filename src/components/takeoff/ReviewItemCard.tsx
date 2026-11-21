@@ -16,6 +16,7 @@ type ReviewItemCardProps = {
   isReviewed: boolean;
   isAccepted: boolean;
   isMarkedForReview?: boolean;
+  readOnly?: boolean;
   onAccept: () => void;
   onReject: () => void;
   onMarkForReview?: () => void;
@@ -48,6 +49,7 @@ export function ReviewItemCard({
   isReviewed,
   isAccepted,
   isMarkedForReview = false,
+  readOnly = false,
   onAccept,
   onReject,
   onMarkForReview,
@@ -127,7 +129,7 @@ export function ReviewItemCard({
           </ul>
         ) : null}
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        {!readOnly && <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Button
             variant="primary"
             size="sm"
@@ -154,7 +156,7 @@ export function ReviewItemCard({
           >
             {isRejected ? "Rejeté" : "Rejeter"}
           </Button>
-        </div>
+        </div>}
       </div>
     </article>
   );

@@ -3093,9 +3093,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs",
     summary: "Lister les jobs Takeoff",
     description:
-      "Retourne les jobs takeoff du tenant courant avec filtres (version, statut, niveau, periode), compteurs par statut et pagination.",
+      "Retourne les jobs takeoff du tenant courant avec filtres, compteurs par statut et pagination. Les filtres d’affaire et de version peuvent être combinés.",
     tags: ["Takeoff"],
     parameters: [
+      queryParameter({ name: "project_id", description: "Filtrer les métrés par affaire.", schemaName: "TakeoffJobProjectIdQueryParameter", schema: uuidSchema, required: false }),
       takeoffJobEstimateVersionIdQueryParameter,
       takeoffJobStatusQueryParameter,
       takeoffJobLevelQueryParameter,
@@ -3217,6 +3218,18 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         "Lecture vectorielle trop volumineuse pour etre affichee (pages, geometries ou segments).",
         apiTakeoffFailureResponseSchemaDefinition
       ),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/vector-plans/{fileId}",
+    summary: "Lire le PDF attesté par un métré sans devis",
+    description: "Renvoie le PDF complet si le métré est lisible, si sa préparation atteste le plan et si les octets actuels correspondent au SHA-256 attesté.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter, takeoffPlanFileIdPathParameter],
+    responses: {
+      "200": { description: "Octets PDF vérifiés.", contents: [{ contentType: "application/pdf" }] },
+      ...takeoffJobsErrorResponses,
     },
   },
   {

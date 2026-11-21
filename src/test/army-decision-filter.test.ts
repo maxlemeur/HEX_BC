@@ -211,6 +211,7 @@ describe("the decision filter behind its guards", () => {
       fs.writeFileSync(path.join(tree, file), text);
     };
     const existing = "e2e/army/critical/existing.e2e.ts";
+    const replacement = "e2e/army/critical/replacement.e2e.ts";
     const added = "e2e/army/critical/added.e2e.ts";
     const other = "e2e/army/critical/other.e2e.ts";
     const stored: StoredImpactMap = {
@@ -228,15 +229,16 @@ describe("the decision filter behind its guards", () => {
       write(MAP_PATH, JSON.stringify(stored));
       write("src/feature.ts", "export const feature = 1;\n");
       write(existing, "");
+      write(replacement, "");
       write(other, "");
       git("init", "-q");
       git("add", ".");
       git("commit", "-q", "-m", "base");
       const base = git("rev-parse", "HEAD");
-      // A rule edit alone is judged. The old rule still protects the journey it tied to this file.
-      write(MAP_PATH, JSON.stringify({ ...stored, rules: [{ id: "feature", paths: ["src/feature.ts"], journeys: [other] }] }));
-      expect(await judged(["src/feature.ts", MAP_PATH], base)).toMatchObject({
-        calls: [["src/feature.ts"]], exclude: {}, note: expect.stringContaining("a map rule ties"),
+      // The model judges the rule edit, but the base still protects the journey removed from the rule.
+      write(MAP_PATH, JSON.stringify({ ...stored, rules: [{ ...stored.rules[0], journeys: [replacement] }] }));
+      expect(await judged(["src/feature.ts", MAP_PATH], base)).toEqual({
+        calls: [["src/feature.ts"]], exclude: {}, note: "stock note; 1 test(s) kept: a map rule ties their journey to a changed file",
       });
       // A rule edit that comes with a new journey changes the suite, as when the map listed its journeys.
       write(added, "");

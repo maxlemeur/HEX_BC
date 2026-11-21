@@ -522,7 +522,7 @@ export async function listTakeoffJobs(
     "Impossible de lister les jobs takeoff.",
     true
   );
-  return validateTakeoffResponse(undefined, () => parseTakeoffJobListResponse(response, { versionId: estimateVersionId, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
+  return validateTakeoffResponse(undefined, () => parseTakeoffJobListResponse(response, { versionId: estimateVersionId, projectId: query.project_id, status: query.status, level: query.level, limit: query.limit, offset: query.offset }));
 }
 
 export async function resubmitTakeoffJob(

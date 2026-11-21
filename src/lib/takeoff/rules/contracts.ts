@@ -39,7 +39,11 @@ export const TakeoffRuleResultSchema: z.ZodType<TakeoffRuleResult> = z.object({
   version: z.number().int().positive(),
   acceptable: z.boolean(),
   reason: z.string().max(LIMITS.reason),
-  details: z.object({ partners: z.array(PartnerSchema).max(LIMITS.partners).optional() }).passthrough().optional(),
+  details: z.object({
+    partners: z.array(PartnerSchema).max(LIMITS.partners).optional(),
+    evaluation_scope: z.literal("job").optional(),
+    cross_job_comparison: z.literal("deferred").optional(),
+  }).passthrough().optional(),
 }) as z.ZodType<TakeoffRuleResult>;
 
 export const TakeoffRuleResultsSchema = z.array(TakeoffRuleResultSchema).max(16);
@@ -80,6 +84,8 @@ function detailNumbers(details: NonNullable<TakeoffRuleResult["details"]>) {
   const kept = Object.entries(details).filter(([, value]) => typeof value === "number" && Number.isFinite(value));
   return { ...Object.fromEntries([...kept, ...(typeof details.level === "string" ? [["level", clip(details.level, LIMITS.zone)]] : [])]),
     ...(details.expected_basis === "net_floor" || details.expected_basis === "shab" ? { expected_basis: details.expected_basis } : {}),
+    ...(details.evaluation_scope ? { evaluation_scope: details.evaluation_scope } : {}),
+    ...(details.cross_job_comparison ? { cross_job_comparison: details.cross_job_comparison } : {}),
     ...(details.quantity_context_key ? { quantity_context_key: details.quantity_context_key } : {}),
     ...(details.failure_keys_sha256 ? { failure_keys_sha256: details.failure_keys_sha256 } : {}) };
 }
