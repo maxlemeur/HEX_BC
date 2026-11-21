@@ -189,7 +189,7 @@ describe("resolveTakeoffLaunchDecision", () => {
     ["a reader cannot take it on", "blocked", "OPERATOR_REQUIRED", null, { ...operator, tenantRole: "director", canWriteAffaire: false }, "none"],
     ["the hosted application sends to the Mac", "blocked", "LOCAL_RUNTIME_REQUIRED", "payer", { ...operator, executionHostId: null }, "open_mac"],
     ["repeated failures wait for a gesture", "blocked", "EVALUATION_FAILED", "payer", operator, "resume"],
-    ["an automatic start set aside by a relaunch is restarted only by a gesture", "blocked", "SUPERSEDED", "payer", { ...operator, userId: "other" }, "take_on"],
+    ["an automatic start set aside by a relaunch is final", "blocked", "SUPERSEDED", "payer", { ...operator, userId: "other" }, "none"],
   ] as const)("%s", (_case, state, reasonCode, payerId, viewer, action) => {
     expect(resolveTakeoffLaunchDecision({ state, reasonCode, payerId, viewer, updatedAt: new Date().toISOString() })).toEqual({ action });
   });
@@ -202,5 +202,12 @@ describe("resolveTakeoffLaunchDecision", () => {
       .toEqual({ action: "resume" });
     expect(resolveTakeoffLaunchDecision({ state: "evaluating", reasonCode: null, payerId: "payer", viewer: { ...operator, userId: "other" },
       updatedAt: waited(20), now })).toEqual({ action: "take_on" });
+    // A dossier changed since it was found not eligible, or a passing cause to try again, on a Mac silent that long.
+    expect(resolveTakeoffLaunchDecision({ state: "not_eligible", reasonCode: "DOSSIER_PROCESSING", payerId: "payer", viewer: operator,
+      updatedAt: waited(20), awaitsMac: true, now })).toEqual({ action: "resume" });
+    expect(resolveTakeoffLaunchDecision({ state: "blocked", reasonCode: "ADMISSION_LIMIT", payerId: "payer", viewer: { ...operator, userId: "other" },
+      updatedAt: waited(20), awaitsMac: true, now })).toEqual({ action: "take_on" });
+    expect(resolveTakeoffLaunchDecision({ state: "not_eligible", reasonCode: "DOSSIER_PROCESSING", payerId: "payer", viewer: operator,
+      updatedAt: waited(20), awaitsMac: false, now })).toEqual({ action: "none" });
   });
 });

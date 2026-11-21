@@ -128,10 +128,12 @@ la base en garantit l’unicité et l’admission (migration
   causes passagères (limite d’admission, lecture d’une pièce, autre analyse en
   cours sur l’affaire) sont réessayées par le Mac.
 - **Une seule demande admise à la fois par affaire.** Une relance pendant
-  l’exécution renvoie l’analyse en cours. Une relance admise met de côté un
-  démarrage automatique qui n’avait pas commencé : il ne dépense plus rien sans
-  un geste. Le job d’une demande en cours ne peut pas être supprimé.
-- **Une demande qui attend son Mac** plus de quinze minutes peut être reprise
+  l’exécution renvoie l’analyse en cours. Une relance admise met de côté, pour
+  de bon, un démarrage automatique qui n’avait pas commencé : ni une nouvelle
+  confirmation ni une prise en charge ne le réarment ; une nouvelle analyse est
+  une relance. Le job d’une demande en cours ne peut pas être supprimé.
+- **Une demande qui attend son Mac** (évaluation à faire, dossier modifié depuis,
+  cause passagère à réessayer) depuis plus de quinze minutes peut être reprise
   par son payeur ou prise en charge par un autre opérateur. Trois vérifications
   du dossier qui échouent de suite la bloquent avec ce motif jusqu’à un geste.
 - **Budget.** Les jetons et le coût observés de toutes les tentatives sont

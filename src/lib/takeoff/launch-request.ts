@@ -175,7 +175,7 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "SOURCE_UNREADABLE": return "Métré en attente — une pièce du dossier n’a pas pu être lue. Nouvelle tentative automatique.";
     case "ANOTHER_ANALYSIS_RUNNING": return "Métré en attente — une autre analyse de l’affaire est en cours.";
     case "EVALUATION_FAILED": return "Métré non démarré — la vérification du dossier a échoué plusieurs fois. Reprenez avec votre forfait pour réessayer.";
-    case "SUPERSEDED": return "Métré automatique remplacé par une relance de l’analyse.";
+    case "SUPERSEDED": return "Métré automatique remplacé par une relance de l’analyse : une nouvelle analyse se lance depuis les options du métré.";
   }
 }
 

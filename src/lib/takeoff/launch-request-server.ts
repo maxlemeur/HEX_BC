@@ -4,8 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 
-import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
-import { findIntakePlansWithoutWorkingCopy, isEligiblePlanDocument, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
+import { AFFAIRE_INTAKE_BUCKET, getAffaireIntakeFileExtension } from "@/lib/affaires/intake";
+import { findIntakePlansWithoutWorkingCopy, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
 import { DOCUMENT_SELECT, normalizeDocumentRow } from "@/lib/affaires/intake-rows";
 import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -418,7 +418,8 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
   const sealed = await sealAutomaticSnapshot(service, { tenantId: claim.tenant_id, projectId: claim.project_id, planSet: planSet!,
     payerId: request.payer_id, selection: mandate.selection!, jobId,
     unsupportedPlans: documents.filter((document) => document.document_kind === "plans" && document.upload_status === "uploaded"
-      && document.classification_status === "classified" && !isEligiblePlanDocument(document as unknown as SyncDocument))
+      && document.classification_status === "classified" && document.mime_type?.toLowerCase() !== "application/pdf"
+      && getAffaireIntakeFileExtension(document.file_name) !== "pdf")
       .map((document) => ({ id: document.id, name: document.file_name })) });
   if ("reason" in sealed) return refuse(sealed);
   const { data, error: admitError } = await service.rpc("admit_takeoff_launch_request", {
@@ -610,7 +611,8 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
     const { action } = resolveTakeoffLaunchDecision({ state: "blocked", reasonCode: "MANDATE_REQUIRED", payerId: null, viewer: viewers(projectId) });
     return { active: activation.launchActive, confirmedBeforeActivation, request: null, dossierChangedSinceAnalysis: null,
       confirmedWithoutRequest: confirmedAfterActivation
-        ? { message: describeTakeoffLaunchReason("MANDATE_REQUIRED"), action, actionLabel: describeTakeoffLaunchAction(action) } : null };
+        ? { message: "Métré non démarré — la confirmation du dossier n’a pas été enregistrée pour le métré. Un métreur peut le prendre en charge avec son forfait.",
+          action, actionLabel: describeTakeoffLaunchAction(action) } : null };
   }
 
   const reason = isTakeoffLaunchReason(latest.reason_code) ? latest.reason_code : null;
@@ -619,8 +621,10 @@ export async function readAffaireTakeoffLaunchState(context: Context, projectId:
     const entry = piece as { id?: unknown; name?: unknown };
     return typeof entry?.id === "string" && typeof entry.name === "string" ? [{ id: entry.id, name: entry.name }] : [];
   }) : [];
+  const { data: awaitsMac, error: awaitsError } = await service.rpc("takeoff_launch_request_awaits_mac", { p_request_id: latest.id });
+  if (awaitsError) databaseError(awaitsError, "Impossible de lire le métré de l’affaire.");
   const { action } = resolveTakeoffLaunchDecision({ state: latest.state, reasonCode: latest.reason_code, payerId: latest.payer_id,
-    updatedAt: latest.updated_at, viewer: viewers(projectId) });
+    updatedAt: latest.updated_at, awaitsMac: awaitsMac === true, viewer: viewers(projectId) });
   const { data: jobs, error: jobError } = latest.admitted_at ? await context.supabase.from("takeoff_jobs").select("id")
     .eq("tenant_id", context.tenantId).eq("launch_request_id", latest.id).order("launch_unit_key").limit(1)
     : { data: [] as Array<{ id: string }>, error: null };

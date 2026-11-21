@@ -354,6 +354,15 @@ select results_eq($$select outcome, job_id from public.launch_manual_takeoff_req
 select results_eq($$select state, reason_code, reason_details ->> 'request_id' from public.takeoff_launch_requests where id = pg_temp.request(21)$$,
   $$values ('blocked'::text, 'SUPERSEDED'::text, (select id::text from public.takeoff_launch_requests where intent_key = pg_temp.f(74)))$$,
   'the automatic start is set aside by it, and names it');
+update public.affaire_briefs set status = 'a_confirmer', confirmed_at = null, confirmed_by = null where id = pg_temp.f(36);
+update public.affaire_briefs set status = 'confirme', confirmed_at = clock_timestamp(), confirmed_by = pg_temp.f(1) where id = pg_temp.f(36);
+select results_eq($$select state, reason_code from public.record_takeoff_launch_mandate(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
+  'confirmation', pg_temp.host(), pg_temp.selection())$$, $$values ('blocked'::text, 'SUPERSEDED'::text)$$,
+  'a later confirmation of its dossier never re-arms it');
+select results_eq($$select state, reason_code from public.record_takeoff_launch_mandate(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
+  'take_over', pg_temp.host(), pg_temp.selection())$$, $$values ('blocked'::text, 'SUPERSEDED'::text)$$,
+  'nor a take-over: a new analysis is a relaunch');
+select is(public.takeoff_launch_request_awaits_mac(pg_temp.request(21)), false, 'a set-aside start waits for no Mac');
 
 -- A dossier confirmed after activation whose confirmation recorded no request is reserved by the operator who takes it on.
 insert into public.estimate_projects (id, tenant_id, user_id, name) values
@@ -368,6 +377,8 @@ select results_eq($$select origin, confirmed_by, mandate_kind from public.takeof
 select throws_ok($$select * from public.record_takeoff_launch_mandate(pg_temp.f(10), pg_temp.f(22), pg_temp.f(1), 'take_over',
   pg_temp.host(), pg_temp.selection())$$, 'P0002', 'TAKEOFF_LAUNCH_REQUEST_NOT_FOUND',
   'a dossier confirmed before the activation is not armed by a take-over either');
+select is(public.takeoff_launch_request_awaits_mac((select id from public.takeoff_launch_requests where project_id = pg_temp.f(24))), true,
+  'a request taken on waits for the Mac of its mandate (the page tells when that Mac stays silent)');
 
 -- 12. Deleting an affaire removes its requests, their jobs and notices, also through the service role.
 set local role service_role;
@@ -376,6 +387,12 @@ select lives_ok($$delete from public.estimate_projects where id = pg_temp.f(23)$
 reset role;
 select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.f(23)), 0, 'its request is gone');
 select is((select count(*)::integer from public.takeoff_completion_notifications where project_id = pg_temp.f(23)), 0, 'and its notice');
+select is((select state from public.takeoff_launch_requests where intent_key = pg_temp.f(74)), 'admitted', 'an affaire holds a running request');
+set local role service_role;
+select lives_ok($$delete from public.estimate_projects where id = pg_temp.f(21)$$,
+  'deleting it removes the running request and its job together');
+reset role;
+select is((select count(*)::integer from public.takeoff_jobs where id = pg_temp.f(69)), 0, 'the running job is gone with its affaire');
 
 -- 13. Every takeoff action the application writes passes the audit check.
 select lives_ok(format($$insert into public.audit_logs (tenant_id, user_id, table_name, record_id, action, after_data)

@@ -1233,7 +1233,8 @@ async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: s
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", projectId);
   await mkdir(directory, { recursive: true });
   const file = path.join(directory, name);
-  await writeFile(file, await readFile(path.resolve("e2e/fixtures/sample-plan.pdf")));
+  // Bytes of its own for each plan (a comment after the end of the PDF): the dossier refuses a second identical copy.
+  await writeFile(file, Buffer.concat([await readFile(path.resolve("e2e/fixtures/sample-plan.pdf")), Buffer.from(`\n% ${name}\n`)]));
   if (dossier === "empty") {
     // An affaire without a dossier offers its drop surface on the page.
     await ui.app.open(`/dashboard/affaires/${projectId}`);

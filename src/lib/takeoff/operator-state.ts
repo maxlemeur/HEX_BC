@@ -386,7 +386,7 @@ export type TakeoffLaunchAction = (typeof TAKEOFF_LAUNCH_ACTIONS)[number];
 
 const LAUNCH_MANDATE_REASONS = new Set(["OPERATOR_REQUIRED", "MANDATE_REQUIRED", "LOCAL_RUNTIME_REQUIRED", "HOST_NOT_AUTHORISED",
   "CHATGPT_NOT_CONNECTED", "CHATGPT_ACCESS_REVOKED", "CHATGPT_MODEL_MISSING", "CHATGPT_SELECTION_CHANGED", "PAYER_NOT_ELIGIBLE",
-  "EVALUATION_FAILED", "SUPERSEDED"]);
+  "EVALUATION_FAILED"]);
 const LAUNCH_TRANSIENT_REASONS = new Set(["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING", "TAKEOFF_DISABLED"]);
 /** A request that waits this long for the Mac of its mandate may be taken on: that Mac may be gone for good. */
 export const TAKEOFF_LAUNCH_HOST_WAIT_MS = 15 * 60 * 1000;
@@ -404,13 +404,17 @@ export function resolveTakeoffLaunchDecision(input: {
   payerId: string | null;
   /** When the request last changed: one that waits for its Mac too long is offered to a gesture. */
   updatedAt?: string | null;
+  /** The Mac of its mandate has work waiting on it (an evaluation, a changed dossier, a passing cause to try again). */
+  awaitsMac?: boolean;
   viewer: TakeoffResumeViewer;
   now?: Date;
 }): { action: TakeoffLaunchAction } {
-  if (input.state === "admitted" || input.state === "closed" || input.state === "not_eligible") return { action: "none" };
+  // A start set aside by a relaunch is final: a new analysis is a relaunch.
+  if (input.state === "admitted" || input.state === "closed" || input.reasonCode === "SUPERSEDED") return { action: "none" };
   const waitedMs = (input.now ?? new Date()).getTime() - (parseIsoTime(input.updatedAt) ?? Number.POSITIVE_INFINITY);
-  const hostSilent = input.state === "evaluating" && waitedMs >= TAKEOFF_LAUNCH_HOST_WAIT_MS;
-  if ((input.state === "evaluating" && !hostSilent) || LAUNCH_TRANSIENT_REASONS.has(input.reasonCode ?? "")) return { action: "wait" };
+  const hostSilent = (input.state === "evaluating" || input.awaitsMac === true) && waitedMs >= TAKEOFF_LAUNCH_HOST_WAIT_MS;
+  if (!hostSilent && input.state === "not_eligible") return { action: "none" };
+  if (!hostSilent && (input.state === "evaluating" || LAUNCH_TRANSIENT_REASONS.has(input.reasonCode ?? ""))) return { action: "wait" };
   if (hostSilent) {
     if (!canTakeoffResumeViewerAct(input.viewer)) return { action: "none" };
     if (!input.viewer.executionHostId) return { action: "open_mac" };

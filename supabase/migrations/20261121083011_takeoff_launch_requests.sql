@@ -49,6 +49,7 @@ create table private.takeoff_launch_marks (
   marked_at timestamptz not null default pg_catalog.clock_timestamp()
 );
 create index takeoff_launch_marks_project_idx on private.takeoff_launch_marks (tenant_id, project_id, id desc);
+-- Never delete marks (no retention): the position is their count, and a deletion would let a change go unevaluated.
 revoke all on private.takeoff_launch_marks from public, anon, authenticated, service_role;
 
 create function private.takeoff_launch_mark_position(p_tenant_id uuid, p_project_id uuid)
@@ -539,8 +540,9 @@ begin
     end if;
   end if;
 
-  -- A consumed request is never re-armed: its job, then its end, answer for it.
-  if request.state in ('admitted', 'closed') then
+  -- A consumed request is never re-armed: its job, then its end, answer for it. An automatic start set aside by an
+  -- explicit relaunch is final too: a new analysis is a relaunch.
+  if request.state in ('admitted', 'closed') or request.reason_code = 'SUPERSEDED' then
     return query select request.id, request.state, request.reason_code, request.payer_id;
     return;
   end if;
@@ -613,6 +615,19 @@ end;
 $$;
 revoke all on function public.claim_takeoff_launch_evaluations(text, uuid, integer) from public, anon, authenticated;
 grant execute on function public.claim_takeoff_launch_evaluations(text, uuid, integer) to service_role;
+
+-- Whether the Mac of a request has work waiting on it: an evaluation not done yet, a dossier changed since it, or a
+-- passing cause to try again. The affaire's page reads it to tell a Mac gone for good from a request with nothing to do.
+create function public.takeoff_launch_request_awaits_mac(p_request_id uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select coalesce((select r.payer_id is not null and r.execution_host_id is not null and (r.state = 'evaluating'
+      or (r.state in ('not_eligible', 'blocked') and not (r.reason_code = any (private.takeoff_launch_mandate_reasons()))
+        and (r.reason_code = any (private.takeoff_launch_transient_reasons()) or r.evaluated_mark is null
+          or private.takeoff_launch_mark_position(r.tenant_id, r.project_id) > r.evaluated_mark)))
+    from public.takeoff_launch_requests r where r.id = p_request_id), false)
+$$;
+revoke all on function public.takeoff_launch_request_awaits_mac(uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_launch_request_awaits_mac(uuid) to service_role;
 
 -- What an evaluation found when it does not admit: not eligible, blocked (with its reason), or nothing to decide (the
 -- lease is given back). The position it read is recorded so that only a later change wakes it again.
@@ -754,7 +769,7 @@ begin
 
   if private.takeoff_launch_mark_position(request.tenant_id, request.project_id) <> p_mark then
     update public.takeoff_launch_requests r set state = 'evaluating', reason_code = null, reason_details = '{}'::jsonb,
-      evaluation_lease_token = null, evaluation_lease_expires_at = null where r.id = request.id;
+      evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = request.id;
     return query select 'stale', null::uuid, null::text;
     return;
   end if;
@@ -770,7 +785,7 @@ begin
   if failure is not null then
     update public.takeoff_launch_requests r set state = case when failure = 'BRIEF_NOT_CONFIRMED' then 'not_eligible' else 'blocked' end,
       reason_code = failure, reason_details = '{}'::jsonb, evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(),
-      evaluation_lease_token = null, evaluation_lease_expires_at = null where r.id = request.id;
+      evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = request.id;
     return query select 'blocked', null::uuid, failure;
     return;
   end if;
@@ -796,14 +811,14 @@ begin
       if violated is distinct from 'takeoff_launch_requests_running_uidx' then raise; end if;
       update public.takeoff_launch_requests r set state = 'blocked', reason_code = 'ANOTHER_ANALYSIS_RUNNING',
         evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(),
-        evaluation_lease_token = null, evaluation_lease_expires_at = null where r.id = p_request_id;
+        evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = p_request_id;
       return query select 'blocked', null::uuid, 'ANOTHER_ANALYSIS_RUNNING'::text;
       return;
     when sqlstate '23514' then
       if sqlerrm <> 'TAKEOFF_JOB_ADMISSION_LIMIT' then raise; end if;
       update public.takeoff_launch_requests r set state = 'blocked', reason_code = 'ADMISSION_LIMIT',
         evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(),
-        evaluation_lease_token = null, evaluation_lease_expires_at = null where r.id = p_request_id;
+        evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = p_request_id;
       return query select 'blocked', null::uuid, 'ADMISSION_LIMIT'::text;
       return;
     when sqlstate '42501' then
@@ -812,7 +827,7 @@ begin
         raise;
       end if;
       update public.takeoff_launch_requests r set state = 'evaluating', reason_code = null, reason_details = '{}'::jsonb,
-        evaluation_lease_token = null, evaluation_lease_expires_at = null where r.id = p_request_id;
+        evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = p_request_id;
       return query select 'stale', null::uuid, null::text;
       return;
   end;
