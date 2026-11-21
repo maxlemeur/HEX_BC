@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { after } from "next/server";
 
 import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
 import { findIntakePlansWithoutWorkingCopy, type PlanFileRow, type SyncDocument } from "@/lib/affaires/intake-plan-sync";
@@ -438,13 +439,22 @@ export async function evaluateTakeoffLaunchRequests(input: { hostId?: string; li
   return results;
 }
 
-let consumerRunning: Promise<unknown> | null = null;
-/** Wakes this Mac's loop now (after a gesture that may let a request start); a pass already running is enough. */
+/**
+ * A pass of this Mac's loop right after a gesture that may let a request start (a confirmation, a take-over), as a
+ * launch hands its job to `after`: the gesture's own consequence, run once the response is sent. The periodic loop
+ * (launch-request-consumer.ts) takes the requests no gesture woke. Two passes at once are kept apart by their leases.
+ */
 export function wakeTakeoffLaunchConsumer() {
-  if (!isLocalChatGptEnabled() || process.env.E2E_ARMY_BLOCK_WORKERS === "1") return;
-  consumerRunning ??= evaluateTakeoffLaunchRequests().catch(() => {
+  if (!isLocalChatGptEnabled()) return;
+  const pass = () => evaluateTakeoffLaunchRequests().then(() => undefined, () => {
     console.error("takeoff.launch_request.pass_failed");
-  }).finally(() => { consumerRunning = null; });
+  });
+  try {
+    after(pass);
+  } catch {
+    // Outside a request (a script, a test): run it now.
+    void pass();
+  }
 }
 
 // An explicit command: a relaunch from the takeoff's options, on the subscription of the member who clicks.

@@ -5,7 +5,8 @@ import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { AFFAIRE_INTAKE_PLAN_SET_METADATA } from "@/lib/takeoff/default-import-plan-set";
-import { evaluateTakeoffLaunchRequests } from "@/lib/takeoff/launch-request-server";
+import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { assumeTakeoffLaunchRequest, evaluateTakeoffLaunchRequests, recordAutomaticTakeoffMandate } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import { createSupabaseFake, filterValue, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
 import { takeoffPreparationSourceSchema } from "@/lib/takeoff/preparation";
@@ -17,8 +18,10 @@ import { loadPreparation } from "@/lib/takeoff/preparation-server";
 vi.mock("next/headers", () => ({ headers: () => { throw new Error("The Mac's loop has no HTTP request."); } }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
-  isLocalChatGptEnabled: () => true, hasLocalChatGptPlanAccess: () => true, assertLocalChatGptHost: vi.fn(),
+  isLocalChatGptEnabled: vi.fn(() => true), hasLocalChatGptPlanAccess: () => true, assertLocalChatGptHost: vi.fn(),
 }));
+vi.mock("next/server", () => ({ after: vi.fn() }));
+vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjectAccess: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn().mockResolvedValue("urn:uuid:aaaaaaaa-0000-4000-8000-000000000099"), readChatGptStore: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   isTakeoffEnabled: vi.fn().mockResolvedValue(true),
@@ -94,6 +97,8 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "no
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(isLocalChatGptEnabled).mockReturnValue(true);
+  vi.mocked(assertLocalChatGptHost).mockImplementation((host) => host ?? "");
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profil-fictif",
     profiles: [{ id: "profil-fictif", model: "modele-fictif", reasoningEffort: null }] } as never);
 });
@@ -161,5 +166,76 @@ describe("evaluateTakeoffLaunchRequests", () => {
     await evaluateTakeoffLaunchRequests();
     expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "MANDATE_REQUIRED" })]);
     expect(admitted).toEqual([]);
+  });
+});
+
+// The gesture: the brief's confirmation records who pays, on this Mac, or why nobody does.
+function gesture(input: { launchActive?: boolean; reply?: { state: string; reason_code: string | null; payer_id: string | null } } = {}) {
+  const mandates: Array<Record<string, unknown>> = [];
+  const fake = createSupabaseFake({ rpc: {
+    takeoff_launch_activation_state: () => ({ data: [{ launch_active_from: input.launchActive === false ? null : "2026-11-21T00:00:00Z",
+      completion_active_from: "2026-11-21T00:00:00Z" }], error: null }),
+    record_takeoff_launch_mandate: (args) => {
+      mandates.push(args as Record<string, unknown>);
+      return { data: [{ request_id: REQUEST, ...(input.reply ?? { state: "evaluating", reason_code: null, payer_id: PAYER }) }], error: null };
+    },
+    claim_takeoff_launch_evaluations: () => ({ data: [], error: null }),
+  } });
+  vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
+  return { mandates };
+}
+const member = (tenantRole: string) => ({ userId: PAYER, tenantId: TENANT, tenantRole, supabase: {} }) as never;
+
+describe("recordAutomaticTakeoffMandate", () => {
+  it("records the confirmer who may launch as the payer, with the selection of Mon profil on this Mac", async () => {
+    const { mandates } = gesture();
+    const result = await recordAutomaticTakeoffMandate({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" });
+    expect(mandates).toEqual([expect.objectContaining({ p_mode: "confirmation", p_actor: PAYER, p_host: HOST, p_selection: SELECTION })]);
+    expect(mandates[0]).not.toHaveProperty("p_blocked_reason");
+    expect(result).toMatchObject({ state: "evaluating", reason: null });
+  });
+
+  it("records nothing before the owner's activation", async () => {
+    const { mandates } = gesture({ launchActive: false });
+    expect(await recordAutomaticTakeoffMandate({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" })).toBeNull();
+    expect(mandates).toEqual([]);
+  });
+
+  it("never reads a reader's subscription: the request waits for an operator", async () => {
+    const { mandates } = gesture({ reply: { state: "blocked", reason_code: "OPERATOR_REQUIRED", payer_id: null } });
+    const result = await recordAutomaticTakeoffMandate({ context: member("director"), projectId: PROJECT, host: "127.0.0.1:3000" });
+    expect(readChatGptStore).not.toHaveBeenCalled();
+    expect(mandates).toEqual([expect.objectContaining({ p_blocked_reason: "MANDATE_REQUIRED" })]);
+    expect(result).toMatchObject({ reason: "OPERATOR_REQUIRED", message: "Métré non démarré — prise en charge par un métreur requise" });
+  });
+
+  it.each([
+    ["the hosted application", () => vi.mocked(isLocalChatGptEnabled).mockReturnValue(false), "LOCAL_RUNTIME_REQUIRED"],
+    ["another address", () => vi.mocked(assertLocalChatGptHost).mockImplementation(() => { throw new Error("refused"); }), "HOST_NOT_AUTHORISED"],
+    ["no ChatGPT connection", () => vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] } as never), "CHATGPT_NOT_CONNECTED"],
+    ["no model chosen", () => vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profil-fictif",
+      profiles: [{ id: "profil-fictif", model: null, reasoningEffort: null }] } as never), "CHATGPT_MODEL_MISSING"],
+  ] as const)("records the payer without a mandate from %s, with the reason", async (_case, arrange, reason) => {
+    arrange();
+    const { mandates } = gesture({ reply: { state: "blocked", reason_code: reason, payer_id: PAYER } });
+    await recordAutomaticTakeoffMandate({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" });
+    expect(mandates).toEqual([expect.objectContaining({ p_mode: "confirmation", p_blocked_reason: reason })]);
+    expect(mandates[0]).not.toHaveProperty("p_selection");
+  });
+});
+
+describe("assumeTakeoffLaunchRequest", () => {
+  it("takes the request on with the member's own subscription on this Mac", async () => {
+    const { mandates } = gesture();
+    await assumeTakeoffLaunchRequest({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" });
+    expect(mandates).toEqual([expect.objectContaining({ p_mode: "take_over", p_actor: PAYER, p_selection: SELECTION })]);
+  });
+
+  it("refuses, in French, a gesture whose subscription cannot pay, and records nothing", async () => {
+    vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: null, profiles: [] } as never);
+    const { mandates } = gesture();
+    await expect(assumeTakeoffLaunchRequest({ context: member("engineer"), projectId: PROJECT, host: "127.0.0.1:3000" }))
+      .rejects.toMatchObject({ status: 422, message: expect.stringContaining("forfait ChatGPT non connecté") });
+    expect(mandates).toEqual([]);
   });
 });
