@@ -270,15 +270,20 @@ function TakeoffActivityCenterView({
       shouldRetryOnError: false,
     }
   );
-  // A refusal (no right on the affaire any more) withdraws what was shown, never leaves the earlier state on screen.
-  const summaryData = isTakeoffReadRefusal(summaryError) ? undefined : summaryAnswer;
-  const listData = isTakeoffReadRefusal(listError) ? undefined : listAnswer;
+  // A refusal of any of the centre's reads (no right on the affaire any more) withdraws the three views together and shows
+  // the refusal, never an earlier state.
+  const refusal = [requestActivity.error, summaryError, listError].find(isTakeoffReadRefusal);
+  const refused = refusal !== undefined;
+  const summaryData = refused ? undefined : summaryAnswer;
+  const listData = refused ? undefined : listAnswer;
+  const lightData = refused ? undefined : requestActivity.data;
+  const pageError = summaryError ?? refusal;
   const isSlowLoading = useDelayedLoadingIndicator(isSummaryLoading);
 
   // The page's first light answer may be older or newer than the list read beside it: an analysis the list shows queued,
   // running or awaiting its retry that the light answer does not is a transition, and both are read again (once per
   // light answer and list, so that a lasting difference never loops). A waiting row is then followed by the poll.
-  const lightAnswer = requestActivity.data;
+  const lightAnswer = lightData;
   const comparedLists = useRef<string | null>(null);
   useEffect(() => {
     if (!lightAnswer) return;
@@ -337,7 +342,7 @@ function TakeoffActivityCenterView({
   // Every end the reader may see, a page at a time, whatever the job list shows: a director who reads one job of the
   // affaire still sees the ends of the jobs hidden from them.
   const sharedCompletions = (listData ?? summaryData)?.analysisCompletions ?? [];
-  const showTracking = !summaryError && (hasAnalyses || hasActiveJobFilters || selectedJob !== null
+  const showTracking = !pageError && (hasAnalyses || hasActiveJobFilters || selectedJob !== null
     || (summaryData?.analysisCompletions.length ?? 0) > 0);
 
   const resetJobFilters = useCallback(() => {
@@ -400,17 +405,17 @@ function TakeoffActivityCenterView({
     }
   }, [activeTab]);
 
-  const errorStatus = isTakeoffApiError(summaryError) ? summaryError.status : null;
+  const errorStatus = isTakeoffApiError(pageError) ? pageError.status : null;
   const errorMessage =
-    isTakeoffApiError(summaryError) && summaryError.message
-      ? summaryError.message
+    isTakeoffApiError(pageError) && pageError.message
+      ? pageError.message
       : "Impossible de charger les analyses.";
 
   // The latest execution leads when it is a launch request newer than the latest analysis launched without one: its plans,
   // never the latest job by date, decide the step.
   const latestJob = summaryData?.jobs[0] ?? null;
   // A link to a request or an analysis of the latest execution keeps the step on that execution.
-  const currentRequest = !linked || requestActivity.data?.currentIsLatest ? requestActivity.data?.current ?? null : null;
+  const currentRequest = !linked || lightData?.currentIsLatest ? lightData?.current ?? null : null;
   const requestLeads = currentRequest !== null && (!latestJob || latestJob.launchRequestId != null
     || Date.parse(latestJob.createdAt) <= Date.parse(currentRequest.createdAt));
   const requestStep = requestLeads ? resolveTakeoffRequestStep({ projectId, request: currentRequest, canLaunch: launchContext !== null }) : null;
@@ -425,7 +430,7 @@ function TakeoffActivityCenterView({
       })
     : null);
   // Always mounted, so a step that changes by itself (an analysis that ends) is announced.
-  const announcement = summaryError
+  const announcement = pageError
     ? resolveErrorTitle(errorStatus)
     : nextStep?.title ?? (isSlowLoading ? "Le chargement prend plus de temps que prévu…" : "");
 
@@ -443,7 +448,7 @@ function TakeoffActivityCenterView({
 
   const counters = summaryData?.counters;
   const countFact = (value: number | undefined) =>
-    summaryError ? "Indisponible" : value === undefined ? "…" : formatCount(value);
+    pageError ? "Indisponible" : value === undefined ? "…" : formatCount(value);
 
   return (
     <div className="journey-page">
@@ -452,12 +457,12 @@ function TakeoffActivityCenterView({
       <div className="journey-grid">
         <JourneyPanel headingId="takeoff-next-heading" title="Métré de l’affaire">
           <p className="sr-only" role="status">{announcement}</p>
-          {summaryError ? (
+          {pageError ? (
             <JourneyNext
               title={resolveErrorTitle(errorStatus)}
               description={errorMessage}
               action={
-                <Button variant="outline" onClick={() => void mutateSummary()}>
+                <Button variant="outline" onClick={() => (refused ? refreshEverything() : void mutateSummary())}>
                   Réessayer
                 </Button>
               }
@@ -500,8 +505,8 @@ function TakeoffActivityCenterView({
         projectId={projectId}
         viewerKey={viewerKey}
         live={{
-          data: requestActivity.data, error: requestActivity.error, isLoading: requestActivity.isLoading,
-          refused: requestActivity.refused, refreshMs: requestActivity.refreshMs, refresh: refreshEverything,
+          data: lightData, error: refusal ?? requestActivity.error, isLoading: requestActivity.isLoading,
+          refused, refreshMs: requestActivity.refreshMs, refresh: refreshEverything,
         }}
         linked={linked}
         onShowLatest={() => updateParams({ request: null, job: null, offset: null })}

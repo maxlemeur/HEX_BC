@@ -12,6 +12,10 @@ const db = vi.hoisted(() => ({
   statements: [] as string[],
   failures: {} as Record<string, Failure>,
   rpc: {} as Record<string, unknown>,
+  /** Each call, with the arguments it was made with. */
+  rpcCalls: [] as Array<[string, unknown]>,
+  /** The Auth service's answer to the session lookup: a user, or this error. */
+  authError: null as unknown,
   userId: "",
   host: "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as string | null,
 }));
@@ -69,12 +73,15 @@ function client(scope: "member" | "service") {
   };
   return {
     from: query,
-    rpc: (name: string) => {
+    rpc: (name: string, args?: unknown) => {
       db.statements.push(`${scope}:rpc:${name}`);
+      db.rpcCalls.push([`${scope}:rpc:${name}`, args]);
       const failure = db.failures[`${scope}:rpc:${name}`];
       return Promise.resolve(failure ? { data: null, error: failure } : { data: db.rpc[name] ?? null, error: null });
     },
-    auth: { getUser: async () => ({ data: { user: { id: db.userId } }, error: null }) },
+    auth: { getUser: async () => db.authError
+      ? { data: { user: null }, error: db.authError }
+      : { data: { user: { id: db.userId } }, error: null } },
   };
 }
 
@@ -89,6 +96,8 @@ vi.mock("@/lib/ai/chatgpt-local-store", () => ({
   getChatGptHostId: async () => { throw new Error("A read never creates the Mac's identifier."); },
   readChatGptStore: async () => ({ selectedId: "p", profiles: [{ id: "p", accessToken: "fixture", model: "fixture-model" }] }),
 }));
+
+import { AuthRetryableFetchError, AuthSessionMissingError } from "@supabase/supabase-js";
 
 import { GET } from "@/app/api/takeoff/activity-center/requests/route";
 import { normalizeFeatureFlagKey } from "@/lib/feature-flag-keys";
@@ -176,6 +185,8 @@ const read = (input: Partial<Parameters<typeof readTakeoffRequestActivity>[0]> =
 beforeEach(() => {
   db.statements = [];
   db.failures = {};
+  db.rpcCalls = [];
+  db.authError = null;
   db.host = HOST;
   vi.stubEnv("TAKEOFF_MODULE_FORCE_ENABLED", "");
   vi.stubEnv("TAKEOFF_MODULE_ENABLED_BY_DEFAULT", "");
@@ -245,6 +256,8 @@ describe("readTakeoffRequestActivity: one light projection", () => {
     db.rpc.takeoff_launch_request_action = "take_on";
     const first = await read();
     expect(first.current?.action).toEqual({ kind: "take_on", label: "Prendre en charge avec mon forfait", mandateRevision: 1 });
+    // Closing round, point 1: the gesture is the one the database allows this member on this request.
+    expect(db.rpcCalls).toContainEqual(["service:rpc:takeoff_launch_request_action", { p_request_id: REQUEST, p_actor: OWNER }]);
     db.statements = [];
     const again = await read({ actionSeen: first.reused.actionKey, actionSeenAt: first.observedAt });
     expect(again.reused.action).toBe(true);
@@ -254,17 +267,63 @@ describe("readTakeoffRequestActivity: one light projection", () => {
     expect(db.statements).toContain("service:rpc:takeoff_launch_request_action");
   });
 
+  // Closing round, point 9: the page's clock never keeps an old gesture.
+  it("reads the gesture again for a time later than the server's", async () => {
+    seed({ count: 1 });
+    db.member.takeoff_launch_requests = [{ ...db.member.takeoff_launch_requests[0], state: "blocked", admitted_at: null,
+      reason_code: "MANDATE_REQUIRED" }];
+    db.rpc.takeoff_launch_request_action = "take_on";
+    const first = await read();
+    db.statements = [];
+    const ahead = await read({ actionSeen: first.reused.actionKey, actionSeenAt: new Date(Date.now() + 3_600_000).toISOString() });
+    expect(ahead.reused.action).toBe(false);
+    expect(db.statements).toContain("service:rpc:takeoff_launch_request_action");
+    expect(ahead.current?.action?.kind).toBe("take_on");
+  });
+
+  // Closing round, point 1: an analysis the member does not read leaves its unit's state, never its decisions.
+  it("keeps a unit whose analysis the member does not read, without a decision for it", async () => {
+    seed({ count: 2, states: ["completed", "completed"], hiddenJobs: [0] });
+    const answer = await read();
+    expect(answer.current?.units?.units.map((unit) => unit.state)).toEqual(["succeeded", "succeeded"]);
+    expect(answer.current?.jobs.map((job) => job.jobId)).toEqual([id("60000000", 2)]);
+  });
+
   // Fix round 1, point 2: reading the affaire does not name its plans.
+  // Closing round, point 3: nor sends the identifier of a source they may not read, anywhere in the answer.
   it("names to a director only the plans they may read, the dossier's changes included", async () => {
-    seed({ count: 2, states: ["completed", "completed"], requestState: "closed", role: "director" });
+    seed({ count: 2, states: ["completed", "completed"], requestState: "closed", role: "director", older: 1 });
     db.service.plan_files.push({ id: id("50000000", 9), tenant_id: TENANT, plan_set_id: PLAN_SET, file_name: "Ajouté sans pièce.pdf",
       file_path: "x", file_size_bytes: 1, metadata: {}, updated_at: "2026-11-21T10:00:00.000Z" });
+    // The older request sealed the same plans: its history names them by the same rule.
+    const sealed = db.service.takeoff_launch_requests.find((row) => row.id === REQUEST)!;
+    db.service.takeoff_launch_requests = db.service.takeoff_launch_requests.map((row) => row.id === OLDER ? { ...row,
+      format_version: sealed.format_version, units: sealed.units, plans: sealed.plans, coverage: sealed.coverage, manifest: sealed.manifest } : row);
+    db.service.takeoff_jobs.push(...db.service.takeoff_jobs.map((job, index) => ({ ...job, id: id("60000000", 50 + index), launch_request_id: OLDER })));
     const answer = await read();
     expect(answer.current?.units?.units.map((unit) => [unit.name, unit.pages])).toEqual([["Plan A.pdf", [1]], ["Plan 2", []]]);
-    expect(answer.current?.dossierChanged?.added).toEqual([{ id: id("50000000", 9), name: "Plan 1" }]);
-    expect(JSON.stringify(answer)).not.toContain("Ajouté sans pièce");
-    expect(JSON.stringify(answer)).not.toContain("Plan B.pdf");
+    expect(answer.current?.dossierChanged?.added.map((plan) => plan.name)).toEqual(["Plan 1"]);
+    const history = await read({ view: "history" });
+    expect(history.history[0]?.units?.units.map((unit) => unit.name)).toEqual(["Plan A.pdf", "Plan 2"]);
+    for (const serialized of [JSON.stringify(answer), JSON.stringify(history)]) {
+      expect(serialized).not.toContain(id("50000000", 2));
+      expect(serialized).not.toContain(id("50000000", 9));
+      expect(serialized).not.toContain("Ajouté sans pièce");
+      expect(serialized).not.toContain("Plan B.pdf");
+      // The plan the director reads keeps its identity.
+      expect(serialized).toContain(id("50000000", 1));
+    }
     expect(answer.current?.jobs.every((job) => !job.canCancel && !job.canResubmit)).toBe(true);
+  });
+
+  // Closing round, point 4: a name the shared reader gave the member is never masked again.
+  it("names to a director a plan added after the seal that they read", async () => {
+    seed({ count: 2, states: ["completed", "completed"], requestState: "closed", role: "director" });
+    const added = { id: id("50000000", 9), tenant_id: TENANT, plan_set_id: PLAN_SET, file_name: "Ajouté lisible.pdf",
+      file_path: "x", file_size_bytes: 1, metadata: {}, updated_at: "2026-11-21T10:00:00.000Z" };
+    db.service.plan_files.push(added);
+    db.member.plan_files.push(added);
+    expect((await read()).current?.dossierChanged?.added).toEqual([{ id: id("50000000", 9), name: "Ajouté lisible.pdf" }]);
   });
 
   it("gives the engineer who owns the affaire every name and the stop of a plan being read", async () => {
@@ -340,6 +399,30 @@ describe("GET /api/takeoff/activity-center/requests: errors", () => {
     seed({ count: 1 });
     db.failures["member:estimate_projects"] = { code: "57014", message: "canceling statement due to statement timeout" };
     expect((await get()).status).toBe(503);
+  });
+
+  // Closing round, point 5: a read of the module's flag or of the session that failed is not an answer.
+  it("answers a timeout reading the module's flag as a read to try again, and a flag that is off as a refusal", async () => {
+    seed({ count: 1 });
+    db.failures["member:feature_flags"] = { code: "57014", message: "canceling statement due to statement timeout" };
+    const failed = await get();
+    expect(failed.status).toBe(503);
+    expect((await failed.json()).error).toMatchObject({ retryable: true });
+    delete db.failures["member:feature_flags"];
+    db.member.feature_flags = [{ ...db.member.feature_flags[0], enabled: false }];
+    const off = await get();
+    expect(off.status).toBe(403);
+    expect((await off.json()).error).toMatchObject({ code: "TAKEOFF_MODULE_DISABLED" });
+  });
+
+  it("answers an Auth service that did not answer as a read to try again, and a missing session as a refusal", async () => {
+    seed({ count: 1 });
+    db.authError = new AuthRetryableFetchError("fetch failed", 0);
+    const failed = await get();
+    expect(failed.status).toBe(503);
+    expect((await failed.json()).error).toMatchObject({ retryable: true });
+    db.authError = new AuthSessionMissingError();
+    expect((await get()).status).toBe(401);
   });
 
   it("answers a refusal as a refusal", async () => {

@@ -46,10 +46,12 @@ function light(waiting: boolean, signature: string): TakeoffRequestActivityRespo
 
 /** A row of the list of analyses: a job without a request, running when `technicalStatusRaw` says so. */
 function row(jobId: string, technicalStatusRaw: string, planSetLabel = "Plans du membre 1"): TakeoffActivityCenterJobRow {
+  const canceled = technicalStatusRaw === "canceled";
   return {
     jobId, launchRequestId: null, analysisCompletion: null, estimateVersionId: null, versionLabel: "Sans devis", lotLabel: null,
     planSetLabel, levelLabel: "Détaillé", processingStrategy: "sync", providerBatchState: null, providerBatchUpdatedAt: null,
-    statusLabel: "En traitement", statusRaw: "processing", technicalStatusRaw, canCancel: false, canResubmit: false,
+    statusLabel: canceled ? "Annulé" : "En traitement", statusRaw: canceled ? "canceled" : "processing", technicalStatusRaw,
+    canCancel: false, canResubmit: false,
     resume: { action: "none", reason: "not_stopped", availableAt: null }, errorCode: null, nextRetryAt: null, itemCount: 0,
     coveragePercent: null, exceptionCount: 0, confidenceLabel: "Faible", appliedCount: 0, createdAt: "2026-11-21T09:00:00.000Z",
     carriedOverFrom: null, neverApplied: false, retryCount: 0,
@@ -202,13 +204,41 @@ describe("TakeoffActivityCenter polling", () => {
     expect(currentReads()).toBe(settled);
   });
 
+  // Closing round, point 2: a refusal of the light read alone withdraws the summary and the list it had loaded too.
+  it("withdraws the summary and the list already loaded when the light read is refused", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date("2026-11-21T09:06:00.000Z"));
+    let refused = false;
+    fetchTakeoffRequestActivity.mockImplementation(async () => {
+      if (refused) throw new TakeoffApiError("Accès refusé à cette affaire.", 403, null, "FORBIDDEN");
+      return { ...fixtureActivityResponse(fixtureThreePlans()), observedAt: new Date().toISOString() };
+    });
+    // The list and the summary keep answering: only the light read is refused.
+    fetchTakeoffActivityCenter.mockImplementation(async () => listOf([row(JOB, "processing")]));
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <TakeoffActivityCenter projectId="project-1" viewerKey="tenant-1:member-1" versions={[]} planSets={[]} launchContext={null} />
+      </SWRConfig>,
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(screen.getAllByText("Plans du membre 1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Plan A — niveau 1.pdf").length).toBeGreaterThan(0);
+    refused = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
+    expect(screen.getByTestId("takeoff-request-refused")).toBeTruthy();
+    expect(screen.queryAllByText("Plan A — niveau 1.pdf")).toHaveLength(0);
+    expect(screen.queryAllByText("Plans du membre 1")).toHaveLength(0);
+    expect(screen.queryAllByText("Suivi des analyses")).toHaveLength(0);
+  });
+
   // Fix round 1, point 3: the list shows an analysis running that the light answer no longer sees in flight (another tab
   // stopped it between the two reads): both are read again, once, and the page settles.
   it("reads the list again when its first answer shows in flight an analysis the light answer does not", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
     vi.setSystemTime(new Date("2026-11-21T10:00:00.000Z"));
-    let listJobs = [row(JOB, "processing")];
-    fetchTakeoffActivityCenter.mockImplementation(async () => listOf(listJobs));
+    // Its first answer shows it running; once stopped, every later read shows it canceled.
+    let listed = 0;
+    fetchTakeoffActivityCenter.mockImplementation(async () => listOf([row(JOB, listed++ === 0 ? "processing" : "canceled")]));
     fetchTakeoffRequestActivity.mockImplementation(async () => light(false, "stopped"));
     render(
       <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
@@ -218,10 +248,13 @@ describe("TakeoffActivityCenter polling", () => {
     const listReads = () => fetchTakeoffActivityCenter.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     // The light answer has nothing in flight and no interval: the list is read again because of the difference alone.
-    listJobs = [row(JOB, "canceled")];
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
     expect(listReads()).toBeGreaterThanOrEqual(2);
     expect(currentReads()).toBeGreaterThanOrEqual(2);
+    // Closing round, point 6: the member sees the analysis stopped, not running.
+    const statuses = () => [...document.querySelectorAll(".status-badge")].map((badge) => badge.textContent);
+    expect(statuses()).toContain("Annulé");
+    expect(statuses()).not.toContain("En traitement");
     const settled = [listReads(), currentReads()];
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
     expect([listReads(), currentReads()]).toEqual(settled);

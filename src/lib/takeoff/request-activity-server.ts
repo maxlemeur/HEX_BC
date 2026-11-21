@@ -2,12 +2,15 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { isAuthRetryableFetchError } from "@supabase/supabase-js";
+
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
+import { readAuthenticatedUser } from "@/lib/auth/tenant-context";
 import { ApiError } from "@/lib/http/api-error";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { assertTakeoffEnabledForPolledRead } from "@/lib/takeoff/feature-flags";
 import { readDossierChangeSinceAnalysis } from "@/lib/takeoff/launch-request-server";
 import {
   describeTakeoffLaunchAction,
@@ -94,6 +97,17 @@ export function toRequestActivityReadError(error: unknown) {
   return error;
 }
 
+/**
+ * A 401 of the access check: a missing or refused session stays a refusal; a session lookup the Auth service did not
+ * answer (its own retryable error, or a lookup that answers now) is a read to try again. The shared context reads it as
+ * a 401 for every caller; this read owns its answer, from the same lookup.
+ */
+async function toSessionReadError(error: unknown) {
+  if (!(error instanceof ApiError) || error.status !== 401) return error;
+  const { user, error: authError } = await readAuthenticatedUser();
+  return isAuthRetryableFetchError(authError) || (user && !authError) ? transientReadError() : error;
+}
+
 export type ReadTakeoffRequestActivityInput = {
   projectId: string;
   /**
@@ -122,9 +136,12 @@ export type ReadTakeoffRequestActivityInput = {
  */
 export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivityInput): Promise<TakeoffRequestActivityResponse> {
   const view = input.view ?? "current";
-  const { context, project } = await requireAffaireAccess(input.projectId, "read");
+  const { context, project } = await requireAffaireAccess(input.projectId, "read").catch(async (error: unknown) => {
+    throw await toSessionReadError(error);
+  });
   const { supabase, tenantId } = context;
-  await assertTakeoffEnabled(tenantId, { supabase });
+  // A read of the module's flag that failed is a read to try again, never a module turned off.
+  await assertTakeoffEnabledForPolledRead(tenantId, { supabase, failedRead: transientReadError });
   // The member's Mac and connection, read once for every row (no SQL, nothing written).
   const executionRead = readTakeoffExecution(context);
   const now = new Date();
@@ -195,8 +212,10 @@ export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivi
   if (current && view !== "job") {
     if (!current.admitted_at && current.state !== "closed" && current.state !== "superseded") {
       actionKey = `${current.id}:${current.mandate_revision}:${current.state}:${current.reason_code ?? ""}`;
+      // A time later than the server's (the page's own clock, or any value it sent) is read again, never kept.
       const seenAt = input.actionSeenAt ? Date.parse(input.actionSeenAt) : Number.NaN;
-      actionReused = input.actionSeen === actionKey && Number.isFinite(seenAt) && now.getTime() - seenAt < ACTION_REREAD_MS;
+      const age = now.getTime() - seenAt;
+      actionReused = input.actionSeen === actionKey && Number.isFinite(age) && age >= 0 && age < ACTION_REREAD_MS;
       if (!actionReused) action = await readLaunchAction(service, current, context.userId, viewer);
     }
     const currentUnits = unitsOf(current);

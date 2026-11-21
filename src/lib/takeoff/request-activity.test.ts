@@ -8,6 +8,8 @@ import {
   describeTakeoffRequestActivityCoverage,
   describeTakeoffRequestPages,
   describeTakeoffRequestUnitState,
+  maskTakeoffDossierChange,
+  maskTakeoffPieces,
   parseTakeoffRequestManifest,
   reviewableTakeoffRequestUnits,
   takeoffRequestRefreshInterval,
@@ -22,6 +24,7 @@ import {
   type TakeoffRequestActivity,
   type TakeoffRequestActivityResponse,
 } from "@/lib/takeoff/request-activity-contracts";
+import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
 
 const NOW = new Date("2026-11-21T10:00:00.000Z");
 const LAUNCHER = "11111111-1111-4111-8111-111111111111";
@@ -341,22 +344,41 @@ describe("buildTakeoffRequestActivity: names only for the sources the member may
       ["Plan 1", [], null], ["A — Rez-de-chaussée.pdf", [2, 7], PLAN_A],
     ]);
     expect(JSON.stringify(view)).not.toContain("C — Sous-sol.pdf");
+    // Closing round, point 3: nor its identity, its unit's key included; that key stays the same from one read to the next.
+    expect(JSON.stringify(view)).not.toContain(PLAN_C);
+    expect(view.units!.units.map((unit) => unit.key)).toEqual(["unit:1", `plan:${PLAN_A}`]);
   });
 
   it("does the same for a grouped analysis, the plans its seal set aside, the pieces of a reason and the dossier's changes", () => {
     const manifest = parseTakeoffRequestManifest({ ...groupedManifest, coverage: { ...groupedManifest.coverage,
       plans_omitted: [{ id: PLAN_B, name: "B — ancien indice.pdf", reason: "alternate" }] } });
     const grouped = buildTakeoffRequestActivity({ request: request({ units_expected: 1 }), manifest, jobs: [], viewer: reader, now: NOW,
-      visible: visibleA, units: deriveTakeoffRequestUnits({ requestId: REQUEST, manifest, jobs: [unitJob("d", "grouped", { status: "completed" })] }),
-      dossierChanged: { added: [{ id: PLAN_C, name: "C — ajouté.pdf" }, { id: PLAN_A, name: "A — Rez-de-chaussée.pdf" }], replaced: [], removed: [] } });
+      visible: visibleA, units: deriveTakeoffRequestUnits({ requestId: REQUEST, manifest, jobs: [unitJob("d", "grouped", { status: "completed" })] }) });
     expect(grouped.groupedPlans.map((plan) => plan.name)).toEqual(["A — Rez-de-chaussée.pdf", "Plan 2", "Plan 3"]);
     expect(grouped.plansOmitted).toEqual([{ name: "Plan 1", reason: "alternate" }]);
-    expect(grouped.dossierChanged?.added.map((plan) => plan.name)).toEqual(["Plan 1", "A — Rez-de-chaussée.pdf"]);
+    expect(JSON.stringify(grouped)).not.toContain(PLAN_B);
+    expect(JSON.stringify(grouped)).not.toContain(PLAN_C);
+    // The dossier's changes are masked once, by the shared reader that read them for this member.
+    const changed = maskTakeoffDossierChange({ added: [{ id: PLAN_C, name: "C — ajouté.pdf" }, { id: PLAN_A, name: "A — Rez-de-chaussée.pdf" }],
+      replaced: [], removed: [{ id: PLAN_B, name: "B — Étage 1.pdf" }] }, visibleA);
+    expect(changed).toEqual({ added: [{ id: "hidden:added:1", name: "Plan 1" }, { id: PLAN_A, name: "A — Rez-de-chaussée.pdf" }],
+      replaced: [], removed: [{ id: "hidden:removed:1", name: "Plan 1" }] });
     const blocked = buildTakeoffRequestActivity({ request: request({ state: "blocked", admitted_at: null, reason_code: "PLAN_COPY_MISSING",
       reason_details: { pieces: [{ id: PLAN_C, name: "C — Sous-sol.pdf" }] } }), units: null, manifest: null, jobs: [], viewer: reader,
     now: NOW, visible: visibleA });
     expect(blocked.reason?.message).toContain("« Plan 1 »");
     expect(blocked.reason?.message).not.toContain("Sous-sol");
+    // The pieces a reason names, as the affaire's zone returns them: neither the name nor the identity of a hidden one.
+    expect(maskTakeoffPieces([{ id: PLAN_C, name: "C — Sous-sol.pdf" }, { id: PLAN_A, name: "A — Rez-de-chaussée.pdf" }], visibleA))
+      .toEqual([{ id: "hidden:1", name: "Plan 1" }, { id: PLAN_A, name: "A — Rez-de-chaussée.pdf" }]);
+  });
+
+  // Closing round, point 4: the projection passes on the dossier's changes as the shared reader masked them.
+  it("shows the dossier's changes as the shared reader named them for this member", () => {
+    const view = buildTakeoffRequestActivity({ request: request({ state: "closed", outcome: "success" }), units: null, manifest: null,
+      jobs: [], viewer: reader, now: NOW, visible: visibleA,
+      dossierChanged: { added: [{ id: PLAN_C, name: "C — ajouté, lisible.pdf" }], replaced: [], removed: [] } });
+    expect(view.dossierChanged?.added).toEqual([{ id: PLAN_C, name: "C — ajouté, lisible.pdf" }]);
   });
 });
 
@@ -369,5 +391,26 @@ describe("buildTakeoffRequestActivity: public codes only", () => {
     expect(JSON.stringify(view)).not.toContain("secret detail");
     expect(activity([unit("a", 1, { state: "failed" })], [memberJob("a", { status: "failed", error_code: "AI_TIMEOUT" })]).jobs[0].errorCode)
       .toBe("AI_TIMEOUT");
+  });
+
+  // Closing round, point 7: a reader who cannot see the analysis reads the same generic reason, never « sans code ».
+  it("gives a failed plan whose code has no public reason the generic code of its analysis", () => {
+    const derived = deriveTakeoffRequestUnits({ requestId: REQUEST, manifest: parseTakeoffRequestManifest(perPlanManifest), jobs: [
+      unitJob("c", `plan:${PLAN_C}`, { status: "failed", analysis_outcome: "failure", started_at: "2026-11-21T09:01:00.000Z",
+        error_code: "PROVIDER said: secret detail" }),
+      unitJob("a", `plan:${PLAN_A}`, { status: "failed", analysis_outcome: "failure", started_at: "2026-11-21T09:01:00.000Z",
+        error_code: "AI_TIMEOUT" }),
+    ] })!;
+    expect(derived.units.map((entry) => [entry.state, entry.reasonCode])).toEqual([["failed", "OTHER"], ["failed", "AI_TIMEOUT"]]);
+    expect(describeTakeoffJobFailure(derived.units[0].reasonCode)).not.toBe("Échec sans code disponible.");
+    expect(JSON.stringify(derived)).not.toContain("secret detail");
+  });
+
+  // Closing round, point 8: a plan sent back to the queue is dated by that return, not by its creation.
+  it("dates an analysis put back in its queue by its return to the queue", () => {
+    const view = activity([unit("a", 1)], [memberJob("a", { status: "pending", created_at: "2026-11-21T09:00:00.000Z",
+      started_at: "2026-11-21T09:01:00.000Z", analysis_finished_at: "2026-11-21T09:02:00.000Z",
+      analysis_queued_at: "2026-11-21T09:10:00.000Z" })]);
+    expect(view.jobs[0].lastTransitionAt).toBe("2026-11-21T09:10:00.000Z");
   });
 });

@@ -17,7 +17,7 @@ import {
  */
 
 const unitSchema = z.object({
-  key: z.string(),
+  key: z.string().describe("plan:<source> ; unit:<rang> pour un plan dont la source n’est pas lisible par ce membre."),
   ordinal: z.number().int().positive().describe("Rang dans l’ordre enregistré : le Mac lit les unités dans cet ordre."),
   planFileId: uuid.nullable(),
   logicalId: z.string().nullable(),
@@ -38,6 +38,8 @@ const coverageSchema = z.object({
   expected: count, queued: count, running: count, succeeded: count, failed: count, canceled: count, not_started: count,
 }) satisfies z.ZodType<TakeoffRequestCoverage>;
 
+/** A plan of the dossier: its source's identifier, or hidden:<list>:<rang> with « Plan N » where this member may not read it. */
+const dossierPieceSchema = z.object({ id: z.union([uuid, z.string().regex(/^hidden:(added|replaced|removed):[1-9][0-9]*$/)]), name: z.string() });
 const planSchema = z.object({ planFileId: uuid.nullable(), name: z.string(), pages: z.array(z.number().int().positive()) });
 
 /** What this member may do with the analysis of a unit, by the one resume policy. Only the analyses the member reads. */
@@ -80,9 +82,9 @@ export const takeoffRequestActivitySchema = z.object({
   action: z.object({ kind: z.enum(TAKEOFF_LAUNCH_ACTIONS), label: z.string().nullable(), mandateRevision: count }).nullable()
     .describe("Demande affichée non admise : le geste que la base permet à ce membre (prendre en charge, reprendre)."),
   dossierChanged: z.object({
-    added: z.array(z.object({ id: uuid, name: z.string() })),
-    replaced: z.array(z.object({ id: uuid, name: z.string() })),
-    removed: z.array(z.object({ id: uuid, name: z.string() })),
+    added: z.array(dossierPieceSchema),
+    replaced: z.array(dossierPieceSchema),
+    removed: z.array(dossierPieceSchema),
   }).nullable().describe("Plans ajoutés, remplacés ou retirés du dossier depuis le scellement, lu quand ses plans ne sont plus lus."),
 });
 

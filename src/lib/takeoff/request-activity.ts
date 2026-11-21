@@ -56,6 +56,8 @@ export type TakeoffRequestJobRow = TakeoffOperatorStateRow & {
   created_at?: string | null;
   started_at?: string | null;
   analysis_finished_at?: string | null;
+  /** When a member sent it back to its queue (migration 20261121020321). */
+  analysis_queued_at?: string | null;
   /** Its lines that are not excluded: a reading that kept only excluded hypotheses retains none. */
   item_count: number;
 };
@@ -195,8 +197,7 @@ export function deriveTakeoffRequestUnits(input: {
       name: perPlan ? plan?.name ?? "Plan sans nom" : `Analyse groupée de ${unit.plans.length} plans`,
       pages: plan?.pages ?? [],
       jobId: job.id, state,
-      reasonCode: (state === "failed" || state === "not_started") && job.error_code && PUBLIC_CODES.has(job.error_code)
-        ? job.error_code : null,
+      reasonCode: state === "failed" || state === "not_started" ? toPublicFailureCode(job.error_code) : null,
       retryAt: job.status === "failed" && !job.analysis_outcome ? job.next_retry_at : null,
       updatedAt: job.updated_at,
       reviewable: state === "succeeded",
@@ -224,17 +225,22 @@ function latestOf(values: Array<string | null | undefined>) {
   return best;
 }
 
-/** A list of named pieces with the names the member may not read replaced by « Plan N » (its rank in the list). */
-export function maskTakeoffPieces<T extends { id: string; name: string }>(pieces: ReadonlyArray<T>, visible: TakeoffVisibleSources): T[] {
-  return pieces.map((piece, index) => isTakeoffSourceVisible(visible, piece.id) ? piece : { ...piece, name: `Plan ${index + 1}` });
+/**
+ * A list of named pieces where a piece the member may not read is « Plan N » (its rank in the list) with an opaque
+ * identifier, `hidden:[list:]N`, the same at each read of the same list: never its source's name or identifier.
+ */
+export function maskTakeoffPieces<T extends { id: string; name: string }>(pieces: ReadonlyArray<T>, visible: TakeoffVisibleSources,
+  list?: string): T[] {
+  return pieces.map((piece, index) => isTakeoffSourceVisible(visible, piece.id) ? piece
+    : { ...piece, id: `hidden:${list ? `${list}:` : ""}${index + 1}`, name: `Plan ${index + 1}` });
 }
 
-/** The dossier's changes since a seal, each name shown only to a member who may read its source. */
+/** The dossier's changes since a seal, each name and identifier shown only to a member who may read its source. */
 export function maskTakeoffDossierChange<T extends { added: Array<{ id: string; name: string }>; replaced: Array<{ id: string; name: string }>;
   removed: Array<{ id: string; name: string }> }>(change: T | null, visible: TakeoffVisibleSources): T | null {
   if (!change) return null;
-  return { ...change, added: maskTakeoffPieces(change.added, visible), replaced: maskTakeoffPieces(change.replaced, visible),
-    removed: maskTakeoffPieces(change.removed, visible) };
+  return { ...change, added: maskTakeoffPieces(change.added, visible, "added"),
+    replaced: maskTakeoffPieces(change.replaced, visible, "replaced"), removed: maskTakeoffPieces(change.removed, visible, "removed") };
 }
 
 function toPieces(details: unknown): TakeoffLaunchPiece[] {
@@ -246,7 +252,7 @@ function toPieces(details: unknown): TakeoffLaunchPiece[] {
 /** What this member may do with an analysis, by the same policy as its detail, the list and the retry command. */
 function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, now: Date): TakeoffRequestActivityJob {
   const decision = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer, now));
-  const transition = latestOf([job.created_at, job.started_at, job.completed_at, job.analysis_finished_at]);
+  const transition = latestOf([job.created_at, job.analysis_queued_at, job.started_at, job.completed_at, job.analysis_finished_at]);
   return {
     jobId: job.id,
     planSetId: job.plan_set_id,
@@ -274,9 +280,10 @@ export function buildTakeoffRequestActivity(input: {
   jobs: ReadonlyArray<TakeoffRequestJobRow>;
   viewer: TakeoffResumeViewer;
   now: Date;
-  /** The sources the member may read: the names and pages of the others are not shown. */
+  /** The sources the member may read: the names, pages and identifiers of the others are not shown. */
   visible: TakeoffVisibleSources;
   action?: TakeoffRequestActivity["action"];
+  /** As the shared reader (readDossierChangeSinceAnalysis) masked it for this member: shown as given. */
   dossierChanged?: TakeoffRequestActivity["dossierChanged"];
 }): TakeoffRequestActivity {
   const { request, manifest, visible } = input;
@@ -286,11 +293,12 @@ export function buildTakeoffRequestActivity(input: {
     : request.state === "superseded"
       ? { code: "SUPERSEDED", message: describeTakeoffLaunchReason("SUPERSEDED") }
       : null;
-  // A plan's name and pages only where the member may read its copy or its dossier piece.
+  // A plan's name, pages and identity only where the member may read its copy or its dossier piece; otherwise its key is
+  // its position in the sealed manifest.
   const units = input.units ? {
     ...input.units,
     units: input.units.units.map((unit) => unit.key === TAKEOFF_GROUPED_UNIT_KEY || isTakeoffSourceVisible(visible, unit.planFileId, unit.logicalId)
-      ? unit : { ...unit, name: `Plan ${unit.ordinal}`, pages: [], planFileId: null, logicalId: null }),
+      ? unit : { ...unit, key: `unit:${unit.ordinal}`, name: `Plan ${unit.ordinal}`, pages: [], planFileId: null, logicalId: null }),
   } : null;
   // The plans of a grouped unit, with their pages: the manifest's, never several analyses.
   const groupedUnit = units?.format === "grouped" && manifest
@@ -325,7 +333,7 @@ export function buildTakeoffRequestActivity(input: {
     jobs: input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id))
       .map((job) => toActivityJob(job, input.viewer, input.now)),
     action: input.action ?? null,
-    dossierChanged: maskTakeoffDossierChange(input.dossierChanged ?? null, visible),
+    dossierChanged: input.dossierChanged ?? null,
   };
 }
 
