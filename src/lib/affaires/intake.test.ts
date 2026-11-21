@@ -6,7 +6,9 @@ import {
   type AffaireIntakeReviewableDocument,
   buildAffaireIntakeReadinessSnapshot,
   buildAffaireIntakeMissingPieces,
+  buildAffaireIntakeStoragePath,
   isAffaireIntakeDocumentNeedingReview,
+  isAffaireIntakeStorageKey,
   mergeAffaireDocumentClassificationWithHeuristic,
   normalizeAffaireIntakeExtractedMetadata,
   resolveAffairePreliminaryStructureCapability,
@@ -376,5 +378,35 @@ describe("getAffaireDossierState", () => {
     ["classified pieces and a confirmed brief", [classified], "confirme", "confirmed"],
   ] as const)("reads %s", (_case, documents, briefStatus, expected) => {
     expect(getAffaireDossierState({ documents: documents as ReadonlyArray<AffaireIntakeReviewableDocument>, briefStatus })).toBe(expected);
+  });
+});
+
+describe("isAffaireIntakeStorageKey", () => {
+  const ids = { tenantId: "aaaaaaaa-1111-4111-8111-111111111111", projectId: "bbbbbbbb-2222-4222-8222-222222222222",
+    uploadId: "cccccccc-3333-4333-8333-333333333333", documentId: "dddddddd-4444-4444-8444-444444444444" };
+  const key = buildAffaireIntakeStoragePath({ ...ids, fileName: "CCTP lot plomberie.pdf" });
+
+  it("accepts the key the dossier wrote for the piece, its file renamed since included", () => {
+    expect(isAffaireIntakeStorageKey(key, ids)).toBe(true);
+    expect(isAffaireIntakeStorageKey(`${ids.tenantId}/${ids.projectId}/${ids.uploadId}/${ids.documentId}/renomme.pdf`, ids)).toBe(true);
+  });
+
+  // A request may name the affaire with an upper-case identifier; the keys hold the database's lower-case text.
+  it("accepts the piece's key whatever the case of the identifiers it is checked against", () => {
+    expect(isAffaireIntakeStorageKey(key, { tenantId: ids.tenantId.toUpperCase(), projectId: ids.projectId.toUpperCase(),
+      uploadId: ids.uploadId.toUpperCase(), documentId: ids.documentId.toUpperCase() })).toBe(true);
+  });
+
+  it.each([
+    ["another affaire's object", `${ids.tenantId}/55555555-5555-4555-8555-555555555555/${ids.uploadId}/${ids.documentId}/cctp.pdf`],
+    ["another piece's object", `${ids.tenantId}/${ids.projectId}/${ids.uploadId}/66666666-6666-4666-8666-666666666666/cctp.pdf`],
+    ["a key outside the dossier's layout", `e2e/intake/${ids.documentId}.pdf`],
+    ["a key one folder deeper", `${ids.tenantId}/${ids.projectId}/${ids.uploadId}/${ids.documentId}/copie/cctp.pdf`],
+  ])("refuses %s", (_case, path) => {
+    expect(isAffaireIntakeStorageKey(path, ids)).toBe(false);
+  });
+
+  it("refuses a piece without an upload", () => {
+    expect(isAffaireIntakeStorageKey(key, { ...ids, uploadId: null })).toBe(false);
   });
 });

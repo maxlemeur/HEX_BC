@@ -1,8 +1,17 @@
 import { createHash } from "node:crypto";
+import { PDFDocument } from "pdf-lib";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { GET as getPlanLocations } from "@/app/api/takeoff/jobs/[jobId]/plan-locations/route";
+import { GET as getVectorPlan } from "@/app/api/takeoff/jobs/[jobId]/vector-plans/[fileId]/route";
+import { renderPdfPages } from "@/lib/pdf/page-render-server";
+import { getAuthenticatedTakeoffContext, getTakeoffJobDetailByIdOrThrow } from "@/lib/takeoff/job-read-server";
+import { describeTakeoffLaunchReason, type TakeoffLaunchManifest, type TakeoffLaunchPiece, type TakeoffLaunchReason } from "@/lib/takeoff/launch-request";
+import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 
 import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { AFFAIRE_INTAKE_PLAN_SET_METADATA } from "@/lib/takeoff/default-import-plan-set";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
@@ -14,8 +23,11 @@ import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
+import { loadPreparationReferenceFiles } from "@/lib/takeoff/preparation-reference-loader";
 import { createTakeoffPreparationSnapshot, takeoffPreparationSourceSchema } from "@/lib/takeoff/preparation";
+import { fictionalPlanPdf } from "@/lib/takeoff/preparation.test-utils";
 import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
+import { toPreparationIntakeSource } from "@/lib/takeoff/preparation-sources";
 import { assertConfirmedTakeoffPreparation, loadPreparation } from "@/lib/takeoff/preparation-server";
 
 // The automatic start on the authorised Mac: the loop that evaluates and admits a request has no member's session (a
@@ -27,7 +39,8 @@ vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
   ensureLocalChatGptAuthorization: vi.fn().mockResolvedValue(null),
 }));
 // After the response: run at once here, as the Mac's own loop runs it (it has no response).
-vi.mock("next/server", () => ({ after: vi.fn((task: () => unknown) => { void task(); }) }));
+vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/server")>()),
+  after: vi.fn((task: () => unknown) => { void task(); }) }));
 vi.mock("@/lib/takeoff/dispatch-state", () => ({ persistTakeoffDispatchOutcome: vi.fn().mockResolvedValue(true) }));
 vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjectAccess: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn().mockResolvedValue("urn:uuid:aaaaaaaa-0000-4000-8000-000000000099"), readChatGptStore: vi.fn() }));
@@ -36,7 +49,14 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200, maxTotalTokens: 400000, maxCostCents: 2500 }),
 }));
 vi.mock("@/lib/takeoff/local-dispatch", () => ({ runLocalTakeoffAttempts: vi.fn().mockResolvedValue(undefined) }));
-vi.mock("@/lib/takeoff/preparation-server", () => ({ loadPreparation: vi.fn(), assertConfirmedTakeoffPreparation: vi.fn() }));
+// The preparation as the dossier gives it is fixed here; its sealing is the real one a confirmation uses.
+vi.mock("@/lib/takeoff/preparation-server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/takeoff/preparation-server")>()), loadPreparation: vi.fn(), assertConfirmedTakeoffPreparation: vi.fn(),
+}));
+// The review's readers, behind their routes: the member's session is fixed here.
+vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/takeoff/job-read-server")>()), getAuthenticatedTakeoffContext: vi.fn(), getTakeoffJobDetailByIdOrThrow: vi.fn(),
+}));
 // A command reads its member's subscription as pinned at the confirmation (its own tests: chatgpt-takeoff.test.ts).
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>()), getConfirmedTakeoffExecutionOwner: vi.fn() }));
@@ -50,16 +70,26 @@ const REQUEST = "aaaaaaaa-0000-4000-8000-000000000030";
 const PLAN_SET = "aaaaaaaa-0000-4000-8000-000000000040";
 const PLAN_FILE = "aaaaaaaa-0000-4000-8000-000000000050";
 const DOCUMENT = "aaaaaaaa-0000-4000-8000-000000000060";
-const BYTES = new TextEncoder().encode("%PDF-1.4 plan fictif du rez-de-chaussée");
+const BYTES = new Uint8Array(fictionalPlanPdf("plan fictif du rez-de-chaussée"));
 const SELECTION = { profileId: "profil-fictif", model: "modele-fictif", reasoningEffort: null, hostId: HOST, authorizationId: "autorisation-1" };
 const FILE_PATH = `${TENANT}/${PLAN_SET}/${PLAN_FILE}/plan-rdc.pdf`;
 
+/** A reference of the dossier (a CCTP, a DPGF) with its bytes, retained by default by the automatic start. */
+type DossierReference = { id: string; name: string; kind: "cctp" | "dpgf"; mime: string; bytes: Uint8Array;
+  /** The Storage key its row records, when not its own; the storage holds the bytes there. */
+  storedAt?: string; missing?: boolean; recordedSize?: number };
+const UPLOAD = "aaaaaaaa-0000-4000-8000-000000000070";
+/** A dossier piece's Storage key as the dossier writes it: tenant, affaire, upload, document, name. */
+const referenceKey = (reference: Pick<DossierReference, "id" | "name" | "storedAt">) =>
+  reference.storedAt ?? `${TENANT}/${PROJECT}/${UPLOAD}/${reference.id}/${reference.name}`;
+
 function dossier(input: { classification?: string; copy?: "same" | "older" | "legacy" | "none"; executionHost?: string; running?: boolean;
+  references?: DossierReference[];
   /** The owner activated one analysis per plan. */
   perPlan?: boolean } = {}) {
   const document = {
     id: DOCUMENT, tenant_id: TENANT, project_id: PROJECT, upload_id: "aaaaaaaa-0000-4000-8000-000000000070", created_by: PAYER,
-    storage_path: `${TENANT}/dossier/plan-rdc.pdf`, deletion_token: null, plan_copy_generation: "generation-2",
+    storage_path: `${TENANT}/${PROJECT}/${UPLOAD}/${DOCUMENT}/plan-rdc.pdf`, deletion_token: null, plan_copy_generation: "generation-2",
     file_name: "Plan RDC.pdf", mime_type: "application/pdf", size_bytes: BYTES.byteLength, upload_status: "uploaded",
     rejection_reason: null, classification_status: input.classification ?? "classified", document_kind: "plans",
     document_priority: "primary", confidence: 0.92, issues: [], extracted_metadata: {}, classification_source: "heuristic",
@@ -70,6 +100,9 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
     metadata: { source: "affaire-intake", intake_document_id: DOCUMENT, intake_storage_path: document.storage_path,
       ...(input.copy === "legacy" ? { intake_classified_at: document.classified_at }
         : { intake_generation: input.copy === "older" ? "generation-1" : "generation-2" }) } };
+  const referenceDocuments = (input.references ?? []).map((reference) => ({ ...document, id: reference.id, upload_id: UPLOAD,
+    storage_path: referenceKey(reference), plan_copy_generation: null, file_name: reference.name, mime_type: reference.mime,
+    size_bytes: reference.recordedSize ?? reference.bytes.byteLength, document_kind: reference.kind }));
   const admitted: unknown[] = [];
   const recorded: unknown[] = [];
   const fake = createSupabaseFake({
@@ -78,7 +111,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
         ? { data: input.running ? [{ id: "aaaaaaaa-0000-4000-8000-000000000031" }] : [], error: null }
         : { data: [], error: null },
       affaire_briefs: () => ({ data: { status: "confirme" }, error: null }),
-      affaire_intake_documents: () => ({ data: [document], error: null, count: 1 }),
+      affaire_intake_documents: () => ({ data: [document, ...referenceDocuments], error: null, count: 1 + referenceDocuments.length }),
       plan_sets: () => ({ data: [{ id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
         updated_at: "2026-11-21T08:00:00Z", plan_files: [{ count: input.copy === "none" ? 0 : 1 }] }], error: null, count: 1 }),
       plan_files: (query: FakeQuery) => {
@@ -88,7 +121,14 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
       tenant_memberships: () => ({ data: { role: "engineer" }, error: null }),
       estimate_projects: () => ({ data: { user_id: PAYER, is_archived: false }, error: null }),
     },
-    storage: { [PLAN_FILES_BUCKET]: () => ({ data: new Blob([BYTES]), error: null }) },
+    storage: {
+      [PLAN_FILES_BUCKET]: () => ({ data: new Blob([BYTES]), error: null }),
+      [AFFAIRE_INTAKE_BUCKET]: ({ paths }) => {
+        const reference = (input.references ?? []).find((entry) => (entry.storedAt ?? referenceKey(entry)) === paths[0]);
+        return reference && !reference.missing ? { data: new Blob([Uint8Array.from(reference.bytes)]), error: null }
+          : { data: null, error: { message: "Object not found", statusCode: "404" } };
+      },
+    },
     rpc: {
       // The claim hands this Mac only its own mandates, of a tenant whose module is on, with the mandate's selection.
       claim_takeoff_launch_evaluations: (args) => ({ data: (args as { p_module_default: boolean }).p_module_default
@@ -107,11 +147,14 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
   vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
   const source = takeoffPreparationSourceSchema.parse({
     document_id: PLAN_FILE, document_name: "Plan RDC.pdf", kind: "plan", revision: null, source_version: "fixture-version",
-    pages: [], active: true, confirmed: true, plan_set_id: PLAN_SET, file_path: FILE_PATH, page_count: 1,
+    // As the dossier's reader gives it (toPreparationPlanSource): no member confirmed it.
+    pages: [], active: true, confirmed: false, plan_set_id: PLAN_SET, file_path: FILE_PATH, page_count: 1,
     source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf",
   });
+  const references = referenceDocuments.map((row) => toPreparationIntakeSource({ ...row, updated_at: "2026-11-21T08:00:00Z" }));
   vi.mocked(loadPreparation).mockResolvedValue({
-    draft: buildDeducedTakeoffPreparation({ sources: [source], planSetId: PLAN_SET }), revision: null, availableSources: [source],
+    draft: buildDeducedTakeoffPreparation({ sources: [source, ...references], planSetId: PLAN_SET }), revision: null,
+    availableSources: [source, ...references],
   } as never);
   return { fake, admitted, recorded, document, copy };
 }
@@ -232,6 +275,239 @@ describe("evaluateTakeoffLaunchRequests", () => {
     await evaluateTakeoffLaunchRequests();
     expect(admitted).toEqual([]);
     expect(fake.rpcCalls.map((call) => call.fn)).toContain("record_takeoff_launch_evaluation_failure");
+  });
+});
+
+async function pdfOfPages(count: number) {
+  const pdf = await PDFDocument.create();
+  for (let page = 0; page < count; page += 1) pdf.addPage([20, 20]);
+  return new Uint8Array(await pdf.save());
+}
+const CCTP = "aaaaaaaa-0000-4000-8000-000000000061";
+const DPGF = "aaaaaaaa-0000-4000-8000-000000000062";
+type Admission = { p_manifest: TakeoffLaunchManifest; p_snapshot: TakeoffPreparationSnapshot; p_job: { id: string } };
+
+// Written before the shared sealing (lot 2, before the automatic start is activated): the seal only hashed a
+// reference's bytes, so the worker refused, after the admission, a reference it could not read, and the affaire's only
+// automatic start was spent on it.
+describe("the automatic seal of the dossier's pieces", () => {
+  it("leaves out, named in its coverage, a CCTP of more than 200 selected pages under 20 MB, and starts on the plans", async () => {
+    const cctp = await pdfOfPages(201);
+    expect(cctp.byteLength).toBeLessThan(20 * 1024 * 1024);
+    const { admitted } = dossier({ references: [{ id: CCTP, name: "CCTP lot plomberie.pdf", kind: "cctp", mime: "application/pdf", bytes: cctp }] });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.references).toEqual([]);
+    expect(call.p_manifest.coverage.references_omitted).toEqual([{ id: CCTP, name: "CCTP lot plomberie.pdf", reason: "limit" }]);
+    expect(call.p_snapshot.preparation.sources.find((source) => source.document_id === CCTP)).toMatchObject({ active: false });
+  });
+
+  it.each([
+    ["a corrupt PDF", { id: CCTP, name: "CCTP abîmé.pdf", kind: "cctp", mime: "application/pdf", bytes: new TextEncoder().encode("%PDF-1.4 fichier tronqué") }],
+    ["an invalid workbook", { id: DPGF, name: "DPGF.xlsx", kind: "dpgf", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      bytes: new TextEncoder().encode("ceci n'est pas un classeur") }],
+  ] as const)("leaves out %s the worker could not read, named as invalid, and starts on the plans", async (_case, reference) => {
+    const { admitted } = dossier({ references: [reference] });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.references).toEqual([]);
+    expect(call.p_manifest.coverage.references_omitted).toEqual([{ id: reference.id, name: reference.name, reason: "invalid" }]);
+  });
+
+  // A piece's row belongs to the affaire; its Storage object must be the one the dossier wrote for it in that affaire.
+  it("never reads, with the server's own client, a reference whose Storage key is another affaire's object", async () => {
+    const foreign = `${TENANT}/aaaaaaaa-0000-4000-8000-000000000099/${UPLOAD}/${CCTP}/cctp.txt`;
+    const { admitted, fake } = dossier({ references: [{ id: CCTP, name: "CCTP.txt", kind: "cctp", mime: "text/plain",
+      bytes: new TextEncoder().encode("CCTP d'une autre affaire"), storedAt: foreign }] });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.references).toEqual([]);
+    expect(call.p_manifest.coverage.references_omitted).toEqual([{ id: CCTP, name: "CCTP.txt", reason: "outside_affaire" }]);
+    expect(fake.storageCalls.filter((entry) => entry.paths[0] === foreign)).toEqual([]);
+  });
+
+  it("keeps a usable reference after one whose stored file is missing, its size never reserved", async () => {
+    const big = 19 * 1024 * 1024;
+    const DPGF_TEXT = "aaaaaaaa-0000-4000-8000-000000000065";
+    const { admitted } = dossier({ references: [
+      { id: CCTP, name: "CCTP absent.pdf", kind: "cctp", mime: "application/pdf", bytes: new Uint8Array(1), recordedSize: big, missing: true },
+      { id: DPGF_TEXT, name: "DPGF.txt", kind: "dpgf", mime: "text/plain", bytes: new TextEncoder().encode("x".repeat(2 * 1024 * 1024)) },
+    ] });
+    await evaluateTakeoffLaunchRequests();
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.references.map((reference) => reference.document_id)).toEqual([DPGF_TEXT]);
+    expect(call.p_manifest.coverage.references_omitted).toEqual([{ id: CCTP, name: "CCTP absent.pdf", reason: "unreadable" }]);
+  });
+
+  it("keeps the references the worker reads: a CCTP of 200 pages and a DPGF in text", async () => {
+    const { admitted } = dossier({ references: [
+      { id: CCTP, name: "CCTP lot plomberie.pdf", kind: "cctp", mime: "application/pdf", bytes: await pdfOfPages(200) },
+      { id: DPGF, name: "DPGF.csv", kind: "dpgf", mime: "text/csv", bytes: new TextEncoder().encode("Désignation;Quantité\nTube cuivre;12\n") },
+    ] });
+    await evaluateTakeoffLaunchRequests();
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.references.map((reference) => reference.document_id)).toEqual([CCTP, DPGF]);
+    expect(call.p_manifest.coverage.references_omitted).toEqual([]);
+  });
+
+  // The worker reads a plan without its title block: a page the renderer cannot draw leaves the index unread, as a
+  // member's confirmation seals it.
+  it("admits a plan whose title block cannot be rendered, its index left to the dossier", async () => {
+    const { admitted } = dossier();
+    vi.mocked(renderPdfPages).mockRejectedValueOnce(new Error("rendu impossible"));
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    expect((admitted[0] as Admission).p_snapshot.preparation.sources.find((source) => source.document_id === PLAN_FILE))
+      .toMatchObject({ plan_identity: null, active: true });
+  });
+
+  // The worker opens every plan with pdf-lib and fails a plan it cannot open.
+  it("stops, naming it, on a dossier plan the worker could not open, and spends nothing", async () => {
+    const { admitted, recorded, fake } = dossier();
+    const corrupt = new TextEncoder().encode("%PDF-1.4 plan tronque");
+    const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
+    vi.spyOn(plans, "info").mockResolvedValue({ data: { size: corrupt.byteLength }, error: null } as never);
+    vi.spyOn(plans, "download").mockResolvedValue({ data: new Blob([corrupt]), error: null } as never);
+    vi.mocked(fake.client.storage.from).mockReturnValue(plans as never);
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "blocked", reason: "PLAN_COPY_MISSING" });
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_COPY_MISSING",
+      p_details: { pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }] } })]);
+    expect(admitted).toEqual([]);
+    expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
+  });
+
+  // A version the members' revision choice set aside is never opened by the worker.
+  it("starts on the retained version when the version set aside could not be opened", async () => {
+    const { admitted, fake } = dossier();
+    const BROKEN = "aaaaaaaa-0000-4000-8000-000000000051";
+    const brokenPath = `${TENANT}/${PLAN_SET}/${BROKEN}/distribution-rev-b.pdf`;
+    const corrupt = new TextEncoder().encode("%PDF-1.4 plan tronque");
+    const retained = takeoffPreparationSourceSchema.parse({ document_id: PLAN_FILE, document_name: "Distribution rev A.pdf", kind: "plan",
+      revision: "A", source_version: "fixture-version", pages: [], active: true, confirmed: false, plan_set_id: PLAN_SET,
+      file_path: FILE_PATH, page_count: 1, source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf" });
+    const setAside = { ...retained, document_id: BROKEN, document_name: "Distribution rev B.pdf", revision: "B", file_path: brokenPath,
+      source_version: "fixture-version-b" };
+    const draft = buildDeducedTakeoffPreparation({ sources: [retained, setAside], planSetId: PLAN_SET });
+    draft.plan_revision_decisions = [{ left: { document_id: PLAN_FILE, content_hash: createHash("sha256").update(BYTES).digest("hex") },
+      right: { document_id: BROKEN, content_hash: createHash("sha256").update(corrupt).digest("hex") }, choice: "left" }];
+    vi.mocked(loadPreparation).mockResolvedValue({ draft, revision: 3, availableSources: [retained, setAside] } as never);
+    const bytesOf = (path: string) => (path === brokenPath ? corrupt : BYTES);
+    const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
+    vi.spyOn(plans, "info").mockImplementation(async (path: string) => ({ data: { size: bytesOf(path).byteLength }, error: null }) as never);
+    vi.spyOn(plans, "download").mockImplementation(async (path: string) => ({ data: new Blob([Uint8Array.from(bytesOf(path))]), error: null }) as never);
+    vi.mocked(fake.client.storage.from).mockReturnValue(plans as never);
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.plans.map((plan) => plan.plan_file_id)).toEqual([PLAN_FILE]);
+    expect(call.p_manifest.coverage.plans_omitted).toEqual([{ id: BROKEN, name: "Distribution rev B.pdf", reason: "alternate" }]);
+  });
+
+  // The worker refuses plans past its page budget, counted on their real pages: a dossier's copy records none.
+  it("stops, naming it, on a retained plan whose real pages pass the analysis's budget, and spends nothing", async () => {
+    const { admitted, recorded, fake } = dossier();
+    const large = await pdfOfPages(201);
+    const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
+    vi.spyOn(plans, "info").mockResolvedValue({ data: { size: large.byteLength }, error: null } as never);
+    vi.spyOn(plans, "download").mockResolvedValue({ data: new Blob([Uint8Array.from(large)]), error: null } as never);
+    vi.mocked(fake.client.storage.from).mockReturnValue(plans as never);
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "blocked", reason: "PLAN_SET_TOO_LARGE" });
+    const [evaluation] = recorded as Array<{ p_reason: TakeoffLaunchReason; p_details: { pieces: TakeoffLaunchPiece[] } }>;
+    expect(evaluation.p_details.pieces).toEqual([{ id: PLAN_FILE, name: "Plan RDC.pdf" }]);
+    expect(describeTakeoffLaunchReason(evaluation.p_reason, evaluation.p_details.pieces)).toContain("« Plan RDC.pdf »");
+    expect(admitted).toEqual([]);
+    expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
+  });
+
+  it("names the plan larger than a plan may be when it stops on it, and never downloads it", async () => {
+    const { admitted, recorded, fake } = dossier();
+    const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
+    vi.spyOn(plans, "info").mockResolvedValue({ data: { size: 50 * 1024 * 1024 + 1 }, error: null } as never);
+    const download = vi.spyOn(plans, "download");
+    vi.mocked(fake.client.storage.from).mockReturnValue(plans as never);
+    await evaluateTakeoffLaunchRequests();
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_SET_TOO_LARGE",
+      p_details: { pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }] } })]);
+    expect(download).not.toHaveBeenCalled();
+    expect(admitted).toEqual([]);
+  });
+
+  // What the seal keeps, the worker reads: its references loaded from the snapshot the automatic start admitted, within
+  // the same bounds (150 + 50 pages attached; a third PDF past 200 pages and an invalid workbook left out).
+  it("admits only references the worker then loads from the admitted snapshot", async () => {
+    const CCTP_B = "aaaaaaaa-0000-4000-8000-000000000063";
+    const CCTP_C = "aaaaaaaa-0000-4000-8000-000000000064";
+    const references: DossierReference[] = [
+      { id: CCTP, name: "CCTP lot plomberie.pdf", kind: "cctp", mime: "application/pdf", bytes: await pdfOfPages(150) },
+      { id: CCTP_B, name: "CCTP lot chauffage.pdf", kind: "cctp", mime: "application/pdf", bytes: await pdfOfPages(50) },
+      { id: CCTP_C, name: "CCTP lot ventilation.pdf", kind: "cctp", mime: "application/pdf", bytes: await pdfOfPages(1) },
+      { id: DPGF, name: "DPGF.xlsx", kind: "dpgf", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        bytes: new TextEncoder().encode("ceci n'est pas un classeur") },
+    ];
+    const { admitted } = dossier({ references });
+    await evaluateTakeoffLaunchRequests();
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.coverage.references_omitted.map(({ id, reason }) => [id, reason]))
+      .toEqual([[CCTP_C, "limit"], [DPGF, "invalid"]]);
+    const rows = references.map((reference) => ({ id: reference.id, tenant_id: TENANT, project_id: PROJECT, file_name: reference.name,
+      upload_id: UPLOAD, storage_path: referenceKey(reference), size_bytes: reference.bytes.byteLength, mime_type: reference.mime,
+      document_kind: reference.kind, updated_at: "2026-11-21T08:00:00Z", extracted_metadata: {}, upload_status: "uploaded",
+      deleted_at: null, deletion_token: null }));
+    const worker = createSupabaseFake({
+      tables: { affaire_intake_documents: (query: FakeQuery) => servedRows(rows, query) },
+      storage: { [AFFAIRE_INTAKE_BUCKET]: ({ paths }) => {
+        const reference = references.find((entry) => referenceKey(entry) === paths[0])!;
+        return { data: new Blob([Uint8Array.from(reference.bytes)]), error: null };
+      } },
+    });
+    const loaded = await loadPreparationReferenceFiles({ supabase: worker.client as never, snapshot: call.p_snapshot,
+      job: { id: call.p_job.id, tenant_id: TENANT, project_id: PROJECT, estimate_version_id: null } as never });
+    expect(loaded.files).toHaveLength(2);
+    expect(loaded.sourceHints.map((hint) => hint.match(/"document_id":"([^"]+)"/)?.[1])).toEqual([CCTP, CCTP_B]);
+  });
+
+  // The review serves a plan's locations and its original PDF only for a source its preparation attested: the job of an
+  // automatic start is reviewed as a confirmed one.
+  it("attests the plans it sealed: the review routes serve their locations and original PDF", async () => {
+    const { admitted } = dossier();
+    await evaluateTakeoffLaunchRequests();
+    const call = admitted[0] as Admission;
+    expect(call.p_snapshot.preparation.sources.filter((source) => source.active)
+      .map(({ document_id, confirmed }) => ({ document_id, confirmed }))).toEqual([{ document_id: PLAN_FILE, confirmed: true }]);
+
+    const jobId = call.p_job.id;
+    const member = createSupabaseFake({
+      tables: {
+        takeoff_jobs: () => ({ data: { plan_set_id: PLAN_SET, preparation_snapshot: call.p_snapshot, estimate_version_id: null }, error: null }),
+        plan_files: () => ({ data: { id: PLAN_FILE, plan_set_id: PLAN_SET, file_name: "plan-rdc.pdf", file_path: FILE_PATH,
+          file_size_bytes: BYTES.byteLength, page_count: 1, metadata: {} }, error: null }),
+        takeoff_plan_locations: () => ({ data: [], error: null, count: 0 }),
+      },
+      rpc: { read_takeoff_plan_location_source: () => ({ data: [{ source_kind: "intake_document", source_id: DOCUMENT,
+        plan_file_id: PLAN_FILE, current_copy: true, can_write: true }], error: null }) },
+    });
+    const service = createSupabaseFake({ storage: { [PLAN_FILES_BUCKET]: ({ method }) => ({ data: method === "info" ? { size: BYTES.byteLength }
+      : new Blob([BYTES]), error: null }) } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
+    vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ supabase: member.client, tenantId: TENANT, userId: PAYER,
+      tenantRole: "engineer" } as never);
+    vi.mocked(getTakeoffJobDetailByIdOrThrow).mockResolvedValue({ id: jobId, project_id: PROJECT } as never);
+    vi.mocked(renderPdfPages).mockResolvedValue({ status: "complete", pageCount: 1, missingPages: [],
+      pages: [{ page: 1, regionText: "", failed: false }] } as never);
+
+    const locations = await getPlanLocations(new Request(`http://localhost/api/takeoff/jobs/${jobId}/plan-locations`), { params: Promise.resolve({ jobId }) });
+    expect(locations.status).toBe(200);
+    expect((await locations.json()).data).toMatchObject({ without_preparation: false,
+      plans: [{ plan_file_id: PLAN_FILE, status: "current", revision: { content_hash: createHash("sha256").update(BYTES).digest("hex") } }] });
+    const original = await getVectorPlan(new Request(`http://localhost/api/takeoff/jobs/${jobId}/vector-plans/${PLAN_FILE}`),
+      { params: Promise.resolve({ jobId, fileId: PLAN_FILE }) });
+    expect(original.status).toBe(200);
+    expect(new Uint8Array(await original.arrayBuffer())).toEqual(BYTES);
   });
 });
 

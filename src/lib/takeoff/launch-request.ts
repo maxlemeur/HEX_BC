@@ -126,7 +126,12 @@ export type TakeoffLaunchManifest = {
      */
     plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested";
       intake_document_id?: string | null; generation?: string | null }>;
-    references_omitted: Array<{ id: string; name: string; reason: "unreadable" | "unsupported_format" | "limit" }>;
+    /**
+     * Retained in the dossier but not attached: no stored copy to read, a stored object that is not this piece's in this
+     * affaire, a format the analysis does not read, content the worker cannot read (a corrupt or protected PDF, an invalid
+     * workbook), or past the bounds of the references.
+     */
+    references_omitted: Array<{ id: string; name: string; reason: "unreadable" | "outside_affaire" | "unsupported_format" | "invalid" | "limit" }>;
   };
   preparation: { revision: number; rule_version: 1 };
   /** The request's budget over every attempt of its jobs (lot 2: the tenant's per-job budget of the detailed reading). */
@@ -319,9 +324,9 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "DOSSIER_TO_REVIEW": return "Des pièces du dossier sont à vérifier : le métré démarrera quand le dossier sera confirmé.";
     case "BRIEF_NOT_CONFIRMED": return "Confirmez le brief de l’affaire : le métré démarrera quand le dossier sera confirmé.";
     case "NO_EXPLOITABLE_PLAN": return "Dossier confirmé sans plan exploitable : ajoutez un plan PDF pour que le métré démarre.";
-    case "PLAN_COPY_MISSING": return `Métré non démarré — copie de travail manquante pour ${names || "un plan du dossier"}. Rendez la pièce accessible ou retirez-la du dossier.`;
+    case "PLAN_COPY_MISSING": return `Métré non démarré — copie de travail manquante ou illisible pour ${names || "un plan du dossier"}. Rendez la pièce accessible ou retirez-la du dossier.`;
     case "PREPARATION_NEEDS_REVIEW": return "Métré non démarré — choisissez dans les options du métré la version à retenir des plans concernés.";
-    case "PLAN_SET_TOO_LARGE": return "Métré non démarré — les plans dépassent les limites d’une analyse. Restreignez-les dans les options du métré.";
+    case "PLAN_SET_TOO_LARGE": return `Métré non démarré — ${names ? `les plans ${names} dépassent` : "les plans dépassent"} les limites d’une analyse. Restreignez-les dans les options du métré.`;
     case "TAKEOFF_DISABLED": return "Le métré n’est pas activé pour cette entreprise.";
     case "OPERATOR_REQUIRED": return "Métré non démarré — prise en charge par un métreur requise";
     case "MANDATE_REQUIRED": return "Métré non démarré — la confirmation du dossier n’a engagé aucun forfait ChatGPT. Un métreur peut le prendre en charge avec le sien.";
