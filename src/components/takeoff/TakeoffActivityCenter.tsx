@@ -9,6 +9,7 @@ import { ArrowRight, SlidersHorizontalIcon } from "lucide-react";
 import {
   fetchTakeoffActivityCenter,
   isTakeoffApiError,
+  type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import { takeoffListRefreshInterval } from "@/components/takeoff/takeoff-resume-view";
@@ -72,6 +73,26 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 const FILTER_KEYS = ["version", "lot", "planSet", "status", "level", "period"] as const;
+const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type AnalysisCompletion = TakeoffActivityCenterResponse["analysisCompletions"][number];
+
+/** The ends of the affaire's analyses, readable by every reader of the affaire, with the reason of a failure. */
+function AnalysisCompletionList({ label, completions }: { label: string; completions: AnalysisCompletion[] }) {
+  return (
+    <ul className="journey-panel-body divide-y" aria-label={label}>
+      {completions.map(({ eventId, outcome, finishedAt, failureReason }) => (
+        <li key={eventId} className="flex flex-wrap justify-between gap-2 py-2">
+          <span>{TAKEOFF_COMPLETION_LABELS[outcome]}</span>
+          <time dateTime={finishedAt} className="text-sm text-muted-foreground">
+            {formatTakeoffCompletionDate(finishedAt)}
+          </time>
+          {failureReason ? <p className="w-full text-sm text-muted-foreground">{failureReason}</p> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 type ActivityKey = readonly [
   scope: "activity-center",
@@ -82,11 +103,13 @@ type ActivityKey = readonly [
   status: string,
   level: string,
   period: string,
+  job: string,
   offset: number,
+  completionsOffset: number,
   limit: number,
 ];
 
-function fetchActivityPage([, projectId, version, lot, planSet, status, level, period, offset, limit]: ActivityKey) {
+function fetchActivityPage([, projectId, version, lot, planSet, status, level, period, job, offset, completionsOffset, limit]: ActivityKey) {
   const filter = (value: string) => (value !== "all" ? value : null);
   return fetchTakeoffActivityCenter(projectId, {
     versionId: filter(version),
@@ -95,8 +118,10 @@ function fetchActivityPage([, projectId, version, lot, planSet, status, level, p
     status: filter(status),
     level: filter(level),
     period: filter(period),
+    jobId: filter(job),
     limit,
     offset,
+    completionsOffset,
   });
 }
 
@@ -126,6 +151,9 @@ export default function TakeoffActivityCenter({
   const selectedLevel = searchParams.get("level") ?? "all";
   const selectedPeriod = searchParams.get("period") ?? "all";
   const requestedPlanSetId = searchParams.get("launchPlanSet");
+  // A failure link names its job: the list shows that job alone, or its shared end to a reader it is hidden from.
+  const rawJob = searchParams.get("job");
+  const selectedJob = rawJob && JOB_ID_PATTERN.test(rawJob) ? rawJob.toLowerCase() : null;
 
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
   const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(
@@ -138,6 +166,9 @@ export default function TakeoffActivityCenter({
   const rawOffset = Number(searchParams.get("offset") ?? "0");
   const pageOffset =
     Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  // The affaire's shared ends have their own page.
+  const rawEndsOffset = Number(searchParams.get("ends") ?? "0");
+  const endsOffset = Number.isSafeInteger(rawEndsOffset) && rawEndsOffset >= 0 ? rawEndsOffset : 0;
 
   const tabListRef = useRef<HTMLDivElement>(null);
   const filtersToggleRef = useRef<HTMLButtonElement>(null);
@@ -168,7 +199,7 @@ export default function TakeoffActivityCenter({
 
   // The next step and the « Repères » read the affaire's newest analyses on every view,
   // whatever the filters; the unfiltered first page of the list is this same request.
-  const summaryKey: ActivityKey = ["activity-center", projectId, "all", "all", "all", "all", "all", "all", 0, PAGE_SIZE_OPTIONS[0]];
+  const summaryKey: ActivityKey = ["activity-center", projectId, "all", "all", "all", "all", "all", "all", "all", 0, 0, PAGE_SIZE_OPTIONS[0]];
   const {
     data: summaryData,
     error: summaryError,
@@ -191,7 +222,9 @@ export default function TakeoffActivityCenter({
           selectedStatus,
           selectedLevel,
           selectedPeriod,
-          pageOffset,
+          selectedJob ?? "all",
+          selectedJob ? 0 : pageOffset,
+          selectedJob ? 0 : endsOffset,
           pageSize,
         ] satisfies ActivityKey)
       : null,
@@ -251,8 +284,11 @@ export default function TakeoffActivityCenter({
   );
   // Nothing to follow yet: the next step alone says how to start. The panel does not depend
   // on the view, so switching views never removes the control that has the focus.
-  const sharedCompletions = hasAnalyses ? [] : summaryData?.analysisCompletions ?? [];
-  const showTracking = !summaryError && (hasAnalyses || hasActiveJobFilters || sharedCompletions.length > 0);
+  // Every end the reader may see, a page at a time, whatever the job list shows: a director who reads one job of the
+  // affaire still sees the ends of the jobs hidden from them.
+  const sharedCompletions = (listData ?? summaryData)?.analysisCompletions ?? [];
+  const showTracking = !summaryError && (hasAnalyses || hasActiveJobFilters || selectedJob !== null
+    || (summaryData?.analysisCompletions.length ?? 0) > 0);
 
   const resetJobFilters = useCallback(() => {
     setFiltersExpanded(false);
@@ -613,19 +649,54 @@ export default function TakeoffActivityCenter({
             id={`tabpanel-${activeTab}`}
             aria-labelledby={`tab-${activeTab}`}
           >
-            {activeTab === "jobs" &&
-              (sharedCompletions.length > 0 && !hasActiveJobFilters ? (
-                <ul className="journey-panel-body divide-y" aria-label="Fins d’analyse de l’affaire">
-                  {sharedCompletions.map(({ eventId, outcome, finishedAt }) => (
-                    <li key={eventId} className="flex flex-wrap justify-between gap-2 py-2">
-                      <span>{TAKEOFF_COMPLETION_LABELS[outcome]}</span>
-                      <time dateTime={finishedAt} className="text-sm text-muted-foreground">
-                        {formatTakeoffCompletionDate(finishedAt)}
-                      </time>
-                    </li>
-                  ))}
-                </ul>
-              ) : listData ? (
+            {activeTab === "jobs" && selectedJob ? (
+              <>
+                {listData ? (
+                  listData.jobs.length > 0 ? (
+                    <TakeoffJobsTable
+                      projectId={projectId}
+                      data={listData}
+                      onPageChange={() => undefined}
+                      onPageSizeChange={(size) => setPageSize(size)}
+                      pageSize={pageSize}
+                    />
+                  ) : listData.analysisCompletions.length > 0 ? (
+                    <AnalysisCompletionList label="Analyse sélectionnée" completions={listData.analysisCompletions} />
+                  ) : (
+                    <p className="px-4 py-5 text-sm text-muted-foreground sm:px-6">
+                      Cette analyse n’est pas visible avec votre profil, ou elle n’existe plus.
+                    </p>
+                  )
+                ) : listError ? (
+                  <div className="journey-panel-body">
+                    <p className="text-sm text-muted-foreground">
+                      {isTakeoffApiError(listError) && listError.message
+                        ? listError.message
+                        : "Impossible de charger cette analyse."}
+                    </p>
+                    <Button variant="outline" size="sm" className="mt-3" onClick={() => void mutateList()}>
+                      Réessayer
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="journey-panel-body" aria-hidden="true">
+                    <JobsTableSkeleton />
+                  </div>
+                )}
+                <div className="journey-panel-body">
+                  <button
+                    type="button"
+                    className="journey-text-action min-h-11 sm:min-h-9"
+                    onClick={() => updateParams({ job: null, offset: null })}
+                  >
+                    Voir toutes les analyses
+                  </button>
+                </div>
+              </>
+            ) : activeTab === "jobs" ? (
+              <>
+                {hasAnalyses || hasActiveJobFilters || sharedCompletions.length === 0 ? (
+              listData ? (
                 listData.jobs.length === 0 && hasActiveJobFilters ? (
                   <p className="px-4 py-5 text-sm text-muted-foreground sm:px-6">
                     Aucune analyse ne correspond à ces filtres.
@@ -659,7 +730,40 @@ export default function TakeoffActivityCenter({
                 <div className="journey-panel-body" aria-hidden="true">
                   <JobsTableSkeleton />
                 </div>
-              ))}
+              )
+                ) : null}
+                {/* The affaire's ends, whatever the job list's filters. */}
+                {sharedCompletions.length > 0 ? (
+                  <>
+                    <AnalysisCompletionList label="Fins d’analyse de l’affaire" completions={sharedCompletions} />
+                    {endsOffset > 0 || listData?.analysisCompletionsHasOlder ? (
+                      <nav aria-label="Pages des fins d’analyse" className="journey-panel-body flex flex-wrap gap-4">
+                        {endsOffset > 0 ? (
+                          <button
+                            type="button"
+                            className="journey-text-action min-h-11 sm:min-h-9"
+                            onClick={() => updateParams({
+                              ends: endsOffset - pageSize > 0 ? String(endsOffset - pageSize) : null,
+                            })}
+                          >
+                            Plus récentes
+                          </button>
+                        ) : null}
+                        {listData?.analysisCompletionsHasOlder ? (
+                          <button
+                            type="button"
+                            className="journey-text-action min-h-11 sm:min-h-9"
+                            onClick={() => updateParams({ ends: String(endsOffset + pageSize) })}
+                          >
+                            Plus anciennes
+                          </button>
+                        ) : null}
+                      </nav>
+                    ) : null}
+                  </>
+                ) : null}
+              </>
+            ) : null}
             {activeTab === "exceptions" && (
               <div className="journey-panel-body">
                 <TakeoffExceptionsTab

@@ -66,6 +66,8 @@ const FAILURE_FACTS: Record<string, string> = {
   FORBIDDEN: "L’accès nécessaire au traitement n’est plus disponible.",
   INTERNAL_ERROR: "Une erreur interne a interrompu l’analyse.",
   TAKEOFF_WORKER_NOT_STARTED: "L’analyse n’a pas pu démarrer sur le poste autorisé.",
+  TAKEOFF_WORKER_HOST_SILENT: "Le poste autorisé ne s’est pas manifesté avant la fin du délai d’attente maximal : l’analyse n’a pas démarré.",
+  TAKEOFF_WORKER_QUEUE_EXPIRED: "L’analyse attendait encore son tour sur le poste autorisé quand le délai d’attente maximal a expiré : elle n’a pas démarré.",
   TAKEOFF_WORKER_OUTCOME_UNKNOWN: "Le traitement a été interrompu. Son résultat est inconnu.",
   TAKEOFF_FILE_TYPE_INVALID: "Document non exploitable.",
   TAKEOFF_PDF_CORRUPTED: "Le PDF est invalide ou protégé.",

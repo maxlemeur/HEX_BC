@@ -21,7 +21,7 @@ import type {
 import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import { resolveTakeoffOperatorState, toTakeoffOperatorStateInput } from "@/lib/takeoff/operator-state";
 import { readTakeoffExecution, toTakeoffResumeViewer } from "@/lib/takeoff/resume-viewer-server";
-import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
+import { resolveTakeoffVisibleJobStatus, takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
 import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
 
 const DEFAULT_LIMIT = 20;
@@ -36,8 +36,12 @@ type ListActivityCenterJobsInput = {
   status?: string | null;
   level?: string | null;
   period?: string | null;
+  /** A failure link names its job: only that job is listed, with its shared end. */
+  jobId?: string | null;
   limit?: number;
   offset?: number;
+  /** The page of the affaire's shared ends, independent of the page of jobs. */
+  completionsOffset?: number;
 };
 
 type SupabaseClient = AuthenticatedTakeoffContext["supabase"];
@@ -566,20 +570,32 @@ export async function listActivityCenterJobs(
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
 
+  const jobId = input.jobId ?? null;
+  const completionsOffset = Math.max(input.completionsOffset ?? 0, 0);
+
+  // The shared ends follow the affaire's read rule, also for a reader whom a job's own rule hides it from. One row
+  // beyond the page tells that an older page exists.
   const [versions, completionResult] = await Promise.all([
     resolveVersionIdsForProject({ supabase, tenantId, projectId: input.project_id }),
     supabase.rpc("list_affaire_takeoff_completions" as never, {
       p_project_id: input.project_id,
-      p_limit: Math.trunc(limit),
-      p_offset: Math.min(Math.trunc(offset), 2_147_483_647),
+      p_limit: Math.trunc(limit) + 1,
+      p_offset: jobId ? 0 : Math.min(Math.trunc(completionsOffset), 2_147_483_647),
+      p_job_id: jobId,
     } as never),
   ]);
   if (completionResult.error) throw mapSupabaseError(completionResult.error, "Impossible de charger les fins d’analyse.");
-  const analysisCompletions = ((completionResult.data ?? []) as Array<{ event_id: string; outcome: string; finished_at: string }>)
-    .flatMap((event) => {
-      const outcome = toTakeoffAnalysisOutcome(event.outcome);
-      return outcome ? [{ eventId: event.event_id, outcome, finishedAt: event.finished_at }] : [];
-    });
+  const completionRows = (completionResult.data ?? []) as Array<{
+    event_id: string; outcome: string; finished_at: string; reason_code?: string | null;
+  }>;
+  const analysisCompletions = completionRows.slice(0, limit).flatMap((event) => {
+    const outcome = toTakeoffAnalysisOutcome(event.outcome);
+    return outcome ? [{
+      eventId: event.event_id, outcome, finishedAt: event.finished_at,
+      failureReason: outcome === "failure" ? takeoffCompletionFailureReason(event.reason_code) : null,
+    }] : [];
+  });
+  const analysisCompletionsHasOlder = completionRows.length > limit;
   const versionNumberMap = new Map(versions.map((v) => [v.id, v.version_number]));
 
   const baseFilterOpts = {
@@ -667,8 +683,11 @@ export async function listActivityCenterJobs(
         (row) => visibleStatusByJobId.get(row.id)?.status === input.status
       )
     : sourceFilteredRows;
-  const pagedRows = statusFilteredRows.slice(offset, offset + limit);
-  const total = statusFilteredRows.length;
+  // Like the status, the named job narrows the list and not the counters.
+  const listedRows = jobId ? statusFilteredRows.filter((row) => row.id === jobId) : statusFilteredRows;
+  const pageOffset = jobId ? 0 : offset;
+  const pagedRows = listedRows.slice(pageOffset, pageOffset + limit);
+  const total = listedRows.length;
   const jobIds = pagedRows.map((row) => row.id);
 
   // 5. Batch-enrich completed/applied jobs for the current page only. The lines of every row of the page are counted by
@@ -787,6 +806,7 @@ export async function listActivityCenterJobs(
     counters,
     jobs,
     analysisCompletions,
-    pagination: { limit, offset, total },
+    analysisCompletionsHasOlder,
+    pagination: { limit, offset: pageOffset, total },
   };
 }

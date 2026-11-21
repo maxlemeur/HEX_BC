@@ -1,6 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-const { client, processAttempt } = vi.hoisted(() => ({ client: { from: vi.fn() }, processAttempt: vi.fn() }));
+const { client, processAttempt } = vi.hoisted(() => ({
+  client: { from: vi.fn(), rpc: vi.fn<(name: string, args?: unknown) => Promise<{ data: null; error: null }>>(
+    async () => ({ data: null, error: null })) },
+  processAttempt: vi.fn(),
+}));
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ isLocalChatGptEnabled: () => true }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: async () => "fixture-host" }));
 vi.mock("@/lib/supabase/service-role", () => ({ createOptionalServiceRoleClient: () => client }));
@@ -131,4 +135,42 @@ it("does not take a job on the creation record of an earlier attempt that reused
   receipts.push({ ...receipts[0], created_at: job.created_at });
   await vi.advanceTimersByTimeAsync(15_000);
   await vi.waitFor(() => expect(processAttempt).toHaveBeenCalledWith(job.id, expect.objectContaining({ trigger: "create" })));
+});
+
+it("records this Mac's sign of life on a timer of its own, also while a long analysis holds the poll", async () => {
+  vi.useFakeTimers();
+  vi.stubEnv("E2E_ARMY_BLOCK_WORKERS", "0");
+  processAttempt.mockReset();
+  client.rpc.mockClear();
+  const job = { id: "8f400000-0000-4000-8000-000000000033", tenant_id: "8f400000-0000-4000-8000-000000000010",
+    status: "failed", created_at: "2026-11-21T00:00:00+00:00" };
+  client.from.mockImplementation(() => {
+    const query = {
+      select: () => query, eq: () => query, in: () => query, gte: () => query, is: () => query, or: () => query,
+      gt: () => query, order: () => query, limit: () => query,
+      then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: [job] }),
+    };
+    return query;
+  });
+  // The analysis this poll starts lasts longer than the test: the poll stays busy with it.
+  processAttempt.mockReturnValue(new Promise(() => undefined));
+  const signs = () => client.rpc.mock.calls.filter(([name]) => name === "record_local_takeoff_host_activity");
+  startLocalTakeoffRetryRecovery();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(signs()).toEqual([["record_local_takeoff_host_activity", { p_host_id: "fixture-host" }]]);
+  await vi.advanceTimersByTimeAsync(15_000);
+  await vi.waitFor(() => expect(processAttempt).toHaveBeenCalledTimes(1));
+  await vi.advanceTimersByTimeAsync(180_000);
+  expect(processAttempt).toHaveBeenCalledTimes(1);
+  // One sign at start, then one a minute: the hosted recovery reads this Mac as live while it works.
+  expect(signs()).toHaveLength(4);
+});
+
+it("records no sign of life for a process whose workers are blocked", async () => {
+  vi.useFakeTimers();
+  vi.stubEnv("E2E_ARMY_BLOCK_WORKERS", "1");
+  client.rpc.mockClear();
+  startLocalTakeoffRetryRecovery();
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(client.rpc).not.toHaveBeenCalled();
 });
