@@ -93,7 +93,9 @@ armyTest("TKPD01 a request of three plans gives three analyses read one at a tim
     expect([idle.pass.ran, idle.calls]).toEqual([[], []]);
     const hash = (await import("node:crypto")).createHash("sha256").update(bytes).digest("hex");
     await dossier.confirm([...dossier.plans, { id: added, name: "plan-5-r3.pdf", bytes, hash, pages: [], inactive: false }], 2);
-    const reread = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(), "2", added]);
+    // The command names the plan and the analysis it extends (never a first analysis on an affaire that has one).
+    const extended = (await readOwnedPlanJobs(dossier.projectId)).find((job) => job.launch_request_id === requestId)!.id;
+    const reread = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(), "2", added, extended]);
     expect(reread).toMatchObject({ result: { outcome: "admitted" } });
     const later = await runOwnedPlanDispatch(ui, owner, dossier.projectId);
     expect(later.calls.map((call) => call.jobId)).toHaveLength(1);
@@ -154,5 +156,38 @@ armyTest("TKPD02 a member stops the rest of a request after its first plan: the 
   } finally {
     await deactivateOwnedPlanDispatch();
     await mail.close();
+  }
+});
+
+armyTest("TKPD03 a plan whose bytes changed after its admission fails at once, alone, and the next plan is read in the same pass", {
+  session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
+}, async (ui) => {
+  await ui.app.open("/dashboard/affaires");
+  const owner = await signUpWorkerOwner(ui, "TKPD3");
+  await activateOwnedPlanDispatch();
+  try {
+    const dossier = await seedPlanDossier(ui, owner, [{ name: "plan-1.pdf", pages: 1 }, { name: "plan-2.pdf", pages: 1 }]);
+    const command = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(), "1",
+      dossier.plans.map((plan) => plan.id).join(",")]);
+    expect(command).toMatchObject({ result: { outcome: "admitted" } });
+    const [first, second] = await readOwnedPlanJobs(dossier.projectId);
+    // The first plan's stored bytes are replaced after the admission, before its reading.
+    const [path] = (await querySql(`select file_path from public.plan_files where id = '${dossier.plans[0].id}';`))
+      .filter((line) => line.includes("/"));
+    const replaced = await fictionalPlanPdf(`${ui.army.runPrefix} plan-1 modifié`, 1);
+    expect((await dossier.setup.storage.from("plan-files").update(path.trim(), replaced, { contentType: "application/pdf" })).error)
+      .toBeNull();
+    // One pass of the Mac: the changed plan ends at once with its reason (no call, nothing held), the next is read after it.
+    const pass = await runOwnedPlanDispatch(ui, owner, dossier.projectId);
+    expect(pass.pass.ran).toEqual([first.id, second.id]);
+    expect(pass.calls.map((call) => call.jobId)).toEqual([second.id]);
+    expect((await readOwnedPlanJobs(dossier.projectId)).map((job) => [job.status, job.error_code])).toEqual([
+      ["failed", "TAKEOFF_PREPARATION_SOURCE_CHANGED"], ["completed", null]]);
+    expect((await readOwnedPlanRequests(dossier.projectId))[0]).toMatchObject({ state: "closed", outcome: "partial",
+      units_succeeded: 1, units_failed: 1 });
+    await recordEvidence(ui.army, "TKPD03-source-changed", { projectId: dossier.projectId, calls: pass.calls, ran: pass.pass.ran,
+      boundary: "Fictional plans and a controlled local provider on an owned local backend." });
+  } finally {
+    await deactivateOwnedPlanDispatch();
   }
 });
