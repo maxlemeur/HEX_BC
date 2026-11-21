@@ -64,7 +64,7 @@ export function AffaireHubActionBar({
 
   const showCompare = versionsCount > 1;
   // The takeoff's zone, whatever its state: the menu never launches an analysis itself.
-  const showTakeoffZone = takeoffEnabled && plansSummary && plansSummary.planSetCount > 0;
+  const showTakeoffZone = takeoffEnabled && plansSummary && plansSummary.planFileCount > 0;
   const hasPlans = (plansSummary?.planSetCount ?? 0) > 0;
   const takeoffHref = `/dashboard/affaires/${summary.project.id}/takeoff`;
   const exportHref = `/dashboard/estimates/${currentVersion.id}/print`;
