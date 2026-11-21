@@ -50,8 +50,8 @@ from unnest(array[
   'save_takeoff_item_template_draft(uuid, uuid, text, uuid, integer, jsonb, text[])',
   'publish_takeoff_item_template(uuid, uuid, text, uuid, uuid, text[])',
   'discard_takeoff_item_template_draft(uuid, uuid, text, uuid)',
-  'record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[])',
-  'persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[])',
+  'record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[], text)',
+  'persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[], text)',
   'read_dpgf_import_confirmation(uuid, uuid)', 'read_estimate_dpgf_raw_rows(uuid, uuid)',
   'takeoff_item_list_order_is_active()', 'takeoff_item_list_may_write(uuid, uuid, uuid)']) as fn;
 select is(has_table_privilege('authenticated', 'private.dpgf_mapped_row_lineage', 'SELECT'), false,
@@ -135,6 +135,10 @@ select throws_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo', 
   'TAKEOFF_ITEM_TEMPLATE_LINE_REUSED', 'a line added never takes the identifier of a retired one');
 select lives_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo', 'wc', 'baignoire-2'), base => 2) $$,
   'under a new identifier it is saved');
+-- A publication's key replays only for the draft it published: draft B under A's key is refused, never A's receipt.
+select throws_ok($$ select * from pg_temp.publish((select d.token from public.takeoff_item_template_drafts d
+  where d.tenant_id = pg_temp.fx(10)), 900) $$, '23505', 'TAKEOFF_ITEM_TEMPLATE_INTENT_CONFLICT',
+  'another draft under a used publication key is refused');
 select throws_ok($$ select * from pg_temp.save(5, null, pg_temp.lines('lavabo'), base => 1) $$, '40001',
   'TAKEOFF_ITEM_TEMPLATE_STALE', 'a draft on a version no longer the latest refuses');
 select throws_ok($$ update public.takeoff_item_template_versions set line_count = 1 where tenant_id = pg_temp.fx(10) $$,
@@ -266,6 +270,26 @@ select throws_ok($$ insert into public.takeoff_list_items (id, tenant_id, projec
 reset role;
 
 -- 4. The proof of a confirmation.
+-- The digest of what a member reviews is the server's own (src/lib/imports/rows-digest.test.ts pins the same value):
+-- an older flat payload, a reference the payload's top level alone holds, a row not mapped.
+insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode)
+values (pg_temp.fx(190), pg_temp.fx(10), pg_temp.fx(2), 'empreinte-fictive.csv', 'csv', 'completed', 3, 'server');
+insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload)
+select x.id::uuid, pg_temp.fx(10), pg_temp.fx(190), x.n, '{}' from (values ('a1900000-0000-4000-8000-000000000001', 0),
+  ('a1900000-0000-4000-8000-000000000002', 1), ('a1900000-0000-4000-8000-000000000003', 2)) as x(id, n);
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status) values
+  (pg_temp.fx(191), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000002',
+    '{"row_index":1,"designation":"Évier inox","quantity":"1,5","hex_code":"H-2"}', 'mapped'),
+  (pg_temp.fx(192), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000001',
+    '{"row_index":0,"reference":"R-1","mapped_row":{"designation":"Lavabo céramique","quantity":2,"unit":"u","notes":null}}',
+    'mapped'),
+  (pg_temp.fx(193), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000003', '{"designation":"Ignorée"}',
+    'rejected');
+select is(private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(190)),
+  '654bc190a206940c4ebf7d208d5e749af5aa735c655312cebb04e15421fee19b',
+  'the database digests the reviewed rows as the server does');
+select has_index('public', 'dpgf_import_confirmations', 'dpgf_import_confirmations_mapping_idx', array['mapping_id'],
+  'a mapping''s deletion finds its confirmations by an index');
 insert into public.dpgf_imports (id, tenant_id, user_id, project_id, filename, source_format, status, row_count, parse_mode)
 values (pg_temp.fx(60), pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(20), 'dpgf-fictif.csv', 'csv', 'completed', 2, 'server');
 insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload) values
@@ -278,12 +302,24 @@ insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, paylo
   (pg_temp.fx(71), pg_temp.fx(10), pg_temp.fx(60), pg_temp.fx(61), '{"mapped_row":{"designation":"Bâtiment A"}}', 'mapped'),
   (pg_temp.fx(72), pg_temp.fx(10), pg_temp.fx(60), pg_temp.fx(62),
     '{"mapped_row":{"designation":"Lavabo","quantity":"2"}}', 'mapped');
+-- The digest of the rows as the member reviewed them: those the import holds now, unless the case names another.
 create function pg_temp.confirm(mapping integer, decisions jsonb, exclusions jsonb, rows integer[],
-  version integer default null) returns uuid language sql as $$
+  version integer default null, reviewed text default null) returns uuid language sql as $$
   select public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(60), pg_temp.fx(mapping),
     pg_temp.fx(20), case when version is null then null else pg_temp.fx(version) end, decisions, exclusions,
-    array(select pg_temp.fx(n) from unnest(rows) n))
+    array(select pg_temp.fx(n) from unnest(rows) n),
+    coalesce(reviewed, private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60))))
 $$;
+create temp table reviewed_rows as select private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60)) as digest;
+-- A quantity changed under the same identifier after the member reviewed the rows: the confirmation refuses.
+update public.dpgf_rows_mapped set payload = '{"mapped_row":{"designation":"Lavabo","quantity":"3"}}'
+where id = pg_temp.fx(72);
+select throws_ok($$ select pg_temp.confirm(70, '[]', '[]', array[71, 72], reviewed => (select digest from reviewed_rows)) $$,
+  '40001', 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED', 'a value changed since the member''s review refuses the confirmation');
+update public.dpgf_rows_mapped set payload = '{"mapped_row":{"designation":"Lavabo","quantity":"2"}}'
+where id = pg_temp.fx(72);
+select throws_ok($$ select pg_temp.confirm(70, '[]', '[]', array[71, 72], reviewed => 'x') $$, '22023',
+  'DPGF_IMPORT_CONFIRMATION_INVALID', 'a confirmation names the digest of what the member reviewed');
 select throws_ok($$ select pg_temp.confirm(70, '[{"rowIndex":0,"kind":"section","level":3}]', '[]', array[71, 72]) $$,
   '22023', 'DPGF_IMPORT_CONFIRMATION_INVALID', 'a decision names a level 1 or 2');
 select throws_ok($$ select pg_temp.confirm(70, '[]', '[{"rowIndex":1,"reason":"prix"}]', array[71, 72]) $$,
@@ -328,6 +364,20 @@ select results_eq($$ select mapped_row_id, raw_row_id from private.dpgf_mapped_r
   where import_id = pg_temp.fx(60) order by mapped_row_id $$,
   $$ values (pg_temp.fx(71), pg_temp.fx(61)), (pg_temp.fx(72), pg_temp.fx(62)) $$,
   'the rows a remapping deleted are recorded, the live ones are not');
+-- An import nothing depends on (no confirmation, no estimate created from it, no list revision): its remap and its
+-- deletion journal nothing.
+insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode)
+values (pg_temp.fx(196), pg_temp.fx(10), pg_temp.fx(2), 'jamais-utilise.csv', 'csv', 'completed', 1, 'server');
+insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload)
+values (pg_temp.fx(197), pg_temp.fx(10), pg_temp.fx(196), 0, '{"Designation":"Lavabo"}');
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status)
+values (pg_temp.fx(198), pg_temp.fx(10), pg_temp.fx(196), pg_temp.fx(197), '{"mapped_row":{"designation":"Lavabo"}}', 'mapped');
+delete from public.dpgf_rows_mapped where import_id = pg_temp.fx(196);
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status)
+values (pg_temp.fx(199), pg_temp.fx(10), pg_temp.fx(196), pg_temp.fx(197), '{"mapped_row":{"designation":"Lavabo"}}', 'mapped');
+delete from public.dpgf_imports where id = pg_temp.fx(196);
+select is((select count(*)::integer from private.dpgf_mapped_row_lineage where import_id = pg_temp.fx(196)), 0,
+  'the remap and the deletion of an import nothing depends on journal nothing');
 set local session_replication_role = replica;
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, title, parent_version_id)
 values (pg_temp.fx(80), pg_temp.fx(10), pg_temp.fx(20), 1, 'draft', 'Devis fictif', null);
@@ -362,11 +412,14 @@ create function pg_temp.version_payload(version integer) returns jsonb language 
     'tax_rate_bp', 2000, 'rounding_mode', 'none', 'rounding_step_cents', 1, 'max_section_depth', 3, 'total_ht_cents', 0,
     'total_tax_cents', 0, 'total_ttc_cents', 0)
 $$;
+-- The digest the member reviewed, computed before the server's role (which reads no private function directly).
+create temp table import_reviewed as select private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60)) as digest;
+grant select on import_reviewed to service_role;
 create function pg_temp.import_estimate(version integer, mapping integer, rows integer[]) returns jsonb language sql as $$
   select public.persist_dpgf_import_estimate_atomic(pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(20), null,
     pg_temp.version_payload(version), '[]'::jsonb, pg_temp.fx(60), pg_temp.fx(mapping),
     '[{"rowIndex":0,"kind":"section","level":1}]'::jsonb, '[{"rowIndex":1,"reason":"footer"}]'::jsonb,
-    array(select pg_temp.fx(n) from unnest(rows) n))
+    array(select pg_temp.fx(n) from unnest(rows) n), (select digest from import_reviewed))
 $$;
 set local role service_role;
 select throws_ok($$ select pg_temp.import_estimate(82, 70, array[74, 75]) $$, '40001', 'DPGF_IMPORT_CONFIRMATION_STALE',
@@ -486,11 +539,12 @@ select public.set_tenant_calc_policy(p_tenant_id => (select tenant_id from publi
 commit;
 $setup$, pg_temp.fx(160), pg_temp.fx(22), pg_temp.fx(161), pg_temp.fx(162), pg_temp.fx(170), pg_temp.fx(171),
   pg_temp.fx(172), pg_temp.fx(6))), 'COMMIT', 'an import of that affaire, mapped, its rows committed');
-create function pg_temp.race_confirm(rows integer[]) returns text language sql stable as $$
+create function pg_temp.race_confirm(rows integer[], reviewed text default null) returns text language sql stable as $$
   select format($call$select public.record_dpgf_import_confirmation((select tenant_id from public.dpgf_imports where id = %L),
     %L, %L, %L, %L, null, '[{"rowIndex":1,"kind":"ignore","level":null}]', '[{"rowIndex":1,"reason":"user_ignored"}]',
-    %L::uuid[])$call$, pg_temp.fx(160), pg_temp.fx(6), pg_temp.fx(160), pg_temp.fx(170), pg_temp.fx(22),
-    array(select pg_temp.fx(n) from unnest(rows) n))
+    %L::uuid[], coalesce(%L, private.dpgf_import_rows_sha256((select tenant_id from public.dpgf_imports where id = %L),
+    %L)))$call$, pg_temp.fx(160), pg_temp.fx(6), pg_temp.fx(160), pg_temp.fx(170), pg_temp.fx(22),
+    array(select pg_temp.fx(n) from unnest(rows) n), reviewed, pg_temp.fx(160), pg_temp.fx(160))
 $$;
 create function pg_temp.race_read() returns table (proof_current boolean, superseded boolean) language sql as $$
   select r.proof_current, r.superseded from extensions.dblink('race_setup', format(
@@ -523,6 +577,32 @@ commit;
 $copy$, pg_temp.fx(6), pg_temp.fx(186))), 'COMMIT', 'a member copies the earlier estimate after B''s record');
 select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, false) $$,
   'a copy of an estimate is not a confirmation: B''s structure stays established');
+-- A blank draft created after B's record, into which a member later copies a section carrying the import's provenance:
+-- the copy is not a creation from the import, B's structure stays established.
+select is(extensions.dblink_exec('race_setup', format($blank$
+begin;
+select public.persist_estimate_creation_atomic((select tenant_id from public.dpgf_imports where id = %1$L), %2$L, %3$L, null,
+  %4$L::jsonb, '[]'::jsonb, null);
+commit;
+$blank$, pg_temp.fx(160), pg_temp.fx(6), pg_temp.fx(22), pg_temp.version_payload(188))), 'COMMIT',
+  'a blank draft of the affaire, after B''s record');
+select is(extensions.dblink_exec('race_setup', format($copied$
+begin;
+insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title, fo_provision, source_metadata)
+select %1$L, v.tenant_id, v.id, 'section', 0, 'Import DPGF', 1, jsonb_build_object('import_id', %2$L, 'mapping_id', %3$L)
+from public.estimate_versions v where v.id = %4$L;
+commit;
+$copied$, pg_temp.fx(189), pg_temp.fx(160), pg_temp.fx(170), pg_temp.fx(188))), 'COMMIT',
+  'a section carrying the import''s provenance copied into it later');
+select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, false) $$,
+  'a section copied later is not a creation from the import: B''s structure stays established');
+select is(extensions.dblink_exec('race_setup', format($uncopied$
+begin;
+delete from public.estimate_items where id = %L;
+commit;
+$uncopied$, pg_temp.fx(189))), 'COMMIT', 'the member removes the copied section again');
+select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, false) $$,
+  'B''s structure stays established');
 -- The previous application version, with an empty mapping, creates an estimate on the same mapping and rows: it records
 -- nothing, its estimate keeps the option (its own choice). Its transaction began before B's record (its now() is
 -- earlier), its estimate after it: B's record no longer establishes the structure.
@@ -536,6 +616,33 @@ $previous$, pg_temp.fx(160), pg_temp.fx(6), pg_temp.fx(22), pg_temp.version_payl
   pg_temp.fx(170))), 'COMMIT', 'the previous version creates an estimate from the import, without a record');
 select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, true) $$,
   'B''s structure is no longer established: the list says so');
+-- Deleting the imported section from that estimate's draft later changes nothing: the creation recorded its import.
+select is(extensions.dblink_exec('race_a', format($deleted$
+begin;
+delete from public.estimate_items where version_id = %L;
+commit;
+$deleted$, pg_temp.fx(184))), 'COMMIT', 'a member deletes the imported section from the previous version''s draft');
+select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, true) $$,
+  'B''s structure stays not established: what a creation recorded is a fact of it');
+-- Two connections: B reads the rows; A changes a quantity under the same identifier; B's record refuses.
+create temp table race_reviewed as select r.digest from extensions.dblink('race_b', format(
+  'select private.dpgf_import_rows_sha256((select tenant_id from public.dpgf_imports where id = %L), %L)',
+  pg_temp.fx(160), pg_temp.fx(160))) as r(digest text);
+select is(extensions.dblink_exec('race_a', format($quantity$
+begin;
+update public.dpgf_rows_mapped set payload = '{"mapped_row":{"designation":"Option vasque","quantity":"3"}}' where id = %L;
+commit;
+$quantity$, pg_temp.fx(172))), 'COMMIT', 'A changes the option''s quantity after B read it');
+select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'B records what it read');
+select throws_ok(format('select * from extensions.dblink(%L, %L) as t(id uuid)', 'race_b',
+  pg_temp.race_confirm(array[171, 172], (select digest from race_reviewed))), '40001', 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED',
+  'B never certifies a quantity it did not review');
+select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'nothing of B''s is written');
+select is(extensions.dblink_exec('race_a', format($restored$
+begin;
+update public.dpgf_rows_mapped set payload = '{"mapped_row":{"designation":"Option vasque","quantity":"1"}}' where id = %L;
+commit;
+$restored$, pg_temp.fx(172))), 'COMMIT', 'A restores the quantity');
 -- Two tabs: A's mapping writer inserts a late row after B read the import's rows; B's confirmation refuses.
 select is(extensions.dblink_exec('race_a', format($late$
 begin;

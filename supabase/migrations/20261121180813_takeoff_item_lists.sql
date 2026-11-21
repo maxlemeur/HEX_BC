@@ -7,9 +7,10 @@
 --
 -- What the previous application version sees while this is applied: nothing changes in its writes.
 --   - Every new relation is read and written only by the new server (service role functions) or read through RLS.
---   - Two triggers on existing tables, per statement, refuse nothing and change no row: after delete on dpgf_rows_mapped
---     (the identities of the deleted rows, in a private lineage table) and after insert on estimate_versions (the
---     versions a creation made, not a copy, with the clock time of their insert, in a private table).
+--   - Three triggers on existing tables, per statement, refuse nothing and change no row: after delete on dpgf_rows_mapped
+--     (the identities of the deleted rows of an import something depends on, in a private lineage table), after insert on estimate_versions (the versions a
+--     creation made, not a copy, with the clock time of their insert, in a private table) and after insert on
+--     estimate_items (the imports of the lines a creation inserts in its own transaction; any other returns at once).
 --   - The imports gain a nullable column (the worksheet's first row), written only by the new server.
 --   - The launch requests gain a nullable column, set only by the seal of the second measuring order, behind its own
 --     activation (private.takeoff_item_list_order_activation, empty): the seal of the free extraction is unchanged.
@@ -24,7 +25,7 @@ begin;
 -- Every statement takes a short lock: give up instead of queueing the import, mapping, estimate and launch writers.
 set local lock_timeout = '5s';
 
-lock table public.tenants, public.estimate_projects, public.estimate_versions, public.dpgf_mappings,
+lock table public.tenants, public.estimate_projects, public.estimate_versions, public.estimate_items, public.dpgf_mappings,
   public.dpgf_rows_mapped in share row exclusive mode;
 lock table public.dpgf_imports, public.takeoff_launch_requests in access exclusive mode;
 
@@ -42,14 +43,26 @@ create table private.dpgf_mapped_row_lineage (
   raw_row_id uuid not null,
   recorded_at timestamptz not null default pg_catalog.clock_timestamp()
 );
-create index dpgf_mapped_row_lineage_raw_idx on private.dpgf_mapped_row_lineage (import_id, raw_row_id);
 revoke all on private.dpgf_mapped_row_lineage from public, anon, authenticated, service_role;
 
+-- Only for an import still there that something depends on: a confirmation, an estimate a creation made from it, a
+-- list revision. The remap of any other import, and an import's own deletion, journal nothing.
 create function private.record_dpgf_mapped_row_lineage()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   insert into private.dpgf_mapped_row_lineage (mapped_row_id, tenant_id, import_id, raw_row_id)
-  select d.id, d.tenant_id, d.import_id, d.raw_row_id from deleted_rows d where d.raw_row_id is not null
+  select d.id, d.tenant_id, d.import_id, d.raw_row_id
+  from deleted_rows d
+  join (
+    select i.tenant_id, i.import_id from (select distinct r.tenant_id, r.import_id from deleted_rows r) i
+    where exists (select 1 from public.dpgf_imports x where x.id = i.import_id)
+      and (exists (select 1 from public.dpgf_import_confirmations c where c.tenant_id = i.tenant_id and c.import_id = i.import_id)
+        or exists (select 1 from private.estimate_version_creations k
+          where k.tenant_id = i.tenant_id and k.import_ids @> array[i.import_id])
+        or exists (select 1 from public.takeoff_list_revisions v where v.tenant_id = i.tenant_id
+          and v.sources ->> 'kind' = 'dpgf' and v.sources ->> 'importId' = i.import_id::text))
+  ) used on used.tenant_id = d.tenant_id and used.import_id = d.import_id
+  where d.raw_row_id is not null
   on conflict (mapped_row_id) do nothing;
   return null;
 end;
@@ -207,6 +220,8 @@ create table public.takeoff_item_template_versions (
   line_count integer not null check (line_count between 1 and 1000),
   -- Every line identifier of this version and of the versions before it, the shipped one included.
   used_line_ids text[] not null check (pg_catalog.cardinality(used_line_ids) between 1 and 100000),
+  -- The token of the draft it published: a publication's key replays only for that draft.
+  draft_token uuid not null,
   intent_key uuid not null,
   published_by uuid not null,
   published_at timestamptz not null default pg_catalog.clock_timestamp(),
@@ -382,6 +397,10 @@ begin
   select * into published from public.takeoff_item_template_versions v
   where v.tenant_id = p_tenant_id and v.template_key = p_template_key and v.intent_key = p_intent_key;
   if found then
+    -- The same publication again (a lost answer): its receipt, only for the draft it published.
+    if published.draft_token is distinct from p_expected_token then
+      raise exception 'TAKEOFF_ITEM_TEMPLATE_INTENT_CONFLICT' using errcode = '23505';
+    end if;
     return query select published.id, published.version, true;
     return;
   end if;
@@ -397,9 +416,9 @@ begin
   lines := private.assert_takeoff_item_template_definition(draft.definition);
   used := private.assert_takeoff_item_template_lines(p_tenant_id, p_template_key, draft.definition, p_shipped_line_ids);
   insert into public.takeoff_item_template_versions (tenant_id, template_key, version, based_on_version, definition, digest,
-    line_count, used_line_ids, intent_key, published_by)
+    line_count, used_line_ids, draft_token, intent_key, published_by)
   values (p_tenant_id, p_template_key, draft.base_version + 1, draft.base_version, draft.definition,
-    private.takeoff_sha256(draft.definition), lines, used, p_intent_key, p_actor)
+    private.takeoff_sha256(draft.definition), lines, used, draft.token, p_intent_key, p_actor)
   returning * into published;
   -- The version row is the trace: who published, when, on which version, its digest and size.
   delete from public.takeoff_item_template_drafts d where d.tenant_id = p_tenant_id and d.template_key = p_template_key;
@@ -503,6 +522,9 @@ create table public.takeoff_list_revision_entries (
     references public.takeoff_list_items (id, tenant_id, project_id) on delete cascade
 );
 create index takeoff_list_revision_entries_item_idx on public.takeoff_list_revision_entries (item_id);
+-- The import a revision was made from, for the lineage journal of a remap (section 0).
+create index takeoff_list_revisions_import_idx on public.takeoff_list_revisions (tenant_id, (sources ->> 'importId'))
+  where sources ->> 'kind' = 'dpgf';
 
 create trigger takeoff_list_items_immutable before update on public.takeoff_list_items
   for each row execute function private.refuse_takeoff_item_list_update();
@@ -757,9 +779,14 @@ create table private.estimate_version_creations (
   version_id uuid primary key references public.estimate_versions(id) on delete cascade,
   tenant_id uuid not null,
   project_id uuid not null,
-  created_at timestamptz not null
+  created_at timestamptz not null,
+  -- The transaction that created it, and the imports of the lines that transaction inserted: a fact of the creation,
+  -- never re-read from the estimate's items (a section deleted or copied later, in another transaction, changes nothing).
+  creation_xact xid8 not null default pg_catalog.pg_current_xact_id(),
+  import_ids uuid[] not null default '{}'
 );
 create index estimate_version_creations_project_idx on private.estimate_version_creations (tenant_id, project_id, created_at);
+create index estimate_version_creations_import_idx on private.estimate_version_creations using gin (import_ids);
 revoke all on private.estimate_version_creations from public, anon, authenticated, service_role;
 create function private.record_estimate_version_creation()
 returns trigger language plpgsql security definer set search_path = '' as $$
@@ -768,6 +795,8 @@ begin
       in ('canonical_v2', 'canonical_v3') then
     insert into private.estimate_version_creations (version_id, tenant_id, project_id, created_at)
     select n.id, n.tenant_id, n.project_id, pg_catalog.clock_timestamp() from created_versions n;
+    -- The lines this transaction inserts next are the creation's own (read by the trigger on estimate_items).
+    perform pg_catalog.set_config('miaouffrage.estimate_creation_in_xact', 'on', true);
   end if;
   return null;
 end;
@@ -775,6 +804,29 @@ $$;
 revoke all on function private.record_estimate_version_creation() from public, anon, authenticated, service_role;
 create trigger zz_record_estimate_version_creation after insert on public.estimate_versions
   referencing new table as created_versions for each statement execute function private.record_estimate_version_creation();
+-- The lines a creation inserts in its own transaction (the released creation's too) name the imports it was made from.
+-- A transaction that created no version returns at once, reading no table.
+create function private.record_estimate_version_creation_imports()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if coalesce(pg_catalog.current_setting('miaouffrage.estimate_creation_in_xact', true), '') <> 'on' then
+    return null;
+  end if;
+  update private.estimate_version_creations k
+  set import_ids = array(select distinct x from unnest(k.import_ids || i.ids) as u(x) order by x)
+  from (
+    select n.version_id, pg_catalog.array_agg(distinct (n.source_metadata ->> 'import_id')::uuid) as ids
+    from created_items n
+    where (n.source_metadata ->> 'import_id') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    group by n.version_id
+  ) i
+  where k.version_id = i.version_id and k.creation_xact = pg_catalog.pg_current_xact_id();
+  return null;
+end;
+$$;
+revoke all on function private.record_estimate_version_creation_imports() from public, anon, authenticated, service_role;
+create trigger zz_record_estimate_version_creation_imports after insert on public.estimate_items
+  referencing new table as created_items for each statement execute function private.record_estimate_version_creation_imports();
 
 -- 4. The structure of an import as its confirmation established it: the decisions the member took (a row made a
 --    section and its level, a row kept as a line, a row ignored) and the rows the import itself left out with its own
@@ -807,6 +859,8 @@ create index dpgf_import_confirmations_import_idx on public.dpgf_import_confirma
   confirmed_at desc, id desc);
 create index dpgf_import_confirmations_version_idx on public.dpgf_import_confirmations (estimate_version_id)
   where estimate_version_id is not null;
+-- A mapping's deletion (its import's, or a remapping's cascade) finds its confirmations by it.
+create index dpgf_import_confirmations_mapping_idx on public.dpgf_import_confirmations (mapping_id);
 -- A fact, except that the deletion of the version it created clears that reference (the foreign key's action).
 create function private.guard_dpgf_import_confirmation_update()
 returns trigger language plpgsql set search_path = pg_catalog as $$
@@ -826,6 +880,40 @@ revoke all on public.dpgf_import_confirmations from public, anon, authenticated,
 grant select, insert, update, delete on public.dpgf_import_confirmations to service_role;
 create trigger dpgf_import_confirmations_writer before insert or delete on public.dpgf_import_confirmations
   for each row execute function private.refuse_takeoff_item_list_direct_write();
+
+-- The digest of what a member reviews of an import's rows (src/lib/imports/rows-digest.ts, the same computation): for
+-- each mapped row, by its raw row, the facts the proof covers, read from the mapped row, else from the payload's top
+-- level (older writers), each typed and prefixed by its length in bytes. The preview computes it where it presents the
+-- rows; the confirmation is refused when the rows it is recorded with are no longer those (a value changed under the
+-- same identifier included).
+create function private.dpgf_row_fact_text(p_value jsonb)
+returns text language sql immutable set search_path = '' as $$
+  select pg_catalog.octet_length(t)::text || ':' || t
+  from (select case when p_value is null or pg_catalog.jsonb_typeof(p_value) = 'null' then 'z'
+    when pg_catalog.jsonb_typeof(p_value) = 'string' then 's' || (p_value #>> '{}')
+    when pg_catalog.jsonb_typeof(p_value) = 'number' then 'n' || (p_value #>> '{}')
+    when pg_catalog.jsonb_typeof(p_value) = 'boolean' then 'b' || (p_value #>> '{}')
+    else 'j' || p_value::text end as t) fact
+$$;
+revoke all on function private.dpgf_row_fact_text(jsonb) from public, anon, authenticated, service_role;
+create function private.dpgf_import_rows_sha256(p_tenant_id uuid, p_import_id uuid)
+returns text language sql stable security definer set search_path = '' as $$
+  with lines as (
+    select coalesce(m.raw_row_id::text, '') as key, coalesce(m.raw_row_id::text, '')
+      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,designation}', m.payload -> 'designation'))
+      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,reference}', m.payload -> 'reference'))
+      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,hex_code}', m.payload -> 'hex_code'))
+      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,unit}', m.payload -> 'unit'))
+      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,quantity}', m.payload -> 'quantity'))
+      || private.dpgf_row_fact_text(coalesce(m.payload #> '{mapped_row,notes}', m.payload -> 'notes')) as line
+    from public.dpgf_rows_mapped m
+    where m.tenant_id = p_tenant_id and m.import_id = p_import_id and m.status = 'mapped'
+  )
+  select pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(coalesce(
+    pg_catalog.string_agg(l.line, E'\n' order by l.key collate "C", l.line collate "C"), ''), 'UTF8')), 'hex')
+  from lines l
+$$;
+revoke all on function private.dpgf_import_rows_sha256(uuid, uuid) from public, anon, authenticated, service_role;
 
 -- The proof of what an import holds now under a mapping, with this structure.
 create function private.dpgf_import_confirmation_proof(p_tenant_id uuid, p_import_id uuid, p_mapping_id uuid,
@@ -872,13 +960,14 @@ revoke all on function private.latest_dpgf_mapping_id(uuid, uuid) from public, a
 -- The caller's transaction is the confirmation's: the estimate's creation (public.persist_dpgf_import_estimate_atomic),
 -- or the mapping alone (the server, right after the mapping it created; the action fails while this is missing).
 create function public.record_dpgf_import_confirmation(p_tenant_id uuid, p_actor uuid, p_import_id uuid, p_mapping_id uuid,
-  p_project_id uuid, p_estimate_version_id uuid, p_decisions jsonb, p_exclusions jsonb, p_mapped_row_ids uuid[])
+  p_project_id uuid, p_estimate_version_id uuid, p_decisions jsonb, p_exclusions jsonb, p_mapped_row_ids uuid[],
+  p_rows_sha256 text)
 returns uuid language plpgsql security definer set search_path = '' as $$
 declare
   proof record;
   created uuid;
 begin
-  if p_actor is null or p_mapped_row_ids is null
+  if p_actor is null or p_mapped_row_ids is null or coalesce(p_rows_sha256, '') !~ '^[0-9a-f]{64}$'
     or jsonb_typeof(p_decisions) is distinct from 'array' or jsonb_array_length(p_decisions) > 10000
     or jsonb_typeof(p_exclusions) is distinct from 'array' or jsonb_array_length(p_exclusions) > 100000
     or exists (
@@ -910,7 +999,9 @@ begin
     or exists (select 1 from public.dpgf_rows_mapped m where m.tenant_id = p_tenant_id and m.import_id = p_import_id
       and not exists (select 1 from unnest(p_mapped_row_ids) x(id) where x.id = m.id))
     or exists (select 1 from unnest(p_mapped_row_ids) x(id) where not exists (select 1 from public.dpgf_rows_mapped m
-      where m.id = x.id and m.tenant_id = p_tenant_id and m.import_id = p_import_id)) then
+      where m.id = x.id and m.tenant_id = p_tenant_id and m.import_id = p_import_id))
+    -- and they hold what the member reviewed: a value changed under the same identifier refuses too.
+    or private.dpgf_import_rows_sha256(p_tenant_id, p_import_id) is distinct from p_rows_sha256 then
     raise exception 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED' using errcode = '40001';
   end if;
   select * into proof from private.dpgf_import_confirmation_proof(p_tenant_id, p_import_id, p_mapping_id, p_decisions,
@@ -923,9 +1014,9 @@ begin
   return created;
 end;
 $$;
-revoke all on function public.record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[])
+revoke all on function public.record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[], text)
   from public, anon, authenticated;
-grant execute on function public.record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[])
+grant execute on function public.record_dpgf_import_confirmation(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb, uuid[], text)
   to service_role;
 
 -- The estimate created from an import and the confirmation's structure, in one transaction: the existing creation,
@@ -933,7 +1024,7 @@ grant execute on function public.record_dpgf_import_confirmation(uuid, uuid, uui
 -- alone.
 create function public.persist_dpgf_import_estimate_atomic(p_tenant_id uuid, p_actor_user_id uuid, p_project_id uuid,
   p_project_payload jsonb, p_version_payload jsonb, p_items jsonb, p_import_id uuid, p_mapping_id uuid, p_decisions jsonb,
-  p_exclusions jsonb, p_mapped_row_ids uuid[])
+  p_exclusions jsonb, p_mapped_row_ids uuid[], p_rows_sha256 text)
 returns jsonb language plpgsql security invoker set search_path = '' as $$
 declare
   created jsonb;
@@ -944,19 +1035,21 @@ begin
   created := public.persist_estimate_creation_atomic(p_tenant_id, p_actor_user_id, p_project_id, p_project_payload,
     p_version_payload, p_items, p_import_id);
   perform public.record_dpgf_import_confirmation(p_tenant_id, p_actor_user_id, p_import_id, p_mapping_id,
-    (created #>> '{project,id}')::uuid, (created #>> '{version,id}')::uuid, p_decisions, p_exclusions, p_mapped_row_ids);
+    (created #>> '{project,id}')::uuid, (created #>> '{version,id}')::uuid, p_decisions, p_exclusions, p_mapped_row_ids,
+    p_rows_sha256);
   return created;
 end;
 $$;
-revoke all on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[])
+revoke all on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[], text)
   from public, anon, authenticated;
-grant execute on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[])
+grant execute on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[], text)
   to service_role;
 
 -- The latest confirmation of an import and whether its structure is established: its proof still matches what the
 -- import holds under its latest mapping (proof_current), and no estimate was created from the import after it by a
 -- path that recorded nothing (superseded: a version of the affaire a creation made since, by the clock of its insert,
--- not created by a recorded confirmation, holding lines of this import; a copy of an earlier version is not a creation).
+-- not created by a recorded confirmation, whose lines came from this import as that creation recorded at its commit; a
+-- copy of an earlier version is not a creation, and a later edit of the estimate's lines changes nothing).
 -- No row: the import was never confirmed by this version.
 create function public.read_dpgf_import_confirmation(p_tenant_id uuid, p_import_id uuid)
 returns table (confirmation_id uuid, mapping_id uuid, estimate_version_id uuid, decisions jsonb, exclusions jsonb,
@@ -969,11 +1062,9 @@ language sql stable security definer set search_path = '' as $$
     exists (
       select 1 from public.dpgf_imports i
       join private.estimate_version_creations k on k.tenant_id = i.tenant_id and k.project_id = i.project_id
-      join public.estimate_versions v on v.id = k.version_id
       where i.id = c.import_id and i.tenant_id = c.tenant_id and k.created_at > c.confirmed_at
-        and not exists (select 1 from public.dpgf_import_confirmations o where o.estimate_version_id = v.id)
-        and exists (select 1 from public.estimate_items it where it.version_id = v.id
-          and it.source_metadata ->> 'import_id' = c.import_id::text)
+        and c.import_id = any (k.import_ids)
+        and not exists (select 1 from public.dpgf_import_confirmations o where o.estimate_version_id = k.version_id)
     )
   from public.dpgf_import_confirmations c
   where c.tenant_id = p_tenant_id and c.import_id = p_import_id
