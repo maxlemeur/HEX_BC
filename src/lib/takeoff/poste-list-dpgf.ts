@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import type { ImportRowStructure } from "@/lib/imports/payload";
 import type { ImportStructureDecision } from "@/lib/imports/structure";
 import { resolveImportRowTitle } from "@/lib/imports/structure";
@@ -14,9 +16,15 @@ export type RawDpgfPosteRow = Pick<DpgfPosteOrigin,
 /** A row the confirmation of the import left out, with the import's own reason (its normalization, never a price). */
 export type DpgfStructuralExclusion = { rowIndex: number; reason: "footer" | "user_ignored" | "parameters" };
 
-/** The text of a row's notes, folded, as a digest: what tells two rows apart without disclosing the notes. */
-export function dpgfNotesDigest(notes: string | null) {
-  return notes ? digestPosteFacts(["dpgf-notes-v1", stripAccents(notes).toLowerCase().trim().replace(/\s+/g, " ")]) : null;
+/**
+ * The text of a row's notes, folded, as a digest keyed by the tenant's notes key (public.takeoff_item_list_notes_key):
+ * what tells two rows apart without disclosing the notes, even to a reader who tries every likely text.
+ */
+export function dpgfNotesDigest(notes: string | null, notesKey: string) {
+  if (!/^[0-9a-f]{64}$/.test(notesKey)) throw new Error("The tenant's notes key is required to digest an import's notes.");
+  if (!notes) return null;
+  return createHmac("sha256", Buffer.from(notesKey, "hex"))
+    .update(`dpgf-notes-v2:${stripAccents(notes).toLowerCase().trim().replace(/\s+/g, " ")}`).digest("hex");
 }
 
 export type MappedDpgfPosteRow = {
@@ -54,6 +62,8 @@ export function projectDpgfPostes(input: {
   rawRows: readonly RawDpgfPosteRow[];
   mappedRows: readonly MappedDpgfPosteRow[];
   columnMapping: Readonly<Record<string, unknown>>;
+  /** The tenant's notes key: a row's notes reach the list only as a digest under it. */
+  notesKey: string;
   /**
    * The structure decisions recorded at the confirmation of the import, when its proof still holds: a row made a
    * section and its level, kept as a line, or ignored. They decide over the reading of a row that could be either;
@@ -152,7 +162,7 @@ export function projectDpgfPostes(input: {
     }
     const unit = mappedText(row.unit);
     const reference = mappedText(row.reference) ?? mappedText(row.hex_code);
-    const measurementNotesDigest = dpgfNotesDigest(mappedText(row.notes));
+    const measurementNotesDigest = dpgfNotesDigest(mappedText(row.notes), input.notesKey);
     const expectedUnit = unit ? normalizeMeasurementUnit(unit).unitCode : null;
     counts.useful++;
     items.push({

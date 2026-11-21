@@ -46,7 +46,8 @@ describe("the item list of an affaire", () => {
       dpgf_mappings: [{ id: "mapping", status: "validated", column_mapping: {}, created_at: stamped, updated_at: stamped }],
       dpgf_rows_raw: [{ id: "raw", row_index: 0, structure: null, provenance: null }],
       dpgf_rows_mapped: [{ id: "mapped", raw_row_id: "raw", designation: "Lavabo", unit: "u", quantity: 2 }],
-    }, { read_dpgf_import_confirmation: [], takeoff_item_list_may_write: false });
+    }, { read_dpgf_import_confirmation: [], takeoff_item_list_notes_key: "a".repeat(64),
+      takeoff_item_list_may_write: false });
     vi.mocked(requireAffaireAccess).mockResolvedValue({
       context: { userId: "engineer", tenantId: "tenant", tenantRole: "engineer", supabase: member.client },
       project: { id: "project", user_id: "engineer" },

@@ -73,7 +73,7 @@ describe("poste list revisions", () => {
     const basisChanged = createPosteRevision(scope, [{ ...source, measurementBasis: "par ensemble" }], initial);
     const scopeChanged = createPosteRevision(scope, [{
       // The row's notes are kept as a digest only (never their text in the list): a changed note still changes it.
-      ...source, origin: { ...source.origin, measurementNotesDigest: dpgfNotesDigest("Rez-de-chaussée uniquement") },
+      ...source, origin: { ...source.origin, measurementNotesDigest: dpgfNotesDigest("Rez-de-chaussée uniquement", "a".repeat(64)) },
     }], initial);
 
     expect(comparePosteRevisions(initial, referenceOnly).changes[0]).toMatchObject({

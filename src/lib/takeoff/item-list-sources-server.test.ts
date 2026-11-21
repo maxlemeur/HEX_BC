@@ -31,7 +31,10 @@ function service(options: {
     };
     return query;
   });
-  const rpc = vi.fn(async () => ({ data: options.confirmation ?? [], error: null }));
+  // The tenant's notes key (public.takeoff_item_list_notes_key), and the confirmation's record.
+  const rpc = vi.fn(async (name: string) => ({
+    data: name === "takeoff_item_list_notes_key" ? "a".repeat(64) : options.confirmation ?? [], error: null,
+  }));
   return { from, rpc } as never;
 }
 

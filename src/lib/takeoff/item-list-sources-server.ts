@@ -124,7 +124,7 @@ export async function resolveItemListSources(scope: PosteListScope, service: Ser
   if (mapping.status !== "validated") return prepare("mapping_draft");
 
   // Row identity, source location and the mapped measured fields only, including the flat fields of older payloads.
-  const [raw, mapped, confirmation] = await Promise.all([
+  const [raw, mapped, confirmation, notesKey] = await Promise.all([
     readAllRows(() => service.from("dpgf_rows_raw")
       .select("id, row_index, structure:payload->_timax_structure, provenance:payload->_timax_provenance", { count: "exact" })
       .eq("tenant_id", tenantId).eq("import_id", source.id).order("row_index")),
@@ -139,10 +139,15 @@ export async function resolveItemListSources(scope: PosteListScope, service: Ser
       .eq("tenant_id", tenantId).eq("import_id", source.id).eq("status", "mapped")
       .gte("created_at", mapping.created_at)),
     service.rpc("read_dpgf_import_confirmation", { p_tenant_id: tenantId, p_import_id: source.id }),
+    // The tenant's key of the notes digests, never sent to a reader.
+    service.rpc("takeoff_item_list_notes_key", { p_tenant_id: tenantId }),
   ]);
   if (raw.error) readFailure(raw.error, "Impossible de vérifier les lignes sources DPGF.");
   if (mapped.error) readFailure(mapped.error, "Impossible de lire les lignes DPGF mappées.");
   if (confirmation.error) readFailure(confirmation.error, "Impossible de lire la confirmation de l’import.");
+  if (notesKey.error || typeof notesKey.data !== "string") {
+    readFailure(notesKey.error ?? {}, "Impossible de préparer la lecture des notes de l’import.");
+  }
 
   // The rows read belong to the mapping read first: a mapping replaced meanwhile gives « à préparer », never a mix.
   const current = await latestMapping();
@@ -187,6 +192,7 @@ export async function resolveItemListSources(scope: PosteListScope, service: Ser
       quantity: row.quantity ?? row.flat_quantity, notes: row.notes ?? row.flat_notes,
     })),
     columnMapping: asRecord(mapping.column_mapping) ?? {},
+    notesKey: notesKey.data as string,
     decisions: decisions.status === "applied" ? decisions.decisions : undefined,
     exclusions: decisions.status === "applied" ? decisions.exclusions : undefined,
   });

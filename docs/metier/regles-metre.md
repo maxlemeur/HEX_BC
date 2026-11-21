@@ -25,7 +25,9 @@ défaut de la version livrée avec l’application. Une DPGF à préparer ou plu
 DPGF renvoient au dossier. Le prix n’intervient jamais : la quantité de la DPGF reste
 une référence documentaire. Aucun texte libre de l’import n’est montré ni enregistré
 dans la liste : les notes d’une ligne n’y laissent qu’une empreinte, qui distingue deux
-lignes sans rien révéler à un lecteur qui ne voit pas l’import.
+lignes sans rien révéler à un lecteur qui ne voit pas l’import. L’empreinte est calculée
+avec une clé propre à l’entreprise, que seul le serveur lit : essayer des notes
+probables ne permet pas de la retrouver.
 
 **Choix de structure.** La confirmation d’un import enregistre ses choix : une ligne
 devenue section et son niveau, gardée comme ligne, ou ignorée. Elle enregistre aussi
@@ -42,7 +44,9 @@ leur transaction : la confirmation ne réussit pas sans eux, et confirmer de nou
 les enregistre. Une preuve couvre ces choix, les lignes écartées, l’ordre des lignes,
 leurs champs mesurés et la correspondance. Si l’import change, la preuve ne correspond
 plus. Si un devis est créé depuis l’import après la confirmation sans enregistrer de
-choix (une version antérieure de l’application), les choix ne sont plus établis. Dans
+choix (une version antérieure de l’application), les choix ne sont plus établis. Une
+copie d’un devis (« Nouvelle version », variante, copie d’une préparation de métré)
+n’est pas une création : elle ne change rien aux choix. Dans
 ces deux cas, la liste lit les titres tels quels et le dit. Une ligne vide, illisible
 ou un en-tête répété ne devient jamais un poste, quel que soit le choix.
 

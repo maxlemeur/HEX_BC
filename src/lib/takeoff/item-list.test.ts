@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { importStructuralExclusions, normalizeMappedRowsForEstimateCreation } from "@/lib/affaires/import-flow";
 import { sourcesSummary } from "./item-list-server";
 import { projectDpgfPostes } from "./poste-list-dpgf";
-import { createPosteRevision, posteSourceId, type PosteDraft } from "./poste-list";
+import { createPosteRevision, digestPosteFacts, posteSourceId, type PosteDraft } from "./poste-list";
 import {
   ITEM_LIST_ADDED_SECTION,
   itemListEntries,
@@ -17,6 +17,9 @@ import { PLUMBING_TEMPLATE, templatePosteDrafts } from "./plumbing-template";
 
 const scope = { tenantId: "tenant", projectId: "project" };
 
+// A tenant's notes key, as public.takeoff_item_list_notes_key gives one (fictional).
+const NOTES_KEY = "a".repeat(64);
+
 function raw(id: string, rowIndex: number) {
   return { id, rowIndex, sheetName: "DPGF", sourceRowNumber: rowIndex + 2, sourcePage: null, tableIndex: null, documentId: null };
 }
@@ -24,7 +27,7 @@ function raw(id: string, rowIndex: number) {
 function dpgfDrafts(rows: Array<{ id: string; designation: string; unit?: string; quantity?: number | string }>,
   decisions?: Parameters<typeof projectDpgfPostes>[0]["decisions"]) {
   return projectDpgfPostes({
-    importId: "import", mappingId: "mapping", columnMapping: {}, decisions,
+    importId: "import", mappingId: "mapping", columnMapping: {}, notesKey: NOTES_KEY, decisions,
     rawRows: rows.map(({ id }, index) => raw(id, index)),
     mappedRows: rows.map(({ id, ...row }) => ({ id: `m-${id}`, rawRowId: id, ...row })),
   });
@@ -212,7 +215,7 @@ describe("what the confirmation of the import left out", () => {
     expect(exclusions).toEqual([{ rowIndex: 1, reason: "footer" }, { rowIndex: 2, reason: "footer" },
       { rowIndex: 3, reason: "footer" }]);
     const projected = projectDpgfPostes({
-      importId: "import", mappingId: "mapping", columnMapping: {}, exclusions,
+      importId: "import", mappingId: "mapping", columnMapping: {}, notesKey: NOTES_KEY, exclusions,
       rawRows: sheet.map(({ id }, index) => raw(id, index)),
       mappedRows: sheet.map(({ id, designation, unit, quantity }) => ({ id: `m-${id}`, rawRowId: id, designation, unit, quantity })),
     });
@@ -232,7 +235,7 @@ describe("what a revision keeps of the decisions it relied on", () => {
     const decisions = [{ rowIndex: 0, kind: "section" as const, level: 1 as const }];
     const exclusions = [{ rowIndex: 2, reason: "footer" as const }, { rowIndex: 3, reason: "footer" as const }];
     const projection = projectDpgfPostes({
-      importId: "import", mappingId: "mapping", columnMapping: {}, decisions, exclusions,
+      importId: "import", mappingId: "mapping", columnMapping: {}, notesKey: NOTES_KEY, decisions, exclusions,
       rawRows: sheet.map(({ id }, index) => raw(id, index)),
       mappedRows: sheet.map(({ id, ...mapped }) => ({ id: `m-${id}`, rawRowId: id, ...mapped })),
     });
@@ -256,10 +259,22 @@ describe("what a revision keeps of the decisions it relied on", () => {
 });
 
 describe("what the list discloses of an import", () => {
+  it("keys the notes digest with the tenant's key: the text alone, tried value by value, never gives it", () => {
+    const digest = (notesKey: string) => projectDpgfPostes({
+      importId: "import", mappingId: "mapping", columnMapping: {}, notesKey, rawRows: [raw("r1", 0)],
+      mappedRows: [{ id: "m-r1", rawRowId: "r1", designation: "Lavabo", unit: "u", quantity: 2, notes: "PU négocié 85 € HT" }],
+    }).items[0].origin.measurementNotesDigest;
+    expect(digest(NOTES_KEY)).toBe(digest(NOTES_KEY));
+    expect(digest("b".repeat(64))).not.toBe(digest(NOTES_KEY));
+    // A reader who guesses the text and knows the public folding rule computes this, and must not find the digest.
+    expect([digestPosteFacts(["dpgf-notes-v1", "pu negocie 85 € ht"]), digestPosteFacts(["dpgf-notes-v2", "pu negocie 85 € ht"])])
+      .not.toContain(digest(NOTES_KEY));
+  });
+
   it("stores no word of an import's notes, only a digest that tells two rows apart", () => {
     const projected = dpgfDrafts([{ id: "r1", designation: "Lavabo", unit: "u", quantity: 2 }]);
     const withNotes = projectDpgfPostes({
-      importId: "import", mappingId: "mapping", columnMapping: {}, rawRows: [raw("r1", 0)],
+      importId: "import", mappingId: "mapping", columnMapping: {}, notesKey: NOTES_KEY, rawRows: [raw("r1", 0)],
       mappedRows: [{ id: "m-r1", rawRowId: "r1", designation: "Lavabo", unit: "u", quantity: 2, notes: "PU négocié 85 € HT" }],
     });
     const entries = itemListEntries(proposeItemListRevision({ scope, current: null, sourceDrafts: withNotes.items }).candidate);
@@ -274,7 +289,7 @@ describe("the item list never asks for a price", () => {
     const base = { id: "r1", designation: "Lavabo", unit: "u", quantity: 2 };
     const without = dpgfDrafts([base]);
     const withPrices = projectDpgfPostes({
-      importId: "import", mappingId: "mapping", columnMapping: {}, rawRows: [raw("r1", 0)],
+      importId: "import", mappingId: "mapping", columnMapping: {}, notesKey: NOTES_KEY, rawRows: [raw("r1", 0)],
       mappedRows: [{ ...base, id: "m-r1", rawRowId: "r1", ...({ unit_price_ht: "11,15", total_ht: "22,30" } as object) }],
     });
     expect(withPrices.items).toEqual(without.items);
