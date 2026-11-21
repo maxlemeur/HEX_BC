@@ -146,7 +146,7 @@ describe("Aperçu des postes à mesurer", () => {
     await screen.getByRole("link", "Ouvrir les métrés", { exact: true }).click();
     const table = screen.getByRole("table", "Postes à mesurer", { exact: true });
 
-    await expect(screen.getByText("Gabarit indicatif de plomberie · 23 postes")).toBeVisible();
+    await expect(screen.getByText("Gabarit indicatif de plomberie · 23 postes, non enregistrée", { exact: true })).toBeVisible();
     await expect(screen.getByText("Gabarit Plomberie · version 1 livrée avec l’application", { exact: true })).toBeVisible();
     for (const family of ["Réseaux", "Appareils sanitaires", "Robinetterie", "Calorifuge"]) {
       await expect(table.getByRole("cell", `Plomberie / ${family}`, { exact: true }).first()).toBeVisible();
