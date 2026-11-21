@@ -154,4 +154,21 @@ describe("TakeoffActivityCenter", () => {
 
     expect(screen.getByRole("dialog")).toHaveTextContent("plan-set-2");
   });
+
+  // Fix round 1, point 3, then round 2: a row that waits keeps the list read until what it waits for happened. The page
+  // passes SWR an interval set from the data it has (TakeoffActivityCenter.polling.test.tsx runs the real hook).
+  it("asks for polling while a stopped analysis waits for its retry, and not after", () => {
+    const waiting = { ...EMPTY_RESPONSE, jobs: [{ jobId: "job-1", statusRaw: "action_required", technicalStatusRaw: "failed",
+      resume: { action: "wait_retry", reason: "retry_scheduled", availableAt: "2020-01-01T00:00:00.000Z" } }] } as unknown as TakeoffActivityCenterResponse;
+    const final = { ...EMPTY_RESPONSE, jobs: [{ jobId: "job-1", statusRaw: "action_required", technicalStatusRaw: "failed",
+      resume: { action: "new_analysis", reason: "analysis_closed", availableAt: null } }] } as unknown as TakeoffActivityCenterResponse;
+    const lastIntervals = () => useSWRMock.mock.calls.slice(-2).map(([, , options]) => (options as { refreshInterval: number }).refreshInterval);
+
+    const { rerender } = renderCenter({ response: waiting });
+    expect(lastIntervals()).toEqual([20_000, 20_000]);
+
+    useSWRMock.mockReturnValue({ data: final, error: undefined, isLoading: false });
+    rerender(<TakeoffActivityCenter projectId="project-1" versions={[{ id: "version-1", version_number: 1 }]} planSets={[]} launchContext={null} />);
+    expect(lastIntervals()).toEqual([0, 0]);
+  });
 });

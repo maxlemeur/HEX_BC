@@ -5,6 +5,7 @@ import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import {
   applyTakeoffJobsListFilters,
+  countTakeoffItemsByJobId,
   resolveVersionIdsForProject,
   type AuthenticatedTakeoffContext,
 } from "@/lib/takeoff/job-read-server";
@@ -17,8 +18,9 @@ import type {
   TakeoffDispatchOutcome,
   TakeoffDispatchStatus,
 } from "@/lib/takeoff/types";
-import { hasScheduledLocalTakeoffRetry, toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
-import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
+import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
+import { resolveTakeoffOperatorState, toTakeoffOperatorStateInput } from "@/lib/takeoff/operator-state";
+import { readTakeoffExecution, toTakeoffResumeViewer } from "@/lib/takeoff/resume-viewer-server";
 import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
 
@@ -52,6 +54,10 @@ type JobRow = {
   analysis_finished_at?: string | null;
   analysis_completion_event_id?: string | null;
   execution_provider?: string | null;
+  execution_host_id?: string | null;
+  created_by?: string | null;
+  completed_at?: string | null;
+  error_code?: string | null;
   next_retry_at?: string | null;
   processing_strategy: string | null;
   provider_batch_id: string | null;
@@ -143,7 +149,7 @@ async function listMatchingJobs(
       supabase
         .from("takeoff_jobs" as never)
         .select(
-          "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
+          "id, estimate_version_id, plan_set_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, execution_host_id, created_by, completed_at, error_code, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
         )
         .eq("tenant_id" as never, tenantId as never),
       {
@@ -364,35 +370,6 @@ async function listJobsWithBlockingExceptions(
   return jobsWithExceptions;
 }
 
-async function countItemsByJobId(
-  supabase: SupabaseClient,
-  tenantId: string,
-  jobIds: string[]
-): Promise<Map<string, number>> {
-  if (jobIds.length === 0) return new Map();
-
-  const entries = await Promise.all(
-    jobIds.map(async (jobId) => {
-      const { count, error } = await supabase
-        .from("takeoff_items" as never)
-        .select("id" as never, { count: "exact", head: true })
-        .eq("tenant_id" as never, tenantId as never)
-        .eq("job_id" as never, jobId as never);
-
-      if (error) {
-        throw toTakeoffError(
-          mapSupabaseError(error, "Impossible de compter les items du job takeoff."),
-          { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId }
-        );
-      }
-
-      return [jobId, count ?? 0] as const;
-    })
-  );
-
-  return new Map(entries);
-}
-
 type EnrichmentResult = {
   confidence: Map<string, number | null>;
   exceptions: Map<string, number>;
@@ -580,8 +557,11 @@ async function batchEnrich(
 export async function listActivityCenterJobs(
   input: ListActivityCenterJobsInput
 ): Promise<TakeoffActivityCenterResponse> {
-  const { context: { supabase, tenantId, tenantRole } } = await requireAffaireAccess(input.project_id, "read");
+  const { context, project } = await requireAffaireAccess(input.project_id, "read");
+  const { supabase, tenantId } = context;
   await assertTakeoffEnabled(tenantId, { supabase });
+  // The member's rights on this affaire and the Mac of this request, read once: every row is decided from them.
+  const resumeViewer = readTakeoffExecution(context).then((execution) => toTakeoffResumeViewer(context, project, execution));
 
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
@@ -691,15 +671,22 @@ export async function listActivityCenterJobs(
   const total = statusFilteredRows.length;
   const jobIds = pagedRows.map((row) => row.id);
 
-  const itemCountMap = await countItemsByJobId(supabase, tenantId, jobIds);
-
-  // 5. Batch-enrich completed/applied jobs for the current page only.
+  // 5. Batch-enrich completed/applied jobs for the current page only. The lines of every row of the page are counted by
+  // one statement: the list makes no request per analysis.
   const enrichableJobs = pagedRows.filter(
     (r) => r.status === "completed" || r.status === "applied"
   );
 
-  const { confidence: confidenceMap, exceptions: exceptionMap, coverage: coverageMap, carryOver: carryOverMap } =
-    await batchEnrich(supabase, tenantId, enrichableJobs);
+  const [
+    { confidence: confidenceMap, exceptions: exceptionMap, coverage: coverageMap, carryOver: carryOverMap },
+    itemCountMap,
+  ] = await Promise.all([
+    batchEnrich(supabase, tenantId, enrichableJobs),
+    countTakeoffItemsByJobId({ supabase, tenantId, jobIds }),
+  ]);
+
+  const viewer = await resumeViewer;
+  const decidedAt = new Date();
 
   const counters: TakeoffActivityCenterCounters = {
     technicalJobs: technicalCount,
@@ -735,30 +722,8 @@ export async function listActivityCenterJobs(
             : null,
         exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : null,
       });
-    const operatorState = resolveTakeoffOperatorState({
-      status: row.status,
-      processingStrategy:
-        row.processing_strategy === "sync" || row.processing_strategy === "batch"
-          ? row.processing_strategy
-          : null,
-      providerBatchId: row.provider_batch_id ?? null,
-      providerBatchState:
-        row.provider_batch_state === "submitted" ||
-        row.provider_batch_state === "pending" ||
-        row.provider_batch_state === "running" ||
-        row.provider_batch_state === "succeeded" ||
-        row.provider_batch_state === "failed" ||
-        row.provider_batch_state === "cancelled" ||
-        row.provider_batch_state === "expired" ||
-        row.provider_batch_state === "unknown"
-          ? row.provider_batch_state
-          : null,
-      providerReconcileDueAt: row.provider_reconcile_due_at ?? null,
-      providerReconcileLeaseExpiresAt:
-        row.provider_reconcile_lease_expires_at ?? null,
-      retryCount: row.retry_count,
-      tenantRole,
-    });
+    // The same policy as the job's detail and the retry command, from this row alone: no read per analysis.
+    const operatorState = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(row, viewer, decidedAt));
 
     const outcome = toTakeoffAnalysisOutcome(row.analysis_outcome);
     const analysisCompletion = outcome && row.analysis_finished_at
@@ -798,7 +763,10 @@ export async function listActivityCenterJobs(
       operatorState: operatorState.state,
       operatorStateLabel: operatorState.label,
       canCancel: operatorState.canCancel,
-      canResubmit: !row.analysis_outcome && !hasScheduledLocalTakeoffRetry(row) && operatorState.canResubmit,
+      canResubmit: operatorState.canResubmit,
+      resume: operatorState.resume,
+      errorCode: row.error_code ?? null,
+      nextRetryAt: row.next_retry_at ?? null,
       itemCount: itemCountMap.get(row.id) ?? 0,
       coveragePercent: isEnrichable ? (coverageMap.get(row.id) ?? null) : null,
       exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : 0,

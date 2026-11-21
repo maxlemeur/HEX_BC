@@ -14,6 +14,7 @@ définit le contrat de contribution.
 | Calculs, moteurs historiques et moteur 3 | [Règles de calcul](metier/regles-de-calcul.md) |
 | Statuts, approbation, émission et immutabilité | [Cycle de vie](metier/cycle-de-vie.md) |
 | Reprendre les prix d'un devis de référence | [Reprise des prix](metier/reprise-des-prix.md) |
+| Reprendre une analyse de métré arrêtée | [Reprise du métré](metier/reprise-metre.md) |
 | Authentification, tenants, RLS et accès privilégiés | [Sécurité](domaines/securite-multi-tenant.md) |
 | Lancer les tests et choisir une recette | [Guide de tests](../e2e/README.md) |
 | Migrations, types, sauvegarde et reprise des tâches | [Exploitation](../supabase/README.md) |
