@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { PDFDocument } from "pdf-lib";
 import * as XLSX from "xlsx";
@@ -12,10 +11,17 @@ import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import type { TakeoffPreparationSnapshot, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 import { getPreparationIntakeSourceVersion, type PreparationIntakeDocument } from "@/lib/takeoff/preparation-sources";
+import { sha256Hex } from "@/lib/takeoff/sha256";
 
-const MAX_REFERENCE_FILES = 20;
-const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
-const MAX_REFERENCE_PAGES = 200;
+/**
+ * The bounds of the references one analysis attaches: at most `files` pieces, `originalBytes` of stored files,
+ * `retainedPages` PDF pages and `contextBytes` of what is attached (selected pages, decoded text, sheets as CSV). The
+ * worker applies them below; the sealing of a preparation applies them through the same functions, so that a reference
+ * it retains is one the worker reads.
+ */
+export const PREPARATION_REFERENCE_LIMITS = {
+  files: 20, originalBytes: 20 * 1024 * 1024, retainedPages: 200, contextBytes: 20 * 1024 * 1024,
+} as const;
 const MAX_WORKSHEET_CELLS = 1_000_000;
 const MAX_WORKBOOK_EXPANDED_BYTES = 32 * 1024 * 1024;
 const REFERENCE_SELECT = "id,tenant_id,project_id,file_name,storage_path,size_bytes,mime_type,document_kind,updated_at,extracted_metadata";
@@ -83,7 +89,7 @@ function decodeText(bytes: Buffer, mimeType: string | null): string {
   return text;
 }
 
-function spreadsheetText(bytes: Buffer, document: ReferenceDocument, csv: boolean): string {
+function spreadsheetText(bytes: Buffer, document: Pick<PreparationIntakeDocument, "file_name" | "mime_type">, csv: boolean): string {
   if (!csv) {
     const signature = bytes.length >= 4 ? bytes.readUInt32LE(0) : null;
     if (signature === 0x04034b50) validateWorkbookArchive(bytes);
@@ -111,7 +117,7 @@ function spreadsheetText(bytes: Buffer, document: ReferenceDocument, csv: boolea
     }
     const section = `Feuille ${JSON.stringify(name)} (CSV, lignes et colonnes d'origine conservées)\n${XLSX.utils.sheet_to_csv(sheet, { blankrows: true })}`;
     size += Buffer.byteLength(section, "utf8") + 2;
-    if (size > MAX_REFERENCE_BYTES) throw new Error("Contenu du classeur hors limites.");
+    if (size > PREPARATION_REFERENCE_LIMITS.contextBytes) throw new Error("Contenu du classeur hors limites.");
     sections.push(section);
   }
   return sections.join("\n\n");
@@ -125,6 +131,85 @@ export function classifyPreparationReferenceFormat(document: Pick<PreparationInt
   if (extension === "xls" || extension === "xlsx" || mime === "application/vnd.ms-excel" || mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "spreadsheet";
   if (extension === "txt" || extension === "eml" || mime === "message/rfc822" || mime?.startsWith("text/")) return "text";
   return null;
+}
+
+export type PreparationReferenceFormat = NonNullable<ReturnType<typeof classifyPreparationReferenceFormat>>;
+
+/**
+ * Why the worker would not attach a reference read from its verified bytes: pages the PDF does not have, a page
+ * selection on a piece that is not a PDF, the analysis's page or context bound, or content it cannot read (a corrupt or
+ * protected PDF, an invalid workbook, undecodable or empty text).
+ */
+export class PreparationReferenceRefusal extends Error {
+  constructor(readonly reason: "invalid_pages" | "pages_need_pdf" | "page_limit" | "context_limit" | "invalid_content") {
+    super(reason);
+    this.name = "PreparationReferenceRefusal";
+  }
+}
+
+/** What the references of one analysis already take of its bounds: a reference is charged only once it is attached. */
+export type PreparationReferenceBudget = { files: number; originalBytes: number; retainedPages: number; contextBytes: number };
+
+export function createPreparationReferenceBudget(): PreparationReferenceBudget {
+  return { files: 0, originalBytes: 0, retainedPages: 0, contextBytes: 0 };
+}
+
+/** A stored size the worker accepts for a reference. */
+export function isPreparationReferenceSize(sizeBytes: number) {
+  return Number.isSafeInteger(sizeBytes) && sizeBytes > 0;
+}
+
+/** Charges one more reference of `sizeBytes` stored bytes, unless the analysis's file or size bound would be passed. */
+export function admitPreparationReferenceFile(budget: PreparationReferenceBudget, sizeBytes: number) {
+  if (!isPreparationReferenceSize(sizeBytes) || budget.files + 1 > PREPARATION_REFERENCE_LIMITS.files
+      || budget.originalBytes + sizeBytes > PREPARATION_REFERENCE_LIMITS.originalBytes) return false;
+  budget.files += 1;
+  budget.originalBytes += sizeBytes;
+  return true;
+}
+
+/**
+ * The worker's reading of one reference from its verified bytes: what it attaches (the selected pages of a PDF, a text
+ * decoded, every sheet of a workbook as CSV), with its provenance, within what `budget` has left of the page and context
+ * bounds. Throws a `PreparationReferenceRefusal`, charging nothing, when the worker would not attach it.
+ */
+export async function readPreparationReference(input: {
+  bytes: Buffer; format: PreparationReferenceFormat; document: Pick<PreparationIntakeDocument, "file_name" | "mime_type">;
+  pages: readonly number[];
+}, budget: PreparationReferenceBudget): Promise<{ data: Buffer; mimeType: "application/pdf" | "text/plain"; provenance: string }> {
+  let data: Buffer;
+  let provenance: string;
+  let retained = 0;
+  try {
+    if (input.format === "pdf") {
+      const pdf = await PDFDocument.load(input.bytes);
+      const pages = input.pages.length ? [...input.pages] : Array.from({ length: pdf.getPageCount() }, (_, index) => index + 1);
+      if (!pages.length || new Set(pages).size !== pages.length || pages.some((page) => !Number.isInteger(page) || page < 1 || page > pdf.getPageCount())) {
+        throw new PreparationReferenceRefusal("invalid_pages");
+      }
+      if (budget.retainedPages + pages.length > PREPARATION_REFERENCE_LIMITS.retainedPages) throw new PreparationReferenceRefusal("page_limit");
+      retained = pages.length;
+      data = input.bytes;
+      if (input.pages.length) {
+        const selected = await PDFDocument.create();
+        for (const page of await selected.copyPages(pdf, pages.map((page) => page - 1))) selected.addPage(page);
+        data = Buffer.from(await selected.save());
+      }
+      provenance = `Pages du PDF joint → pages d'origine : ${pages.map((page, index) => `${index + 1}→${page}`).join(", ")}.`;
+    } else {
+      if (input.pages.length) throw new PreparationReferenceRefusal("pages_need_pdf");
+      data = Buffer.from(input.format === "text" ? decodeText(input.bytes, input.document.mime_type)
+        : spreadsheetText(input.bytes, input.document, input.format === "csv"), "utf8");
+      provenance = input.format === "text" ? "Texte intégral décodé en UTF-8." : "Toutes les feuilles du classeur sont jointes en CSV, avec leurs noms d'origine.";
+    }
+  } catch (error) {
+    if (error instanceof PreparationReferenceRefusal) throw error;
+    throw new PreparationReferenceRefusal("invalid_content");
+  }
+  if (budget.contextBytes + data.byteLength > PREPARATION_REFERENCE_LIMITS.contextBytes) throw new PreparationReferenceRefusal("context_limit");
+  budget.retainedPages += retained;
+  budget.contextBytes += data.byteLength;
+  return { data, mimeType: input.format === "pdf" ? "application/pdf" : "text/plain", provenance };
 }
 
 async function readReferenceDocuments(input: Input, projectId: string, sources: TakeoffPreparationSource[]) {
@@ -158,7 +243,7 @@ async function readReferenceDocuments(input: Input, projectId: string, sources: 
 export async function loadPreparationReferenceFiles(input: Input): Promise<{ files: ReferenceFile[]; sourceHints: string[] }> {
   const sources = input.snapshot.preparation.sources.filter((source) => source.active && source.kind !== "plan");
   if (!sources.length) return { files: [], sourceHints: [] };
-  if (sources.length > MAX_REFERENCE_FILES) rejectSize(input.job);
+  if (sources.length > PREPARATION_REFERENCE_LIMITS.files) rejectSize(input.job);
   if (new Set(sources.map((source) => source.document_id)).size !== sources.length) rejectSource(input.job, "Une pièce de référence est sélectionnée plusieurs fois.");
   let projectId = input.job.project_id;
   // Previously serialized historical jobs can still carry only their version.
@@ -170,16 +255,15 @@ export async function loadPreparationReferenceFiles(input: Input): Promise<{ fil
   }
   if (!projectId) rejectSource(input.job, "L'affaire de l'analyse confirmée n'est plus accessible.");
   const documents = await readReferenceDocuments(input, projectId, sources);
-  let originalSize = 0;
   for (const document of documents.values()) {
-    if (!Number.isSafeInteger(document.size_bytes) || document.size_bytes <= 0) rejectSource(input.job, "La taille d'une pièce de référence confirmée est invalide.");
-    originalSize += document.size_bytes;
+    if (!isPreparationReferenceSize(document.size_bytes)) rejectSource(input.job, "La taille d'une pièce de référence confirmée est invalide.");
   }
-  if (originalSize > MAX_REFERENCE_BYTES) rejectSize(input.job);
+  const budget = createPreparationReferenceBudget();
+  for (const document of documents.values()) {
+    if (!admitPreparationReferenceFile(budget, document.size_bytes)) rejectSize(input.job);
+  }
   const files: ReferenceFile[] = [];
   const sourceHints: string[] = [];
-  let contextSize = 0;
-  let retainedPages = 0;
   for (const source of sources) {
     const document = documents.get(source.document_id)!;
     const format = classifyPreparationReferenceFormat(document);
@@ -199,40 +283,25 @@ export async function loadPreparationReferenceFiles(input: Input): Promise<{ fil
     }
     let bytes: Buffer;
     try { bytes = Buffer.from(await blob.arrayBuffer()); } catch { rejectSource(input.job, `La pièce confirmée « ${source.document_name} » est illisible.`); }
-    if (bytes.byteLength !== document.size_bytes || createHash("sha256").update(bytes).digest("hex") !== source.content_hash!.toLowerCase()) {
+    if (bytes.byteLength !== document.size_bytes || sha256Hex(bytes) !== source.content_hash!.toLowerCase()) {
       rejectSource(input.job, `Le contenu de la pièce « ${source.document_name} » ne correspond plus au fichier confirmé.`);
     }
-    let provenance: string;
+    let reading: Awaited<ReturnType<typeof readPreparationReference>>;
     try {
-      if (format === "pdf") {
-        const pdf = await PDFDocument.load(bytes);
-        const pages = source.pages.length ? source.pages : Array.from({ length: pdf.getPageCount() }, (_, index) => index + 1);
-        if (!pages.length || new Set(pages).size !== pages.length || pages.some((page) => !Number.isInteger(page) || page < 1 || page > pdf.getPageCount())) rejectSource(input.job, `Les pages retenues de « ${source.document_name} » sont invalides.`);
-        retainedPages += pages.length;
-        if (retainedPages > MAX_REFERENCE_PAGES) rejectSize(input.job);
-        if (source.pages.length) {
-          const selected = await PDFDocument.create();
-          for (const page of await selected.copyPages(pdf, pages.map((page) => page - 1))) selected.addPage(page);
-          bytes = Buffer.from(await selected.save());
-        }
-        provenance = `Pages du PDF joint → pages d'origine : ${pages.map((page, index) => `${index + 1}→${page}`).join(", ")}.`;
-      } else {
-        if (source.pages.length) rejectSource(input.job, `La sélection de pages de « ${source.document_name} » nécessite un PDF.`);
-        bytes = Buffer.from(format === "text" ? decodeText(bytes, document.mime_type) : spreadsheetText(bytes, document, format === "csv"), "utf8");
-        provenance = format === "text" ? "Texte intégral décodé en UTF-8." : "Toutes les feuilles du classeur sont jointes en CSV, avec leurs noms d'origine.";
-      }
+      reading = await readPreparationReference({ bytes, format, document, pages: source.pages }, budget);
     } catch (error) {
-      if (error instanceof TakeoffError) throw error;
+      if (!(error instanceof PreparationReferenceRefusal)) throw error;
+      if (error.reason === "invalid_pages") rejectSource(input.job, `Les pages retenues de « ${source.document_name} » sont invalides.`);
+      if (error.reason === "pages_need_pdf") rejectSource(input.job, `La sélection de pages de « ${source.document_name} » nécessite un PDF.`);
+      if (error.reason === "page_limit" || error.reason === "context_limit") rejectSize(input.job);
       throw new TakeoffError({
         code: format === "pdf" ? TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED : TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
         message: `La pièce confirmée « ${source.document_name} » est invalide, protégée ou dépasse les limites de lecture.`,
         retryable: false, jobId: input.job.id,
       });
     }
-    contextSize += bytes.byteLength;
-    if (contextSize > MAX_REFERENCE_BYTES) rejectSize(input.job);
-    files.push({ data: bytes.toString("base64"), mimeType: format === "pdf" ? "application/pdf" : "text/plain" });
-    sourceHints.push(`Pièce de référence jointe ${files.length} : ${JSON.stringify({ document_id: source.document_id, document_name: document.file_name, kind: source.kind, revision: source.revision })}. ${provenance}`);
+    files.push({ data: reading.data.toString("base64"), mimeType: reading.mimeType });
+    sourceHints.push(`Pièce de référence jointe ${files.length} : ${JSON.stringify({ document_id: source.document_id, document_name: document.file_name, kind: source.kind, revision: source.revision })}. ${reading.provenance}`);
   }
   // A reference deleted or revised during its download must be confirmed again.
   await readReferenceDocuments(input, projectId, sources);
