@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
-import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
+import { AFFAIRE_INTAKE_BUCKET, buildAffaireIntakeStoragePath } from "@/lib/affaires/intake";
 import { createTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
 import { toPreparationIntakeSource, toPreparationPlanSource } from "@/lib/takeoff/preparation-sources";
@@ -87,7 +87,8 @@ export async function seedPlanDossier(ui: WorkerUi, owner: WorkerOwner, plans: A
   }
   // A CCTP of the dossier: a common reference of every plan, never a unit.
   const cctp = await fictionalPlanPdf(`${ui.army.runPrefix} CCTP`, 1);
-  const cctpPath = `${tenantId}/${projectId}/${uploadId}/cctp.pdf`;
+  // Stored where the dossier stores its pieces (tenant, affaire, upload, document, name): the worker reads no other key.
+  const cctpPath = buildAffaireIntakeStoragePath({ tenantId, projectId, uploadId, documentId: cctpId, fileName: "cctp.pdf" });
   if ((await setup.from("affaire_intake_uploads").insert({ id: uploadId, project_id: projectId, created_by: userId, status: "ready" })).error) {
     throw new Error("upload");
   }
