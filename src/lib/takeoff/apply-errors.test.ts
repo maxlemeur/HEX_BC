@@ -307,3 +307,19 @@ describe("mapApplyTakeoffRpcError, « Remplacer la section » over DPGF lines (T
     expect(error.message).toMatch(/^La fusion par désignation enverrait « Calorifuge DN 22 » \(9 ml\)/);
   });
 });
+
+// Lot 2 M2: « Fusionner » matched a takeoff line onto an ordinary line of the section (typed by hand, or of another
+// takeoff on another page). Only the screen refused it before; the writer now refuses it under the version's lock and
+// names both lines (TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT).
+describe("mapApplyTakeoffRpcError, « Fusionner » onto an ordinary line (lot 2 M2)", () => {
+  it("names the line it would overwrite and the takeoff line, and asks for another section", () => {
+    const error = mapApplyTakeoffRpcError({ code: "22023", message: "TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT", hint: null,
+      details: JSON.stringify({ reason: "merge_overwrites_ordinary_line", estimate_item_id: "00000000-0000-4000-8000-000000000301",
+        title: "Lavabo", quantity: 9, unit: "u", takeoff_item_id: "00000000-0000-4000-8000-000000000101", designation: "Lavabo",
+        takeoff_quantity: 4, takeoff_unit: "u" }) }, { jobId: JOB_ID });
+    expect(error).toMatchObject({ status: 422, code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED, retryable: false });
+    expect(error.details).toMatchObject({ guard: "ordinary_line_overwrite", estimate_item_id: "00000000-0000-4000-8000-000000000301" });
+    expect(error.message).toBe("La fusion par désignation écraserait « Lavabo » (9 u), qui ne vient pas de ce métré, par « Lavabo » (4 u). "
+      + "Une quantité saisie n’est jamais remplacée sans votre choix : rien n’est appliqué. Choisissez une autre section.");
+  });
+});

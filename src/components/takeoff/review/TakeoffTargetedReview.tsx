@@ -75,6 +75,11 @@ const TakeoffApplyWizard = dynamic(
   () => import("@/components/takeoff/TakeoffApplyWizard").then((module) => module.TakeoffApplyWizard),
   { ssr: false, loading: () => <LoadingState label="Chargement des options d’application…" /> }
 );
+// Lot 2 M2: a takeoff of the affaire without a version is sent through its own preview (destination chosen there).
+const TakeoffSendDialog = dynamic(
+  () => import("@/components/takeoff/takeoff-send/TakeoffSendDialog").then((module) => module.TakeoffSendDialog),
+  { ssr: false }
+);
 const LazyTakeoffVectorViewer = dynamic(
   () => import("@/components/takeoff/review/TakeoffVectorViewer").then((mod) => ({ default: mod.TakeoffVectorViewer })),
   { ssr: false, loading: () => <LoadingState label="Chargement de la lecture vectorielle…" /> }
@@ -465,8 +470,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
   const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
 
   const included = items.filter((item) => !item.is_excluded);
-  const applyBlocker = !versionId ? TAKEOFF_COMPARISON_DEFERRED
-    : !canEdit ? "Ce métré est accessible en lecture seule."
+  const applyBlocker = !canEdit ? "Ce métré est accessible en lecture seule."
     : !job ? "Chargement du métré…"
     : applied ? "Ce métré a déjà été appliqué au chiffrage."
       : job.status !== "completed" ? "Le métré doit être terminé avant l’application."
@@ -474,7 +478,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
           : included.length === 0 ? "Aucune ligne retenue : réintégrez au moins une ligne dans la revue complète."
             : included.some(hasBlockingTakeoffAnomaly) ? "Corrigez les anomalies bloquantes (désignation vide, quantité nulle) dans la revue complète."
             : !review.guard.passed ? `${review.guard.blocked_items.length} ligne${review.guard.blocked_items.length > 1 ? "s" : ""} à trancher avant l’application.`
-              : dpgf.loading ? "Chargement du rapprochement DPGF…"
+              // Lot 2 M2: no DPGF reconciliation to wait for without a version (the send's preview refuses a DPGF draft).
+              : versionId && dpgf.loading ? "Chargement du rapprochement DPGF…"
                 : dpgf.error ? "Rapprochement DPGF indisponible : rechargez la revue avant l’application."
                   : dpgf.blocking ? "Des rapprochements DPGF restent à trancher dans la revue complète." : null;
 
@@ -596,7 +601,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
               </Button>
               <p role="status" className="text-xs text-muted-foreground">
                 {!versionId && <><strong>{TAKEOFF_CROSS_JOB_COMPARISON_LABEL}</strong>{" · "}</>}
-                {applyBlocker ?? "Choisissez la section et vérifiez l’aperçu d’impact ; contrôlez aussi le périmètre attendu."}
+                {applyBlocker ?? (versionId ? "Choisissez la section et vérifiez l’aperçu d’impact ; contrôlez aussi le périmètre attendu."
+                  : `${TAKEOFF_COMPARISON_DEFERRED} L’aperçu de l’envoi choisit la destination et y vérifie les doublons entre métrés.`)}
               </p>
             </div>
           </aside>
@@ -721,6 +727,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
           }} />
       ) : null}
 
+      {wizardOpen && job && !versionId ? (
+        <TakeoffSendDialog open={wizardOpen} jobId={jobId} isAdmin={isAdmin} jobLevel={level} onOpenChange={setWizardOpen}
+          onSent={handleApplied} />
+      ) : null}
       {wizardOpen && job && versionId ? (
         <TakeoffApplyWizard open={wizardOpen} jobId={jobId} versionId={versionId}
           targetVersionLabel={job.version_number ? `V${job.version_number}` : null}

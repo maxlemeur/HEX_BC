@@ -1,4 +1,13 @@
 import { parseTakeoffApplyResponse, parseTakeoffPreviewConversionResponse } from "@/lib/takeoff/apply-response-contracts";
+import {
+  takeoffSendPreviewResponseSchema,
+  takeoffSendResponseSchema,
+  type TakeoffSendPreviewRequest,
+  type TakeoffSendPreviewResponse,
+  type TakeoffSendRequest,
+  type TakeoffSendResponse,
+} from "@/lib/takeoff/send-contracts";
+import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
 import { parseTakeoffJobCompareResponse } from "@/lib/takeoff/compare-response-contracts";
 import { parseTakeoffItemBatchPatchResponse } from "@/lib/takeoff/item-response-contracts";
 import { parseTakeoffJobDetailResponse, parseTakeoffJobListResponse, parseTakeoffJobActionResponse } from "@/lib/takeoff/job-response-contracts";
@@ -568,6 +577,32 @@ export async function applyTakeoffJob(
     true
   );
   return validateTakeoffResponse(jobId, () => parseTakeoffApplyResponse(response, { jobId, versionId, targetSectionId: payload.target_section_id }));
+}
+
+/** Lot 2 M2: the destination and impact of sending a takeoff of an affaire; writes nothing. */
+export async function previewTakeoffSend(jobId: string, payload: TakeoffSendPreviewRequest,
+  options?: { signal?: AbortSignal }): Promise<TakeoffSendPreviewResponse> {
+  const response = await requestTakeoffJson<unknown>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/send-to-estimate/preview`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: options?.signal },
+    "Impossible de calculer l’aperçu de l’envoi.",
+    true
+  );
+  return validateTakeoffResponse(jobId, () => parseTakeoffResponse(takeoffSendPreviewResponseSchema, response));
+}
+
+/** Lot 2 M2: sends what the preview showed; the same request_id replayed returns the receipt. */
+export async function sendTakeoffJobToEstimate(jobId: string, payload: TakeoffSendRequest): Promise<TakeoffSendResponse> {
+  const lockVersionId = payload.destination.kind === "existing_draft" ? payload.destination.version_id : null;
+  const response = await requestTakeoffJson<unknown>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/send-to-estimate`,
+    { method: "POST", headers: { "Content-Type": "application/json",
+      ...(lockVersionId ? { [ESTIMATE_DRAFT_LOCK_SESSION_HEADER]: getEstimateDraftLockSessionId(lockVersionId) } : {}) },
+      body: JSON.stringify(payload) },
+    "Impossible d'envoyer le métré au tableau de chiffrage.",
+    true
+  );
+  return validateTakeoffResponse(jobId, () => parseTakeoffResponse(takeoffSendResponseSchema, response));
 }
 
 export async function previewTakeoffConversion(

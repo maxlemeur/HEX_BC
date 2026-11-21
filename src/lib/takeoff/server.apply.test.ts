@@ -337,27 +337,30 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
                 return builder;
               }),
               order: vi.fn(() => builder),
+              // The active rules are read page by page (listActiveTakeoffMappingRules), the full list at once.
+              range: vi.fn(async (start: number, end: number) => {
+                const rows = served();
+                return { data: rows.slice(start, end + 1), error: null, count: rows.length };
+              }),
               then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
-                resolve({
-                  data: state.mappingRules
-                    .filter((rule) => {
-                      if (filters.tenant_id && filters.tenant_id !== TENANT_ID) {
-                        return false;
-                      }
-                      if (filters.is_active !== undefined) {
-                        return rule.is_active === filters.is_active;
-                      }
-                      return true;
-                    })
-                    .map((rule) => ({
-                      ...rule,
-                      tenant_id: TENANT_ID,
-                      created_by: USER_ID,
-                      updated_at: rule.created_at,
-                    })),
-                  error: null,
-                }),
+                resolve({ data: served(), error: null }),
             };
+            const served = () => state.mappingRules
+              .filter((rule) => {
+                if (filters.tenant_id && filters.tenant_id !== TENANT_ID) {
+                  return false;
+                }
+                if (filters.is_active !== undefined) {
+                  return rule.is_active === filters.is_active;
+                }
+                return true;
+              })
+              .map((rule) => ({
+                ...rule,
+                tenant_id: TENANT_ID,
+                created_by: USER_ID,
+                updated_at: rule.created_at,
+              }));
             return builder;
           }),
         };

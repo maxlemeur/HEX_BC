@@ -6,7 +6,8 @@
 // The earlier contribution of a page is read in the estimate's lines (what is really there: a deleted line no
 // longer counts, a copied version keeps its provenance), traced back to the frozen takeoff lines they came from:
 // - engine 3: `source_metadata.takeoff_item_id`, every source of a rounded length
-//   (`takeoff_length_rounding.item_ids`) and every source of a DPGF target (`takeoff_quantity_policy.item_ids`);
+//   (`takeoff_length_rounding.item_ids`), every source of a DPGF target (`takeoff_quantity_policy.item_ids`) and every
+//   send that added to the line (`takeoff_contributions.item_ids`, lot 2 M2: plan A then plan B on one line);
 // - engines 1 and 2 (no source identifier): the line's takeoff, file and page.
 // A DPGF target's own file and page are the DPGF's, never a plan page. A pasted or manual line has no provenance:
 // it is invisible here.
@@ -114,7 +115,7 @@ export function estimateLineTakeoffItemIds(sourceMetadata: unknown, sourceJobId?
     return Array.isArray(entry?.item_ids) ? entry.item_ids : [];
   };
   const ids = [metadata.takeoff_item_id, ...listed("takeoff_length_rounding"), ...listed("takeoff_quantity_policy"),
-    ...listed("takeoff_page_replacement")]
+    ...listed("takeoff_page_replacement"), ...listed("takeoff_contributions")]
     .map(uuid).filter((value): value is string => value !== null);
   return [...new Set(ids)];
 }

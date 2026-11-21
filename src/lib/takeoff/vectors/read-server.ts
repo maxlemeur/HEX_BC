@@ -41,10 +41,18 @@ export async function readAttestedTakeoffPlan(jobId: string, fileId: string): Pr
   const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
   const missing = () => new TakeoffError({ status: 404, code: TakeoffErrorCode.NOT_FOUND,
     message: "Le plan d’origine n’est plus disponible.", retryable: false, jobId });
-  const { data: job, error } = await supabase.from("takeoff_jobs").select("plan_set_id,preparation_snapshot")
-    .eq("id", jobId).eq("tenant_id", tenantId).is("estimate_version_id", null).maybeSingle();
+  const { data: job, error } = await supabase.from("takeoff_jobs").select("plan_set_id,preparation_snapshot,estimate_version_id")
+    .eq("id", jobId).eq("tenant_id", tenantId).maybeSingle();
   if (error) readError(jobId, "Impossible de lire le métré du plan.", error);
   if (!job?.plan_set_id || !job.preparation_snapshot) throw missing();
+  // Lot 2 M2: a takeoff sent from its affaire keeps serving the plans it attested to the readers it had (a director
+  // reads no plan object directly); a takeoff launched on a version never did.
+  if (job.estimate_version_id !== null) {
+    const { data: sent, error: sentError } = await supabase.from("takeoff_send_receipts").select("id")
+      .eq("tenant_id", tenantId).eq("job_id", jobId).eq("command_kind", "send").maybeSingle();
+    if (sentError) readError(jobId, "Impossible de lire l’envoi du métré.", sentError);
+    if (!sent) throw missing();
+  }
 
   const snapshot = parsePreparationSnapshot(job.preparation_snapshot);
   const source = snapshot?.preparation.sources.find(candidate => candidate.document_id === fileId
@@ -125,9 +133,19 @@ export async function getTakeoffVectorReading(jobId: string): Promise<TakeoffVec
     // A short page before the count: rows changed during the read.
     if (batch.length < GEOMETRY_PAGE_ROWS) readError(jobId, "Lecture incomplète de la géométrie du métré.", null);
   }
+  // A takeoff of an affaire draws the plans it attested, before its send and after (lot 2 M2): its marks were measured
+  // on those bytes, and a reader who cannot open the plan centre (a director) still sees them.
+  let attestedPlans = Boolean(job.plan_set_id) && job.estimate_version_id === null;
+  if (job.plan_set_id && job.estimate_version_id !== null) {
+    const { data: sent, error: sentError } = await context.supabase.from("takeoff_send_receipts").select("id")
+      .eq("tenant_id", context.tenantId).eq("job_id", jobId).eq("command_kind", "send").maybeSingle();
+    if (sentError) readError(jobId, "Impossible de lire l’envoi du métré.", sentError);
+    attestedPlans = Boolean(sent);
+  }
   const parsed = takeoffVectorReadingResponseSchema.safeParse({
     job_id: jobId,
     source_download_url: await jobUploadUrl(context, job, pageRows),
+    attested_plans: attestedPlans,
     pages: pageRows.map((page) => ({
       id: page.id, plan_file_id: page.plan_file_id, source_file_name: page.source_file_name, source_page: page.source_page, reading: page.reading,
       items: geometryRows.filter((row) => row.vector_page_id === page.id).map((row) => ({ takeoff_item_id: row.takeoff_item_id, geometry: row.geometry })),

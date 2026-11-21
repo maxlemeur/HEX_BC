@@ -26,6 +26,10 @@ export type FakeQuery = {
   columns: string | null;
   filters: Array<{ kind: "eq" | "in" | "contains"; column: string; value: unknown }>;
   cardinality: "single" | "maybeSingle" | "many";
+  /** The page asked for (`range`), the row limit and whether an exact count was asked: a handler may honour them. */
+  range?: [number, number] | null;
+  limit?: number | null;
+  count?: boolean;
 };
 
 export type FakeTableHandler = (
@@ -43,7 +47,7 @@ export type FakeStorageHandler = (
 ) => FakeQueryResult | Promise<FakeQueryResult>;
 
 type QueryBuilder = {
-  select: (columns?: string, options?: unknown) => QueryBuilder;
+  select: (columns?: string, options?: { count?: string }) => QueryBuilder;
   eq: (column: string, value: unknown) => QueryBuilder;
   in: (column: string, value: unknown) => QueryBuilder;
   contains: (column: string, value: unknown) => QueryBuilder;
@@ -51,8 +55,8 @@ type QueryBuilder = {
   is: (...args: unknown[]) => QueryBuilder;
   not: (...args: unknown[]) => QueryBuilder;
   order: (...args: unknown[]) => QueryBuilder;
-  limit: (...args: unknown[]) => QueryBuilder;
-  range: (...args: unknown[]) => QueryBuilder;
+  limit: (count: number) => QueryBuilder;
+  range: (from: number, to: number) => QueryBuilder;
   abortSignal: (...args: unknown[]) => QueryBuilder;
   single: () => Promise<FakeQueryResult>;
   maybeSingle: () => Promise<FakeQueryResult>;
@@ -61,6 +65,29 @@ type QueryBuilder = {
 
 export function filterValue(query: FakeQuery, column: string): unknown {
   return query.filters.find((filter) => filter.column === column)?.value;
+}
+
+/** PostgREST's ceiling of rows per response (supabase/config.toml, max_rows). */
+export const POSTGREST_MAX_ROWS = 1000;
+
+/**
+ * Rows as PostgREST serves them: filtered by the query's eq/in filters, the page it asked for, never more than its limit
+ * nor than the ceiling of the API, with the exact count when it asked for one.
+ */
+export function servedRows<Row extends Record<string, unknown>>(rows: readonly Row[], query: FakeQuery): FakeQueryResult {
+  const contains = (value: unknown, part: unknown): boolean => (Array.isArray(part)
+    ? Array.isArray(value) && part.every((entry) => value.some((held) => contains(held, entry)))
+    : part !== null && typeof part === "object"
+      ? value !== null && typeof value === "object"
+        && Object.entries(part).every(([key, entry]) => contains((value as Record<string, unknown>)[key], entry))
+      : value === part);
+  const matching = rows.filter((row) => query.filters.every((filter) => (filter.kind === "in"
+    ? Array.isArray(filter.value) && filter.value.includes(row[filter.column])
+    : filter.kind === "contains" ? contains(row[filter.column], filter.value)
+      : row[filter.column] === filter.value)));
+  const [from, to] = query.range ?? [0, matching.length - 1];
+  const page = matching.slice(from, Math.min(to + 1, from + (query.limit ?? Infinity), from + POSTGREST_MAX_ROWS));
+  return { data: page, error: null, count: query.count ? matching.length : null };
 }
 
 export function createSupabaseFake(input: {
@@ -80,6 +107,9 @@ export function createSupabaseFake(input: {
       payload: undefined,
       columns: null,
       filters: [],
+      range: null,
+      limit: null,
+      count: false,
     };
 
     const run = async (cardinality: FakeQuery["cardinality"]) => {
@@ -89,8 +119,9 @@ export function createSupabaseFake(input: {
     };
 
     const builder: QueryBuilder = {
-      select: (columns?: string) => {
+      select: (columns?: string, options?: { count?: string }) => {
         state.columns = typeof columns === "string" ? columns : null;
+        if (options?.count === "exact") state.count = true;
         return builder;
       },
       eq: (column, value) => {
@@ -109,8 +140,14 @@ export function createSupabaseFake(input: {
       is: () => builder,
       not: () => builder,
       order: () => builder,
-      limit: () => builder,
-      range: () => builder,
+      limit: (count: number) => {
+        state.limit = count;
+        return builder;
+      },
+      range: (from: number, to: number) => {
+        state.range = [from, to];
+        return builder;
+      },
       abortSignal: () => builder,
       single: () => run("single"),
       maybeSingle: () => run("maybeSingle"),
@@ -127,9 +164,9 @@ export function createSupabaseFake(input: {
     };
 
     return {
-      select: (columns?: string) => {
+      select: (columns?: string, options?: { count?: string }) => {
         start("select");
-        return builder.select(columns);
+        return builder.select(columns, options);
       },
       insert: (payload: unknown) => start("insert", payload),
       update: (payload: unknown) => start("update", payload),

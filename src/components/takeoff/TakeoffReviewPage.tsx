@@ -66,6 +66,11 @@ const TakeoffApplyWizard = dynamic(
     loading: () => <LoadingState label="Chargement des options d’application…" />,
   }
 );
+// Lot 2 M2: a takeoff of the affaire without a version is sent through its own preview (destination chosen there).
+const TakeoffSendDialog = dynamic(
+  () => import("@/components/takeoff/takeoff-send/TakeoffSendDialog").then((module) => module.TakeoffSendDialog),
+  { ssr: false }
+);
 
 const LazyTakeoffReviewExpert = dynamic(
   () =>
@@ -994,8 +999,10 @@ export default function TakeoffReviewPage({
   const hasDpgfBlocks = hasBlockingTakeoffDpgfExceptions(
     dpgfCompareData?.summary ?? null
   );
+  // Lot 2 M2: a takeoff of the affaire without a version has no DPGF reconciliation to wait for; its send's preview
+  // refuses a destination that holds DPGF lines.
   const isDpgfValidationPending =
-    dpgfCompareLoading || dpgfCompareData === null;
+    versionId !== null && (dpgfCompareLoading || dpgfCompareData === null);
   const hasDpgfValidationError = dpgfCompareError !== null;
   const hasAlreadyBeenApplied = jobStatus === "applied";
   // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate version shown here (a
@@ -1251,6 +1258,9 @@ export default function TakeoffReviewPage({
         targetedReviewHref={targetedReviewHref}
         onOpenDpgfReview={() => openProductionReview("dpgf")}
       /> : null}
+
+      {applyWizardOpen && !versionId ? <TakeoffSendDialog open={applyWizardOpen} jobId={jobId} isAdmin={isAdmin} jobLevel={jobLevel}
+        targetedReviewHref={targetedReviewHref} onOpenChange={setApplyWizardOpen} onSent={handleApplied} /> : null}
 
       {evidencePanelItemId != null && (() => {
         const panelItem = items.find((i) => i.id === evidencePanelItemId);

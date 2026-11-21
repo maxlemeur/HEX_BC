@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 
-import { createSupabaseFake } from "@/lib/takeoff/metre-m3.test-utils";
+import { IN_FILTER_CHUNK_SIZE } from "@/lib/supabase/in-chunks";
+import { createSupabaseFake, servedRows } from "@/lib/takeoff/metre-m3.test-utils";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import {
-  recomputeTakeoffRulesForJob, recomputeTakeoffRulesForVersion, recomputeTakeoffRulesQuietly, writeTakeoffRuleResultChunks,
+  evaluateTakeoffRulesForDestination, recomputeTakeoffRulesForJob, recomputeTakeoffRulesForVersion, recomputeTakeoffRulesQuietly,
+  writeTakeoffRuleResultChunks,
 } from "@/lib/takeoff/rules/recompute-server";
 
 // TI-677 (PR D, review): a chunk whose write reopens a verified line moves that line's updated_at, hence the version's
@@ -75,8 +77,9 @@ describe("recovering a rule computation", () => {
       ? { data: true, error: null }
       : ++reads === 1 ? { data: null, error: { message: "Connection interrupted" } } : { data: "fresh-stamp", error: null });
     const query: Record<string, unknown> = {};
-    for (const method of ["select", "eq", "in"]) query[method] = () => query;
-    query.order = async () => ({ data: [], error: null });
+    for (const method of ["select", "eq", "in", "order"]) query[method] = () => query;
+    // The version's takeoffs, read page by page: none.
+    query.range = async () => ({ data: [], error: null, count: 0 });
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       await expect(recomputeTakeoffRulesQuietly({ tenantId: "t", estimateVersionId: "v", context: "test",
@@ -117,7 +120,8 @@ describe("reading an entered quantity", () => {
     const written: Array<{ id: string; results: Array<{ rule: string; status: string; code: string }> }> = [];
     const fake = createSupabaseFake({
       tables: {
-        takeoff_jobs: () => ({ data: [{ id: JOB, status: "completed", created_at: "2026-11-09T09:00:00.000Z" }], error: null }),
+        takeoff_jobs: () => ({ data: [{ id: JOB, status: "completed", created_at: "2026-11-09T09:00:00.000Z" }], error: null, count: 1 }),
+        takeoff_version_links: () => ({ data: [], error: null, count: 0 }),
         takeoff_items: () => ({ data: rows, error: null, count: rows.length }),
         takeoff_vector_pages: () => ({ data: [], error: null, count: 0 }),
         takeoff_item_geometries: () => ({ data: [], error: null }),
@@ -168,7 +172,8 @@ describe("reading the plan page of each vector page", () => {
     rules_evaluated_at: null, quantity_entry_category: null, is_verified: false,
   });
 
-  async function recompute(sources: (job: string) => unknown, names = ["R+1.pdf", "R+1 relance.pdf"], planFileId: string | null = null, versionless = false) {
+  async function recompute(sources: (job: string) => unknown, names = ["R+1.pdf", "R+1 relance.pdf"], planFileId: string | null = null, versionless = false,
+    carried = false) {
     const rows = [item(M1, names[0], forced), item(M2, names[1], [])];
     const selected = versionless ? rows.slice(1) : rows;
     const written: Array<{ id: string; results: Array<{ rule: string; status: string; code: string }> }> = [];
@@ -177,14 +182,27 @@ describe("reading the plan page of each vector page", () => {
       written.push(...items);
       return { data: items.map((entry) => ({ item_id: entry.id, version_stamp: "stamp-written", reopened: false })), error: null };
     };
+    // The lines, pages and geometries of the jobs a query names (every one of them when it names none).
+    const ofJobs = (query: { filters: Array<{ column: string; value: unknown }> }) => {
+      const jobs = query.filters.find((filter) => filter.column === "job_id")?.value;
+      return Array.isArray(jobs) ? selected.filter((row) => jobs.includes(row.job_id)) : selected;
+    };
     const fake = createSupabaseFake({
       tables: {
-        takeoff_jobs: () => ({ data: [...(versionless ? [] : [{ id: M1, status: "applied", created_at: "2026-11-12T09:00:00.000Z", sources: sources(M1) }]),
-          { id: M2, status: "completed", created_at: "2026-11-12T09:30:00.000Z", sources: sources(M2) }], error: null }),
-        takeoff_items: () => ({ data: selected, error: null, count: selected.length }),
-        takeoff_vector_pages: () => ({ data: selected.map((row) => ({ id: `page-${row.job_id}`, job_id: row.job_id, plan_file_id: planFileId,
-          source_file_name: row.source_file_name, source_page: 1, reading, rule_anchors: anchors })), error: null, count: selected.length }),
-        takeoff_item_geometries: () => ({ data: selected.map((row) => ({ takeoff_item_id: row.id, job_id: row.job_id, vector_page_id: `page-${row.job_id}`,
+        // Carried: M2 is the copy's own takeoff, M1 the one its lines come from, attached to the version it was applied to
+        // and carried over to the copy (takeoff_version_links), read by its id.
+        takeoff_jobs: (query) => {
+          const m1 = { id: M1, status: "applied", created_at: "2026-11-12T09:00:00.000Z", sources: sources(M1) };
+          const m2 = { id: M2, status: "completed", created_at: "2026-11-12T09:30:00.000Z", sources: sources(M2) };
+          if (carried) return { data: query.filters.some((filter) => filter.column === "estimate_version_id") ? [m2] : [m1], error: null, count: 1 };
+          const served = [...(versionless ? [] : [m1]), m2];
+          return { data: served, error: null, count: served.length };
+        },
+        takeoff_version_links: () => ({ data: carried ? [{ id: "link-1", takeoff_job_id: M1 }] : [], error: null, count: carried ? 1 : 0 }),
+        takeoff_items: (query) => ({ data: ofJobs(query), error: null, count: ofJobs(query).length }),
+        takeoff_vector_pages: (query) => ({ data: ofJobs(query).map((row) => ({ id: `page-${row.job_id}`, job_id: row.job_id, plan_file_id: planFileId,
+          source_file_name: row.source_file_name, source_page: 1, reading, rule_anchors: anchors })), error: null, count: ofJobs(query).length }),
+        takeoff_item_geometries: (query) => ({ data: ofJobs(query).map((row) => ({ takeoff_item_id: row.id, job_id: row.job_id, vector_page_id: `page-${row.job_id}`,
           geometry: { schema_version: 1, kind: "network", network: "EF", material: "inox-316l", dn: 22, zone: "Z1", level: "R+1", groups: [],
             segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null, transform: null } })), error: null }),
       },
@@ -223,9 +241,84 @@ describe("reading the plan page of each vector page", () => {
     expect(written[0].results.find((result) => result.rule === "zone_overlap")).toMatchObject({ status: "pass", code: "ZONE_OVERLAP_SAME_PAGE" });
   });
 
+  // Fix round 1, point 4: the takeoffs a version's lines come from are its peers. Written before the fix: red on
+  // 986aea27 (only the takeoffs attached to the copy were read: M2 was compared with nothing and passed).
+  it("compares a copy's takeoff with the takeoff its lines come from, carried over, and never writes that one", async () => {
+    const { written, rows } = await recompute(() => null, ["R+1.pdf", "R+1.pdf"], null, false, true);
+    expect(written.map((entry) => entry.id)).toEqual([rows[1].id]);
+    expect(written[0].results.find((result) => result.rule === "zone_overlap")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+
   it("keeps the duplicate of two direct uploads it knows by their name only, the same name", async () => {
     const { written } = await recompute(() => null, ["R+1.pdf", "R+1.pdf"]);
     expect(written[0].results.find((result) => result.rule === "zone_overlap")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+
+  // Fix round 2, point H: the takeoffs of a destination are read in full. Written before the fix: red on 2ad71cfb (the
+  // attached takeoffs and the inherited links were read in one response each, cut at PostgREST's ceiling: the peer whose
+  // run duplicates the takeoff being sent was not read, and the send was shown without its duplicate).
+  async function evaluateBehind(peer: "attached" | "carried") {
+    const own = item(M2, "R+1.pdf", []);
+    const partner = item(M1, "R+1.pdf", forced);
+    // A thousand earlier takeoffs of the destination, without lines, and the partner after them.
+    const filler = Array.from({ length: 1000 }, (_, index) => ({ id: `66666666-6666-4666-8666-${String(index).padStart(12, "0")}`,
+      tenant_id: "t", status: "applied", created_at: "2026-11-01T00:00:00.000Z", sources: null }));
+    const partnerJob = { id: M1, tenant_id: "t", status: "applied", created_at: "2026-11-12T09:00:00.000Z", sources: null };
+    const attached = [...filler, ...(peer === "attached" ? [partnerJob] : [])].map((job) => ({ ...job, estimate_version_id: "v" }));
+    const links = [...filler, ...(peer === "carried" ? [partnerJob] : [])].map((job, index) => ({
+      id: `77777777-7777-4777-8777-${String(index).padStart(12, "0")}`, tenant_id: "t", target_version_id: "v", takeoff_job_id: job.id }));
+    const elsewhere = peer === "carried" ? [{ ...partnerJob, estimate_version_id: "source" }] : [];
+    const ownJob = { id: M2, tenant_id: "t", project_id: "p", status: "completed", created_at: "2026-11-12T09:30:00.000Z", sources: null,
+      estimate_version_id: null };
+    const lines = [own, partner];
+    const ofJobs = (query: { filters: Array<{ column: string; value: unknown }> }) => {
+      const jobs = query.filters.find((filter) => filter.column === "job_id")?.value;
+      return Array.isArray(jobs) ? lines.filter((row) => jobs.includes(row.job_id)) : lines;
+    };
+    const fake = createSupabaseFake({
+      tables: {
+        // As PostgREST serves them: never more than its ceiling of rows per response.
+        takeoff_jobs: (query) => servedRows<Record<string, unknown>>(query.filters.some((filter) => filter.column === "estimate_version_id")
+          ? attached : query.filters.some((filter) => filter.column === "project_id") ? [ownJob] : [...attached, ...elsewhere], query),
+        takeoff_version_links: (query) => servedRows(links, query),
+        takeoff_items: (query) => ({ data: ofJobs(query), error: null, count: ofJobs(query).length }),
+        takeoff_vector_pages: (query) => ({ data: ofJobs(query).map((row) => ({ id: `page-${row.job_id}`, job_id: row.job_id,
+          plan_file_id: null, source_file_name: row.source_file_name, source_page: 1, reading, rule_anchors: anchors })), error: null,
+          count: ofJobs(query).length }),
+        takeoff_item_geometries: (query) => ({ data: ofJobs(query).map((row) => ({ takeoff_item_id: row.id, job_id: row.job_id,
+          vector_page_id: `page-${row.job_id}`, geometry: { schema_version: 1, kind: "network", network: "EF", material: "inox-316l", dn: 22,
+            zone: "Z1", level: "R+1", groups: [], segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null, transform: null } })),
+          error: null }),
+        estimate_items: (query) => servedRows([], query),
+      },
+      rpc: {
+        takeoff_rule_job_stamp: () => ({ data: "stamp-read", error: null }),
+        takeoff_send_peers_stamp: () => ({ data: "peers-read", error: null }),
+        takeoff_rule_version_stamp: () => ({ data: "stamp-read", error: null }),
+      },
+    });
+    const evaluated = await evaluateTakeoffRulesForDestination({ tenantId: "t", projectId: "p", jobId: M2, destinationVersionId: "v",
+      supabase: fake.client as never });
+    return Object.assign(evaluated.results.get(own.id)?.find((result) => result.rule === "zone_overlap") ?? {}, {
+      queries: fake.queries });
+  }
+
+  it("compares the takeoff with the destination's thousand-and-first attached takeoff", async () => {
+    expect(await evaluateBehind("attached")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+
+  it("compares the takeoff with the destination's thousand-and-first takeoff carried over by a copy", async () => {
+    expect(await evaluateBehind("carried")).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+  });
+
+  // Closing round, point 5: the lines of a thousand peers are read by chunks of identifiers, never in one request whose URL
+  // the gateway refuses. Written before the fix: red on 9ed38ced (1,001 identifiers in one filter).
+  it("reads the lines of a thousand peers by chunks of identifiers", async () => {
+    const { queries } = await evaluateBehind("attached") as { queries: Array<{ table: string; filters: Array<{ column: string; value: unknown }> }> };
+    const filters = queries.filter((query) => query.table === "takeoff_items")
+      .map((query) => query.filters.find((filter) => filter.column === "job_id")?.value as string[]);
+    expect(filters.flat()).toHaveLength(1002);
+    expect(Math.max(...filters.map((ids) => ids.length))).toBeLessThanOrEqual(IN_FILTER_CHUNK_SIZE);
   });
 });
 
