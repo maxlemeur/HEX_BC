@@ -121,6 +121,21 @@ function matchAll(text: string, patterns: Array<[RegExp, (match: RegExpExecArray
   return found.sort((left, right) => left.index - right.index).map((entry) => entry.value);
 }
 
+/** Every level token of a text (RDC, R+n, R-n, SSn), normalized and in text order. */
+export function takeoffLevelTokens(text: string): string[] {
+  return matchAll(text, LEVEL_PATTERNS);
+}
+
+/** The level token the text starts with (`R+1 bureaux` → R+1) and its length in the text, or null. */
+export function leadingTakeoffLevel(text: string): { value: string; length: number } | null {
+  for (const [pattern, format] of LEVEL_PATTERNS) {
+    const sticky = new RegExp(pattern.source, `${pattern.flags.replace("g", "")}y`);
+    const match = sticky.exec(text);
+    if (match) return { value: format(match), length: match[0].length };
+  }
+  return null;
+}
+
 /** First level token of a free value (`Niveau R+4` → `R+4`), or null outside RDC, R+n, R-n, SSn. */
 export function normalizeTakeoffLevel(value: string): string | null {
   return matchAll(value, LEVEL_PATTERNS)[0] ?? null;

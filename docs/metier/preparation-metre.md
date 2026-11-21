@@ -321,6 +321,51 @@ confirmée avec cette version, son brouillon et son instantané (worker compris)
 ne peuvent plus être relus par une version antérieure : ne pas revenir en
 dessous de cette version après le déploiement.
 
+## Bâtiment et niveau d’un plan
+
+Chaque plan de l’affaire porte, pour une version précise, deux valeurs : son
+bâtiment et son niveau. Elles se lisent et se corrigent à un seul endroit, le
+bouton « Bâtiment et niveau » de la ligne du plan (page Plans) ; la revue d’un
+métré montre la localisation des plans qu’il a lus et renvoie à ce même
+formulaire.
+
+Une version est la pièce du dossier dont le plan est la copie de travail (ou le
+fichier lui-même quand il a été déposé hors du dossier), à l’empreinte SHA-256
+des octets que le serveur relit. Une nouvelle copie des mêmes octets (un
+reclassement de la pièce en crée une) garde sa correction sans rien demander ;
+d’autres octets sont une autre version. Aucune valeur n’est rattachée à un plan
+« en général » ni montrée sur les octets d’une autre version.
+
+Sans correction, chaque champ est proposé d’après ce que montrent ces octets :
+le cartouche (coin inférieur droit) des douze premières pages, puis le nom
+d’origine du fichier s’il est univoque. Le brief et le périmètre ne sont qu’une
+aide à la saisie : un bâtiment commun à cinq plans ne prouve la localisation
+d’aucun. Chaque valeur indique sa source et ses pages et reste « à vérifier ».
+Un cartouche sans texte et un nom muet donnent « À préciser » ; plusieurs
+valeurs lues donnent « Plusieurs niveaux » (ou « Plusieurs bâtiments ») avec
+chaque page ; un nom qui contredit le cartouche reste affiché comme « Autre
+lecture ». RDC, R+n, R-n et SSn gardent leur écriture ; un libellé libre comme
+`L00` est conservé tel qu’écrit, sans équivalence inventée. Le tri des pages par
+IA n’est jamais déclenché pour remplir ces champs.
+
+Un opérateur de l’affaire (administrateur, ou ingénieur propriétaire de
+l’affaire) enregistre une seule fois les deux champs ; un champ vide reste « À
+préciser ». La valeur est « confirmée » quand elle reprend la proposition,
+« corrigée » sinon, avec son auteur et sa date ; elle se retrouve dans les plans,
+la revue et toute relance de la même version. Deux onglets qui enregistrent la
+même version : le second reçoit un conflit et voit la valeur enregistrée. Un
+lecteur (directeur) consulte sans rien modifier. Pour de nouveaux octets du même
+plan, la correction précédente est présentée préremplie avec sa provenance, à
+vérifier ; une validation la reporte sur la nouvelle version. Il en va de même
+quand la préparation a décidé qu’une pièce en remplace une autre ; deux pièces
+qui ont seulement le même nom ne sont jamais rapprochées.
+
+La correction est une donnée à côté du plan : elle ne modifie ni le fichier (ni
+sa date, qui entre dans la version d’une analyse en cours), ni la préparation,
+ni les lectures du worker, ni un devis. Les pages gardent leur propre
+localisation dans la revue. À ce stade la localisation est descriptive : ni la
+revue des lignes, ni les contrôles d’envoi ne l’utilisent encore.
+
 ## Base de données et validation
 
 La migration
@@ -332,6 +377,14 @@ une indisponibilité explicite. Les anciens traitements restent des historiques.
 
 La migration partagée et le déploiement sont deux actions séparées, soumises à
 autorisation explicite. Un commit ou un push ne les exécute pas.
+
+La migration
+[`20261121040445_takeoff_plan_locations.sql`](../../supabase/migrations/20261121040445_takeoff_plan_locations.sql)
+porte la localisation des plans : une ligne par version (source et empreinte),
+sa génération, ses valeurs, son auteur et l’historique de chaque changement. Elle
+se lit comme l’affaire ; seule la commande `set_takeoff_plan_location` l’écrit,
+en comparant la génération que l’écran a vue. Elle ne modifie aucun objet
+existant.
 
 Un lancement depuis une version existante crée une copie ordinaire du devis,
 sans la transformer en variante. Un reçu enregistré par le serveur relie cette

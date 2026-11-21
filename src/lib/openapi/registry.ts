@@ -4,6 +4,7 @@ import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/li
 import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-contracts";
 import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
 import { takeoffPageReplacementRequestSchema, takeoffPageReplacementResponseSchema } from "@/lib/takeoff/page-replacement-contracts";
+import { takeoffJobPlanLocationsSchema, takeoffPlanFileLocationSchema, takeoffPlanLocationSaveSchema } from "@/lib/takeoff/plan-location-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobActionResponseSchema as sharedTakeoffJobActionDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1928,6 +1929,19 @@ const takeoffLaunchPageContributionsBody = jsonBody({
   description: "Version cible et plans actifs du lancement (identifiant de fichier, empreinte, reference du plan, nom, pages choisies).",
   schema: takeoffLaunchPageContributionsRequestSchema,
 });
+const apiTakeoffPlanFileLocationSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPlanFileLocationResponse",
+  takeoffPlanFileLocationSchema
+);
+const apiTakeoffJobPlanLocationsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffJobPlanLocationsResponse",
+  takeoffJobPlanLocationsSchema
+);
+const takeoffPlanLocationSaveBody = jsonBody({
+  name: "TakeoffPlanLocationSaveRequest",
+  description: "Batiment et niveau de cette version du plan (null : a preciser), empreinte lue a l'affichage et generation de la correction vue (0 avant la premiere).",
+  schema: takeoffPlanLocationSaveSchema,
+});
 const apiTakeoffVectorReadingSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffVectorReadingResponse",
   takeoffVectorReadingResponseSchema
@@ -3234,6 +3248,19 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   },
   {
     method: "get",
+    path: "/api/takeoff/jobs/{jobId}/plan-locations",
+    summary: "Batiment et niveau des plans lus par un metre",
+    description:
+      "Lecture seule (lot 3) : pour chaque plan que la preparation du metre atteste, la version lue (source et SHA-256), la lecture du cartouche de ces octets s'ils sont encore ceux du plan, la correction d'un operateur pour cette version et, sinon, celle d'une version precedente comme proposition a verifier. Descriptif : ni la revue des lignes ni l'envoi ne l'utilisent encore.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    responses: {
+      "200": jsonResponse("Localisation des plans du metre.", apiTakeoffJobPlanLocationsSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
     path: "/api/takeoff/jobs/{jobId}/compare",
     summary: "Comparer deux jobs Takeoff",
     description:
@@ -3656,6 +3683,33 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         "Plan retourne.",
         apiTakeoffPlanFileSchemaDefinition
       ),
+      ...takeoffPlanErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/plan-sets/{setId}/files/{fileId}/location",
+    summary: "Lire le batiment et le niveau d'un plan",
+    description:
+      "Lit les octets actuels du plan (SHA-256), le cartouche de ses premieres pages et son nom, et renvoie pour chaque champ la valeur proposee avec sa source (cartouche et pages, nom du fichier), inconnue ou multiple ; la correction d'un operateur pour cette version ; la correction d'une version precedente comme proposition a verifier. N'ecrit rien.",
+    tags: ["Takeoff"],
+    parameters: [takeoffPlanSetIdPathParameter, takeoffPlanFileIdPathParameter],
+    responses: {
+      "200": jsonResponse("Localisation de la version actuelle du plan.", apiTakeoffPlanFileLocationSchemaDefinition),
+      ...takeoffPlanErrorResponses,
+    },
+  },
+  {
+    method: "put",
+    path: "/api/takeoff/plan-sets/{setId}/files/{fileId}/location",
+    summary: "Corriger le batiment et le niveau d'un plan",
+    description:
+      "Operateur de l'affaire seulement. Enregistre la localisation de la version du plan dont le serveur relit les octets ; 409 si le contenu a change depuis l'affichage, si un autre membre a enregistre une generation plus recente ou si la copie du dossier a ete remplacee. N'ecrit ni le plan, ni la preparation, ni un metre, ni un devis.",
+    tags: ["Takeoff"],
+    parameters: [takeoffPlanSetIdPathParameter, takeoffPlanFileIdPathParameter],
+    requestBody: takeoffPlanLocationSaveBody,
+    responses: {
+      "200": jsonResponse("Localisation enregistree.", apiTakeoffPlanFileLocationSchemaDefinition),
       ...takeoffPlanErrorResponses,
     },
   },
