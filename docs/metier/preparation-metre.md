@@ -214,7 +214,7 @@ pages ou de temps.
   d’une pièce du dossier) ne sont montrés qu’au membre qui peut lire sa source,
   selon les règles des plans et des pièces évaluées pour lui (le propriétaire de
   l’affaire et un administrateur lisent tous ses plans) ; les autres lisent
-  « Plan N ». Seul le membre qu’une décision y
+  « Plan N », sans l’identifiant de sa source. Seul le membre qu’une décision y
   autorise voit une action : pour une analyse arrêtée, la politique de reprise
   ([`operator-state.ts`](../../src/lib/takeoff/operator-state.ts), la même que le
   détail et la commande) ; pour une demande qui n’a pas démarré, le geste que la
@@ -242,9 +242,10 @@ pages ou de temps.
   30 secondes dans tout autre état qui peut encore bouger (le Mac, une nouvelle
   tentative ou la clôture attendue, une demande pas encore démarrée), plus du
   tout quand tout est clos. Une lecture qui échoue (réseau, serveur, délai
-  dépassé) est retentée 30 secondes plus tard, la page indiquant entre-temps le
-  dernier état connu ; seul un refus d’accès arrête les lectures et retire ce
-  qui était affiché. L’écart du dossier n’est recalculé que si le dossier a
+  dépassé, y compris la lecture du module ou de la session) est retentée
+  30 secondes plus tard, la page indiquant entre-temps le dernier état connu ;
+  seul un refus d’accès arrête les lectures et retire tout ce qui était affiché
+  (la demande, le résumé et la liste), quelle que soit la lecture refusée. L’écart du dossier n’est recalculé que si le dossier a
   bougé depuis la lecture précédente, et le geste avant admission n’est relu
   qu’au rythme lent. Un
   onglet masqué ou hors ligne la suspend ; le retour sur l’onglet, la reconnexion
