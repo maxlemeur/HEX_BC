@@ -71,7 +71,10 @@ if (!existsSync(liveProbePath)) test("LOCALREV01 a chosen plan revision supplies
     await writeFile(fixtureStore!, JSON.stringify(store), { mode: 0o600 });
   };
   await setEffort("medium");
-  const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  // Provider calls and any other process diagnostic; a client leaving a proxied request is absorbed (TI-667), as in
+  // this file's other journeys, and is not a call.
+  const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
   const start = (await readTransport()).length;
   try {
     await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
