@@ -807,7 +807,28 @@
       ],
       "journeys": [
         "e2e/army/takeoff/worker-lifecycle.e2e.ts",
-        "e2e/army/takeoff/affaire-without-version.e2e.ts"
+        "e2e/army/takeoff/affaire-without-version.e2e.ts",
+        "e2e/army/takeoff/affaire-plan-location.e2e.ts"
+      ]
+    },
+    {
+      "id": "plan-location",
+      "note": "Bâtiment et niveau d'une version de plan (lot 3, TKPL01) : lus sur le cartouche ou le nom avec leur source, corrigés une fois sur le plan, retrouvés dans les plans, la revue et une relance ; conflit de deux onglets, lecteur sans écriture, nouvelle version proposée à revérifier.",
+      "paths": [
+        "src/lib/takeoff/plan-location*",
+        "src/components/takeoff/TakeoffPlanLocation*",
+        "src/components/takeoff/plan-location-labels.ts",
+        "src/components/takeoff/PlanFileCard.tsx",
+        "src/app/api/takeoff/plan-sets/[setId]/files/[fileId]/location/**",
+        "src/app/api/takeoff/jobs/[jobId]/plan-locations/**",
+        "src/app/dashboard/affaires/[projectId]/takeoff/[jobId]/review/page.tsx",
+        "supabase/migrations/*_takeoff_plan_locations.sql",
+        "e2e/army/takeoff/affaire-plan-location.e2e.ts",
+        "e2e/army/takeoff/vector-plan-fixture.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/affaire-plan-location.e2e.ts",
+        "e2e/army/critical/plan-center.e2e.ts"
       ]
     },
     {

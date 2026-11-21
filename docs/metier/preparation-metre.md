@@ -333,6 +333,98 @@ confirmée avec cette version, son brouillon et son instantané (worker compris)
 ne peuvent plus être relus par une version antérieure : ne pas revenir en
 dessous de cette version après le déploiement.
 
+## Bâtiment et niveau d’un plan
+
+Chaque plan de l’affaire porte, pour une version précise, deux valeurs : son
+bâtiment et son niveau. Elles se lisent et se corrigent à un seul endroit, le
+bouton « Bâtiment et niveau » de la ligne du plan (page Plans) ; la revue d’un
+métré montre la localisation des plans qu’il a lus et renvoie à ce même
+formulaire.
+
+Une version est la pièce du dossier dont le plan est la copie de travail (ou le
+fichier lui-même quand il a été déposé hors du dossier), à l’empreinte SHA-256
+des octets que le serveur relit. Une nouvelle copie des mêmes octets (un
+reclassement de la pièce en crée une) garde sa correction sans rien demander ;
+d’autres octets sont une autre version. Aucune valeur n’est rattachée à un plan
+« en général » ni montrée sur les octets d’une autre version.
+
+Sans correction, chaque champ est proposé d’après ce que montrent ces octets :
+le cartouche (coin inférieur droit) des douze premières pages, puis le nom
+d’origine du fichier s’il est univoque. Seul le nom sous lequel le plan a été
+déposé compte : le nom de stockage, nettoyé, n’est jamais une lecture. Le brief
+et le périmètre ne sont qu’une aide à la saisie : un bâtiment commun à cinq
+plans ne prouve la localisation d’aucun. Chaque valeur indique sa source et ses
+pages et reste « à vérifier ». Un cartouche lu qui ne l’indique pas et un nom
+muet donnent « À préciser » ; plusieurs valeurs lues donnent « Plusieurs
+niveaux » (ou « Plusieurs bâtiments ») avec chaque page ; un nom qui contredit
+le cartouche reste affiché comme « Autre lecture ». Un cartouche qui n’a pas été
+lu (pages sans aucun texte, comme un plan scanné, PDF illisible, octets qui ne
+sont plus ceux du plan, limite de lecture d’une revue) est dit « Cartouche non
+lu » : le nom du fichier n’est alors jamais proposé à sa place, ses valeurs
+restent seulement affichées à côté. RDC, R+n, R-n et SSn gardent leur écriture ; un libellé libre comme
+`L00` est conservé tel qu’écrit, sans équivalence inventée. Le tri des pages par
+IA n’est jamais déclenché pour remplir ces champs.
+
+Un opérateur de l’affaire (administrateur, ou ingénieur propriétaire de
+l’affaire) choisit pour chaque champ : suivre la lecture du plan (toujours à
+vérifier), saisir une valeur, ou « À préciser ». « À préciser » écarte la
+lecture : la valeur est inconnue partout (plans, revue, relance), et ce que le
+plan montre reste affiché à côté. Un champ que l’opérateur ne touche pas reste
+sur la lecture du plan : corriger le niveau ne confirme pas le bâtiment.
+Confirmer une valeur lue est un geste sur ce champ : « Valeur saisie », qui
+reprend ce que le plan montre. Une valeur est « confirmée » quand elle reprend la
+proposition, « corrigée » sinon. Chaque champ garde son choix, son auteur, sa
+date et la génération où il a été fait ; un champ que l’enregistrement ne change
+pas garde les siens. Le choix se retrouve dans les plans, la revue et toute
+relance de la même version. Deux onglets qui enregistrent la même version : le
+second reçoit un conflit et voit la valeur enregistrée.
+
+Les corrections enregistrées et leur historique se lisent comme l’affaire : un
+directeur qui lit l’affaire les lit, nom du document et empreinte compris. Ce
+qui demande que le plan soit visible, c’est la lecture de ses octets (le
+cartouche) dans les écrans. Il ne modifie rien.
+
+Pour de nouveaux octets du même plan, la correction précédente est présentée
+préremplie avec sa provenance (l’auteur et la date de chaque champ), à vérifier,
+quand elle fixe au moins une valeur ; « Valider pour cette version » la reporte
+sur la nouvelle version. Il en va de même pour la pièce que la préparation a
+retenue à la place d’une autre, d’après ses choix d’indices valides entre les
+plans qu’elle peut retenir (un plan que le membre a écarté n’en donne aucun),
+depuis la pièce écartée ; deux pièces qui ont seulement le même nom ne sont
+jamais rapprochées. Le report garde la correction d’origine, la génération à
+laquelle elle a été proposée et les champs repris ; quand plus aucun champ n’est
+repris, l’origine disparaît aussi. Tous les champs repris le sont d’une même
+origine : reprendre un champ d’une autre correction pendant que l’autre champ
+est encore repris est refusé ; il faut d’abord saisir cet autre champ. Si la
+correction d’origine a changé entre-temps, l’enregistrement est refusé et le
+formulaire repart de sa valeur actuelle ; rien de ce que l’opérateur n’a pas
+saisi n’est enregistré comme saisi. Quand une autre proposition arrive pendant
+que le formulaire est ouvert (une relecture en arrière-plan, un enregistrement
+refusé), seuls les champs qu’elle concerne repartent d’elle : la saisie de
+l’opérateur dans l’autre champ est conservée, et le formulaire dit que la
+proposition a changé. La
+revue d’une analyse dont le plan a changé depuis montre la correction de la
+version qu’elle a lue, sans en proposer d’autre.
+
+Quand le dossier remplace la copie d’un plan pendant qu’elle est ouverte (un
+reclassement de la pièce en crée une autre), la lecture ou l’enregistrement est
+refusé avec la même réponse, quelle que soit l’étape où le remplacement est
+constaté (fichier disparu, octets disparus, commande qui refuse la copie) : le
+plan a été remplacé, voici sa copie actuelle, ou il n’en a plus. Seule une copie
+dont la source, telle que la base la résout, est la même pièce est proposée. Le
+formulaire affiche alors cette copie, avec ce qui s’y applique. Le dossier
+enregistre une nouvelle copie avant d’en déposer le fichier : une copie actuelle
+dont le fichier n’est pas encore là est « en cours de préparation », à réessayer
+dans un instant, jamais introuvable. La revue d’une analyse qui avait lu l’ancienne copie le dit
+aussi et ouvre la copie actuelle ; la correction de la pièce s’y applique tant
+que les octets sont les mêmes.
+
+La correction est une donnée à côté du plan : elle ne modifie ni le fichier (ni
+sa date, qui entre dans la version d’une analyse en cours), ni la préparation,
+ni les lectures du worker, ni un devis. Les pages gardent leur propre
+localisation dans la revue. À ce stade la localisation est descriptive : ni la
+revue des lignes, ni les contrôles d’envoi ne l’utilisent encore.
+
 ## Base de données et validation
 
 La migration
@@ -344,6 +436,33 @@ une indisponibilité explicite. Les anciens traitements restent des historiques.
 
 La migration partagée et le déploiement sont deux actions séparées, soumises à
 autorisation explicite. Un commit ou un push ne les exécute pas.
+
+La migration
+[`20261121040445_takeoff_plan_locations.sql`](../../supabase/migrations/20261121040445_takeoff_plan_locations.sql)
+porte la localisation des plans : une ligne par version (source et empreinte),
+sa génération, le choix, la valeur, l’auteur et la génération de chaque champ,
+la correction d’où vient un report et l’historique de chaque changement, et la
+source de chaque fichier de plan, notée à sa création, pour qu’une analyse dont
+la copie de travail a été remplacée retrouve la correction des octets qu’elle a
+lus. Elle se lit comme l’affaire. Une correction s’écrit en deux temps : le
+serveur relit les octets du plan, puis atteste, avec son rôle de service, la
+version (source et empreinte) et la correction précédente qu’il propose ; la
+session du membre ne peut pas attester. Une nouvelle attestation retire celles
+du même membre sur la même affaire qui ne peuvent plus servir (utilisées ou
+expirées). La commande `set_takeoff_plan_location` consomme une seule fois une
+attestation faite pour ce membre, de moins de quinze minutes à l’horloge au
+moment où elle est consommée. Elle vérifie les droits du membre sur l’affaire au
+départ, de nouveau une fois l’affaire verrouillée (un archivage peut s’être
+terminé pendant l’attente) et une dernière fois juste avant d’écrire (une
+réaffectation ou un changement de rôle peut s’être terminé pendant une autre
+attente) ; un changement terminé pendant l’écriture elle-même n’est pas vu. Elle
+vérifie aussi que la copie est toujours celle de sa pièce et que la correction
+reprise n’a pas changé, puis compare la génération que l’écran a vue. Une
+nouvelle attestation retire les attestations usées du même membre dans un ordre
+fixe, en passant celles qu’une autre attestation est en train de retirer : deux
+onglets ne s’attendent jamais l’un l’autre.
+Elle ne modifie aucun objet existant ; créer un fichier de plan note en plus sa
+source, sans jamais être refusé pour cela.
 
 Un lancement depuis une version existante crée une copie ordinaire du devis,
 sans la transformer en variante. Un reçu enregistré par le serveur relie cette

@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
+
+import { TakeoffPlanLocationDialog } from "@/components/takeoff/TakeoffPlanLocationDialog";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import type { PlanFileListItem } from "@/lib/takeoff/types";
-import { FileIcon, Trash2Icon } from "lucide-react";
+import { FileIcon, MapPinIcon, Trash2Icon } from "lucide-react";
 
 type PlanFileCardProps = {
   file: PlanFileListItem;
@@ -32,6 +35,7 @@ export function formatRelativeTime(isoDate: string) {
 
 export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
   const displayName = getPlanFileDisplayName(file);
+  const [locationOpen, setLocationOpen] = useState(false);
 
   return (
     <div className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm transition hover:border-border-strong">
@@ -51,6 +55,18 @@ export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
           <span>{formatRelativeTime(file.created_at)}</span>
         </p>
       </div>
+
+      <button
+        type="button"
+        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        aria-label={`Bâtiment et niveau de ${displayName}`}
+        onClick={() => setLocationOpen(true)}
+      >
+        <MapPinIcon className="h-4 w-4" aria-hidden="true" />
+        <span className="hidden sm:inline">Bâtiment et niveau</span>
+      </button>
+      <TakeoffPlanLocationDialog setId={file.plan_set_id} fileId={file.id} documentName={displayName}
+        open={locationOpen} onOpenChange={setLocationOpen} />
 
       <button
         type="button"

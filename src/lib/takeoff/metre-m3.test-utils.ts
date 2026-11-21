@@ -24,7 +24,7 @@ export type FakeQuery = {
   operation: "select" | "insert" | "update" | "delete" | "upsert";
   payload: unknown;
   columns: string | null;
-  filters: Array<{ kind: "eq" | "in"; column: string; value: unknown }>;
+  filters: Array<{ kind: "eq" | "in" | "contains"; column: string; value: unknown }>;
   cardinality: "single" | "maybeSingle" | "many";
   /** The page asked for (`range`), the row limit and whether an exact count was asked: a handler may honour them. */
   range?: [number, number] | null;
@@ -50,6 +50,7 @@ type QueryBuilder = {
   select: (columns?: string, options?: { count?: string }) => QueryBuilder;
   eq: (column: string, value: unknown) => QueryBuilder;
   in: (column: string, value: unknown) => QueryBuilder;
+  contains: (column: string, value: unknown) => QueryBuilder;
   neq: (...args: unknown[]) => QueryBuilder;
   is: (...args: unknown[]) => QueryBuilder;
   not: (...args: unknown[]) => QueryBuilder;
@@ -74,9 +75,16 @@ export const POSTGREST_MAX_ROWS = 1000;
  * nor than the ceiling of the API, with the exact count when it asked for one.
  */
 export function servedRows<Row extends Record<string, unknown>>(rows: readonly Row[], query: FakeQuery): FakeQueryResult {
+  const contains = (value: unknown, part: unknown): boolean => (Array.isArray(part)
+    ? Array.isArray(value) && part.every((entry) => value.some((held) => contains(held, entry)))
+    : part !== null && typeof part === "object"
+      ? value !== null && typeof value === "object"
+        && Object.entries(part).every(([key, entry]) => contains((value as Record<string, unknown>)[key], entry))
+      : value === part);
   const matching = rows.filter((row) => query.filters.every((filter) => (filter.kind === "in"
     ? Array.isArray(filter.value) && filter.value.includes(row[filter.column])
-    : row[filter.column] === filter.value)));
+    : filter.kind === "contains" ? contains(row[filter.column], filter.value)
+      : row[filter.column] === filter.value)));
   const [from, to] = query.range ?? [0, matching.length - 1];
   const page = matching.slice(from, Math.min(to + 1, from + (query.limit ?? Infinity), from + POSTGREST_MAX_ROWS));
   return { data: page, error: null, count: query.count ? matching.length : null };
@@ -122,6 +130,10 @@ export function createSupabaseFake(input: {
       },
       in: (column, value) => {
         state.filters.push({ kind: "in", column, value });
+        return builder;
+      },
+      contains: (column, value) => {
+        state.filters.push({ kind: "contains", column, value });
         return builder;
       },
       neq: () => builder,

@@ -4,6 +4,7 @@ import { getUserContext } from "@/lib/auth/server";
 import { resolveTakeoffReviewScope } from "@/lib/takeoff/version-access-server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
+import { TakeoffPlanLocationsPanel } from "@/components/takeoff/TakeoffPlanLocationsPanel";
 
 type Props = {
   params: Promise<{ projectId: string; jobId: string }>;
@@ -29,6 +30,7 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
         versionId={scope.versionId} canEdit={scope.canEdit}
         projectId={projectId}
       />
+      <TakeoffPlanLocationsPanel jobId={jobId} />
     </div>
   );
 }
