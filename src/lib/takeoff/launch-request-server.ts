@@ -137,12 +137,17 @@ export async function confirmAffaireBriefWithTakeoff(input: {
 }) {
   const { context } = input;
   const service = createServiceRoleClient();
-  const subscription = await readPayerSubscription(service, context, input.projectId, input.host);
+  const [subscription, session] = await Promise.all([
+    readPayerSubscription(service, context, input.projectId, input.host),
+    // The member's verified session claims: the database evaluates the released brief policy under them (none refuses).
+    context.supabase.auth.getClaims().then(({ data, error }) => (error ? null : data?.claims ?? null), () => null),
+  ]);
   const { data, error } = await service.rpc("confirm_affaire_brief_takeoff", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
     // No notice: the brief is confirmed and engages nobody.
     p_expected_updated_at: input.expectedUpdatedAt, p_notice: input.notice as string,
     p_module_default: takeoffModuleDefault(), ...selectionParameters(subscription),
+    p_actor_claims: session as unknown as Json,
   });
   if (error?.code === "P0002") return { outcome: "not_found" as const, takeoff: null };
   if (error) launchError(error, "Impossible de confirmer le brief affaire.");

@@ -21,7 +21,7 @@ describe("boundTakeoffAttemptByRequest", () => {
 
   it.each([
     ["its tokens", { remainingTokens: 0, remainingCostCents: 2_500 }],
-    ["its cost", { remainingTokens: 399_990, remainingCostCents: -1 }],
+    ["its cost", { remainingTokens: 399_990, remainingCostCents: 0 }],
   ])("stops the attempt before any call once the request spent %s", (_case, remaining) => {
     expect(() => boundTakeoffAttemptByRequest(config, remaining, JOB))
       .toThrow(expect.objectContaining({ code: TakeoffErrorCode.TAKEOFF_REQUEST_BUDGET_EXHAUSTED, retryable: false }));

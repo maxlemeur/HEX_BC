@@ -22,7 +22,7 @@ export function boundTakeoffAttemptByRequest<T extends { maxTotalTokens: number;
   if (!budget) return config;
   const tokensLeft = budget.remainingTokens;
   const costLeft = budget.remainingCostCents;
-  if (tokensLeft <= 0 || costLeft < 0) {
+  if (tokensLeft <= 0 || costLeft <= 0) {
     throw new TakeoffError({
       status: 422, code: TakeoffErrorCode.TAKEOFF_REQUEST_BUDGET_EXHAUSTED, retryable: false, jobId,
       message: "Le budget de cette analyse est épuisé par ses tentatives précédentes. Relancez l’analyse depuis les options du métré.",

@@ -229,11 +229,29 @@ function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown
   vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
   return { calls: (fn: string) => calls.filter((call) => call.fn === fn).map((call) => call.args) };
 }
-const member = (tenantRole: string) => ({ userId: PAYER, tenantId: TENANT, tenantRole, supabase: {} }) as never;
+// The member's verified session claims: the confirmation evaluates the released brief policy under them.
+const CLAIMS = { sub: PAYER, role: "authenticated", aud: "authenticated", app_metadata: {} };
+const getClaims = vi.fn();
+const member = (tenantRole: string) => ({ userId: PAYER, tenantId: TENANT, tenantRole, supabase: { auth: { getClaims } } }) as never;
 const confirm = (tenantRole: string, notice: string | null = NOTICE) =>
   confirmAffaireBriefWithTakeoff({ context: member(tenantRole), projectId: PROJECT, expectedUpdatedAt: "2026-11-21T08:00:00Z", notice, host: "127.0.0.1:3000" });
 
 describe("confirmAffaireBriefWithTakeoff", () => {
+  beforeEach(() => getClaims.mockResolvedValue({ data: { claims: CLAIMS }, error: null }));
+
+  it("lets the database decide who may confirm under the member's verified session claims", async () => {
+    const { calls } = gesture();
+    await confirm("engineer");
+    expect(calls("confirm")).toEqual([expect.objectContaining({ p_actor: PAYER, p_actor_claims: CLAIMS })]);
+  });
+
+  it("passes no claims when the session cannot be verified, which the database refuses", async () => {
+    getClaims.mockResolvedValue({ data: null, error: new Error("expired") });
+    const { calls } = gesture();
+    await confirm("engineer");
+    expect(calls("confirm")).toEqual([expect.objectContaining({ p_actor_claims: null })]);
+  });
+
   it("confirms with the notice that was shown and the selection of Mon profil on this Mac", async () => {
     const { calls } = gesture();
     const result = await confirm("engineer");
