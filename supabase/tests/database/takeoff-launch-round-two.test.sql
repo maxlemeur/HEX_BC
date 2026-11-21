@@ -156,9 +156,9 @@ select results_eq($$select a.outcome, a.reason_code from pg_temp.seal(6) s cross
   $$values ('blocked'::text, 'TAKEOFF_DISABLED'::text)$$, 'and the admission refuses, visibly');
 update public.feature_flags set enabled = true where tenant_id = pg_temp.f(10) and flag_key = 'TAKEOFF_MODULE_ENABLED';
 
--- 5. A set-aside start is terminal, and the receipts of commands are apart from the requests.
-select results_eq($$select state, reason_code from pg_temp.confirm(27, 3)$$, $$values ('blocked'::text, 'OPERATOR_REQUIRED'::text)$$,
-  'a reader''s confirmation reserves a request for an operator');
+-- 5. A set-aside start is terminal, and the receipts of commands are apart from the requests. A command never sets aside
+-- a start that can still begin (20261121193413, takeoff-launch-exclusion.test.sql): the start is set aside when the dossier
+-- is confirmed after a relaunch.
 set local session_replication_role = replica;
 insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by)
 values (pg_temp.f(77), pg_temp.f(10), pg_temp.f(27), pg_temp.f(57), 'C', 'completed', pg_temp.f(1));
@@ -170,10 +170,21 @@ returns table (outcome text, request_id uuid, job_id uuid) language sql as $$
     s.manifest, s.snapshot, s.job, pg_temp.f(57), revision, false) r
 $$;
 select results_eq($$select outcome from pg_temp.relaunch(90, 3)$$, $$values ('admitted'::text)$$, 'a relaunch runs');
+select results_eq($$select state, reason_code from pg_temp.confirm(27, 3)$$, $$values ('superseded'::text, null::text)$$,
+  'a reader''s confirmation after it reserves the automatic start already set aside');
 select results_eq($$select state, reason_code from public.takeoff_launch_requests where id = pg_temp.request(27)$$,
   $$values ('superseded'::text, null::text)$$, 'the automatic start it set aside is in its terminal state');
 select throws_ok($$update public.takeoff_launch_requests set state = 'evaluating' where id = pg_temp.request(27)$$, '23514', null,
   'a set-aside start never becomes due again');
+update public.affaire_briefs set status = 'a_confirmer', confirmed_at = null, confirmed_by = null where project_id = pg_temp.f(27);
+update public.affaire_briefs set status = 'confirme', confirmed_at = clock_timestamp(), confirmed_by = pg_temp.f(1) where project_id = pg_temp.f(27);
+select results_eq($$select state, reason_code from public.takeoff_launch_requests where id = pg_temp.request(27)$$,
+  $$values ('superseded'::text, null::text)$$, 'a later confirmation of its dossier never re-arms it');
+select results_eq($$select t.outcome, t.state from public.takeoff_launch_requests r
+  cross join lateral public.take_on_takeoff_launch_request(r.tenant_id, r.project_id, pg_temp.f(1), r.id, r.mandate_revision, 'take_on',
+    pg_temp.host(), pg_temp.selection(), null) t where r.id = pg_temp.request(27)$$,
+  $$values ('moved'::text, 'superseded'::text)$$, 'nor a take-over: a new analysis is a relaunch');
+select is(public.takeoff_launch_request_awaits_mac(pg_temp.request(27)), false, 'a set-aside start waits for no Mac');
 select results_eq($$select command_digest is not null, request_id is not null, job_id from private.takeoff_launch_commands where intent_key = pg_temp.f(90)$$,
   $$values (true, true, pg_temp.f(87))$$, 'the command''s receipt names its request and job');
 select throws_ok($$select * from pg_temp.relaunch(90, 4)$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT',
@@ -186,7 +197,10 @@ select is((select count(*)::integer from public.takeoff_launch_requests where pr
   'a refused command creates no request');
 select results_eq($$select answer, request_id is not null, job_id from private.takeoff_launch_commands where intent_key = pg_temp.f(91)$$,
   $$values ('already_running'::text, true, pg_temp.f(87))$$, 'its receipt records what it observed');
-select lives_ok($$select * from pg_temp.relaunch(92, 3, 'initial', null)$$, 'an initial command needs no predecessor');
+-- A first analysis on an affaire that has one is refused (a first analysis without predecessor on an affaire without any
+-- runs: takeoff-launch-exclusion.test.sql).
+select throws_ok($$select * from pg_temp.relaunch(92, 3, 'initial', null)$$, '22023', 'TAKEOFF_LAUNCH_ANALYSIS_EXISTS',
+  'an initial command on an affaire that already has an analysis is refused');
 select throws_ok($$select * from pg_temp.relaunch(93, 3, 'reread_plans', null)$$, '22023', 'TAKEOFF_LAUNCH_PREDECESSOR_REQUIRED',
   'any other intent names the analysis it replaces');
 

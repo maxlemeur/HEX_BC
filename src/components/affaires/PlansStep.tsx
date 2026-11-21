@@ -21,8 +21,8 @@ import {
   IMPORT_FLOW_PLAN_SET_METADATA,
   selectProjectImportPlanSet,
 } from "@/lib/takeoff/default-import-plan-set";
-import { TakeoffLaunchPrompt } from "@/components/takeoff/TakeoffLaunchPrompt";
-import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
+import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
+import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { CheckIcon, CircleCheckBigIcon, FileIcon, LinkIcon, PackageIcon, SearchIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -34,7 +34,51 @@ type PlansStepProps = {
   onSkip: () => void;
   onContinue: () => void;
   showSuccessBanner?: boolean;
+  /**
+   * Whether the automatic start is active (both cut-offs), as the affaire's page read it; null when unknown. Before, the
+   * step launches on the draft the import created and the plan set that received the files; once active, every analysis
+   * is a launch request from the affaire's takeoff zone, which the step leads to.
+   */
+  takeoffLaunchActive?: boolean | null;
 };
+
+/**
+ * The step's launch before the automatic start is active: the takeoff's options on the import's own draft and the plan
+ * set that received its files, as the import always launched it (no other version offered, so never a copy).
+ */
+function PlansStepTakeoffLaunch({ projectId, versionId, planSet, planFileCount, launchRecommendation }: {
+  projectId: string; versionId: string; planSet: PlanSetListItem; planFileCount: number;
+  launchRecommendation: TakeoffDocumentRecommendation;
+}) {
+  const [open, setOpen] = useState(false);
+  const [launched, setLaunched] = useState(false);
+  return (
+    <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+      <p className="text-xs font-medium text-foreground-secondary">{launched ? "Demande d’analyse créée" : "Préparer le métré"}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        {planSet.name} · {planFileCount} fichier{planFileCount > 1 ? "s" : ""}.{" "}
+        {launched ? "Suivez le traitement puis vérifiez les résultats." : "Confirmez les pièces, le périmètre et les conventions avant de lancer une analyse."}
+      </p>
+      {launched ? (
+        <Link href={`/dashboard/affaires/${projectId}/takeoff`} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-2")}>
+          Suivre l&apos;avancement
+        </Link>
+      ) : (
+        <button type="button" className={cn(buttonVariants({ variant: "primary", size: "sm" }), "mt-2")} onClick={() => setOpen(true)}>
+          Préparer le métré
+        </button>
+      )}
+      <LaunchMetreDialog open={open} onOpenChange={setOpen} projectId={projectId}
+        currentVersion={{ id: versionId, status: "draft", versionNumber: 0 }}
+        availableVersions={[{ id: versionId, versionNumber: 0 }]}
+        availablePlanSets={[{ id: planSet.id, name: planSet.name, fileCount: planFileCount }]}
+        initialPlanSetId={planSet.id}
+        plansContext={{ defaultPlanSetId: planSet.id, defaultPlanSetName: planSet.name, defaultPlanSetFileCount: planFileCount, launchRecommendation }}
+        onLaunched={() => setLaunched(true)}
+      />
+    </div>
+  );
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
@@ -52,6 +96,7 @@ export function PlansStep({
   onSkip,
   onContinue,
   showSuccessBanner = false,
+  takeoffLaunchActive = null,
 }: PlansStepProps) {
   const [planSet, setPlanSet] = useState<PlanSetListItem | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
@@ -60,23 +105,7 @@ export function PlansStep({
   const [uploadedCount, setUploadedCount] = useState(0);
   const [uploadedSizeBytes, setUploadedSizeBytes] = useState(0);
   const [uploadSummaryWarning, setUploadSummaryWarning] = useState<string | null>(null);
-  const [launchRecommendation, setLaunchRecommendation] =
-    useState<TakeoffDocumentRecommendation | null>(null);
-  const {
-    dismissed: permanentlyDismissed,
-    temporarilyDismissed,
-    dismissPermanently,
-    dismissTemporarily,
-  } = useTakeoffAutoProposeDismissed(projectId, {
-    context: "import",
-    scopeKey: [
-      planSet?.id ?? "none",
-      versionId,
-      String(planSet?.file_count ?? 0),
-      String(uploadedCount),
-      String(uploadedSizeBytes),
-    ].join(":"),
-  });
+  const [launchRecommendation, setLaunchRecommendation] = useState<TakeoffDocumentRecommendation | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const initialCountsRef = useRef<{ fileCount: number; totalSizeBytes: number } | null>(
     null
@@ -155,11 +184,7 @@ export function PlansStep({
       const planFiles = await fetchPlanFiles(planSet.id);
       const currentCount = planFiles.length;
       const currentSize = sumFileSizes(planFiles.map((file) => file.file_size_bytes));
-      setLaunchRecommendation(
-        classifyTakeoffPlanSetSource({
-          files: planFiles,
-        })
-      );
+      setLaunchRecommendation(classifyTakeoffPlanSetSource({ files: planFiles }));
 
       setUploadedCount(Math.max(0, currentCount - initialCounts.fileCount));
       setUploadedSizeBytes(Math.max(0, currentSize - initialCounts.totalSizeBytes));
@@ -343,40 +368,27 @@ export function PlansStep({
                 </div>
               )}
 
-              {!permanentlyDismissed &&
-              !temporarilyDismissed &&
-              planSet &&
-              launchRecommendation ? (
-                <TakeoffLaunchPrompt
-                  projectId={projectId}
-                  versionId={versionId}
-                  versionLabel="Brouillon en cours"
-                  planSetId={planSet.id}
-                  planSetName={planSet.name}
+              {takeoffLaunchActive === false && planSet && launchRecommendation ? (
+                <PlansStepTakeoffLaunch projectId={projectId} versionId={versionId} planSet={planSet}
                   planFileCount={uploadedCount + (initialCountsRef.current?.fileCount ?? 0)}
-                  launchRecommendation={launchRecommendation}
-                  compact
-                  onDismissTemporary={() => {
-                    dismissTemporarily();
-                    handleFinish();
-                  }}
-                  onDismissPermanent={() => {
-                    dismissPermanently();
-                    handleFinish();
-                  }}
-                  onLaunched={() => {
-                    /* stay on step, user sees inline success */
-                  }}
-                />
+                  launchRecommendation={launchRecommendation} />
               ) : (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-                  <p className="text-xs font-medium text-foreground-secondary">
-                    Prochaine étape suggérée
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Lancez une analyse de métrés depuis le hub de votre affaire.
-                  </p>
-                </div>
+              /* Once the automatic start is active, the takeoff has one place on the affaire, its zone: this step leads
+                 there and launches nothing. */
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+                <p className="text-xs font-medium text-foreground-secondary">
+                  Prochaine étape suggérée
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  L’état du métré de l’affaire dit où en est l’analyse de ces plans et ouvre ses options.
+                </p>
+                <Link
+                  href={`/dashboard/affaires/${projectId}?view=overview#metre`}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-2")}
+                >
+                  Voir l’état du métré
+                </Link>
+              </div>
               )}
             </div>
           )}

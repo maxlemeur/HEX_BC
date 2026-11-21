@@ -85,3 +85,11 @@ export async function readOwnedBrief(projectId: string) {
     from public.affaire_briefs b where b.project_id = '${projectId}';`);
   return brief ?? null;
 }
+
+/** The affaire's estimate versions: a launch from the takeoff's options creates none (the send chooses its draft). */
+export async function readOwnedVersionCount(projectId: string) {
+  if (!UUID.test(projectId)) throw new Error("Invalid fixture affaire.");
+  const [row] = await readJson<Array<{ count: number }>>(`select coalesce(json_agg(json_build_object('count', c.count)), '[]'::json)
+    from (select count(*)::int as count from public.estimate_versions v where v.project_id = '${projectId}') c;`);
+  return row?.count ?? 0;
+}

@@ -5,7 +5,7 @@ import { expect } from "e2e";
 import { ownEstimate, recordEvidence, type ArmyState } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
 import { createPlanSet, ownedTakeoffJobs, requireLocalPlansBackend, uploadSamplePlan } from "../critical/plans-support";
-import { fillTakeoffPreparation, openTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
+import { fillTakeoffPreparation, openTakeoffPreparation, saveTakeoffPreparation, takeoffZone } from "../critical/preparation-support";
 import { querySql } from "./calculation-gate-support";
 import { callServerAction, captureScreen, closePolicy, confirmTakeoffPreparationViaAction, createV2Affaire, createV3Version,
   openPolicy3, policySnapshot, seedSupplyLine, serverActionId, storedVersions, TAKEOFF_V3_REASON, versionInsertsLogged, type Ui,
@@ -46,11 +46,12 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
         await expect(preparation).toBeVisible();
         return preparation;
       };
-      // La préparation du hub reste accessible sur une v3, avant toute ligne de devis.
+      // Les options du métré restent accessibles sur une v3, avant toute ligne de devis, depuis la zone du métré.
       await app.open(`/dashboard/affaires/${anchor.projectId}?view=estimate`);
-      const prompt = screen.getByRole("region", "Préparation du métré", { exact: true });
-      await expect(prompt).toBeVisible({ timeout: 60_000 });
-      const prepare = prompt.getByRole("button", "Préparer le métré", { exact: true });
+      const zone = takeoffZone({ screen });
+      await expect(zone).toBeVisible({ timeout: 60_000 });
+      const prepare = zone.getByRole("button", "Options du métré", { exact: true });
+      await waitForHydration(browser);
       const preparationEnabled = await prepare.isEnabled();
       await prepare.click();
       let dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });

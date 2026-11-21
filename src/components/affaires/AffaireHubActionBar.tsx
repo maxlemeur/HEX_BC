@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef } from "react";
+
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import {
   GitCompareArrowsIcon,
@@ -20,7 +22,6 @@ import { SUPPLY_COST_ANCHOR } from "@/components/material-requests/format";
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import type { VersionZeroDraftSummary } from "@/lib/estimates/editor-read-contracts";
 import type { AffaireHubSummaryResult } from "@/lib/affaires/server";
-import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -42,7 +43,7 @@ export function AffaireHubActionBar({
   pendingAction,
   onDuplicate,
   onCreateVariant,
-  onLaunchMetre,
+  onOpenTakeoffZone,
 }: {
   summary: AffaireHubSummaryResult;
   versionZeroSummary?: VersionZeroDraftSummary | null;
@@ -53,17 +54,17 @@ export function AffaireHubActionBar({
   pendingAction: "duplicate" | "variant" | null;
   onDuplicate: () => void;
   onCreateVariant: () => void;
-  onLaunchMetre: () => void;
+  /** Leads to the takeoff's zone on the affaire: its state, its options and its gestures. */
+  onOpenTakeoffZone: () => void;
 }) {
   const { currentVersion, versionsCount } = summary;
+  // A closing menu gives the focus back to its trigger: after « État du métré », the takeoff's zone keeps it.
+  const takeoffZoneChosen = useRef(false);
   if (!currentVersion) return null;
 
   const showCompare = versionsCount > 1;
-  const showAnalyse =
-    takeoffEnabled &&
-    plansSummary &&
-    plansSummary.planSetCount > 0 &&
-    canLaunchNewTakeoffAnalysis(plansSummary.latestJob?.status);
+  // The takeoff's zone, whatever its state: the menu never launches an analysis itself.
+  const showTakeoffZone = takeoffEnabled && plansSummary && plansSummary.planFileCount > 0;
   const hasPlans = (plansSummary?.planSetCount ?? 0) > 0;
   const takeoffHref = `/dashboard/affaires/${summary.project.id}/takeoff`;
   const exportHref = `/dashboard/estimates/${currentVersion.id}/print`;
@@ -143,7 +144,11 @@ export function AffaireHubActionBar({
           <EllipsisIcon aria-hidden="true" />
           Plus
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-auto min-w-52">
+        <DropdownMenuContent align="end" className="w-auto min-w-52" finalFocus={() => {
+          if (!takeoffZoneChosen.current) return true;
+          takeoffZoneChosen.current = false;
+          return document.getElementById("metre");
+        }}>
           {takeoffEnabled && !showTakeoffInBar ? (
             <DropdownMenuItem className="min-h-10 px-2" render={<Link href={takeoffHref} />}>
               <RulerIcon aria-hidden="true" />
@@ -202,10 +207,10 @@ export function AffaireHubActionBar({
               Comparer les versions
             </DropdownMenuItem>
           ) : null}
-          {showAnalyse ? (
-            <DropdownMenuItem className="min-h-10 px-2" onClick={onLaunchMetre}>
+          {showTakeoffZone ? (
+            <DropdownMenuItem className="min-h-10 px-2" onClick={() => { takeoffZoneChosen.current = true; onOpenTakeoffZone(); }}>
               <PanelsTopLeftIcon aria-hidden="true" />
-              Préparer le métré
+              État du métré
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>

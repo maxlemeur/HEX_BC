@@ -1,6 +1,8 @@
 "use client";
 
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
+import { beginTakeoffLaunch, readOutstandingTakeoffLaunch, settleTakeoffLaunch } from "@/lib/takeoff/launch-intent-key";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
@@ -8,6 +10,7 @@ import useSWR from "swr";
 import {
   launchPreparedTakeoffFromPlanSetAction,
   launchPreparedTakeoffFromSourceVersionPlanSetAction,
+  relaunchTakeoffAction,
 } from "@/app/dashboard/affaires/_actions/takeoff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -52,10 +55,24 @@ function toLaunchPlanSetOption(planSet: PlanSetListItem): LaunchMetrePlanSetOpti
   };
 }
 
+/**
+ * What the dialogue launches (the affaire's takeoff zone decides it, lib/takeoff/affaire-takeoff-zone.ts):
+ * - `version` (default): while the automatic start is off, an analysis on the current draft or a new draft;
+ * - `request`: once it is on, a manual request on the clicker's subscription, without a version (the send chooses it):
+ *   the affaire's first analysis, or a relaunch naming the analysis it replaces;
+ * - `save_only`: the options are saved for the analysis that waits or runs; nothing is launched.
+ */
+export type LaunchMetreDialogMode =
+  | { kind: "version" }
+  | { kind: "request"; predecessorJobId: string | null }
+  | { kind: "save_only"; reason: string };
+
 type LaunchMetreDialogProps = {
   open: boolean;
+  launchMode?: LaunchMetreDialogMode;
   onOpenChange: (open: boolean) => void;
-  onLaunched?: (jobId: string, versionId: string) => void;
+  /** The version is null for a request: it has none until its send. */
+  onLaunched?: (jobId: string, versionId: string | null) => void;
   projectId: string;
   currentVersion:
     | {
@@ -174,8 +191,14 @@ function LaunchMetreDialogContent({
   availablePlanSets,
   initialPlanSetId = null,
   initialVersionId = null,
+  launchMode = { kind: "version" },
 }: LaunchMetreDialogProps) {
   const toast = useToast();
+  const versionMode = launchMode.kind === "version";
+  // The member of the page: a request launch whose answer is unknown (a timeout, a network failure, a server error) is kept
+  // for them and the affaire, across a reload and for every tab; their next click sends it again before anything new, and
+  // after an answer a new click is a new command.
+  const user = useOptionalUserContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
   const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
@@ -184,6 +207,7 @@ function LaunchMetreDialogContent({
   const [launchQueuedForRecovery, setLaunchQueuedForRecovery] = useState(false);
   const [launchRecoveryUnconfirmed, setLaunchRecoveryUnconfirmed] = useState(false);
   const [launchExistingAnalysis, setLaunchExistingAnalysis] = useState(false);
+  const [launchAlreadyRunning, setLaunchAlreadyRunning] = useState(false);
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
@@ -257,7 +281,8 @@ function LaunchMetreDialogContent({
       null,
     [selectedVersionId, versionOptions],
   );
-  const hasTargetVersion = selectedVersionOption !== null;
+  // A request carries no version: the send chooses its destination.
+  const hasTargetVersion = !versionMode || selectedVersionOption !== null;
   const hasPlanFiles = (selectedPlanSet?.fileCount ?? 0) > 0;
   const hasUsablePlanSet = planSetOptions.some((option) => option.fileCount > 0);
   const versionLabel = selectedVersionOption
@@ -316,8 +341,54 @@ function LaunchMetreDialogContent({
     [isSubmitting, launchSuccess, onOpenChange],
   );
 
+  const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
+    if (!selectedPlanSet || !hasPlanFiles || launchMode.kind !== "request") return;
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    const scope = { tenantId: user?.tenantId ?? null, userId: user?.profile?.id ?? null, projectId };
+    let intentKey: string | null = null;
+    try {
+      // A command still unanswered is settled first, with its own content (its analysis may have finished since, and the
+      // dialogue now names it): its replay answers with its receipt. Only an answered affaire offers a new command.
+      const command = readOutstandingTakeoffLaunch(scope) ?? beginTakeoffLaunch(scope, {
+        predecessorJobId: launchMode.predecessorJobId, planSetId: selectedPlanSet.id, preparationRevision,
+      });
+      intentKey = command.intentKey;
+      const result = unwrapTakeoffActionResult(await relaunchTakeoffAction({
+        projectId, planSetId: command.planSetId, preparationRevision: command.preparationRevision, intentKey: command.intentKey,
+        predecessorJobId: command.predecessorJobId,
+      }));
+      settleTakeoffLaunch(scope, command.intentKey);
+      const label = "Sans devis : la destination se choisit à l’envoi";
+      const title = result.outcome === "already_running" ? "Une analyse de l’affaire est déjà en cours"
+        : result.outcome === "replayed" ? "Analyse existante retrouvée" : "Analyse transmise au traitement";
+      if (result.outcome === "already_running") {
+        toast.warning({ title, description: "Suivez-la depuis l’état du métré de l’affaire.", durationMs: 6000 });
+      } else {
+        toast.success({ title, description: `${label} — ${planFileCount} fichier${planFileCount > 1 ? "s" : ""} de plan.`, durationMs: 6000 });
+      }
+      setLaunchSuccessVersionLabel(label);
+      setLaunchPlanFileCount(result.outcome === "admitted" ? planFileCount : null);
+      setLaunchQueuedForRecovery(false);
+      setLaunchRecoveryUnconfirmed(false);
+      setLaunchExistingAnalysis(result.outcome === "replayed");
+      setLaunchAlreadyRunning(result.outcome === "already_running");
+      setLaunchSuccess(true);
+      if (result.jobId) onLaunched?.(result.jobId, null);
+    } catch (error) {
+      // A refusal the server named decides the command: a new click is a new one. After a server error or a lost answer
+      // the command may have been recorded: the next click replays it with the same key.
+      if (intentKey && error instanceof TakeoffActionError && error.status < 500) settleTakeoffLaunch(scope, intentKey);
+      setErrorMessage(error instanceof TakeoffActionError ? error.message : "Impossible de lancer l'analyse.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [hasPlanFiles, launchMode, onLaunched, projectId, selectedPlanSet, toast, user]);
+
   const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
     if (!selectedPlanSet || !hasPlanFiles) return;
+    if (launchMode.kind === "request") return handleRequestLaunch(preparationRevision, planFileCount);
+    if (launchMode.kind !== "version") return;
 
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -406,7 +477,9 @@ function LaunchMetreDialogContent({
       setIsSubmitting(false);
     }
   }, [
+    handleRequestLaunch,
     hasPlanFiles,
+    launchMode.kind,
     onLaunched,
     projectId,
     selectedPlanSet,
@@ -428,7 +501,9 @@ function LaunchMetreDialogContent({
                 <CheckIcon stroke="var(--success)" strokeWidth="2.5" aria-hidden="true" />
               </div>
               <p className="text-sm font-semibold text-foreground">
-                {launchExistingAnalysis
+                {launchAlreadyRunning
+                  ? "Une analyse de l’affaire est déjà en cours"
+                  : launchExistingAnalysis
                   ? "Analyse existante retrouvée"
                   : launchRecoveryUnconfirmed
                   ? "Analyse créée, reprise à vérifier"
@@ -439,7 +514,9 @@ function LaunchMetreDialogContent({
               <p className="text-xs text-muted-foreground">
                 {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"}
                 {launchPlanFileCount !== null ? ` — ${launchPlanFileCount} fichier${launchPlanFileCount > 1 ? "s" : ""} de plan.` : "."}
-                {launchExistingAnalysis
+                {launchAlreadyRunning
+                  ? " Aucune autre analyse n’a été lancée : suivez celle-ci depuis l’état du métré de l’affaire."
+                  : launchExistingAnalysis
                   ? " Consultez son état dans le centre d’activité."
                   : launchRecoveryUnconfirmed
                   ? " La reprise automatique n'a pas pu être confirmée : ouvrez le centre d'activité et relancez cette analyse."
@@ -470,9 +547,11 @@ function LaunchMetreDialogContent({
                 <LazyTakeoffPreparationPanel
                   projectId={projectId}
                   planSetId={selectedPlanSet.id}
-                  estimateVersionId={selectedVersionOption?.id ?? null}
+                  estimateVersionId={versionMode ? selectedVersionOption?.id ?? null : null}
+                  analysisOnly={!versionMode}
                   disabled={isSubmitting}
-                  launchDisabled={!hasTargetVersion}
+                  launchDisabled={!hasTargetVersion || launchMode.kind === "save_only"}
+                  launchNotice={launchMode.kind === "save_only" ? launchMode.reason : null}
                   onLaunch={handleLaunch}
                   onBusyChange={setIsSubmitting}
                   onRegisterSave={registerPreparationSave}
@@ -493,7 +572,7 @@ function LaunchMetreDialogContent({
                     <p className="text-xs text-muted-foreground">{isIntakeSyncedPlanSet(selectedPlanSet.source) ? "Plans synchronisés depuis les pièces confirmées du dossier. Toutes les pages des plans retenus sont analysées par défaut." : "Toutes les pages du jeu sont retenues par défaut."}</p>
                     {planSetsLoadError && <Alert variant="warning"><AlertDescription>La liste complète des jeux n’a pas pu être actualisée. <button type="button" className="underline" onClick={() => void reloadPlanSets()}>Réessayer</button></AlertDescription></Alert>}
                   </div>}
-                  destinationControls={<div className="space-y-2">
+                  destinationControls={!versionMode ? <p className="text-sm text-muted-foreground">Sans devis à ce stade : l’analyse se relit dans sa revue, et la version de devis qui reçoit ses quantités se choisit à leur envoi au tableau de chiffrage.</p> : <div className="space-y-2">
                     <label className="block text-sm font-medium" htmlFor="launch-metre-target-version">Version cible</label>
                     <NativeSelect id="launch-metre-target-version" value={selectedVersionOption?.id ?? ""} onChange={(event) => {
                       const next = event.target.value;

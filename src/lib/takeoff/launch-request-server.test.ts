@@ -15,9 +15,11 @@ import { AFFAIRE_INTAKE_BUCKET } from "@/lib/affaires/intake";
 import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { AFFAIRE_INTAKE_PLAN_SET_METADATA } from "@/lib/takeoff/default-import-plan-set";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
   assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
-  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice,
+  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
@@ -56,6 +58,15 @@ vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/takeoff/job-read-server")>()), getAuthenticatedTakeoffContext: vi.fn(), getTakeoffJobDetailByIdOrThrow: vi.fn(),
 }));
 vi.mock("@/lib/pdf/page-render-server", () => ({ renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
+// The member's own subscription and the plan set's source, as a manual launch reads them: real unless a test names them.
+vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
+  return { ...actual, getConfirmedTakeoffExecutionOwner: vi.fn(actual.getConfirmedTakeoffExecutionOwner) };
+});
+vi.mock("@/lib/takeoff/job-creation-repository", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/takeoff/job-creation-repository")>();
+  return { ...actual, resolvePlanSetSourceFile: vi.fn(actual.resolvePlanSetSourceFile) };
+});
 
 const HOST = "urn:uuid:aaaaaaaa-0000-4000-8000-000000000099";
 const TENANT = "aaaaaaaa-0000-4000-8000-000000000010";
@@ -510,6 +521,90 @@ describe("describeDossierChangeSinceAnalysis", () => {
     });
 });
 
+// The dossier change the affaire's zone shows after an analysis: compared with the plan set the request analysed (a
+// relaunch on another set than the dossier's never reads as the dossier's plans added and its own removed), and naming a
+// plan only to a member who may read its copy or its dossier piece.
+describe("readDossierChangeSinceAnalysis", () => {
+  const SET_B = "aaaaaaaa-0000-4000-8000-000000000041";
+  const PLAN_B = "aaaaaaaa-0000-4000-8000-000000000051";
+  const PLAN_C = "aaaaaaaa-0000-4000-8000-000000000052";
+  const document = { id: DOCUMENT, upload_id: null, storage_path: `${TENANT}/dossier/plan-rdc.pdf`, plan_copy_generation: "generation-3",
+    file_name: "Plan RDC.pdf", mime_type: "application/pdf", size_bytes: 10, upload_status: "uploaded", classification_status: "classified",
+    document_kind: "plans", document_priority: "primary", classified_at: "2026-11-21T09:00:00Z", source_provider: null, deleted_at: null };
+  const dossierCopy = { id: PLAN_FILE, plan_set_id: PLAN_SET, file_path: FILE_PATH, file_name: "plan-rdc.pdf", file_size_bytes: 10,
+    metadata: { source: "affaire-intake", intake_document_id: DOCUMENT, intake_storage_path: document.storage_path, intake_generation: "generation-2" } };
+  const planB = { id: PLAN_B, plan_set_id: SET_B, file_path: `${TENANT}/${SET_B}/${PLAN_B}/plan-b.pdf`, file_name: "Plan B.pdf",
+    file_size_bytes: 10, metadata: {} };
+  const planC = { ...planB, id: PLAN_C, file_path: `${TENANT}/${SET_B}/${PLAN_C}/plan-c.pdf`, file_name: "Plan C.pdf" };
+  const sealedPlan = (plan: typeof planB | typeof dossierCopy, intake: { id: string; generation: string } | null) => ({
+    entry_key: plan.id, name: plan.file_name, logical_id: intake?.id ?? plan.id, intake_document_id: intake?.id ?? null,
+    plan_file_id: plan.id, generation: intake?.generation ?? null, content_sha256: "c".repeat(64), pages: [], page_count: 1 });
+
+  function read(input: { analysed: "dossier" | "b"; files: Array<typeof planB | typeof dossierCopy>; owner?: boolean; readable?: readonly string[];
+    /** The request's analysis no longer exists (its draft was deleted). */
+    jobGone?: boolean }) {
+    const manifest = { format_version: 1, intent: "reread_plans", units: [{ key: "grouped", plans: [] }], references: [],
+      plans: input.analysed === "b" ? [sealedPlan(planB, null)] : [sealedPlan(dossierCopy, { id: DOCUMENT, generation: "generation-2" })],
+      coverage: { plans_retained: 1, plans_omitted: [], references_omitted: [] } };
+    const service = createSupabaseFake({ tables: {
+      // The preparation the request sealed names the plan set of each source it read.
+      takeoff_launch_requests: () => ({ data: { manifest, preparation_snapshot: { preparation: { sources: [
+        { document_id: manifest.plans[0]!.plan_file_id, kind: "plan", active: true, plan_set_id: input.analysed === "b" ? SET_B : PLAN_SET },
+      ] } } }, error: null }),
+      takeoff_jobs: (query: FakeQuery) => ({ data: filterValue(query, "launch_request_id") === REQUEST && !input.jobGone
+        ? { plan_set_id: input.analysed === "b" ? SET_B : PLAN_SET } : null, error: null }),
+      plan_sets: () => ({ data: [
+        { id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
+          updated_at: "2026-11-21T08:00:00Z", plan_files: [{ count: 1 }] },
+        { id: SET_B, estimate_version_id: null, name: "Plans B", metadata: {}, updated_at: "2026-11-21T08:30:00Z", plan_files: [{ count: 1 }] },
+      ], error: null, count: 2 }),
+      plan_files: (query: FakeQuery) => {
+        const rows = input.files.filter((file) => file.plan_set_id === filterValue(query, "plan_set_id"));
+        return { data: rows, error: null, count: rows.length };
+      },
+      affaire_intake_documents: () => ({ data: [document], error: null, count: 1 }),
+    } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
+    // The member's own session: their policies say which plan files and dossier pieces they read.
+    const readable = new Set(input.readable ?? []);
+    const rows = (query: FakeQuery) => ({ data: ((filterValue(query, "id") as string[] | undefined) ?? [])
+      .filter((id) => readable.has(id)).map((id) => ({ id })), error: null });
+    const session = createSupabaseFake({
+      tables: { plan_files: rows, affaire_intake_documents: rows },
+      rpc: { can_access_takeoff_project: () => ({ data: input.owner ?? false, error: null }) },
+    });
+    return readDossierChangeSinceAnalysis({ supabase: session.client as never, tenantId: TENANT }, PROJECT, REQUEST);
+  }
+
+  it("reports no change right after a relaunch on another plan set than the dossier's", async () => {
+    await expect(read({ analysed: "b", files: [dossierCopy, planB], owner: true })).resolves.toBeNull();
+  });
+
+  it("compares the plan set the request sealed once its analysis is gone", async () => {
+    await expect(read({ analysed: "b", files: [dossierCopy, planB], owner: true, jobGone: true })).resolves.toBeNull();
+  });
+
+  it("reports a plan added to the analysed set since, and nothing of the dossier's own set", async () => {
+    await expect(read({ analysed: "b", files: [dossierCopy, planB, planC], owner: true })).resolves.toEqual({
+      added: [{ id: PLAN_C, name: "Plan C.pdf" }], replaced: [], removed: [] });
+  });
+
+  // Neither the name nor the identifier of a source the member may not read: an opaque « hidden » key and « Plan N ».
+  it.each([
+    ["the affaire's owner or an administrator", { owner: true }, { id: DOCUMENT, name: "Plan RDC.pdf" }],
+    ["a member who reads the dossier piece", { readable: [DOCUMENT] }, { id: DOCUMENT, name: "Plan RDC.pdf" }],
+    ["a member who reads neither the piece nor its copy", { readable: [] }, { id: "hidden:replaced:1", name: "Plan 1" }],
+  ] as const)("names the dossier's replaced piece to %s", async (_case, rights, piece) => {
+    await expect(read({ analysed: "dossier", files: [dossierCopy], ...rights })).resolves.toEqual({
+      added: [], replaced: [piece], removed: [] });
+  });
+
+  it("names a removed plan only to a member who may read its copy", async () => {
+    await expect(read({ analysed: "b", files: [dossierCopy], readable: [] })).resolves.toEqual({
+      added: [], replaced: [], removed: [{ id: "hidden:removed:1", name: "Plan 1" }] });
+  });
+});
+
 // The gestures: the brief's confirmation records who pays, on this Mac, or why nobody does; a take-over and a relaunch.
 const NOTICE = "a".repeat(64);
 function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown>; outcome?: string; replayed?: Record<string, unknown>;
@@ -663,6 +758,77 @@ describe("launchTakeoffRelaunch", () => {
     expect(calls("replay")).toEqual([expect.objectContaining({ p_intent_key: "aaaaaaaa-0000-4000-8000-0000000000aa",
       p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb", p_plan_set_id: PLAN_SET, p_preparation_revision: 2 })]);
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+  });
+
+  it("refuses an address that cannot use the subscription before the command is recorded or admitted", async () => {
+    const { calls } = gesture();
+    vi.mocked(assertLocalChatGptHost).mockImplementationOnce(() => { throw new Error("refused"); });
+    await expect(launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId: null, host: "autre-poste.example:3000" }))
+      .rejects.toMatchObject({ status: 422, message: expect.stringContaining("cette adresse ne peut pas utiliser le forfait ChatGPT") });
+    expect(calls("replay")).toEqual([]);
+    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+  });
+
+  // Past the replay: the member's confirmed preparation sealed, then the database's command decides.
+  function command(answer: { data?: unknown; error?: { code: string; message: string } }) {
+    const calls: string[] = [];
+    const service = createSupabaseFake({ rpc: {
+      replay_manual_takeoff_request: () => ({ data: [], error: null }),
+      launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
+    } });
+    vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
+    const session = createSupabaseFake({ tables: { plan_files: () => ({ data: [], error: null, count: 0 }) } });
+    const plan = takeoffPreparationSourceSchema.parse({ document_id: PLAN_FILE, document_name: "Plan RDC.pdf", kind: "plan",
+      revision: null, source_version: "fixture-version", pages: [], active: true, confirmed: true, plan_set_id: PLAN_SET,
+      file_path: FILE_PATH, page_count: 1, source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf", content_hash: "d".repeat(64) });
+    vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue({ execution_selection: SELECTION, preparation_revision: 2,
+      preparation: { sources: [plan] } } as never);
+    vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValueOnce({ execution_host_id: HOST } as never);
+    vi.mocked(resolvePlanSetSourceFile).mockResolvedValueOnce({ sourceFileName: "Plan RDC.pdf", sourceFileType: "application/pdf",
+      sourceFileSizeBytes: 10 } as never);
+    const launch = (predecessorJobId: string | null) => launchTakeoffRelaunch({ context: { userId: PAYER, tenantId: TENANT,
+      tenantRole: "engineer", supabase: session.client } as never, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId });
+    return { launch, calls };
+  }
+
+  // The database refuses a manual launch while the affaire's automatic start can still begin (it is taken on from the
+  // zone), and a first analysis of an affaire that has one: the member reads why, as a refusal that ends the command.
+  it.each([
+    ["the affaire's automatic start can still begin", { code: "55000", message: "TAKEOFF_LAUNCH_AUTOMATIC_PENDING" }, null,
+      "Le métré automatique de l’affaire peut encore démarrer : prenez-le en charge depuis l’état du métré de l’affaire."],
+    ["the affaire already has an analysis", { code: "22023", message: "TAKEOFF_LAUNCH_ANALYSIS_EXISTS" }, null,
+      "L’affaire a déjà une analyse : rechargez l’affaire pour relancer celle qu’elle montre."],
+  ] as const)("refuses a launch the database refuses because %s, and starts nothing", async (_case, error, predecessor, message) => {
+    const { launch, calls } = command({ error });
+    await expect(launch(predecessor)).rejects.toMatchObject({ status: 409, message });
+    expect(calls).toEqual(["launch"]);
+    expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
+  });
+
+  // Two commands of one affaire crossing in the database (a deadlock or a serialization failure, rolled back): the member is
+  // told to try again, and the command's key is kept for that (a server-side answer, never a refusal).
+  it.each([["a deadlock", "40P01", "deadlock detected"], ["a serialization failure", "40001", "could not serialize access"]] as const)(
+    "answers %s with a retryable French message", async (_case, code, message) => {
+      const { launch } = command({ error: { code, message } });
+      await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).rejects.toMatchObject({ status: 503, retryable: true,
+        message: "Le métré de l’affaire est occupé par une autre opération. Réessayez dans un instant." });
+    });
+
+  // An analysis launched outside any request that has not ended: the command is answered with it, without a request.
+  it("answers with the analysis outside any request that still runs, and starts nothing", async () => {
+    const legacy = "aaaaaaaa-0000-4000-8000-0000000000dd";
+    const { launch } = command({ data: [{ outcome: "already_running", request_id: null, job_id: legacy }] });
+    await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).resolves.toEqual({ outcome: "already_running", requestId: null, jobId: legacy });
+    expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
+  });
+
+  it("names a first analysis of the affaire « initial », with no analysis to replace", async () => {
+    const { calls } = gesture({ replayed: { outcome: "replayed", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000cc" } });
+    await launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId: null });
+    expect(calls("replay")).toEqual([expect.objectContaining({ p_intent: "initial", p_predecessor_job_id: null })]);
   });
 
 });

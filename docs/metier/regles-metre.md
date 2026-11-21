@@ -728,9 +728,10 @@ devis, ni version, ni section, ni quantité.
   le métré (l'affaire passée à un autre ingénieur) n'en reçoit pas le reçu
   (`TAKEOFF_SEND_RECEIPT_NOT_READABLE`). Deux métrés de l'affaire qui ont prévisualisé un
   premier brouillon : le premier confirmé le crée, l'autre est renvoyé à l'aperçu sur ce
-  brouillon. Un autre métré du même lancement (même jeu, même révision de préparation) est
-  refusé par son nom (`TAKEOFF_SEND_PREPARATION_ALREADY_SENT`) tant que les demandes de
-  lancement du lot suivant ne distinguent pas leurs métrés.
+  brouillon. Un autre métré du même lancement (même jeu, même révision de préparation), lancé
+  hors de toute demande, est refusé par son nom (`TAKEOFF_SEND_PREPARATION_ALREADY_SENT`) ;
+  les métrés de deux demandes de lancement sur la même révision s'envoient chacun vers le
+  même brouillon (migration `20261121193413_takeoff_launch_exclusion_and_send_requests.sql`).
 - **Ordre des verrous**, le même pour toute destination et commun à l'import et à la
   création d'une version : la politique de calcul du tenant (partagée), la ligne de
   l'affaire, puis pour un brouillon existant son verrou de règles

@@ -8,7 +8,7 @@ import { expect } from "e2e";
 
 import { apiRequest, createEstimateViaWizard, readEstimate, recordEvidence, restrictCriticalBrowser, type ArmyState } from "../critical/fixtures";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
-import { fillTakeoffPreparation, saveTakeoffPreparation } from "../critical/preparation-support";
+import { fillTakeoffPreparation, saveTakeoffPreparation, takeoffZone } from "../critical/preparation-support";
 import { createPlanSet, ownedTakeoffJobs, readPlanFiles, uploadPlansUnderNames, uploadSamplePlan } from "../critical/plans-support";
 import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
 import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
@@ -75,7 +75,7 @@ test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   const file = await uploadSamplePlan(ui, army, planSet);
   const jobs = ownedTakeoffJobs(browser, estimate);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
-  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name] });
   await expect(browser.locator('select option[value="gemini"]')).toHaveCount(0);
   await dialog.getByText("Assistance au cadrage", { exact: true }).click();
@@ -107,7 +107,7 @@ if (!existsSync(liveProbePath)) test("LOCAL02 a legacy drafting choice converts 
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
     await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
-    await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+    await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
     await saveTakeoffPreparation({ ...ui, army });
     const { client } = await localClient();
     const row = await client.from("takeoff_preparations").select("draft,revision").eq("project_id", estimate.projectId).single();
@@ -120,7 +120,7 @@ if (!existsSync(liveProbePath)) test("LOCAL02 a legacy drafting choice converts 
     expect(update.error).toBeNull();
     await browser.reload();
     await waitForHydration(browser);
-    await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+    await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
     const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
     await expect(dialog.getByText(/Préparation précédente adaptée/)).toBeVisible();
     await expect(dialog.getByText("Tout mesurer", { exact: true })).toBeVisible();
@@ -267,7 +267,7 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
     await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
-    await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+    await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
     const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name] });
     await dialog.getByText("Assistance au cadrage", { exact: true }).click();
     await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
@@ -619,7 +619,7 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   const [planFile] = await readPlanFiles(browser, planSet.id);
   expect(planFile.file_size_bytes).toBe((await readFile(probe.pdfPath)).length);
   await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=estimate`);
-  await screen.getByRole("button", "Préparer le métré", { exact: true }).click();
+  await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
   const preparationInput: Parameters<typeof fillTakeoffPreparation>[1] = { sources: [path.basename(probe.pdfPath)],
     objective: "count", unit: "u", levels: "R+1", zones: "Zone 1", inclusions: probe.inclusions, exclusions: probe.exclusions };
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { ...preparationInput, confirm: false });
