@@ -89,7 +89,7 @@ tard (une par plan). Les règles sont dans
 [`launch-request.ts`](../../src/lib/takeoff/launch-request.ts) et
 [`launch-request-server.ts`](../../src/lib/takeoff/launch-request-server.ts) ;
 la base en garantit l’unicité et l’admission (migration
-`20261121083011_takeoff_launch_requests.sql`).
+`20261121111238_takeoff_launch_requests.sql`).
 
 - **Une seule fois par affaire.** La confirmation du brief réserve la demande
   automatique de l’affaire ; l’analyse démarre quand le dossier est « Dossier

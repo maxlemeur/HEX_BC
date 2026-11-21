@@ -5626,6 +5626,9 @@ isOneToOne: false
 "complete_procurement_storage_cleanup":
 { Args: { "p_cleanup_id": string,"p_lease_token": string }; Returns: boolean
                            },
+"complete_takeoff_send_effects":
+{ Args: { "p_receipt_id": string,"p_step"?: string }; Returns: boolean
+                           },
 "confirm_estimate_source_reference":
 { Args: { "p_actor_user_id": string,"p_copy_id": string,"p_expected_review_revision": number,"p_idempotency_key": string,"p_reason": string,"p_reviewed_sha256": string,"p_version_id": string }; Returns: Json
                            },

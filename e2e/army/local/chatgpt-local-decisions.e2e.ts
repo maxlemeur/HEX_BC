@@ -1219,7 +1219,7 @@ test("INTWORD01 Word analysis reports per-file failures and preserves manual cho
   }
 });
 
-// The automatic start of the takeoff (lot 2, migration 20261121083011_takeoff_launch_requests.sql). Each journey has
+// The automatic start of the takeoff (lot 2, migration 20261121111238_takeoff_launch_requests.sql). Each journey has
 // owners of its own (createLocalChatGptOwner): their analyses count against no other journey's admission budget, and the
 // file's owner keeps no profile for them. The automatic start is activated for the journey only.
 /** Signs `email` in on this file's server, after leaving any session this browser context holds there. */

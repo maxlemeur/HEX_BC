@@ -1,6 +1,6 @@
 import { querySql } from "./calculation-gate-support";
 
-// The automatic start of the takeoff (migration 20261121083011_takeoff_launch_requests.sql) on the owned stack of a
+// The automatic start of the takeoff (migration 20261121111238_takeoff_launch_requests.sql) on the owned stack of a
 // local campaign: its activation, and the rows a journey reads to count requests, jobs, notices and payers.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

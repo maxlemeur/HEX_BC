@@ -1,0 +1,663 @@
+{
+  "date_utc": "2026-11-21",
+  "applied_and_verified": 2,
+  "history": {
+    "before": 415,
+    "after": 417,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "last_seven_match_morning_receipt": true,
+    "after_b": 416,
+    "prior_416_rows_identical": true
+  },
+  "b": {
+    "source_commit": "0dcea6a2f86a0cd9b61058334764eaf2964545cc",
+    "applied": {
+      "file": "20261121040445_takeoff_plan_locations.sql",
+      "pr": 429,
+      "merge_commit": "10859bcedec33d6e5fdea3c2166c5e2d1dc5e3b3",
+      "remote_version": "20261121083406",
+      "applied_at_utc": "2026-11-21T08:34:06Z",
+      "bytes": 37942,
+      "sha256": "a88febeb429035374fb0d6fa869cc668634ec4e39cdc75d6075a0be0367c487b",
+      "stored_form": "full_file_including_final_lf"
+    },
+    "precheck": {
+      "m1_applied": true,
+      "plan_set_scope_key": true,
+      "project_tenant_key": true,
+      "names_free": true,
+      "plan_files_to_record": 15,
+      "plan_files_without_a_source": 0
+    },
+    "locks": {
+      "db_utc": "2026-11-21 08:34:02.134664+00",
+      "excluded_window": false,
+      "activation_rows": 0,
+      "locks": []
+    },
+    "backfill": {
+      "files": 15,
+      "sources": 15,
+      "discrepancies": 0,
+      "corrections": 0,
+      "events": 0,
+      "attestations": 0,
+      "activation_rows": 0
+    },
+    "tables": [
+      {
+        "name": "private.takeoff_plan_location_attestations",
+        "columns": 15,
+        "constraints": 6,
+        "indexes": 2,
+        "rls": false,
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "policies": [],
+        "triggers": []
+      },
+      {
+        "name": "public.takeoff_plan_location_events",
+        "columns": 22,
+        "constraints": 5,
+        "indexes": 3,
+        "rls": true,
+        "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+        "policies": [
+          "Affaire readers can select takeoff plan location events"
+        ],
+        "triggers": [
+          "refuse_takeoff_plan_location_event_change"
+        ]
+      },
+      {
+        "name": "public.takeoff_plan_location_sources",
+        "columns": 7,
+        "constraints": 4,
+        "indexes": 3,
+        "rls": true,
+        "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+        "policies": [
+          "Affaire readers can select takeoff plan location sources"
+        ],
+        "triggers": []
+      },
+      {
+        "name": "public.takeoff_plan_locations",
+        "columns": 27,
+        "constraints": 21,
+        "indexes": 4,
+        "rls": true,
+        "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+        "policies": [
+          "Affaire readers can select takeoff plan locations"
+        ],
+        "triggers": [
+          "enforce_takeoff_plan_location_identity"
+        ]
+      }
+    ],
+    "plan_files_trigger": "record_takeoff_plan_location_source",
+    "functions": [
+      {
+        "sig": "private.enforce_takeoff_plan_location_identity()",
+        "md5": "44fb0d2113720ef5d17a5116a3fb9ae5",
+        "definer": false,
+        "vol": "v",
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": {
+          "anon": false,
+          "public": false,
+          "service_role": false,
+          "authenticated": false
+        }
+      },
+      {
+        "sig": "private.record_takeoff_plan_location_source()",
+        "md5": "34acc9ac64a3a13107147aeff0b9e0cb",
+        "definer": true,
+        "vol": "v",
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": {
+          "anon": false,
+          "public": false,
+          "service_role": false,
+          "authenticated": false
+        }
+      },
+      {
+        "sig": "private.refuse_takeoff_plan_location_event_change()",
+        "md5": "2a0d343cfed06c22a1abdd50cb38bdc4",
+        "definer": false,
+        "vol": "v",
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": {
+          "anon": false,
+          "public": false,
+          "service_role": false,
+          "authenticated": false
+        }
+      },
+      {
+        "sig": "private.resolve_takeoff_plan_location_source(uuid,uuid,uuid)",
+        "md5": "26e275ef696bbb96e47e0e6f2f07a1f7",
+        "definer": false,
+        "vol": "s",
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": {
+          "anon": false,
+          "public": false,
+          "service_role": false,
+          "authenticated": false
+        }
+      },
+      {
+        "sig": "private.takeoff_plan_file_source(uuid,uuid,uuid,jsonb)",
+        "md5": "ff07a62534259e53d36c4898845ff688",
+        "definer": false,
+        "vol": "s",
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": {
+          "anon": false,
+          "public": false,
+          "service_role": false,
+          "authenticated": false
+        }
+      },
+      {
+        "sig": "public.attest_takeoff_plan_revision(uuid,uuid,uuid,uuid,text,text,uuid,integer)",
+        "md5": "6b3755d68f665623fe139ae30bc14b14",
+        "definer": true,
+        "vol": "v",
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": {
+          "anon": false,
+          "public": false,
+          "service_role": true,
+          "authenticated": false
+        }
+      },
+      {
+        "sig": "public.read_takeoff_plan_location_source(uuid,uuid)",
+        "md5": "771a9220534427bad58cb43f6eae0324",
+        "definer": true,
+        "vol": "s",
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": {
+          "anon": false,
+          "public": false,
+          "service_role": false,
+          "authenticated": true
+        }
+      },
+      {
+        "sig": "public.set_takeoff_plan_location(uuid,integer,text,text,text,text,text[])",
+        "md5": "461075ae8653c8565382c8f45dfafea6",
+        "definer": true,
+        "vol": "v",
+        "config": [
+          "search_path=\"\""
+        ],
+        "acl": {
+          "anon": false,
+          "public": false,
+          "service_role": false,
+          "authenticated": true
+        }
+      }
+    ],
+    "security_advisors": {
+      "before": [
+        [
+          "rls_enabled_no_policy",
+          26
+        ],
+        [
+          "authenticated_security_definer_function_executable",
+          85
+        ],
+        [
+          "auth_leaked_password_protection",
+          1
+        ]
+      ],
+      "after": [
+        [
+          "rls_enabled_no_policy",
+          26
+        ],
+        [
+          "authenticated_security_definer_function_executable",
+          87
+        ],
+        [
+          "auth_leaked_password_protection",
+          1
+        ]
+      ],
+      "added": [
+        {
+          "category": "authenticated_security_definer_function_executable",
+          "severity": "WARN",
+          "object": "read_takeoff_plan_location_source",
+          "detail": "Function `public.read_takeoff_plan_location_source(p_project_id uuid, p_plan_file_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_takeoff_plan_location_source`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "category": "authenticated_security_definer_function_executable",
+          "severity": "WARN",
+          "object": "set_takeoff_plan_location",
+          "detail": "Function `public.set_takeoff_plan_location(p_attestation_id uuid, p_expected_revision integer, p_building_choice text, p_building text, p_level_choice text, p_level text, p_carried_fields text[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_takeoff_plan_location`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        }
+      ],
+      "removed": []
+    },
+    "production_after_apply": {
+      "at_utc": "2026-11-21T08:35:35.325Z",
+      "url": "https://hex-bc.vercel.app/api/health",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "version": "0.7.0",
+        "db": "up"
+      }
+    }
+  },
+  "m2": {
+    "applied": {
+      "file": "20261121050138_takeoff_send_receipts.sql",
+      "pr": 426,
+      "merge_commit": "0dcea6a2f86a0cd9b61058334764eaf2964545cc",
+      "source_commit": "4343a80c57ed8e460c9ec7f2bc9823ddd7a295eb",
+      "remote_version": "20261121102941",
+      "applied_at_utc": "2026-11-21T10:29:41Z",
+      "attempts": 1,
+      "bytes": 110977,
+      "sha256": "b740982809201eb4c59b0e6c62d7c312649e4c6703025095716d4f2bdca371af",
+      "stored_form": "full_file_including_final_lf"
+    },
+    "production": {
+      "at": "2026-11-21T10:29:24.141Z",
+      "url": "https://hex-bc.vercel.app/api/health",
+      "http": 200,
+      "ok": true,
+      "version": "0.7.0",
+      "db": "up"
+    },
+    "owner_decision": "Option 2 : appliquer M2 sous la v0.7.0. Une fusion sur une ligne saisie à la main peut renvoyer HTTP 409 sans écriture. La v0.8.0 est la première version qui empêche cette fusion à l’écran.",
+    "precheck": {
+      "pr_426": {
+        "previous_migrations_applied": true,
+        "m1_applied": true,
+        "writer_present": true,
+        "writer_name_free": true,
+        "receipts_free": true,
+        "permits_free": true,
+        "staging_free": true,
+        "stage_free": true,
+        "peers_stamp_free": true,
+        "mapping_stamp_free": true,
+        "line_unit_free": true,
+        "preview_refusal_free": true,
+        "admitted_role_free": true,
+        "creation_body_expected": true,
+        "writer_body_expected": true,
+        "no_long_transaction": true
+      },
+      "db_utc": "2026-11-21 10:29:23.994808+00",
+      "allowed_window": true,
+      "jobs": 0,
+      "processing": 0,
+      "by_status": {},
+      "other_relation_locks": 0,
+      "occupied_new_object_names": 0,
+      "added_constraints_or_unique_indexes_on_existing_tables": 0,
+      "existing_rows_violating_new_constraints": 0
+    },
+    "postcheck": {
+      "permits": 0,
+      "receipts": 0,
+      "commands": 0,
+      "activation": 0
+    },
+    "tables": [
+      {
+        "name": "private.takeoff_job_attachment_permits",
+        "columns": 6,
+        "constraints": 3,
+        "indexes": 1,
+        "rls": false,
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "policies": [],
+        "triggers": []
+      },
+      {
+        "name": "private.takeoff_send_commands",
+        "columns": 8,
+        "constraints": 5,
+        "indexes": 1,
+        "rls": false,
+        "acl": "{postgres=arwdDxtm/postgres}",
+        "policies": [],
+        "triggers": []
+      },
+      {
+        "name": "public.takeoff_send_receipts",
+        "columns": 15,
+        "constraints": 13,
+        "indexes": 4,
+        "rls": true,
+        "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+        "policies": [
+          "Readers of the takeoff can select its send receipts"
+        ],
+        "triggers": [
+          "guard_takeoff_send_receipt_write",
+          "guard_takeoff_send_receipt_delete"
+        ]
+      }
+    ],
+    "job_read_policy": {
+      "polname": "Current tenant can select takeoff jobs",
+      "polcmd": "r",
+      "roles": "{authenticated}",
+      "predicate": "(( SELECT private.can_access_takeoff_scope(takeoff_jobs.tenant_id, takeoff_jobs.project_id, takeoff_jobs.estimate_version_id, false) AS can_access_takeoff_scope) OR ( SELECT private.can_read_sent_takeoff_job(takeoff_jobs.tenant_id, takeoff_jobs.project_id, takeoff_jobs.id) AS can_read_sent_takeoff_job))"
+    },
+    "functions": [
+      {
+        "signature": "public.persist_estimate_creation_atomic(uuid,uuid,uuid,jsonb,jsonb,jsonb,uuid)",
+        "body_md5": "b14be90a207ad3b21f3e8ca3dc52788c",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.apply_takeoff_job_atomic(uuid,text,uuid,jsonb)",
+        "body_md5": "e58a3ca9b67c13ba095672d619b3459c",
+        "security_definer": true,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "private.has_takeoff_job_version_attachment_permit(uuid,uuid,uuid,uuid)",
+        "body_md5": "9bcbc2cc387ddb2ecaefb1cf13e850d5",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "private.guard_takeoff_send_receipt_write()",
+        "body_md5": "2ff5b6502094cd202a01665168baa7cc",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "private.guard_takeoff_send_receipt_delete()",
+        "body_md5": "0b6483380cbfe017558b4e6f5470b5ab",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "private.can_read_sent_takeoff_job(uuid,uuid,uuid)",
+        "body_md5": "b6be01fa2a6cc597bfeea25b7e44b32e",
+        "security_definer": true,
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "private.can_access_takeoff_child(uuid,uuid,uuid,boolean)",
+        "body_md5": "a2d7e4c910165e204fdd9620caaf2202",
+        "security_definer": true,
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "private.can_read_takeoff_plan_evidence(uuid,uuid,uuid,text)",
+        "body_md5": "1c6c692c7f722d519ceb1b0fdc58e469",
+        "security_definer": true,
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "private.takeoff_estimate_line_item_ids(jsonb,uuid)",
+        "body_md5": "41c014a4324990d86b1896ea1028a8f6",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "public.stage_takeoff_send(uuid,jsonb)",
+        "body_md5": "2810d2f12fc154b273b9eb5204499c38",
+        "security_definer": true,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.takeoff_mapping_rules_stamp(uuid)",
+        "body_md5": "c3340f8e86d801c60a9a155e0501478f",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "public.takeoff_send_peers_stamp(uuid,uuid)",
+        "body_md5": "a369d815ba237b92069f2bfdddbea217",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": true
+        }
+      },
+      {
+        "signature": "private.takeoff_send_line_unit(smallint,text,text)",
+        "body_md5": "f23088d6fc20dc9783ccba1ee3053978",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "private.takeoff_send_execute(uuid,uuid,public.tenant_role,uuid,jsonb,boolean)",
+        "body_md5": "9a1fa54472f548a3a5842b6c71ad18cd",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "private.takeoff_send_replay(public.takeoff_send_receipts,uuid,uuid,text,text)",
+        "body_md5": "8417a6602a7399e0a0a52ebce5ea9080",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "private.takeoff_send_preview_refusal(text,text,text)",
+        "body_md5": "e677d91153b3e2adcde4dc3a43777d97",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "private.takeoff_send_admitted_role(jsonb,uuid,uuid,uuid,uuid)",
+        "body_md5": "76c4704c9e5a733d39d4b037998ca924",
+        "security_definer": false,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "public.send_takeoff_job(jsonb)",
+        "body_md5": "b9502915ee80c3e6a8f7c3b367c24a3e",
+        "security_definer": true,
+        "execute": {
+          "anon": false,
+          "authenticated": true,
+          "service_role": false
+        }
+      },
+      {
+        "signature": "private.takeoff_apply_atomic_writer(uuid,text,uuid,jsonb)",
+        "body_md5": "2f2182de717946f355b88c953cfd340b",
+        "security_definer": true,
+        "execute": {
+          "anon": false,
+          "authenticated": false,
+          "service_role": false
+        }
+      }
+    ],
+    "released_call_paths": [
+      {
+        "signature": "public.apply_takeoff_job_atomic(uuid,text,uuid,jsonb)",
+        "calls": [
+          "takeoff_apply_atomic_writer"
+        ],
+        "authenticated": false,
+        "service_role": true
+      },
+      {
+        "signature": "public.apply_takeoff_job_guarded_atomic(uuid,text,uuid,jsonb,text)",
+        "calls": [
+          "apply_takeoff_job_atomic"
+        ],
+        "authenticated": true,
+        "service_role": true
+      },
+      {
+        "signature": "public.apply_takeoff_job_guarded_atomic(uuid,text,uuid,jsonb)",
+        "calls": [
+          "apply_takeoff_job_atomic"
+        ],
+        "authenticated": true,
+        "service_role": true
+      },
+      {
+        "signature": "public.apply_takeoff_job_with_page_decisions(uuid,text,uuid,jsonb,jsonb,text)",
+        "calls": [
+          "apply_takeoff_job_guarded_atomic"
+        ],
+        "authenticated": true,
+        "service_role": true
+      },
+      {
+        "signature": "public.persist_estimate_creation_atomic(uuid,uuid,uuid,jsonb,jsonb,jsonb,uuid)",
+        "calls": [],
+        "authenticated": false,
+        "service_role": true
+      },
+      {
+        "signature": "public.takeoff_rule_version_stamp(uuid,uuid)",
+        "calls": [],
+        "authenticated": false,
+        "service_role": true
+      }
+    ],
+    "security_advisors": {
+      "before": [
+        [
+          "rls_enabled_no_policy",
+          26
+        ],
+        [
+          "authenticated_security_definer_function_executable",
+          87
+        ],
+        [
+          "auth_leaked_password_protection",
+          1
+        ]
+      ],
+      "after": [
+        [
+          "rls_enabled_no_policy",
+          26
+        ],
+        [
+          "authenticated_security_definer_function_executable",
+          88
+        ],
+        [
+          "auth_leaked_password_protection",
+          1
+        ]
+      ],
+      "added": [
+        {
+          "category": "authenticated_security_definer_function_executable",
+          "severity": "WARN",
+          "object": "send_takeoff_job",
+          "detail": "Function `public.send_takeoff_job(p_request jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/send_takeoff_job`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        }
+      ],
+      "removed": []
+    }
+  },
+  "notices_activated": false,
+  "deployed": false,
+  "flags_changed": false
+}

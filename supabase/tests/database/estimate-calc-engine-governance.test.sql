@@ -716,7 +716,7 @@ with duplicate_definition as (
     'public.duplicate_estimate_version_without_product_id(uuid,boolean)'::regprocedure
   )) as source
 )
--- Since M4 (20261121083011_takeoff_launch_requests.sql) the project is held FOR NO KEY UPDATE, which still excludes every
+-- Since M4 (20261121111238_takeoff_launch_requests.sql) the project is held FOR NO KEY UPDATE, which still excludes every
 -- copy and creator that locks it, but no longer the foreign-key check of an analysis's notice
 -- (takeoff-copy-lock-cycle-race.test.sql); the source version stays FOR UPDATE.
 select ok(

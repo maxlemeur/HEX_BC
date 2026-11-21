@@ -1,4 +1,4 @@
--- Lot 2, M4 (20261121083011_takeoff_launch_requests.sql): « Dupliquer » against the end of an analysis, with the
+-- Lot 2, M4 (20261121111238_takeoff_launch_requests.sql): « Dupliquer » against the end of an analysis, with the
 -- end-of-analysis notices activated. The copy holds the affaire and then locks each job it carries; the worker ending one
 -- of those jobs holds its row and inserts its notice, whose foreign key needs a key-share lock on the affaire. Here the
 -- worker holds the job (as its ending functions lock it first), the copy waits for it, and the worker ends the job: the

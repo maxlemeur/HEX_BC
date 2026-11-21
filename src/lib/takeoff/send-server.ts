@@ -10,9 +10,9 @@ import { forbidden, mapSupabaseError } from "@/lib/http/api-response";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { buildTakeoffAtomicMappingPlan } from "@/lib/takeoff/apply-preparation";
-import { listTakeoffApplyGuardItems, listTakeoffRulePartnerExclusions, logTakeoffMappingApplyAuditEvents } from "@/lib/takeoff/apply-repository";
+import { listTakeoffApplyGuardItems, listTakeoffRulePartnerExclusions } from "@/lib/takeoff/apply-repository";
 import { mapApplyTakeoffRpcError, type ApplyTakeoffRpcError } from "@/lib/takeoff/apply-errors";
-import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
+import { takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { getTakeoffLowConfidenceThresholdForTenant } from "@/lib/takeoff/feature-flags";
 import { forcedItemError, FORCE_MESSAGES, packForcedItems, type ForcedEntry } from "@/lib/takeoff/force-reasons";
@@ -77,6 +77,13 @@ const BLOCKER_MESSAGES: Record<TakeoffSendBlocker, string> = {
 };
 
 const PRICE_ACTIONS = new Set(["set_price", "apply_assembly"]);
+
+/**
+ * The format of the command the server stages: 2, whose send writes the application's audit rows (« takeoff.apply.completed »
+ * and one « takeoff.mapping.applied » per line a mapping rule changed) in its own transaction, once. The database still
+ * admits format 1, the previous application's, whose server writes them after the commit.
+ */
+const SEND_COMMAND_FORMAT = 2;
 
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -193,7 +200,6 @@ type Computed = {
     blocked_items: GuardBlockedItem[];
     guard_items: Awaited<ReturnType<typeof listTakeoffApplyGuardItems>>;
     threshold: number;
-    preview: TakeoffPreviewConversionResponse;
     engine: number | null;
   }) | null;
 };
@@ -207,7 +213,7 @@ const DRY_RUN_JUSTIFICATION = "Aperçu de l’envoi : motif provisoire, jamais e
  */
 async function dryRunSend(ctx: Context, jobId: string, parts: StagedParts, override: Record<string, unknown> | null) {
   const requestId = randomUUID();
-  const staged = { format_version: 1, mode: "dry_run", request_id: requestId, job_id: jobId, fingerprint: sha256({ dry_run: requestId }),
+  const staged = { format_version: SEND_COMMAND_FORMAT, mode: "dry_run", request_id: requestId, job_id: jobId, fingerprint: sha256({ dry_run: requestId }),
     client: {}, ...parts, override, expected_outcome: null };
   const { error: stageError } = await createServiceRoleClient().rpc("stage_takeoff_send" as never,
     { p_actor_id: ctx.userId, p_command: staged as unknown as Json } as never);
@@ -535,7 +541,7 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   };
   if (blocker || !destination || !parts || !outcome) return { response, command: null };
   return { response, command: { ...parts, target: destination, outcome, blocked_items: blockedItems, guard_items: guardItems, threshold,
-    preview, engine } };
+    engine } };
 }
 
 /**
@@ -672,8 +678,16 @@ function overrideMetadata(blocked: readonly GuardBlockedItem[], payload: { force
   return overrideFromForced(blocked, forced, guardItems, threshold);
 }
 
-type ReceiptRow = { id: string; job_id: string; request_id: string; target_version_id: string; result: Record<string, unknown>;
-  replayed?: boolean };
+type ReceiptRow = { id: string; job_id: string; project_id: string; request_id: string; target_version_id: string;
+  result: Record<string, unknown>; replayed?: boolean;
+  /** What the send and a replay say of what follows the commit: the format that ran (1: the previous application's), */
+  command_format?: number;
+  /** whether the server completed it (« unrecorded »: a receipt from before that record), */
+  effects?: "pending" | "completed" | "unrecorded";
+  /** whether a first draft's defaults were recorded as done (they are, as soon as they succeed), */
+  defaults?: "pending" | "completed" | "unrecorded";
+  /** and the affaire's owner at the send (none for a receipt from before that record). */
+  affaire_owner_id?: string | null };
 
 function responseOf(receipt: ReceiptRow, replayed: boolean): TakeoffSendResponse {
   const result = receipt.result as { version_created?: boolean; created_count?: number; updated_count?: number; removed_count?: number;
@@ -684,6 +698,70 @@ function responseOf(receipt: ReceiptRow, replayed: boolean): TakeoffSendResponse
     created_count: result.created_count ?? 0, updated_count: result.updated_count ?? 0, removed_count: result.removed_count ?? 0,
     ignored_count: result.ignored_count ?? 0, lines_created: result.lines_created ?? [], lines_updated: result.lines_changed ?? [],
     lines_removed: (result.lines_removed ?? []).map((line) => line.id), sections_changed: result.sections_changed ?? [] };
+}
+
+/**
+ * What follows the commit of a send, done by the attempt that committed it and, while it is not recorded as completed, by
+ * a replay of its request (a process stopped between the commit and these effects leaves them to the next attempt):
+ * - a first draft gets the default categories and labour roles « Créer un devis » gives it, for the affaire's owner at the
+ *   send (upserted on their names), recorded as done as soon as they are: a replay never creates them again, even while
+ *   the rest is pending (a default renamed since stays renamed; only a stop between those upserts and that record leaves
+ *   them to be created again);
+ * - then the other takeoffs of the draft, which have a new peer, have their rules computed again (their stale state blocks
+ *   them meanwhile). Only a recomputation that wrote every line it read completes the effects; otherwise they stay pending
+ *   for the next replay;
+ * - then the server records them completed — which, for a command of format 1 whose server did not write the
+ *   application's audit row, writes it (public.complete_takeoff_send_effects).
+ * Only a member who may still send to the affaire does any of it: the operator rule of the send, on the membership, the
+ * tenant and the affaire as the database holds them now (not as the request read them). Any other reader of the receipt
+ * gets the receipt and nothing else.
+ */
+async function afterCommit(ctx: Context, receipt: ReceiptRow) {
+  if (receipt.effects === "completed") return;
+  const service = createServiceRoleClient();
+  const [projectRead, membershipRead, tenantRead] = await Promise.all([
+    service.from("estimate_projects").select("user_id, is_archived").eq("tenant_id", ctx.tenantId).eq("id", receipt.project_id)
+      .maybeSingle(),
+    service.from("tenant_memberships").select("role").eq("tenant_id", ctx.tenantId).eq("user_id", ctx.userId).maybeSingle(),
+    service.from("tenants").select("is_active").eq("id", ctx.tenantId).maybeSingle(),
+  ]);
+  const readError = projectRead.error ?? membershipRead.error ?? tenantRead.error;
+  if (readError) failed(readError, "Impossible de vérifier les droits sur l’affaire du métré.", receipt.job_id);
+  const project = projectRead.data as { user_id: string; is_archived: boolean } | null;
+  const role = (membershipRead.data as { role: string } | null)?.role ?? null;
+  const maySend = (tenantRead.data as { is_active: boolean } | null)?.is_active === true && !!project && !project.is_archived
+    && (role === TAKEOFF_TENANT_ADMIN_ROLE || (role === "engineer" && project.user_id === ctx.userId));
+  if (!maySend) return;
+
+  const complete = async (step: "defaults" | "all") => {
+    const { error } = await service.rpc("complete_takeoff_send_effects" as never, { p_receipt_id: receipt.id, p_step: step } as never);
+    if (error) {
+      console.error("takeoff.send.effects_completion_failed", { job_id: receipt.job_id, step,
+        code: (error as { code?: string }).code ?? null });
+    }
+    return !error;
+  };
+  const result = receipt.result as { version_created?: boolean; source_version_id?: string | null };
+  // A receipt from before the record names no owner at the send: its defaults are not guessed from today's owner.
+  if (result.version_created === true && !result.source_version_id && receipt.affaire_owner_id && receipt.defaults !== "completed") {
+    try {
+      await ensureDefaultEstimateCategories({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId });
+      await ensureDefaultLaborRoles({ supabase: ctx.supabase, tenantId: ctx.tenantId, ownerUserId: receipt.affaire_owner_id });
+    } catch (defaultsError) {
+      // Left pending: the next replay of the request does them again.
+      console.error("takeoff.send.defaults_failed", { job_id: receipt.job_id,
+        message: defaultsError instanceof Error ? defaultsError.message.slice(0, 300) : "unknown" });
+      return;
+    }
+    if (!await complete("defaults")) return;
+  }
+  const recomputed = await recomputeTakeoffRulesQuietly({ tenantId: ctx.tenantId, estimateVersionId: receipt.target_version_id,
+    context: "applied" });
+  if (!recomputed || recomputed.skipped > 0) {
+    console.error("takeoff.send.rules_pending", { job_id: receipt.job_id, skipped: recomputed?.skipped ?? null });
+    return;
+  }
+  await complete("all");
 }
 
 /**
@@ -716,11 +794,14 @@ export async function sendTakeoffJob(jobId: string, body: unknown): Promise<Take
     if (existingError) failed(existingError, "Impossible de vérifier l’envoi déjà confirmé.", normalizedJobId);
     return existing !== null;
   };
-  // Committed already (a timeout after commit): the command compares this confirmation with the receipt's.
+  // Committed already (a timeout after commit): the command compares this confirmation with the receipt's, and what
+  // follows the commit is done again (an attempt stopped after its commit left it undone).
   const replay = async () => {
     const { data, error } = await send({});
     if (error) throw mapSendTakeoffRpcError(error, normalizedJobId);
-    return responseOf(data as unknown as ReceiptRow, true);
+    const receipt = data as unknown as ReceiptRow;
+    await afterCommit(ctx, receipt);
+    return responseOf(receipt, true);
   };
   if (await committed()) return replay();
 
@@ -758,47 +839,15 @@ export async function sendTakeoffJob(jobId: string, body: unknown): Promise<Take
 
   // The server stages what it computed (the rules evaluated for the destination, the plan, the outcome the member saw)
   // and the user's session sends it: the command never takes them from the browser.
-  const { data, error } = await send({ format_version: 1, mode: "send", destination: command.destination, section: command.section,
+  const { data, error } = await send({ format_version: SEND_COMMAND_FORMAT, mode: "send", destination: command.destination,
+    section: command.section,
     expected: command.expected, mapping_plan: command.mapping_plan, page_decisions: command.page_decisions,
     rule_results: command.rule_results, rule_transforms: command.rule_transforms, accumulations: command.accumulations,
     override, price_rules_ignored: command.price_rules_ignored, expected_outcome: command.outcome });
   if (error) throw mapSendTakeoffRpcError(error, normalizedJobId);
   const receipt = data as unknown as ReceiptRow;
-  // The same request committed by an attempt in flight: its own call wrote the audit and recomputed the rules.
-  if (receipt.replayed === true) return responseOf(receipt, true);
-
-  // After commit, never before: a first draft gets the default categories and labour roles « Créer un devis » gives it
-  // (a refused confirmation leaves none). Then the other takeoffs of the draft have a new peer: their rules are computed
-  // again (their stale state blocks them meanwhile). The audit of the application, as « Envoyer au tableau de
-  // chiffrage » writes it.
-  if (command.target.kind === "first_draft") {
-    try {
-      const { data: owner } = await createServiceRoleClient().from("estimate_projects").select("user_id").eq("id", job.project_id).single();
-      await ensureDefaultEstimateCategories({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId });
-      await ensureDefaultLaborRoles({ supabase: ctx.supabase, tenantId: ctx.tenantId, ownerUserId: owner?.user_id ?? ctx.userId });
-    } catch (defaultsError) {
-      console.error("takeoff.send.defaults_failed", { job_id: normalizedJobId,
-        message: defaultsError instanceof Error ? defaultsError.message.slice(0, 300) : "unknown" });
-    }
-  }
-  await recomputeTakeoffRulesQuietly({ tenantId: ctx.tenantId, estimateVersionId: receipt.target_version_id, context: "applied" });
-  await logTakeoffAuditEvent({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId, jobId: normalizedJobId,
-    estimateVersionId: receipt.target_version_id, action: "takeoff.apply.completed",
-    metadata: takeoffAuditMetadataBuilders["takeoff.apply.completed"]({ estimate_version_id: receipt.target_version_id,
-      applied_items_count: Number((receipt.result as { created_count?: number }).created_count ?? 0)
-        + Number((receipt.result as { updated_count?: number }).updated_count ?? 0),
-      excluded_items_count: Number((receipt.result as { ignored_count?: number }).ignored_count ?? 0) }),
-    mode: "non-blocking" });
-  if (command.preview.items.some((item) => !item.original.is_excluded && item.action !== "none")) {
-    const links = ((receipt.result as { item_links?: Array<{ takeoff_item_id: string; estimate_item_id: string }> }).item_links ?? []);
-    try {
-      await logTakeoffMappingApplyAuditEvents({ supabase: ctx.supabase, tenantId: ctx.tenantId, userId: ctx.userId, jobId: normalizedJobId,
-        estimateVersionId: receipt.target_version_id, previewItems: command.preview.items,
-        estimateLineByItemId: new Map(links.map((link) => [link.takeoff_item_id, link.estimate_item_id])) });
-    } catch (auditError) {
-      console.error("takeoff.send.mapping_audit_failed", { job_id: normalizedJobId,
-        message: auditError instanceof Error ? auditError.message.slice(0, 300) : "unknown" });
-    }
-  }
-  return responseOf(receipt, false);
+  // After commit, never before (a refused confirmation leaves no default category nor role), and again by a replay: the
+  // same request committed by an attempt in flight, or stopped after its commit, is answered with its receipt.
+  await afterCommit(ctx, receipt);
+  return responseOf(receipt, receipt.replayed === true);
 }
