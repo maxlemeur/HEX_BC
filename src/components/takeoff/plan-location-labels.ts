@@ -2,7 +2,7 @@ import type { PlanLocationField, PlanLocationFieldView } from "@/lib/takeoff/pla
 
 type FieldAuthor = { set_by_name: string | null; set_at: string };
 type Correction = Record<PlanLocationField, FieldAuthor> | null;
-type EarlierCorrection = { updated_by_name: string | null; updated_at: string } | null;
+type EarlierCorrection = Record<PlanLocationField, FieldAuthor> | null;
 
 export const PLAN_LOCATION_FIELD_LABELS: Record<PlanLocationField, string> = { building: "Bâtiment", level: "Niveau" };
 
@@ -23,7 +23,8 @@ export function planLocationValueLabel(field: PlanLocationField, view: PlanLocat
 export function planLocationProvenanceLabel(field: PlanLocationField, view: PlanLocationFieldView, annotation: Correction, earlier: EarlierCorrection) {
   const author = annotation?.[field];
   const by = author ? `${author.set_by_name ?? "un membre"} le ${formatDate(author.set_at)}` : "un membre";
-  const byEarlier = earlier ? `${earlier.updated_by_name ?? "un membre"} le ${formatDate(earlier.updated_at)}` : "un membre";
+  const earlierAuthor = earlier?.[field];
+  const byEarlier = earlierAuthor ? `${earlierAuthor.set_by_name ?? "un membre"} le ${formatDate(earlierAuthor.set_at)}` : "un membre";
   switch (view.state) {
     case "confirmed": return `Confirmé par ${by}`;
     // Against a title block that was not read here, the stored value is neither a confirmation nor a correction.

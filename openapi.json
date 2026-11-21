@@ -93954,16 +93954,56 @@
                               "maximum": 9007199254740991
                             },
                             "building": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_by_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_at": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "set_by_name",
+                                "set_at"
+                              ],
+                              "additionalProperties": false
                             },
                             "level": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_by_name": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "set_at": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "set_by_name",
+                                "set_at"
+                              ],
+                              "additionalProperties": false
                             },
                             "document_name": {
                               "type": "string"
@@ -93974,15 +94014,6 @@
                             },
                             "same_source": {
                               "type": "boolean"
-                            },
-                            "updated_by_name": {
-                              "type": [
-                                "string",
-                                "null"
-                              ]
-                            },
-                            "updated_at": {
-                              "type": "string"
                             }
                           },
                           "required": [
@@ -93992,9 +94023,7 @@
                             "level",
                             "document_name",
                             "content_hash",
-                            "same_source",
-                            "updated_by_name",
-                            "updated_at"
+                            "same_source"
                           ],
                           "additionalProperties": false
                         },
@@ -101958,16 +101987,56 @@
                         "maximum": 9007199254740991
                       },
                       "building": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_by_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "set_by_name",
+                          "set_at"
+                        ],
+                        "additionalProperties": false
                       },
                       "level": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_by_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "set_at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "set_by_name",
+                          "set_at"
+                        ],
+                        "additionalProperties": false
                       },
                       "document_name": {
                         "type": "string"
@@ -101978,15 +102047,6 @@
                       },
                       "same_source": {
                         "type": "boolean"
-                      },
-                      "updated_by_name": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "updated_at": {
-                        "type": "string"
                       }
                     },
                     "required": [
@@ -101996,9 +102056,7 @@
                       "level",
                       "document_name",
                       "content_hash",
-                      "same_source",
-                      "updated_by_name",
-                      "updated_at"
+                      "same_source"
                     ],
                     "additionalProperties": false
                   },

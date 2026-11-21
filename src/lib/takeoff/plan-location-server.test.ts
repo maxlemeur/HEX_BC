@@ -16,13 +16,18 @@ import { getAuthenticatedTakeoffContext, getTakeoffJobDetailByIdOrThrow } from "
 import { authenticatedContext, createSupabaseFake, filterValue, M3_JOB_ID, M3_PLAN_SET_ID, M3_PROJECT_ID, M3_TENANT_ID, M3_USER_ID,
   type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
 import { readTakeoffJobPlanLocations, readTakeoffPlanFileLocation, saveTakeoffPlanFileLocation } from "@/lib/takeoff/plan-location-server";
-import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
+import { createEmptyTakeoffPreparation, createTakeoffPreparationSnapshot, type TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 
 const FILE_ID = "99999999-9999-4999-8999-999999999991";
 const NEW_COPY_ID = "99999999-9999-4999-8999-999999999992";
 const PIECE_ID = "99999999-9999-4999-8999-999999999993";
 const ATTESTATION_ID = "99999999-9999-4999-8999-999999999994";
 const ORIGIN_ID = "99999999-9999-4999-8999-999999999995";
+const EARLIER_FILE_ID = "99999999-9999-4999-8999-999999999996";
+const MANUAL_ID = "99999999-9999-4999-8999-999999999997";
+const ALICE = "99999999-9999-4999-8999-9999999999a1";
+const BOB = "99999999-9999-4999-8999-9999999999b2";
+const EARLIER_HASH = "b".repeat(64);
 const BYTES = new Uint8Array([37, 80, 68, 70, 1, 2, 3]);
 const HASH = createHash("sha256").update(BYTES).digest("hex");
 const canonical = (fileId: string, name = "plan.pdf") => `${M3_TENANT_ID}/${M3_PLAN_SET_ID}/${fileId}/${name}`;
@@ -31,7 +36,42 @@ type Setup = {
   files?: Array<Record<string, unknown>>;
   source?: (fileId: string) => Record<string, unknown> | null;
   annotations?: Array<Record<string, unknown>>;
+  draft?: unknown;
+  profiles?: Array<{ id: string; full_name: string }>;
+  download?: () => { data: unknown; error: unknown };
+  set?: () => { data: unknown; error: unknown };
 };
+
+/** A stored annotation row: an earlier revision's correction unless told otherwise. */
+function annotationRow(overrides: Record<string, unknown> = {}) {
+  return { id: ORIGIN_ID, source_kind: "plan_file", source_id: FILE_ID, content_hash: EARLIER_HASH, revision: 2,
+    building_choice: "value", building: "A", building_carried: false, building_set_by: M3_USER_ID, building_set_at: "2026-11-20T08:00:00Z",
+    building_set_revision: 1, level_choice: "value", level: "L02", level_carried: false, level_set_by: M3_USER_ID,
+    level_set_at: "2026-11-20T09:00:00Z", level_set_revision: 2, carried_from_id: null, carried_from_revision: null,
+    document_name: "P-101_BAT-B_R+1.pdf", updated_by: M3_USER_ID, updated_at: "2026-11-20T09:00:00Z", created_at: "2026-11-20T08:00:00Z",
+    ...overrides };
+}
+
+/** A dossier piece (PIECE_ID) whose copy FILE_ID is current at first, then replaced by NEW_COPY_ID. */
+function rotatingPiece(candidate = NEW_COPY_ID, candidateSource = { source_kind: "intake_document", source_id: PIECE_ID }) {
+  let reads = 0;
+  return (fileId: string) => {
+    if (fileId === FILE_ID) {
+      reads += 1;
+      return { source_kind: "intake_document", source_id: PIECE_ID, plan_file_id: FILE_ID, current_copy: reads === 1, can_write: true };
+    }
+    return fileId === candidate ? { ...candidateSource, plan_file_id: fileId, current_copy: true, can_write: true } : null;
+  };
+}
+const pieceCopy = (id: string) => ({ id, plan_set_id: M3_PLAN_SET_ID, file_name: "plan.pdf", file_path: canonical(id), file_size_bytes: BYTES.length,
+  page_count: 1, metadata: { source: "affaire-intake", intake_document_id: PIECE_ID } });
+
+/** A plan source of a preparation draft, at the given bytes. */
+function planSource(id: string, name: string, contentHash: string, active: boolean): TakeoffPreparationSource {
+  return { document_id: id, document_name: name, kind: "plan", revision: "A", source_version: "v", pages: [], active, confirmed: true,
+    plan_set_id: M3_PLAN_SET_ID, file_path: canonical(id), page_count: 1, logical_document_id: null, content_hash: contentHash,
+    source_updated_at: null, mime_type: "application/pdf", page_triage: null };
+}
 
 function harness(setup: Setup = {}) {
   const files = setup.files ?? [{ id: FILE_ID, plan_set_id: M3_PLAN_SET_ID, file_name: "plan.pdf", file_path: canonical(FILE_ID),
@@ -45,9 +85,9 @@ function harness(setup: Setup = {}) {
         return query.cardinality === "maybeSingle" ? { data: rows[0] ?? null, error: null } : { data: rows, error: null, count: rows.length };
       },
       takeoff_plan_locations: () => ({ data: setup.annotations ?? [], error: null, count: (setup.annotations ?? []).length }),
-      takeoff_preparations: () => ({ data: null, error: null }),
+      takeoff_preparations: () => ({ data: setup.draft ? { draft: setup.draft } : null, error: null }),
       takeoff_jobs: () => ({ data: { preparation_snapshot: null }, error: null }),
-      profiles: () => ({ data: [], error: null }),
+      profiles: () => ({ data: setup.profiles ?? [], error: null }),
     },
     storage: { "plan-files": () => ({ data: null, error: { message: "member Storage must not be used" } }) },
     rpc: {
@@ -56,11 +96,11 @@ function harness(setup: Setup = {}) {
         const row = setup.source ? setup.source(fileId) : { source_kind: "plan_file", source_id: fileId, plan_file_id: fileId, current_copy: true, can_write: true };
         return { data: row ? [row] : [], error: null };
       },
-      set_takeoff_plan_location: () => ({ data: null, error: null }),
+      set_takeoff_plan_location: setup.set ?? (() => ({ data: null, error: null })),
     },
   });
   const serviceFake = createSupabaseFake({
-    storage: { "plan-files": () => ({ data: new Blob([BYTES]), error: null }) },
+    storage: { "plan-files": setup.download ?? (() => ({ data: new Blob([BYTES]), error: null })) },
     rpc: { attest_takeoff_plan_revision: () => ({ data: ATTESTATION_ID, error: null }) },
   });
   vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue(authenticatedContext(memberFake, "engineer") as never);
@@ -89,7 +129,9 @@ describe("the bytes read for a plan's location", () => {
     const fake = createSupabaseFake({ tables: {
       takeoff_jobs: () => ({ data: { preparation_snapshot: analysisSnapshot() }, error: null }),
       takeoff_plan_locations: () => ({ data: [], error: null, count: 0 }),
-      plan_files: () => ({ data: { file_path: canonical(FILE_ID), file_size_bytes: BYTES.length, metadata: {} }, error: null }),
+      // A real row, whose canonical path holds: only the affaire naming no source keeps its bytes unread.
+      plan_files: () => ({ data: { id: FILE_ID, plan_set_id: M3_PLAN_SET_ID, file_name: "plan.pdf", file_path: canonical(FILE_ID),
+        file_size_bytes: BYTES.length, page_count: 1, metadata: {} }, error: null }),
     }, rpc: { read_takeoff_plan_location_source: () => ({ data: [], error: null }) } });
     vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue(authenticatedContext(fake, "director") as never);
     const read = await readTakeoffJobPlanLocations(M3_JOB_ID);
@@ -179,5 +221,103 @@ describe("a save of a plan's location", () => {
     await expect(saveTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID, body })).rejects.toMatchObject({
       status: 409, details: { reason: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE", replacement: { plan_set_id: M3_PLAN_SET_ID, plan_file_id: NEW_COPY_ID } },
     });
+  });
+});
+
+describe("the digest a save writes", () => {
+  // Catches a save that attests the digest the request names instead of the one of the bytes the server reads.
+  it("is the one of the bytes the server reads: another digest is refused and nothing is attested", async () => {
+    const { memberFake, serviceFake } = harness();
+    const otherHash = createHash("sha256").update("other bytes").digest("hex");
+    await expect(saveTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID, body: { content_hash: otherHash, expected_revision: 0,
+      building: { choice: "value", value: "A" }, level: { choice: "reading", value: null } } }))
+      .rejects.toMatchObject({ status: 409, details: { reason: "TAKEOFF_PLAN_LOCATION_REVISION_CHANGED" } });
+    expect(serviceFake.rpcCalls).toEqual([]);
+    expect(memberFake.rpcCalls.filter((call) => call.fn === "set_takeoff_plan_location")).toEqual([]);
+  });
+});
+
+describe("a plan file's reading", () => {
+  // Catches a reading that takes the row's Storage name for the name the plan was uploaded under: sanitized, « R+1 »
+  // becomes « R-1 », another level.
+  it("reads no level in the Storage name of a row that names no original upload", async () => {
+    harness({ files: [{ id: FILE_ID, plan_set_id: M3_PLAN_SET_ID, file_name: "P-101_BAT-B_R-1.pdf",
+      file_path: canonical(FILE_ID, "P-101_BAT-B_R-1.pdf"), file_size_bytes: BYTES.length, page_count: 1, metadata: {} }] });
+    vi.mocked(renderPdfPages).mockResolvedValue({ status: "complete", pageCount: 1, timedOut: false, canvasAvailable: false, durationMs: 1,
+      missingPages: [], pages: [{ page: 1, text: "", textTruncated: false, regionText: "BÂTIMENT A", image: null, imageIssue: null,
+        droppedImages: 0, renderMs: 1, failed: false }] } as never);
+    const read = await readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID });
+    expect(read.reading).toMatchObject({ title_block_read: true, level: [], building: [{ value: "A", source: "title_block", pages: [1] }] });
+    expect(read.location.level).toMatchObject({ value: null, state: "unknown", candidates: [] });
+  });
+});
+
+describe("the correction offered from an earlier revision", () => {
+  // Written first, failing: an earlier correction that set no value was offered with two empty values, and the
+  // dialogue proposed « Valider pour cette version » with nothing to carry.
+  it("is offered only when it sets at least one value", async () => {
+    harness({ annotations: [annotationRow({ building_choice: "reading", building: null, level_choice: "unknown", level: null })] });
+    const read = await readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID });
+    expect(read).toMatchObject({ annotation: null, carry_over: null, location: { level: { value: "L00", origin: "title_block" } } });
+  });
+
+  // Written first, failing: the preview credited the last editor of the row, and their date, for both fields.
+  it("credits each field to the member who set it", async () => {
+    harness({
+      annotations: [annotationRow({ building_set_by: ALICE, level_set_by: BOB, updated_by: BOB })],
+      profiles: [{ id: ALICE, full_name: "Alice Fictive" }, { id: BOB, full_name: "Bob Fictif" }],
+    });
+    const read = await readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID });
+    expect(read.carry_over).toMatchObject({ id: ORIGIN_ID, revision: 2,
+      building: { value: "A", set_by_name: "Alice Fictive", set_at: "2026-11-20T08:00:00Z" },
+      level: { value: "L02", set_by_name: "Bob Fictif", set_at: "2026-11-20T09:00:00Z" } });
+  });
+
+  // Written first, failing: the reader validated the decision against every source of the draft, so a plan the member
+  // set aside (inactive, an alternate of nothing) still gave its correction through a pair the preparation drops.
+  it("comes through a revision decision only between plans the preparation can retain", async () => {
+    const draft = (earlierActive: boolean) => {
+      const preparation = createEmptyTakeoffPreparation({ estimateVersionId: null });
+      preparation.sources = [planSource(EARLIER_FILE_ID, "P-101_BAT-B_R+1.pdf", EARLIER_HASH, earlierActive),
+        planSource(FILE_ID, "P-101_BAT-B_R+1_indice-B.pdf", HASH, true)];
+      preparation.plan_revision_decisions = [{ left: { document_id: EARLIER_FILE_ID, content_hash: EARLIER_HASH },
+        right: { document_id: FILE_ID, content_hash: HASH }, choice: "right" }];
+      return preparation;
+    };
+    const earlier = annotationRow({ source_id: EARLIER_FILE_ID });
+    harness({ annotations: [earlier], draft: draft(false) });
+    expect(await readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID })).toMatchObject({ carry_over: null });
+    harness({ annotations: [earlier], draft: draft(true) });
+    expect(await readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID })).toMatchObject({
+      carry_over: { id: ORIGIN_ID, same_source: false, content_hash: EARLIER_HASH } });
+  });
+});
+
+describe("a copy the dossier replaces during a read or a save", () => {
+  const body = { content_hash: HASH, expected_revision: 0, building: { choice: "value", value: "A" }, level: { choice: "reading", value: null } };
+  const replaced = { status: 409, details: { reason: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE",
+    replacement: { plan_set_id: M3_PLAN_SET_ID, plan_file_id: NEW_COPY_ID } } };
+
+  // Written first, failing: the cleanup removed the bytes after the row was read, and the member got a 404.
+  it("whose bytes are gone by the download says the plan was replaced and names its current copy", async () => {
+    harness({ files: [pieceCopy(FILE_ID), pieceCopy(NEW_COPY_ID)], source: rotatingPiece(),
+      download: () => ({ data: null, error: { message: "Object not found", status: 404 } }) });
+    await expect(readTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID })).rejects.toMatchObject(replaced);
+  });
+
+  // Written first, failing: the command refused the stale copy and the member got a 409 without its current copy.
+  it("refused by the command says the plan was replaced and names its current copy", async () => {
+    harness({ files: [pieceCopy(FILE_ID), pieceCopy(NEW_COPY_ID)], source: rotatingPiece(),
+      set: () => ({ data: null, error: { message: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE", code: "40001" } }) });
+    await expect(saveTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID, body })).rejects.toMatchObject(replaced);
+  });
+
+  // Written first, failing: a plan uploaded outside the dossier whose metadata names the piece was taken for its copy,
+  // although its own source is the file itself.
+  it("names as current copy only a copy whose resolved source is the same piece", async () => {
+    const manual = { ...pieceCopy(MANUAL_ID), file_name: "televerse.pdf", file_path: canonical(MANUAL_ID, "televerse.pdf") };
+    harness({ files: [manual], source: rotatingPiece(MANUAL_ID, { source_kind: "plan_file", source_id: MANUAL_ID }) });
+    const refusal = await saveTakeoffPlanFileLocation({ setId: M3_PLAN_SET_ID, fileId: FILE_ID, body }).catch((error: unknown) => error);
+    expect(refusal).toMatchObject({ status: 409, details: { reason: "TAKEOFF_PLAN_LOCATION_SOURCE_STALE", replacement: null } });
   });
 });

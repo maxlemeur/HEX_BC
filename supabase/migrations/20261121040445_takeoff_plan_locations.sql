@@ -62,8 +62,9 @@ create table public.takeoff_plan_locations (
   constraint takeoff_plan_locations_level_value check ((level_choice = 'value') = (level is not null)),
   constraint takeoff_plan_locations_building_carried check (not building_carried or building_choice = 'value'),
   constraint takeoff_plan_locations_level_carried check (not level_carried or level_choice = 'value'),
+  -- An origin exactly while a field is carried from it.
   constraint takeoff_plan_locations_carried_origin check ((carried_from_id is null) = (carried_from_revision is null)
-    and (not (building_carried or level_carried) or carried_from_id is not null)),
+    and (carried_from_id is not null) = (building_carried or level_carried)),
   constraint takeoff_plan_locations_revision_key unique (tenant_id, project_id, source_kind, source_id, content_hash),
   constraint takeoff_plan_locations_scope_key unique (id, tenant_id, project_id),
   constraint takeoff_plan_locations_project_fkey foreign key (project_id, tenant_id)
@@ -151,6 +152,9 @@ create table private.takeoff_plan_location_attestations (
   constraint takeoff_plan_location_attestations_project_fkey foreign key (project_id, tenant_id)
     references public.estimate_projects(id, tenant_id) on delete cascade
 );
+-- Its affaire key, for the cascade of an affaire's deletion and for the cleanup of a member's spent attestations.
+create index takeoff_plan_location_attestations_project_idx
+  on private.takeoff_plan_location_attestations(project_id, tenant_id, actor_id);
 revoke all on table private.takeoff_plan_location_attestations from public, anon, authenticated, service_role;
 
 -- The source of a plan file row: its dossier piece when it is a copy of a piece of the same affaire, itself when it
@@ -330,6 +334,12 @@ begin
     or (p_carry_from_id is null) <> (p_carry_from_revision is null) then
     raise exception 'TAKEOFF_PLAN_LOCATION_ATTESTATION_INVALID' using errcode = '22023';
   end if;
+  -- The affaire first, as the command and a deletion take it: the cleanup below never holds an attestation a
+  -- deletion's cascade waits for while it waits for the affaire.
+  perform 1 from public.estimate_projects p where p.id = p_project_id and p.tenant_id = p_tenant_id for key share;
+  if not found then
+    raise exception 'TAKEOFF_PLAN_LOCATION_SOURCE_NOT_FOUND' using errcode = 'P0002';
+  end if;
   select * into source from private.resolve_takeoff_plan_location_source(p_tenant_id, p_project_id, p_plan_file_id);
   if not found then
     raise exception 'TAKEOFF_PLAN_LOCATION_SOURCE_NOT_FOUND' using errcode = 'P0002';
@@ -344,6 +354,10 @@ begin
       raise exception 'TAKEOFF_PLAN_LOCATION_CARRY_OVER_INVALID' using errcode = '22023';
     end if;
   end if;
+  -- What can no longer serve leaves: this member's used and expired attestations on this affaire.
+  delete from private.takeoff_plan_location_attestations a
+  where a.tenant_id = p_tenant_id and a.project_id = p_project_id and a.actor_id = p_actor_id
+    and (a.used_at is not null or a.created_at < pg_catalog.clock_timestamp() - interval '15 minutes');
   insert into private.takeoff_plan_location_attestations (tenant_id, project_id, plan_file_id, source_kind, source_id,
     content_hash, document_name, actor_id, carry_from_id, carry_from_revision, carry_building, carry_level)
   values (p_tenant_id, p_project_id, p_plan_file_id, source.source_kind, source.source_id, p_content_hash, p_document_name,
@@ -359,11 +373,12 @@ revoke all on function public.attest_takeoff_plan_revision(uuid, uuid, uuid, uui
 grant execute on function public.attest_takeoff_plan_revision(uuid, uuid, uuid, uuid, text, text, uuid, integer)
   to service_role;
 
--- The only writer, under the member's session. It consumes one attestation of this member (fifteen minutes at most)
--- and checks the member may write the affaire, then takes, in this order: the affaire (key share: its deletion locks
--- it first, then cascades to its plan files, annotations and attestations), the attestation, the plan file of that
--- affaire, its dossier piece, the carried origin, the annotation row. The generation the member saw is compared under
--- the annotation's row lock; a carried field must hold the origin's value at the generation the server proposed.
+-- The only writer for members, under their session. It consumes one attestation of this member (fifteen minutes at
+-- most, by the wall clock when it is consumed) and checks the member may write the affaire, then takes, in this order:
+-- the affaire (key share: its deletion locks it first, then cascades to its plan files, annotations and attestations),
+-- where the right to write is checked again, the attestation, the plan file of that affaire, its dossier piece, the
+-- carried origin, the annotation row. The generation the member saw is compared under the annotation's row lock; a
+-- carried field must hold the origin's value at the generation the server proposed, and no field carried, no origin.
 create function public.set_takeoff_plan_location(
   p_attestation_id uuid,
   p_expected_revision integer,
@@ -393,7 +408,8 @@ begin
   end if;
   select * into attestation from private.takeoff_plan_location_attestations a
   where a.id = p_attestation_id and a.tenant_id = tenant and a.actor_id = actor;
-  if not found or attestation.used_at is not null or attestation.created_at < now() - interval '15 minutes' then
+  if not found or attestation.used_at is not null
+    or attestation.created_at < pg_catalog.clock_timestamp() - interval '15 minutes' then
     raise exception 'TAKEOFF_PLAN_LOCATION_NOT_ATTESTED' using errcode = '42501';
   end if;
   if not private.can_access_takeoff_scope(tenant, attestation.project_id, null, true) then
@@ -415,6 +431,10 @@ begin
   perform 1 from public.estimate_projects p where p.id = attestation.project_id and p.tenant_id = tenant for key share;
   if not found then
     raise exception 'TAKEOFF_PLAN_LOCATION_SOURCE_NOT_FOUND' using errcode = 'P0002';
+  end if;
+  -- The right to write, again on the row as it is now: an archive may have committed while this save waited for it.
+  if not private.can_access_takeoff_scope(tenant, attestation.project_id, null, true) then
+    raise exception 'TAKEOFF_PLAN_LOCATION_FORBIDDEN' using errcode = '42501';
   end if;
   -- Then the attestation, used once: a second save on it waits here and finds it used.
   select * into attestation from private.takeoff_plan_location_attestations a where a.id = attestation.id for update;
@@ -459,7 +479,11 @@ begin
   where l.tenant_id = tenant and l.project_id = attestation.project_id and l.source_kind = attestation.source_kind
     and l.source_id = attestation.source_id and l.content_hash = attestation.content_hash
   for update;
-  update private.takeoff_plan_location_attestations set used_at = now() where id = attestation.id;
+  -- Consumed now, after every wait: its fifteen minutes are measured by the wall clock, not from this transaction's start.
+  if attestation.created_at < pg_catalog.clock_timestamp() - interval '15 minutes' then
+    raise exception 'TAKEOFF_PLAN_LOCATION_NOT_ATTESTED' using errcode = '42501';
+  end if;
+  update private.takeoff_plan_location_attestations set used_at = pg_catalog.clock_timestamp() where id = attestation.id;
 
   if existing.id is null then
     if p_expected_revision <> 0 then
@@ -513,8 +537,13 @@ begin
     level_set_at = case when level_changed then now() else l.level_set_at end,
     level_set_revision = case when level_changed then l.revision + 1 else l.level_set_revision end,
     plan_file_id = attestation.plan_file_id, document_name = attestation.document_name,
-    carried_from_id = case when carry_building or carry_level then attestation.carry_from_id else l.carried_from_id end,
-    carried_from_revision = case when carry_building or carry_level then attestation.carry_from_revision else l.carried_from_revision end,
+    -- The origin of the fields carried after this save: this save's, else the one a field still carries, else none.
+    carried_from_id = case when carry_building or carry_level then attestation.carry_from_id
+      when (case when building_changed then false else l.building_carried end)
+        or (case when level_changed then false else l.level_carried end) then l.carried_from_id end,
+    carried_from_revision = case when carry_building or carry_level then attestation.carry_from_revision
+      when (case when building_changed then false else l.building_carried end)
+        or (case when level_changed then false else l.level_carried end) then l.carried_from_revision end,
     updated_by = actor, updated_at = now()
   where l.id = existing.id
   returning * into saved;

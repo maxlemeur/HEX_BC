@@ -73,18 +73,28 @@ function readingNote(data: TakeoffPlanFileLocation) {
 
 type FieldDraft = { choice: PlanLocationChoice; text: string };
 
+/** The value an earlier revision's correction offers for the field, when this revision has no correction of its own. */
+const offeredValue = (field: PlanLocationField, data: TakeoffPlanFileLocation) =>
+  data.annotation ? null : data.carry_over?.[field].value ?? null;
+
 /**
- * The choice the form starts from: the revision's own, else the single value proposed (the reading or an earlier
- * revision's correction) to confirm, else the reading.
+ * The choice the form starts from: the revision's own; else the earlier correction's value offered, which « Valider
+ * pour cette version » validates; else the plan's reading, which a save leaves to be checked. A deduced value is
+ * confirmed only by choosing « Valeur saisie » on its field.
  */
 function initialDraft(field: PlanLocationField, data: TakeoffPlanFileLocation): FieldDraft {
   const chosen = data.annotation?.[field];
   if (chosen) return { choice: chosen.choice, text: chosen.value ?? "" };
-  const view = data.location[field];
-  return view.state === "proposed" && view.value !== null ? { choice: "value", text: view.value } : { choice: "reading", text: "" };
+  const offered = offeredValue(field, data);
+  return offered !== null ? { choice: "value", text: offered } : { choice: "reading", text: "" };
 }
 
-const CHOICE_WORDS: Record<PlanLocationChoice, string> = { reading: "lecture du plan", value: "", unknown: "à préciser" };
+/** What « Valeur saisie » starts from on an empty field: the value offered, else the single value the plan shows. */
+function proposedValue(field: PlanLocationField, data: TakeoffPlanFileLocation) {
+  return offeredValue(field, data) ?? resolvePlanLocation({ reading: data.reading, annotation: null, carryOver: null })[field].value ?? "";
+}
+
+const CHOICE_WORDS: Record<PlanLocationChoice, string> = { reading: "selon la lecture du plan", value: "", unknown: "à préciser" };
 const describeDraft = (draft: FieldDraft) => draft.choice === "value" ? draft.text.trim() || "vide" : CHOICE_WORDS[draft.choice];
 
 /** What « Lecture du plan » gives for the field on these bytes, whatever is chosen now. */
@@ -127,7 +137,7 @@ function LocationForm({ data, onSaved, onConflict }: {
       return;
     }
     // Only the fields set to the earlier correction's values carry it, at the generation shown.
-    const carried = planLocationCarriedFields(carrying ? { building: carrying.building, level: carrying.level } : null, choices);
+    const carried = planLocationCarriedFields(carrying ? { building: carrying.building.value, level: carrying.level.value } : null, choices);
     setSaving(true);
     try {
       onSaved(await saveTakeoffPlanFileLocation(data.plan_set_id, data.plan_file_id, {
@@ -164,7 +174,8 @@ function LocationForm({ data, onSaved, onConflict }: {
               </label>
               <label className="flex items-center gap-2">
                 <input type="radio" name={name} value="value" checked={draft.choice === "value"} disabled={saving}
-                  onChange={() => setDraft(field, { choice: "value" })} />
+                  onChange={() => setDrafts((current) => ({ ...current,
+                    [field]: { choice: "value", text: current[field].text || proposedValue(field, data) } }))} />
                 Valeur saisie
               </label>
               <label className="flex items-center gap-2">
@@ -186,8 +197,9 @@ function LocationForm({ data, onSaved, onConflict }: {
       })}
       <FieldDescription>
         Enregistrer fixe, pour cette version du plan, le choix de chaque champ : la lecture du plan (toujours à vérifier), la valeur
-        saisie, ou « À préciser » (ni la lecture ni une valeur ne s’appliquent). Il s’affiche dans les plans, la revue et toute relance
-        sur le même fichier.
+        saisie, ou « À préciser » (ni la lecture ni une valeur ne s’appliquent). Un champ que vous ne modifiez pas reste sur la lecture
+        du plan ; pour confirmer la valeur lue, choisissez « Valeur saisie ». Le choix s’affiche dans les plans, la revue et toute
+        relance sur le même fichier.
       </FieldDescription>
       {error ? <Alert variant="danger"><AlertDescription>{error}</AlertDescription></Alert> : null}
       <DialogFooter>
@@ -260,13 +272,16 @@ export function TakeoffPlanLocationDialog({ setId, fileId, documentName, open, o
                 <Alert variant="warning">
                   <AlertDescription>
                     Une version précédente de ce plan{data.carry_over.same_source ? "" : ` (« ${data.carry_over.document_name} »)`} a été corrigée :
-                    bâtiment {data.carry_over.building ?? "non corrigé"}, niveau {data.carry_over.level ?? "non corrigé"}. Le contenu du plan a changé :
+                    bâtiment {data.carry_over.building.value ?? "non corrigé"}, niveau {data.carry_over.level.value ?? "non corrigé"}. Le contenu du plan a changé :
                     vérifiez ces valeurs avant de les valider pour cette version.
                   </AlertDescription>
                 </Alert>
               ) : null}
               {data.can_edit ? (
-                <LocationForm key={`${data.plan_file_id}:${data.revision.content_hash}:${data.annotation?.revision ?? 0}`} data={data}
+                // A new generation of this revision's correction, or of the correction offered, starts the form again from it:
+                // a value offered before is never kept as if the member had typed it.
+                <LocationForm key={[data.plan_file_id, data.revision.content_hash, data.annotation?.revision ?? 0, data.carry_over?.id ?? "",
+                  data.carry_over?.revision ?? 0].join(":")} data={data}
                   onSaved={(next) => {
                     void mutate({ location: next, replaced: null }, { revalidate: false });
                     setNotice({ tone: "info", message: "Localisation enregistrée pour cette version du plan." });

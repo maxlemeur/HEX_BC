@@ -361,32 +361,44 @@ Un opérateur de l’affaire (administrateur, ou ingénieur propriétaire de
 l’affaire) choisit pour chaque champ : suivre la lecture du plan (toujours à
 vérifier), saisir une valeur, ou « À préciser ». « À préciser » écarte la
 lecture : la valeur est inconnue partout (plans, revue, relance), et ce que le
-plan montre reste affiché à côté. Une valeur est « confirmée » quand elle reprend
-la proposition, « corrigée » sinon. Chaque champ garde son choix, son auteur, sa
+plan montre reste affiché à côté. Un champ que l’opérateur ne touche pas reste
+sur la lecture du plan : corriger le niveau ne confirme pas le bâtiment.
+Confirmer une valeur lue est un geste sur ce champ : « Valeur saisie », qui
+reprend ce que le plan montre. Une valeur est « confirmée » quand elle reprend la
+proposition, « corrigée » sinon. Chaque champ garde son choix, son auteur, sa
 date et la génération où il a été fait ; un champ que l’enregistrement ne change
 pas garde les siens. Le choix se retrouve dans les plans, la revue et toute
 relance de la même version. Deux onglets qui enregistrent la même version : le
 second reçoit un conflit et voit la valeur enregistrée.
 
-Un directeur voit la lecture et la correction là où il voit déjà le plan : la
-page Plans d’une affaire qu’il peut lire et les plans d’une analyse qu’il peut
-lire. Il ne modifie rien.
+Les corrections enregistrées et leur historique se lisent comme l’affaire : un
+directeur qui lit l’affaire les lit, nom du document et empreinte compris. Ce
+qui demande que le plan soit visible, c’est la lecture de ses octets (le
+cartouche) dans les écrans. Il ne modifie rien.
 
 Pour de nouveaux octets du même plan, la correction précédente est présentée
-préremplie avec sa provenance, à vérifier ; une validation la reporte sur la
-nouvelle version. Il en va de même pour la pièce que la préparation a retenue à
-la place d’une autre, d’après les choix d’indices valides de la préparation,
+préremplie avec sa provenance (l’auteur et la date de chaque champ), à vérifier,
+quand elle fixe au moins une valeur ; « Valider pour cette version » la reporte
+sur la nouvelle version. Il en va de même pour la pièce que la préparation a
+retenue à la place d’une autre, d’après ses choix d’indices valides entre les
+plans qu’elle peut retenir (un plan que le membre a écarté n’en donne aucun),
 depuis la pièce écartée ; deux pièces qui ont seulement le même nom ne sont
 jamais rapprochées. Le report garde la correction d’origine, la génération à
-laquelle elle a été proposée et les champs repris : si elle a changé entre-temps,
-l’enregistrement est refusé et l’écran montre ce qui s’applique maintenant. La
+laquelle elle a été proposée et les champs repris ; quand plus aucun champ n’est
+repris, l’origine disparaît aussi. Si la correction d’origine a changé
+entre-temps, l’enregistrement est refusé : le formulaire repart de sa valeur
+actuelle et dit que la proposition a changé ; rien de ce que l’opérateur n’a pas
+saisi n’est enregistré comme saisi. La
 revue d’une analyse dont le plan a changé depuis montre la correction de la
 version qu’elle a lue, sans en proposer d’autre.
 
 Quand le dossier remplace la copie d’un plan pendant qu’elle est ouverte (un
-reclassement de la pièce en crée une autre), l’enregistrement est refusé : le
-formulaire dit que le plan a été remplacé et affiche sa copie actuelle, avec ce
-qui s’y applique. La revue d’une analyse qui avait lu l’ancienne copie le dit
+reclassement de la pièce en crée une autre), la lecture ou l’enregistrement est
+refusé avec la même réponse, quelle que soit l’étape où le remplacement est
+constaté (fichier disparu, octets disparus, commande qui refuse la copie) : le
+plan a été remplacé, voici sa copie actuelle, ou il n’en a plus. Seule une copie
+dont la source, telle que la base la résout, est la même pièce est proposée. Le
+formulaire affiche alors cette copie, avec ce qui s’y applique. La revue d’une analyse qui avait lu l’ancienne copie le dit
 aussi et ouvre la copie actuelle ; la correction de la pièce s’y applique tant
 que les octets sont les mêmes.
 
@@ -418,10 +430,14 @@ la copie de travail a été remplacée retrouve la correction des octets qu’el
 lus. Elle se lit comme l’affaire. Une correction s’écrit en deux temps : le
 serveur relit les octets du plan, puis atteste, avec son rôle de service, la
 version (source et empreinte) et la correction précédente qu’il propose ; la
-session du membre ne peut pas attester. La commande `set_takeoff_plan_location`
-consomme une seule fois une attestation récente faite pour ce membre, vérifie
-ses droits sur l’affaire, que la copie est toujours celle de sa pièce et que la
-correction reprise n’a pas changé, puis compare la génération que l’écran a vue.
+session du membre ne peut pas attester. Une nouvelle attestation retire celles
+du même membre sur la même affaire qui ne peuvent plus servir (utilisées ou
+expirées). La commande `set_takeoff_plan_location` consomme une seule fois une
+attestation faite pour ce membre, de moins de quinze minutes à l’horloge au
+moment où elle est consommée ; elle vérifie ses droits sur l’affaire, de nouveau
+une fois l’affaire verrouillée (un archivage peut s’être terminé pendant
+l’attente), que la copie est toujours celle de sa pièce et que la correction
+reprise n’a pas changé, puis compare la génération que l’écran a vue.
 Elle ne modifie aucun objet existant ; créer un fichier de plan note en plus sa
 source, sans jamais être refusé pour cela.
 

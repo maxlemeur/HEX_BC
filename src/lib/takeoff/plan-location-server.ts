@@ -44,6 +44,7 @@ import {
 } from "@/lib/takeoff/plan-location-contracts";
 import { PLAN_FILE_MAX_SIZE_BYTES, planFileIdSchema, planSetIdSchema } from "@/lib/takeoff/plans";
 import { validPlanRevisionDecisions, type PlanRevisionDecision } from "@/lib/takeoff/plan-revision-identity";
+import { getDeducedPlanCandidates } from "@/lib/takeoff/preparation-from-dossier";
 import { takeoffPreparationSchema, type TakeoffPreparationSource } from "@/lib/takeoff/preparation";
 import { parsePreparationSnapshot } from "@/lib/takeoff/preparation-source-loader";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
@@ -107,6 +108,16 @@ const choicesOf = (row: AnnotationRow | null): PlanLocationAnnotationValues | nu
   building: { choice: row.building_choice, value: row.building }, level: { choice: row.level_choice, value: row.level } } : null;
 const carryValuesOf = (row: AnnotationRow | null | undefined): PlanLocationCarryValues | null => row ? {
   building: row.building_choice === "value" ? row.building : null, level: row.level_choice === "value" ? row.level : null } : null;
+
+/**
+ * The earlier correction offered for a revision without its own, when it sets at least one value: one that left both
+ * fields to the reading or to be specified carries nothing, and an older one would contradict it.
+ */
+function carryOf(rows: readonly AnnotationRow[], key: PlanLocationRevisionKey, replaced: readonly PlanLocationRevisionKey[]): Carry {
+  const selected = selectPlanLocationCarryOver(rows, key, replaced);
+  const values = carryValuesOf(selected?.row);
+  return selected && values && (values.building !== null || values.level !== null) ? selected : null;
+}
 
 function originalNameOf(metadata: unknown) {
   const name = isRecord(metadata) ? metadata[PLAN_FILE_ORIGINAL_NAME_KEY] : undefined;
@@ -194,22 +205,27 @@ async function describer(supabase: Supabase, annotations: readonly AnnotationRow
       carried_from_id: row.carried_from_id, carried_from_revision: row.carried_from_revision, document_name: row.document_name,
       updated_by: row.updated_by, updated_by_name: names.get(row.updated_by) ?? null, updated_at: row.updated_at, created_at: row.created_at,
     }),
-    carry: ({ row, same_source }: NonNullable<Carry>) => ({
-      id: row.id, revision: row.revision, ...carryValuesOf(row)!, document_name: row.document_name, content_hash: row.content_hash,
-      same_source, updated_by_name: names.get(row.updated_by) ?? null, updated_at: row.updated_at,
-    }),
+    // Each field with its own value, author and date: a later edit of the other field credits no one else.
+    carry: ({ row, same_source }: NonNullable<Carry>) => {
+      const values = carryValuesOf(row)!;
+      const field = (name: PlanLocationField) => ({
+        value: values[name], set_by_name: names.get(row[`${name}_set_by`]) ?? null, set_at: row[`${name}_set_at`] });
+      return { id: row.id, revision: row.revision, building: field("building"), level: field("level"), document_name: row.document_name,
+        content_hash: row.content_hash, same_source };
+    },
   };
 }
 
 /**
- * The revisions these bytes replace by the member's own decision: in a pair the preparation's validator accepts (both
- * sources in the preparation, at the digests decided, a same-plan relationship), the side it set aside for this one.
- * Never the newer side, never a stale decision, never a plan that merely shares a name.
+ * The revisions these bytes replace by the member's own decision: in a pair the preparation's validator accepts among
+ * the plans it can retain (active, or an alternate of a retained one: the dossier resolver's candidates), at the
+ * digests decided, in a same-plan relationship, the side it set aside for this one. Never the newer side, never a
+ * stale decision, never a plan the member excluded, never a plan that merely shares a name.
  */
 async function replacedRevisions(supabase: Supabase, projectId: string, planFileId: string, contentHash: string,
   sources: readonly TakeoffPreparationSource[], decisions: readonly PlanRevisionDecision[]): Promise<PlanLocationRevisionKey[]> {
   const replaced: PlanLocationRevisionKey[] = [];
-  for (const { left, right, choice } of validPlanRevisionDecisions(sources, decisions)) {
+  for (const { left, right, choice } of validPlanRevisionDecisions(getDeducedPlanCandidates(sources), decisions)) {
     if (choice === "distinct") continue;
     const [kept, omitted] = choice === "left" ? [left, right] : [right, left];
     if (kept.document_id !== planFileId || kept.content_hash !== contentHash || omitted.document_id === planFileId) continue;
@@ -238,7 +254,11 @@ function suggestions(preparation: ReturnType<typeof takeoffPreparationSchema.par
   };
 }
 
-/** The current copy of a dossier piece in this affaire, when the member reads one. */
+/**
+ * The current copy of a dossier piece in this affaire, when the member reads one: a plan file whose source, as the
+ * database resolves it, is that same piece. Metadata naming the piece is only a lead: a plan uploaded outside the
+ * dossier may carry it, and its source is then the file itself.
+ */
 async function currentCopyOf(context: AuthenticatedTakeoffContext, projectId: string, source: SourceRow): Promise<PlanLocationReplacement | null> {
   if (source.source_kind !== "intake_document") return null;
   const { data, error } = await context.supabase.from("plan_files").select("id,plan_set_id")
@@ -246,11 +266,18 @@ async function currentCopyOf(context: AuthenticatedTakeoffContext, projectId: st
   if (error) readFailure(error, "Impossible de retrouver la copie actuelle du plan.");
   for (const copy of (data ?? []) as Array<{ id: string; plan_set_id: string }>) {
     if (copy.id === source.plan_file_id) continue;
-    if ((await readSource(context.supabase, projectId, copy.id))?.current_copy) return { plan_set_id: copy.plan_set_id, plan_file_id: copy.id };
+    const candidate = await readSource(context.supabase, projectId, copy.id);
+    if (candidate?.current_copy && candidate.source_kind === source.source_kind && candidate.source_id === source.source_id) {
+      return { plan_set_id: copy.plan_set_id, plan_file_id: copy.id };
+    }
   }
   return null;
 }
 
+/**
+ * The one answer for a copy the dossier replaced, whichever step found it (the row gone, the bytes gone, the command
+ * refusing it): the plan was replaced, with its current copy when one exists.
+ */
 async function replacedConflict(context: AuthenticatedTakeoffContext, projectId: string, source: SourceRow): Promise<never> {
   const replacement = await currentCopyOf(context, projectId, source);
   conflict("TAKEOFF_PLAN_LOCATION_SOURCE_STALE", replacement
@@ -288,7 +315,7 @@ async function describePlanFile(context: AuthenticatedTakeoffContext, loaded: Lo
   ]);
   const exact = rows.find((row) => sameKey(row, key)) ?? null;
   // These bytes are the plan's current ones: another revision of its source, or one they replace, is earlier.
-  const carry: Carry = exact ? null : selectPlanLocationCarryOver(rows, key, await replacedRevisions(context.supabase, loaded.projectId,
+  const carry: Carry = exact ? null : carryOf(rows, key, await replacedRevisions(context.supabase, loaded.projectId,
     loaded.file.id, contentHash, preparation?.sources ?? [], preparation?.plan_revision_decisions ?? []));
   return { key, exact, carry, preparation };
 }
@@ -317,16 +344,20 @@ function parseIds(setId: string, fileId: string) {
   };
 }
 
-function bytesOrNotFound(bytes: Uint8Array | null): Uint8Array {
-  if (!bytes) notFound("Le PDF de ce plan est introuvable ou trop volumineux : sa localisation ne peut pas être lue.");
-  return bytes;
+/** The plan's bytes; when they are gone, a copy the dossier replaced meanwhile is told as such, else they are missing. */
+async function currentBytes(context: AuthenticatedTakeoffContext, loaded: LoadedPlanFile): Promise<Uint8Array> {
+  const bytes = await readPlanBytes(context.tenantId, loaded.file);
+  if (bytes) return bytes;
+  const now = await readSource(context.supabase, loaded.projectId, loaded.file.id);
+  if (!now?.current_copy) return replacedConflict(context, loaded.projectId, now ?? loaded.source);
+  notFound("Le PDF de ce plan est introuvable ou trop volumineux : sa localisation ne peut pas être lue.");
 }
 
 export async function readTakeoffPlanFileLocation(input: { setId: string; fileId: string }) {
   const { setId, fileId } = parseIds(input.setId, input.fileId);
   const context = await getAuthenticatedTakeoffContext();
   const loaded = await loadPlanFile(context, setId, fileId);
-  return buildPlanFileLocation(context, loaded, bytesOrNotFound(await readPlanBytes(context.tenantId, loaded.file)));
+  return buildPlanFileLocation(context, loaded, await currentBytes(context, loaded));
 }
 
 function saveRefused(error: { message?: string; code?: string }): never {
@@ -336,9 +367,6 @@ function saveRefused(error: { message?: string; code?: string }): never {
   }
   if (message.includes("TAKEOFF_PLAN_LOCATION_ORIGIN_MOVED")) {
     conflict("TAKEOFF_PLAN_LOCATION_ORIGIN_MOVED", "La correction de la version précédente a changé depuis son affichage : vérifiez ce qui est repris avant de valider.");
-  }
-  if (message.includes("TAKEOFF_PLAN_LOCATION_SOURCE_STALE")) {
-    conflict("TAKEOFF_PLAN_LOCATION_SOURCE_STALE", "Ce plan vient d’être remplacé dans le dossier. Rechargez la page des plans avant de corriger sa localisation.");
   }
   if (message.includes("TAKEOFF_PLAN_LOCATION_FORBIDDEN") || message.includes("TAKEOFF_PLAN_LOCATION_NOT_ATTESTED")) {
     throw new TakeoffError({ status: 403, code: TakeoffErrorCode.FORBIDDEN, retryable: false,
@@ -372,7 +400,7 @@ export async function saveTakeoffPlanFileLocation(input: { setId: string; fileId
   if (!loaded.source.can_write) saveRefused({ message: "TAKEOFF_PLAN_LOCATION_FORBIDDEN" });
   if (!loaded.source.current_copy) await replacedConflict(context, loaded.projectId, loaded.source);
   // The revision is the bytes this server reads now, never the digest a screen sends.
-  const bytes = bytesOrNotFound(await readPlanBytes(context.tenantId, loaded.file));
+  const bytes = await currentBytes(context, loaded);
   const contentHash = sha256(bytes);
   if (contentHash !== body.content_hash) {
     conflict("TAKEOFF_PLAN_LOCATION_REVISION_CHANGED", "Le contenu de ce plan a changé depuis son affichage. Vérifiez sa nouvelle localisation avant de l’enregistrer.");
@@ -391,14 +419,19 @@ export async function saveTakeoffPlanFileLocation(input: { setId: string; fileId
     p_content_hash: contentHash, p_document_name: loaded.documentName,
     ...(carry ? { p_carry_from_id: carry.row.id, p_carry_from_revision: carry.row.revision } : {}),
   });
-  if (attestError || typeof attestation !== "string") saveRefused(attestError ?? { message: "attestation missing" });
+  // A copy the dossier replaced after it was read gets the same answer as one replaced before.
+  const refused = async (failure: { message?: string; code?: string }): Promise<never> => {
+    if (failure.message?.includes("TAKEOFF_PLAN_LOCATION_SOURCE_STALE")) await replacedConflict(context, loaded.projectId, loaded.source);
+    return saveRefused(failure);
+  };
+  if (attestError || typeof attestation !== "string") return refused(attestError ?? { message: "attestation missing" });
   const { error } = await context.supabase.rpc("set_takeoff_plan_location", {
     p_attestation_id: attestation, p_expected_revision: body.expected_revision,
     p_building_choice: choices.building.choice, p_building: choices.building.value as string,
     p_level_choice: choices.level.choice, p_level: choices.level.value as string,
     p_carried_fields: body.carried_from?.fields ?? [],
   });
-  if (error) saveRefused(error);
+  if (error) await refused(error);
   return buildPlanFileLocation(context, loaded, bytes);
 }
 
@@ -460,7 +493,7 @@ export async function readTakeoffJobPlanLocations(jobId: string): Promise<Takeof
       ? { source_kind: sourceRow.source_kind, source_id: sourceRow.source_id, content_hash: source.content_hash } : null;
     const exact = key ? rows.find((row) => sameKey(row, key)) ?? null : null;
     const carry: Carry = key && !exact && status === "current"
-      ? selectPlanLocationCarryOver(rows, key, await replacedRevisions(context.supabase, job.project_id, planFileId, key.content_hash,
+      ? carryOf(rows, key, await replacedRevisions(context.supabase, job.project_id, planFileId, key.content_hash,
         snapshot.preparation.sources, snapshot.preparation.plan_revision_decisions ?? []))
       : null;
     pending.push({ exact, carry, plan: {

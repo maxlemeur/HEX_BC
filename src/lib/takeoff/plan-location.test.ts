@@ -141,7 +141,8 @@ describe("the correction of a revision", () => {
     expect(location.building).toMatchObject({ value: "A", state: "confirmed", origin: "operator" });
   });
 
-  // Written before the fix: clearing the field restored the plan's wrong reading.
+  // Catches a resolution that shows the reading again for a field marked « À préciser » (clearing the field used to
+  // restore the plan's wrong reading), or that drops the reading kept beside it.
   it("withdraws a wrong reading when the operator marks the field to be specified, the reading kept as evidence", () => {
     const location = resolvePlanLocation({ reading, annotation: annotation({ level: unknown }), carryOver: null });
     expect(location.level).toEqual({ value: null, state: "unknown", origin: "operator", pages: [], title_block_read: true,
@@ -168,8 +169,8 @@ describe("the correction of a revision", () => {
     expect(location.level).toMatchObject({ value: "R+1", origin: "operator" });
   });
 
-  // Written before the fix: the dialogue compared both fields together, so carrying one dropped the
-  // origin entirely. A field is carried when it is set to the earlier correction's value.
+  // A field is carried when it is set to the earlier correction's value. Catches a comparison of both fields together,
+  // which dropped the origin as soon as one field differed.
   it("carries each field set to the earlier correction's value, and only those", () => {
     const carry = { building: "A", level: "L02" };
     expect(planLocationCarriedFields(carry, { building: value("A"), level: value("L02") })).toEqual(["building", "level"]);

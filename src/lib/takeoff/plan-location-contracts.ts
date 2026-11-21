@@ -77,22 +77,27 @@ export const planLocationAnnotationSchema = z.object({
   created_at: z.string(),
 }).strict();
 
+/** One field of an earlier correction offered: the value it set, by whom and when. */
+const carryFieldSchema = z.object({
+  /** Null for a field it left to its reading or marked to be specified: nothing to carry. */
+  value: z.string().nullable(),
+  set_by_name: z.string().nullable(),
+  set_at: z.string(),
+}).strict();
+
 /**
- * The correction of an earlier revision of the same plan, offered for these bytes at its current generation: never
- * applied without a save, which names that generation and the fields it carries.
+ * The correction of an earlier revision of the same plan, offered for these bytes at its current generation when it
+ * sets at least one value: never applied without a save, which names that generation and the fields it carries.
  */
 export const planLocationCarryOverSchema = z.object({
   id: uuid,
   revision: z.number().int().positive(),
-  /** The values it set (null for a field it left to its reading or marked to be specified). */
-  building: z.string().nullable(),
-  level: z.string().nullable(),
+  building: carryFieldSchema,
+  level: carryFieldSchema,
   document_name: z.string(),
   content_hash: sha256,
   /** The same dossier piece (or plan file) with other bytes; otherwise a piece the preparation retained this one over. */
   same_source: z.boolean(),
-  updated_by_name: z.string().nullable(),
-  updated_at: z.string(),
 }).strict();
 
 /** The details of a 409 when the copy was replaced in the dossier: its current copy, when there is one. */
