@@ -457,7 +457,15 @@ armyTest("V3C08 v3 takeoff remains available and requires a local ChatGPT plan b
       // A rejected source launch must not insert even a temporary business
       // version. The audit count catches a copy created then deleted as well.
       await openPlanPreparation();
-      await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      // The uploaded CSV is not in the dossier: the plan-set preparation keeps it and blocks the launch until the
+      // member takes it out of the sources. It is never dropped without being shown.
+      const escapedCsvName = csvName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      await expect(dialog.getByText(new RegExp(`^Le fichier téléversé « ${escapedCsvName} » est indisponible dans le dossier[.]`))).toBeVisible();
+      await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
+      await dialog.getByRole("button", /Mes documents$/).click();
+      await expect(dialog.getByText("Fichier téléversé indisponible dans le dossier.", { exact: true })).toBeVisible();
+      await dialog.getByLabel(`Utiliser ${csvName}`, { exact: true }).uncheck();
       await saveTakeoffPreparation({ ...ui, army });
       const preparationRevision = async () => {
         const [row] = await querySql(`select revision from public.takeoff_preparations where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`);
