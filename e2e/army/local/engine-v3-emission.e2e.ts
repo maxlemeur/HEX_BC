@@ -13,6 +13,7 @@ import {
   storedPdfState, verifySeal, type Envelope, type Evidence, type Scenario,
 } from "./engine-v3-emission-support";
 import { waitForDraftLease } from "./engine-v3-editor-support";
+import { readJsonlWitness } from "./jsonl-witness";
 import { markOwnedLineAsTakeoffHypothesis } from "./offer-emission-state";
 import { setTenantCalcPolicy, useDedicatedV3Owner } from "./engine-v3-persistence-support";
 import { admitCollectedResendDecision, allowOfferLifecycleTransition, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
@@ -191,8 +192,7 @@ async function collected(messageId: string) {
 async function expectOfferGuardInstalled(record: Evidence) {
   const networkFile = process.env.E2E_OFFER_NETWORK_LOG;
   if (!networkFile) throw new Error("App preload network witness required before confirmation.");
-  const entries = (await readFile(networkFile, "utf8")).trim().split(/\r?\n/).filter(Boolean)
-    .map((line) => JSON.parse(line) as { kind: string; pid: number });
+  const entries = await readJsonlWitness<{ kind: string; pid: number }>(networkFile);
   const installed = entries.filter((entry) => entry.kind === "guard-installed" && entry.pid !== process.pid).length;
   await record("offer-guard", { installed });
   expect(installed > 0).toBe(true);

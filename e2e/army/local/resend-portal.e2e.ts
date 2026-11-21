@@ -9,6 +9,7 @@ import { apiRequest, createEstimateViaWizard, readEstimate, setLineCoreValues, t
 import { waitForHydration } from "../critical/hydration-support";
 import { admitCollectedReconciliation, admitCollectedResendDecision, offerTest, recordOfferEvidence } from "./resend-portal-fixtures";
 import { expireOwnedCollectedPortal, observeOwnedOffer } from "./offer-emission-state";
+import { readJsonlWitness } from "./jsonl-witness";
 
 // Failure modes precede this harness in docs/testing/offer-emission-business-cases.md.
 const options = { session: "army", trace: "off" as const, tags: ["resend-portal"], timeout: 360000 };
@@ -171,7 +172,7 @@ async function send(ui: OfferUi, caseId: string, versionId: string, resend = fal
   await modal.getByLabel("Message *", { exact: true }).fill("Veuillez consulter notre proposition et son PDF contractuel.");
   const networkFile = process.env.E2E_OFFER_NETWORK_LOG;
   if (!networkFile) throw new Error("App preload network witness required before confirmation.");
-  const networkEntries = JSON.parse(`[${(await readFile(networkFile, "utf8")).trim().split(/\r?\n/).join(",")}]`) as { kind: string; pid: number; allowed: boolean; role: string }[];
+  const networkEntries = await readJsonlWitness<{ kind: string; pid: number; allowed: boolean; role: string }>(networkFile);
   const installed = networkEntries.filter((entry) => entry.kind === "guard-installed" && entry.pid !== process.pid);
   await recordOfferEvidence(ui.army, `${caseId}-preload-${resend ? "resend" : "initial"}`, { installed, beforeSendPosts: sendPosts });
   expect(installed.length > 0).toBe(true);
@@ -181,7 +182,7 @@ async function send(ui: OfferUi, caseId: string, versionId: string, resend = fal
   ]);
   const reply = await response.json<{ ok: boolean; data?: { message_id: string }; error?: { code: string; message: string; details?: unknown } }>();
   const state = await readEstimate(ui.browser, versionId);
-  const networkAfter = JSON.parse(`[${(await readFile(networkFile, "utf8")).trim().split(/\r?\n/).join(",")}]`) as { kind: string; pid: number; allowed: boolean; role: string }[];
+  const networkAfter = await readJsonlWitness<{ kind: string; pid: number; allowed: boolean; role: string }>(networkFile);
   await recordOfferEvidence(ui.army, `${caseId}-send-${resend ? "resend" : "initial"}`, {
     responseStatus: response.status, ok: reply.ok, errorCode: reply.error?.code ?? null,
     providerError: reply.error?.details ?? null, sendPosts, receiptCountBefore: before.length,
@@ -283,11 +284,9 @@ async function ownerLogin(ui: OfferUi) {
 async function collectorHttpEvents() {
   const configured = process.env.E2E_OFFER_COLLECTOR_HTTP_LOG;
   if (!configured) throw new Error("Separate local collector HTTP witness required.");
-  const text = await readFile(configured, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "";
-    throw error;
-  });
-  return text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { method: string; status: number; route: string });
+  // Written once the collector's response has left, so the latest record can
+  // still be in progress when the journey compares the latest responses.
+  return readJsonlWitness<{ method: string; status: number; route: string }>(configured, { missingIsEmpty: true, awaitTrailingRecordMs: 2_000 });
 }
 
 for (const [caseId, decision, portalLabel, expectedParent] of [
@@ -419,12 +418,7 @@ async function collectorAttempts() {
   if (!file || file !== path.join(process.env.E2E_OFFER_RUN_DIRECTORY!, "public", "collector-attempts.jsonl")) {
     throw new Error("The owned collector attempt witness is required.");
   }
-  return (await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "";
-    throw error;
-  })).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as {
-    keySha256: string; payloadSha256: string; fault: Fault | null;
-  });
+  return readJsonlWitness<{ keySha256: string; payloadSha256: string; fault: Fault | null }>(file, { missingIsEmpty: true });
 }
 
 async function submitIncident(ui: OfferUi, versionId: string, recipient: string, caseId: string, resume = false) {
