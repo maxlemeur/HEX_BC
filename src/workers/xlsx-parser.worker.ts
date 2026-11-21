@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import { resolveHeaderRowIndex } from "../lib/imports/header-row";
 import { attachImportRowStructure } from "../lib/imports/payload";
 import { convertPercentFormattedCells } from "../lib/imports/percent-cells";
-import { resolveSheetRowNumber } from "../lib/imports/sheet-row-number";
+import { resolveSheetMatrixOrigin } from "../lib/imports/sheet-matrix-origin";
 import { selectDpgfSheetIndex } from "../lib/imports/sheet-selection";
 import {
   buildHeaders,
@@ -62,15 +62,20 @@ async function extractRowStyles(
       styleWorkbook.getWorksheet(sheetName) ?? styleWorkbook.worksheets[0];
     if (!styleSheet) return fallback;
 
+    const origin = resolveSheetMatrixOrigin(valueSheet);
+    // The matrix's own columns, the only ones a header keeps: ExcelJS creates every cell it is asked
+    // for, so reading further would widen each row the next one reads.
+    const matrixWidth = matrix.reduce(
+      (width, row) => Math.max(width, Array.isArray(row) ? row.length : 0),
+      0
+    );
     return fallback.map((entry, rowIndex) => {
-      const styleRow = styleSheet.getRow(resolveSheetRowNumber(valueSheet, rowIndex));
-      const matrixRow = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
-      const columnCount = Math.max(matrixRow.length, styleSheet.columnCount);
+      const styleRow = styleSheet.getRow(origin.row + rowIndex);
       const boldColumnIndexes: number[] = [];
       const mergedColumnIndexes: number[] = [];
 
-      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
-        const cell = styleRow.getCell(columnIndex + 1);
+      for (let columnIndex = 0; columnIndex < matrixWidth; columnIndex += 1) {
+        const cell = styleRow.getCell(origin.column + columnIndex);
         if (cell.font?.bold === true) boldColumnIndexes.push(columnIndex);
         if (cell.isMerged) mergedColumnIndexes.push(columnIndex);
       }
