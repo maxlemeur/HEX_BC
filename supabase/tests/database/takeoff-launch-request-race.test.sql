@@ -10,6 +10,8 @@
 --    automatic request the confirmation reserved, or the confirmation the relaunch, and only one analysis is paid.
 -- 6. Two take-overs from the same view of a request: the second is refused, the first's mandate stays.
 -- 7. A dossier change that commits after the admission's count: the admission waits for it and admits nothing.
+-- 8. A relaunch refused while the automatic analysis runs, against the worker that holds that analysis's job and ends
+--    it: the refusal's receipt waits for nothing the worker holds, and both complete.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -45,6 +47,8 @@ cross join (values ('d4900000-0000-4000-8000-000000000002'::uuid), ('d4900000-00
 where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default;
 insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 hour');
 insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 hour');
+update public.feature_flags set enabled = true where flag_key = 'TAKEOFF_MODULE_ENABLED' and tenant_id = (select m.tenant_id
+  from public.tenant_memberships m where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default);
 insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
 select 'd4900000-0000-4000-8000-000000000010', m.tenant_id, m.user_id, 'Dossier confirmé deux fois (fictif)', false
 from public.tenant_memberships m where m.user_id = 'd4900000-0000-4000-8000-000000000001' and m.is_default;
@@ -163,8 +167,9 @@ from extensions.dblink_get_result('race_b', false) as x(outcome text, request_id
 select diag(concat('reservation: ', extensions.dblink_error_message('race_b')));
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text, request_id text, state text,
   reason_code text)), 0, 'and is done');
-select results_eq($$select state, request_id from reserved where session = 'b'$$, $$values ('conflict'::text, null::uuid)$$,
-  'the brief changed under the second: it reserves nothing');
+select is((select state from reserved where session = 'b'), 'replayed',
+  'the second is the same member''s identical submission: it gets the answer of the first');
+select is((select count(distinct request_id)::integer from reserved), 1, 'both find the same request');
 select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.fx(10)), 1,
   'the affaire has one automatic request');
 
@@ -231,7 +236,7 @@ select is((select x.state from extensions.dblink('race_a', format(
 select is(extensions.dblink_exec('race_writer', 'begin'), 'BEGIN', 'a member marks a piece of the dossier to review');
 select is(extensions.dblink_exec('race_writer', format($review$update public.affaire_intake_documents set issues = array['Pièce à revoir (fictif)']
   where id = %L$review$, pg_temp.fx(60))), 'UPDATE 1', 'the change is written, its mark numbered, not yet committed');
-select is(extensions.dblink_exec('race_setup', format('update public.affaire_briefs set confirmed_at = confirmed_at where id = %L', pg_temp.fx(35))),
+select is(extensions.dblink_exec('race_setup', format('update public.affaire_briefs set confirmed_at = clock_timestamp() where id = %L', pg_temp.fx(35))),
   'UPDATE 1', 'another change of the dossier, numbered after it, commits first');
 delete from race_claim;
 insert into race_claim select x.request_id::uuid, x.mark from extensions.dblink('race_a', format(
@@ -263,12 +268,13 @@ returns table (manifest jsonb, snapshot jsonb, job jsonb) language sql stable as
       'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', pg_temp.host())
   from public.plan_files f where f.id = p_plan
 $$;
-create function pg_temp.relaunch_sql(p_affaire integer, p_key integer, p_job integer) returns text language sql stable as $$
+create function pg_temp.relaunch_sql(p_affaire integer, p_key integer, p_job integer, p_predecessor uuid default null)
+returns text language sql stable as $$
   select format($relaunch$select r.outcome, coalesce(r.request_id::text, ''), coalesce(r.job_id::text, '')
     from public.launch_manual_takeoff_request(%1$L, %2$L, %3$L, %4$L, 'reread_plans', %5$L, %6$L, %7$L::jsonb, %8$L::jsonb,
-      %9$L::jsonb, %10$L::jsonb) r$relaunch$,
-    pg_temp.tenant(), pg_temp.fx(p_affaire), pg_temp.fx(1), pg_temp.fx(p_key), pg_temp.fx(p_affaire + 6), pg_temp.host(),
-    pg_temp.selection(), s.manifest, s.snapshot, s.job)
+      %9$L::jsonb, %10$L::jsonb, %11$L, 1) r$relaunch$,
+    pg_temp.tenant(), pg_temp.fx(p_affaire), pg_temp.fx(1), pg_temp.fx(p_key), coalesce(p_predecessor, pg_temp.fx(p_affaire + 6)),
+    pg_temp.host(), pg_temp.selection(), s.manifest, s.snapshot, s.job, pg_temp.fx(p_affaire + 4))
   from pg_temp.seal(pg_temp.fx(p_affaire + 5), pg_temp.fx(p_affaire + 4), pg_temp.fx(p_job), 1) s
 $$;
 create function pg_temp.automatic(p_affaire integer) returns public.takeoff_launch_requests language sql stable as $$
@@ -300,7 +306,7 @@ select is((select count(*)::integer from extensions.dblink_get_result('race_b', 
   0, 'and is done');
 select is((select outcome from relaunched), 'admitted', 'the relaunch runs');
 select results_eq($$select (pg_temp.automatic(110)).state, (pg_temp.automatic(110)).reason_code$$,
-  $$values ('blocked'::text, 'SUPERSEDED'::text)$$, 'it found the reserved automatic request and set it aside: it never spends');
+  $$values ('superseded'::text, null::text)$$, 'it found the reserved automatic request and set it aside: it never spends');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(110) and launch_request_id is not null), 1,
   'one analysis is paid');
 
@@ -319,7 +325,7 @@ select diag(concat('confirmation: ', extensions.dblink_error_message('race_a')))
 select is((select count(*)::integer from extensions.dblink_get_result('race_a', false)
   as x(outcome text, request_id text, state text, reason_code text)), 0, 'and is done');
 select results_eq($$select outcome, state, reason_code from confirmed_after$$,
-  $$values ('confirmed'::text, 'blocked'::text, 'SUPERSEDED'::text)$$,
+  $$values ('confirmed'::text, 'superseded'::text, ''::text)$$,
   'the brief is confirmed and its automatic request is reserved already set aside by the relaunch');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(120) and launch_request_id is not null), 1,
   'one analysis is paid');
@@ -372,6 +378,38 @@ select is((select count(*)::integer from extensions.dblink_get_result('race_a', 
 select is((select answer from late_admitted), 'stale:', 'it counts the change and admits nothing');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(140)), 0, 'no job exists');
 select is((pg_temp.automatic(140)).state, 'evaluating', 'the request waits for a new evaluation');
+
+-- 8. The automatic analysis of the fifth affaire is admitted; its worker holds its job while a relaunch of it is refused
+-- (red when the refusal was a request row whose foreign key waited for that job while it held the automatic request
+-- the worker's end needs: a deadlock).
+delete from race_claim;
+insert into race_claim select x.request_id::uuid, x.mark from extensions.dblink('race_a', format(
+  'select request_id::text, mark from public.claim_takeoff_launch_evaluations(%L, %L, 20)', pg_temp.host(), pg_temp.fx(97)))
+  as x(request_id text, mark bigint) where x.request_id::uuid = (pg_temp.automatic(140)).id;
+select is((select x.answer from pg_temp.seal(pg_temp.fx(145), pg_temp.fx(144), pg_temp.fx(149), 1) s
+  cross join lateral extensions.dblink('race_a', format($admit$select outcome || ':' || coalesce(job_id::text, '')
+  from public.admit_takeoff_launch_request(%1$L, %2$L, %3$s, %4$L::jsonb, %5$L::jsonb, %6$L::jsonb)$admit$,
+  (select request_id from race_claim), pg_temp.fx(97), (select mark from race_claim), s.manifest, s.snapshot, s.job))
+  as x(answer text)),
+  'admitted:' || pg_temp.fx(149), 'the automatic analysis is admitted with its job');
+select is(extensions.dblink_exec('race_writer', 'begin'), 'BEGIN', 'the worker starts ending that job');
+select is((select x.locked from extensions.dblink('race_writer', format('select id::text from public.takeoff_jobs where id = %L for update',
+  pg_temp.fx(149))) as x(locked text)), pg_temp.fx(149)::text, 'it holds the job');
+create temp table refused_sql as select pg_temp.relaunch_sql(140, 147, 146, pg_temp.fx(149)) as body;
+select is(extensions.dblink_send_query('race_b', (select body from refused_sql)), 1, 'a relaunch of that analysis arrives meanwhile');
+select ok(pg_temp.answered('race_b'), 'the relaunch answers without waiting for the worker''s job');
+create temp table refused as select x.outcome, x.job_id from extensions.dblink_get_result('race_b', false)
+  as x(outcome text, request_id text, job_id text);
+select diag(concat('refused relaunch: ', extensions.dblink_error_message('race_b')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text, request_id text, job_id text)),
+  0, 'and is done');
+select results_eq($$select outcome, job_id from refused$$, $$values ('already_running'::text, pg_temp.fx(149)::text)$$,
+  'it is refused with the analysis it found running');
+select is(extensions.dblink_exec('race_writer', format($end$update public.takeoff_jobs set status = 'failed', error_code = 'TAKEOFF_WORKER_NOT_STARTED',
+  error_message = 'Fin fictive', analysis_outcome = 'failure', completed_at = clock_timestamp(), next_retry_at = null where id = %L$end$,
+  pg_temp.fx(149))), 'UPDATE 1', 'the worker records the job''s end, which closes its request');
+select is(extensions.dblink_exec('race_writer', 'commit'), 'COMMIT', 'and commits: nothing deadlocked');
+select is((pg_temp.automatic(140)).state, 'closed', 'the automatic request is closed');
 
 -- Clean the committed synthetic fixtures and the cut-offs.
 select is(extensions.dblink_exec('race_setup', $cleanup$

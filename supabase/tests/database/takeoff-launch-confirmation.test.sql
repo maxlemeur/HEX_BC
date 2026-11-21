@@ -29,6 +29,8 @@ insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at)
 select pg_temp.f(n), 'launch-confirmation-' || n || '@example.test', '{}'::jsonb, now() from unnest(array[1, 2, 3, 5]) as n;
 update public.tenant_memberships set is_default = false where user_id::text like 'd4a00000-%';
 insert into public.tenants (id, name, slug) values (pg_temp.f(10), 'Confirmations de dossier (fictif)', 'launch-confirmation-test');
+-- The takeoff module is on for this tenant (its flag).
+update public.feature_flags set enabled = true where tenant_id = pg_temp.f(10) and flag_key = 'TAKEOFF_MODULE_ENABLED';
 insert into public.tenant_memberships (tenant_id, user_id, role, is_default, created_at) values
   (pg_temp.f(10), pg_temp.f(1), 'engineer', true, '2020-01-01'),
   (pg_temp.f(10), pg_temp.f(2), 'engineer', true, '2020-01-01'),
@@ -94,9 +96,9 @@ select is((select count(*)::integer from public.claim_takeoff_launch_evaluations
 -- 3. The usage of every attempt, a failed one included, is counted on its request; the request's budget is sealed at its
 -- admission and a job stopped by it closes the request with that reason.
 insert into public.takeoff_launch_requests (id, tenant_id, project_id, origin, intent, intent_key, state, confirmed_by, payer_id,
-  requested_by, mandate_kind, mandated_at, execution_host_id, mandate_selection, execution_selection)
+  mandate_kind, mandated_at, execution_host_id, mandate_selection)
 select pg_temp.f(70 + n), pg_temp.f(10), pg_temp.f(23 + n), 'automatic', 'initial', pg_temp.f(70 + n), 'evaluating', pg_temp.f(1),
-  pg_temp.f(1), pg_temp.f(1), 'confirmation', now(), pg_temp.host(), pg_temp.selection(), pg_temp.selection()
+  pg_temp.f(1), 'confirmation', now(), pg_temp.host(), pg_temp.selection()
 from generate_series(0, 1) as n;
 create function pg_temp.snapshot(n integer) returns jsonb language sql as $$
   select jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 'confirmed_by', pg_temp.f(1),
@@ -139,7 +141,10 @@ create function pg_temp.metric(tokens integer) returns jsonb language sql immuta
     'total_tokens', tokens, 'cost_cents', 0, 'duration_ms', 10, 'timed_out', false, 'budget_exceeded', false, 'metadata', '{}'::jsonb))
 $$;
 select is(pg_temp.claim_job(0, 91), 1, 'the Mac claims the first job');
--- Its first chunk answered and was paid for, its second failed: the attempt fails, to be tried again.
+-- Its first chunk answered and was paid for, its second failed: the worker recorded the paid call under the attempt's
+-- lease (the run metric of the failure counts nothing), then the attempt fails, to be tried again.
+select results_eq($$select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.f(83), pg_temp.f(91), 'C:0', 900, 0)$$,
+  $$values (399100::bigint)$$, 'the paid call is recorded');
 select isnt(public.record_local_takeoff_failure(pg_temp.f(83), pg_temp.f(10), pg_temp.f(91),
   jsonb_build_object('completed_at', now(), 'duration_ms', 20, 'error_code', 'TAKEOFF_PROVIDER_ERROR', 'error_message', 'Échec fictif',
     'analysis_outcome', null, 'last_error_at', now(), 'next_retry_at', now()),
@@ -148,6 +153,8 @@ select isnt(public.record_local_takeoff_failure(pg_temp.f(83), pg_temp.f(10), pg
 select results_eq($$select tokens_observed, cost_cents_observed from public.takeoff_launch_requests where id = pg_temp.f(70)$$,
   $$values (900::bigint, 0::bigint)$$, 'the request counts what the failed attempt consumed');
 select is(pg_temp.claim_job(0, 92), 1, 'the Mac claims the job again');
+select results_eq($$select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.f(83), pg_temp.f(92), 'C:0', 300, 0)$$,
+  $$values (398800::bigint)$$, 'the retry''s paid call is recorded under its own lease');
 select isnt(public.record_local_takeoff_failure(pg_temp.f(83), pg_temp.f(10), pg_temp.f(92),
   jsonb_build_object('completed_at', now(), 'duration_ms', 20, 'error_code', 'TAKEOFF_PROVIDER_ERROR', 'error_message', 'Échec fictif',
     'analysis_outcome', null, 'last_error_at', now(), 'next_retry_at', now()),
@@ -170,24 +177,23 @@ select results_eq($$select state, outcome, reason_code from public.takeoff_launc
 -- 4. A command that finds another analysis running is recorded with its key: its replay after that analysis ended is
 -- still the same answer, never a paid job. A relaunch names the analysis it replaces.
 select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(23), pg_temp.f(1), pg_temp.f(95),
-  'reread_plans', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(3), pg_temp.snapshot(3), pg_temp.job(5))$$,
+  'reread_plans', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(3), pg_temp.snapshot(3), pg_temp.job(5), pg_temp.f(53), 1)$$,
   '22023', 'TAKEOFF_LAUNCH_PREDECESSOR_REQUIRED', 'a relaunch without the analysis it replaces is refused');
 select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(23), pg_temp.f(1),
-  pg_temp.f(96), 'reread_plans', pg_temp.f(83), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(3), pg_temp.snapshot(3), pg_temp.job(5))$$,
+  pg_temp.f(96), 'reread_plans', pg_temp.f(83), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(3), pg_temp.snapshot(3), pg_temp.job(5), pg_temp.f(53), 1)$$,
   $$values ('already_running'::text, pg_temp.f(83))$$, 'a relaunch while the analysis runs returns it');
-select results_eq($$select origin, state, reason_code, intent_key from public.takeoff_launch_requests
-  where project_id = pg_temp.f(23) and origin = 'manual'$$, $$values ('manual'::text, 'refused'::text, 'ANOTHER_ANALYSIS_RUNNING'::text, pg_temp.f(96))$$,
-  'the refused click is recorded under its key');
+select results_eq($$select answer, job_id from private.takeoff_launch_commands where intent_key = pg_temp.f(96)$$,
+  $$values ('already_running'::text, pg_temp.f(83))$$, 'the refused click is recorded under its key, apart from the requests');
 select is(pg_temp.claim_job(0, 94), 1, 'the running analysis is claimed');
 select isnt(public.record_local_takeoff_failure(pg_temp.f(83), pg_temp.f(10), pg_temp.f(94),
   jsonb_build_object('completed_at', now(), 'duration_ms', 5, 'error_code', 'TAKEOFF_PROVIDER_ERROR', 'error_message', 'Échec fictif',
     'analysis_outcome', 'failure', 'last_error_at', now(), 'next_retry_at', null)), null, 'and ends');
 select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(23), pg_temp.f(1),
-  pg_temp.f(96), 'reread_plans', pg_temp.f(83), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(3), pg_temp.snapshot(3), pg_temp.job(5))$$,
+  pg_temp.f(96), 'reread_plans', pg_temp.f(83), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(3), pg_temp.snapshot(3), pg_temp.job(5), pg_temp.f(53), 1)$$,
   $$values ('already_running'::text, pg_temp.f(83))$$, 'the lost answer replayed after that end is the recorded refusal');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.f(23)), 1, 'and no paid job is created');
 select results_eq($$select outcome from public.replay_manual_takeoff_request(pg_temp.f(10), pg_temp.f(23), pg_temp.f(1), pg_temp.f(96),
-  'reread_plans', pg_temp.f(83))$$, $$values ('already_running'::text)$$, 'the replay is answered before any other check');
+  'reread_plans', pg_temp.f(83), pg_temp.f(53), 1)$$, $$values ('already_running'::text)$$, 'the replay is answered before any other check');
 
 -- 5. The server's confirmation: one transaction for the brief's compare-and-set, its event, the reservation and the
 -- mandate, which is payable only with the payer notice that was shown for it.

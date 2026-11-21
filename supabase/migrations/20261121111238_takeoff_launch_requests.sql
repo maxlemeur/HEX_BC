@@ -4,7 +4,7 @@
 -- What the previous application version sees while this is applied and until the owner sets
 -- private.takeoff_launch_activation: nothing changes in its writes. Its inserts of jobs carry no request; the dossier
 -- triggers below write nothing before activation; the historical receipt index keeps refusing what it refused for every
--- job without a request; the two new audit actions only widen a check. The copy of a version (« Dupliquer ») takes the
+-- job without a request; the three new audit actions only widen a check. The copy of a version (« Dupliquer ») takes the
 -- affaire's row as FOR NO KEY UPDATE instead of FOR UPDATE: it still excludes every writer that locked that row before.
 begin;
 
@@ -29,16 +29,22 @@ returns boolean language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_launch_active(timestamptz) from public, anon, authenticated, service_role;
 
--- The two cut-offs, for the server: an admission needs both, since a request closes only on the recorded end of its
--- jobs, which the end-of-analysis notices record from their own cut-off on.
-create function public.takeoff_launch_activation_state()
-returns table (launch_active_from timestamptz, completion_active_from timestamptz)
-language sql stable security definer set search_path = '' as $$
-  select (select a.active_from from private.takeoff_launch_activation a),
-    (select c.active_from from private.takeoff_completion_activation c)
+-- The activation, for the server's reads: one boolean, on the database's clock.
+create function public.takeoff_launch_is_active()
+returns boolean language sql stable security definer set search_path = '' as $$
+  select private.takeoff_launch_active()
 $$;
-revoke all on function public.takeoff_launch_activation_state() from public, anon, authenticated;
-grant execute on function public.takeoff_launch_activation_state() to service_role;
+revoke all on function public.takeoff_launch_is_active() from public, anon, authenticated;
+grant execute on function public.takeoff_launch_is_active() to service_role;
+
+-- The takeoff module of a tenant: its flag, or the server's default (TAKEOFF_MODULE_ENABLED_BY_DEFAULT, passed by each
+-- call of the server; a trigger has none and reads the flag alone). Off, nothing is reserved, claimed, admitted or paid.
+create function private.takeoff_module_enabled(p_tenant_id uuid, p_default boolean)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select coalesce(p_default, false) or exists (select 1 from public.feature_flags f
+    where f.tenant_id = p_tenant_id and f.flag_key = 'TAKEOFF_MODULE_ENABLED' and f.enabled)
+$$;
+revoke all on function private.takeoff_module_enabled(uuid, boolean) from public, anon, authenticated, service_role;
 
 -- 2. The need to evaluate a dossier, recorded in the transaction that changes it: one insert-only row per change of the
 -- brief, of a dossier piece, of a plan copy or of the takeoff's options, from activation on. No foreign key and no
@@ -72,25 +78,36 @@ returns bigint language sql immutable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_dossier_lock_key(uuid) from public, anon, authenticated, service_role;
 
+-- One mark per transaction and affaire: the position counts the transactions that changed a dossier, which is what an
+-- evaluation compares (a change committed after it read the dossier raises it). Updates that change none of the watched
+-- columns call nothing (the triggers' WHEN clauses, section 13).
 create function private.mark_takeoff_launch_dossier()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
-  changed jsonb := case when tg_op = 'DELETE' then to_jsonb(old) else to_jsonb(new) end;
-  previous jsonb := case when tg_op = 'UPDATE' then to_jsonb(old) end;
-  marked record;
+  affaires uuid[];
+  tenants uuid[];
+  seen text;
 begin
   if not private.takeoff_launch_active() then
     return null;
   end if;
-  -- A copy belongs to its affaire through its plan set; a file moved between sets marks both affaires.
-  for marked in
-    select s.tenant_id, s.project_id from public.plan_sets s
-    where tg_table_name = 'plan_files' and s.id in ((changed ->> 'plan_set_id')::uuid, (previous ->> 'plan_set_id')::uuid)
-    union
-    select (changed ->> 'tenant_id')::uuid, (changed ->> 'project_id')::uuid where tg_table_name <> 'plan_files'
-  loop
-    perform pg_catalog.pg_advisory_xact_lock_shared(private.takeoff_dossier_lock_key(marked.project_id));
-    insert into private.takeoff_launch_marks (tenant_id, project_id, cause) values (marked.tenant_id, marked.project_id, tg_argv[0]);
+  if tg_table_name = 'plan_files' then
+    -- A copy belongs to its affaire through its plan set; a file moved between sets marks both affaires.
+    select array_agg(s.project_id), array_agg(s.tenant_id) into affaires, tenants from public.plan_sets s
+    where s.id in (case when tg_op = 'DELETE' then old.plan_set_id else new.plan_set_id end,
+      case when tg_op = 'UPDATE' then old.plan_set_id end);
+  elsif tg_op = 'DELETE' then
+    affaires := array[old.project_id]; tenants := array[old.tenant_id];
+  else
+    affaires := array[new.project_id]; tenants := array[new.tenant_id];
+  end if;
+  seen := coalesce(pg_catalog.current_setting('mergeone.takeoff_launch_marked', true), '');
+  for i in 1 .. coalesce(pg_catalog.array_length(affaires, 1), 0) loop
+    continue when affaires[i] is null or pg_catalog.strpos(seen, affaires[i]::text) > 0;
+    perform pg_catalog.pg_advisory_xact_lock_shared(private.takeoff_dossier_lock_key(affaires[i]));
+    insert into private.takeoff_launch_marks (tenant_id, project_id, cause) values (tenants[i], affaires[i], tg_argv[0]);
+    seen := seen || affaires[i]::text || ',';
+    perform pg_catalog.set_config('mergeone.takeoff_launch_marked', seen, true);
   end loop;
   return null;
 end;
@@ -115,8 +132,8 @@ create table public.takeoff_launch_requests (
   command_digest text check (command_digest ~ '^[0-9a-f]{64}$'),
   predecessor_request_id uuid,
   predecessor_job_id uuid,
-  -- refused: a manual command that found another analysis of the affaire running; its key answers its replays so.
-  state text not null check (state in ('evaluating', 'not_eligible', 'blocked', 'admitted', 'closed', 'refused')),
+  -- superseded: an automatic start set aside by an explicit relaunch, final (its reason_details name that relaunch).
+  state text not null check (state in ('evaluating', 'not_eligible', 'blocked', 'admitted', 'closed', 'superseded')),
   reason_code text check (reason_code ~ '^[A-Z_]{1,64}$'),
   -- For a blocking that names pieces (a plan without its working copy): their identifiers and names, which every
   -- reader of the affaire already sees in its dossier. Never a path, a host or an account.
@@ -129,14 +146,9 @@ create table public.takeoff_launch_requests (
   -- clicked (command). Never deduced from an upload, an administrator or a reader.
   payer_id uuid,
   mandate_kind text check (mandate_kind in ('confirmation', 'take_over', 'command')),
-  -- The recipient of the request's end: its payer when it was taken on.
-  requested_by uuid,
   -- The Mac of the mandate, and the profile selection that attests it (opaque profile identifier, model, effort, host).
   execution_host_id text,
   mandate_selection jsonb check (mandate_selection is null or jsonb_typeof(mandate_selection) = 'object'),
-  -- The model and effort this command actually runs with. Lot 2: the mandate's. A one-off setting of a later command goes
-  -- here, never into the member's preferences.
-  execution_selection jsonb check (execution_selection is null or jsonb_typeof(execution_selection) = 'object'),
   mandated_at timestamptz,
   -- Each change of the mandate (given, withdrawn, taken over): a gesture names the revision it saw and is refused when
   -- it moved.
@@ -180,20 +192,24 @@ create table public.takeoff_launch_requests (
   ),
   -- A closed request names its reason when one stopped it (its budget spent).
   constraint takeoff_launch_requests_reason_check check (
-    (state in ('not_eligible', 'blocked', 'refused') and reason_code is not null)
-    or (state in ('evaluating', 'admitted') and reason_code is null) or state = 'closed'
+    (state in ('not_eligible', 'blocked') and reason_code is not null)
+    or (state in ('evaluating', 'admitted', 'superseded') and reason_code is null) or state = 'closed'
+  ),
+  -- A set-aside start is final: only an automatic request, never mandated again, never claimed.
+  constraint takeoff_launch_requests_superseded_check check (
+    state <> 'superseded' or (origin = 'automatic' and admitted_at is null and evaluation_lease_token is null
+      and reason_details ? 'request_id')
   ),
   constraint takeoff_launch_requests_mandate_check check (
     (payer_id is null) = (mandate_kind is null) and (payer_id is null) = (mandated_at is null)
-    and (payer_id is not null or (execution_host_id is null and mandate_selection is null and execution_selection is null))
+    and (payer_id is not null or (execution_host_id is null and mandate_selection is null))
     and (execution_host_id is null) = (mandate_selection is null)
-    and (mandate_selection is null) = (execution_selection is null)
     and (mandate_selection is null or mandate_selection ->> 'hostId' = execution_host_id)
   ),
   constraint takeoff_launch_requests_admission_check check (
     (state in ('admitted', 'closed')) = (admitted_at is not null)
     and (admitted_at is null or (manifest is not null and manifest_digest is not null and preparation_snapshot is not null
-      and units_expected is not null and payer_id is not null and requested_by = payer_id
+      and units_expected is not null and payer_id is not null
       and execution_host_id is not null and token_budget is not null and cost_budget_cents is not null))
   ),
   constraint takeoff_launch_requests_closure_check check (
@@ -227,7 +243,7 @@ create trigger set_takeoff_launch_requests_updated_at before update on public.ta
 alter table public.takeoff_launch_requests enable row level security;
 revoke all on public.takeoff_launch_requests from public, anon, authenticated, service_role;
 grant select (id, tenant_id, project_id, origin, intent, predecessor_request_id, predecessor_job_id, state, reason_code,
-  reason_details, confirmed_by, payer_id, requested_by, mandate_revision, units_expected, units_succeeded, units_failed, units_canceled,
+  reason_details, confirmed_by, payer_id, mandate_revision, units_expected, units_succeeded, units_failed, units_canceled,
   outcome, completion_event_id, created_at, updated_at, evaluated_at, mandated_at, admitted_at, closed_at)
   on public.takeoff_launch_requests to authenticated;
 -- The service role keeps its table rights, as on every public table, but writes only through the functions below.
@@ -244,6 +260,17 @@ $$;
 revoke all on function private.guard_takeoff_launch_request_writer() from public, anon, authenticated, service_role;
 create trigger takeoff_launch_request_writer before insert or update or delete on public.takeoff_launch_requests
   for each row execute function private.guard_takeoff_launch_request_writer();
+-- A closed request and a set-aside start are final: their state never changes again, whoever writes.
+create function private.guard_final_takeoff_launch_request()
+returns trigger language plpgsql set search_path = pg_catalog as $$
+begin
+  raise exception 'TAKEOFF_LAUNCH_REQUEST_FINAL' using errcode = '23514';
+end;
+$$;
+revoke all on function private.guard_final_takeoff_launch_request() from public, anon, authenticated, service_role;
+create trigger takeoff_launch_request_final before update of state on public.takeoff_launch_requests
+  for each row when (old.state in ('closed', 'superseded') and new.state is distinct from old.state)
+  execute function private.guard_final_takeoff_launch_request();
 create policy takeoff_launch_requests_reader_select on public.takeoff_launch_requests for select to authenticated
   using ((select private.can_access_takeoff_scope(tenant_id, project_id, null, false)));
 
@@ -356,42 +383,26 @@ revoke all on function private.attest_takeoff_job_snapshot(public.takeoff_jobs) 
 create or replace function private.record_prepared_takeoff_job_creation()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
-  if new.launch_request_id is not null then
-    if nullif(current_setting('mergeone.takeoff_request_admission', true), '') is distinct from new.launch_request_id::text
-      or new.created_by is null or new.plan_set_id is null or new.status <> 'pending' then
-      raise exception 'TAKEOFF_JOB_REQUEST_ADMISSION_REQUIRED' using errcode = '42501';
-    end if;
-    begin
-      insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
-      values (new.tenant_id, new.created_by, 'takeoff_jobs', new.id, new.estimate_version_id, 'takeoff.job.created',
-        jsonb_build_object('schema_version', 1, 'action', 'takeoff.job.created', 'job_id', new.id,
-          'tenant_id', new.tenant_id, 'user_id', new.created_by, 'metadata', jsonb_build_object(
-            'level', new.level, 'estimate_version_id', new.estimate_version_id, 'project_id', new.project_id,
-            'plan_set_id', new.plan_set_id, 'preparation_revision', new.preparation_snapshot -> 'preparation_revision',
-            'launch_request_id', new.launch_request_id, 'launch_unit_key', new.launch_unit_key)));
-    exception when others then
-      raise exception 'TAKEOFF_JOB_CREATION_AUDIT_FAILED' using errcode = 'P0001';
-    end;
-    return new;
-  end if;
-
-  if nullif(current_setting('mergeone.takeoff_admission_job', true), '') is distinct from new.id::text
+  -- A request's job comes only from its admission (private.guard_takeoff_job_launch_request enforces it); any other
+  -- prepared job from the launch's own function, otherwise its version records nothing here.
+  if new.launch_request_id is null and (nullif(current_setting('mergeone.takeoff_admission_job', true), '') is distinct from new.id::text
     or current_setting('role', true) is distinct from 'authenticated'
     or auth.uid() is null or new.created_by is distinct from auth.uid()
-    or new.plan_set_id is null or new.status <> 'pending' then
+    or new.plan_set_id is null or new.status <> 'pending') then
     if new.estimate_version_id is null then
       raise exception 'TAKEOFF_JOB_ADMISSION_RPC_REQUIRED' using errcode = '42501';
     end if;
     return new;
   end if;
-
   begin
     insert into public.audit_logs (tenant_id, user_id, table_name, record_id, estimate_version_id, action, after_data)
     values (new.tenant_id, new.created_by, 'takeoff_jobs', new.id, new.estimate_version_id, 'takeoff.job.created',
       jsonb_build_object('schema_version', 1, 'action', 'takeoff.job.created', 'job_id', new.id,
         'tenant_id', new.tenant_id, 'user_id', new.created_by, 'metadata', jsonb_build_object(
           'level', new.level, 'estimate_version_id', new.estimate_version_id, 'project_id', new.project_id,
-          'plan_set_id', new.plan_set_id, 'preparation_revision', new.preparation_snapshot -> 'preparation_revision')));
+          'plan_set_id', new.plan_set_id, 'preparation_revision', new.preparation_snapshot -> 'preparation_revision')
+          || case when new.launch_request_id is null then '{}'::jsonb else jsonb_build_object(
+            'launch_request_id', new.launch_request_id, 'launch_unit_key', new.launch_unit_key) end));
   exception when others then
     raise exception 'TAKEOFF_JOB_CREATION_AUDIT_FAILED' using errcode = 'P0001';
   end;
@@ -422,7 +433,7 @@ grant execute on function private.takeoff_launch_payer_eligible(uuid, uuid, uuid
 create function private.takeoff_launch_mandate_reasons() returns text[] language sql immutable set search_path = '' as $$
   select array['OPERATOR_REQUIRED', 'MANDATE_REQUIRED', 'LOCAL_RUNTIME_REQUIRED', 'HOST_NOT_AUTHORISED',
     'CHATGPT_NOT_CONNECTED', 'CHATGPT_ACCESS_REVOKED', 'CHATGPT_MODEL_MISSING', 'CHATGPT_SELECTION_CHANGED',
-    'PAYER_NOT_ELIGIBLE', 'EVALUATION_FAILED', 'SUPERSEDED']
+    'PAYER_NOT_ELIGIBLE', 'EVALUATION_FAILED']
 $$;
 create function private.takeoff_launch_dossier_reasons() returns text[] language sql immutable set search_path = '' as $$
   select array['DOSSIER_EMPTY', 'DOSSIER_PROCESSING', 'DOSSIER_TO_REVIEW', 'BRIEF_NOT_CONFIRMED', 'NO_EXPLOITABLE_PLAN',
@@ -470,9 +481,39 @@ returns void language sql set search_path = '' as $$
 $$;
 revoke all on function private.lock_takeoff_launch_commands(uuid) from public, anon, authenticated, service_role;
 
+-- The one rule of who may pay (section 6), for the server: the worker before each paid call, the screens' notices.
+create function public.takeoff_payer_may_launch(p_tenant_id uuid, p_project_id uuid, p_user_id uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_user_id)
+$$;
+revoke all on function public.takeoff_payer_may_launch(uuid, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_payer_may_launch(uuid, uuid, uuid) to service_role;
+
+-- Who may confirm an affaire's brief, as the released brief policy decides it (20260306224500_est372_affaire_brief.sql:
+-- the affaire's owner, or an administrator or director of its tenant), on rows locked until the confirmation commits: a
+-- member demoted or an affaire moved meanwhile waits for it, or is seen.
+create function private.takeoff_member_may_confirm_brief(p_tenant_id uuid, p_project_id uuid, p_actor uuid)
+returns boolean language plpgsql security definer set search_path = '' as $$
+declare
+  owner uuid;
+  role text;
+begin
+  select p.user_id into owner from public.estimate_projects p
+  join public.tenants t on t.id = p.tenant_id and t.is_active
+  where p.id = p_project_id and p.tenant_id = p_tenant_id for share of p;
+  if not found then
+    return false;
+  end if;
+  select m.role::text into role from public.tenant_memberships m
+  where m.tenant_id = p_tenant_id and m.user_id = p_actor for share;
+  return role is not null and (owner = p_actor or role in ('admin', 'director'));
+end;
+$$;
+revoke all on function private.takeoff_member_may_confirm_brief(uuid, uuid, uuid) from public, anon, authenticated, service_role;
+
 -- The affaire's automatic request, reserved if it has none: without a mandate, waiting for a gesture of its confirmer
--- when they may launch (MANDATE_REQUIRED) or of an operator (OPERATOR_REQUIRED), or set aside when an explicit relaunch
--- came first (SUPERSEDED, final).
+-- when they may launch (MANDATE_REQUIRED) or of an operator (OPERATOR_REQUIRED), or already set aside when an explicit
+-- relaunch came first (superseded, final).
 create function private.reserve_automatic_takeoff_request(p_tenant_id uuid, p_project_id uuid, p_confirmer uuid)
 returns public.takeoff_launch_requests language plpgsql security definer set search_path = '' as $$
 declare
@@ -486,9 +527,10 @@ begin
   end if;
   insert into public.takeoff_launch_requests as r (id, tenant_id, project_id, origin, intent, intent_key, state, reason_code,
     reason_details, confirmed_by)
-  select reserved.id, p_tenant_id, p_project_id, 'automatic', 'initial', reserved.id, 'blocked',
+  select reserved.id, p_tenant_id, p_project_id, 'automatic', 'initial', reserved.id,
+    case when manual.id is not null then 'superseded' else 'blocked' end,
     case
-      when manual.id is not null then 'SUPERSEDED'
+      when manual.id is not null then null
       when private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_confirmer) then 'MANDATE_REQUIRED'
       else 'OPERATOR_REQUIRED' end,
     case when manual.id is not null then jsonb_build_object('request_id', manual.id) else '{}'::jsonb end, p_confirmer
@@ -505,12 +547,13 @@ revoke all on function private.reserve_automatic_takeoff_request(uuid, uuid, uui
 -- A request that can still start, and that a mandate may engage.
 create function private.takeoff_launch_request_open(p_request public.takeoff_launch_requests)
 returns boolean language sql immutable set search_path = '' as $$
-  select p_request.state in ('evaluating', 'not_eligible', 'blocked') and p_request.reason_code is distinct from 'SUPERSEDED'
+  select p_request.state in ('evaluating', 'not_eligible', 'blocked')
 $$;
 revoke all on function private.takeoff_launch_request_open(public.takeoff_launch_requests) from public, anon, authenticated, service_role;
 
 -- A mandate given by a gesture (the notified confirmation, a take-over, a resumption): its member pays, on the Mac and the
--- selection of the gesture, or the request waits for that member with the cause found at the gesture. A new revision.
+-- selection of the gesture, and receives its end; or the request waits for that member with the cause found at the
+-- gesture. A new revision.
 create function private.mandate_takeoff_launch_request(p_request public.takeoff_launch_requests, p_actor uuid, p_kind text,
   p_host text, p_selection jsonb, p_blocked_reason text)
 returns public.takeoff_launch_requests language plpgsql security definer set search_path = '' as $$
@@ -519,8 +562,8 @@ declare
 begin
   update public.takeoff_launch_requests r set
     confirmed_by = case when p_kind = 'confirmation' then p_actor else r.confirmed_by end,
-    payer_id = p_actor, requested_by = p_actor, mandate_kind = p_kind, mandated_at = pg_catalog.clock_timestamp(),
-    execution_host_id = p_host, mandate_selection = p_selection, execution_selection = p_selection,
+    payer_id = p_actor, mandate_kind = p_kind, mandated_at = pg_catalog.clock_timestamp(),
+    execution_host_id = p_host, mandate_selection = p_selection,
     state = case when p_blocked_reason is null then 'evaluating' else 'blocked' end, reason_code = p_blocked_reason,
     reason_details = '{}'::jsonb, evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0,
     mandate_revision = r.mandate_revision + 1
@@ -542,8 +585,8 @@ declare
   request public.takeoff_launch_requests%rowtype;
 begin
   update public.takeoff_launch_requests r set confirmed_by = p_confirmer,
-    payer_id = null, requested_by = null, mandate_kind = null, mandated_at = null,
-    execution_host_id = null, mandate_selection = null, execution_selection = null, state = 'blocked',
+    payer_id = null, mandate_kind = null, mandated_at = null, execution_host_id = null, mandate_selection = null,
+    state = 'blocked',
     reason_code = case when private.takeoff_launch_payer_eligible(r.tenant_id, r.project_id, p_confirmer)
       then 'MANDATE_REQUIRED' else 'OPERATOR_REQUIRED' end,
     reason_details = '{}'::jsonb, evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0,
@@ -556,23 +599,29 @@ $$;
 revoke all on function private.withdraw_takeoff_launch_mandate(public.takeoff_launch_requests, uuid)
   from public, anon, authenticated, service_role;
 
--- The payer notice of a confirmation: shown to a member who may launch on the affaire, once both cut-offs are set. Its
--- digest names that member, the affaire, the activation and the subscription and settings it was shown with (the
--- profile, model, effort, Mac and authorization of the selection, or none); the confirmation carries it back.
-create function private.takeoff_payer_notice_digest(p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_selection jsonb)
+-- The payer notice of a confirmation: shown to a member who may launch on the affaire, once both cut-offs are set and
+-- with the module on. Its digest names that member, the affaire, both cut-offs and the subscription and settings it was
+-- shown with (the profile, model, effort, Mac and authorization of the selection, or none); the confirmation carries it
+-- back. Replacing either cut-off makes another notice.
+create function private.takeoff_payer_notice_digest(p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_selection jsonb,
+  p_module_default boolean)
 returns text language sql stable security definer set search_path = '' as $$
-  select case when private.takeoff_launch_active() and private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_actor)
-    then encode(pg_catalog.sha256(convert_to(jsonb_build_array('takeoff-payer-notice', 1, p_tenant_id, p_project_id, p_actor,
-      (select a.active_from from private.takeoff_launch_activation a), coalesce(p_selection, 'null'::jsonb))::text, 'UTF8')), 'hex')
+  select case when private.takeoff_launch_active() and private.takeoff_module_enabled(p_tenant_id, p_module_default)
+      and private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_actor)
+    then encode(pg_catalog.sha256(convert_to(jsonb_build_array('takeoff-payer-notice', 2, p_tenant_id, p_project_id, p_actor,
+      (select a.active_from from private.takeoff_launch_activation a),
+      (select c.active_from from private.takeoff_completion_activation c),
+      coalesce(p_selection, 'null'::jsonb))::text, 'UTF8')), 'hex')
   end
 $$;
-revoke all on function private.takeoff_payer_notice_digest(uuid, uuid, uuid, jsonb) from public, anon, authenticated, service_role;
-create function public.takeoff_payer_notice(p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_selection jsonb)
+revoke all on function private.takeoff_payer_notice_digest(uuid, uuid, uuid, jsonb, boolean) from public, anon, authenticated, service_role;
+create function public.takeoff_payer_notice(p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_selection jsonb,
+  p_module_default boolean default false)
 returns text language sql stable security definer set search_path = '' as $$
-  select private.takeoff_payer_notice_digest(p_tenant_id, p_project_id, p_actor, p_selection)
+  select private.takeoff_payer_notice_digest(p_tenant_id, p_project_id, p_actor, p_selection, p_module_default)
 $$;
-revoke all on function public.takeoff_payer_notice(uuid, uuid, uuid, jsonb) from public, anon, authenticated;
-grant execute on function public.takeoff_payer_notice(uuid, uuid, uuid, jsonb) to service_role;
+revoke all on function public.takeoff_payer_notice(uuid, uuid, uuid, jsonb, boolean) from public, anon, authenticated;
+grant execute on function public.takeoff_payer_notice(uuid, uuid, uuid, jsonb, boolean) to service_role;
 
 create function private.assert_takeoff_launch_gesture(p_host text, p_selection jsonb, p_blocked_reason text)
 returns void language plpgsql immutable set search_path = '' as $$
@@ -589,82 +638,101 @@ end;
 $$;
 revoke all on function private.assert_takeoff_launch_gesture(text, jsonb, text) from public, anon, authenticated;
 
--- The server's confirmation of a brief, in one commit: its compare-and-set on the revision the member saw, its event, the
--- reservation of the automatic request and either the member's mandate (with the notice that was shown for it: payer,
--- subscription and settings, activation) or the reason it waits. The member is the session's, checked by the server.
--- A replay of the gesture returns the request as it is: a later gesture is never replaced.
+-- The server's confirmation of a brief, in one commit: the actor's right to confirm that affaire on the rows it locks,
+-- the brief's compare-and-set on the revision the member saw, its event (in the brief's own affaire: its upload if it is
+-- the affaire's, otherwise the affaire's latest; a brief and an affaire without any upload are confirmed without one),
+-- the reservation of the automatic request and either the member's mandate (with the notice that was shown for it) or
+-- the reason it waits. With the module off or before both cut-offs nothing is reserved. A replay of the gesture returns
+-- the request as it is, also when the member's identical submission already confirmed it and its answer was lost.
 create function public.confirm_affaire_brief_takeoff(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_expected_updated_at timestamptz, p_notice text,
-  p_host text default null, p_selection jsonb default null, p_blocked_reason text default null
+  p_host text default null, p_selection jsonb default null, p_blocked_reason text default null, p_module_default boolean default false
 ) returns table (outcome text, brief_updated_at timestamptz, request_id uuid, state text, reason_code text, payer_id uuid)
 language plpgsql security definer set search_path = '' as $$
 #variable_conflict use_column
 declare
   brief public.affaire_briefs%rowtype;
   request public.takeoff_launch_requests%rowtype;
+  event_upload uuid;
   at timestamptz := pg_catalog.clock_timestamp();
 begin
   if p_actor is null or p_expected_updated_at is null then
     raise exception 'TAKEOFF_BRIEF_CONFIRMATION_INVALID' using errcode = '22023';
   end if;
   perform private.assert_takeoff_launch_gesture(p_host, p_selection, p_blocked_reason);
-  if not exists (select 1 from public.estimate_projects p
-      join public.tenants t on t.id = p.tenant_id and t.is_active
-      join public.tenant_memberships m on m.tenant_id = p.tenant_id and m.user_id = p_actor
-      where p.id = p_project_id and p.tenant_id = p_tenant_id) then
-    raise exception 'TAKEOFF_BRIEF_CONFIRMATION_FORBIDDEN' using errcode = '42501';
-  end if;
   select * into brief from public.affaire_briefs b where b.tenant_id = p_tenant_id and b.project_id = p_project_id for update;
   if not found then
     raise exception 'AFFAIRE_BRIEF_NOT_FOUND' using errcode = 'P0002';
   end if;
-  if brief.updated_at <> p_expected_updated_at then
-    return query select 'conflict'::text, brief.updated_at, null::uuid, null::text, null::text, null::uuid;
-    return;
+  if not private.takeoff_member_may_confirm_brief(p_tenant_id, p_project_id, p_actor) then
+    raise exception 'TAKEOFF_BRIEF_CONFIRMATION_FORBIDDEN' using errcode = '42501';
   end if;
   select * into request from public.takeoff_launch_requests r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic';
+  if brief.updated_at <> p_expected_updated_at then
+    -- The member's own submission of that revision confirmed the brief and its answer was lost: the same answer again.
+    if brief.status = 'confirme' and brief.confirmed_by = p_actor and exists (
+        select 1 from (select e.actor_user_id, e.before_payload from public.affaire_intake_events e
+          where e.project_id = p_project_id and e.event_type = 'brief.confirmed' order by e.created_at desc, e.id desc limit 1) latest
+        where latest.actor_user_id = p_actor and (latest.before_payload ->> 'updated_at')::timestamptz = p_expected_updated_at) then
+      return query select 'replayed'::text, brief.updated_at, request.id, request.state, request.reason_code, request.payer_id;
+      return;
+    end if;
+    return query select 'conflict'::text, brief.updated_at, null::uuid, null::text, null::text, null::uuid;
+    return;
+  end if;
   if brief.status = 'confirme' then
     return query select 'replayed'::text, brief.updated_at, request.id, request.state, request.reason_code, request.payer_id;
     return;
   end if;
   -- The request before the brief: a dossier writer marks under the dossier key (section 9) only after this, so the
   -- confirmation never holds that key while it waits for the request.
-  if private.takeoff_launch_active() then
+  if private.takeoff_launch_active() and private.takeoff_module_enabled(p_tenant_id, p_module_default) then
     request := private.reserve_automatic_takeoff_request(p_tenant_id, p_project_id, p_actor);
     if private.takeoff_launch_request_open(request) then
-      if p_notice is not null and p_notice = private.takeoff_payer_notice_digest(p_tenant_id, p_project_id, p_actor, p_selection) then
+      if p_notice is not null
+        and p_notice = private.takeoff_payer_notice_digest(p_tenant_id, p_project_id, p_actor, p_selection, p_module_default) then
         request := private.mandate_takeoff_launch_request(request, p_actor, 'confirmation', p_host, p_selection, p_blocked_reason);
       elsif request.payer_id is not null or request.confirmed_by is distinct from p_actor then
         request := private.withdraw_takeoff_launch_mandate(request, p_actor);
       end if;
     end if;
-    perform pg_catalog.set_config('mergeone.takeoff_brief_confirmation', p_project_id::text, true);
+  else
+    request := null;
   end if;
+  perform pg_catalog.set_config('mergeone.takeoff_brief_confirmation', p_project_id::text, true);
   update public.affaire_briefs b set status = 'confirme', confirmed_at = at, confirmed_by = p_actor, updated_by = p_actor
   where b.id = brief.id
   returning * into brief;
   perform pg_catalog.set_config('mergeone.takeoff_brief_confirmation', '', true);
-  insert into public.affaire_intake_events (tenant_id, project_id, upload_id, actor_user_id, event_type, before_payload, after_payload)
-  values (p_tenant_id, p_project_id, brief.upload_id, p_actor, 'brief.confirmed', jsonb_build_object('status', 'a_confirmer'),
-    jsonb_build_object('status', 'confirme', 'confirmed_at', at));
+  -- Never another affaire's upload: an event takes its scope from its upload.
+  select u.id into event_upload from public.affaire_intake_uploads u
+  where u.project_id = p_project_id and u.tenant_id = p_tenant_id
+  order by (u.id = brief.upload_id) desc, u.created_at desc limit 1;
+  if event_upload is not null then
+    insert into public.affaire_intake_events (tenant_id, project_id, upload_id, actor_user_id, event_type, before_payload, after_payload)
+    values (p_tenant_id, p_project_id, event_upload, p_actor, 'brief.confirmed',
+      jsonb_build_object('status', 'a_confirmer', 'updated_at', p_expected_updated_at),
+      jsonb_build_object('status', 'confirme', 'confirmed_at', at));
+  end if;
   return query select 'confirmed'::text, brief.updated_at, request.id, request.state, request.reason_code, request.payer_id;
 end;
 $$;
-revoke all on function public.confirm_affaire_brief_takeoff(uuid, uuid, uuid, timestamptz, text, text, jsonb, text)
+revoke all on function public.confirm_affaire_brief_takeoff(uuid, uuid, uuid, timestamptz, text, text, jsonb, text, boolean)
   from public, anon, authenticated;
-grant execute on function public.confirm_affaire_brief_takeoff(uuid, uuid, uuid, timestamptz, text, text, jsonb, text) to service_role;
+grant execute on function public.confirm_affaire_brief_takeoff(uuid, uuid, uuid, timestamptz, text, text, jsonb, text, boolean)
+  to service_role;
 
 -- Any other confirmation of a brief (a released client's own update, an import): the request is reserved in that
--- transaction too, with the session's member as its confirmer (never a column the client wrote), and never a mandate.
--- An earlier mandate is withdrawn: nothing is spent before a gesture.
+-- transaction too, with the session's member as its confirmer (never a column the client wrote), and never a mandate;
+-- an earlier mandate is withdrawn: nothing is spent before a gesture. With no server here, the module is the tenant's flag.
 create function private.reserve_takeoff_launch_on_confirmation()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
   request public.takeoff_launch_requests%rowtype;
   confirmer uuid := auth.uid();
 begin
-  if not private.takeoff_launch_active()
+  if not private.takeoff_launch_active() or not private.takeoff_module_enabled(new.tenant_id, false)
     or pg_catalog.current_setting('mergeone.takeoff_brief_confirmation', true) = new.project_id::text then
     return null;
   end if;
@@ -679,10 +747,14 @@ $$;
 revoke all on function private.reserve_takeoff_launch_on_confirmation() from public, anon, authenticated, service_role;
 
 -- 8. The Mac of a mandate claims the requests it has to evaluate: one that waits for its evaluation, one whose dossier
--- changed since it was found not eligible or blocked by its dossier, one blocked by a passing cause a while ago. A
--- blocking that only the payer's gesture lifts waits for that gesture. The lease keeps two processes of one Mac apart.
-create function public.claim_takeoff_launch_evaluations(p_host_id text, p_token uuid, p_limit integer default 5)
-returns table (request_id uuid, tenant_id uuid, project_id uuid, origin text, payer_id uuid, mark bigint)
+-- changed since it was found not eligible or blocked by its dossier, one blocked by a passing cause a while ago, of a
+-- tenant whose module is on. A blocking that only the payer's gesture lifts waits for that gesture. The lease keeps two
+-- processes of one Mac apart. The dossier's position is counted once per candidate and returned with what the
+-- evaluation needs (the mandate's selection, whether its payer may still launch).
+create function public.claim_takeoff_launch_evaluations(p_host_id text, p_token uuid, p_limit integer default 5,
+  p_module_default boolean default false)
+returns table (request_id uuid, tenant_id uuid, project_id uuid, origin text, payer_id uuid, mark bigint,
+  mandate_selection jsonb, payer_eligible boolean)
 language plpgsql security definer set search_path = '' as $$
 begin
   if p_host_id is null or p_token is null then
@@ -694,12 +766,15 @@ begin
   end if;
   return query
   with due as (
-    select r.id from public.takeoff_launch_requests r
+    select r.id, p.position from public.takeoff_launch_requests r
+    cross join lateral (select private.takeoff_launch_mark_position(r.tenant_id, r.project_id) as position) p
     where r.execution_host_id = p_host_id and r.state in ('evaluating', 'not_eligible', 'blocked') and r.payer_id is not null
+      and not (r.state = 'blocked' and r.reason_code = any (private.takeoff_launch_mandate_reasons()))
       and (r.evaluation_lease_expires_at is null or r.evaluation_lease_expires_at <= pg_catalog.clock_timestamp())
+      and private.takeoff_module_enabled(r.tenant_id, p_module_default)
       and (r.state = 'evaluating'
-        or (not (r.reason_code = any (private.takeoff_launch_mandate_reasons()))
-          and (r.evaluated_mark is null or private.takeoff_launch_mark_position(r.tenant_id, r.project_id) > r.evaluated_mark))
+        or (not (r.reason_code = any (private.takeoff_launch_transient_reasons()))
+          and (r.evaluated_mark is null or p.position > r.evaluated_mark))
         or (r.reason_code = any (private.takeoff_launch_transient_reasons())
           and r.evaluated_at <= pg_catalog.clock_timestamp() - interval '2 minutes'))
     order by r.updated_at, r.id
@@ -709,12 +784,12 @@ begin
   update public.takeoff_launch_requests r set evaluation_lease_token = p_token,
     evaluation_lease_expires_at = pg_catalog.clock_timestamp() + interval '10 minutes'
   from due where r.id = due.id
-  returning r.id, r.tenant_id, r.project_id, r.origin, r.payer_id,
-    private.takeoff_launch_mark_position(r.tenant_id, r.project_id);
+  returning r.id, r.tenant_id, r.project_id, r.origin, r.payer_id, due.position, r.mandate_selection,
+    private.takeoff_launch_payer_eligible(r.tenant_id, r.project_id, r.payer_id);
 end;
 $$;
-revoke all on function public.claim_takeoff_launch_evaluations(text, uuid, integer) from public, anon, authenticated;
-grant execute on function public.claim_takeoff_launch_evaluations(text, uuid, integer) to service_role;
+revoke all on function public.claim_takeoff_launch_evaluations(text, uuid, integer, boolean) from public, anon, authenticated;
+grant execute on function public.claim_takeoff_launch_evaluations(text, uuid, integer, boolean) to service_role;
 
 -- Whether the Mac of a request has work waiting on it: an evaluation not done yet, a dossier changed since it, or a
 -- passing cause to try again. The affaire's page reads it to tell a Mac gone for good from a request with nothing to do.
@@ -729,9 +804,10 @@ $$;
 revoke all on function public.takeoff_launch_request_awaits_mac(uuid) from public, anon, authenticated;
 grant execute on function public.takeoff_launch_request_awaits_mac(uuid) to service_role;
 
--- The gesture a request offers a member who may launch on the affaire, as the affaire's options show it
--- (src/lib/takeoff/operator-state.ts, resolveTakeoffLaunchDecision): resume (its payer) or take it on (anyone else),
--- for a blocking that only a gesture lifts or after its Mac stayed silent for fifteen minutes on work waiting for it.
+-- The one rule of the gesture a request offers a member who may launch on the affaire: resume (its payer) or take it on
+-- (anyone else), for a blocking that only a gesture lifts or after its Mac stayed silent for fifteen minutes on work
+-- waiting for it; otherwise none. The affaire's view reads it (public.takeoff_launch_request_action) and the take-over
+-- enforces it; the screens add only what depends on the viewer's Mac.
 create function private.takeoff_launch_allowed_action(p_request public.takeoff_launch_requests, p_actor uuid)
 returns text language sql stable security definer set search_path = '' as $$
   select case
@@ -744,6 +820,13 @@ returns text language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_launch_allowed_action(public.takeoff_launch_requests, uuid)
   from public, anon, authenticated, service_role;
+create function public.takeoff_launch_request_action(p_request_id uuid, p_actor uuid)
+returns text language sql stable security definer set search_path = '' as $$
+  select coalesce((select private.takeoff_launch_allowed_action(r, p_actor) from public.takeoff_launch_requests r
+    where r.id = p_request_id), 'none')
+$$;
+revoke all on function public.takeoff_launch_request_action(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.takeoff_launch_request_action(uuid, uuid) to service_role;
 
 -- « Reprendre avec mon forfait » / « Prendre en charge avec mon forfait »: an operator who may launch on the affaire
 -- engages the request with their own subscription, on the Mac of the gesture, and receives its end. The gesture names
@@ -751,7 +834,7 @@ revoke all on function private.takeoff_launch_allowed_action(public.takeoff_laun
 -- gesture, a new confirmation, the Mac that answered), it is refused and nothing changes.
 create function public.take_on_takeoff_launch_request(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_request_id uuid, p_seen_revision integer, p_action text,
-  p_host text, p_selection jsonb, p_blocked_reason text default null
+  p_host text, p_selection jsonb, p_blocked_reason text default null, p_module_default boolean default false
 ) returns table (outcome text, request_id uuid, state text, reason_code text, payer_id uuid, mandate_revision integer)
 language plpgsql security definer set search_path = '' as $$
 #variable_conflict use_column
@@ -764,6 +847,9 @@ begin
   perform private.assert_takeoff_launch_gesture(p_host, p_selection, p_blocked_reason);
   if not private.takeoff_launch_active() then
     raise exception 'TAKEOFF_LAUNCH_INACTIVE' using errcode = '55000';
+  end if;
+  if not private.takeoff_module_enabled(p_tenant_id, p_module_default) then
+    raise exception 'TAKEOFF_LAUNCH_MODULE_DISABLED' using errcode = '55000';
   end if;
   perform private.lock_takeoff_launch_commands(p_project_id);
   select * into request from public.takeoff_launch_requests r
@@ -782,9 +868,24 @@ begin
   return query select 'mandated'::text, request.id, request.state, request.reason_code, request.payer_id, request.mandate_revision;
 end;
 $$;
-revoke all on function public.take_on_takeoff_launch_request(uuid, uuid, uuid, uuid, integer, text, text, jsonb, text)
+revoke all on function public.take_on_takeoff_launch_request(uuid, uuid, uuid, uuid, integer, text, text, jsonb, text, boolean)
   from public, anon, authenticated;
-grant execute on function public.take_on_takeoff_launch_request(uuid, uuid, uuid, uuid, integer, text, text, jsonb, text) to service_role;
+grant execute on function public.take_on_takeoff_launch_request(uuid, uuid, uuid, uuid, integer, text, text, jsonb, text, boolean)
+  to service_role;
+
+-- The end of an evaluation that admits nothing, written once for every caller: the lease given back, the state and its
+-- reason (and only its own pieces), the position it read when it decided one (never for a request evaluated again).
+create function private.release_takeoff_launch_evaluation(p_request_id uuid, p_state text, p_reason text, p_details jsonb,
+  p_mark bigint)
+returns void language sql security definer set search_path = '' as $$
+  update public.takeoff_launch_requests r set state = p_state, reason_code = p_reason,
+    reason_details = coalesce(p_details, '{}'::jsonb),
+    evaluated_mark = case when p_state = 'evaluating' then r.evaluated_mark else coalesce(p_mark, r.evaluated_mark) end,
+    evaluated_at = pg_catalog.clock_timestamp(), evaluation_lease_token = null, evaluation_lease_expires_at = null,
+    evaluation_failures = 0
+  where r.id = p_request_id
+$$;
+revoke all on function private.release_takeoff_launch_evaluation(uuid, text, text, jsonb, bigint) from public, anon, authenticated, service_role;
 
 -- What an evaluation found when it does not admit: not eligible, blocked (with its reason), or nothing to decide (the
 -- lease is given back). The position it read is recorded so that only a later change wakes it again.
@@ -806,20 +907,15 @@ begin
   if not found or request.evaluation_lease_token is distinct from p_token then
     return coalesce(request.state, 'lost');
   end if;
-  update public.takeoff_launch_requests r set state = p_state, reason_code = p_reason,
-    reason_details = coalesce(p_details, '{}'::jsonb),
-    evaluated_mark = case when p_state = 'evaluating' then r.evaluated_mark else p_mark end,
-    evaluated_at = pg_catalog.clock_timestamp(), evaluation_lease_token = null, evaluation_lease_expires_at = null,
-    evaluation_failures = 0
-  where r.id = p_request_id;
+  perform private.release_takeoff_launch_evaluation(p_request_id, p_state, p_reason, p_details, p_mark);
   return p_state;
 end;
 $$;
 revoke all on function public.record_takeoff_launch_evaluation(uuid, uuid, bigint, text, text, jsonb) from public, anon, authenticated;
 grant execute on function public.record_takeoff_launch_evaluation(uuid, uuid, bigint, text, text, jsonb) to service_role;
 
--- An evaluation that stopped on an error (a storage or database failure, a configuration of the Mac): the request gives its
--- lease back and is evaluated again; the third failure in a row leaves it blocked, visibly, until a member's gesture.
+-- An evaluation that stopped on an error gives its lease back; the third in a row leaves the request blocked, visibly,
+-- until a gesture.
 create function public.record_takeoff_launch_evaluation_failure(p_request_id uuid, p_token uuid)
 returns text language plpgsql security definer set search_path = '' as $$
 declare
@@ -844,8 +940,8 @@ revoke all on function public.record_takeoff_launch_evaluation_failure(uuid, uui
 grant execute on function public.record_takeoff_launch_evaluation_failure(uuid, uuid) to service_role;
 
 -- 9. The admission: the request is sealed, its job inserted and both creation records written in one commit. A changed
--- dossier, a lost lease, a payer no longer eligible or a source that moved since the evaluation aborts it and the request
--- waits for a new evaluation; nothing is spent before this commits.
+-- dossier, a lost lease, a payer no longer eligible, the module turned off or a source that moved since the evaluation
+-- aborts it and the request waits for a new evaluation; nothing is spent before this commits.
 create function private.insert_takeoff_launch_job(p_request public.takeoff_launch_requests, p_job jsonb)
 returns uuid language plpgsql security definer set search_path = '' as $$
 declare
@@ -883,7 +979,7 @@ begin
     or jsonb_typeof(p_manifest #> '{budget,cost_cents}') is distinct from 'number' or (p_manifest #>> '{budget,cost_cents}')::numeric < 0
     or jsonb_typeof(p_snapshot) is distinct from 'object' or p_snapshot -> 'schema_version' is distinct from '1'::jsonb
     or p_snapshot ->> 'confirmed_by' is distinct from p_request.payer_id::text
-    or p_snapshot -> 'execution_selection' is distinct from p_request.execution_selection
+    or p_snapshot -> 'execution_selection' is distinct from p_request.mandate_selection
     or p_snapshot #> '{readiness,can_launch}' is distinct from 'true'::jsonb
     or p_snapshot #>> '{preparation,processing,level}' is distinct from 'C'
     or p_snapshot #>> '{preparation,processing,provider}' is distinct from 'chatgpt'
@@ -894,10 +990,34 @@ end;
 $$;
 revoke all on function private.assert_takeoff_launch_seal(public.takeoff_launch_requests, jsonb, jsonb) from public, anon, authenticated, service_role;
 
+-- The seal of a request, written once for both admissions: its manifest and digest, the snapshot its job attests, its
+-- units, its budget and the dossier position it was admitted on.
+create function private.seal_takeoff_launch_request(p_request public.takeoff_launch_requests, p_manifest jsonb, p_snapshot jsonb,
+  p_mark bigint)
+returns public.takeoff_launch_requests language plpgsql security definer set search_path = '' as $$
+declare
+  request public.takeoff_launch_requests%rowtype;
+begin
+  perform private.assert_takeoff_launch_seal(p_request, p_manifest, p_snapshot);
+  update public.takeoff_launch_requests r set state = 'admitted', reason_code = null, reason_details = '{}'::jsonb,
+    manifest = p_manifest, manifest_digest = encode(pg_catalog.sha256(convert_to(p_manifest::text, 'UTF8')), 'hex'),
+    preparation_snapshot = p_snapshot, units_expected = jsonb_array_length(p_manifest -> 'units'),
+    token_budget = (p_manifest #>> '{budget,tokens}')::bigint, cost_budget_cents = (p_manifest #>> '{budget,cost_cents}')::bigint,
+    evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(), admitted_at = pg_catalog.clock_timestamp(),
+    evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0
+  where r.id = p_request.id
+  returning * into request;
+  return request;
+end;
+$$;
+revoke all on function private.seal_takeoff_launch_request(public.takeoff_launch_requests, jsonb, jsonb, bigint)
+  from public, anon, authenticated, service_role;
+
 create function public.admit_takeoff_launch_request(
-  p_request_id uuid, p_token uuid, p_mark bigint, p_manifest jsonb, p_snapshot jsonb, p_job jsonb
+  p_request_id uuid, p_token uuid, p_mark bigint, p_manifest jsonb, p_snapshot jsonb, p_job jsonb, p_module_default boolean default false
 ) returns table (outcome text, job_id uuid, reason_code text)
 language plpgsql security definer set search_path = '' as $$
+#variable_conflict use_column
 declare
   request public.takeoff_launch_requests%rowtype;
   brief public.affaire_briefs%rowtype;
@@ -910,28 +1030,27 @@ begin
     raise exception 'TAKEOFF_LAUNCH_REQUEST_NOT_FOUND' using errcode = 'P0002';
   end if;
   if request.state in ('admitted', 'closed') then
-    return query select 'replayed', (select j.id from public.takeoff_jobs j where j.launch_request_id = request.id
+    return query select 'replayed'::text, (select j.id from public.takeoff_jobs j where j.launch_request_id = request.id
       order by j.launch_unit_key limit 1), null::text;
     return;
   end if;
   -- The token alone: a lease that expired was claimed again under another token by then, or is still this evaluation's.
   if request.evaluation_lease_token is distinct from p_token then
-    return query select 'lost', null::uuid, null::text;
+    return query select 'lost'::text, null::uuid, null::text;
     return;
   end if;
   -- The previous application version neither records an end nor reads a request: nothing is admitted before both cut-offs.
   if not private.takeoff_launch_active() then
     raise exception 'TAKEOFF_LAUNCH_INACTIVE' using errcode = '55000';
   end if;
-
   if private.takeoff_launch_mark_position(request.tenant_id, request.project_id) <> p_mark then
-    update public.takeoff_launch_requests r set state = 'evaluating', reason_code = null, reason_details = '{}'::jsonb,
-      evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = request.id;
-    return query select 'stale', null::uuid, null::text;
+    perform private.release_takeoff_launch_evaluation(request.id, 'evaluating', null, null, null);
+    return query select 'stale'::text, null::uuid, null::text;
     return;
   end if;
   select * into brief from public.affaire_briefs b where b.tenant_id = request.tenant_id and b.project_id = request.project_id;
   failure := case
+    when not private.takeoff_module_enabled(request.tenant_id, p_module_default) then 'TAKEOFF_DISABLED'
     when request.payer_id is null or request.execution_host_id is null then 'MANDATE_REQUIRED'
     when request.origin = 'automatic' and brief.status is distinct from 'confirme' then 'BRIEF_NOT_CONFIRMED'
     when not private.takeoff_launch_payer_eligible(request.tenant_id, request.project_id, request.payer_id) then 'PAYER_NOT_ELIGIBLE'
@@ -939,23 +1058,14 @@ begin
       and other.project_id = request.project_id and other.state = 'admitted' and other.id <> request.id) then 'ANOTHER_ANALYSIS_RUNNING'
   end;
   if failure is not null then
-    update public.takeoff_launch_requests r set state = case when failure = 'BRIEF_NOT_CONFIRMED' then 'not_eligible' else 'blocked' end,
-      reason_code = failure, reason_details = '{}'::jsonb, evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(),
-      evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = request.id;
-    return query select 'blocked', null::uuid, failure;
+    perform private.release_takeoff_launch_evaluation(request.id,
+      case when failure = 'BRIEF_NOT_CONFIRMED' then 'not_eligible' else 'blocked' end, failure, null, p_mark);
+    return query select 'blocked'::text, null::uuid, failure;
     return;
   end if;
-  perform private.assert_takeoff_launch_seal(request, p_manifest, p_snapshot);
 
   begin
-    update public.takeoff_launch_requests r set state = 'admitted', reason_code = null, reason_details = '{}'::jsonb,
-      manifest = p_manifest, manifest_digest = encode(pg_catalog.sha256(convert_to(p_manifest::text, 'UTF8')), 'hex'),
-      preparation_snapshot = p_snapshot, units_expected = jsonb_array_length(p_manifest -> 'units'),
-      token_budget = (p_manifest #>> '{budget,tokens}')::bigint, cost_budget_cents = (p_manifest #>> '{budget,cost_cents}')::bigint,
-      evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(), admitted_at = pg_catalog.clock_timestamp(),
-      evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0
-    where r.id = request.id
-    returning * into request;
+    request := private.seal_takeoff_launch_request(request, p_manifest, p_snapshot, p_mark);
     admitted_job := private.insert_takeoff_launch_job(request,
       p_job || jsonb_build_object('launch_unit_key', p_manifest #>> '{units,0,key}'));
     perform private.record_takeoff_launch_audit(request, request.payer_id, 'takeoff.request.admitted', jsonb_build_object(
@@ -971,136 +1081,127 @@ begin
   exception
     when sqlstate '40001' then
       if sqlerrm <> 'TAKEOFF_LAUNCH_DOSSIER_CHANGED' then raise; end if;
-      update public.takeoff_launch_requests r set state = 'evaluating', reason_code = null, reason_details = '{}'::jsonb,
-        evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = p_request_id;
-      return query select 'stale', null::uuid, null::text;
+      perform private.release_takeoff_launch_evaluation(p_request_id, 'evaluating', null, null, null);
+      return query select 'stale'::text, null::uuid, null::text;
       return;
     when unique_violation then
       -- Another request of the affaire was admitted between the check above and this one: it runs, this one waits.
       get stacked diagnostics violated = constraint_name;
       if violated is distinct from 'takeoff_launch_requests_running_uidx' then raise; end if;
-      update public.takeoff_launch_requests r set state = 'blocked', reason_code = 'ANOTHER_ANALYSIS_RUNNING',
-        evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(),
-        evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = p_request_id;
-      return query select 'blocked', null::uuid, 'ANOTHER_ANALYSIS_RUNNING'::text;
+      perform private.release_takeoff_launch_evaluation(p_request_id, 'blocked', 'ANOTHER_ANALYSIS_RUNNING', null, p_mark);
+      return query select 'blocked'::text, null::uuid, 'ANOTHER_ANALYSIS_RUNNING'::text;
       return;
     when sqlstate '23514' then
       if sqlerrm <> 'TAKEOFF_JOB_ADMISSION_LIMIT' then raise; end if;
-      update public.takeoff_launch_requests r set state = 'blocked', reason_code = 'ADMISSION_LIMIT',
-        evaluated_mark = p_mark, evaluated_at = pg_catalog.clock_timestamp(),
-        evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = p_request_id;
-      return query select 'blocked', null::uuid, 'ADMISSION_LIMIT'::text;
+      perform private.release_takeoff_launch_evaluation(p_request_id, 'blocked', 'ADMISSION_LIMIT', null, p_mark);
+      return query select 'blocked'::text, null::uuid, 'ADMISSION_LIMIT'::text;
       return;
     when sqlstate '42501' then
       -- A source that moved since the evaluation: evaluate the dossier again, nothing was admitted.
       if sqlerrm not in ('TAKEOFF_PREPARATION_SOURCE_STALE', 'TAKEOFF_PREPARATION_SOURCE_MISMATCH', 'TAKEOFF_PREPARATION_REQUIRED') then
         raise;
       end if;
-      update public.takeoff_launch_requests r set state = 'evaluating', reason_code = null, reason_details = '{}'::jsonb,
-        evaluation_lease_token = null, evaluation_lease_expires_at = null, evaluation_failures = 0 where r.id = p_request_id;
-      return query select 'stale', null::uuid, null::text;
+      perform private.release_takeoff_launch_evaluation(p_request_id, 'evaluating', null, null, null);
+      return query select 'stale'::text, null::uuid, null::text;
       return;
   end;
-  return query select 'admitted', admitted_job, null::text;
+  return query select 'admitted'::text, admitted_job, null::text;
 end;
 $$;
-revoke all on function public.admit_takeoff_launch_request(uuid, uuid, bigint, jsonb, jsonb, jsonb) from public, anon, authenticated;
-grant execute on function public.admit_takeoff_launch_request(uuid, uuid, bigint, jsonb, jsonb, jsonb) to service_role;
+revoke all on function public.admit_takeoff_launch_request(uuid, uuid, bigint, jsonb, jsonb, jsonb, boolean) from public, anon, authenticated;
+grant execute on function public.admit_takeoff_launch_request(uuid, uuid, bigint, jsonb, jsonb, jsonb, boolean) to service_role;
 
 -- 10. An explicit command (a relaunch from the takeoff's options): a manual request created, sealed and admitted in one
--- commit, on the subscription of the member who clicks, who receives its end, naming the analysis it replaces. Its key
--- is recorded with every answer, before any other check is made on a replay: the same key with the same command (member,
--- intent, analysis replaced) returns what it answered (its request and job, or the analysis that was running then);
--- with another command it is a conflict. While another request of the affaire is admitted, the command is recorded as
--- refused and returns that one: a lost answer replayed later never becomes a paid job.
-create function private.takeoff_launch_command_digest(p_actor uuid, p_intent text, p_predecessor_job_id uuid)
+-- commit, on the subscription of the member who clicks, who receives its end, naming the analysis it replaces (every
+-- intent but the first analysis). A command's receipt is kept apart from the requests (only executions are requests):
+-- its key, its identity (member, intent, analysis replaced, plan set and preparation revision) and its answer, the
+-- request and job it names. A replay with the same key and identity gets that answer first, whatever changed since;
+-- the same key for another command is a conflict. While another request of the affaire runs, the command's receipt
+-- records the request and job it observed, and no request is created. The receipt has no foreign key to a job or a
+-- request: a worker that holds the job it names never blocks it.
+create table private.takeoff_launch_commands (
+  tenant_id uuid not null,
+  project_id uuid not null,
+  intent_key uuid not null,
+  command_digest text not null check (command_digest ~ '^[0-9a-f]{64}$'),
+  answer text not null check (answer in ('admitted', 'already_running')),
+  request_id uuid,
+  job_id uuid,
+  created_by uuid not null,
+  created_at timestamptz not null default pg_catalog.clock_timestamp(),
+  primary key (tenant_id, project_id, intent_key)
+);
+revoke all on private.takeoff_launch_commands from public, anon, authenticated, service_role;
+
+create function private.takeoff_launch_command_digest(p_actor uuid, p_intent text, p_predecessor_job_id uuid,
+  p_plan_set_id uuid, p_preparation_revision integer)
 returns text language sql immutable set search_path = '' as $$
-  select encode(pg_catalog.sha256(convert_to(jsonb_build_array('takeoff-launch-command', 1, p_actor, p_intent,
-    p_predecessor_job_id)::text, 'UTF8')), 'hex')
+  select encode(pg_catalog.sha256(convert_to(jsonb_build_array('takeoff-launch-command', 2, p_actor, p_intent,
+    p_predecessor_job_id, p_plan_set_id, p_preparation_revision)::text, 'UTF8')), 'hex')
 $$;
-revoke all on function private.takeoff_launch_command_digest(uuid, text, uuid) from public, anon, authenticated, service_role;
+revoke all on function private.takeoff_launch_command_digest(uuid, text, uuid, uuid, integer) from public, anon, authenticated, service_role;
 
 create function private.replay_takeoff_launch_command(p_tenant_id uuid, p_project_id uuid, p_intent_key uuid, p_digest text)
 returns table (outcome text, request_id uuid, job_id uuid)
 language plpgsql stable security definer set search_path = '' as $$
 #variable_conflict use_column
 declare
-  request public.takeoff_launch_requests%rowtype;
+  receipt private.takeoff_launch_commands%rowtype;
 begin
-  select * into request from public.takeoff_launch_requests r
-  where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'manual' and r.intent_key = p_intent_key;
+  select * into receipt from private.takeoff_launch_commands c
+  where c.tenant_id = p_tenant_id and c.project_id = p_project_id and c.intent_key = p_intent_key;
   if not found then
     return;
   end if;
-  if request.command_digest is distinct from p_digest then
+  if receipt.command_digest is distinct from p_digest then
     raise exception 'TAKEOFF_LAUNCH_INTENT_CONFLICT' using errcode = '23505';
   end if;
-  if request.state = 'refused' then
-    return query select 'already_running'::text, (request.reason_details ->> 'request_id')::uuid,
-      (request.reason_details ->> 'job_id')::uuid;
-    return;
-  end if;
-  return query select 'replayed'::text, request.id, (select j.id from public.takeoff_jobs j where j.launch_request_id = request.id
-    order by j.launch_unit_key limit 1);
+  return query select case when receipt.answer = 'admitted' then 'replayed' else 'already_running' end, receipt.request_id,
+    receipt.job_id;
 end;
 $$;
 revoke all on function private.replay_takeoff_launch_command(uuid, uuid, uuid, text) from public, anon, authenticated, service_role;
 
 create function public.replay_manual_takeoff_request(
-  p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid
+  p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
+  p_plan_set_id uuid, p_preparation_revision integer
 ) returns table (outcome text, request_id uuid, job_id uuid)
 language sql stable security definer set search_path = '' as $$
   select * from private.replay_takeoff_launch_command(p_tenant_id, p_project_id, p_intent_key,
-    private.takeoff_launch_command_digest(p_actor, p_intent, p_predecessor_job_id))
+    private.takeoff_launch_command_digest(p_actor, p_intent, p_predecessor_job_id, p_plan_set_id, p_preparation_revision))
 $$;
-revoke all on function public.replay_manual_takeoff_request(uuid, uuid, uuid, uuid, text, uuid) from public, anon, authenticated;
-grant execute on function public.replay_manual_takeoff_request(uuid, uuid, uuid, uuid, text, uuid) to service_role;
-
-create function private.refuse_takeoff_launch_command(p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid,
-  p_intent text, p_digest text, p_predecessor_request uuid, p_predecessor_job_id uuid)
-returns table (outcome text, request_id uuid, job_id uuid)
-language plpgsql security definer set search_path = '' as $$
-#variable_conflict use_column
-declare
-  running public.takeoff_launch_requests%rowtype;
-  running_job uuid;
-begin
-  select * into running from public.takeoff_launch_requests r
-  where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted';
-  running_job := (select j.id from public.takeoff_jobs j where j.launch_request_id = running.id order by j.launch_unit_key limit 1);
-  insert into public.takeoff_launch_requests (tenant_id, project_id, origin, intent, intent_key, command_digest,
-    predecessor_request_id, predecessor_job_id, state, reason_code, reason_details, requested_by)
-  values (p_tenant_id, p_project_id, 'manual', p_intent, p_intent_key, p_digest, p_predecessor_request, p_predecessor_job_id,
-    'refused', 'ANOTHER_ANALYSIS_RUNNING', jsonb_build_object('request_id', running.id, 'job_id', running_job), p_actor);
-  return query select 'already_running'::text, running.id, running_job;
-end;
-$$;
-revoke all on function private.refuse_takeoff_launch_command(uuid, uuid, uuid, uuid, text, text, uuid, uuid)
-  from public, anon, authenticated, service_role;
+revoke all on function public.replay_manual_takeoff_request(uuid, uuid, uuid, uuid, text, uuid, uuid, integer) from public, anon, authenticated;
+grant execute on function public.replay_manual_takeoff_request(uuid, uuid, uuid, uuid, text, uuid, uuid, integer) to service_role;
 
 create function public.launch_manual_takeoff_request(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
-  p_host text, p_selection jsonb, p_manifest jsonb, p_snapshot jsonb, p_job jsonb
+  p_host text, p_selection jsonb, p_manifest jsonb, p_snapshot jsonb, p_job jsonb, p_plan_set_id uuid,
+  p_preparation_revision integer, p_module_default boolean default false
 ) returns table (outcome text, request_id uuid, job_id uuid)
 language plpgsql security definer set search_path = '' as $$
 #variable_conflict use_column
 declare
-  digest text := private.takeoff_launch_command_digest(p_actor, p_intent, p_predecessor_job_id);
+  digest text := private.takeoff_launch_command_digest(p_actor, p_intent, p_predecessor_job_id, p_plan_set_id, p_preparation_revision);
   request public.takeoff_launch_requests%rowtype;
+  running record;
   answer record;
   predecessor_request uuid;
   admitted_job uuid;
   violated text;
 begin
-  if p_intent not in ('initial', 'reread_plans') or p_intent_key is null or p_actor is null then
+  if p_intent not in ('initial', 'reread_plans') or p_intent_key is null or p_actor is null or p_plan_set_id is null
+    or p_preparation_revision is null then
     raise exception 'TAKEOFF_LAUNCH_COMMAND_INVALID' using errcode = '22023';
   end if;
-  if p_predecessor_job_id is null then
+  if p_intent <> 'initial' and p_predecessor_job_id is null then
     raise exception 'TAKEOFF_LAUNCH_PREDECESSOR_REQUIRED' using errcode = '22023';
   end if;
   perform private.assert_takeoff_launch_selection(p_host, p_selection);
   if not private.takeoff_launch_active() then
     raise exception 'TAKEOFF_LAUNCH_INACTIVE' using errcode = '55000';
+  end if;
+  if not private.takeoff_module_enabled(p_tenant_id, p_module_default) then
+    raise exception 'TAKEOFF_LAUNCH_MODULE_DISABLED' using errcode = '55000';
   end if;
   -- Commands and reservations of one affaire are serialized on its key: the replay and the one-running rule read
   -- committed rows, and the automatic request a confirmation reserved is always found.
@@ -1109,19 +1210,24 @@ begin
     return query select answer.outcome, answer.request_id, answer.job_id;
     return;
   end loop;
-  select j.launch_request_id into predecessor_request from public.takeoff_jobs j
-  where j.id = p_predecessor_job_id and j.tenant_id = p_tenant_id and j.project_id = p_project_id;
-  if not found then
-    raise exception 'TAKEOFF_LAUNCH_PREDECESSOR_INVALID' using errcode = '22023';
+  if p_predecessor_job_id is not null then
+    select j.launch_request_id into predecessor_request from public.takeoff_jobs j
+    where j.id = p_predecessor_job_id and j.tenant_id = p_tenant_id and j.project_id = p_project_id;
+    if not found then
+      raise exception 'TAKEOFF_LAUNCH_PREDECESSOR_INVALID' using errcode = '22023';
+    end if;
   end if;
   -- The affaire's automatic request is held before the one-running rule is read: its own admission either committed
   -- (it runs, the command is refused) or waits for this command, which then sets it aside.
   perform 1 from public.takeoff_launch_requests r
   where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic' for update;
-  if exists (select 1 from public.takeoff_launch_requests r
-      where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted') then
-    return query select * from private.refuse_takeoff_launch_command(p_tenant_id, p_project_id, p_actor, p_intent_key, p_intent,
-      digest, predecessor_request, p_predecessor_job_id);
+  select r.id, (select j.id from public.takeoff_jobs j where j.launch_request_id = r.id order by j.launch_unit_key limit 1) as job
+  into running from public.takeoff_launch_requests r
+  where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted';
+  if found then
+    insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
+    values (p_tenant_id, p_project_id, p_intent_key, digest, 'already_running', running.id, running.job, p_actor);
+    return query select 'already_running'::text, running.id, running.job;
     return;
   end if;
   if not private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_actor) then
@@ -1129,46 +1235,45 @@ begin
   end if;
   begin
     insert into public.takeoff_launch_requests (tenant_id, project_id, origin, intent, intent_key, command_digest,
-      predecessor_request_id, predecessor_job_id, state, payer_id, mandate_kind, requested_by, mandated_at,
-      execution_host_id, mandate_selection, execution_selection, mandate_revision)
+      predecessor_request_id, predecessor_job_id, state, payer_id, mandate_kind, mandated_at,
+      execution_host_id, mandate_selection, mandate_revision)
     values (p_tenant_id, p_project_id, 'manual', p_intent, p_intent_key, digest, predecessor_request, p_predecessor_job_id,
-      'evaluating', p_actor, 'command', p_actor, pg_catalog.clock_timestamp(), p_host, p_selection, p_selection, 1)
+      'evaluating', p_actor, 'command', pg_catalog.clock_timestamp(), p_host, p_selection, 1)
     returning * into request;
-    perform private.assert_takeoff_launch_seal(request, p_manifest, p_snapshot);
-    update public.takeoff_launch_requests r set state = 'admitted',
-      manifest = p_manifest, manifest_digest = encode(pg_catalog.sha256(convert_to(p_manifest::text, 'UTF8')), 'hex'),
-      preparation_snapshot = p_snapshot, units_expected = jsonb_array_length(p_manifest -> 'units'),
-      token_budget = (p_manifest #>> '{budget,tokens}')::bigint, cost_budget_cents = (p_manifest #>> '{budget,cost_cents}')::bigint,
-      evaluated_mark = private.takeoff_launch_mark_position(p_tenant_id, p_project_id),
-      evaluated_at = pg_catalog.clock_timestamp(), admitted_at = pg_catalog.clock_timestamp()
-    where r.id = request.id
-    returning * into request;
+    request := private.seal_takeoff_launch_request(request, p_manifest, p_snapshot,
+      private.takeoff_launch_mark_position(p_tenant_id, p_project_id));
     admitted_job := private.insert_takeoff_launch_job(request,
       p_job || jsonb_build_object('launch_unit_key', p_manifest #>> '{units,0,key}'));
     perform private.record_takeoff_launch_audit(request, p_actor, 'takeoff.request.admitted', jsonb_build_object(
       'job_ids', jsonb_build_array(admitted_job), 'manifest_digest', request.manifest_digest, 'intent', p_intent,
       'predecessor_job_id', p_predecessor_job_id, 'execution_host_id', p_host, 'mandate_kind', 'command'));
-    -- An automatic start that had not begun is set aside by this explicit analysis: it never spends later on its own.
-    update public.takeoff_launch_requests r set state = 'blocked', reason_code = 'SUPERSEDED',
+    -- An automatic start that had not begun is set aside by this explicit analysis, for good: it never spends later.
+    update public.takeoff_launch_requests r set state = 'superseded', reason_code = null,
       reason_details = jsonb_build_object('request_id', request.id), evaluation_lease_token = null, evaluation_lease_expires_at = null,
       mandate_revision = r.mandate_revision + 1
     where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic'
       and r.state in ('evaluating', 'not_eligible', 'blocked');
+    insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
+    values (p_tenant_id, p_project_id, p_intent_key, digest, 'admitted', request.id, admitted_job, p_actor);
   exception when unique_violation then
-    -- Another request of the affaire was admitted meanwhile (an automatic admission that did not wait): the command is
-    -- refused, and recorded so.
+    -- Another request of the affaire was admitted meanwhile (an automatic admission that did not wait): the command's
+    -- receipt records that one.
     get stacked diagnostics violated = constraint_name;
     if violated is distinct from 'takeoff_launch_requests_running_uidx' then raise; end if;
-    return query select * from private.refuse_takeoff_launch_command(p_tenant_id, p_project_id, p_actor, p_intent_key, p_intent,
-      digest, predecessor_request, p_predecessor_job_id);
+    select r.id, (select j.id from public.takeoff_jobs j where j.launch_request_id = r.id order by j.launch_unit_key limit 1) as job
+    into running from public.takeoff_launch_requests r
+    where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted';
+    insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
+    values (p_tenant_id, p_project_id, p_intent_key, digest, 'already_running', running.id, running.job, p_actor);
+    return query select 'already_running'::text, running.id, running.job;
     return;
   end;
   return query select 'admitted'::text, request.id, admitted_job;
 end;
 $$;
-revoke all on function public.launch_manual_takeoff_request(uuid, uuid, uuid, uuid, text, uuid, text, jsonb, jsonb, jsonb, jsonb)
+revoke all on function public.launch_manual_takeoff_request(uuid, uuid, uuid, uuid, text, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid, integer, boolean)
   from public, anon, authenticated;
-grant execute on function public.launch_manual_takeoff_request(uuid, uuid, uuid, uuid, text, uuid, text, jsonb, jsonb, jsonb, jsonb)
+grant execute on function public.launch_manual_takeoff_request(uuid, uuid, uuid, uuid, text, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid, integer, boolean)
   to service_role;
 
 -- 11. The end of a request: the recorded end of its last unit closes it and publishes its one notice, in the transaction
@@ -1207,7 +1312,8 @@ begin
   end if;
   update public.takeoff_launch_requests r set state = 'closed', closed_at = new.analysis_finished_at,
     completion_event_id = gen_random_uuid(),
-    reason_code = case when new.error_code = 'TAKEOFF_REQUEST_BUDGET_EXHAUSTED' then 'BUDGET_EXHAUSTED' end,
+    reason_code = case when new.error_code in ('TAKEOFF_REQUEST_BUDGET_EXHAUSTED', 'TAKEOFF_LEVEL_C_BUDGET_EXCEEDED')
+      then 'BUDGET_EXHAUSTED' end,
     outcome = case
       when r.units_succeeded = r.units_expected then 'success'
       when r.units_failed = r.units_expected then 'failure'
@@ -1220,7 +1326,8 @@ begin
   if not exists (select 1 from private.takeoff_completion_activation a where request.closed_at >= a.active_from) then
     return null;
   end if;
-  recipient := request.requested_by;
+  -- The member who pays receives the end: the confirmer, who took it on, or who clicked.
+  recipient := request.payer_id;
   plans := jsonb_array_length(request.manifest -> 'plans');
   if request.outcome = 'canceled' then
     initial_state := 'suppressed';
@@ -1258,21 +1365,78 @@ create trigger takeoff_launch_request_settlement after update on public.takeoff_
   execute function private.settle_takeoff_launch_request();
 
 -- The consumption a request's jobs observed, attempt after attempt (a retry resets the job's own figures).
--- What a request consumed, counted from the run metrics every attempt of its jobs records when it ends, a failed one
--- included (public.record_local_takeoff_failure records the chunks that answered before the failure): a retry adds its
--- own and never starts from zero. A replaced metric is never subtracted. The trigger is created with the others, last.
-create function private.count_takeoff_launch_attempt_usage()
-returns trigger language plpgsql security definer set search_path = pg_catalog as $$
+-- What a request consumed: a ledger only the worker writes, through the function below, one row per paid call of an
+-- attempt (keyed by job, the attempt's lease and the call), a failed or unreadable answer included; the request's counters
+-- follow it in the same transaction. Nothing an affaire's member writes (run metrics, diagnostics) counts.
+create table private.takeoff_launch_usage (
+  job_id uuid not null,
+  lease_token uuid not null,
+  call_key text not null check (length(call_key) between 1 and 120),
+  request_id uuid not null,
+  tokens bigint not null check (tokens >= 0),
+  cost_cents bigint not null check (cost_cents >= 0),
+  recorded_at timestamptz not null default pg_catalog.clock_timestamp(),
+  primary key (job_id, lease_token, call_key)
+);
+revoke all on private.takeoff_launch_usage from public, anon, authenticated, service_role;
+
+-- A paid call's usage, recorded by the worker that holds the job's processing lease, once per call; it returns what the
+-- request has left. A job without a request records nothing here (its own per-job budget applies).
+create function public.record_takeoff_launch_usage(p_job_id uuid, p_lease_token uuid, p_call_key text, p_tokens bigint,
+  p_cost_cents bigint)
+returns table (remaining_tokens bigint, remaining_cost_cents bigint)
+language plpgsql security definer set search_path = '' as $$
+#variable_conflict use_column
+declare
+  job public.takeoff_jobs%rowtype;
+  request public.takeoff_launch_requests%rowtype;
+  inserted boolean;
 begin
-  update public.takeoff_launch_requests r set
-    tokens_observed = r.tokens_observed + greatest(coalesce(new.total_tokens, 0), 0),
-    cost_cents_observed = r.cost_cents_observed + greatest(coalesce(new.cost_cents, 0), 0)
-  from public.takeoff_jobs j
-  where j.id = new.job_id and j.tenant_id = new.tenant_id and r.id = j.launch_request_id;
-  return null;
+  select * into job from public.takeoff_jobs j where j.id = p_job_id;
+  if not found or job.status::text <> 'processing' or job.processing_lease_token is distinct from p_lease_token
+    or p_lease_token is null then
+    raise exception 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED' using errcode = '42501';
+  end if;
+  if job.launch_request_id is null then
+    return query select null::bigint, null::bigint;
+    return;
+  end if;
+  insert into private.takeoff_launch_usage (job_id, lease_token, call_key, request_id, tokens, cost_cents)
+  values (p_job_id, p_lease_token, p_call_key, job.launch_request_id, greatest(coalesce(p_tokens, 0), 0),
+    greatest(coalesce(p_cost_cents, 0), 0))
+  on conflict do nothing
+  returning true into inserted;
+  if inserted then
+    update public.takeoff_launch_requests r set tokens_observed = r.tokens_observed + greatest(coalesce(p_tokens, 0), 0),
+      cost_cents_observed = r.cost_cents_observed + greatest(coalesce(p_cost_cents, 0), 0)
+    where r.id = job.launch_request_id
+    returning * into request;
+  else
+    select * into request from public.takeoff_launch_requests r where r.id = job.launch_request_id;
+  end if;
+  return query select request.token_budget - request.tokens_observed, request.cost_budget_cents - request.cost_cents_observed;
 end;
 $$;
-revoke all on function private.count_takeoff_launch_attempt_usage() from public, anon, authenticated;
+revoke all on function public.record_takeoff_launch_usage(uuid, uuid, text, bigint, bigint) from public, anon, authenticated;
+grant execute on function public.record_takeoff_launch_usage(uuid, uuid, text, bigint, bigint) to service_role;
+
+-- Before each paid call of any job: the module is on, its creator may still launch on its affaire (the one rule), and a
+-- request's job has budget left. Null when it may pay, otherwise the reason.
+create function public.takeoff_job_may_pay(p_job_id uuid, p_module_default boolean default false)
+returns table (reason text, remaining_tokens bigint, remaining_cost_cents bigint)
+language sql stable security definer set search_path = '' as $$
+  select case
+      when not private.takeoff_module_enabled(j.tenant_id, p_module_default) then 'TAKEOFF_DISABLED'
+      when not private.takeoff_launch_payer_eligible(j.tenant_id, j.project_id, j.created_by) then 'PAYER_NOT_ELIGIBLE'
+      when r.id is not null and (r.token_budget - r.tokens_observed <= 0 or r.cost_budget_cents - r.cost_cents_observed < 0)
+        then 'BUDGET_EXHAUSTED'
+    end,
+    r.token_budget - r.tokens_observed, r.cost_budget_cents - r.cost_cents_observed
+  from public.takeoff_jobs j left join public.takeoff_launch_requests r on r.id = j.launch_request_id
+  where j.id = p_job_id
+$$;
+revoke all on function public.takeoff_job_may_pay(uuid, boolean) from public, anon, authenticated;
+grant execute on function public.takeoff_job_may_pay(uuid, boolean) to service_role;
 
 -- 12. The lock cycle « Dupliquer » against the end of a job, before the notices are activated. The copy held the affaire
 -- FOR UPDATE and then each carried job FOR SHARE; a worker ending one of those jobs holds its row FOR UPDATE and its
@@ -1298,7 +1462,7 @@ end;
 $copy_lock$;
 
 -- 13. Last, just before the commit, the locks on the tables that released intake and takeoff writers use: the audit
--- log's check, the affaire's key of the requests, the usage count on the run metrics and the triggers on the dossier's
+-- log's check, the affaire's key of the requests and of the command receipts, and the triggers on the dossier's
 -- tables. Everything long (the index builds and the checks on the jobs) is done above, while these writers still run:
 -- on 100 000 fictional jobs the whole migration took 0.26 s, this section 3 ms.
 -- The audit actions the application writes. « Soumettre à nouveau » writes takeoff.job.resubmitted, which the check
@@ -1320,8 +1484,8 @@ alter table public.audit_logs add constraint audit_logs_action_check check (
 ) not valid;
 alter table public.takeoff_launch_requests add constraint takeoff_launch_requests_project_fkey foreign key (project_id, tenant_id)
   references public.estimate_projects (id, tenant_id) on delete cascade;
-create trigger takeoff_launch_request_attempt_usage after insert on public.takeoff_run_metrics
-  for each row execute function private.count_takeoff_launch_attempt_usage();
+alter table private.takeoff_launch_commands add constraint takeoff_launch_commands_project_fkey foreign key (project_id, tenant_id)
+  references public.estimate_projects (id, tenant_id) on delete cascade;
 -- Two triggers on the brief: the reservation first (zy), which may wait for the affaire's request; the mark after (zz),
 -- which takes the dossier key: a confirmation never holds that key while it waits for the request.
 create trigger zy_reserve_takeoff_launch_on_confirmation after insert on public.affaire_briefs
@@ -1329,21 +1493,37 @@ create trigger zy_reserve_takeoff_launch_on_confirmation after insert on public.
 create trigger zy_reserve_takeoff_launch_on_reconfirmation after update of status on public.affaire_briefs
   for each row when (new.status = 'confirme' and old.status is distinct from new.status)
   execute function private.reserve_takeoff_launch_on_confirmation();
-create trigger zz_mark_takeoff_launch_brief
-  after insert or delete or update of status, confirmed_by, confirmed_at on public.affaire_briefs
+-- The marks: every insert and delete, and the updates that change a watched column (an update that writes the same
+-- values calls nothing and marks nothing).
+create trigger zz_mark_takeoff_launch_brief after insert or delete on public.affaire_briefs
   for each row execute function private.mark_takeoff_launch_dossier('brief');
-create trigger zz_mark_takeoff_launch_document
-  after insert or delete or update of upload_status, classification_status, document_kind, deleted_at, deletion_token,
+create trigger zz_mark_takeoff_launch_brief_change after update of status, confirmed_by, confirmed_at on public.affaire_briefs
+  for each row when ((old.status, old.confirmed_by, old.confirmed_at) is distinct from (new.status, new.confirmed_by, new.confirmed_at))
+  execute function private.mark_takeoff_launch_dossier('brief');
+create trigger zz_mark_takeoff_launch_document after insert or delete on public.affaire_intake_documents
+  for each row execute function private.mark_takeoff_launch_dossier('document');
+create trigger zz_mark_takeoff_launch_document_change
+  after update of upload_status, classification_status, document_kind, deleted_at, deletion_token,
     storage_path, plan_copy_generation, issues, confidence, size_bytes, content_sha256, mime_type, drive_file_id
   on public.affaire_intake_documents
-  for each row execute function private.mark_takeoff_launch_dossier('document');
-create trigger zz_mark_takeoff_launch_plan_file
-  after insert or delete or update of plan_set_id, file_path, file_size_bytes, file_hash, page_count, metadata
-  on public.plan_files
+  for each row when ((old.upload_status, old.classification_status, old.document_kind, old.deleted_at, old.deletion_token,
+    old.storage_path, old.plan_copy_generation, old.issues, old.confidence, old.size_bytes, old.content_sha256, old.mime_type,
+    old.drive_file_id) is distinct from (new.upload_status, new.classification_status, new.document_kind, new.deleted_at,
+    new.deletion_token, new.storage_path, new.plan_copy_generation, new.issues, new.confidence, new.size_bytes,
+    new.content_sha256, new.mime_type, new.drive_file_id))
+  execute function private.mark_takeoff_launch_dossier('document');
+create trigger zz_mark_takeoff_launch_plan_file after insert or delete on public.plan_files
   for each row execute function private.mark_takeoff_launch_dossier('plan_file');
+create trigger zz_mark_takeoff_launch_plan_file_change
+  after update of plan_set_id, file_path, file_size_bytes, file_hash, page_count, metadata on public.plan_files
+  for each row when ((old.plan_set_id, old.file_path, old.file_size_bytes, old.file_hash, old.page_count, old.metadata)
+    is distinct from (new.plan_set_id, new.file_path, new.file_size_bytes, new.file_hash, new.page_count, new.metadata))
+  execute function private.mark_takeoff_launch_dossier('plan_file');
 -- A version choice or a restriction saved in the options evaluates a request they blocked again.
-create trigger zz_mark_takeoff_launch_preparation
-  after insert or delete or update of revision, draft on public.takeoff_preparations
+create trigger zz_mark_takeoff_launch_preparation after insert or delete on public.takeoff_preparations
   for each row execute function private.mark_takeoff_launch_dossier('preparation');
+create trigger zz_mark_takeoff_launch_preparation_change after update of revision, draft on public.takeoff_preparations
+  for each row when ((old.revision, old.draft) is distinct from (new.revision, new.draft))
+  execute function private.mark_takeoff_launch_dossier('preparation');
 
 commit;

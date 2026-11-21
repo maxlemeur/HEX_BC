@@ -39,6 +39,8 @@ update public.tenant_memberships set is_default = false where user_id::text like
 insert into public.tenants (id, name, slug) values
   (pg_temp.f(10), 'Demandes de métré (fictif)', 'launch-requests-test'),
   (pg_temp.f(11), 'Autre entreprise (fictive)', 'launch-requests-other-test');
+-- The takeoff module is on for the tenant of the affaires (its flag).
+update public.feature_flags set enabled = true where tenant_id = pg_temp.f(10) and flag_key = 'TAKEOFF_MODULE_ENABLED';
 insert into public.tenant_memberships (tenant_id, user_id, role, is_default, created_at) values
   (pg_temp.f(10), pg_temp.f(1), 'engineer', true, '2020-01-01'),
   (pg_temp.f(10), pg_temp.f(2), 'engineer', true, '2020-01-01'),
@@ -74,7 +76,7 @@ select is((select count(*)::integer from public.takeoff_launch_requests), 0, 'no
 select is((select count(*)::integer from public.claim_takeoff_launch_evaluations(pg_temp.host(), gen_random_uuid())), 0,
   'before activation a Mac claims nothing');
 select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1), gen_random_uuid(),
-  'reread_plans', gen_random_uuid(), pg_temp.host(), pg_temp.selection(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)$$,
+  'reread_plans', gen_random_uuid(), pg_temp.host(), pg_temp.selection(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, pg_temp.f(40), 1)$$,
   '55000', 'TAKEOFF_LAUNCH_INACTIVE', 'before activation a command is refused');
 
 -- 2. The owner activates the automatic start and the notices.
@@ -84,15 +86,16 @@ update public.affaire_briefs set status = 'a_confirmer', confirmed_at = null, co
 create temp table seen_brief as select updated_at from public.affaire_briefs where id = pg_temp.f(35);
 select results_eq($$select state, reason_code, payer_id from pg_temp.confirm(20, 1)$$,
   $$values ('evaluating'::text, null::text, pg_temp.f(1))$$, 'the confirmer who may launch pays, on the Mac of the gesture');
-select ok((select count(*) from private.takeoff_launch_marks where project_id = pg_temp.f(20) and cause = 'brief') >= 2,
-  'after activation each change of the brief records the need of an evaluation');
+-- One mark per transaction and affaire (this file runs in one transaction): its reopening and confirmation mark it once.
+select ok((select count(*) from private.takeoff_launch_marks where project_id = pg_temp.f(20) and cause = 'brief') >= 1,
+  'after activation a change of the brief records the need of an evaluation');
 
--- The member who did not win the brief's confirmation never pays.
-select results_eq($$select outcome, request_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2),
-  (select updated_at - interval '1 second' from seen_brief), public.takeoff_payer_notice(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.selection()),
+-- The member who did not win the brief's confirmation never pays (a director, who may confirm the affaire).
+select results_eq($$select outcome, request_id from public.confirm_affaire_brief_takeoff(pg_temp.f(10), pg_temp.f(20), pg_temp.f(3),
+  (select updated_at - interval '1 second' from seen_brief), public.takeoff_payer_notice(pg_temp.f(10), pg_temp.f(20), pg_temp.f(3), pg_temp.selection()),
   pg_temp.host(), pg_temp.selection(), null)$$, $$values ('conflict'::text, null::uuid)$$,
   'a member whose confirmation lost the brief''s compare-and-set reserves nothing');
-select results_eq($$select origin, intent, confirmed_by, requested_by, mandate_kind, execution_host_id, mandate_selection = execution_selection
+select results_eq($$select origin, intent, confirmed_by, payer_id, mandate_kind, execution_host_id, mandate_selection = pg_temp.selection()
   from public.takeoff_launch_requests where project_id = pg_temp.f(20)$$,
   $$values ('automatic'::text, 'initial'::text, pg_temp.f(1), pg_temp.f(1), 'confirmation'::text, pg_temp.host(), true)$$,
   'one automatic request records its confirmer, its payer, its Mac and the selection of the mandate');
@@ -119,8 +122,8 @@ select throws_ok($$select * from pg_temp.take_on(21, 2)$$, '42501', 'TAKEOFF_LAU
   'an engineer who does not own the affaire cannot take it on');
 select results_eq($$select state, payer_id from pg_temp.take_on(21, 1)$$, $$values ('evaluating'::text, pg_temp.f(1))$$,
   'the owner takes it on with their own subscription by an explicit gesture');
-select is((select requested_by from public.takeoff_launch_requests where project_id = pg_temp.f(21)), pg_temp.f(1),
-  'who took it on receives its end');
+select is((select payer_id from public.takeoff_launch_requests where project_id = pg_temp.f(21)), pg_temp.f(1),
+  'who took it on pays and receives its end');
 
 -- 3. RLS: readers of the affaire see the state, never the host, the selection or the manifest; nobody writes directly.
 create function pg_temp.sign_in(n integer) returns void language sql as $$
@@ -195,7 +198,10 @@ create function pg_temp.request(project integer) returns uuid language sql as $$
 $$;
 
 -- The dossier changes after the evaluation read its position: the admission refuses to spend on what was not evaluated.
-update public.plan_files set page_count = 1 where id = pg_temp.f(50);
+-- A dossier writer's own transaction (this file runs in one: it starts with no affaire marked yet).
+select set_config('mergeone.takeoff_launch_marked', '', true);
+-- A real change: an update that writes the same values marks nothing.
+update public.plan_files set page_count = 2 where id = pg_temp.f(50);
 select results_eq($$select outcome, job_id from public.admit_takeoff_launch_request(pg_temp.request(20), pg_temp.f(90),
   (select mark from claimed where project_id = pg_temp.f(20)), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(60))$$,
   $$values ('stale'::text, null::uuid)$$, 'a dossier changed since the evaluation aborts the admission');
@@ -245,18 +251,21 @@ select is((select count(*)::integer from public.claim_takeoff_launch_evaluations
 
 -- 6. One admitted request per affaire: a command meanwhile returns the running one.
 select results_eq($$select outcome, request_id, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
-  pg_temp.f(70), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(62))$$,
+  pg_temp.f(70), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(62), pg_temp.f(40), 1)$$,
   $$values ('already_running'::text, pg_temp.request(20), pg_temp.f(60))$$, 'a relaunch while the analysis runs returns it');
--- The click is recorded with its answer (takeoff-launch-confirmation.test.sql replays it after the end): nothing else.
-select results_eq($$select origin, state, reason_code from public.takeoff_launch_requests where project_id = pg_temp.f(20) order by created_at$$,
-  $$values ('automatic'::text, 'admitted'::text, null::text), ('manual'::text, 'refused'::text, 'ANOTHER_ANALYSIS_RUNNING'::text)$$,
-  'and creates nothing but the record of the refused click');
+-- The click's receipt records its answer, apart from the requests (takeoff-launch-round-two.test.sql replays it): no request.
+select results_eq($$select origin, state from public.takeoff_launch_requests where project_id = pg_temp.f(20) order by created_at$$,
+  $$values ('automatic'::text, 'admitted'::text)$$, 'and creates no request');
+select results_eq($$select answer, request_id, job_id from private.takeoff_launch_commands where intent_key = pg_temp.f(70)$$,
+  $$values ('already_running'::text, pg_temp.request(20), pg_temp.f(60))$$, 'its receipt names the analysis it found running');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.f(20)), 1, 'no job either');
 
 -- 7. The end of its job closes the request and publishes its one notice; the job publishes none of its own.
 select is((select count(*)::integer from public.claim_observed_local_takeoff_job(pg_temp.f(60), pg_temp.f(10), pg_temp.host(),
   now(), pg_temp.f(95), now() + interval '1 hour', 'fixture', 'fixture', 'pending', 0)), 1, 'the Mac claims the job');
--- Its reading answered in one chunk of 1200 tokens: the run metric its success records is counted on the request.
+-- Its reading answered in one call of 1200 tokens, recorded by the worker under its lease and counted on the request.
+select results_eq($$select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.f(60), pg_temp.f(95), 'C:0', 1200, 0)$$,
+  $$values (398800::bigint)$$, 'the call is recorded and the request has the rest of its budget');
 select isnt(public.finalize_local_takeoff_result(pg_temp.f(60), pg_temp.f(10), pg_temp.f(95), clock_timestamp(), 'fixture', 'fixture',
   '{"extracted_json": {"items": []}, "warnings": [], "tables": [], "provider_meta": {}, "token_count": 1200, "cost_cents": 0,
     "run_metrics": [{"level": "C", "provider": "chatgpt", "model": "fixture", "chunk_index": 0, "chunk_start_page": 1,
@@ -279,23 +288,23 @@ select is((select id from public.takeoff_completion_notifications where request_
 -- 8. An explicit relaunch: a new manual request, on the clicker's subscription, with its predecessor; its key survives a
 -- double click and refuses other content.
 select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
-  pg_temp.f(71), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(63))$$,
+  pg_temp.f(71), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(63), pg_temp.f(40), 1)$$,
   $$values ('admitted'::text, pg_temp.f(63))$$, 'a relaunch after the end is a new request and a new job');
-select results_eq($$select origin, intent, predecessor_request_id, predecessor_job_id, payer_id, requested_by, mandate_kind
+select results_eq($$select origin, intent, predecessor_request_id, predecessor_job_id, payer_id, mandate_kind
   from public.takeoff_launch_requests where intent_key = pg_temp.f(71)$$,
-  $$values ('manual'::text, 'reread_plans'::text, pg_temp.request(20), pg_temp.f(60), pg_temp.f(1), pg_temp.f(1), 'command'::text)$$,
+  $$values ('manual'::text, 'reread_plans'::text, pg_temp.request(20), pg_temp.f(60), pg_temp.f(1), 'command'::text)$$,
   'it points to what it replaces and is paid by who clicked');
 select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
-  pg_temp.f(71), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(64))$$,
+  pg_temp.f(71), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(64), pg_temp.f(40), 1)$$,
   $$values ('replayed'::text, pg_temp.f(63))$$, 'a double click returns the same request and job');
 select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
-  pg_temp.f(71), 'initial', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(64))$$,
+  pg_temp.f(71), 'initial', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(64), pg_temp.f(40), 1)$$,
   '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT', 'the same key with other content is a conflict');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.f(20)), 2, 'two jobs in all: the first and the relaunch');
 
 -- 9. The admission and its records roll back together: a payer over the admission limit is blocked, visibly.
 select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
-  pg_temp.f(72), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(65))$$,
+  pg_temp.f(72), 'reread_plans', pg_temp.f(60), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(), pg_temp.snapshot(), pg_temp.job(65), pg_temp.f(40), 1)$$,
   $$values ('already_running'::text)$$, 'the relaunch still runs');
 update public.takeoff_jobs set status = 'canceled' where id = pg_temp.f(63);
 select is((select state from public.takeoff_launch_requests where intent_key = pg_temp.f(71)), 'closed', 'a canceled job closes its request');
@@ -377,17 +386,17 @@ insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, 
 values (pg_temp.f(75), pg_temp.f(10), pg_temp.f(21), pg_temp.f(41), 'C', 'completed', pg_temp.f(1));
 set local session_replication_role = origin;
 select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
-  pg_temp.f(74), 'reread_plans', pg_temp.f(75), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(51), pg_temp.snapshot(41), pg_temp.job(69, 41))$$,
+  pg_temp.f(74), 'reread_plans', pg_temp.f(75), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(51), pg_temp.snapshot(41), pg_temp.job(69, 41), pg_temp.f(41), 1)$$,
   $$values ('admitted'::text, pg_temp.f(69))$$, 'a relaunch on the affaire whose automatic start waits for its payer runs');
 select results_eq($$select state, reason_code, reason_details ->> 'request_id' from public.takeoff_launch_requests where id = pg_temp.request(21)$$,
-  $$values ('blocked'::text, 'SUPERSEDED'::text, (select id::text from public.takeoff_launch_requests where intent_key = pg_temp.f(74)))$$,
+  $$values ('superseded'::text, null::text, (select id::text from public.takeoff_launch_requests where intent_key = pg_temp.f(74)))$$,
   'the automatic start is set aside by it, and names it');
 update public.affaire_briefs set status = 'a_confirmer', confirmed_at = null, confirmed_by = null where id = pg_temp.f(36);
 update public.affaire_briefs set status = 'confirme', confirmed_at = clock_timestamp(), confirmed_by = pg_temp.f(1) where id = pg_temp.f(36);
 select results_eq($$select state, reason_code from public.takeoff_launch_requests where id = pg_temp.request(21)$$,
-  $$values ('blocked'::text, 'SUPERSEDED'::text)$$, 'a later confirmation of its dossier never re-arms it');
+  $$values ('superseded'::text, null::text)$$, 'a later confirmation of its dossier never re-arms it');
 select results_eq($$select outcome, state, reason_code from pg_temp.take_on(21, 1, 'take_on')$$,
-  $$values ('moved'::text, 'blocked'::text, 'SUPERSEDED'::text)$$, 'nor a take-over: a new analysis is a relaunch');
+  $$values ('moved'::text, 'superseded'::text, null::text)$$, 'nor a take-over: a new analysis is a relaunch');
 select is(public.takeoff_launch_request_awaits_mac(pg_temp.request(21)), false, 'a set-aside start waits for no Mac');
 
 -- A dossier confirmed by a reader outside the server: its request is reserved in that transaction, and taken on later.
