@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef } from "react";
+
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import {
   GitCompareArrowsIcon,
@@ -56,6 +58,8 @@ export function AffaireHubActionBar({
   onOpenTakeoffZone: () => void;
 }) {
   const { currentVersion, versionsCount } = summary;
+  // A closing menu gives the focus back to its trigger: after « État du métré », the takeoff's zone keeps it.
+  const takeoffZoneChosen = useRef(false);
   if (!currentVersion) return null;
 
   const showCompare = versionsCount > 1;
@@ -140,7 +144,11 @@ export function AffaireHubActionBar({
           <EllipsisIcon aria-hidden="true" />
           Plus
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-auto min-w-52">
+        <DropdownMenuContent align="end" className="w-auto min-w-52" finalFocus={() => {
+          if (!takeoffZoneChosen.current) return true;
+          takeoffZoneChosen.current = false;
+          return document.getElementById("metre");
+        }}>
           {takeoffEnabled && !showTakeoffInBar ? (
             <DropdownMenuItem className="min-h-10 px-2" render={<Link href={takeoffHref} />}>
               <RulerIcon aria-hidden="true" />
@@ -200,7 +208,7 @@ export function AffaireHubActionBar({
             </DropdownMenuItem>
           ) : null}
           {showTakeoffZone ? (
-            <DropdownMenuItem className="min-h-10 px-2" onClick={onOpenTakeoffZone}>
+            <DropdownMenuItem className="min-h-10 px-2" onClick={() => { takeoffZoneChosen.current = true; onOpenTakeoffZone(); }}>
               <PanelsTopLeftIcon aria-hidden="true" />
               État du métré
             </DropdownMenuItem>

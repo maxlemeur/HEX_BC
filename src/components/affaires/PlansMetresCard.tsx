@@ -13,10 +13,7 @@ import {
   type TakeoffContinuitySnapshot,
 } from "@/lib/takeoff/continuity";
 import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
-import {
-  canLaunchNewTakeoffAnalysis,
-  isTakeoffVisibleJobInFlight,
-} from "@/lib/takeoff/visible-status";
+import { isTakeoffVisibleJobInFlight } from "@/lib/takeoff/visible-status";
 import { CircleHelpIcon, PanelsTopLeftIcon, TriangleAlertIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -194,7 +191,6 @@ export function PlansMetresCard({
     (latestJob.status === "completed" || latestJob.status === "review_required");
   const needsAction = latestJob?.status === "action_required";
   const isQueuedOrProcessing = isTakeoffVisibleJobInFlight(latestJob?.status);
-  const canLaunchNewAnalysis = canLaunchNewTakeoffAnalysis(latestJob?.status);
 
   const coverageAvailable =
     plans.coveragePercent !== null && plans.exceptionCount !== null;
@@ -390,7 +386,8 @@ export function PlansMetresCard({
             Suivre l&apos;analyse
           </Link>
         ) : null}
-        {(canLaunchNewAnalysis || needsAction) && !hideLaunchAction && onOpenTakeoffZone ? (
+        {/* A way to the takeoff's zone, never a launch: it stays when the hub's hero holds the next step. */}
+        {onOpenTakeoffZone ? (
           <button
             type="button"
             onClick={onOpenTakeoffZone}
