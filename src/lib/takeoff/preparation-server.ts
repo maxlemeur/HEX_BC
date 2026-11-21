@@ -30,6 +30,7 @@ import {
   PREPARATION_REFERENCE_LIMITS, PreparationReferenceRefusal, readPreparationReference, type PreparationReferenceFormat,
 } from "@/lib/takeoff/preparation-reference-loader";
 import { PLAN_FILE_MAX_SIZE_BYTES } from "@/lib/takeoff/plans";
+import { openPreparedPlan, PreparedPlanRefusal } from "@/lib/takeoff/preparation-source-loader";
 import { sha256Hex } from "@/lib/takeoff/sha256";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { hasTakeoffPreparationCopyReceipt } from "@/lib/takeoff/preparation-copy-provenance-server";
@@ -172,14 +173,22 @@ function validateCanonicalSources(draft: TakeoffPreparation, availableSources: T
 /** A reference the sealing left out of an automatic start, named with why: the manifest's coverage lists it. */
 export type PreparationSealOmission = { id: string; name: string; reason: "unreadable" | "unsupported_format" | "invalid" | "limit" };
 
-/** A plan the sealing could not read: no stored copy to read, a copy it cannot download, or one larger than a plan may be. */
+/**
+ * A plan the sealing could not read: no stored copy to read, a copy it cannot download, one larger than a plan may be,
+ * or one the worker would not open (`invalid`: corrupt or protected; `invalid_pages`: kept pages the file lacks).
+ */
 export class PreparationPlanSealError extends TakeoffError {
-  constructor(readonly piece: { id: string; name: string }, readonly reason: "unreadable" | "too_large") {
+  constructor(readonly piece: { id: string; name: string }, readonly reason: "unreadable" | "too_large" | "invalid" | "invalid_pages") {
+    const name = `« ${piece.name} »`;
     super(reason === "too_large"
       ? { status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
-        message: `Le plan « ${piece.name} » dépasse la taille qu’une analyse peut lire. Retirez-le des pièces retenues.` }
+        message: `Le plan ${name} dépasse la taille qu’une analyse peut lire. Retirez-le des pièces retenues.` }
+      : reason === "invalid" ? { status: 422, code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED, retryable: false,
+        message: `Le plan ${name} est invalide ou protégé : l’analyse ne pourrait pas l’ouvrir. Remplacez-le ou retirez-le des pièces retenues.` }
+      : reason === "invalid_pages" ? { status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+        message: `Les pages retenues du plan ${name} n’existent pas dans le fichier. Corrigez la sélection de pages.` }
       : { status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
-        message: `Impossible de lire la pièce « ${piece.name} ». Rendez-la accessible ou retirez-la des pièces retenues.` });
+        message: `Impossible de lire la pièce ${name}. Rendez-la accessible ou retirez-la des pièces retenues.` });
   }
 }
 
@@ -205,7 +214,7 @@ function referenceIssue(source: TakeoffPreparationSource, issue: PreparationRefe
     case "file_limit": return tooLarge(`Sélectionnez au maximum ${limits.files} pièces de référence avant de confirmer.`);
     case "size_limit": return tooLarge(`Les pièces de référence dépassent ${megabytes(limits.originalBytes)} Mo avec ${name}. Réduisez la sélection avant de confirmer.`);
     case "page_limit": return tooLarge(`Les pièces de référence dépassent ${limits.retainedPages} pages retenues avec ${name}. Restreignez ses pages ou retirez-la avant de confirmer.`);
-    case "context_limit": return tooLarge(`Les pages retenues des pièces de référence dépassent ${megabytes(limits.contextBytes)} Mo avec ${name}. Restreignez-les avant de confirmer.`);
+    case "context_limit": return tooLarge(`Le contenu joint des pièces de référence dépasse ${megabytes(limits.contextBytes)} Mo avec ${name}. Réduisez la sélection avant de confirmer.`);
     case "invalid_pages":
     case "pages_need_pdf":
       // Without a page selection, a PDF without any page to read is invalid content.
@@ -220,14 +229,14 @@ function referenceIssue(source: TakeoffPreparationSource, issue: PreparationRefe
 
 /**
  * The sealing of a preparation's sources, the one a member's confirmation and the automatic start share: the bytes of
- * every active piece of the dossier (a file uploaded for a launch is sealed by its launch) are read now and digested,
- * and recorded as attested by the server. Before any download, a reference is checked from its row (its format, the
+ * every active piece of the dossier (a file uploaded for a launch is sealed by its launch) are read now and digested;
+ * a dossier preparation's are recorded as attested by the server. Before any download, a reference is checked from its row (its format, the
  * number and recorded size of the references) and its stored file must be the size its row records; a plan's stored
  * file must fit what a plan may be. A reference is then read as the worker reads it (`readPreparationReference`), within
  * the same bounds: one the worker would refuse stops a confirmation, told to the member (`throw`), or is left out of an
- * automatic start, named with its reason (`omit`). A plan that cannot be read stops both (`PreparationPlanSealError`).
- * The title block of a dossier plan gives its index; a page the renderer cannot draw leaves it unread, as the worker
- * reads a plan without it. `sources` and `recordedSizes` are the dossier as the caller read it; the draft is changed in
+ * automatic start, named with its reason (`omit`). A plan is opened as the worker opens it (`openPreparedPlan`); one
+ * that cannot be read or opened stops both (`PreparationPlanSealError`). The title block of a dossier plan gives its
+ * index; a page the renderer cannot draw leaves it unread, as the worker reads a plan without it. `sources` and `recordedSizes` are the dossier as the caller read it; the draft is changed in
  * place.
  */
 export async function sealPreparationSources(draft: TakeoffPreparation, options: {
@@ -294,7 +303,16 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
         leaveOut(source, refusal.reason);
         continue;
       }
-    } else if (draft.provenance) {
+    } else {
+      // Opened as the worker opens it: a plan it would not read stops the sealing, named.
+      try {
+        await openPreparedPlan(bytes, source.pages);
+      } catch (refusal) {
+        if (!(refusal instanceof PreparedPlanRefusal)) throw refusal;
+        throw new PreparationPlanSealError(piece, refusal.reason === "invalid_pages" ? "invalid_pages" : "invalid");
+      }
+    }
+    if (plan && draft.provenance) {
       const document = await renderPdfPages(bytes, { ...TAKEOFF_PAGE_TRIAGE_TEXT, pages: [source.pages[0] ?? 1] }).catch(() => null);
       source.plan_identity = readPlanTitleBlock(document?.pages[0]?.regionText ?? "");
       // The member's settled choice for this reading of these bytes; otherwise the metadata or file name, then what
@@ -306,8 +324,10 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
       const settled = Boolean(reading && source.revision && source.revision_reading_settled === reading);
       source.revision = settled ? source.revision : current?.revision ?? (sameBytes ? source.revision : null) ?? reading;
     }
-    // The server's attestation of the bytes it read: the review serves a plan's locations and original PDF only for it.
-    source.confirmed = true;
+    // The server's attestation of the bytes it read for a dossier preparation, whose pieces no member confirms one by one:
+    // the review serves a plan's locations and original PDF only for an attested piece. Another preparation's pieces are
+    // attested by its member, which its readiness requires: never in their place.
+    if (draft.provenance) source.confirmed = true;
   }
   return { omittedReferences };
 }

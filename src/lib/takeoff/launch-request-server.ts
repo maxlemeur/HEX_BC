@@ -266,8 +266,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
       onReferenceIssue: "omit" }));
   } catch (error) {
     if (!(error instanceof PreparationPlanSealError)) throw error;
-    return error.reason === "too_large" ? { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: [] }
-      : { state: "blocked", reason: "PLAN_COPY_MISSING", pieces: [error.piece] };
+    // A plan the analysis could not read: its copy is missing or unreadable, a dossier change evaluates it again.
+    return { state: "blocked", reason: error.reason === "too_large" ? "PLAN_SET_TOO_LARGE" : "PLAN_COPY_MISSING", pieces: [error.piece] };
   }
   const resolved = resolveDeducedPlanVersions(draft);
   const readiness = evaluateTakeoffPreparation(resolved);

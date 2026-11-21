@@ -139,8 +139,8 @@ la base en garantit l’unicité et l’admission (migration
   rien : seules les transitions du dossier et les gestes le font.
 - **Ce qui empêche de démarrer** est un état visible, avec son motif, jamais un
   job présenté comme lancé ni un changement de mode de paiement : dossier non
-  confirmé ou sans plan exploitable ; plan sans copie de travail (la pièce est
-  nommée) ; choix d’indice à faire ; forfait non connecté, partage révoqué ou
+  confirmé ou sans plan exploitable ; plan sans copie de travail ou que l’analyse
+  ne pourrait pas ouvrir (la pièce est nommée) ; choix d’indice à faire ; forfait non connecté, partage révoqué ou
   connexion expirée, modèle absent, sélection changée depuis la confirmation,
   adresse non autorisée ou application hébergée ; payeur qui n’a plus le droit
   de lancer. Ces blocages du mandat ne se lèvent que par le geste « Reprendre avec
@@ -333,7 +333,10 @@ dans les mêmes limites : 20 pièces, 20 Mo de fichiers, 200 pages retenues et
 20 Mo joints. Une pièce que le traitement refuserait (un PDF abîmé ou protégé,
 un classeur invalide, des pages retenues au-delà des limites) est montrée au
 membre avant sa confirmation, qui n’a pas lieu ; le démarrage automatique la
-laisse de côté et la nomme. Le cartouche d’un plan du dossier donne son indice ;
+laisse de côté et la nomme. Chaque plan est ouvert comme le traitement l’ouvre
+([`openPreparedPlan`](../../src/lib/takeoff/preparation-source-loader.ts)) : un
+plan invalide ou protégé, ou des pages retenues que le fichier n’a pas, arrêtent
+la confirmation comme le démarrage automatique, en nommant le plan. Le cartouche d’un plan du dossier donne son indice ;
 une page que le rendu ne peut pas dessiner laisse cet indice non lu (le dossier
 ou le nom du fichier le donnent alors), sans écarter le plan : le traitement lit
 le plan sans son cartouche.
@@ -342,9 +345,11 @@ L'instantané contient la préparation complète, sa révision enregistrée, l'a
 la date et l'état de préparation calculé. Les références et les valeurs copiées
 ne sont plus liées en mémoire au brouillon. Le serveur confirme également le
 SHA-256 des octets des plans, y compris pour les anciens imports sans empreinte
-fiable, et marque chaque pièce dont il a lu les octets comme attestée : la revue
-ne sert la localisation et le PDF d’origine d’un plan que pour une pièce
-attestée, qu’un membre ou le démarrage automatique l’ait scellée. Le traitement
+fiable. Pour une préparation déduite du dossier, il marque comme attestée chaque
+pièce dont il a lu les octets : la revue ne sert la localisation et le PDF
+d’origine d’un plan que pour une pièce attestée, qu’un membre ou le démarrage
+automatique l’ait scellée. Les pièces d’une autre préparation restent attestées
+par le membre, une à une, comme sa préparation l’exige. Le traitement
 doit vérifier ce contenu avant de l'utiliser.
 
 Les sources, pages et conventions sont des contraintes d'entrée. Les lots,

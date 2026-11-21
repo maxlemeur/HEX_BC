@@ -20,8 +20,10 @@ import {
   launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice,
 } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
-import { createSupabaseFake, filterValue, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
+import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
+import { loadPreparationReferenceFiles } from "@/lib/takeoff/preparation-reference-loader";
 import { takeoffPreparationSourceSchema } from "@/lib/takeoff/preparation";
+import { fictionalPlanPdf } from "@/lib/takeoff/preparation.test-utils";
 import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
 import { toPreparationIntakeSource } from "@/lib/takeoff/preparation-sources";
 import { assertConfirmedTakeoffPreparation, loadPreparation } from "@/lib/takeoff/preparation-server";
@@ -63,7 +65,7 @@ const REQUEST = "aaaaaaaa-0000-4000-8000-000000000030";
 const PLAN_SET = "aaaaaaaa-0000-4000-8000-000000000040";
 const PLAN_FILE = "aaaaaaaa-0000-4000-8000-000000000050";
 const DOCUMENT = "aaaaaaaa-0000-4000-8000-000000000060";
-const BYTES = new TextEncoder().encode("%PDF-1.4 plan fictif du rez-de-chaussée");
+const BYTES = new Uint8Array(fictionalPlanPdf("plan fictif du rez-de-chaussée"));
 const SELECTION = { profileId: "profil-fictif", model: "modele-fictif", reasoningEffort: null, hostId: HOST, authorizationId: "autorisation-1" };
 const FILE_PATH = `${TENANT}/${PLAN_SET}/${PLAN_FILE}/plan-rdc.pdf`;
 
@@ -302,6 +304,69 @@ describe("the automatic seal of the dossier's pieces", () => {
     expect(result).toMatchObject({ outcome: "admitted" });
     expect((admitted[0] as Admission).p_snapshot.preparation.sources.find((source) => source.document_id === PLAN_FILE))
       .toMatchObject({ plan_identity: null, active: true });
+  });
+
+  // Written after the independent review: the worker opens every plan with pdf-lib and fails a plan it cannot open.
+  it("stops, naming it, on a dossier plan the worker could not open, and spends nothing", async () => {
+    const { admitted, recorded, fake } = dossier();
+    const corrupt = new TextEncoder().encode("%PDF-1.4 plan tronque");
+    const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
+    vi.spyOn(plans, "info").mockResolvedValue({ data: { size: corrupt.byteLength }, error: null } as never);
+    vi.spyOn(plans, "download").mockResolvedValue({ data: new Blob([corrupt]), error: null } as never);
+    vi.mocked(fake.client.storage.from).mockReturnValue(plans as never);
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "blocked", reason: "PLAN_COPY_MISSING" });
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_COPY_MISSING",
+      p_details: { pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }] } })]);
+    expect(admitted).toEqual([]);
+    expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
+  });
+
+  it("names the plan larger than a plan may be when it stops on it, and never downloads it", async () => {
+    const { admitted, recorded, fake } = dossier();
+    const plans = fake.client.storage.from(PLAN_FILES_BUCKET);
+    vi.spyOn(plans, "info").mockResolvedValue({ data: { size: 50 * 1024 * 1024 + 1 }, error: null } as never);
+    const download = vi.spyOn(plans, "download");
+    vi.mocked(fake.client.storage.from).mockReturnValue(plans as never);
+    await evaluateTakeoffLaunchRequests();
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_SET_TOO_LARGE",
+      p_details: { pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }] } })]);
+    expect(download).not.toHaveBeenCalled();
+    expect(admitted).toEqual([]);
+  });
+
+  // What the seal keeps, the worker reads: its references loaded from the snapshot the automatic start admitted, within
+  // the same bounds (150 + 50 pages attached; a third PDF past 200 pages and an invalid workbook left out).
+  it("admits only references the worker then loads from the admitted snapshot", async () => {
+    const CCTP_B = "aaaaaaaa-0000-4000-8000-000000000063";
+    const CCTP_C = "aaaaaaaa-0000-4000-8000-000000000064";
+    const references: DossierReference[] = [
+      { id: CCTP, name: "CCTP lot plomberie.pdf", kind: "cctp", mime: "application/pdf", bytes: await pdfOfPages(150) },
+      { id: CCTP_B, name: "CCTP lot chauffage.pdf", kind: "cctp", mime: "application/pdf", bytes: await pdfOfPages(50) },
+      { id: CCTP_C, name: "CCTP lot ventilation.pdf", kind: "cctp", mime: "application/pdf", bytes: await pdfOfPages(1) },
+      { id: DPGF, name: "DPGF.xlsx", kind: "dpgf", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        bytes: new TextEncoder().encode("ceci n'est pas un classeur") },
+    ];
+    const { admitted } = dossier({ references });
+    await evaluateTakeoffLaunchRequests();
+    const call = admitted[0] as Admission;
+    expect(call.p_manifest.coverage.references_omitted.map(({ id, reason }) => [id, reason]))
+      .toEqual([[CCTP_C, "limit"], [DPGF, "invalid"]]);
+    const rows = references.map((reference) => ({ id: reference.id, tenant_id: TENANT, project_id: PROJECT, file_name: reference.name,
+      storage_path: `${TENANT}/dossier/${reference.name}`, size_bytes: reference.bytes.byteLength, mime_type: reference.mime,
+      document_kind: reference.kind, updated_at: "2026-11-21T08:00:00Z", extracted_metadata: {}, upload_status: "uploaded",
+      deleted_at: null, deletion_token: null }));
+    const worker = createSupabaseFake({
+      tables: { affaire_intake_documents: (query: FakeQuery) => servedRows(rows, query) },
+      storage: { [AFFAIRE_INTAKE_BUCKET]: ({ paths }) => {
+        const reference = references.find((entry) => `${TENANT}/dossier/${entry.name}` === paths[0])!;
+        return { data: new Blob([Uint8Array.from(reference.bytes)]), error: null };
+      } },
+    });
+    const loaded = await loadPreparationReferenceFiles({ supabase: worker.client as never, snapshot: call.p_snapshot,
+      job: { id: call.p_job.id, tenant_id: TENANT, project_id: PROJECT, estimate_version_id: null } as never });
+    expect(loaded.files).toHaveLength(2);
+    expect(loaded.sourceHints.map((hint) => hint.match(/"document_id":"([^"]+)"/)?.[1])).toEqual([CCTP, CCTP_B]);
   });
 
   // The review serves a plan's locations and its original PDF only for a source its preparation attested: the job of an

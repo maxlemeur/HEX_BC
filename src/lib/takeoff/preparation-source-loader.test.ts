@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import { confirmedPreparationFixture } from "@/lib/takeoff/preparation.test-utils";
 import { loadPreparedPlanSource, parsePreparationSnapshot, assertPreparedUploadBytes } from "@/lib/takeoff/preparation-source-loader";
-import { toPreparationPlanSource, type PreparationPlanFile } from "@/lib/takeoff/preparation-sources";
+import { getPreparationPlanSourceVersion, toPreparationPlanSource, type PreparationPlanFile } from "@/lib/takeoff/preparation-sources";
 import { parseTakeoffJobRow } from "@/lib/takeoff/job-lifecycle";
 import { createSupabaseFake, filterValue, takeoffJobRow, M3_PLAN_SET_ID, M3_TENANT_ID, M3_USER_ID } from "@/lib/takeoff/metre-m3.test-utils";
 
@@ -77,6 +77,21 @@ describe("confirmed preparation source loading", () => {
     f.snapshot.preparation.sources[0].pages = [4];
     await expect(loadPreparedPlanSource({ supabase: f.fake.client as never, job: f.job, snapshot: f.snapshot, maxPages: 50 }))
       .rejects.toMatchObject({ status: 409 });
+  });
+
+  // A truncated file loads, then fails when its pages are counted: a plan the worker cannot open, never an unexpected error.
+  it("fails a truncated plan as a corrupt PDF before any provider call", async () => {
+    const f = await fixture();
+    const truncated = Buffer.from("%PDF-1.4 plan tronque");
+    f.file.file_size_bytes = truncated.byteLength;
+    f.snapshot.preparation.sources[0].source_version = getPreparationPlanSourceVersion(f.file);
+    f.snapshot.preparation.sources[0].content_hash = digest(truncated);
+    const fake = createSupabaseFake({
+      tables: { plan_files: () => ({ data: [f.file], error: null, count: 1 }) },
+      storage: { "plan-files": () => ({ data: new Blob([Uint8Array.from(truncated)]), error: null }) },
+    });
+    await expect(loadPreparedPlanSource({ supabase: fake.client as never, job: f.job, snapshot: f.snapshot, maxPages: 50 }))
+      .rejects.toMatchObject({ code: "TAKEOFF_PDF_CORRUPTED", retryable: false });
   });
 
   it("retains legacy null snapshots while malformed or incomplete new snapshots fail closed", () => {
