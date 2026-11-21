@@ -11,17 +11,66 @@ import { TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, localTakeoffFixture, localTakeoffWo
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { TAKEOFF_HYPOTHESIS_EXCLUSION_REASONS } from "../../../src/lib/takeoff/hypothesis";
 import { VECTOR_PLAN } from "./vector-plan-fixture";
+import { activateOwnedTakeoffNotices, openWorkerNotice, readOwnedTakeoffNotice, startTakeoffEmailCollector } from "./completion-support";
 import {
   launchWorkerCsv, launchWorkerPdf, launchWorkerVectorPlan, launchWorkerVectorUpload, readVectorViewerDrawing, readVectorViewerFit,
-  startOwnedWorker,
+  signUpWorkerOwner, startOwnedWorker,
 } from "./worker-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 180_000 };
 
-armyTest("TKW01 a stored CSV runs the controlled worker once and applies exact quantities through the UI", options, async (ui) => {
-  const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW01");
-  const worker = startOwnedWorker(ui, ids, jobId);
-  const completed = await worker.done;
+armyTest("TKW01 a stored CSV publishes one success and applies exact quantities through the UI", options, async (ui) => {
+  await activateOwnedTakeoffNotices();
+  const { ids, jobId, fileName } = await launchWorkerCsv(ui, "TKW01", "local");
+  const collector = await startTakeoffEmailCollector({ loseFirstResponse: true });
+  const worker = startOwnedWorker(ui, ids, jobId, "hold", { mailCollector: collector.origin });
+  let completed: Awaited<typeof worker.done>;
+  try {
+    await worker.provider;
+    const applicationTab = ui.browser.tabs().find((tab) => tab.isActive());
+    if (!applicationTab) throw new Error("The recorded app tab is missing.");
+    const blank = await ui.browser.newTab();
+    await blank.activate();
+    await applicationTab.close();
+    worker.release();
+    completed = await worker.done;
+
+    expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "success", deliveryState: "pending", isRead: false });
+    // Age only the due time on this owned fixture. The first attempt already
+    // reached the collector, and the persisted original envelope must be reused.
+    await querySql(`update public.takeoff_completion_notifications set next_attempt_at = clock_timestamp() where subject_kind = 'job' and job_id = '${jobId}'`);
+    const recovered = await startOwnedWorker(ui, ids, jobId, "success", { mailCollector: collector.origin }).done;
+    expect(recovered.providerCalls).toBe(0);
+    expect(collector.requests).toBe(2);
+    expect(collector.receipts.size).toBe(1);
+    const [receipt] = [...collector.receipts.values()];
+    expect(receipt.message).toMatchObject({
+      to: "collecteur@fixture.invalid",
+      subject: expect.stringMatching(/^\[TEST → .*\] Votre métré est terminé$/),
+      text: expect.stringContaining(`/dashboard/affaires/${ids.projectId}`),
+    });
+    expect(receipt.message.cc).toBeUndefined();
+    expect(receipt.message.attachments).toBeUndefined();
+    expect(receipt.message.text).not.toContain("12.5");
+    expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "success", deliveryState: "sent", isRead: false });
+
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+    const savedNotice = await readOwnedTakeoffNotice(jobId);
+    if (!savedNotice) throw new Error("The success notice is missing.");
+    expect(savedNotice.id).not.toBe(jobId);
+    const notice = await openWorkerNotice(ui, savedNotice.id);
+    await expect(notice).toHaveCount(1);
+    await expect(notice.getByRole("heading")).toContainText("Analyse terminée");
+    await expect(notice.getByRole("link", "Ouvrir la revue")).toHaveAttribute(
+      "href", `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`,
+    );
+    await notice.getByRole("button", "Marquer comme lue").click();
+    await expect(notice.getByRole("button", "Marquer comme lue")).toHaveCount(0);
+    expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "success", deliveryState: "sent", isRead: true });
+  } finally {
+    worker.stop();
+    await collector.close();
+  }
   expect(completed.outcome.status).toBe("completed");
   expect(completed.job.status).toBe("completed");
   expect(completed.providerCalls).toBe(1);
@@ -62,7 +111,7 @@ armyTest("TKW01 a stored CSV runs the controlled worker once and applies exact q
   }
   await recordEvidence(ui.army, "TKW01-affaire-results-review", {
     ids, jobId, reviewPath, items: completed.items,
-    boundary: "The owned worker claims the local job as its host and runs the real processor with a controlled provider response.",
+    boundary: "The owned worker uses the real processor and a controlled provider response.",
   });
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`);
   const dialog = await openTakeoffSend(ui, String(target.parent_id), "ARMY worker pipe");
@@ -106,29 +155,95 @@ armyTest("TKW01 a stored CSV runs the controlled worker once and applies exact q
   expect(appliedReplay.job.status).toBe("applied");
   expect(appliedReplay.providerCalls).toBe(0);
   expect(appliedReplay.resultIds).toEqual(completed.resultIds);
+  const savedNotice = await readOwnedTakeoffNotice(jobId);
+  if (!savedNotice) throw new Error("The applied analysis lost its completion notice.");
+  expect(savedNotice).toMatchObject({ outcome: "success", deliveryState: "sent", isRead: true });
+  const activity = await apiRequest<{ data: { jobs: Array<{
+    jobId: string; analysisCompletion: { eventId: string; outcome: string } | null;
+  }>; analysisCompletions: Array<{ eventId: string; outcome: string; finishedAt: string }> } }>(ui.browser, "GET", `/api/takeoff/activity-center?project_id=${ids.projectId}`);
+  expect(activity.status).toBe(200);
+  expect(activity.body.data.jobs.find((job) => job.jobId === jobId)?.analysisCompletion)
+    .toMatchObject({ eventId: savedNotice.id, outcome: "success" });
+  const colleague = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, ui.army.runPrefix, { tag: "NOTIF" });
+  await querySql(`update public.tenant_memberships set is_default = false where user_id = '${colleague.userId}';
+    insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
+    select tenant_id, '${colleague.userId}', 'director', true from public.estimate_projects where id = '${ids.projectId}'`);
+  await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+  await expect(ui.screen.getByRole("list", "Fins d’analyse de l’affaire", { exact: true })).toContainText("Analyse terminée");
+  const shared = await apiRequest<typeof activity.body>(ui.browser, "GET", `/api/takeoff/activity-center?project_id=${ids.projectId}`);
+  expect(shared.status).toBe(200);
+  expect(shared.body.data.analysisCompletions.find((event) => event.eventId === savedNotice.id)).toEqual({ eventId: savedNotice.id, outcome: "success",
+    finishedAt: expect.any(String) });
+  const colleagueNotice = await openWorkerNotice(ui, savedNotice.id);
+  await expect(colleagueNotice).toHaveCount(0);
+  await querySql(`update public.estimate_projects set is_archived = true where id = '${ids.projectId}'`);
+  try {
+    const archived = await apiRequest<typeof activity.body>(ui.browser, "GET", `/api/takeoff/activity-center?project_id=${ids.projectId}`);
+    expect(archived.status).toBe(404);
+  } finally {
+    await querySql(`update public.estimate_projects set is_archived = false where id = '${ids.projectId}'`);
+  }
   await recordEvidence(ui.army, "TKW01-worker-application", { ids, jobId, completed, replay, appliedReplay,
     items: after.items.map(({ id, title, quantity, source_job_id }) => ({ id, title, quantity, source_job_id })) });
 });
 
-armyTest("TKW02 a transient provider failure persists its diagnostic and schedules the worker's retry", options, async (ui) => {
-  const { ids, jobId } = await launchWorkerCsv(ui, "TKW02");
+armyTest("TKW12 a worker exit after storing the lines cannot turn success into failure", options, async (ui) => {
+  await activateOwnedTakeoffNotices();
+  const owner = await signUpWorkerOwner(ui, "CRASH");
+  const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW12", "local", owner);
+  const worker = startOwnedWorker(ui, ids, jobId, "crash-after-result", { owner });
+  const workerExit = await worker.done.then(() => "Worker returned a result", (error: unknown) => String(error));
+  expect(workerExit).toContain("Owned worker failed (70)");
+  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(detail.body.data.items.data).toEqual(expect.arrayContaining([
+    expect.objectContaining({ designation: "ARMY worker pipe", quantity: 12.5 }),
+  ]));
+  // Age the lease only if a two-write processor left one. The owned recovery
+  // call must never publish a failure for rows that were committed as a result.
+  await querySql(`update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second'
+    where id = '${jobId}' and status = 'processing';
+    select count(*) from public.recover_stale_local_takeoff_jobs(clock_timestamp());`);
+  expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "success" });
+  expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
+});
+
+armyTest("TKW02 a transient failure publishes only the later successful analysis", options, async (ui) => {
+  await activateOwnedTakeoffNotices();
+  const { ids, jobId } = await launchWorkerCsv(ui, "TKW02", "local");
   const failed = await startOwnedWorker(ui, ids, jobId, "transient").done;
   expect(failed.outcome).toMatchObject({ status: "failed_retryable", retryable: true, should_requeue: true });
   expect(failed.job).toMatchObject({ status: "failed", errorCode: "AI_TIMEOUT" });
   expect(failed.job.nextRetryAt).toBeTruthy();
+  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
+  expect(detail.status).toBe(200);
+  expect(detail.body.data.job).toMatchObject({ status: "failed", error_code: "AI_TIMEOUT", next_retry_at: failed.job.nextRetryAt });
+  expect(detail.body.data.job.last_error_at).toBe(detail.body.data.job.completed_at);
   // The real processor retains one failure diagnostic, never extracted rows.
   expect(failed.resultIds).toHaveLength(1);
   expect(failed.results).toEqual([{ id: failed.resultIds[0], failed: true,
     errorCode: "AI_TIMEOUT", extractedJson: {}, warningCodes: ["PROCESSING_FAILED"] }]);
   expect(failed.items).toEqual([]);
-  const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
-  expect(detail.body.data.job).toMatchObject({ status: "failed", error_code: "AI_TIMEOUT", next_retry_at: failed.job.nextRetryAt });
-  await recordEvidence(ui.army, "TKW02-failure-retry", { ids, jobId, failed,
-    boundary: "Local job, controlled transient provider failure. LOCAL05 exercises the concurrent resubmission of a local ChatGPT job." });
+  expect(await readOwnedTakeoffNotice(jobId)).toBeUndefined();
+
+  await expect.poll(async () => (await querySql(
+    `select (next_retry_at <= clock_timestamp())::text from public.takeoff_jobs where id = '${jobId}'`,
+  ))[0], { timeout: 15_000 }).toBe("true");
+  const collector = await startTakeoffEmailCollector();
+  try {
+    const retried = await startOwnedWorker(ui, ids, jobId, "success", { trigger: "retry", mailCollector: collector.origin }).done;
+    expect(retried.job).toMatchObject({ status: "completed", retryCount: 1 });
+    expect(retried.providerCalls).toBe(1);
+    expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "success", deliveryState: "sent", isRead: false });
+    expect(collector.requests).toBe(1);
+    await recordEvidence(ui.army, "TKW02-failure-retry", { ids, jobId, failed, retried, logicalEmails: collector.receipts.size });
+  } finally {
+    await collector.close();
+  }
 });
 
 armyTest("TKW03 cancel during the real provider boundary prevents late result persistence", options, async (ui) => {
-  const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW03");
+  await activateOwnedTakeoffNotices();
+  const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW03", "local");
   const worker = startOwnedWorker(ui, ids, jobId, "hold");
   try {
     expect(await worker.provider).toMatchObject({ jobId, status: "processing" });
@@ -150,6 +265,11 @@ armyTest("TKW03 cancel during the real provider boundary prevents late result pe
     expect(replay.providerCalls).toBe(0);
     await ui.browser.reload();
     await expect(ui.screen.getByRole("button", "Relancer", { exact: true })).toHaveCount(0);
+    const savedNotice = await readOwnedTakeoffNotice(jobId);
+    if (!savedNotice) throw new Error("The cancellation notice is missing.");
+    expect(savedNotice).toMatchObject({ outcome: "canceled", deliveryState: "suppressed", isRead: false });
+    const notice = await openWorkerNotice(ui, savedNotice.id);
+    await expect(notice.getByRole("heading")).toContainText("Analyse annulée");
     await recordEvidence(ui.army, "TKW03-canceled-in-flight", { ids, jobId, result, replay });
   } finally { worker.stop(); }
 });
@@ -174,8 +294,20 @@ armyTest("TKW04 a retained PDF runs the real level-B processor and exposes persi
 });
 
 armyTest("TKW05 terminal provider failure retains its diagnostic without extracted items or automatic retry", options, async (ui) => {
-  const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW05");
-  const failed = await startOwnedWorker(ui, ids, jobId, "terminal").done;
+  await activateOwnedTakeoffNotices();
+  const { ids, jobId, before } = await launchWorkerCsv(ui, "TKW05", "local");
+  const collector = await startTakeoffEmailCollector();
+  let failed: Awaited<ReturnType<typeof startOwnedWorker>["done"]>;
+  try {
+    failed = await startOwnedWorker(ui, ids, jobId, "terminal", { mailCollector: collector.origin }).done;
+    expect(await readOwnedTakeoffNotice(jobId)).toMatchObject({ outcome: "failure", deliveryState: "sent", isRead: false });
+    const [receipt] = [...collector.receipts.values()];
+    expect(collector.requests).toBe(1);
+    expect(receipt.message.text).toContain(`/dashboard/affaires/${ids.projectId}`);
+    expect(receipt.message.text).not.toContain("ARMY controlled terminal provider failure");
+  } finally {
+    await collector.close();
+  }
   expect(failed.outcome).toMatchObject({ status: "failed_terminal", retryable: false, should_requeue: false });
   expect(failed.job).toMatchObject({ status: "failed", errorCode: "AI_PROVIDER", nextRetryAt: null });
   // The real processor retains one failure diagnostic, never extracted rows.
@@ -183,7 +315,12 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   expect(failed.results).toEqual([{ id: failed.resultIds[0], failed: true,
     errorCode: "AI_PROVIDER", extractedJson: {}, warningCodes: ["PROCESSING_FAILED"] }]);
   expect(failed.items).toEqual([]);
-  await ui.browser.reload();
+  const savedFailure = await readOwnedTakeoffNotice(jobId);
+  if (!savedFailure) throw new Error("The failed analysis has no completion notice.");
+  const failureNotice = await openWorkerNotice(ui, savedFailure.id);
+  const reason = "Le service d’analyse n’a pas pu terminer le métré.";
+  await expect(failureNotice).toContainText(reason);
+  await failureNotice.getByRole("link", "Ouvrir le suivi du métré", { exact: true }).click();
   const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(ui.browser, "GET", `/api/takeoff/jobs/${jobId}`);
   expect(detail.body.data.job.error_message).toBe("ARMY controlled terminal provider failure");
   await expect(ui.screen.getByRole("heading", "Analyse à reprendre", { exact: true })).toBeVisible();
@@ -191,11 +328,11 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   await fixture.seed("A", [{ designation: "ARMY nouvelle analyse", quantity: 1, unit: "u", confidence: 1 }]);
   await ui.browser.reload();
   const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
-  await expect(failedRow).toContainText("Analyse interrompue (code AI_PROVIDER).");
+  await expect(failedRow).toContainText(reason);
   await expect(failedRow).toContainText(`Relances utilisées : ${detail.body.data.job.retry_count} sur 3`);
-  expect(detail.body.data.job.can_resubmit).toBe(true);
-  await expect(failedRow).toContainText("Vous pouvez soumettre cette analyse à nouveau.");
-  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toBeVisible();
+  expect(detail.body.data.job.can_resubmit).toBe(false);
+  await expect(failedRow).toContainText("Cette analyse est close.");
+  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
   await expect(ui.screen.getByText("Démarrage immédiat indisponible, reprise automatique active.", { exact: true })).toHaveCount(0);
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW05-terminal-error", { ids, jobId, failed, estimateUnchanged: true });
@@ -208,6 +345,10 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   await expect(failedRow).toContainText("Relances utilisées : 3 sur 3");
   await expect(failedRow).toContainText("Le nombre maximal de relances est atteint.");
   await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
+  const savedNotice = await readOwnedTakeoffNotice(jobId);
+  if (!savedNotice) throw new Error("The failure notice is missing.");
+  const notice = await openWorkerNotice(ui, savedNotice.id);
+  await expect(notice.getByRole("heading")).toContainText("Analyse échouée");
 });
 
 type ActionEnvelope = {
@@ -228,7 +369,7 @@ armyTest("TKW06 concurrent resubmissions cannot restart a canceled historical jo
   expect(detail.body.data.job).toMatchObject({ id: jobId, status: "canceled", retry_count: 0, can_resubmit: false });
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
   await recordEvidence(ui.army, "TKW06-historical-resubmit", { ids, jobId, attempts: attempts.map(response => response.status), unchanged: true,
-    boundary: "Historical provider is blocked. LOCAL05 exercises concurrent resubmission for a ChatGPT job." });
+    boundary: "Historical provider is blocked. LOCAL05 checks two relaunch refusals after a definitive ChatGPT end." });
 });
 
 armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", options, async (ui) => {

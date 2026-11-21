@@ -1,6 +1,7 @@
 import "server-only";
 
 import { mapSupabaseError } from "@/lib/http/api-response";
+import { hasScheduledLocalTakeoffRetry } from "@/lib/takeoff/completion-outcome";
 import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { TAKEOFF_RETRY_BACKOFF_SECONDS, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
@@ -83,6 +84,21 @@ function buildTakeoffJobResetUpdate(input: { retryCount: number }) {
   };
 }
 
+function assertCanManuallyResubmitAnalysis(job: TakeoffJobDetailRow) {
+  const message = job.analysis_outcome
+    ? "Cette analyse est close. Préparez une nouvelle analyse depuis l’affaire."
+    : hasScheduledLocalTakeoffRetry(job) ? "Une reprise automatique de cette analyse est déjà programmée." : null;
+  if (message) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message,
+      retryable: false,
+      jobId: job.id,
+    });
+  }
+}
+
 export async function resubmitTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {
@@ -100,6 +116,7 @@ export async function resubmitTakeoffJob(
     tenantId,
     jobId: normalizedJobId,
   });
+  if (existingJob.execution_provider === "chatgpt_local") assertCanManuallyResubmitAnalysis(existingJob);
   await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
 
   if (existingJob.status !== "failed" && existingJob.status !== "canceled") {

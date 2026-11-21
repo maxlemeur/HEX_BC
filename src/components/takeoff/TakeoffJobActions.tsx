@@ -7,14 +7,16 @@ import { fetchTakeoffJob, type TakeoffActivityCenterResponse } from "@/lib/takeo
 import { isTakeoffOperatorMutationRole, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/operator-state";
 import type { TakeoffJobSummary } from "@/lib/takeoff/types";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
-import { getTakeoffFailureReasonLabel } from "@/lib/takeoff/visible-status";
+import { getTakeoffFailureReasonLabel, takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
 
 export type ActionKind = "resubmit" | "cancel";
 type ActivityJob = TakeoffActivityCenterResponse["jobs"][number];
 
-function nextStep(detail: TakeoffJobSummary, role?: string | null) {
+function nextStep(detail: TakeoffJobSummary, row: ActivityJob, role?: string | null) {
   if (detail.can_resubmit) return "Vous pouvez soumettre cette analyse à nouveau.";
   if (detail.retry_count >= TAKEOFF_RETRY_MAX) return "Le nombre maximal de relances est atteint. Préparez un nouveau métré.";
+  if (row.analysisCompletion?.outcome === "failure") return "Cette analyse est close. Préparez un nouveau métré.";
+  if (detail.next_retry_at) return "Une reprise automatique est programmée.";
   if (!isTakeoffOperatorMutationRole(role)) return "Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.";
   // Within its budget, only a job of a former provider cannot be submitted again by an operator.
   return "Ce fournisseur IA ne permet plus de relancer cette analyse. Préparez un nouveau métré.";
@@ -43,13 +45,15 @@ export function TakeoffJobActions({ job, projectId, pendingAction, onAction }: {
       {failed && (
         <div className="space-y-1 text-xs text-muted-foreground">
           {detail ? (
-            <p>{getTakeoffFailureReasonLabel({ errorCode: detail.error_code })
-              ?? (detail.error_code ? `Analyse interrompue (code ${detail.error_code}).` : "Analyse interrompue sans code de diagnostic.")}</p>
+            <p>{job.analysisCompletion?.outcome === "failure"
+              ? takeoffCompletionFailureReason(detail.error_code)
+              : getTakeoffFailureReasonLabel({ errorCode: detail.error_code })
+                ?? (detail.error_code ? `Analyse interrompue (code ${detail.error_code}).` : "Analyse interrompue sans code de diagnostic.")}</p>
           ) : error ? (
             <p>Motif de l’échec indisponible. <button type="button" className="underline" onClick={() => void mutate()}>Relire le diagnostic</button></p>
           ) : <p>Chargement du motif de l’échec…</p>}
           <p>Relances utilisées : {detail?.retry_count ?? job.retryCount} sur {TAKEOFF_RETRY_MAX}</p>
-          {detail && <p>{nextStep(detail, profile?.tenant_role)}</p>}
+          {detail && <p>{nextStep(detail, job, profile?.tenant_role)}</p>}
         </div>
       )}
       <div className="flex flex-wrap gap-2">

@@ -1,135 +1,82 @@
 import "server-only";
 
-import { VECTOR_ITEM_EXCLUSION_REASON } from "@/lib/takeoff/vectors/alternatives";
-
 import { randomUUID } from "node:crypto";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-import type { Database } from "@/types/database";
-import { VECTOR_PERSISTENCE_SCHEMA_VERSION } from "@/lib/takeoff/vectors/persistence";
-import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
+import { withUndecidedHypothesesAsAlternatives } from "@/lib/takeoff/hypothesis";
+import { selectQuantitySources, type QuantitySourceItem } from "@/lib/takeoff/quantity-source-selection";
 import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromVectorRecord } from "@/lib/takeoff/rules/inputs";
-import { boundPageAnchors } from "@/lib/takeoff/rules/registration";
 import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
-import { selectQuantitySources, type QuantitySourceItem } from "@/lib/takeoff/quantity-source-selection";
-import { listAllTakeoffItemsByJobId } from "@/lib/takeoff/job-read-server";
-import { withUndecidedHypothesesAsAlternatives } from "@/lib/takeoff/hypothesis";
-
-// Writes a job's vector reading with the worker's service role (TI-662): one
-// takeoff_vector_pages row per page read, then its measured items in
-// takeoff_items (same columns as the level C items, metadata.vector naming
-// their kind) and one takeoff_item_geometries row per item. Called inside the
-// result persistence of the job, after its result row. Clearing the job's
-// results deletes these rows too. Before source selection, the processor can
-// discard an incomplete vector reading. An uncertain selection fails the job.
-// TI-681: initially exclude vector items, then atomically select an exploitable
-// reading on an unambiguous common perimeter after every geometry is persisted.
-// Alternative readings and their difference remain recorded.
-
-type ServiceClient = SupabaseClient<Database>;
+import { boundPageAnchors } from "@/lib/takeoff/rules/registration";
+import { VECTOR_ITEM_EXCLUSION_REASON } from "@/lib/takeoff/vectors/alternatives";
+import { VECTOR_PERSISTENCE_SCHEMA_VERSION } from "@/lib/takeoff/vectors/persistence";
+import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 
 export { VECTOR_ITEM_EXCLUSION_REASON } from "@/lib/takeoff/vectors/alternatives";
 
-function failed(message: string, error: unknown): never {
-  throw Object.assign(new Error(`${message} (${(error as { message?: string } | null)?.message ?? "erreur inconnue"})`), { cause: error });
-}
+type VectorItem = QuantitySourceItem & {
+  confidence: number | null;
+  evidence: string | null;
+  exclusion_reason: string;
+  rules_stale: boolean;
+};
 
-export async function persistTakeoffVectorReading(input: {
-  supabase: ServiceClient;
-  job: { id: string; tenant_id: string };
-  resultId: string;
-  outcomes: readonly VectorPageOutcome[];
-}): Promise<{ pages: number; items: number }> {
-  let pages = 0, items = 0;
-  for (const outcome of input.outcomes) {
-    if (!outcome.record) continue;
-    const planFileId = outcome.document.kind === "plan_file" ? outcome.document.plan_file_id : null;
-    // TI-664 (MERGEONE_TAKEOFF_RULES=1): the page's registration anchors, and each line's rule inputs, its results to compute.
-    // The anchors are bounded to their column first (TI-677): a page over the check would fail its insert, and the
-    // job's whole vector reading would be discarded.
-    const withRules = isTakeoffRulesEnabled();
-    const anchors = withRules && outcome.anchors ? boundPageAnchors(outcome.anchors) : null;
-    const { data: page, error: pageError } = await input.supabase.from("takeoff_vector_pages" as never).insert({
-      tenant_id: input.job.tenant_id, job_id: input.job.id, result_id: input.resultId, plan_file_id: planFileId,
-      source_file_name: outcome.fileName.slice(0, 255), source_page: outcome.page, reading: outcome.record,
-      schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, ...(anchors ? { rule_anchors: anchors } : {}),
-    } as never).select("id" as never).single();
-    if (pageError || !page) failed("Impossible d’enregistrer la lecture vectorielle d’une page.", pageError);
-    pages += 1;
-    if (outcome.items.length === 0) continue;
-    const keyed = outcome.items.map((record) => ({ key: randomUUID(), record }));
-    const { data: inserted, error: itemsError } = await input.supabase.from("takeoff_items" as never).insert(keyed.map(({ key, record }) => {
-      // Only inputs the reader accepts are written: a line left stale with unreadable inputs is never computed.
-      const ruleInputs = withRules && outcome.record ? writableRuleInputs(ruleInputsFromVectorRecord(record)) : null;
-      return {
-        tenant_id: input.job.tenant_id, job_id: input.job.id, result_id: input.resultId,
-        designation: record.item.designation, quantity: record.item.quantity, unit: record.item.unit, confidence: record.item.confidence,
-        evidence: record.item.evidence, source_file_name: outcome.fileName, source_page: outcome.page,
-        is_excluded: true, exclusion_reason: VECTOR_ITEM_EXCLUSION_REASON,
-        metadata: { category: record.item.category, source_document: outcome.document,
-          vector: { schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, kind: record.geometry.kind, key },
-          quantity_source: { version: 1, origin: "vector", location: outcome.record?.location,
-            exploitable: (outcome.record?.scale.status === "verified" || outcome.record?.scale.status === "calibrated")
-              && outcome.record?.mode !== "raster" && outcome.record?.to_review === 0
-              && (record.geometry.kind === "surface" || outcome.record?.labels?.incomplete === 0) },
-          ...(ruleInputs ? { rule_inputs: ruleInputs } : {}) },
-        ...(ruleInputs ? { rules_stale: true } : {}),
-      };
-    }) as never).select("id,metadata" as never);
-    if (itemsError || !inserted) failed("Impossible d’enregistrer les items de la lecture vectorielle.", itemsError);
-    const ids = new Map((inserted as unknown as Array<{ id: string; metadata: { vector?: { key?: string } } }>)
-      .map((row) => [row.metadata.vector?.key, row.id]));
-    const rows = keyed.map(({ key, record }) => {
-      const id = ids.get(key);
-      if (!id) failed("Un item de la lecture vectorielle n’a pas été retrouvé après insertion.", null);
-      return { takeoff_item_id: id, tenant_id: input.job.tenant_id, job_id: input.job.id, vector_page_id: (page as unknown as { id: string }).id,
-        geometry: record.geometry, schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION };
+export function buildTakeoffVectorPersistence(
+  outcomes: readonly VectorPageOutcome[],
+  modelItems: readonly (QuantitySourceItem & { exclusion_reason: string | null })[],
+) {
+  const withRules = isTakeoffRulesEnabled();
+  const items: VectorItem[] = [];
+  const geometries = [];
+  const pages = [];
+  for (const outcome of outcomes) {
+    const reading = outcome.record;
+    if (!reading) continue;
+    const pageId = randomUUID();
+    pages.push({
+      id: pageId,
+      plan_file_id: outcome.document.kind === "plan_file" ? outcome.document.plan_file_id : null,
+      source_file_name: outcome.fileName.slice(0, 255),
+      source_page: outcome.page,
+      reading,
+      schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION,
+      rule_anchors: withRules && outcome.anchors ? boundPageAnchors(outcome.anchors) : null,
     });
-    const { error: geometryError } = await input.supabase.from("takeoff_item_geometries" as never).insert(rows as never);
-    if (geometryError) failed("Impossible d’enregistrer la géométrie de la lecture vectorielle.", geometryError);
-    items += rows.length;
-  }
-  // Select only after every geometry was persisted. A lost RPC response leaves
-  // the commit uncertain: propagate that failure instead of deleting the chosen reading.
-  if (items > 0) {
-    const reading = await listAllTakeoffItemsByJobId({ supabase: input.supabase, tenantId: input.job.tenant_id, jobId: input.job.id });
-    // TI-682: an hypothesis arrived excluded, yet the selection reads it as the alternative reading it is.
-    const selections = selectQuantitySources(withUndecidedHypothesesAsAlternatives(reading) as QuantitySourceItem[]);
-    if (selections.length) {
-      try {
-        const selection = await input.supabase.rpc("select_takeoff_quantity_sources" as never,
-          { p_job_id: input.job.id, p_tenant_id: input.job.tenant_id, p_choices: selections } as never);
-        if (selection.error) failed("Impossible de retenir une source de quantité.", selection.error);
-      } catch (cause) {
-        throw Object.assign(new Error("Sélection de quantité non confirmée ; reprise du job nécessaire.", { cause }),
-          { code: "TAKEOFF_QUANTITY_SOURCE_SELECTION_UNRESOLVED" });
-      }
+    for (const record of outcome.items) {
+      // The transaction inserts the measurements and their geometry under the same IDs.
+      const id = randomUUID();
+      const ruleInputs = withRules ? writableRuleInputs(ruleInputsFromVectorRecord(record)) : null;
+      items.push({
+        id,
+        designation: record.item.designation,
+        quantity: record.item.quantity,
+        unit: record.item.unit,
+        confidence: record.item.confidence,
+        evidence: record.item.evidence,
+        source_file_name: outcome.fileName,
+        source_page: outcome.page,
+        is_excluded: true,
+        exclusion_reason: VECTOR_ITEM_EXCLUSION_REASON,
+        metadata: {
+          category: record.item.category,
+          source_document: outcome.document,
+          vector: { schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, kind: record.geometry.kind, key: id },
+          quantity_source: {
+            version: 1, origin: "vector", location: reading.location,
+            exploitable: (reading.scale.status === "verified" || reading.scale.status === "calibrated")
+              && reading.mode !== "raster" && reading.to_review === 0
+              && (record.geometry.kind === "surface" || reading.labels?.incomplete === 0),
+          },
+          ...(ruleInputs ? { rule_inputs: ruleInputs } : {}),
+        },
+        rules_stale: ruleInputs !== null,
+      });
+      geometries.push({ takeoff_item_id: id, vector_page_id: pageId,
+        geometry: record.geometry, schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION });
     }
   }
-  return { pages, items };
-}
-
-/** Removes what a failed persistence of the vector reading wrote for this result, then logs the failure. */
-export async function discardTakeoffVectorReading(input: {
-  supabase: ServiceClient;
-  job: { id: string; tenant_id: string };
-  resultId: string;
-  error: unknown;
-}) {
-  if ((input.error as { code?: string } | null)?.code === "TAKEOFF_QUANTITY_SOURCE_SELECTION_UNRESOLVED") {
-    throw input.error;
-  }
-  // Geometries go with their page (on delete cascade); vector items are the result's items with metadata.vector.
-  const pages = await input.supabase.from("takeoff_vector_pages" as never).delete()
-    .eq("tenant_id" as never, input.job.tenant_id as never).eq("job_id" as never, input.job.id as never).eq("result_id" as never, input.resultId as never);
-  const items = await input.supabase.from("takeoff_items" as never).delete()
-    .eq("tenant_id" as never, input.job.tenant_id as never).eq("job_id" as never, input.job.id as never).eq("result_id" as never, input.resultId as never)
-    .not("metadata->vector" as never, "is", null);
-  console.error("takeoff.vector.persistence_failed", {
-    job_id: input.job.id, tenant_id: input.job.tenant_id, result_id: input.resultId,
-    message: (input.error instanceof Error ? input.error.message : String(input.error)).slice(0, 500),
-    cleanup: { pages: pages.error?.message ?? "ok", items: items.error?.message ?? "ok" },
-  });
+  return {
+    pages, items, geometries,
+    choices: items.length ? selectQuantitySources(withUndecidedHypothesesAsAlternatives([...modelItems, ...items])) : [],
+  };
 }

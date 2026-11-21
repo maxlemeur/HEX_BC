@@ -1,6 +1,4 @@
-import { readAllRows } from "@/lib/supabase/read-all";
 import * as XLSX from "xlsx";
-import { z } from "zod";
 
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -9,6 +7,7 @@ import type { StructuredCall, StructuredCallOptions, TokenUsage } from "@/lib/ai
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
 import { dedupeHeaders } from "@/lib/imports/tabular-normalization";
 import { TAKEOFF_PROCESSING_LEASE_TTL_SECONDS } from "@/lib/takeoff/constants";
+import { takeoffAnalysisFailureFields } from "@/lib/takeoff/completion-outcome";
 import {
   buildPdfChunks,
   createChunkPromptSourceHint,
@@ -58,7 +57,7 @@ import {
   type DownloadedTakeoffFile,
   type TakeoffSourceDocumentRef,
 } from "@/lib/takeoff/source-loader";
-import { discardTakeoffVectorReading, persistTakeoffVectorReading } from "@/lib/takeoff/vectors/worker-persistence-server";
+import { buildTakeoffVectorPersistence } from "@/lib/takeoff/vectors/worker-persistence-server";
 import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import { hypothesisPreselection } from "@/lib/takeoff/hypothesis";
@@ -78,10 +77,6 @@ const TAKEOFF_LEVEL_C = "C";
 const UNRESOLVED_LOCAL_MODEL = "chatgpt";
 const TAKEOFF_PROCESSING_LEASE_TTL_MS = TAKEOFF_PROCESSING_LEASE_TTL_SECONDS * 1000;
 const ATOMIC_PERSISTENCE_ROLLBACK_MARKER = "atomic_persistence_rollback_applied";
-
-const takeoffResultIdSchema = z.object({
-  id: z.string().uuid(),
-});
 
 type ParsedTakeoffSheet = {
   sheetName: string;
@@ -150,7 +145,11 @@ export type ProcessLevelAOptions = {
   resolveProvider?: typeof resolveLocalTakeoffProvider;
   assertTenantActive?: (tenantId: string) => Promise<void>;
   renewLease?: TakeoffLeaseRenewal;
+  /** The status and attempt the caller decided on; the claim refuses any other (defaults to the processor's read). */
+  claimObservation?: TakeoffClaimObservation;
 };
+
+export type TakeoffClaimObservation = { status: string; retryCount: number };
 
 type ProcessLevelCompletedResult = {
   jobId: string;
@@ -701,27 +700,6 @@ function buildProcessingStatusConflictError(input: {
   });
 }
 
-async function clearResultsAfterCanceledTransition(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  operation: string;
-  level: ProcessableTakeoffLevel;
-}) {
-  try {
-    await clearPreviousResultsForJob({
-      supabase: input.supabase,
-      job: input.job,
-      level: input.level,
-    });
-  } catch (cleanupError) {
-    console.error("Impossible de nettoyer les résultats après annulation du job.", {
-      job_id: input.job.id,
-      operation: input.operation,
-      error: cleanupError,
-    });
-  }
-}
-
 function isCanceledDuringProcessingConflict(error: TakeoffError) {
   if (error.code !== TakeoffErrorCode.CONFLICT) {
     return false;
@@ -804,17 +782,19 @@ async function markJobAsProcessing(input: {
   model: string;
   promptVersion: string;
   level: ProcessableTakeoffLevel;
+  observed: TakeoffClaimObservation;
 }): Promise<TakeoffJobProcessingRow> {
   const processingLeaseToken = crypto.randomUUID();
   const processingLeaseExpiresAt = new Date(
     Date.parse(input.startedAtIso) + TAKEOFF_PROCESSING_LEASE_TTL_MS
   ).toISOString();
 
-  const { data, error } = await input.supabase.rpc("claim_local_takeoff_job" as never, {
+  const { data, error } = await input.supabase.rpc("claim_observed_local_takeoff_job" as never, {
     p_job_id: input.job.id, p_tenant_id: input.job.tenant_id, p_host_id: input.hostId,
     p_started_at: input.startedAtIso, p_lease_token: processingLeaseToken,
     p_lease_expires_at: processingLeaseExpiresAt, p_model: input.model,
     p_prompt_version: input.promptVersion,
+    p_observed_status: input.observed.status, p_observed_retry_count: input.observed.retryCount,
   } as never).maybeSingle();
 
   if (error) {
@@ -848,277 +828,44 @@ async function markJobAsProcessing(input: {
   return parseTakeoffJobRow(data);
 }
 
-async function updateJobAsCompleted(input: {
+/** The failure, its retry decision and its diagnostic commit together, under the job's unexpired lease. */
+async function recordLocalTakeoffFailure(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
-  tenantId: string | null;
-  completedAtIso: string;
-  tokenCount: number;
-  costCents: number;
-  durationMs: number;
-  model: string;
-  promptVersion: string;
-  level: ProcessableTakeoffLevel;
-}) {
-  let query = input.supabase
-    .from("takeoff_jobs" as never)
-    .update({
-      status: "completed",
-      completed_at: input.completedAtIso,
-      token_count: input.tokenCount,
-      cost_cents: input.costCents,
-      duration_ms: input.durationMs,
-      model: input.model,
-      prompt_version: input.promptVersion,
-      error_code: null,
-      error_message: null,
-      next_retry_at: null,
-      processing_lease_token: null,
-      processing_lease_expires_at: null,
-    } as never)
-    .eq("id" as never, input.job.id as never)
-    .eq("status" as never, "processing" as never)
-    .select("id" as never);
-
-  if (input.tenantId) {
-    query = query.eq("tenant_id" as never, input.tenantId as never);
-  }
-
-  if (input.job.processing_lease_token) {
-    query = query.eq(
-      "processing_lease_token" as never,
-      input.job.processing_lease_token as never
-    );
-  }
-
-  const { data, error } = await query.maybeSingle();
-
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de finaliser le job takeoff."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-
-  if (data) {
-    // TI-664: the fixed rules of the version, now that this job's lines join it; never fails the job (its lines with
-    // rule inputs were written stale, they block until a later computation: an edit, or the application).
-    if (input.level !== TAKEOFF_LEVEL_A) {
-      const { estimate_version_id, project_id, id } = input.job;
-      const scope = estimate_version_id !== null
-        ? { estimateVersionId: estimate_version_id }
-        : project_id ? { projectId: project_id, jobId: id } : null;
-      if (scope) await recomputeTakeoffRulesQuietly({
-        tenantId: input.job.tenant_id, ...scope, context: "worker", supabase: input.supabase,
-      });
-    }
-    return;
-  }
-
-  const currentStatus = await fetchCurrentTakeoffJobStatus({
-    supabase: input.supabase,
-    job: input.job,
-    level: input.level,
-  });
-
-  if (currentStatus === "canceled") {
-    await clearResultsAfterCanceledTransition({
-      supabase: input.supabase,
-      job: input.job,
-      operation: "complete_job",
-      level: input.level,
-    });
-  }
-
-  throw buildProcessingStatusConflictError({
-    jobId: input.job.id,
-    currentStatus,
-    operation: "complete_job",
-    level: input.level,
-  });
-}
-
-async function updateJobAsFailed(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  tenantId: string | null;
   completedAtIso: string;
   durationMs: number;
   error: TakeoffError;
+  diagnostic: Record<string, unknown> | null;
+  runMetrics: ReturnType<typeof buildLevelCRunMetricRows>;
 }) {
-  let query = input.supabase
-    .from("takeoff_jobs" as never)
-    .update({
-      status: "failed",
+  const { data, error } = await input.supabase.rpc("record_local_takeoff_failure" as never, {
+    p_job_id: input.job.id,
+    p_tenant_id: input.job.tenant_id,
+    p_lease_token: input.job.processing_lease_token,
+    p_failure: {
       completed_at: input.completedAtIso,
       duration_ms: input.durationMs,
       error_code: input.error.code,
       error_message: input.error.message,
-      processing_lease_token: null,
-      processing_lease_expires_at: null,
-    } as never)
-    .eq("id" as never, input.job.id as never)
-    .eq("status" as never, "processing" as never);
-
-  if (input.tenantId) {
-    query = query.eq("tenant_id" as never, input.tenantId as never);
-  }
-
-  if (input.job.processing_lease_token) {
-    query = query.eq(
-      "processing_lease_token" as never,
-      input.job.processing_lease_token as never
-    );
-  }
-
-  const { data, error } = await query.select("id" as never).maybeSingle();
+      ...takeoffAnalysisFailureFields({
+        retryable: input.error.retryable,
+        retryCount: input.job.retry_count,
+        completedAtIso: input.completedAtIso,
+      }),
+    },
+    p_diagnostic: input.diagnostic,
+    p_run_metrics: input.runMetrics,
+  } as never);
 
   if (error) {
     console.error("Impossible de marquer le job takeoff en échec.", {
       job_id: input.job.id,
-      tenant_id: input.tenantId,
+      tenant_id: input.job.tenant_id,
       error,
     });
   }
   if (!data) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible pour clore le job.", retryable: false, jobId: input.job.id });
 }
-
-async function clearPreviousResultsForJob(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  level: ProcessableTakeoffLevel;
-}) {
-  const { error: deleteMetricsError } = await input.supabase
-    .from("takeoff_run_metrics" as never)
-    .delete()
-    .eq("tenant_id" as never, input.job.tenant_id as never)
-    .eq("job_id" as never, input.job.id as never);
-
-  if (deleteMetricsError) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        deleteMetricsError,
-        "Impossible de nettoyer les metriques takeoff precedentes."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-
-  const { error: deleteItemsError } = await input.supabase
-    .from("takeoff_items" as never)
-    .delete()
-    .eq("tenant_id" as never, input.job.tenant_id as never)
-    .eq("job_id" as never, input.job.id as never);
-
-  if (deleteItemsError) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        deleteItemsError,
-        "Impossible de nettoyer les items takeoff précédents."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-
-  const { error: deleteResultsError } = await input.supabase
-    .from("takeoff_results" as never)
-    .delete()
-    .eq("tenant_id" as never, input.job.tenant_id as never)
-    .eq("job_id" as never, input.job.id as never);
-
-  if (deleteResultsError) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        deleteResultsError,
-        "Impossible de nettoyer les résultats takeoff précédents."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-}
-
-type PersistedTakeoffResultSnapshotRow = {
-  id: string;
-  tenant_id: string;
-  job_id: string;
-  extracted_json: unknown;
-  warnings: unknown[];
-  tables: unknown[];
-  provider_meta: Record<string, unknown>;
-  raw_response: unknown;
-  confidence: number | null;
-  token_count: number | null;
-  cost_cents: number | null;
-  duration_ms: number | null;
-};
-
-type PersistedTakeoffItemSnapshotRow = {
-  id: string;
-  tenant_id: string;
-  job_id: string;
-  result_id: string | null;
-  designation: string;
-  quantity: number;
-  unit: string;
-  confidence: number | null;
-  evidence: string | null;
-  source_file_name: string | null;
-  source_page: number | null;
-  metadata: Record<string, unknown>;
-  is_excluded: boolean;
-  exclusion_reason: string | null;
-  is_verified: boolean;
-  verified_at: string | null;
-  verified_by: string | null;
-};
-
-type PersistedTakeoffRunMetricSnapshotRow = {
-  id: string;
-  tenant_id: string;
-  job_id: string;
-  result_id: string | null;
-  level: string;
-  provider: string;
-  model: string;
-  chunk_index: number;
-  chunk_start_page: number;
-  chunk_end_page: number;
-  input_tokens: number;
-  reasoning_tokens: number;
-  output_tokens: number;
-  total_tokens: number;
-  cost_cents: number;
-  duration_ms: number;
-  timed_out: boolean;
-  budget_exceeded: boolean;
-  metadata: Record<string, unknown>;
-};
-
-type TakeoffPersistenceSnapshot = {
-  results: PersistedTakeoffResultSnapshotRow[];
-  items: PersistedTakeoffItemSnapshotRow[];
-  runMetrics: PersistedTakeoffRunMetricSnapshotRow[];
-};
 
 function annotateAtomicPersistenceRollbackError(error: TakeoffError) {
   const details: Record<string, unknown> =
@@ -1149,161 +896,8 @@ function hasAtomicPersistenceRollbackError(error: TakeoffError) {
   );
 }
 
-async function snapshotTakeoffPersistenceState(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  level: ProcessableTakeoffLevel;
-}): Promise<TakeoffPersistenceSnapshot> {
-  const [resultsResponse, itemsResponse, runMetricsResponse] = await Promise.all([
-    readAllRows(() => input.supabase
-      .from("takeoff_results" as never)
-      .select(
-        "id, tenant_id, job_id, extracted_json, warnings, tables, provider_meta, raw_response, confidence, token_count, cost_cents, duration_ms" as never,
-        { count: "exact" }
-      )
-      .eq("tenant_id" as never, input.job.tenant_id as never)
-      .eq("job_id" as never, input.job.id as never)),
-    readAllRows(() => input.supabase
-      .from("takeoff_items" as never)
-      .select(
-        "id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page, metadata, is_excluded, exclusion_reason, is_verified, verified_at, verified_by" as never,
-        { count: "exact" }
-      )
-      .eq("tenant_id" as never, input.job.tenant_id as never)
-      .eq("job_id" as never, input.job.id as never)),
-    readAllRows(() => input.supabase
-      .from("takeoff_run_metrics" as never)
-      .select(
-        "id, tenant_id, job_id, result_id, level, provider, model, chunk_index, chunk_start_page, chunk_end_page, input_tokens, reasoning_tokens, output_tokens, total_tokens, cost_cents, duration_ms, timed_out, budget_exceeded, metadata" as never,
-        { count: "exact" }
-      )
-      .eq("tenant_id" as never, input.job.tenant_id as never)
-      .eq("job_id" as never, input.job.id as never)),
-  ]);
 
-  if (resultsResponse.error) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        resultsResponse.error,
-        "Impossible de lire le snapshot des résultats takeoff."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-
-  if (itemsResponse.error) {
-    throw toTakeoffError(
-      mapSupabaseError(itemsResponse.error, "Impossible de lire le snapshot des items takeoff."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-
-  if (runMetricsResponse.error) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        runMetricsResponse.error,
-        "Impossible de lire le snapshot des metriques takeoff."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      }
-    );
-  }
-
-  return {
-    results: Array.isArray(resultsResponse.data)
-      ? (resultsResponse.data as PersistedTakeoffResultSnapshotRow[])
-      : [],
-    items: Array.isArray(itemsResponse.data)
-      ? (itemsResponse.data as PersistedTakeoffItemSnapshotRow[])
-      : [],
-    runMetrics: Array.isArray(runMetricsResponse.data)
-      ? (runMetricsResponse.data as PersistedTakeoffRunMetricSnapshotRow[])
-      : [],
-  };
-}
-
-async function restoreTakeoffPersistenceState(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
-  snapshot: TakeoffPersistenceSnapshot;
-  level: ProcessableTakeoffLevel;
-}) {
-  await clearPreviousResultsForJob({
-    supabase: input.supabase,
-    job: input.job,
-    level: input.level,
-  });
-
-  for (const resultRow of input.snapshot.results) {
-    const { error } = await input.supabase
-      .from("takeoff_results" as never)
-      .insert(resultRow as never);
-
-    if (error) {
-      throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de restaurer les résultats takeoff."),
-        {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          retryable: false,
-          jobId: input.job.id,
-          level: input.level,
-        }
-      );
-    }
-  }
-
-  if (input.snapshot.items.length > 0) {
-    const { error } = await input.supabase
-      .from("takeoff_items" as never)
-      .insert(input.snapshot.items as never);
-
-    if (error) {
-      throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de restaurer les items takeoff."),
-        {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          retryable: false,
-          jobId: input.job.id,
-          level: input.level,
-        }
-      );
-    }
-  }
-
-  if (input.snapshot.runMetrics.length > 0) {
-    const { error } = await input.supabase
-      .from("takeoff_run_metrics" as never)
-      .insert(input.snapshot.runMetrics as never);
-
-    if (error) {
-      throw toTakeoffError(
-        mapSupabaseError(error, "Impossible de restaurer les metriques takeoff."),
-        {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          retryable: false,
-          jobId: input.job.id,
-          level: input.level,
-        }
-      );
-    }
-  }
-}
-
-async function persistTakeoffResultAndItems(input: {
+async function finalizeTakeoffResult(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
   exchange: TakeoffExchange;
@@ -1311,226 +905,82 @@ async function persistTakeoffResultAndItems(input: {
   tokenCount: number;
   costCents: number;
   durationMs: number;
-  rawResponse: unknown;
+  totalDurationMs: number;
+  completedAt: Date;
+  model: string;
+  promptVersion: string;
   providerMeta: Record<string, unknown>;
   level: ProcessableTakeoffLevel;
-  /** The vector reading of the job's pages (TI-662), persisted with the result. */
   vector?: readonly VectorPageOutcome[];
-}): Promise<{
-  resultId: string;
-  itemsCount: number;
-  warningsCount: number;
-}> {
-  const statusBeforePersist = await fetchCurrentTakeoffJobStatus({
-    supabase: input.supabase,
-    job: input.job,
-    level: input.level,
+  runMetrics?: ReturnType<typeof buildLevelCRunMetricRows>;
+}) {
+  const withRules = isTakeoffRulesEnabled() && input.level !== TAKEOFF_LEVEL_A;
+  const items = input.itemsForInsert.map((item) => {
+    const ruleInputs = withRules ? writableRuleInputs(ruleInputsFromDesignation({
+      designation: item.designation, unit: item.unit, quantity: item.quantity, evidence: item.evidence,
+      category: typeof item.metadata.category === "string" ? item.metadata.category : null,
+    })) : null;
+    const metadata = ruleInputs ? { ...item.metadata, rule_inputs: ruleInputs } : item.metadata;
+    const preselection = hypothesisPreselection({ metadata });
+    return {
+      ...item,
+      id: crypto.randomUUID(),
+      metadata,
+      is_excluded: preselection?.is_excluded ?? false,
+      exclusion_reason: preselection?.exclusion_reason ?? null,
+      rules_stale: ruleInputs !== null,
+    };
   });
-
-  if (statusBeforePersist !== "processing") {
+  const { data, error } = await input.supabase.rpc("finalize_local_takeoff_result" as never, {
+    p_job_id: input.job.id,
+    p_tenant_id: input.job.tenant_id,
+    p_lease_token: input.job.processing_lease_token,
+    p_completed_at: input.completedAt.toISOString(),
+    p_model: input.model,
+    p_prompt_version: input.promptVersion,
+    p_result: {
+      extracted_json: input.exchange,
+      warnings: input.exchange.warnings,
+      tables: input.exchange.tables ?? [],
+      provider_meta: {
+        ...input.providerMeta,
+        ...(input.job.preparation_snapshot ? { preparation_snapshot: input.job.preparation_snapshot } : {}),
+      },
+      confidence: input.exchange.confidence ?? null,
+      token_count: input.tokenCount,
+      cost_cents: input.costCents,
+      duration_ms: input.durationMs,
+      job_duration_ms: input.totalDurationMs,
+      run_metrics: input.runMetrics,
+    },
+    p_items: items,
+    ...(input.vector?.length ? { p_vector: buildTakeoffVectorPersistence(input.vector, items) } : {}),
+  } as never);
+  if (error) {
+    const failure = toTakeoffError(mapSupabaseError(error, "Impossible de finaliser le résultat takeoff."), {
+      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId: input.job.id, level: input.level,
+    });
+    throw input.level === TAKEOFF_LEVEL_A ? annotateAtomicPersistenceRollbackError(failure) : failure;
+  }
+  if (typeof data !== "string") {
+    const currentStatus = await fetchCurrentTakeoffJobStatus(input);
     throw buildProcessingStatusConflictError({
-      jobId: input.job.id,
-      currentStatus: statusBeforePersist,
-      operation: "persist_results_before_write",
-      level: input.level,
+      jobId: input.job.id, currentStatus, operation: "complete_job", level: input.level,
     });
   }
 
-  const shouldEnforceAtomicRollback = input.level === TAKEOFF_LEVEL_A;
-  const initialSnapshot = shouldEnforceAtomicRollback
-    ? await snapshotTakeoffPersistenceState({
-        supabase: input.supabase,
-        job: input.job,
-        level: input.level,
-      })
-    : null;
-
-  let resultId: string;
-
-  try {
-    await clearPreviousResultsForJob({
-      supabase: input.supabase,
-      job: input.job,
-      level: input.level,
-    });
-
-    const { data: insertedResult, error: insertResultError } = await input.supabase
-      .from("takeoff_results" as never)
-      .insert({
-        tenant_id: input.job.tenant_id,
-        job_id: input.job.id,
-        extracted_json: input.exchange,
-        warnings: input.exchange.warnings,
-        tables: input.exchange.tables ?? [],
-        provider_meta: {
-          ...input.providerMeta,
-          ...(input.job.preparation_snapshot ? { preparation_snapshot: input.job.preparation_snapshot } : {}),
-        },
-        raw_response: input.rawResponse,
-        confidence: input.exchange.confidence ?? null,
-        token_count: input.tokenCount,
-        cost_cents: input.costCents,
-        duration_ms: input.durationMs,
-      } as never)
-      .select("id" as never)
-      .single();
-
-    if (insertResultError || !insertedResult) {
-      throw toTakeoffError(
-        mapSupabaseError(
-          insertResultError ?? {
-            code: "NOT_FOUND",
-            details: null,
-            hint: null,
-            message: "Insertion takeoff_results invalide.",
-          },
-          "Impossible de persister le résultat takeoff."
-        ),
-        {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          retryable: false,
-          jobId: input.job.id,
-          level: input.level,
-        }
-      );
-    }
-
-    const parsedResult = takeoffResultIdSchema.parse(insertedResult);
-    resultId = parsedResult.id;
-
-    if (input.itemsForInsert.length > 0) {
-      // TI-664 (MERGEONE_TAKEOFF_RULES=1, levels B and C): each line's rule inputs, read once in its designation, and
-      // results to compute (stale: blocked until the version's rules run, once the job completes).
-      const withRules = isTakeoffRulesEnabled() && input.level !== TAKEOFF_LEVEL_A;
-      const { error: insertItemsError } = await input.supabase
-        .from("takeoff_items" as never)
-        .insert(
-          input.itemsForInsert.map((item) => {
-            // Only inputs the reader accepts are written: a line left stale with unreadable inputs is never computed.
-            const ruleInputs = withRules ? writableRuleInputs(ruleInputsFromDesignation({
-              designation: item.designation, unit: item.unit, quantity: item.quantity, evidence: item.evidence,
-              category: typeof item.metadata.category === "string" ? item.metadata.category : null,
-            })) : null;
-            const metadata = ruleInputs ? { ...item.metadata, rule_inputs: ruleInputs } : item.metadata;
-            // TI-682 (D11): an hypothesis is never preselected; it arrives excluded, with its reason. Every row of the
-            // insert carries both columns: a bulk insert refuses rows whose keys differ.
-            const preselection = hypothesisPreselection({ metadata });
-            return {
-              tenant_id: input.job.tenant_id,
-              job_id: input.job.id,
-              result_id: resultId,
-              designation: item.designation,
-              quantity: item.quantity,
-              unit: item.unit,
-              confidence: item.confidence,
-              evidence: item.evidence,
-              source_file_name: item.source_file_name,
-              source_page: item.source_page,
-              metadata,
-              is_excluded: preselection?.is_excluded ?? false,
-              exclusion_reason: preselection?.exclusion_reason ?? null,
-              ...(withRules ? { rules_stale: ruleInputs !== null } : {}),
-            };
-          }) as never
-        );
-
-      if (insertItemsError) {
-        throw toTakeoffError(
-          mapSupabaseError(insertItemsError, "Impossible de persister les items takeoff."),
-          {
-            fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-            retryable: false,
-            jobId: input.job.id,
-            level: input.level,
-          }
-        );
-      }
-    }
-    if (input.vector?.length) {
-      // TI-662: an addition beside the level C result; its failure never fails the job (rows it wrote are removed, logged).
-      try {
-        await persistTakeoffVectorReading({ supabase: input.supabase, job: input.job, resultId, outcomes: input.vector });
-      } catch (vectorError) {
-        await discardTakeoffVectorReading({ supabase: input.supabase, job: input.job, resultId, error: vectorError });
-      }
-    }
-  } catch (error) {
-    const mapped = toTakeoffError(error, {
-      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-      jobId: input.job.id,
-      level: input.level,
-      retryable: false,
-    });
-
-    if (!shouldEnforceAtomicRollback || !initialSnapshot) {
-      throw mapped;
-    }
-
-    try {
-      await restoreTakeoffPersistenceState({
-        supabase: input.supabase,
-        job: input.job,
-        snapshot: initialSnapshot,
-        level: input.level,
-      });
-    } catch (restoreError) {
-      const restoreMapped = toTakeoffError(restoreError, {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        fallbackMessage:
-          "Impossible de restaurer l'état précédent après échec de persistance takeoff.",
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      });
-
-      throw new TakeoffError({
-        code: TakeoffErrorCode.INTERNAL_ERROR,
-        status: 500,
-        message:
-          "La persistance takeoff a echoue et la restauration atomique n'a pas pu être complétée.",
-        details: {
-          original_error: mapped.details,
-          rollback_error: restoreMapped.details,
-          [ATOMIC_PERSISTENCE_ROLLBACK_MARKER]: false,
-        },
-        retryable: false,
-        jobId: input.job.id,
-        level: input.level,
-      });
-    }
-
-    throw annotateAtomicPersistenceRollbackError(mapped);
-  }
-
-  const statusAfterPersist = await fetchCurrentTakeoffJobStatus({
-    supabase: input.supabase,
-    job: input.job,
-    level: input.level,
-  });
-
-  if (statusAfterPersist !== "processing") {
-    if (statusAfterPersist === "canceled") {
-      await clearResultsAfterCanceledTransition({
-        supabase: input.supabase,
-        job: input.job,
-        operation: "persist_results_after_write",
-        level: input.level,
-      });
-    }
-
-    throw buildProcessingStatusConflictError({
-      jobId: input.job.id,
-      currentStatus: statusAfterPersist,
-      operation: "persist_results_after_write",
-      level: input.level,
+  // The result and its notice have committed. Rule refresh is best effort; a
+  // job without a version refreshes the rules of its own affaire's job.
+  if (input.level !== TAKEOFF_LEVEL_A) {
+    const { estimate_version_id, project_id, id } = input.job;
+    const scope = estimate_version_id !== null
+      ? { estimateVersionId: estimate_version_id }
+      : project_id ? { projectId: project_id, jobId: id } : null;
+    if (scope) await recomputeTakeoffRulesQuietly({
+      tenantId: input.job.tenant_id, ...scope, context: "worker", supabase: input.supabase,
     });
   }
-
-  return {
-    resultId,
-    itemsCount: input.itemsForInsert.length,
-    warningsCount: input.exchange.warnings.length,
-  };
+  return { resultId: data, itemsCount: input.itemsForInsert.length, warningsCount: input.exchange.warnings.length };
 }
 
 function extractRawResponseFromTakeoffError(error: TakeoffError): unknown {
@@ -1548,61 +998,40 @@ function extractRawResponseFromTakeoffError(error: TakeoffError): unknown {
   return record;
 }
 
-async function persistFailureSnapshotIfNeeded(input: {
-  supabase: Supabase;
-  job: TakeoffJobProcessingRow;
+/** The failure diagnostic that replaces the job's previous rows, or null when there is nothing to retain. */
+function buildFailureDiagnostic(input: {
   error: TakeoffError;
   durationMs: number;
   model: string;
   promptVersion: string;
-  level: ProcessableTakeoffLevel;
-}): Promise<boolean> {
+  retainMetrics: boolean;
+}): Record<string, unknown> | null {
   const rawResponse = extractRawResponseFromTakeoffError(input.error);
-  if (rawResponse === undefined || rawResponse === null) {
-    return false;
+  if (rawResponse == null && !input.retainMetrics) {
+    return null;
   }
 
-  let clearedPreviousResults = false;
-
-  try {
-    await clearPreviousResultsForJob({
-      supabase: input.supabase,
-      job: input.job,
-      level: input.level,
-    });
-    clearedPreviousResults = true;
-
-    await input.supabase.from("takeoff_results" as never).insert({
-      tenant_id: input.job.tenant_id,
-      job_id: input.job.id,
-      extracted_json: {},
-      warnings: [
-        warning({
-          code: "PROCESSING_FAILED",
-          message: input.error.message,
-          severity: input.error.retryable ? "warning" : "error",
-        }),
-      ],
-      tables: [],
-      provider_meta: {
-        status: "failed",
-        model: input.model,
-        prompt_version: input.promptVersion,
-        error_code: input.error.code,
-      },
-      raw_response: rawResponse,
-      token_count: 0,
-      cost_cents: 0,
-      duration_ms: input.durationMs,
-    } as never);
-  } catch (snapshotError) {
-    console.error("Impossible de persister le snapshot d'échec takeoff.", {
-      job_id: input.job.id,
-      error: snapshotError,
-    });
-  }
-
-  return clearedPreviousResults;
+  return {
+    extracted_json: {},
+    warnings: [
+      warning({
+        code: "PROCESSING_FAILED",
+        message: input.error.message,
+        severity: input.error.retryable ? "warning" : "error",
+      }),
+    ],
+    tables: [],
+    provider_meta: {
+      status: "failed",
+      model: input.model,
+      prompt_version: input.promptVersion,
+      error_code: input.error.code,
+    },
+    raw_response: rawResponse ?? null,
+    token_count: 0,
+    cost_cents: 0,
+    duration_ms: input.durationMs,
+  };
 }
 
 function buildPromptSourceHint(fileName: string, sheets: ParsedTakeoffSheet[]) {
@@ -1968,12 +1397,8 @@ function logLevelCChunkMetric(input: {
   console.info("takeoff.level_c.chunk", payload);
 }
 
-async function persistLevelCRunMetrics(input: LevelCChunkMetricWriteInput) {
-  if (input.metrics.length === 0) {
-    return;
-  }
-
-  const payload = input.metrics.map((metric) => ({
+function buildLevelCRunMetricRows(input: LevelCChunkMetricWriteInput) {
+  return input.metrics.map((metric) => ({
     tenant_id: input.job.tenant_id,
     job_id: input.job.id,
     result_id: input.resultId ?? null,
@@ -2000,18 +1425,6 @@ async function persistLevelCRunMetrics(input: LevelCChunkMetricWriteInput) {
     },
   }));
 
-  const { error } = await input.supabase
-    .from("takeoff_run_metrics" as never)
-    .insert(payload as never);
-
-  if (error) {
-    console.error("Impossible de persister les metriques takeoff_run_metrics.", {
-      job_id: input.job.id,
-      tenant_id: input.job.tenant_id,
-      metrics_count: input.metrics.length,
-      error,
-    });
-  }
 }
 
 async function processLevelCChunks(input: {
@@ -2603,14 +2016,19 @@ async function processLevelBChunks(input: {
 
 async function finalizeCompletedLevelAJob(input: {
   supabase: Supabase;
-  tenantId: string | null;
   userId: string | null;
   job: TakeoffJobProcessingRow;
   processingStartedAt: Date;
   now: () => Date;
   levelAResult: StructuredTakeoffRunResult;
 }): Promise<ProcessLevelCompletedResult> {
-  const persisted = await persistTakeoffResultAndItems({
+  const completedAt = input.now();
+  const totalDurationMs = Math.max(
+    input.levelAResult.durationMs,
+    completedAt.getTime() - input.processingStartedAt.getTime()
+  );
+
+  const persisted = await finalizeTakeoffResult({
     supabase: input.supabase,
     job: input.job,
     exchange: input.levelAResult.normalizedExchange,
@@ -2618,32 +2036,16 @@ async function finalizeCompletedLevelAJob(input: {
     tokenCount: input.levelAResult.tokenCount,
     costCents: input.levelAResult.costCents,
     durationMs: input.levelAResult.durationMs,
-    rawResponse: null,
+    completedAt,
+    totalDurationMs,
+    model: input.levelAResult.model,
+    promptVersion: input.levelAResult.promptVersion,
     providerMeta: {
       ...input.levelAResult.providerMeta,
       model: input.levelAResult.model,
       prompt_version: input.levelAResult.promptVersion,
       tables_count: input.levelAResult.tablesCount,
     },
-    level: TAKEOFF_LEVEL_A,
-  });
-
-  const completedAt = input.now();
-  const totalDurationMs = Math.max(
-    input.levelAResult.durationMs,
-    completedAt.getTime() - input.processingStartedAt.getTime()
-  );
-
-  await updateJobAsCompleted({
-    supabase: input.supabase,
-    job: input.job,
-    tenantId: input.tenantId,
-    completedAtIso: completedAt.toISOString(),
-    tokenCount: input.levelAResult.tokenCount,
-    costCents: input.levelAResult.costCents,
-    durationMs: totalDurationMs,
-    model: input.levelAResult.model,
-    promptVersion: input.levelAResult.promptVersion,
     level: TAKEOFF_LEVEL_A,
   });
 
@@ -2782,7 +2184,6 @@ async function processTakeoffLevel(
   let job: TakeoffJobProcessingRow | null = null;
   let enteredProcessing = false;
   let levelCChunkMetrics: LevelCChunkMetric[] = [];
-  let levelCRunMetricsPersisted = false;
   let levelCSourceFileName: string | null = null;
 
   const assertProviderTenantActive = async () => {
@@ -2839,6 +2240,7 @@ async function processTakeoffLevel(
       model,
       promptVersion,
       level,
+      observed: options.claimObservation ?? { status: job.status, retryCount: job.retry_count },
     });
     enteredProcessing = true;
     // Even preflight failures must become visible, terminal job failures.
@@ -2901,7 +2303,13 @@ async function processTakeoffLevel(
         })
         : [];
       await renewProcessingLease();
-      const persisted = await persistTakeoffResultAndItems({
+      const completedAt = now();
+      const totalDurationMs = Math.max(
+        levelCResult.durationMs,
+        completedAt.getTime() - processingStartedAt.getTime()
+      );
+
+      const persisted = await finalizeTakeoffResult({
         supabase: context.supabase,
         job,
         exchange: levelCResult.normalizedExchange,
@@ -2910,7 +2318,14 @@ async function processTakeoffLevel(
         tokenCount: levelCResult.tokenCount,
         costCents: levelCResult.costCents,
         durationMs: levelCResult.durationMs,
-        rawResponse: null,
+        completedAt,
+        totalDurationMs,
+        model,
+        promptVersion,
+        runMetrics: buildLevelCRunMetricRows({
+          job, metrics: levelCResult.chunkMetrics, hint: { sourceFileName: sourceFile.fileName },
+          supabase: context.supabase,
+        }),
         providerMeta: {
           ...levelCResult.providerMeta,
           provider: "chatgpt",
@@ -2918,37 +2333,6 @@ async function processTakeoffLevel(
           prompt_version: promptVersion,
           tables_count: levelCResult.tablesCount,
         },
-        level,
-      });
-
-      await renewProcessingLease();
-      await persistLevelCRunMetrics({
-        supabase: context.supabase,
-        job,
-        resultId: persisted.resultId,
-        metrics: levelCResult.chunkMetrics,
-        hint: {
-          sourceFileName: sourceFile.fileName,
-        },
-      });
-      levelCRunMetricsPersisted = true;
-
-      const completedAt = now();
-      const totalDurationMs = Math.max(
-        levelCResult.durationMs,
-        completedAt.getTime() - processingStartedAt.getTime()
-      );
-
-      await updateJobAsCompleted({
-        supabase: context.supabase,
-        job,
-        tenantId: context.tenantId,
-        completedAtIso: completedAt.toISOString(),
-        tokenCount: levelCResult.tokenCount,
-        costCents: levelCResult.costCents,
-        durationMs: totalDurationMs,
-        model,
-        promptVersion,
         level,
       });
 
@@ -2999,7 +2383,13 @@ async function processTakeoffLevel(
       });
 
       await renewProcessingLease();
-      const persisted = await persistTakeoffResultAndItems({
+      const completedAt = now();
+      const totalDurationMs = Math.max(
+        levelBResult.durationMs,
+        completedAt.getTime() - processingStartedAt.getTime()
+      );
+
+      const persisted = await finalizeTakeoffResult({
         supabase: context.supabase,
         job,
         exchange: levelBResult.normalizedExchange,
@@ -3007,7 +2397,10 @@ async function processTakeoffLevel(
         tokenCount: levelBResult.tokenCount,
         costCents: levelBResult.costCents,
         durationMs: levelBResult.durationMs,
-        rawResponse: null,
+        completedAt,
+        totalDurationMs,
+        model: levelBResult.model,
+        promptVersion: levelBResult.promptVersion,
         providerMeta: {
           ...levelBResult.providerMeta,
           provider: "chatgpt",
@@ -3015,25 +2408,6 @@ async function processTakeoffLevel(
           prompt_version: levelBResult.promptVersion,
           tables_count: levelBResult.tablesCount,
         },
-        level,
-      });
-
-      const completedAt = now();
-      const totalDurationMs = Math.max(
-        levelBResult.durationMs,
-        completedAt.getTime() - processingStartedAt.getTime()
-      );
-
-      await updateJobAsCompleted({
-        supabase: context.supabase,
-        job,
-        tenantId: context.tenantId,
-        completedAtIso: completedAt.toISOString(),
-        tokenCount: levelBResult.tokenCount,
-        costCents: levelBResult.costCents,
-        durationMs: totalDurationMs,
-        model: levelBResult.model,
-        promptVersion: levelBResult.promptVersion,
         level,
       });
 
@@ -3073,7 +2447,6 @@ async function processTakeoffLevel(
     await renewProcessingLease();
     return await finalizeCompletedLevelAJob({
       supabase: context.supabase,
-      tenantId: context.tenantId,
       userId: actorUserId,
       job,
       processingStartedAt,
@@ -3102,45 +2475,31 @@ async function processTakeoffLevel(
         level === TAKEOFF_LEVEL_A && hasAtomicPersistenceRollbackError(mappedError);
 
       await renewProcessingLease();
-      const failureSnapshotClearedResults = skipFailureSnapshotPersist
-        ? false
-        : await persistFailureSnapshotIfNeeded({
-            supabase: context.supabase,
-            job,
-            error: mappedError,
-            durationMs,
-            model,
-            promptVersion,
-            level,
-          });
-
-      await updateJobAsFailed({
+      const retainMetrics = level === TAKEOFF_LEVEL_C && chunkMetricsToPersist.length > 0;
+      await recordLocalTakeoffFailure({
         supabase: context.supabase,
         job,
-        tenantId: context.tenantId,
         completedAtIso: completedAt.toISOString(),
         durationMs,
         error: mappedError,
+        diagnostic: skipFailureSnapshotPersist
+          ? null
+          : buildFailureDiagnostic({ error: mappedError, durationMs, model, promptVersion, retainMetrics }),
+        runMetrics: retainMetrics
+          ? buildLevelCRunMetricRows({
+              supabase: context.supabase,
+              job,
+              metrics: chunkMetricsToPersist,
+              hint: {
+                sourceFileName:
+                  levelCSourceFileName ??
+                  toNonEmptyString(job.source_file_name) ??
+                  "unknown",
+                errorDetails: mappedError.details,
+              },
+            })
+          : [],
       });
-
-      if (
-        level === TAKEOFF_LEVEL_C &&
-        (!levelCRunMetricsPersisted || failureSnapshotClearedResults) &&
-        chunkMetricsToPersist.length > 0
-      ) {
-        await persistLevelCRunMetrics({
-          supabase: context.supabase,
-          job,
-          metrics: chunkMetricsToPersist,
-          hint: {
-            sourceFileName:
-              levelCSourceFileName ??
-              toNonEmptyString(job.source_file_name) ??
-              "unknown",
-            errorDetails: mappedError.details,
-          },
-        });
-      }
 
       await logFailedAuditEvent({
         supabase: context.supabase,

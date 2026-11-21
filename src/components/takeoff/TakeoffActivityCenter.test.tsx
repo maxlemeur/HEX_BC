@@ -51,6 +51,7 @@ vi.mock("./TakeoffApplicationHistoryTab", () => ({
 import TakeoffActivityCenter from "./TakeoffActivityCenter";
 
 const EMPTY_RESPONSE: TakeoffActivityCenterResponse = {
+  analysisCompletions: [],
   counters: {
     technicalJobs: 0,
     usableJobs: 0,
@@ -130,6 +131,14 @@ describe("TakeoffActivityCenter", () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("shows the shared end when the reader has no access to the underlying job", () => {
+    renderCenter({ response: { ...EMPTY_RESPONSE, analysisCompletions: [{
+      eventId: "event-1", outcome: "success", finishedAt: "2026-11-20T08:00:00.000Z",
+    }] } });
+    expect(screen.getByRole("list", { name: "Fins d’analyse de l’affaire" })).toHaveTextContent("Analyse terminée");
+    expect(screen.queryByRole("link", { name: "Revue" })).not.toBeInTheDocument();
   });
 
   it("opens a usable non-default plan set from a deep link", () => {

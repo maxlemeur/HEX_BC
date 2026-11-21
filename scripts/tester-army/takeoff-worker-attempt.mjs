@@ -12,7 +12,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 assert([projectId, jobId].every((value) => uuid.test(value ?? "")));
 assert(versionId === null || uuid.test(versionId ?? ""));
 assert(/^ARMY-[A-Za-z0-9-]+$/.test(prefix ?? ""));
-assert(["success", "transient", "terminal", "hold"].includes(mode));
+assert(["success", "transient", "terminal", "hold", "crash-after-result"].includes(mode));
 assert.equal(process.env.E2E_ARMY_TAKEOFF_WORKER, "1", "Dedicated owned-worker profile required.");
 assert.equal(process.env.E2E_ARMY_BLOCK_WORKERS, "1", "The ordinary app must keep blocking Edge workers.");
 assert.equal(process.env.MERGEONE_CHATGPT_LOCAL, "1", "The owned worker claims local jobs as this host.");
@@ -24,6 +24,19 @@ assert(["postgres:", "postgresql:"].includes(database.protocol));
 assert.equal(backend.hostname, process.env.E2E_ALLOWED_SUPABASE_HOST);
 assert(!["45585", "33485"].includes(backend.port) && !["45585", "33485"].includes(database.port), "Long-lived recipe stack is not a worker target.");
 await import("./coverage-network-guard.mjs");
+if (mode === "crash-after-result") {
+  const guardedFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const response = await guardedFetch(input, init);
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    const writesResult = url.pathname === "/rest/v1/takeoff_items" || url.pathname === "/rest/v1/rpc/finalize_local_takeoff_result";
+    if (url.origin === backend.origin && writesResult && init?.method === "POST" && response.ok) {
+      await response.arrayBuffer();
+      process.exit(70);
+    }
+    return response;
+  };
+}
 assert(!process.env.OPENAI_DECISIONS_API_KEY, "The owned worker holds no Decisions key.");
 process.env.SENTRY_DSN = "";
 
@@ -128,13 +141,24 @@ const resolveProvider = async (_supabase, job) => {
   assert.equal(job.execution_provider, "chatgpt_local");
   return { model: providerSelection.model, reasoningEffort: null, selection: providerSelection, assertOwnerActive: async () => {}, call };
 };
+const trigger = process.env.ARMY_TAKEOFF_WORKER_TRIGGER ?? "create";
+assert(["create", "retry"].includes(trigger));
 try {
   const outcome = await processTakeoffJobAttempt(jobId, {
-    correlationId: randomUUID(), trigger: "create",
+    correlationId: randomUUID(), trigger,
     processLevelAFn: (id, options) => processLevelA(id, { ...options, resolveProvider }),
     processLevelBFn: (id, options) => processLevelB(id, { ...options, resolveProvider }),
     processLevelCFn: (id, options) => processLevelC(id, { ...options, resolveProvider }),
   });
+  if (process.env.E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN) {
+    const { data: event, error } = await worker.from("takeoff_completion_notifications").select("id")
+      .eq("subject_kind", "job").eq("job_id", jobId).maybeSingle();
+    assert.equal(error, null);
+    if (event) {
+      const { drainTakeoffCompletionEmails } = load("../../src/lib/takeoff/completion-email.ts");
+      await drainTakeoffCompletionEmails({ id: event.id });
+    }
+  }
   const job = await readJob();
   const results = await worker.from("takeoff_results").select("id, extracted_json, warnings, provider_meta").eq("job_id", jobId);
   const items = await worker.from("takeoff_items").select("id, designation, quantity, unit, source_file_name, source_page, is_excluded, exclusion_reason").eq("job_id", jobId).order("designation");

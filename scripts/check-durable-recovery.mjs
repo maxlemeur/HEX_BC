@@ -84,7 +84,9 @@ function checkResult(body) {
       typeof failure.workId === "string" && typeof failure.message === "string") ||
     !isDrain(body.procurementStorageCleanup, ["claimed", "removed", "failed"]) ||
     !isDrain(body.emailOutbox, ["claimed", "sent", "failed", "dead"]) ||
-    ("blocked" in body.emailOutbox && !hasCounters(body.emailOutbox, ["blocked"]))) {
+    ("blocked" in body.emailOutbox && !hasCounters(body.emailOutbox, ["blocked"])) ||
+    ("takeoffCompletionEmail" in body && (!hasCounters(body.takeoffCompletionEmail, ["claimed"]) ||
+      typeof body.takeoffCompletionEmail.failed !== "boolean"))) {
     reject("invalid-response");
   }
   const storage = body.procurementStorageCleanup;
@@ -109,7 +111,10 @@ function checkResult(body) {
     emailBlocked: email.blocked ?? 0,
     emailSkipped: email.skipped,
     emailErrors: email.errors.length,
+    takeoffEmailClaimed: body.takeoffCompletionEmail?.claimed ?? 0,
+    takeoffEmailDrainFailed: body.takeoffCompletionEmail?.failed ?? false,
   })}`);
+  if (body.takeoffCompletionEmail?.failed) reject("takeoff-email-drain-unavailable");
   if ((email.blocked ?? 0) > 0) reject("email-actor-blocked");
   if (body.deadCount > 0 || email.dead > 0) reject("retry-budget-exhausted");
   if (storage.skipped || storage.failed > storage.claimed ||
