@@ -1227,14 +1227,24 @@ async function signInAs(ui: Parameters<typeof signIn>[0], email: string) {
   await ui.browser.clearCookies({ domain: new URL(localOrigin).hostname });
   await signIn(ui, localOrigin, email);
 }
-async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: string, name: string, email: string) {
+async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: string, name: string, email: string,
+  dossier: "empty" | "opened" = "empty") {
   const { client } = await localChatGptClient(email);
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", projectId);
   await mkdir(directory, { recursive: true });
   const file = path.join(directory, name);
   await writeFile(file, await readFile(path.resolve("e2e/fixtures/sample-plan.pdf")));
-  await ui.app.open(`/dashboard/affaires/${projectId}`);
-  await ui.browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(file);
+  if (dossier === "empty") {
+    // An affaire without a dossier offers its drop surface on the page.
+    await ui.app.open(`/dashboard/affaires/${projectId}`);
+    await ui.browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(file);
+  } else {
+    // A dossier already opened adds its pieces from « Ajouter des pièces ».
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    await ui.screen.getByRole("button", "Ajouter des pièces", { exact: true }).click();
+    await ui.screen.getByRole("dialog", "Ajouter des documents", { exact: true })
+      .getByLabel("Ajouter des pièces à l'affaire", { exact: true }).setInputFiles(file);
+  }
   await expect.poll(async () => {
     const { data } = await client.from("affaire_intake_documents").select("file_name,classification_status,document_kind").eq("project_id", projectId);
     return (data ?? []).some((doc) => doc.file_name === name && doc.classification_status === "classified" && doc.document_kind === "plans");
@@ -1295,7 +1305,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
     expect(await readOwnedLaunchRequests(ids.projectId)).toHaveLength(1);
 
     // A plan added after the analysis is not in its sealed manifest, and nothing is spent on it without a gesture.
-    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-etage.pdf`, owner.email);
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-etage.pdf`, owner.email, "opened");
     const [planSet] = await readPlanSets(browser, ids.projectId);
     await expect.poll(async () => (await readPlanFiles(browser, planSet.id)).length, DEV_SERVER_WORK).toBe(2);
     const added = (await readPlanFiles(browser, planSet.id)).filter(file => !(request.manifest_plans ?? []).includes(file.id));
