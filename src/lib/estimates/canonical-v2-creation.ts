@@ -202,18 +202,12 @@ export type PersistCanonicalEstimateV2Input = {
   expectedCalcEngineVersion?: number | null;
   /**
    * Lot 4 (migration A) : une création depuis un import enregistre, dans la même transaction, les décisions de structure
-   * de sa confirmation, les lignes qu'elle a écartées (avec leur raison), la correspondance qu'elles visent et les
-   * lignes mappées que le membre a vérifiées (`persist_dpgf_import_estimate_atomic`, qui refuse sous son verrou un
-   * ensemble de lignes qui n'est plus celui de l'import). Sans elle, la création est celle d'avant, inchangée.
+   * de sa confirmation, les lignes écartées (avec leur raison), la correspondance visée, les lignes mappées vérifiées et
+   * l'empreinte des lignes que le membre a vues (`persist_dpgf_import_estimate_atomic` refuse sous son verrou des lignes
+   * qui ne sont plus celles-là). Sans elle, la création est celle d'avant, inchangée.
    */
-  importConfirmation?: {
-    mappingId: string;
-    decisions: readonly ImportStructureDecision[];
-    exclusions: readonly DpgfStructuralExclusion[];
-    mappedRowIds: readonly string[];
-    /** The digest of the rows the member reviewed (src/lib/imports/rows-digest.ts), compared under the lock. */
-    rowsDigest: string;
-  };
+  importConfirmation?: { mappingId: string; decisions: readonly ImportStructureDecision[];
+    exclusions: readonly DpgfStructuralExclusion[]; mappedRowIds: readonly string[]; rowsDigest: string };
 };
 
 /** Sous-lot 2.10a (P-12, D-h) : rapport d'un modèle entré dans une v3, même forme que son insertion (M6). */
