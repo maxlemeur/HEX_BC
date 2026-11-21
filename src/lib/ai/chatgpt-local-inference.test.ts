@@ -71,7 +71,28 @@ describe("ChatGPT plan inference", () => {
     const onUsage = vi.fn().mockResolvedValue(undefined);
     await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema: z.object({ amount: z.number() }) },
       { profileId: "profile-a", model: "account-model", onUsage })).rejects.toThrow();
-    expect(onUsage).toHaveBeenCalledWith({ totalTokens: 8, costCents: 0 });
+    expect(onUsage).toHaveBeenCalledWith({ totalTokens: 8, costCents: 0 }, undefined);
+  });
+  // A call sent that never told its usage stays held in its request's ledger: the reservation that names it is told so.
+  it("tells the reservation of a call that ended without a known usage, and only then", async () => {
+    const beforeSend = vi.fn(async () => ({ key: "call:1" }));
+    const onUsage = vi.fn().mockResolvedValue(undefined);
+    const onUnknownUsage = vi.fn().mockResolvedValue(undefined);
+    const selection = { profileId: "profile-a", model: "account-model", beforeSend, onUsage, onUnknownUsage };
+    const schema = z.object({ amount: z.number() });
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema }, selection)).rejects.toThrow("fetch failed");
+    expect(onUnknownUsage).toHaveBeenCalledWith({ key: "call:1" });
+    vi.stubGlobal("fetch", vi.fn(async () => stream([{ type: "response.completed", response: { status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text: '{"amount":2}' }] }] } }])));
+    onUnknownUsage.mockClear();
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema }, selection)).resolves.toMatchObject({ data: { amount: 2 } });
+    expect(onUnknownUsage).toHaveBeenCalledWith({ key: "call:1" });
+    onUnknownUsage.mockClear();
+    vi.stubGlobal("fetch", vi.fn(async () => stream([completed])));
+    await callLocalChatGptStructured(owner, { prompt: "Extract", schema }, selection);
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ costCents: 0 }), { key: "call:1" });
+    expect(onUnknownUsage).not.toHaveBeenCalled();
   });
   it("stops with the recording's own error when a call's usage cannot be recorded, whatever the answer", async () => {
     const unrecorded = new Error("Le registre de consommation est indisponible.");

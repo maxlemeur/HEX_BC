@@ -186,6 +186,22 @@ export type TakeoffPlanLaunchUnit = {
 };
 export type AnyTakeoffLaunchManifest = TakeoffLaunchManifest | TakeoffPlanLaunchManifest;
 
+/**
+ * The unit a job of one analysis per plan reads, from the snapshot its admission attested (the database's projection of
+ * the request's snapshot, migration 20261121181031_takeoff_plan_dispatcher.sql): its request, key, place, budget and
+ * vector pages. None for a grouped analysis or a job without a request.
+ */
+export function readTakeoffLaunchUnit(snapshot: unknown): null | {
+  requestId: string; key: string; ordinal: number; vectorPages: number; budget: TakeoffPlanLaunchUnit["budget"] | null;
+} {
+  const unit = (snapshot as { launch_unit?: Record<string, unknown> } | null)?.launch_unit;
+  if (!unit || typeof unit.request_id !== "string" || typeof unit.key !== "string" || typeof unit.ordinal !== "number") return null;
+  const budget = unit.budget as TakeoffPlanLaunchUnit["budget"] | undefined;
+  return { requestId: unit.request_id, key: unit.key, ordinal: unit.ordinal,
+    vectorPages: typeof unit.vector_pages === "number" ? unit.vector_pages : 0,
+    budget: budget && typeof budget.tokens === "number" && typeof budget.cost_cents === "number" ? budget : null };
+}
+
 /** A display name compared without case, accents or repeated spaces. */
 function normalizedPlanName(name: string) {
   return name.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/\s+/g, " ").trim();

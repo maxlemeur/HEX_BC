@@ -245,12 +245,16 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
 
 /**
  * The selection a paid call runs under: the connection it was pinned to (`authorizationId`, compared with the credential
- * of this very call; a takeoff call pinned to none is refused), the job's right to pay, checked once the credential is in
- * hand and immediately before the request is sent (`beforeSend`), and, for a launch request's job, where the usage of
- * every response that carries one is recorded (`onUsage`). A recording that fails stops the call's caller.
+ * of this very call; a takeoff call pinned to none is refused), the job's right to pay and the reservation of the call,
+ * once the credential is in hand and immediately before the request is sent (`beforeSend`, whose answer names the call),
+ * then where the usage of every response that carries one is recorded (`onUsage`, for that call), or that the call ended
+ * without a known usage (`onUnknownUsage`: no answer, or an answer without its usage). A recording that fails stops the
+ * call's caller.
  */
 type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null;
-  authorizationId?: string | null; beforeSend?: () => Promise<void>; onUsage?: ChatGptUsageRecorder };
+  authorizationId?: string | null; beforeSend?: () => Promise<unknown>;
+  onUsage?: (usage: { totalTokens: number; costCents: number }, call: unknown) => Promise<void>;
+  onUnknownUsage?: (call: unknown) => Promise<void> };
 
 /** A takeoff call whose pinned connection was withdrawn, renewed or never recorded: nothing is sent. */
 export class LocalChatGptConnectionWithdrawnError extends Error {
@@ -307,9 +311,18 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
       throw new Error("Ce format de document n’est pas pris en charge par la connexion ChatGPT.");
     }
   }
-  // The job's right to pay, with the credential in hand (its lock and refresh may have waited): nothing is sent otherwise.
-  await selection?.beforeSend?.();
-  const response = await fetch(`${ROOT}/responses`, {
+  // The job's right to pay and the call's reservation, with the credential in hand (its lock and refresh may have
+  // waited): nothing is sent otherwise.
+  const paid = await selection?.beforeSend?.();
+  let usageRecorded = false;
+  const recordUsage: ChatGptUsageRecorder | undefined = selection?.onUsage
+    ? async (usage) => { usageRecorded = true; await selection.onUsage!(usage, paid); } : undefined;
+  // A call sent that never told its usage stays held in its request's ledger, never credited back; telling it never
+  // hides the call's own outcome.
+  const usageUnknown = async () => {
+    if (!usageRecorded && selection?.onUnknownUsage) await selection.onUnknownUsage(paid).catch(() => undefined);
+  };
+  const request: RequestInit = {
     method: "POST", headers: { authorization: `Bearer ${credential.accessToken}`, "content-type": "application/json" },
     body: JSON.stringify({
       model: sent.model, store: false, stream: true,
@@ -322,8 +335,16 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
       text: { format: { type: "json_object" } },
     }),
     signal: AbortSignal.timeout(Math.min(options.timeoutMs ?? 60_000, 180_000)), cache: "no-store",
-  });
-  const { text, usage } = await readChatGptResponse(response, selection?.onUsage);
+  };
+  let answer: Awaited<ReturnType<typeof readChatGptResponse>>;
+  try {
+    answer = await readChatGptResponse(await fetch(`${ROOT}/responses`, request), recordUsage);
+  } catch (error) {
+    await usageUnknown();
+    throw error;
+  }
+  await usageUnknown();
+  const { text, usage } = answer;
   const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
   const tokenUsage = { inputTokens: usage.input_tokens, outputTokens: Math.max(0, usage.output_tokens - reasoningTokens), reasoningTokens, totalTokens: usage.total_tokens };
   const answered = {

@@ -44,26 +44,25 @@ it("binds the plan to the persisted creator and active job tenant, rechecking ac
   expect(readChatGptStore).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" });
   expect(eq.mock.calls).toEqual(expect.arrayContaining([["user_id", "creator"], ["tenant_id", "tenant"], ["tenants.is_active", true]]));
   expect(maybeSingle).toHaveBeenCalledTimes(2);
-  expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options, { profileId: "profile", model: "chosen-model", reasoningEffort: null, authorizationId: "connexion", onUsage: undefined });
+  expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options, { profileId: "profile", model: "chosen-model", reasoningEffort: null, authorizationId: "connexion" });
 });
-it("records each paid call's usage of a request's job under the lease the worker holds at that call", async () => {
-  const rpc = vi.fn().mockResolvedValue({ data: [{ remaining_tokens: 10, remaining_cost_cents: 0 }], error: null });
-  vi.mocked(createServiceRoleClient).mockReturnValue({ rpc } as never);
+it("reserves each paid call in the job's ledger, a reading of the PDF or a question on its vector groups, and settles it", async () => {
+  const ledger = { beforePaidCall: vi.fn(async (branch: string) => ({ key: branch })), recordPaidUsage: vi.fn(async () => undefined),
+    recordUnknownUsage: vi.fn(async () => undefined) };
   vi.mocked(callLocalChatGptStructured).mockImplementation(async (_owner, _options, selection) => {
-    await selection?.onUsage?.({ totalTokens: 42, costCents: 0 });
+    const paid = await selection?.beforeSend?.();
+    await selection?.onUsage?.({ totalTokens: 42, costCents: 0 }, paid);
     return { data: { quantity: 12 } } as never;
   });
-  // The row the provider is resolved from was read before the claim: its lease is not the one the job runs under.
-  let lease: string | null = "lease-of-the-claim";
-  const provider = await resolveLocalTakeoffProvider(client as never, { ...job, launch_request_id: "request", processing_lease_token: null },
-    { lease: () => lease });
+  const provider = await resolveLocalTakeoffProvider(client as never, { ...job, launch_request_id: "request" }, { ledger });
   await provider.call(options);
-  lease = "lease-after-a-new-claim";
-  await provider.call(options);
-  expect(rpc.mock.calls).toEqual([
-    ["record_takeoff_launch_usage", { p_job_id: "job", p_lease_token: "lease-of-the-claim", p_call_key: "call:1", p_tokens: 42, p_cost_cents: 0 }],
-    ["record_takeoff_launch_usage", { p_job_id: "job", p_lease_token: "lease-after-a-new-claim", p_call_key: "call:2", p_tokens: 42, p_cost_cents: 0 }],
-  ]);
+  expect(ledger.beforePaidCall).toHaveBeenCalledWith("pdf");
+  expect(ledger.recordPaidUsage).toHaveBeenCalledWith({ key: "pdf" }, { totalTokens: 42, costCents: 0 });
+  // The vector reading's questions pin the same profile and are reserved as such.
+  expect(provider.groupsSelection).toMatchObject({ profileId: "profile", model: "chosen-model", authorizationId: "connexion" });
+  await expect(provider.groupsSelection?.beforeSend?.()).resolves.toEqual({ key: "vector_group" });
+  await provider.groupsSelection?.onUnknownUsage?.({ key: "vector_group" });
+  expect(ledger.recordUnknownUsage).toHaveBeenCalledWith({ key: "vector_group" });
 });
 it.each([
   ["pinned before authorizations existed", { confirmed_by: "creator", execution_selection: {
@@ -85,7 +84,7 @@ it("pins selected reasoning effort with the model on every takeoff chunk", async
   await provider!.call(options);
   expect(provider?.reasoningEffort).toBe("high");
   for (const call of vi.mocked(callLocalChatGptStructured).mock.calls) {
-    expect(call[2]).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high", authorizationId: "connexion", onUsage: undefined });
+    expect(call[2]).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high", authorizationId: "connexion" });
   }
 });
 it("reads the attested selection after admission and refuses changed settings on a later attempt", async () => {
@@ -94,7 +93,7 @@ it("reads the attested selection after admission and refuses changed settings on
   expect(provider?.useProfileForVectorGroups).toBe(true);
   await provider!.call(options);
   expect(callLocalChatGptStructured).toHaveBeenCalledWith({ userId: "creator", tenantId: "tenant" }, options,
-    { profileId: "profile", model: "chosen-model", reasoningEffort: null, authorizationId: "connexion", onUsage: undefined });
+    { profileId: "profile", model: "chosen-model", reasoningEffort: null, authorizationId: "connexion" });
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: "chosen-model", reasoningEffort: "high" }] } as never);
   await expect(resolveLocalTakeoffProvider(client as never, attested)).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false });
   expect(callLocalChatGptStructured).toHaveBeenCalledTimes(1);
@@ -115,8 +114,7 @@ it("stops a running job when creator membership is revoked", async () => {
 it("gives the vector requests the creator's membership check and the job's pinned selection (TI-704 option B)", async () => {
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: "gpt-6.1-terra", reasoningEffort: "high" }] } as never);
   const provider = await resolveLocalTakeoffProvider(client as never, { ...job, preparation_snapshot: pinned("gpt-6.1-terra", "high") });
-  expect(provider?.selection).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high", authorizationId: "connexion",
-    onUsage: undefined });
+  expect(provider?.selection).toEqual({ profileId: "profile", model: "gpt-6.1-terra", reasoningEffort: "high", authorizationId: "connexion" });
   await expect(provider!.assertOwnerActive()).resolves.toBeUndefined();
   maybeSingle.mockResolvedValue({ data: null, error: null });
   await expect(provider!.assertOwnerActive()).rejects.toMatchObject({ code: "FORBIDDEN", retryable: false });

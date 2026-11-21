@@ -1410,7 +1410,7 @@ describe("processLevelA", () => {
     const result = await processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, now: () => FIXED_NOW });
     expect(result.status).toBe("completed");
     expect(resolveLocalTakeoffProvider).toHaveBeenCalledWith(mock.supabase, expect.objectContaining({ id: JOB_ID, execution_provider: "chatgpt_local" }),
-      { lease: expect.any(Function), beforePaidCall: expect.any(Function) });
+      { lease: expect.any(Function), ledger: expect.objectContaining({ beforePaidCall: expect.any(Function) }) });
     expect(call).toHaveBeenCalledTimes(1);
     expect(mock.state.job).toMatchObject({ model: PROVIDER_MODEL, thinking_level: null, processing_strategy: "sync", cost_cents: 0 });
     expect(mock.state.takeoffResults[0].provider_meta).toMatchObject({ provider: "chatgpt", model: PROVIDER_MODEL });

@@ -11,6 +11,7 @@ import {
   type TakeoffJobProcessingRow,
   type TakeoffLeaseRenewal,
 } from "@/lib/takeoff/job-lifecycle";
+import { readTakeoffLaunchUnit } from "@/lib/takeoff/launch-request";
 import { executeStructuredTakeoffRun, type StructuredTakeoffRunResult } from "@/lib/takeoff/level-a-reading";
 import { processLevelBChunks } from "@/lib/takeoff/level-b-reading";
 import {
@@ -318,9 +319,12 @@ async function processTakeoffLevel(
       // TI-662: vector reading of the original pages accompanies level C by default. Groups are classified
       // with MERGEONE_TAKEOFF_DECISIONS=1 by the creator's plan (TI-704 option B); each call checked like a provider
       // call (active tenant, lease).
+      // A plan's unit reads its share of the dossier's vector pages; any other job, the pages of a grouped analysis.
+      const unit = readTakeoffLaunchUnit(job.preparation_snapshot);
       const vectorOutcomes = isTakeoffVectorReadingEnabled()
         ? await readTakeoffVectorPages(sourceFile, {
           onPage: renewProcessingLease, context: { jobId: job.id, tenantId: job.tenant_id },
+          ...(unit ? { maxPages: unit.vectorPages } : {}),
           decisions: takeoffVectorLocalGroupsHook({ jobId: job.id, tenantId: job.tenant_id, userId: job.created_by ?? null, provider: localProvider,
             beforeCall: async () => {
               await assertProviderTenantActive();
