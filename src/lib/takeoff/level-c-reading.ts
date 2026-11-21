@@ -3,6 +3,7 @@ import {
   buildPdfChunks,
   createChunkPromptSourceHint,
   createPdfChunkBytes,
+  countLocatedUnmeasuredQuantities,
   getPdfPageCount,
   mergeTakeoffChunkExchanges,
   remapChunkLocalPagesToAbsolute,
@@ -45,6 +46,8 @@ export type ProcessLevelCMetricsSummary = {
 type ProcessLevelCAggregate = {
   normalizedExchange: TakeoffExchange;
   itemsForInsert: NormalizedTakeoffItemForInsert[];
+  /** Unmeasured quantities the model located on a page of their fragment, with an observation (chunking.ts). */
+  locatedUnmeasuredQuantities: number;
   tokenCount: number;
   tokenUsage: ProcessLevelCMetricsSummary;
   costCents: number;
@@ -150,6 +153,7 @@ export async function processLevelCChunks(input: {
   };
   let costCents = 0;
   let durationMs = 0;
+  let locatedUnmeasuredQuantities = 0;
 
   for (const chunk of chunks) {
     const chunkPrompt = getTakeoffPrompt(TAKEOFF_LEVEL_C, {
@@ -190,11 +194,13 @@ export async function processLevelCChunks(input: {
       });
 
       const parsedExchange = TakeoffExchangeSchema.parse(result.data);
+      locatedUnmeasuredQuantities += countLocatedUnmeasuredQuantities({ chunk, exchange: parsedExchange });
       chunkExchanges.push({
         chunk,
         exchange: remapChunkLocalPagesToAbsolute({
           chunk,
           exchange: parsedExchange,
+          source: input.sourceFile.preparationSnapshot?.preparation.objective === "measure_all" ? input.sourceFile : undefined,
         }),
       });
 
@@ -322,6 +328,7 @@ export async function processLevelCChunks(input: {
   return {
     normalizedExchange: normalized.exchange,
     itemsForInsert: normalized.itemsForInsert,
+    locatedUnmeasuredQuantities,
     tokenCount: tokenUsage.totalTokens,
     tokenUsage,
     costCents,

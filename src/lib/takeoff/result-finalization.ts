@@ -6,6 +6,7 @@ import {
 import type { NormalizedTakeoffItemForInsert } from "@/lib/takeoff/exchange-normalization";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import type { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
+import { publicTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import { TAKEOFF_LEVEL_A, type ProcessableTakeoffLevel, type Supabase } from "@/lib/takeoff/processing-context";
 import {
   annotateAtomicPersistenceRollbackError,
@@ -67,7 +68,7 @@ export async function finalizeTakeoffResult(input: {
       tables: input.exchange.tables ?? [],
       provider_meta: {
         ...input.providerMeta,
-        ...(input.job.preparation_snapshot ? { preparation_snapshot: input.job.preparation_snapshot } : {}),
+        ...(input.job.preparation_snapshot ? { preparation_snapshot: publicTakeoffPreparationSnapshot(input.job.preparation_snapshot) } : {}),
       },
       confidence: input.exchange.confidence ?? null,
       token_count: input.tokenCount,

@@ -1,5 +1,7 @@
 "use client";
 
+import { TakeoffUnmeasuredQuantities, takeoffUnmeasuredQuantityMessages } from "@/components/takeoff/review/TakeoffUnmeasuredQuantities";
+
 import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -174,6 +176,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
   const resize = useRef<{ x: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [providerMeta, setProviderMeta] = useState<Record<string, unknown> | null>(null);
+  const [unmeasuredQuantities, setUnmeasuredQuantities] = useState<string[]>([]);
   const listRef = useRef<HTMLUListElement>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
   // TI-682 lot D: the pages of this takeoff another takeoff already brought into the estimate (a warning, no decision).
@@ -186,6 +189,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
       setJob(detail.job);
       setItems(detail.items.data);
       setProviderMeta(detail.result?.provider_meta ?? null);
+      setUnmeasuredQuantities(takeoffUnmeasuredQuantityMessages(detail.result?.warnings));
     }, (error: unknown) => {
       if (!controller.signal.aborted) setLoadError(isTakeoffApiError(error) || error instanceof Error ? error.message : "Impossible de charger le métré.");
     });
@@ -520,6 +524,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
       ) : null}
       <TakeoffReviewPolicyPanel items={items} providerMeta={providerMeta} context={reviewContext.context} error={reviewContext.error} hasDestination={versionId !== null}
         onFocusItem={(itemId) => { entryFocus.current = null; setDraft(null); setSelectedId(itemId); setPinnedId(itemId); }} />
+      <TakeoffUnmeasuredQuantities messages={unmeasuredQuantities} />
       <TakeoffRulesRecovery jobId={jobId} pending={items.some((item) => item.rules_stale)} disabled={readOnly || busy}
         beginRevision={() => ++mutationRevision.current}
         getRevision={() => mutationRevision.current}

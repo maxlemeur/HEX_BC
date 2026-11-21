@@ -2,7 +2,7 @@ import "server-only";
 
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { hasScheduledLocalTakeoffRetry } from "@/lib/takeoff/completion-outcome";
-import { assertLocalTakeoffResumeReady } from "@/lib/ai/chatgpt-takeoff";
+import { assertLocalTakeoffResumeReady, assertTakeoffJobStarter } from "@/lib/ai/chatgpt-takeoff";
 import { logTakeoffAuditEvent, takeoffAuditMetadataBuilders } from "@/lib/takeoff/audit";
 import { TAKEOFF_RETRY_BACKOFF_SECONDS, TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -116,6 +116,7 @@ export async function resubmitTakeoffJob(
     tenantId,
     jobId: normalizedJobId,
   });
+  assertTakeoffJobStarter(existingJob, userId);
   if (existingJob.execution_provider === "chatgpt_local") assertCanManuallyResubmitAnalysis(existingJob);
   await assertLocalTakeoffResumeReady(supabase, tenantId, existingJob);
 

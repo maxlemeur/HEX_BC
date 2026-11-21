@@ -24,10 +24,10 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
-  return { ...actual, getTakeoffExecutionOwner: vi.fn() };
+  return { ...actual, getConfirmedTakeoffExecutionOwner: vi.fn() };
 });
 
-import { getTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
+import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
@@ -93,12 +93,22 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(assertConfirmedTakeoffPreparation).mockReset().mockResolvedValue(confirmedPreparationFixture());
   vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
-  vi.mocked(getTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:55555555-5555-4555-8555-555555555555" });
+  vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({ execution_provider: "chatgpt_local", execution_host_id: "urn:uuid:55555555-5555-4555-8555-555555555555" });
   vi.mocked(getTakeoffChunkingConfigForTenant).mockResolvedValue({ maxPdfPages: 50 } as never);
   vi.mocked(getTakeoffLevelCProcessingConfigForTenant).mockResolvedValue({ maxPdfPages: 50 } as never);
 });
 
 describe("prepared takeoff admission", () => {
+  it("requires an explicit ChatGPT provider on a new launch", async () => {
+    const { fake, effects } = createFixture();
+    await expect(createTakeoffJobFromPlanSet({
+      projectId: M3_PROJECT_ID, planSetId: M3_PLAN_SET_ID, estimateVersionId: M3_VERSION_ID, level: "C",
+    })).rejects.toMatchObject({ status: 422, code: TakeoffErrorCode.BAD_REQUEST });
+    expect(effects).toEqual([]);
+    expect(fake.storageCalls).toEqual([]);
+    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+  });
+
   it("rejects an unconfirmed preparation before any plan-set side effect", async () => {
     const { fake, admin, effects } = createFixture();
     vi.mocked(assertConfirmedTakeoffPreparation).mockRejectedValueOnce(new TakeoffError({
@@ -112,13 +122,14 @@ describe("prepared takeoff admission", () => {
       projectId: M3_PROJECT_ID,
       planSetId: M3_PLAN_SET_ID,
       estimateVersionId: M3_VERSION_ID,
+      level: "C", provider: "chatgpt",
       preparationRevision: 1,
     });
     await expect(creation).rejects.toMatchObject({ status: 409, retryable: false });
     expect(effects).toEqual([]);
     expect(fake.storageCalls).toEqual([]);
     expect(admin.storageCalls).toEqual([]);
-    expect(getTakeoffExecutionOwner).not.toHaveBeenCalled();
+    expect(getConfirmedTakeoffExecutionOwner).not.toHaveBeenCalled();
   });
 
   it("keeps admission refusal retryable and leaves the shared plan storage untouched", async () => {
@@ -128,6 +139,7 @@ describe("prepared takeoff admission", () => {
       projectId: M3_PROJECT_ID,
       planSetId: M3_PLAN_SET_ID,
       estimateVersionId: M3_VERSION_ID,
+      level: "C", provider: "chatgpt",
     })).rejects.toMatchObject({
       status: 409,
       code: "TAKEOFF_JOB_ADMISSION_LIMIT",
@@ -148,6 +160,7 @@ describe("prepared takeoff admission", () => {
       projectId: M3_PROJECT_ID,
       planSetId: M3_PLAN_SET_ID,
       estimateVersionId: M3_VERSION_ID,
+      level: "C", provider: "chatgpt",
     })).rejects.toMatchObject({
       message: "Impossible d'enregistrer l'audit takeoff.",
     });

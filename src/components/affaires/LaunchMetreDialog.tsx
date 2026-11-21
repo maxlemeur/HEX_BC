@@ -19,26 +19,17 @@ import {
 } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useToast } from "@/components/feedback/toast-provider";
-import {
-  TAKEOFF_LEVEL_BUSINESS_LABELS,
-  getTakeoffSelectionWarning,
-  isTakeoffLevelCompatible,
-  type TakeoffDocumentRecommendation,
-} from "@/lib/takeoff/document-classifier";
+import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 import {
   fetchPlanSetsForProject,
   type PlanSetListItem,
-  type TakeoffLevel,
 } from "@/lib/takeoff/client";
 import { CheckIcon } from "lucide-react";
 import { LazyTakeoffPreparationPanel } from "@/components/takeoff/LazyTakeoffPreparationPanel";
-import { TakeoffProviderSelect } from "@/components/takeoff/TakeoffProviderSelect";
-import type { TakeoffPreparation } from "@/lib/takeoff/preparation";
+import { DETAILED_TAKEOFF_PROCESSING } from "@/lib/takeoff/preparation-from-dossier";
 import { isIntakeSyncedPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
 
 export type LaunchMetrePlanSetOption = {
   id: string;
@@ -46,34 +37,6 @@ export type LaunchMetrePlanSetOption = {
   fileCount: number;
   source?: string | null;
 };
-
-function isPlanSetTakeoffLevel(level: TakeoffLevel | null | undefined): level is PlanSetTakeoffLevel {
-  return level === "B" || level === "C";
-}
-
-const ANALYSIS_LEVELS: Array<{
-  level: PlanSetTakeoffLevel;
-  label: string;
-  description: string;
-}> = [
-  { level: "B", label: "Standard", description: "Analyse standard avec recoupements." },
-  { level: "C", label: "Détaillé", description: "Analyse approfondie poste par poste." },
-];
-
-function getCompatibleAnalysisLevels(
-  recommendation: TakeoffDocumentRecommendation | null | undefined,
-) {
-  if (!recommendation) {
-    return ANALYSIS_LEVELS;
-  }
-
-  const compatibleLevels = new Set(
-    recommendation.compatibleLevels.filter(
-      (level): level is PlanSetTakeoffLevel => level === "B" || level === "C",
-    ),
-  );
-  return ANALYSIS_LEVELS.filter(({ level }) => compatibleLevels.has(level));
-}
 
 function toLaunchPlanSetOption(planSet: PlanSetListItem): LaunchMetrePlanSetOption {
   const source =
@@ -217,12 +180,12 @@ function LaunchMetreDialogContent({
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
   const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
   const [launchSuccess, setLaunchSuccess] = useState(false);
+  const [launchPlanFileCount, setLaunchPlanFileCount] = useState<number | null>(null);
   const [launchQueuedForRecovery, setLaunchQueuedForRecovery] = useState(false);
   const [launchRecoveryUnconfirmed, setLaunchRecoveryUnconfirmed] = useState(false);
   const [launchExistingAnalysis, setLaunchExistingAnalysis] = useState(false);
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [targetSelectionKey, setTargetSelectionKey] = useState(0);
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
   const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
     initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
@@ -277,23 +240,10 @@ function LaunchMetreDialogContent({
       null,
     [planSetOptions, selectedPlanSetId],
   );
-  const selectedPlanSetRecommendation =
-    selectedPlanSet?.id === plansContext?.defaultPlanSetId
-      ? plansContext?.launchRecommendation ?? null
-      : null;
-  const compatibleAnalysisLevels = useMemo(
-    () => getCompatibleAnalysisLevels(selectedPlanSetRecommendation),
-    [selectedPlanSetRecommendation],
-  );
   const versionOptions = useMemo(
-    () =>
-      buildVersionOptions({
-        currentVersion,
-        availableVersions,
-      }),
+    () => buildVersionOptions({ currentVersion, availableVersions }),
     [availableVersions, currentVersion],
   );
-
   const selectedVersionOption = useMemo(
     () =>
       versionOptions.find((option) => option.id === selectedVersionId) ??
@@ -350,20 +300,8 @@ function LaunchMetreDialogContent({
     [isSubmitting, launchSuccess, onOpenChange],
   );
 
-  const handleLaunch = useCallback(async (preparationRevision: number, processing: TakeoffPreparation["processing"]) => {
-    const selectedLevel = processing.level;
-    const provider = processing.provider;
-    if (!isPlanSetTakeoffLevel(selectedLevel)) return;
-    if (!selectedPlanSet || !hasPlanFiles) {
-      return;
-    }
-
-    if (
-      selectedPlanSetRecommendation &&
-      !isTakeoffLevelCompatible(selectedPlanSetRecommendation, selectedLevel)
-    ) {
-      return;
-    }
+  const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
+    if (!selectedPlanSet || !hasPlanFiles) return;
 
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -386,9 +324,8 @@ function LaunchMetreDialogContent({
           projectId,
           planSetId: selectedPlanSet.id,
           versionId: selectedOption.id,
-          level: selectedLevel,
+          ...DETAILED_TAKEOFF_PROCESSING,
           preparationRevision,
-          ...(provider !== "auto" ? { provider } : {}),
         }));
         createdJobId = result.jobId;
         existingStatus = result.existingStatus;
@@ -400,9 +337,8 @@ function LaunchMetreDialogContent({
           projectId,
           planSetId: selectedPlanSet.id,
           sourceVersionId: selectedOption.id,
-          level: selectedLevel,
+          ...DETAILED_TAKEOFF_PROCESSING,
           preparationRevision,
-          ...(provider !== "auto" ? { provider } : {}),
         }));
         createdJobId = result.jobId;
         existingStatus = result.existingStatus;
@@ -431,7 +367,7 @@ function LaunchMetreDialogContent({
           ? `${resolvedVersionLabel} — le démarrage immédiat et l'enregistrement de la reprise n'ont pas pu être confirmés. Ouvrez le centre d'activité pour réessayer avec l'identifiant ${createdJobId}.`
           : queuedForRecovery
             ? `${resolvedVersionLabel} — la demande est conservée et sera reprise automatiquement. Suivez son état dans le centre d'activité des métrés.`
-            : `${resolvedVersionLabel} — ${selectedPlanSet.fileCount} fichier${selectedPlanSet.fileCount > 1 ? "s" : ""} concerné${selectedPlanSet.fileCount > 1 ? "s" : ""}. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
+            : `${resolvedVersionLabel} — ${planFileCount} fichier${planFileCount > 1 ? "s" : ""} de plan. Prochaine étape : suivre l'analyse dans le centre d'activité des métrés.`,
         durationMs: 6000,
       };
       if (queuedForRecovery || recoveryUnconfirmed) {
@@ -440,6 +376,7 @@ function LaunchMetreDialogContent({
         toast.success(toastPayload);
       }
       setLaunchSuccessVersionLabel(resolvedVersionLabel);
+      setLaunchPlanFileCount(existingStatus ? null : planFileCount);
       setLaunchQueuedForRecovery(queuedForRecovery);
       setLaunchRecoveryUnconfirmed(recoveryUnconfirmed);
       setLaunchExistingAnalysis(Boolean(existingStatus));
@@ -457,7 +394,6 @@ function LaunchMetreDialogContent({
     onLaunched,
     projectId,
     selectedPlanSet,
-    selectedPlanSetRecommendation,
     selectedVersionOption,
     toast,
     versionLabel,
@@ -485,9 +421,8 @@ function LaunchMetreDialogContent({
                     : "Analyse transmise au traitement"}
               </p>
               <p className="text-xs text-muted-foreground">
-                {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"} —{" "}
-                {selectedPlanSet?.fileCount ?? 0} fichier
-                {(selectedPlanSet?.fileCount ?? 0) > 1 ? "s" : ""}.
+                {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"}
+                {launchPlanFileCount !== null ? ` — ${launchPlanFileCount} fichier${launchPlanFileCount > 1 ? "s" : ""} de plan.` : "."}
                 {launchExistingAnalysis
                   ? " Consultez son état dans le centre d’activité."
                   : launchRecoveryUnconfirmed
@@ -520,9 +455,6 @@ function LaunchMetreDialogContent({
                   projectId={projectId}
                   planSetId={selectedPlanSet.id}
                   estimateVersionId={selectedVersionOption?.id ?? null}
-                  targetSelectionKey={targetSelectionKey}
-                  recommendedLevel={selectedPlanSetRecommendation?.recommendedLevel ?? compatibleAnalysisLevels[0]?.level ?? "B"}
-                  compatibleLevels={compatibleAnalysisLevels.map(({ level }) => level)}
                   disabled={isSubmitting}
                   launchDisabled={!hasTargetVersion}
                   onLaunch={handleLaunch}
@@ -530,30 +462,25 @@ function LaunchMetreDialogContent({
                   onRegisterSave={registerPreparationSave}
                   documentControls={<div className="space-y-2">
                     <label className="block text-sm font-medium" htmlFor="launch-metre-plan-set">Jeu de plans à analyser</label>
-                    <NativeSelect id="launch-metre-plan-set" value={selectedPlanSet.id} onChange={(event) => { setSelectedPlanSetId(event.target.value); setErrorMessage(null); }} disabled={isSubmitting}>
+                    <NativeSelect id="launch-metre-plan-set" value={selectedPlanSet.id} onChange={(event) => {
+                      const next = event.target.value;
+                      setErrorMessage(null);
+                      void Promise.resolve(savePreparationRef.current?.()).then(() => setSelectedPlanSetId(next))
+                        .catch((cause) => setErrorMessage(cause instanceof TakeoffActionError ? cause.message : "Impossible d’enregistrer les options du métré."));
+                    }} disabled={isSubmitting}>
                       {planSetOptions.map((option) => <option key={option.id} value={option.id} disabled={option.fileCount === 0}>{option.name} — {option.fileCount} fichier{option.fileCount > 1 ? "s" : ""}{option.fileCount === 0 ? " · vide" : ""}</option>)}
                     </NativeSelect>
-                    <p className="text-xs text-muted-foreground">{isIntakeSyncedPlanSet(selectedPlanSet.source) ? "Plans synchronisés depuis les pièces confirmées du dossier. Confirmez les versions à utiliser pour ce métré." : "Choisissez ensuite les fichiers actifs et les révisions applicables."}</p>
+                    <p className="text-xs text-muted-foreground">{isIntakeSyncedPlanSet(selectedPlanSet.source) ? "Plans synchronisés depuis les pièces confirmées du dossier. Toutes les pages des plans retenus sont analysées par défaut." : "Toutes les pages du jeu sont retenues par défaut."}</p>
                     {planSetsLoadError && <Alert variant="warning"><AlertDescription>La liste complète des jeux n’a pas pu être actualisée. <button type="button" className="underline" onClick={() => void reloadPlanSets()}>Réessayer</button></AlertDescription></Alert>}
                   </div>}
                   destinationControls={<div className="space-y-2">
                     <label className="block text-sm font-medium" htmlFor="launch-metre-target-version">Version cible</label>
-                    <NativeSelect id="launch-metre-target-version" value={selectedVersionOption?.id ?? ""} onChange={(event) => { setSelectedVersionId(event.target.value); setTargetSelectionKey((value) => value + 1); }} disabled={isSubmitting || !hasTargetVersion}>
+                    <NativeSelect id="launch-metre-target-version" value={selectedVersionOption?.id ?? ""} onChange={(event) => { setSelectedVersionId(event.target.value); }} disabled={isSubmitting || !hasTargetVersion}>
                       {versionOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                     </NativeSelect>
                     <p className="text-xs text-muted-foreground">{selectedVersionOption?.helper ?? "Aucune version cible disponible."}</p>
                   </div>}
-                  advancedControls={({ processing, onProcessingChange, isConfirmed, chatGptConnection }) => {
-                    const selectionWarning = getTakeoffSelectionWarning({ recommendation: selectedPlanSetRecommendation, selectedLevel: processing.level });
-                    return <>
-                    <fieldset><legend className="mb-2 text-sm font-medium">Niveau d&apos;analyse</legend><div className="space-y-2" role="radiogroup">
-                      {compatibleAnalysisLevels.map((level) => <label key={level.level} className="flex gap-2 text-sm"><input type="radio" name="analysis-level" value={level.level} checked={processing.level === level.level} onChange={() => onProcessingChange({ level: level.level })} aria-label={level.label} /><span>{level.label}<span className="ml-2 text-xs text-muted-foreground">{level.description}</span></span></label>)}
-                    </div>
-                    {selectedPlanSetRecommendation?.recommendedLevel && <p className="mt-2 text-xs text-muted-foreground">Niveau recommandé : {TAKEOFF_LEVEL_BUSINESS_LABELS[selectedPlanSetRecommendation.recommendedLevel]}. Le format des pièces ne prouve pas leur lisibilité ni leur échelle.</p>}
-                    {selectionWarning && <p className="mt-2 text-xs text-warning">{selectionWarning.message}</p>}
-                    </fieldset>
-                    <TakeoffProviderSelect value={processing.provider} onChange={(provider) => onProcessingChange({ provider })} connection={chatGptConnection} disabled={isSubmitting} preserveAutomaticChoice={isConfirmed} />
-                  </>; }}
+
                 />
               ) : <div className="space-y-3 py-4 text-center"><p className="text-sm text-muted-foreground">Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.</p><Link href={`/dashboard/affaires/${projectId}/plans`} className={buttonVariants({ variant: "outline" })}>Voir les plans</Link>{planSetsLoadError && <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => void reloadPlanSets()}>Réessayer</button>}</div>}
               {errorMessage && <Alert variant="danger"><AlertDescription>{errorMessage}</AlertDescription></Alert>}

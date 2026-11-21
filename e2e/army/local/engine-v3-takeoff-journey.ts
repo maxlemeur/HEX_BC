@@ -16,7 +16,10 @@ import type { V3Owner } from "./engine-v3-persistence-support";
 const samePolicy = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /** Preserve V3 admission, source-copy and replay coverage on the only supported AI runtime. */
-export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3Owner, actionManifest: string) {
+export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3Owner, actionManifest: string, provider: {
+  /** Runs with the member's ChatGPT plan disconnected, then reconnects the same profile. */
+  unavailable: <T>(run: () => Promise<T>) => Promise<T>;
+}) {
   const { app, screen, browser } = ui;
     requireLocalPlansBackend();
     if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("V3C08 requires the campaign's worker-blocking server guard.");
@@ -51,7 +54,6 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       const preparationEnabled = await prepare.isEnabled();
       await prepare.click();
       let dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
-      await dialog.getByRole("button", /Vérifier et lancer$/).click();
       const proposal = {
         targetsV3: await dialog.getByLabel("Version cible", { exact: true }).inputValue() === versionId,
         reasonShown: (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0,
@@ -67,7 +69,7 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       await waitForHydration(browser);
       await expect(screen.getByRole("heading", "Plans, preuves & exceptions", { exact: true })).toBeVisible({ timeout: 60_000 });
       await openTakeoffPreparation({ ...ui, army });
-      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "chatgpt" } });
+      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
       const target = await dialog.getByLabel("Version cible", { exact: true }).inputValue();
       const reasonShown = (await dialog.getByText(TAKEOFF_V3_REASON, { exact: true }).count()) > 0;
       const launchEnabled = await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).isEnabled();
@@ -81,12 +83,15 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       await writeFile(csvPath, "designation;quantity;unit\nBloc beton;12;u");
       await confirmPreparedCsv(ui, estimate, csvPath, "chatgpt", actionManifest);
       // R1 : action serveur « Créer un brouillon depuis V… » du hub, sur la v3. La copie garde le moteur 3 (P-15) et
-      // l'analyse du jeu de plans est lancée sur elle (niveau B).
-      const pdfPreparation = await openPlanPreparation();
-      await pdfPreparation.getByRole("button", /Vérifier et lancer$/).click();
-      await expect(pdfPreparation.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
-      await expect(pdfPreparation.getByText(/Le niveau enregistré n’est pas compatible/)).toBeVisible();
-      await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name], processing: { level: "B", provider: "chatgpt" } });
+      // l'analyse du jeu de plans est lancée sur elle (niveau C).
+      await openPlanPreparation();
+      dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [plan.file_name] });
+      // The uploaded CSV is not in the dossier: the plan-set preparation keeps it and blocks the launch until the
+      // member takes it out of the sources.
+      const escapedCsvName = csvName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      await expect(dialog.getByText(new RegExp(`^Le fichier téléversé « ${escapedCsvName} » est indisponible dans le dossier[.]`))).toBeVisible();
+      await dialog.getByRole("button", /Mes documents$/).click();
+      await dialog.getByLabel(`Utiliser ${csvName}`, { exact: true }).uncheck();
       await saveTakeoffPreparation({ ...ui, army });
       const preparationRevision = async () => {
         const [row] = await querySql(`select revision from public.takeoff_preparations where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`);
@@ -95,6 +100,7 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       };
       const confirmation = await confirmTakeoffPreparationViaAction(browser, {
         actionId: await serverActionId("confirmTakeoffPreparationAction", actionManifest),
+        previewActionId: await serverActionId("loadTakeoffExecutionPreviewAction", actionManifest),
         projectId: anchor.projectId, expectedRevision: await preparationRevision(),
       });
       expect(confirmation).toMatchObject({ status: 200, digest: null, ok: true, errorCode: null });
@@ -105,11 +111,25 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
         return JSON.parse(row) as { level: string; provider: string };
       };
       const savedProcessing = await preparationProcessing();
-      expect(savedProcessing).toEqual({ level: "B", provider: "chatgpt" });
+      expect(savedProcessing).toEqual({ level: "C", provider: "chatgpt" });
+      const launchFromSource = async () => callServerAction(browser, await serverActionId("launchPreparedTakeoffFromSourceVersionPlanSetAction", actionManifest),
+        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "C", provider: "chatgpt", preparationRevision: confirmation.revision });
+      // A confirmed preparation whose plan is no longer connected is refused before any copy of the source version.
+      // Every job of the affaire, with or without a version: none may be created by the refused launch.
+      const affaireJobs = async () => Number((await querySql(`select count(*) from public.takeoff_jobs where project_id='${anchor.projectId}' and tenant_id='${owner.tenantId}' and current_user='postgres';`))[0]);
+      const refusal = await provider.unavailable(async () => {
+        const versions = await storedVersions(owner, anchor.projectId);
+        const inserts = await versionInsertsLogged(owner, anchor.projectId);
+        const jobsBefore = await affaireJobs();
+        const result = await launchFromSource();
+        return { result, versionsAdded: (await storedVersions(owner, anchor.projectId)).length - versions.length,
+          versionsInserted: (await versionInsertsLogged(owner, anchor.projectId)) - inserts, jobsAdded: (await affaireJobs()) - jobsBefore };
+      });
+      expect(refusal).toMatchObject({ result: { status: 200, digest: null, ok: false, errorStatus: 422, errorCode: "AI_PROVIDER" },
+        versionsAdded: 0, versionsInserted: 0, jobsAdded: 0 });
       const versionsBefore = await storedVersions(owner, anchor.projectId);
       const insertsBefore = await versionInsertsLogged(owner, anchor.projectId);
-      const action = await callServerAction(browser, await serverActionId("launchPreparedTakeoffFromSourceVersionPlanSetAction", actionManifest),
-        { projectId: anchor.projectId, planSetId: planSet.id, sourceVersionId: versionId, level: "B", provider: "chatgpt", preparationRevision: confirmation.revision });
+      const action = await launchFromSource();
       expect(action).toMatchObject({ status: 200, digest: null, ok: true, errorCode: null });
       const versionsAfter = await storedVersions(owner, anchor.projectId);
       const copy = versionsAfter.find((version) => !versionsBefore.some((known) => known.id === version.id)) ?? null;
@@ -125,12 +145,8 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       const forkJobs = await copyJobs.list();
       const beforeReopenRevision = await preparationRevision();
       const reopenedDialog = await openPlanPreparation();
-      await reopenedDialog.getByRole("button", /Vérifier et lancer$/).click();
       const reopenedTarget = await reopenedDialog.getByLabel("Version cible", { exact: true }).inputValue();
-      await reopenedDialog.getByText("Options avancées", { exact: true }).click();
-      const replayLevel = reopenedDialog.getByRole("radio", "Standard", { exact: true });
-      await expect(replayLevel).toBeChecked();
-      await expect(reopenedDialog.getByLabel("Fournisseur IA", { exact: true })).toHaveValue("chatgpt");
+      await expect(reopenedDialog.getByText("Analyse détaillée avec votre forfait ChatGPT", { exact: true })).toBeVisible();
       expect(await preparationProcessing()).toEqual(savedProcessing);
       await expect(reopenedDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
       await reopenedDialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
@@ -144,12 +160,12 @@ export async function verifyV3TakeoffCreation(ui: Ui, army: ArmyState, owner: V3
       const observed = { proposal, dialog: { targetIsV3: target === versionId, reasonShown, launchEnabled },
         fromSource, reopen, jobLevels: written.map((job) => job.level),
         policyUnchanged: samePolicy(await policySnapshot(owner), policy) };
-      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, action, copyId: copy?.id ?? null, written, observed, savedProcessing,
-        replayBoundary: "Reopen restores Standard B and explicit ChatGPT without changing either control; same preparation, fork and job IDs." });
+      await recordEvidence(army, "v3c08", { owner, estimate, planSetId: planSet.id, refusal, action, copyId: copy?.id ?? null, written, observed, savedProcessing,
+        replayBoundary: "Reopen retains the detailed ChatGPT analysis; same preparation, fork and job IDs." });
       expect(observed).toEqual({
         proposal: { targetsV3: true, reasonShown: false, launchEnabled: true },
         dialog: { targetIsV3: true, reasonShown: false, launchEnabled: true },
-        fromSource: { status: 200, masked: false, versionsAdded: 1, versionsInserted: 1, copyEngine: 3, copyJobLevels: ["B"] },
+        fromSource: { status: 200, masked: false, versionsAdded: 1, versionsInserted: 1, copyEngine: 3, copyJobLevels: ["C"] },
         reopen: { targetIsCopy: true, preparationRevisionPreserved: true, versionsAdded: 0, sameJobIds: true },
         jobLevels: [], policyUnchanged: true,
       });

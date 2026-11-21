@@ -352,6 +352,19 @@ globalThis.fetch = async (input, init) => {
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
   assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
+  const schemaText = body.input.find(entry => entry.role === "developer")?.content;
+  if (typeof schemaText === "string" && schemaText.includes('"groupes"')) {
+    const parts = body.input.find(entry => entry.role === "user")?.content;
+    const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
+    const groups = JSON.parse(/^Groupes \(JSON\) : (.+)$/m.exec(prompt)?.[1] ?? "[]");
+    assert(groups.length > 0 && parts.some(part => part.type === "input_image"), "The vector group request must include its groups and images.");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), task: "vector-groups" }) + "\n");
+    return new Response([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0,
+        delta: JSON.stringify({ groupes: groups.map(({ groupe }) => ({ groupe, classe: "EU", probabilite: 0.98 })) }) },
+      { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 } } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
   // Reprise des prix (PRX02) : aucun document ; le dernier candidat de chaque ligne à vérifier, avant « aucun ».
   const priceReuseSchema = body.input.find(entry => entry.role === "developer")?.content;
   if (typeof priceReuseSchema === "string" && priceReuseSchema.includes("\"price_reuse_answers\"")) {

@@ -14,63 +14,79 @@ droits du tenant actif et de l'affaire.
 
 « Métrés » rouvre les métrés de la dernière affaire consultée. Si elle est archivée, inaccessible ou inconnue, choisissez une affaire dans la liste. Ouvrez ses plans ou ses métrés pour préparer une analyse. Les jeux créés sur une ancienne version restent accessibles dans les plans de l’affaire. Un favori de version qui désigne une affaire archivée ou inaccessible affiche « Page introuvable ».
 
-Le lancement propose quatre étapes dans
-[`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx) :
+Le lancement présente une analyse **Détaillée** avec le forfait ChatGPT du
+membre qui la demande, et le modèle et l’effort de son profil. Sur un jeu de
+plans sans versions concurrentes, le récapitulatif affiche **Tout mesurer**, les
+pages retenues, le périmètre (bâtiments compris), l’unité **par ouvrage** et
+l’état d’enregistrement. Le membre peut confirmer le lancement directement. Le
+message de réussite compte les fichiers de plan réellement mesurés : une version
+écartée ou une copie identique n’y figure pas.
 
-1. **Mes documents** : sélectionner les pièces actives, leur révision et les pages
-   retenues. Les pièces non actives restent dans le dossier. Au niveau Détaillé,
-   « Proposer le tri des pages » demande à Decisions un type, un niveau et une
-   zone pour chaque page des plans actifs (voir « Tri des pages » ci-dessous).
-2. **Ce que je veux mesurer** : choisir l'objectif et préciser les lots, réseaux,
-   niveaux, zones, inclusions et exclusions. Confirmer ce périmètre.
-3. **Points à préciser** : renseigner l'unité et les conventions nécessaires,
-   répondre aux inconnues ou enregistrer une réserve admissible et attribuée.
-4. **Vérifier et lancer** : relire le résultat attendu, les sources, le périmètre,
-   les conventions, les réserves et la destination, puis confirmer.
+Le menu **Options du métré** ouvre quatre étapes dans
+[`TakeoffPreparationPanel`](../../src/components/takeoff/TakeoffPreparationPanel.tsx).
 
-Les réponses sont enregistrées au fil de la saisie et restent modifiables. Une
-modification du brouillon invalide sa confirmation de lancement. Une autre
-fenêtre ayant enregistré une nouvelle révision provoque un conflit explicite :
-elle ne doit pas être écrasée silencieusement.
+1. **Mes documents** permet de choisir les pièces et les pages, d’ouvrir leur
+   aperçu et de traiter les versions concurrentes. Le tri proposé par Decisions
+   reste une action facultative.
+2. **Ce que je veux mesurer** permet de préciser les bâtiments, lots, réseaux,
+   niveaux, zones, inclusions et exclusions, ou de choisir un objectif spécialisé.
+3. **Points à préciser** permet de compléter les conventions d’un objectif
+   spécialisé, de répondre aux inconnues et d’accepter les réserves admissibles.
+4. **Vérifier et lancer** réunit le périmètre, les sources, les conventions,
+   les réserves et la version de devis utilisée par le lancement manuel.
 
-À la réouverture, le parcours retrouve les réponses et affiche la première étape
-comportant un point à préciser. Les sources peuvent être ouvertes dans un aperçu
-ou un onglet sur leur fichier exact et, pour un PDF, sur la page concernée. Le
-serveur vérifie les droits avant de fournir un lien temporaire.
+Les choix sont enregistrés avec un contrôle de révision. Une pièce ajoutée au
+dossier (plan du jeu choisi, CCTP ou DPGF) après l’ouverture, ou reclassée (une
+pièce jointe devenue CCTP, par exemple), n’est jamais enregistrée comme écartée :
+l’enregistrement, la confirmation et l’admission sont refusés tant que la
+préparation n’a pas été rechargée, et le rechargement lui applique le défaut de
+son rôle actuel et la signale comme modifiée. Une pièce qui n’est plus dans le
+dossier est affichée comme telle et peut être retirée de la préparation, qui
+peut ensuite être confirmée et lancée.
 
-Le lancement réutilise la préparation confirmée. Il conserve les contrôles de la
-version de devis, du jeu de plans ou du fichier téléversé. L'analyse et la revue
-des quantités restent distinctes de leur application au devis, qui conserve son
-aperçu d'impact et sa confirmation.
+Les anciennes préparations sont adaptées au lancement détaillé avec une mention
+visible qui invite à vérifier les sources et le périmètre. Leurs sources et
+leurs pages sont gardées ; un fichier téléversé pour un ancien lancement, absent
+du dossier, reste affiché avec ses pages et bloque le lancement jusqu’à ce que
+le membre le retire ou l’ajoute au jeu de plans. Un périmètre enregistré est
+gardé tel quel, sa confirmation comprise. Un périmètre qui ne nomme rien reçoit
+l’inclusion par défaut, et sa confirmation est alors retirée. Les jobs et
+instantanés déjà créés gardent leurs valeurs historiques.
 
-Le niveau d'analyse et le fournisseur choisis sont enregistrés avec cette
-préparation et restaurés à sa réouverture. Leur modification explicite invalide
-la confirmation, comme une modification du périmètre. Le serveur refuse un
-lancement dont les réglages diffèrent de l'instantané confirmé. Un ancien
-brouillon sans niveau enregistré demande ce choix avant une nouvelle
-confirmation ; ses analyses déjà créées restent consultables et exécutables.
-Le fournisseur omis signifie `auto` ; une reprise de la même demande réutilise
-le traitement existant et son fournisseur d'exécution.
+Le clic de lancement fige le modèle, l’effort éventuellement automatique,
+l’identifiant opaque du profil et le Mac autorisé dans l’instantané attesté. La
+confirmation compare cette sélection à celle que le récapitulatif affichait : si
+le compte, le modèle ou l’effort a changé entre-temps, rien n’est confirmé, la
+nouvelle sélection s’affiche et un nouveau clic est demandé.
+L’admission vérifie que le même membre utilise toujours cette sélection. Le
+traitement et les groupes vectoriels facultatifs la vérifient avant leurs appels.
+Un changement de compte ou de réglage demande une nouvelle analyse. Seul le
+membre qui a lancé une analyse peut la faire démarrer, avec son forfait : la
+soumettre à nouveau, ou rejouer un lancement dont l’analyse attend encore ; toute
+autre personne est invitée à préparer une nouvelle analyse. Les reprises
+techniques du worker gardent la sélection figée. Les anciens jobs sans sélection
+figée conservent leur comportement d’exécution historique.
 
 ## Contenu de la fiche
 
 | Partie | Données conservées |
 | --- | --- |
-| Objectif | Comptage, longueur, surface, lecture de quantités documentaires, comparaison DPGF, préparation d'achat ou estimation avec hypothèses ; confirmation explicite |
+| Objectif | Tout mesurer, comptage, longueur, surface, lecture de quantités documentaires, comparaison DPGF, préparation d'achat ou estimation avec hypothèses ; confirmation explicite |
 | Périmètre | Lots, réseaux, niveaux, zones, inclusions, exclusions ; confirmation explicite |
 | Sources | Identifiant de document, nom, rôle, révision connue ou inconnue, identité du fichier, pages, sélection active et confirmation |
 | Conventions | Unité, base documentaire/cotes/calibration, calibration de page et conventions d'achat si nécessaires ; confirmation explicite |
 | Inconnues | Question, effet bloquant ou réserve, source/page éventuelle, réponse, responsable et décision |
 | Destination | Analyse seule ou revue en vue du devis, version concernée, responsable de revue éventuel et confirmation |
 | Profil | Identifiant, nom et version du profil réutilisé, lorsqu'il existe |
-| Traitement | Niveau d'analyse et choix du fournisseur, propres à cette préparation ; aucun compte ou secret n'est enregistré |
+| Traitement | Niveau C et forfait ChatGPT ; sélection du profil figée sans jeton ni clé |
+| Provenance | Préparation déduite du dossier, version de la règle de défaut et mention de conversion si nécessaire |
 | Assistance acceptée | Contexte tenant/affaire/révision, empreintes, fournisseur/modèle, version de consigne, consommation connue et identifiants des propositions acceptées |
 | Tri des pages | Par plan (`sources[].page_triage`) : version du fichier, nombre de pages, empreinte des questions, modèle, version de consigne, consommation du tri, acceptation ; par page : empreinte de la demande, type, niveau, zone, confiance, proposition (écarter, garder, à vérifier), raison et statut (proposée, à vérifier, corrigée) |
 
 Un champ inconnu reste `null`. Il ne devient pas zéro. Les listes vides restent
 vides ; le périmètre doit contenir au moins une inclusion, un lot, un réseau, un
-niveau ou une zone explicitement renseignés. Pour demander l'ensemble du dossier,
-l'utilisateur doit l'indiquer dans son périmètre.
+niveau ou une zone. Le périmètre déduit couvre par défaut tous les ouvrages et
+toutes les pages des plans retenus, avec le brief comme contexte.
 
 ## Conditions selon l'objectif
 
@@ -79,13 +95,22 @@ Les mêmes règles s'appliquent au récapitulatif et à la confirmation serveur 
 
 | Objectif | Conditions particulières |
 | --- | --- |
-| Comptage | Au moins un plan actif et confirmé, une unité de comptage ; aucun DPGF ni calibration imposés |
+| Tout mesurer | Plans actifs, unité adaptée à chaque ouvrage, base documentaire et aucune convention d’achat par défaut |
+| Comptage | Au moins un plan actif, une unité de comptage ; aucun DPGF ni calibration imposés |
 | Longueur | Plan actif, unité de longueur, cotes fiables ou calibration complète de la page retenue |
 | Surface | Plan actif, unité de surface, cotes fiables ou calibration complète de la page retenue |
 | Quantités documentaires | Source active et unité explicite ; aucune échelle géométrique imposée |
 | Comparaison DPGF | Plan et DPGF actifs ; l'absence de bordereau reste bloquante |
 | Préparation d'achat | Déductions, pourcentage de pertes, arrondi et conditionnement explicités ; le relevé brut reste distinct de la conversion en achat |
 | Estimation | Périmètre, source, unité et conventions confirmés ; les hypothèses restent identifiables dans la préparation |
+
+Avec **Tout mesurer**, une quantité que le modèle n’a pas pu mesurer apparaît
+dans « Quantités à vérifier » sans créer de ligne chiffrée. Elle porte son
+fichier et sa page quand le modèle donne une page de son fragment, sinon la
+mention « page indéterminée ». Une réponse sans ligne mesurée n’est acceptée que
+si au moins une de ces quantités porte une page de son fragment et une
+observation, lues sur la forme « Page N : observation » de la réponse du modèle ;
+sinon toute la réponse est refusée, comme avant.
 
 La présence d'un objectif dans le contrat ne fournit pas à elle seule ses pièces
 de référence : la préparation ne peut pas déclarer un plan comme DPGF pour lever
@@ -124,11 +149,32 @@ réponse enregistrée et un responsable. Une inconnue bloquante ne peut pas êtr
 contournée en acceptant une réserve : fournir sa réponse ou acter l'exclusion de
 la partie concernée du périmètre.
 
-Une révision inconnue exige soit son renseignement, soit une réserve identifiée
-par `source_revision:<document_id>`, acceptée, motivée et attribuée. Lorsqu'une
-révision devient connue ou que sa source est désactivée, cette question de
-révision ne bloque plus et son historique reste conservé. Deux versions actives
-du même document logique ne sont pas cumulées.
+Un plan isolé sans indice peut être analysé. Quand deux fichiers distincts
+pourraient être des versions du même plan, la préparation demande quel fichier
+retenir ou si les plans sont distincts. Le nom normalisé et le texte lisible du
+cartouche servent à la comparaison ; un numéro de plan suivi d’une seule lettre
+(« P-101_A », « P-101_B ») suffit à poser la question. Un indice lu dans le
+cartouche est une lettre suivie d’au plus deux chiffres, ou un nombre d’au plus
+trois chiffres, après « Indice », « Révision » ou « Rév ». L’indice retenu est
+celui des métadonnées ou du nom du fichier, sinon celui que la préparation a
+enregistré pour ce fichier (un indice saisi), sinon celui du cartouche. Un
+cartouche qui en indique un autre est un écart à trancher dans « Mes documents »
+(garder l’indice retenu ou prendre celui du cartouche) avant le lancement ; il
+n’est jamais appliqué en silence. Le choix du membre devient l’indice enregistré
+pour ce fichier : les confirmations suivantes le gardent tant que le fichier et
+son cartouche ne changent pas. L’identité déduite d’un cartouche nomme chacune
+de ses parties (bâtiment, niveau, discipline) : un bâtiment « 1 » et un niveau
+« 1 » restent deux plans. Les indices
+connus et les aperçus sont affichés. Le choix est lié aux empreintes des deux
+fichiers : à l’admission, la version écartée est relue et doit être inchangée,
+comme une copie identique mise de côté, et la version retenue l’est par le
+traitement avant tout appel. Des choix qui
+écarteraient toutes les versions d’un plan sont refusés : retenir une version
+rouvre les choix qui l’écartaient. Un scan sans texte lisible reste utilisable et
+son indice peut rester inconnu.
+
+Les valeurs déduites démarquent la portée et les conventions de départ. Une
+réserve reste une décision humaine attribuée.
 
 ## Sources et instantané de lancement
 
@@ -142,10 +188,10 @@ les références reçues. Une source modifiée ou disparue demande une nouvelle
 confirmation. Les changements ne remplacent pas silencieusement la version
 confirmée.
 
-Le champ de référence logique du plan permet de désigner explicitement les
-fichiers représentant différentes révisions du même plan, même lorsque leurs
-noms diffèrent. La version applicable doit alors être retenue au lieu de cumuler
-ces fichiers.
+Les copies de contenu identique sont regroupées dans la lecture et toutes
+leurs identités sont conservées dans l’instantané. Les pièces DPGF et CCTP
+disponibles complètent le contexte dans les limites de format et de volume.
+La préparation signale une pièce retenue que le serveur ne peut pas lire.
 
 L'instantané contient la préparation complète, sa révision enregistrée, l'auteur,
 la date et l'état de préparation calculé. Les références et les valeurs copiées

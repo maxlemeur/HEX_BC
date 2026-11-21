@@ -309,10 +309,11 @@ async function processTakeoffLevel(
         sourceFile,
         tablesCount: levelCResult.tablesCount,
         itemsCount: levelCResult.itemsForInsert.length,
+        hasUnmeasuredQuantities: levelCResult.locatedUnmeasuredQuantities > 0,
         providerMeta: levelCResult.providerMeta,
       });
 
-      // TI-662: the vector reading of the original pages, beside the level C reading (opt-in), its groups classified
+      // TI-662: vector reading of the original pages accompanies level C by default. Groups are classified
       // with MERGEONE_TAKEOFF_DECISIONS=1 by the creator's plan (TI-704 option B); each call checked like a provider
       // call (active tenant, lease).
       const vectorOutcomes = isTakeoffVectorReadingEnabled()

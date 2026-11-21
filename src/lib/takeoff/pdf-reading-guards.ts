@@ -17,11 +17,12 @@ export function assertPdfResultIsInterpretable(input: {
   sourceFile: DownloadedTakeoffFile;
   tablesCount: number;
   itemsCount: number;
+  hasUnmeasuredQuantities?: boolean;
   providerMeta?: Record<string, unknown>;
 }) {
   const isInterpretable =
     input.level === "C"
-      ? input.itemsCount > 0
+      ? input.itemsCount > 0 || (input.sourceFile.preparationSnapshot?.preparation.objective === "measure_all" && input.hasUnmeasuredQuantities === true)
       : input.tablesCount > 0 && input.itemsCount > 0;
 
   if (isInterpretable) {

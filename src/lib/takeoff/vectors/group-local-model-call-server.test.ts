@@ -77,6 +77,13 @@ describe("the local plan's request (localGroupsCall, TI-704 option B)", () => {
     expect(assertLocalChatGptOverride).toHaveBeenCalledTimes(0);
   });
 
+  it("uses the attested profile for vector groups without a catalog lookup or historical model override", async () => {
+    const call = await localGroupsCall(OWNER, PINNED, true);
+    await expect(call(REQUEST)).resolves.toMatchObject({ totalTokens: 1200 });
+    expect(assertLocalChatGptOverride).not.toHaveBeenCalled();
+    expect(callLocalChatGptStructured).toHaveBeenCalledWith(OWNER, expect.anything(), PINNED, undefined, { returnRawOnSchemaError: true });
+  });
+
   it("reads the credential again once after a blip reaching OpenAI while it is renewed; a refused renewal is final", async () => {
     vi.mocked(getLocalChatGptCredential).mockRejectedValueOnce(new ChatGptSignInError("network"));
     const call = await localGroupsCall(OWNER, PINNED);
