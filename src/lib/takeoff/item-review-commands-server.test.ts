@@ -48,7 +48,7 @@ const targetsOf = (ids: number[]) => lines.filter(({ itemId }) => ids.map(fixtur
 // The plan of a request reading the selection: what the preview shows (its calls and budget) and what the admission seals.
 const PLANNED = { planSetId: "99999999-9999-4999-8999-999999999999", preparationRevision: 3, planFileIds: [], planKeys: [],
   predecessorJobId: JOB, listRevisionId: "44444444-4444-4444-8444-444444444444", askedItemIds: [], snapshot: {},
-  manifest: { budget: { tokens: 66_000, cost_cents: 0 } },
+  manifest: { budget: { tokens: 66_000, cost_cents: 0 }, plans: [] },
   bounds: { ok: true, items: 1, plans: 2, readingCalls: 2, classifierCalls: 0, minutes: 2, maxRequestCalls: 200, maxPlanCalls: 100,
     maxPlanPages: 2000, calls: 2, tokens: 60_000, requestBudgetTokens: 66_000, answerBytes: 1_000, units: [], exceeded: [] },
 } as unknown as TakeoffItemRemeasurePlan;
@@ -285,6 +285,19 @@ describe("remeasure of a selection", () => {
         cost_cents: 0 } } } as TakeoffItemRemeasurePlan });
     expect(await refusal(runItemRemeasure(PROJECT, body))).toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE",
       details: { stale: [{ itemId: fixtureItemId(2), label: "Baignoire" }] } });
+    expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+  });
+
+  // The preview confirmed holds the preparation it was planned on: confirmed again since (another revision, other pages),
+  // the same selection needs a new confirmation, even with the same calls and budget.
+  it("asks for a new confirmation when the preparation was confirmed again since the preview, with the same calls and budget", async () => {
+    const plan = (revision: number, pages: number[]) => ({ ...PLANNED, preparationRevision: revision, manifest: { ...PLANNED.manifest,
+      plans: [{ plan_file_id: "aaaaaaaa-0000-4000-8000-000000000050", logical_id: "plan-rdc", content_sha256: "e".repeat(64), pages,
+        page_count: 9 }] } }) as unknown as TakeoffItemRemeasurePlan;
+    vi.mocked(planTakeoffItemRemeasure).mockResolvedValue({ plan: plan(3, [2, 7]) });
+    const body = await confirmation([2]);
+    vi.mocked(planTakeoffItemRemeasure).mockResolvedValue({ plan: plan(4, [2]) });
+    expect(await refusal(runItemRemeasure(PROJECT, body))).toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE" });
     expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
   });
 

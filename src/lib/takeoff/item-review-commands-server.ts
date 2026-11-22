@@ -203,7 +203,8 @@ async function payerName(access: AffaireAccess) {
  * model and effort of their profile; the plans and items; the paid calls and the budget the admission will take; those a
  * new measure leaves out. The affaire's current confirmed preparation gives its content when it is admitted; the member
  * is not asked to confirm the brief again. Its digest holds what the member confirms: the payer and the setting, the
- * plans, the items, the list's revision and each item's current readings on those plans, the calls and the budget.
+ * plans, the items, the list's revision and each item's current readings on those plans, the calls and the budget, and
+ * the preparation it was planned on (its revision, each plan's sealed copy, identity, bytes and pages).
  */
 async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen }, access: AffaireAccess) {
   const { lines, plans: affairePlans, list } = await loadItemLines(access, { scope: input.scope, itemIds: input.itemIds, withPlans: true });
@@ -258,10 +259,14 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
       subscription: shown,
       reading,
       running: launch.request?.state === "admitted",
-      previewDigest: createHash("sha256").update(canonical({ contract: 2, scope: input.scope, payer: payer.memberId,
+      previewDigest: createHash("sha256").update(canonical({ contract: 3, scope: input.scope, payer: payer.memberId,
         subscription: shown, plans: plans.map(({ key }) => key), items: items.map(({ itemId }) => itemId),
         list: list?.revisionId ?? null, readings: targets,
-        reading: reading.state === "ready" ? { calls: reading.calls, budgetTokens: reading.budgetTokens } : reading })).digest("hex"),
+        reading: reading.state === "ready" ? { calls: reading.calls, budgetTokens: reading.budgetTokens } : reading,
+        // The preparation it was planned on: its revision and each plan as sealed (its copy, identity, bytes and pages).
+        prepared: planned && "plan" in planned ? { revision: planned.plan.preparationRevision,
+          plans: planned.plan.manifest.plans.map((plan) => [plan.plan_file_id, plan.logical_id, plan.content_sha256, plan.pages,
+            plan.page_count]) } : null })).digest("hex"),
       skipped: selected.filter(({ eligibility }) => !eligibility.remeasure.eligible)
         .map(({ itemId, label, eligibility }) => ({ itemId, label, reason: eligibility.remeasure.reason! })),
     } satisfies ItemRemeasurePreview,

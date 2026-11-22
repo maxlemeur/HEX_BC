@@ -64,6 +64,7 @@ import {
   SetAsideDialog,
 } from "./ItemTableGestureDialogs";
 import { ItemTableLineDetail } from "./ItemTableLineDetail";
+import { useCompletions, type Completion } from "@/components/takeoff/item-detail/useCompletions";
 
 /**
  * The table of items of an affaire's takeoff: a line per item of the list, with its state, its observed quantity, the
@@ -143,6 +144,20 @@ function resultNotice(result: ItemReviewResult, done: string): Notice {
   const left = result.skipped.slice(0, 5).map(({ label, reason }) => `${label} (${ITEM_INELIGIBILITY_LABELS[reason]})`).join(", ");
   return { tone: result.applied.length ? "success" : "info",
     text: `${applied}. Laissés : ${left}${result.skipped.length > 5 ? ` et ${result.skipped.length - 5} autres` : ""}.` };
+}
+
+// Each selection the member holds is one value: a completion started for it applies only while it is still the one held
+// (a tick, « Vider la sélection », a read-back or another completion makes another).
+const selectionTokens = new WeakMap<ItemSelection, string>();
+let selectionCount = 0;
+function selectionToken(value: ItemSelection) {
+  let token = selectionTokens.get(value);
+  if (!token) {
+    selectionCount += 1;
+    token = String(selectionCount);
+    selectionTokens.set(value, token);
+  }
+  return token;
 }
 
 export function TakeoffItemTable({ projectId, viewerKey, signature }: {
@@ -243,6 +258,16 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
 
+  // The table's completions (useCompletions, the detail's one rule): each is addressed to what started it — the screen (the
+  // member, the affaire, the scope) and the selection held, or the dialog opened, or the selection with its filter — and
+  // changes what is shown only if that is still what is shown; a selection cleared or changed meanwhile stays as the
+  // member left it.
+  const screenKey = `${viewerKey}|${projectId}|${scopeKey}`;
+  const filterKey = JSON.stringify(address.filter);
+  const forSelection = useCompletions({ screen: screenKey, item: selectionToken(selection) });
+  const forFilter = useCompletions({ screen: screenKey, item: selectionToken(selection), reading: filterKey });
+  const forDialog = useCompletions({ screen: screenKey, item: dialog?.intentKey ?? null });
+
   const navigate = useCallback((partial: Partial<ItemTableAddress>) => {
     const next = withItemTableParams(searchParams.toString(), itemTableAddressParams(partial, PREFIX));
     const query = next.toString();
@@ -275,24 +300,33 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     return quantity !== null && unit ? [{ itemId, label: draft.line.label, quantity, unit, target: draft.line.targets }] : [];
   });
 
+  /** The selection read again as it is stored now: applied only to the selection it was read for, if still held. */
   const refreshSelection = useCallback(async (current: ItemSelection) => {
     const ids = Object.keys(current.items);
-    if (!ids.length) return;
+    if (!ids.length) return false;
+    const completion = forSelection({ screen: screenKey, item: selectionToken(current) });
     try {
       const frozen = await fetchFrozenItemSelection(projectId, current.scope, { kind: "items", itemIds: ids });
+      if (!completion.current()) return false;
       updateSelection(withFrozenSelection(current, frozen));
+      return true;
     } catch (caught) {
-      withdrawOnRefusal(caught);
+      if (completion.ownScreen()) withdrawOnRefusal(caught);
+      return false;
     }
-  }, [projectId, updateSelection, withdrawOnRefusal]);
+  }, [projectId, updateSelection, withdrawOnRefusal, forSelection, screenKey]);
 
   const failure = useCallback(async (caught: unknown, current: ItemSelection) => {
     const stale = itemReviewStaleLines(caught);
     if (stale) {
       const names = stale.slice(0, 5).map(({ label: name }) => name ?? "un poste retiré").join(", ");
       const verb = stale.length > 1 ? "ont changé" : "a changé";
-      setNotice({ tone: "danger", text: `Rien n’a été appliqué : ${names}${stale.length > 5 ? ` et ${stale.length - 5} autres` : ""} ${verb} depuis la sélection. La sélection a été rafraîchie : vérifiez-la, puis confirmez de nouveau.` });
-      await refreshSelection(current);
+      const changed = `Rien n’a été appliqué : ${names}${stale.length > 5 ? ` et ${stale.length - 5} autres` : ""} ${verb} depuis la sélection.`;
+      setNotice({ tone: "danger", text: changed });
+      // Said refreshed once it is, and only if the selection was still the one refused.
+      if (await refreshSelection(current)) {
+        setNotice({ tone: "danger", text: `${changed} La sélection a été rafraîchie : vérifiez-la, puis confirmez de nouveau.` });
+      }
       await readDraftTargets(Object.keys(drafts));
       void refresh();
       return;
@@ -300,27 +334,32 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     setNotice({ tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible d’enregistrer la décision sur les postes." });
   }, [refreshSelection, readDraftTargets, drafts, refresh]);
 
-  const runCommand = useCallback(async (command: ItemReviewCommand, done: string, onApplied?: (result: ItemReviewResult) => void) => {
+  const runCommand = useCallback(async (command: ItemReviewCommand, done: string,
+    onApplied?: (result: ItemReviewResult, started: ItemSelection, completion: Completion) => void) => {
     setBusy(true);
+    const started = selection;
+    const completion = forSelection({ screen: screenKey, item: selectionToken(started) });
     try {
       const result = await sendItemReviewCommand(projectId, command);
-      setNotice(resultNotice(result, done));
-      onApplied?.(result);
+      if (completion.ownScreen()) setNotice(resultNotice(result, done));
+      onApplied?.(result, started, completion);
       setDialog(null);
       void refresh();
     } catch (caught) {
       setDialog(null);
-      await failure(caught, selection);
+      await failure(caught, started);
     } finally {
       setBusy(false);
     }
-  }, [projectId, refresh, failure, selection]);
+  }, [projectId, refresh, failure, selection, forSelection, screenKey]);
 
-  const dropApplied = useCallback((result: ItemReviewResult) => {
-    const items = { ...selection.items };
+  /** The items a command applied leave the selection it was sent from, if the member still holds it. */
+  const dropApplied = useCallback((result: ItemReviewResult, started: ItemSelection, completion: Completion) => {
+    if (!completion.current()) return;
+    const items = { ...started.items };
     for (const { itemId } of result.applied) delete items[itemId];
-    updateSelection({ ...selection, items });
-  }, [selection, updateSelection]);
+    updateSelection({ ...started, items });
+  }, [updateSelection]);
 
   const base = (intentKey: string) => ({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: intentKey, scope: selection.scope,
     targets: selectedTargets(selection) });
@@ -331,52 +370,65 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     targets: Object.values(selection.items).map(({ target }) => target) }), [data?.list?.revisionId, selection]);
 
   const openRemeasure = useCallback(async () => {
-    setDialog({ gesture: "remeasure", intentKey: newIntent(), seen: seenOfSelection() });
+    const intentKey = newIntent();
+    setDialog({ gesture: "remeasure", intentKey, seen: seenOfSelection() });
     setPreview({ value: null, error: null });
+    // The preview is shown in the dialog it was asked for only: one closed, or opened again since, never receives it.
+    const completion = forDialog({ screen: screenKey, item: intentKey });
     try {
-      setPreview({ value: await previewItemRemeasure(projectId, selection.scope, Object.keys(selection.items), seenOfSelection()),
-        error: null });
+      const value = await previewItemRemeasure(projectId, selection.scope, Object.keys(selection.items), seenOfSelection());
+      if (completion.current()) setPreview({ value, error: null });
     } catch (caught) {
-      setPreview({ value: null, error: isTakeoffApiError(caught) ? caught.message : "Impossible de préparer la nouvelle mesure." });
+      if (completion.current()) {
+        setPreview({ value: null, error: isTakeoffApiError(caught) ? caught.message : "Impossible de préparer la nouvelle mesure." });
+      }
     }
-  }, [projectId, selection, seenOfSelection]);
+  }, [projectId, selection, seenOfSelection, forDialog, screenKey]);
 
   const confirmRemeasure = useCallback(async (effort: ChatGptReasoningEffort | null) => {
     if (!dialog || !preview.value) return;
     setBusy(true);
+    const started = selection;
+    const completion = forSelection({ screen: screenKey, item: selectionToken(started) });
     try {
       const result = await sendItemRemeasure(projectId, { command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
         scope: selection.scope, item_ids: preview.value.items.map(({ itemId }) => itemId),
         plan_keys: preview.value.plans.map(({ key: planKey }) => planKey),
         setting: effort ? { reasoning_effort: effort } : null, preview_digest: preview.value.previewDigest,
         seen: dialog.seen ?? seenOfSelection() });
-      setNotice(result.outcome === "already_running"
-        ? { tone: "info", text: "Une analyse de l’affaire est en cours : la sélection reste prête pour la nouvelle mesure." }
-        : { tone: "success", text: "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
+      if (completion.ownScreen()) {
+        setNotice(result.outcome === "already_running"
+          ? { tone: "info", text: "Une analyse de l’affaire est en cours : la sélection reste prête pour la nouvelle mesure." }
+          : { tone: "success", text: "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
+      }
       if (result.outcome !== "already_running") {
-        updateSelection(emptyItemSelection(selection.scope));
+        if (completion.current()) updateSelection(emptyItemSelection(started.scope));
         // The items asked read « En lecture » on their plans now: the table shows it at once.
         void refresh();
       }
       setDialog(null);
     } catch (caught) {
       setDialog(null);
-      await failure(caught, selection);
+      await failure(caught, started);
     } finally {
       setBusy(false);
     }
-  }, [dialog, preview.value, projectId, selection, updateSelection, failure, refresh, seenOfSelection]);
+  }, [dialog, preview.value, projectId, selection, updateSelection, failure, refresh, seenOfSelection, forSelection, screenKey]);
 
+  // « Tous les résultats du filtre »: applied only if the member still holds the selection and the filter it was asked for.
   const selectFilter = useCallback(async () => {
+    const completion = forFilter({ screen: screenKey, item: selectionToken(selection), reading: filterKey });
     try {
       const frozen = await fetchFrozenItemSelection(projectId, address.scope, { kind: "filter", filter: address.filter });
+      if (!completion.current()) return;
       updateSelection(withFrozenSelection(emptyItemSelection(address.scope), frozen));
       setNotice({ tone: "info", text: `${formatItemCount(frozen.count, "poste sélectionné", "postes sélectionnés")}, sur toutes les pages du filtre.` });
     } catch (caught) {
-      if (withdrawOnRefusal(caught)) return;
+      if (completion.ownScreen() && withdrawOnRefusal(caught)) return;
+      if (!completion.current()) return;
       setNotice({ tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible de sélectionner les résultats du filtre." });
     }
-  }, [projectId, address.scope, address.filter, updateSelection, withdrawOnRefusal]);
+  }, [projectId, address.scope, address.filter, updateSelection, withdrawOnRefusal, forFilter, screenKey, selection, filterKey]);
 
   const setDraft = (line: ItemTableResponseLine, change: Partial<Draft>) => setDrafts((current) => {
     const previous = current[line.itemId] ?? { quantity: "", unit: "", line };
