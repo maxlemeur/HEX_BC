@@ -630,7 +630,8 @@ const STALE_MESSAGES: Record<string, string> = {
 function staleError(reason: string | null, jobId: string) {
   return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: true, jobId,
     message: STALE_MESSAGES[reason ?? ""]
-      ?? "Le métré ou le devis a changé depuis l’aperçu : vérifiez le nouvel aperçu puis confirmez. Rien n’a été écrit.",
+      ?? "Le métré, le devis ou un autre plan de l’affaire a changé depuis l’aperçu : vérifiez le nouvel aperçu puis confirmez. "
+        + "Rien n’a été écrit.",
     details: { guard: "send_preview_stale", reason } });
 }
 

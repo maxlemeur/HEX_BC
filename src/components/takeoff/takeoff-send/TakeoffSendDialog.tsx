@@ -456,7 +456,7 @@ function PlanScope({ scope }: { scope: TakeoffSendPlanScope }) {
       ) : null}
       {scope.compared.length > 0 ? (
         <p className="text-sm text-muted-foreground">
-          Comparé avec {plural(scope.compared.length, "le plan déjà lu", "les plans déjà lus")} :{" "}
+          Comparé avec {scope.compared.length > 1 ? "les plans déjà lus" : "le plan déjà lu"} :{" "}
           {scope.compared.map((plan) => `« ${plan.plan_name ?? "sans nom"} »`).join(", ")}.
         </p>
       ) : null}
