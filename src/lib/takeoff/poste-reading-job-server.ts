@@ -55,6 +55,16 @@ export async function readTakeoffItemListOrder(supabase: Supabase,
     contentSha256: list.content_sha256 };
 }
 
+/**
+ * The stop of a job of the second order while the publication of its answers is not delivered (lot 4 PR 3c removes it):
+ * the processor ends the job once claimed, before its plan is read and before any paid call. The second order is not
+ * activated before then.
+ */
+export function takeoffItemListReadingNotDelivered(jobId: string) {
+  return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED, retryable: false, jobId, level: TAKEOFF_LEVEL_C,
+    message: "La lecture contre la liste des postes n’est pas encore disponible : l’analyse s’arrête avant tout appel, sans rien dépenser." });
+}
+
 export type ProcessItemListResult = {
   jobId: string; resultId: string; status: "completed"; itemsCount: number; warningsCount: number; tokenCount: number;
   costCents: number; durationMs: number; tablesCount: number; chunksCount: number; pageCount: number;

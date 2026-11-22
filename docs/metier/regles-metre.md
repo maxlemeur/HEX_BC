@@ -143,7 +143,14 @@ d’une analyse plan par plan est lu contre la liste que sa demande a scellée. 
 que l’analyse plan par plan n’est pas activée, une demande reste groupée et scelle
 l’extraction libre, quelle que soit l’activation du second ordre : une liste n’est
 jamais scellée sur une analyse groupée. Un job qui lirait plusieurs plans contre
-une liste s’arrêterait d’ailleurs avant tout appel, sans rien dépenser. Le serveur découpe le
+une liste s’arrêterait d’ailleurs avant tout appel, sans rien dépenser.
+
+Le second ordre de mesure ne peut pas être activé avant la livraison de la
+publication des réponses par poste : jusque-là, un job du second ordre s’arrête dès
+sa prise en charge, avant de lire son plan et avant tout appel, sans rien dépenser.
+Les règles qui suivent décrivent la lecture telle qu’elle s’appliquera alors.
+
+Le serveur découpe le
 plan comme la lecture détaillée (au-delà de 15 pages, des fragments de 10 pages
 dont 2 en recouvrement) et la liste en lots de 40 postes : chaque appel joint un
 fragment et demande un lot. Le modèle reçoit pour chaque poste une clé opaque

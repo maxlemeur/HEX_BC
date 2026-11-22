@@ -3516,41 +3516,20 @@ describe("an attempt of the second measuring order", () => {
       source_file_type: "application/pdf", ...job }, downloadFile: { bytes: await createPdfArrayBuffer(2), mimeType: "application/pdf" } });
   }
 
-  it("hands the claimed job, its provider and its vector reading to the reading against the list, never the first format's", async () => {
+  // Until the publication of a plan's answers is delivered (PR 3c), a job of the second order stops once claimed: its
+  // failure recorded under its lease, before its plan is downloaded or read and before any paid call.
+  it("stops a job of the second order once claimed, before reading its plan or making any paid call", async () => {
     const mock = await levelCJob(planUnit);
     vi.mocked(readTakeoffItemListOrder).mockResolvedValueOnce(ORDER);
-    vi.mocked(processItemListLevelC).mockResolvedValueOnce({ jobId: JOB_ID, resultId: "result-v2", status: "completed", itemsCount: 2,
-      warningsCount: 0, tokenCount: 10, costCents: 0, durationMs: 5, tablesCount: 0, chunksCount: 1, pageCount: 2,
-      metricsSummary: { inputTokens: 10, reasoningTokens: 0, outputTokens: 0, totalTokens: 10 } });
     const call = vi.fn();
-    const result = await processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
-      resolveProvider: localProvider(call) });
-
-    expect(result).toMatchObject({ resultId: "result-v2", status: "completed", itemsCount: 2, chunksCount: 1 });
-    // The order is read before the claim: the claim records the prompt the job reads with.
-    expect(mock.state.job.prompt_version).toBe("takeoff-c-postes-v1");
-    const handed = vi.mocked(processItemListLevelC).mock.calls[0][0];
-    expect(handed).toMatchObject({ order: ORDER, model: PROVIDER_MODEL, userId: USER_ID,
-      job: expect.objectContaining({ id: JOB_ID, status: "processing", processing_lease_token: expect.any(String) }),
-      sourceFile: expect.objectContaining({ mimeType: "application/pdf" }) });
-    // Its calls go through the processor's provider wrapper (the tenant checked, the lease renewed), never the first format's.
-    expect(call).not.toHaveBeenCalled();
-    expect(mock.state.takeoffResults).toEqual([]);
-    await expect(handed.readVectors()).resolves.toEqual([]);
-  });
-
-  it("records a refused reading against the list as the first format records a failure, with its calls' metrics", async () => {
-    const mock = await levelCJob(planUnit);
-    vi.mocked(readTakeoffItemListOrder).mockResolvedValueOnce(ORDER);
-    const refused = Object.assign(new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA, retryable: false,
-      message: "Lecture du plan contre la liste des postes refusée (fixture).", details: { reason: "MISSING_ANSWER" } }),
-    { levelCChunkMetrics: [{ provider: "chatgpt", index: 0, start: 1, end: 2, input_tokens: 5, reasoning_tokens: 0, output_tokens: 0,
-      token_count: 5, cost_cents: 0, duration_ms: 1, model: PROVIDER_MODEL, timed_out: false, budget_exceeded: false, status: "failed" }] });
-    vi.mocked(processItemListLevelC).mockRejectedValueOnce(refused);
     await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
-      resolveProvider: localProvider(vi.fn()) })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA });
-    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "TAKEOFF_LEVEL_C_INVALID_SCHEMA" });
-    expect(mock.state.takeoffRunMetrics).toEqual([expect.objectContaining({ chunk_index: 0, total_tokens: 5 })]);
+      resolveProvider: localProvider(call) })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED, retryable: false,
+      message: expect.stringContaining("avant tout appel") });
+    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "TAKEOFF_LEVEL_UNSUPPORTED", next_retry_at: null,
+      prompt_version: "takeoff-c-postes-v1" });
+    expect(call).not.toHaveBeenCalled();
+    expect(processItemListLevelC).not.toHaveBeenCalled();
+    expect(readTakeoffVectorPages).not.toHaveBeenCalled();
   });
 
   it("ends a job whose measuring order cannot be read once it is claimed, with that prompt unknown to it", async () => {
