@@ -329,7 +329,18 @@ delete from public.takeoff_preparations where project_id = pg_temp.f(20);
 set local session_replication_role = origin;
 select is(pg_temp.context(pg_temp.a()) #> '{peers,0,job_id}', to_jsonb(pg_temp.b()),
   'no preparation at all (as an automatic admission may leave it): B is still A''s peer');
+-- The same request as the affaire's automatic one (its snapshot sealed on the request), still without a preparation.
+create temp table request_kept as select * from public.takeoff_launch_requests where id = pg_temp.request();
 set local session_replication_role = replica;
+update public.takeoff_launch_requests set origin = 'automatic', intent_key = id, command_digest = null,
+  mandate_kind = 'confirmation', confirmed_by = pg_temp.f(1) where id = pg_temp.request();
+set local session_replication_role = origin;
+select is(pg_temp.context(pg_temp.a()) #> '{peers,0,job_id}', to_jsonb(pg_temp.b()),
+  'A and B units of the affaire''s automatic request, no preparation: B is still A''s peer');
+set local session_replication_role = replica;
+update public.takeoff_launch_requests as request_row set origin = kept.origin, intent_key = kept.intent_key,
+  command_digest = kept.command_digest, mandate_kind = kept.mandate_kind, confirmed_by = kept.confirmed_by
+from request_kept as kept where request_row.id = kept.id;
 insert into public.takeoff_preparations select * from preparation_kept;
 set local session_replication_role = origin;
 
