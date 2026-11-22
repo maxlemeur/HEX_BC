@@ -4,6 +4,7 @@ import { z } from "zod";
 import { maxPriceValidTo } from "@/lib/catalogue/price-validity";
 import { normalizedReference } from "@/lib/catalogue/product-price-template-client";
 
+import { PRODUCT_UNIT_HAS_PACKAGINGS, isProductUnitHeldByPackagings } from "@/lib/catalogue/packagings";
 import { CatalogueApiError } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -103,6 +104,14 @@ function buildUniqueLookup<T>(
 
 function mapDatabaseError(error: PostgrestError, fallbackMessage: string) {
   const message = `${error.message ?? ""} ${error.details ?? ""}`.toLocaleLowerCase("fr-FR");
+  if (isProductUnitHeldByPackagings(error)) {
+    return new CatalogueApiError({
+      status: 409,
+      code: PRODUCT_UNIT_HAS_PACKAGINGS,
+      message:
+        "Un article du fichier a des conditionnements de vente : retirez-les avant de changer son unité, leurs quantités sont exprimées dans l’unité actuelle.",
+    });
+  }
   if (error.code === "42501" || message.includes("row-level security")) {
     return new CatalogueApiError({
       status: 403,

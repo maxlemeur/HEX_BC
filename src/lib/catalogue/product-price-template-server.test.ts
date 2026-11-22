@@ -138,6 +138,46 @@ describe("product price template server", () => {
     });
   });
 
+  // Sale packagings carry their article's unit (foreign key ON UPDATE RESTRICT). Failure mode: a file that changes the
+  // unit of an article with packagings fails with « Impossible d'actualiser les produits du fichier. » and no reason.
+  it("says which rule refused a file that changes the unit of an article with packagings", async () => {
+    const upsert = vi.fn().mockResolvedValue({
+      error: {
+        code: "23503",
+        message: 'update or delete on table "products" violates foreign key constraint "product_packagings_article_unit_fkey" on table "product_packagings"',
+        details: null,
+        hint: null,
+      },
+    });
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    const supabase = {
+      ...authenticatedClient(),
+      from: vi.fn((table: string) => {
+        if (table === "products") {
+          return {
+            select: vi.fn().mockResolvedValue({ data: [{ id: PRODUCT_ID, reference: "TUB-I4L-SOUDE-15" }], error: null }),
+            upsert,
+            insert,
+          };
+        }
+        if (table === "suppliers") {
+          return { select: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ data: [], error: null }) })) };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn(),
+    };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(importProductPriceTemplate({ products: [{ ...productRow, unit: "kg" }], prices: [] })).rejects.toMatchObject({
+      status: 409,
+      code: "PRODUCT_UNIT_HAS_PACKAGINGS",
+      message:
+        "Un article du fichier a des conditionnements de vente : retirez-les avant de changer son unité, leurs quantités sont exprimées dans l’unité actuelle.",
+    });
+    expect(insert).not.toHaveBeenCalled();
+  });
+
   it("inserts new products without relying on the partial reference index", async () => {
     const insert = vi.fn().mockResolvedValue({ error: null });
     const upsert = vi.fn();

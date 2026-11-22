@@ -5,6 +5,7 @@ import { AlertTriangleIcon, ChevronDownIcon, PlusIcon, XIcon } from "lucide-reac
 
 import { fetchApi } from "@/components/catalogue/api";
 import { ProductAliases } from "@/components/products/ProductAliases";
+import { ProductPackagings } from "@/components/products/ProductPackagings";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
 import { ProductSuppliers } from "@/components/products/ProductSuppliers";
 import { Alert } from "@/components/ui/alert";
@@ -614,6 +615,10 @@ export function ProductFormModal({
                 </div>
               </div>
             </fieldset>
+
+            {product ? (
+              <ProductPackagings productId={product.id} unit={form.unit} savedUnit={product.unit ?? null} />
+            ) : null}
 
             <details
               className="group border-t border-border pt-4"

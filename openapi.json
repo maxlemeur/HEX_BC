@@ -22236,7 +22236,7 @@
           "Catalogue"
         ],
         "summary": "Creer ou mettre a jour un produit",
-        "description": "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage.",
+        "description": "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage. L'unite d'un article qui a des conditionnements de vente ne change pas : 409 PRODUCT_UNIT_HAS_PACKAGINGS, retirer d'abord ses conditionnements.",
         "requestBody": {
           "description": "Action produit discriminee.",
           "required": true,
@@ -22494,6 +22494,420 @@
           },
           "404": {
             "description": "NOT_FOUND : article ou nom usuel d'un autre tenant, ou d'un autre article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{productId}/packagings": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Lister les conditionnements de vente d'un article",
+        "description": "Conditionnements de l'article dans l'ordre d'ajout, quantité exprimée dans l'unité de l'article, au plus un usuel (is_usual). can_edit dit si l'appelant peut les modifier (droits de la modification de l'article, TI-689). Lisible par tout membre du tenant actif.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conditionnements de l'article et droit de l'appelant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPackagings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article d'un autre tenant ou inconnu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Ajouter un conditionnement de vente à un article",
+        "description": "Un conditionnement est un libellé (1 à 80 caractères, espaces retirés) et une quantité strictement positive, trois décimales au plus, exprimée dans l'unité de l'article (« Barre » et 6 pour une barre de 6 m d'un article au mètre linéaire), que le conditionnement garde (unit) : l'unité d'un article qui a des conditionnements ne change plus tant qu'ils existent (PRODUCT_UNIT_HAS_PACKAGINGS à la modification de l'article). Purement informatif : aucune quantité, aucun prix, devis, bon ni demande ne le lit. Droits : ceux de la modification de l'article, dans le tenant actif. La réponse est la liste entière, dans l'ordre d'ajout. is_usual à true le rend usuel et retire la mention de celui qui l'avait.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Libellé, quantité et, au besoin, mention usuelle.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductPackagingCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Conditionnement ajouté ; liste entière de l'article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPackagingCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article ou fournisseur d'un autre tenant, ou inconnu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CONFLICT : « Ce conditionnement existe déjà pour cet article. » (même libellé, casse et accents ignorés, et même quantité), ou un autre conditionnement a été marqué usuel au même moment ; rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "PRODUCT_PACKAGING_UNIT_REQUIRED : l'article n'a pas d'unité (brouillon) ; rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{productId}/packagings/{packagingId}": {
+      "patch": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Modifier un conditionnement de vente",
+        "description": "Un conditionnement est un libellé (1 à 80 caractères, espaces retirés) et une quantité strictement positive, trois décimales au plus, exprimée dans l'unité de l'article (« Barre » et 6 pour une barre de 6 m d'un article au mètre linéaire), que le conditionnement garde (unit) : l'unité d'un article qui a des conditionnements ne change plus tant qu'ils existent (PRODUCT_UNIT_HAS_PACKAGINGS à la modification de l'article). Purement informatif : aucune quantité, aucun prix, devis, bon ni demande ne le lit. Droits : ceux de la modification de l'article, dans le tenant actif. La réponse est la liste entière, dans l'ordre d'ajout. Clé par clé : omise, la valeur enregistrée est gardée. is_usual à true déplace la mention usuelle sur ce conditionnement ; false la retire.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          },
+          {
+            "name": "packagingId",
+            "in": "path",
+            "description": "Conditionnement de vente de cet article.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductPackagingId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Au moins un champ.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductPackagingUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Conditionnement modifié ; liste entière de l'article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPackagingUpdated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article ou conditionnement d'un autre tenant, ou d'un autre article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CONFLICT : « Ce conditionnement existe déjà pour cet article. » (même libellé, casse et accents ignorés, et même quantité), ou un autre conditionnement a été marqué usuel au même moment ; rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Retirer un conditionnement de vente",
+        "description": "Supprime le conditionnement. Droits : ceux de la modification de l'article. La réponse est la liste restante.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          },
+          {
+            "name": "packagingId",
+            "in": "path",
+            "description": "Conditionnement de vente de cet article.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductPackagingId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conditionnement retiré ; liste restante de l'article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPackagingDeleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article ou conditionnement d'un autre tenant, ou d'un autre article.",
             "content": {
               "application/json": {
                 "schema": {
@@ -82853,6 +83267,293 @@
             },
             "required": [
               "deleted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiProductPackagings": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "is_usual": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "quantity",
+                    "is_usual",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ProductPackagingCreate": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999.999
+          },
+          "is_usual": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "quantity"
+        ],
+        "additionalProperties": false
+      },
+      "ApiProductPackagingCreated": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "is_usual": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "quantity",
+                    "is_usual",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ProductPackagingId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ProductPackagingUpdate": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999.999
+          },
+          "is_usual": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiProductPackagingUpdated": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "is_usual": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "quantity",
+                    "is_usual",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiProductPackagingDeleted": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "is_usual": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "quantity",
+                    "is_usual",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "can_edit"
             ],
             "additionalProperties": false
           }
