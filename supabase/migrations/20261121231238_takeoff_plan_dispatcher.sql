@@ -126,19 +126,20 @@ returns uuid language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_launch_first_job(uuid) from public, anon, authenticated, service_role;
 
--- The seal of either format: format 1 exactly as M4 checked it; format 2 only once the owner activated it, with one
--- unit per plan of the snapshot, in the recorded order, each with its share of the request's envelope (rounded up by
--- the server: the shares add up to at least the envelope and less than the envelope plus one per unit) and its
--- allowance of the dossier's sixty vector pages.
+-- The seal of either format, on #447's (20261121230719_takeoff_item_lists.sql): format 1 exactly as it checks it;
+-- format 2 only once the owner activated it, with one unit per plan of the snapshot, in the recorded order, each with its
+-- share of the request's envelope (rounded up by the server: the shares add up to at least the envelope and less than
+-- the envelope plus one per unit) and its allowance of the dossier's sixty vector pages. The measuring order of either
+-- format is #447's own check (private.assert_takeoff_launch_order: the free extraction, or the affaire's latest sealed
+-- list), last, once the manifest is valid. Volatile, as #447's: what that check reads after its wait is read fresh.
 create or replace function private.assert_takeoff_launch_seal(p_request public.takeoff_launch_requests, p_manifest jsonb, p_snapshot jsonb)
-returns void language plpgsql stable set search_path = '' as $$
+returns void language plpgsql volatile set search_path = '' as $$
 declare
   units integer;
 begin
   if jsonb_typeof(p_manifest) is distinct from 'object'
     or (p_manifest -> 'format_version' is distinct from '1'::jsonb and p_manifest -> 'format_version' is distinct from '2'::jsonb)
     or jsonb_typeof(p_manifest -> 'units') is distinct from 'array'
-    or p_manifest #>> '{order,kind}' is distinct from 'free_extraction'
     or jsonb_typeof(p_manifest -> 'plans') is distinct from 'array' or jsonb_array_length(p_manifest -> 'plans') = 0
     or jsonb_typeof(p_manifest #> '{budget,tokens}') is distinct from 'number' or (p_manifest #>> '{budget,tokens}')::numeric < 1
     or jsonb_typeof(p_manifest #> '{budget,cost_cents}') is distinct from 'number' or (p_manifest #>> '{budget,cost_cents}')::numeric < 0
@@ -156,6 +157,7 @@ begin
     if units <> 1 or p_manifest #>> '{units,0,key}' is distinct from 'grouped' then
       raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
     end if;
+    perform private.assert_takeoff_launch_order(p_request, p_manifest);
     return;
   end if;
   if not private.takeoff_plan_dispatch_active()
@@ -208,6 +210,7 @@ begin
         from jsonb_array_elements(p_manifest -> 'plans') p(value)) then
     raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
   end if;
+  perform private.assert_takeoff_launch_order(p_request, p_manifest);
 end;
 $$;
 
