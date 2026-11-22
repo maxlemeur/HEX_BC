@@ -85,7 +85,14 @@ autre réutilisation, et l’identifiant d’un poste d’une autre affaire.
 
 **Révisions.** Quand le dossier ou le gabarit change, la page propose une révision :
 postes ajoutés, retirés, modifiés et rapprochements possibles. Tous les changements
-s’ouvrent avant d’accepter. Un rapprochement montre, des deux côtés, ce qui distingue
+s’ouvrent avant d’accepter. Un poste modifié nomme chaque fait qui change, avec sa
+valeur avant et après : l’unité dans laquelle chaque côté se mesure (la sienne, sinon
+celle lue sur la ligne DPGF, même non reconnue, sinon « à préciser »), base de
+mesure, chaque discriminant, référence quantitative, section (deux sections de même
+titre distinguées par leur ligne dans la DPGF, deux familles du gabarit par leur
+version), référence de la ligne DPGF ; un
+changement des notes de la ligne est signalé, avec les autres, sans leur texte, un
+changement de place aussi. Un rapprochement montre, des deux côtés, ce qui distingue
 deux homonymes : la section et l’origine (ligne, page, référence, version du
 gabarit). Aucun rapprochement n’est coché d’avance. Rien n’est appliqué sans
 « Accepter la révision proposée ». Le serveur recalcule la proposition et refuse
@@ -101,13 +108,19 @@ par la première demande d’analyse qui la scelle.
 ou après une analyse, et après un premier envoi. L’opérateur donne une désignation,
 une unité ou « à préciser », une base de mesure, des discriminants (réseau, matière,
 diamètre) et une section. Il ne saisit ni quantité ni prix. L’auteur et la date sont
-ceux du serveur. Un double clic ne crée qu’un poste. Le même geste rejoué rend son
-reçu ; un autre contenu sous la même clé (une autre section, une autre sélection de
-rapprochements) est refusé.
+ceux du serveur. Un double clic ne crée qu’un poste, et une acceptation qu’une
+révision, que l’affaire ait déjà une liste ou non : le second clic rend le reçu du
+premier. Le même geste rejoué rend
+son reçu ; un autre contenu sous la même clé (une autre section, une autre sélection de
+rapprochements) est refusé. Quand la réponse du serveur n’arrive pas, l’ajout et
+l’acceptation d’une révision le disent, rendent le bouton et gardent ce qui a été
+saisi ou coché ; le clic suivant renvoie le même geste, qui n’est jamais enregistré
+deux fois.
 
 **Gabarit.** L’administrateur corrige le gabarit de plomberie dans **Administration
 › Gabarit de postes**. Il enregistre un brouillon et voit les ajouts, retraits et
-modifications par rapport à la version publiée. Il publie ensuite une version
+modifications par rapport à la version publiée. Abandonner le brouillon ramène
+l’éditeur à la version publiée, sans recharger la page. Il publie ensuite une version
 numérotée. Chaque poste du gabarit garde son identifiant d’une version à l’autre. Un
 poste nouveau ne reprend jamais l’identifiant d’un poste que le gabarit a eu, même
 retiré : la base le refuse à la publication, et une affaire se voit proposer un

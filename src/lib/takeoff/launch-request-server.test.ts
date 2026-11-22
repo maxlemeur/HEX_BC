@@ -141,6 +141,9 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
       },
       tenant_memberships: () => ({ data: { role: "engineer" }, error: null }),
       estimate_projects: () => ({ data: { user_id: PAYER, is_archived: false }, error: null }),
+      // The copy's source as the database recorded it at its insert: the dossier piece it was made from.
+      takeoff_plan_location_sources: (query: FakeQuery) => servedRows(input.copy === "none" ? [] : [{ plan_file_id: PLAN_FILE,
+        plan_set_id: PLAN_SET, tenant_id: TENANT, source_kind: "intake_document", source_id: DOCUMENT }], query),
     },
     storage: {
       [PLAN_FILES_BUCKET]: () => ({ data: new Blob([Uint8Array.from(planBytes)]), error: null }),
@@ -672,8 +675,10 @@ function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown
     takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan === true, error: null }),
     claim_takeoff_launch_evaluations: () => ({ data: [], error: null }),
   }, tables: {
-    // The analysis a command replaces: a plan's unit of one analysis per plan.
-    takeoff_jobs: () => ({ data: { launch_unit_key: `plan:${PLAN_FILE}`, preparation_snapshot: null }, error: null }),
+    // The analysis a command replaces: a plan's unit of one analysis per plan, whose copy is still in the plan set.
+    takeoff_jobs: () => ({ data: { launch_unit_key: `plan:${PLAN_FILE}`, preparation_snapshot: null, launch_request_id: null },
+      error: null }),
+    plan_files: () => ({ data: [{ id: PLAN_FILE, metadata: {} }], error: null, count: 1 }),
   } });
   vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
   return { calls: (fn: string) => calls.filter((call) => call.fn === fn).map((call) => call.args) };
@@ -865,6 +870,14 @@ describe("launchTakeoffRelaunch", () => {
   const PLAN_B = "aaaaaaaa-0000-4000-8000-000000000051";
   const PLAN_C = "aaaaaaaa-0000-4000-8000-000000000052";
   const PLAN_B_COPY = "aaaaaaaa-0000-4000-8000-000000000053";
+  /** A unit's job as the database records it, for each state of a unit (private.takeoff_unit_state). */
+  const unitJob = (requestId: string, key: string, state: string, index: number) => ({
+    id: `aaaaaaaa-0000-4000-9000-${String(index).padStart(12, "0")}`, launch_request_id: requestId, launch_unit_key: key,
+    status: { succeeded: "completed", failed: "failed", canceled: "canceled", not_started: "failed" }[state] ?? "pending",
+    analysis_outcome: { succeeded: "success", failed: "failure", canceled: "canceled", not_started: "failure" }[state] ?? null,
+    started_at: state === "not_started" || state === "canceled" ? null : "2026-11-21T08:05:00Z",
+    error_code: state === "failed" ? "AI_PROVIDER" : state === "not_started" ? "TAKEOFF_WORKER_NOT_STARTED" : null,
+    next_retry_at: null, updated_at: "2026-11-21T08:10:00Z" });
   /**
    * The member's confirmed preparation of plans A, B and C, with B's former revision set aside, and the affaire's previous
    * analysis, which read `previousRead`.
@@ -883,15 +896,25 @@ describe("launchTakeoffRelaunch", () => {
       page_count: pageCount, metadata: {}, created_at: "2026-11-21T08:00:00Z" });
     const rows = [planRow(PLAN_FILE, "plan-a.pdf", pages.a), planRow(PLAN_B, "plan-b.pdf", pages.b), planRow(PLAN_C, "plan-c.pdf", 2),
       planRow(PLAN_B_COPY, "plan-b-ancien.pdf", 2)];
-    const previousRow = previous ? { id: "aaaaaaaa-0000-4000-8000-0000000000e1", manifest: { format_version: previous.format,
-      coverage: { plans_omitted: [] }, plans: previous.plans.map((id) => ({ plan_file_id: id, name: rows.find((row) => row.id === id)!.file_name,
-        intake_document_id: null, generation: null })) } } : null;
-    const previousUnits = previous ? { request_id: previousRow!.id, format: previous.format === 2 ? "per_plan" : "grouped",
-      units: previous.format === 2
-        ? previous.plans.map((id, index) => ({ key: `plan:${id}`, ordinal: index + 1, state: previous.read.includes(id) ? "succeeded" : "canceled" }))
-        : [{ key: "grouped", ordinal: 1, state: previous.read.length ? "succeeded" : "failed" }] } : null;
+    const previousId = "aaaaaaaa-0000-4000-8000-0000000000e1";
+    const previousUnits = previous ? previous.format === 2
+      ? previous.plans.map((id, index) => ({ key: `plan:${id}`, ordinal: index + 1, plans: [id],
+        state: previous.read.includes(id) ? "succeeded" : "canceled" }))
+      : [{ key: "grouped", ordinal: 1, plans: previous.plans, state: previous.read.length ? "succeeded" : "failed" }] : [];
+    // The previous request, with its units' jobs as the walk reads them (one statement for the requests and their jobs).
+    const previousRow = previous ? { id: previousId, tenant_id: TENANT, project_id: PROJECT, state: "closed",
+      created_at: "2026-11-21T08:30:00Z", manifest: { format_version: previous.format,
+        units: previousUnits.map(({ key, ordinal, plans }) => ({ key, ordinal, plans, pages: [] })),
+        coverage: { plans_omitted: [] }, plans: previous.plans.map((id) => ({ entry_key: id, plan_file_id: id,
+          name: rows.find((row) => row.id === id)!.file_name, intake_document_id: null, generation: null, pages: [] })) },
+      takeoff_jobs: previousUnits.map((unit, index) => unitJob(previousId, unit.key, unit.state, index + 1)) } : null;
     const fake = createSupabaseFake({
-      tables: { plan_files: (query: FakeQuery) => servedRows(rows, query), takeoff_launch_requests: () => ({ data: previousRow, error: null }),
+      tables: { plan_files: (query: FakeQuery) => servedRows(rows, query),
+        // The affaire's analysed requests, from the latest: its previous one, if any.
+        takeoff_launch_requests: (query: FakeQuery) => servedRows(previousRow ? [previousRow] : [], query),
+        // Each copy uploaded to the plan set is its own source.
+        takeoff_plan_location_sources: (query: FakeQuery) => servedRows(rows.map((row) => ({ plan_file_id: row.id, plan_set_id: PLAN_SET,
+          tenant_id: TENANT, source_kind: "plan_file", source_id: row.id })), query),
         // The affaire's analyses: those of its previous request, if any.
         takeoff_jobs: () => ({ data: previous ? { id: "aaaaaaaa-0000-4000-8000-0000000000bb" } : null, error: null }) },
       storage: { [PLAN_FILES_BUCKET]: () => (bytes ? { data: new Blob([Uint8Array.from(bytes)]), error: null }
@@ -901,7 +924,6 @@ describe("launchTakeoffRelaunch", () => {
         takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
         // Lot 4: the second measuring order is not activated: the free extraction.
         takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
-        read_takeoff_launch_request_units: () => ({ data: previousUnits, error: null }),
         launch_manual_takeoff_plan_request: (args) => {
           launched.push(args as Record<string, unknown>);
           if (refusal) return { data: null, error: refusal };
@@ -1033,6 +1055,541 @@ describe("launchTakeoffRelaunch", () => {
     // Counterexample: the plan set aside leaves the dossier afterwards, which is still a change of the dossier.
     expect(describeDossierChangeSinceAnalysis(manifest, rows.filter((row) => row.id !== PLAN_B), [])).toEqual({
       added: [{ id: PLAN_C, name: "plan-c.pdf" }], replaced: [], removed: [{ id: PLAN_B, name: "plan-b.pdf" }] });
+  });
+
+  // An affaire's analyses over time, once one analysis per plan is active. `copies`: the plan set's working copies now,
+  // each of a dossier piece at its generation (or uploaded to the set: no piece); `requests`: its earlier requests, newest
+  // first, each with the plans it sealed (their copy, piece and generation), the state of each plan's unit (read unless
+  // named) and the plans it set aside as read before it; the member's confirmed preparation reads `confirmed`.
+  type Copy = { id: string; name: string; document: string | null; generation: string | null;
+    /** An upload to the plan set whose metadata names a dossier piece: the database records the copy itself as its source. */
+    strayPiece?: string;
+    /** When the database recorded the copy (its insert); by default in the order the copies are first named here. */
+    recordedAt?: string };
+  function affaireHistory(input: {
+    copies: Copy[]; confirmed: string[];
+    /** Newest first; `grouped`: one unit holding every plan (format 1), whose state is `states.grouped`. */
+    requests: Array<{ id: string; plans: Copy[]; states?: Record<string, string>; notRequested?: Copy[]; grouped?: boolean }>;
+    /**
+     * The analysis a command replaces: one plan's unit of one of the requests, or an analysis launched outside any request
+     * (`requestId` null, no unit) whose snapshot read `snapshotPlans`.
+     */
+    predecessor: { id: string; requestId: string | null; unitKey: string | null; snapshotPlans?: Copy[] };
+    /** The receipts the database holds: by the plans a command's identity names (none by default). */
+    receipt?: (planFileIds: string[] | null) => { data: unknown; error: { code: string; message: string } | null };
+    /** Copies in the plan set that are not their piece's current copy (an older generation the sync has not reserved yet). */
+    stale?: string[];
+    /** Dossier pieces removed from the dossier; every other piece is a classified plan of the dossier. */
+    removedPieces?: string[];
+    /** Every read of the plan set's copies, of their recorded sources or of a copy's current state fails. */
+    lookupsFail?: boolean;
+    /** Copies the plan set held and the dossier sync removed since (their sources stay recorded). */
+    formerCopies?: Copy[];
+  }) {
+    const launched: Array<Record<string, unknown>> = [];
+    const replays: Array<Record<string, unknown>> = [];
+    const metadata = (copy: Copy) => (copy.document ? { source: "affaire-intake", intake_document_id: copy.document,
+      intake_storage_path: `${TENANT}/dossier/${copy.document}.pdf`, intake_generation: copy.generation }
+      : copy.strayPiece ? { intake_document_id: copy.strayPiece } : {});
+    const rows = input.copies.map((copy) => ({ id: copy.id, tenant_id: TENANT, plan_set_id: PLAN_SET,
+      file_path: `${TENANT}/${PLAN_SET}/${copy.id}/${copy.name}`, file_name: copy.name, file_type: "application/pdf",
+      file_size_bytes: 8, page_count: 1, metadata: metadata(copy), created_at: "2026-11-21T08:00:00Z" }));
+    const sealed = (plan: Copy) => ({ id: plan.id, name: plan.name, intake_document_id: plan.document, generation: plan.generation });
+    let jobIndex = 0;
+    const requests = input.requests.map((request, index) => {
+      const units = request.grouped ? [{ key: "grouped", ordinal: 1, plans: request.plans.map((plan) => plan.id), pages: [] }]
+        : request.plans.map((plan, ordinal) => ({ key: `plan:${plan.id}`, ordinal: ordinal + 1, plans: [plan.id], pages: [] }));
+      return { id: request.id, tenant_id: TENANT, project_id: PROJECT, state: "closed",
+        created_at: new Date(Date.UTC(2026, 10, 21, 12) - index * 60_000).toISOString(),
+        manifest: { format_version: request.grouped ? 1 : 2, units,
+          // As the server sealed them before the recorded source decided identity: an upload's metadata piece included.
+          plans: request.plans.map((plan) => ({ entry_key: plan.id, plan_file_id: plan.id, name: plan.name,
+            logical_id: plan.document ?? plan.strayPiece ?? plan.id, intake_document_id: plan.document ?? plan.strayPiece ?? null,
+            generation: plan.generation, pages: [] })),
+          coverage: { plans_omitted: (request.notRequested ?? []).map((plan) => ({ ...sealed(plan), reason: "not_requested" })) } },
+        takeoff_jobs: units.map((unit) => unitJob(request.id, unit.key,
+          request.states?.[request.grouped ? "grouped" : unit.plans[0]!] ?? "succeeded", (jobIndex += 1))) };
+    });
+    const snapshotOf = (plans: Copy[]) => ({ preparation: { sources: plans.map((plan) => ({ document_id: plan.id,
+      document_name: plan.name, kind: "plan", active: true })) } });
+    const unitPlan = input.predecessor.unitKey?.startsWith("plan:")
+      ? input.requests.flatMap((request) => request.plans).find((plan) => `plan:${plan.id}` === input.predecessor.unitKey) : undefined;
+    const jobs = [{ id: input.predecessor.id, tenant_id: TENANT, project_id: PROJECT, launch_request_id: input.predecessor.requestId,
+      launch_unit_key: input.predecessor.unitKey, preparation_snapshot: input.predecessor.snapshotPlans
+        ? snapshotOf(input.predecessor.snapshotPlans) : unitPlan ? snapshotOf([unitPlan]) : null }];
+    // The source of every copy the plan set ever held, as the database recorded it at the copy's insert and keeps it once
+    // the copy is gone (takeoff_plan_location_sources).
+    const everyCopy = [...input.requests.slice().reverse().flatMap((request) => [...request.plans, ...(request.notRequested ?? [])]),
+      ...(input.predecessor.snapshotPlans ?? []), ...(input.formerCopies ?? []), ...input.copies];
+    const firstSeen = new Map<string, { copy: Copy; index: number }>();
+    everyCopy.forEach((copy, index) => { if (!firstSeen.has(copy.id)) firstSeen.set(copy.id, { copy, index }); });
+    // In the database's order of recording (its own timestamps, then the copy), as the queries ask it.
+    const registry = [...firstSeen.values()].map(({ copy, index }) => ({ plan_file_id: copy.id, plan_set_id: PLAN_SET,
+      tenant_id: TENANT, project_id: PROJECT, source_kind: copy.document ? "intake_document" : "plan_file",
+      source_id: copy.document ?? copy.id, recorded_at: copy.recordedAt ?? new Date(Date.UTC(2026, 10, 1) + index * 60_000).toISOString() }))
+      .sort((left, right) => left.recorded_at.localeCompare(right.recorded_at) || left.plan_file_id.localeCompare(right.plan_file_id));
+    const pieces = [...new Set(everyCopy.flatMap((copy) => (copy.document ? [copy.document] : [])))].map((id) => ({ id,
+      tenant_id: TENANT, project_id: PROJECT, upload_status: "uploaded", classification_status: "classified", document_kind: "plans",
+      deleted_at: input.removedPieces?.includes(id) ? "2026-11-21T09:00:00Z" : null, deletion_token: null }));
+    // A read by identifier (maybeSingle) gets its row; a list, the rows PostgREST serves (newest first here).
+    const served = (all: Array<Record<string, unknown>>) => (query: FakeQuery) => {
+      const answer = servedRows(all, query);
+      return query.cardinality === "many" ? answer : { data: (answer.data as unknown[])[0] ?? null, error: null };
+    };
+    const failing = { data: null, error: { code: "08006", message: "connection failure" }, count: null };
+    const fake = createSupabaseFake({
+      tables: {
+        plan_files: (query: FakeQuery) => (input.lookupsFail ? failing : servedRows(rows, query)),
+        takeoff_launch_requests: served(requests), takeoff_jobs: served(jobs),
+        takeoff_plan_location_sources: (query: FakeQuery) => (input.lookupsFail ? failing : servedRows(registry, query)),
+        affaire_intake_documents: (query: FakeQuery) => servedRows(pieces, query),
+      },
+      storage: { [PLAN_FILES_BUCKET]: () => ({ data: null, error: { message: "Object not found", statusCode: "404" } }) },
+      rpc: {
+        replay_manual_takeoff_plan_request: (args) => {
+          replays.push(args as Record<string, unknown>);
+          return input.receipt?.((args as { p_plan_file_ids: string[] | null }).p_plan_file_ids) ?? { data: [], error: null };
+        },
+        takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
+        takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
+        can_access_takeoff_project: () => ({ data: true, error: null }),
+        // The database's reader of one request's units, from the same states (the walk should not need it).
+        read_takeoff_launch_request_units: (args) => {
+          const request = requests.find((entry) => entry.id === (args as { p_request_id: string }).p_request_id)!;
+          const states = new Map(input.requests.map((entry) => [entry.id, entry.states ?? {}]));
+          return { data: { request_id: request.id, format: request.manifest.format_version === 2 ? "per_plan" : "grouped",
+            units: request.manifest.units.map((unit) => ({ key: unit.key, ordinal: unit.ordinal,
+              state: states.get(request.id)?.[request.manifest.format_version === 2 ? unit.plans[0]! : "grouped"] ?? "succeeded" })) },
+          error: null };
+        },
+        // The plan-location reader's decision (read_takeoff_plan_location_source): a copy present in the plan set is its
+        // piece's current copy unless an older generation; a copy gone is resolved from its recorded source, never current.
+        read_takeoff_plan_location_source: (args) => {
+          if (input.lookupsFail) return failing;
+          const id = (args as { p_plan_file_id: string }).p_plan_file_id;
+          const recorded = registry.find((entry) => entry.plan_file_id === id);
+          if (!recorded) return { data: [], error: null };
+          const present = rows.some((row) => row.id === id);
+          const piece = pieces.find((entry) => entry.id === recorded.source_id);
+          return { data: [{ source_kind: recorded.source_kind, source_id: recorded.source_id, plan_file_id: id, can_write: true,
+            current_copy: present && !input.stale?.includes(id) && (recorded.source_kind === "plan_file" || !piece?.deleted_at) }], error: null };
+        },
+        launch_manual_takeoff_plan_request: (args) => {
+          launched.push(args as Record<string, unknown>);
+          return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_jobs: Array<{ id: string }> }).p_jobs[0].id }],
+            error: null };
+        },
+      },
+    });
+    vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
+    const sources = rows.map((row) => takeoffPreparationSourceSchema.parse({ document_id: row.id, document_name: row.file_name,
+      kind: "plan", revision: null, source_version: "fixture-version", pages: [], active: input.confirmed.includes(row.id),
+      confirmed: true, plan_set_id: PLAN_SET, file_path: row.file_path, page_count: 1, source_updated_at: "2026-11-21T08:00:00Z",
+      mime_type: "application/pdf", content_hash: createHash("sha256").update(row.id).digest("hex") }));
+    const preparation = buildDeducedTakeoffPreparation({ sources: sources.filter((source) => source.active), planSetId: PLAN_SET });
+    preparation.sources.push(...sources.filter((source) => !source.active));
+    vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(createTakeoffPreparationSnapshot({ preparation, confirmedBy: PAYER,
+      confirmedAt: "2026-11-21T08:00:00Z", revision: 3, executionSelection: SELECTION }) as never);
+    vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({ execution_host_id: HOST } as never);
+    const context = { userId: PAYER, tenantId: TENANT, tenantRole: "engineer", supabase: fake.client } as never;
+    // The affaire zone's dialogue (LaunchMetreDialog, relaunchTakeoffAction): its key, its preparation and the analysis it
+    // replaces, never any plan.
+    const runFromDialogue = () => launchTakeoffRelaunch({ context, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 3,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000a1", predecessorJobId: input.predecessor.id });
+    const run = (planFileIds: string[]) => launchTakeoffRelaunch({ context, projectId: PROJECT, planSetId: PLAN_SET,
+      preparationRevision: 3, intentKey: "aaaaaaaa-0000-4000-8000-0000000000a2", planFileIds, predecessorJobId: input.predecessor.id });
+    // The dossier's pieces now, at the generation of their current copy.
+    const documents = [...new Map(input.copies.filter((copy) => copy.document).map((copy) => [copy.document!, {
+      id: copy.document!, file_name: copy.name, plan_copy_generation: copy.generation, storage_path: `${TENANT}/dossier/${copy.document}.pdf`,
+    }])).values()];
+    return { runFromDialogue, run, launched, replays, rows, documents, fake };
+  }
+  const PIECE_A = "aaaaaaaa-0000-4000-8000-000000000061";
+  const PIECE_B = "aaaaaaaa-0000-4000-8000-000000000062";
+  const PIECE_C = "aaaaaaaa-0000-4000-8000-000000000063";
+  const A_BEFORE: Copy = { id: PLAN_FILE, name: "plan-a.pdf", document: PIECE_A, generation: "generation-1" };
+  const A_AFTER: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000054", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2" };
+  const B_COPY: Copy = { id: PLAN_B, name: "plan-b.pdf", document: PIECE_B, generation: "generation-1" };
+  const C_COPY: Copy = { id: PLAN_C, name: "plan-c.pdf", document: PIECE_C, generation: "generation-1" };
+  const FIRST_REQUEST = "aaaaaaaa-0000-4000-8000-0000000000e1";
+  const SECOND_REQUEST = "aaaaaaaa-0000-4000-8000-0000000000e2";
+  const JOB_OF_A = "aaaaaaaa-0000-4000-8000-0000000000b1";
+
+  // The dossier replaced plan A after its analysis: its piece has a new working copy (a new generation, a new identifier) and
+  // the member confirmed the options with it. The dialogue's relaunch of A's analysis reads A at its current copy.
+  it("relaunches, from the dialogue's payload, a plan the dossier replaced after its analysis at its current copy", async () => {
+    const history = affaireHistory({ copies: [A_AFTER, B_COPY], confirmed: [A_AFTER.id, B_COPY.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "admitted", requestId: REQUEST });
+    expect(history.launched).toHaveLength(1);
+    expect(history.launched[0]).toMatchObject({ p_intent: "reread_plans", p_predecessor_job_id: JOB_OF_A, p_plan_file_ids: [A_AFTER.id] });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.plans).toEqual([expect.objectContaining({ plan_file_id: A_AFTER.id, intake_document_id: PIECE_A,
+      generation: "generation-2" })]);
+    // B stays the first analysis's; A's former copy is not set aside as read, its new copy is read.
+    expect(manifest.coverage.plans_omitted).toEqual([{ id: B_COPY.id, name: "plan-b.pdf", reason: "not_requested",
+      intake_document_id: PIECE_B, generation: "generation-1" }]);
+    expect(describeDossierChangeSinceAnalysis(manifest, history.rows, history.documents)).toBeNull();
+    // Its receipt was looked up first under the copies the analysis read, before any read of the plan set; none: the
+    // command is recorded under the copy it reads.
+    expect(history.replays).toEqual([expect.objectContaining({ p_plan_file_ids: [A_BEFORE.id], p_plans_named: false })]);
+  });
+
+  // A command sent before the replacement whose answer was lost: its retry after the replacement replays its receipt
+  // (recorded under the copy it then read), and admits nothing more.
+  it("answers a relaunch sent before its plan's replacement, retried after it, by its receipt", async () => {
+    const history = affaireHistory({ copies: [A_AFTER, B_COPY], confirmed: [A_AFTER.id, B_COPY.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` },
+      receipt: (planFileIds) => (planFileIds?.[0] === A_BEFORE.id
+        ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b2" }], error: null }
+        : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).resolves.toEqual({ outcome: "replayed", requestId: SECOND_REQUEST,
+      jobId: "aaaaaaaa-0000-4000-8000-0000000000b2" });
+    expect(history.launched).toEqual([]);
+    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+    // Under neither identity, another command under that key stays a conflict.
+    const other = affaireHistory({ copies: [A_AFTER, B_COPY], confirmed: [A_AFTER.id, B_COPY.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` },
+      receipt: () => ({ data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(other.runFromDialogue()).rejects.toMatchObject({ status: 409 });
+    expect(other.launched).toEqual([]);
+  });
+
+  // An analysis launched outside any request (a grouped one, before the activation) is resolved the same way: each copy's
+  // piece is the one the database recorded for it, kept once the copy is gone.
+  it("relaunches, from the dialogue's payload, an analysis outside any request at the current copies of its plans", async () => {
+    const history = affaireHistory({ copies: [A_AFTER, B_COPY], confirmed: [A_AFTER.id, B_COPY.id], requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A_BEFORE, B_COPY] } });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "admitted" });
+    expect(history.launched[0]).toMatchObject({ p_plan_file_ids: [B_COPY.id, A_AFTER.id] });
+    expect((history.launched[0].p_manifest as AnyTakeoffLaunchManifest).plans.map((plan) => plan.plan_file_id).sort())
+      .toEqual([B_COPY.id, A_AFTER.id].sort());
+  });
+
+  // A plan with no working copy now (its piece left the dossier, or its copy is missing): the relaunch is refused, saying
+  // so (the member cannot confirm the options with a plan that has no copy).
+  it.each([
+    ["left the dossier", true, "« plan-a.pdf » n’est plus dans les plans de l’affaire : cette analyse ne peut plus être relancée."],
+    ["has no copy for now", false, "« plan-a.pdf » n’a pas de copie de travail pour l’instant (manquante ou illisible) : l’analyse "
+      + "se relance quand ce plan a de nouveau sa copie."],
+  ] as const)("refuses the relaunch of an analysis whose only plan %s, saying so", async (_case, removed, message) => {
+    const history = affaireHistory({ copies: [B_COPY], confirmed: [B_COPY.id], requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      removedPieces: removed ? [PIECE_A] : [],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.runFromDialogue()).rejects.toMatchObject({ status: 422, message });
+    expect(history.launched).toEqual([]);
+  });
+
+  // A plan's last successful reading is inherited from any earlier request, not only the latest: request 1 read A and B,
+  // request 2 read A again and did not read it, request 3 reads C. A is not reported as added, and keeps its generation.
+  it.each(["failed", "canceled", "not_started"])(
+    "keeps, as read before, the earlier reading of a plan whose later reading %s", async (state) => {
+      const history = affaireHistory({ copies: [A_BEFORE, B_COPY, C_COPY], confirmed: [A_BEFORE.id, B_COPY.id, C_COPY.id],
+        requests: [
+          { id: SECOND_REQUEST, plans: [A_BEFORE], states: { [A_BEFORE.id]: state }, notRequested: [B_COPY] },
+          { id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] },
+        ],
+        predecessor: { id: JOB_OF_A, requestId: SECOND_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+      await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+      const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+      expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([
+        { id: A_BEFORE.id, name: "plan-a.pdf", reason: "not_requested", intake_document_id: PIECE_A, generation: "generation-1" },
+        { id: B_COPY.id, name: "plan-b.pdf", reason: "not_requested", intake_document_id: PIECE_B, generation: "generation-1" },
+      ]));
+      expect(manifest.coverage.plans_omitted).toHaveLength(2);
+      expect(describeDossierChangeSinceAnalysis(manifest, history.rows, history.documents)).toBeNull();
+      // Counterexample: once the dossier replaces A, the change is told against the generation that was read.
+      const replaced = history.documents.map((document) => (document.id === PIECE_A
+        ? { ...document, plan_copy_generation: "generation-2" } : document));
+      expect(describeDossierChangeSinceAnalysis(manifest, history.rows, replaced)).toEqual({ added: [], removed: [],
+        replaced: [{ id: PIECE_A, name: "plan-a.pdf" }] });
+    });
+
+  // The requests are read from the latest, a thousand a page: here a thousand later requests read A again without
+  // success, and only the oldest, on the second page, read it. Its reading is inherited across the page.
+  it("finds a plan's last successful reading past the first page of the affaire's requests", async () => {
+    const later = Array.from({ length: 1000 }, (_, index) => ({
+      id: `aaaaaaaa-0000-4000-8000-00000001${String(index).padStart(4, "0")}`, plans: [A_BEFORE],
+      states: { [A_BEFORE.id]: index % 2 ? "canceled" : "failed" }, notRequested: [B_COPY] }));
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY, C_COPY], confirmed: [A_BEFORE.id, B_COPY.id, C_COPY.id],
+      requests: [...later, { id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: later[0].id, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([
+      { id: A_BEFORE.id, name: "plan-a.pdf", reason: "not_requested", intake_document_id: PIECE_A, generation: "generation-1" }]));
+    expect(manifest.coverage.plans_omitted).toHaveLength(2);
+    // Two pages of requests: the oldest was on the second.
+    expect(history.fake.queries.filter(({ table }) => table === "takeoff_launch_requests").map(({ range }) => range))
+      .toEqual([[0, 999], [1000, 1999]]);
+  });
+
+  // The reading that counts is the latest that succeeded: a later successful reading of the same plan, at its new copy,
+  // replaces the earlier one (never both).
+  it("inherits the latest successful reading of a plan, at the copy it read", async () => {
+    const history = affaireHistory({ copies: [A_AFTER, B_COPY, C_COPY], confirmed: [A_AFTER.id, B_COPY.id, C_COPY.id],
+      requests: [
+        { id: SECOND_REQUEST, plans: [A_AFTER], notRequested: [B_COPY] },
+        { id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] },
+      ],
+      predecessor: { id: JOB_OF_A, requestId: SECOND_REQUEST, unitKey: `plan:${A_AFTER.id}` } });
+    await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: A_AFTER.id, reason: "not_requested", generation: "generation-2" }),
+      expect.objectContaining({ id: B_COPY.id, reason: "not_requested" }),
+    ]));
+    expect(manifest.coverage.plans_omitted).toHaveLength(2);
+    expect(describeDossierChangeSinceAnalysis(manifest, history.rows, history.documents)).toBeNull();
+  });
+
+  // Fix round 1. A command recorded before one analysis per plan (its identity names every plan of the preparation)
+  // retried later: its receipt answers first, under the copies the analysis read, before any read of the plan set, even
+  // when the analysis's copy was deleted since or the plan set cannot be read.
+  it.each([["after its analysis's copy was deleted", false], ["while the plan set's copies cannot be read", true]] as const)(
+    "answers a recorded grouped relaunch by its receipt %s", async (_case, lookupsFail) => {
+      const history = affaireHistory({ copies: [B_COPY], confirmed: [B_COPY.id], requests: [], lookupsFail,
+        predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A_BEFORE, B_COPY] },
+        // M4's identity: the database answers it whatever plans the lookup names (replay_manual_takeoff_plan_request).
+        receipt: () => ({ data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b2" }],
+          error: null }) });
+      await expect(history.runFromDialogue()).resolves.toEqual({ outcome: "replayed", requestId: SECOND_REQUEST,
+        jobId: "aaaaaaaa-0000-4000-8000-0000000000b2" });
+      expect(history.replays).toEqual([expect.objectContaining({ p_plan_file_ids: [A_BEFORE.id, B_COPY.id].sort(), p_plans_named: false })]);
+      expect(history.fake.queries.filter(({ table }) => table === "plan_files" || table === "takeoff_plan_location_sources")).toEqual([]);
+      expect(history.fake.rpcCalls.map(({ fn }) => fn)).not.toContain("read_takeoff_plan_location_source");
+      expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+    });
+
+  // The dossier moved A to its second generation before the sync reserved the first copy for its cleanup: that copy is
+  // still in the plan set, but it is not A's current copy (the plan-location reader's decision).
+  it("relaunches a replaced plan at its current copy while its older copy is still in the plan set", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, A_AFTER, B_COPY], confirmed: [A_AFTER.id, B_COPY.id], stale: [A_BEFORE.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "admitted" });
+    expect(history.launched[0]).toMatchObject({ p_plan_file_ids: [A_AFTER.id] });
+  });
+
+  // Request 1 reads A and B; a later grouped analysis retains only A and reads it; request 3 reads C: B keeps request 1's
+  // reading, whatever the request that ended the walk.
+  it("keeps a plan's earlier reading when a later grouped analysis did not read it", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY, C_COPY], confirmed: [A_BEFORE.id, B_COPY.id, C_COPY.id],
+      requests: [{ id: SECOND_REQUEST, plans: [A_BEFORE], grouped: true }, { id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: SECOND_REQUEST, unitKey: "grouped" } });
+    await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: A_BEFORE.id, reason: "not_requested" }),
+      { id: B_COPY.id, name: "plan-b.pdf", reason: "not_requested", intake_document_id: PIECE_B, generation: "generation-1" }]));
+    expect(manifest.coverage.plans_omitted).toHaveLength(2);
+  });
+
+  // An upload to the plan set whose metadata names a dossier piece is a plan of its own (the database records the copy
+  // itself as its source): reading it never stands in for that piece's reading.
+  const UPLOAD_A: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000055", name: "plan-a-envoi.pdf", document: null, generation: null,
+    strayPiece: PIECE_A };
+  it("never lets an upload naming a dossier piece in its metadata stand in for that piece's reading", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, UPLOAD_A, C_COPY], confirmed: [A_BEFORE.id, UPLOAD_A.id, C_COPY.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.run([UPLOAD_A.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.plans).toEqual([expect.objectContaining({ plan_file_id: UPLOAD_A.id, intake_document_id: null,
+      logical_id: UPLOAD_A.id })]);
+    expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: A_BEFORE.id, reason: "not_requested", intake_document_id: PIECE_A })]));
+  });
+
+  // The walk reads the affaire's analysed requests with their units in one statement, whatever their number: forty later
+  // requests named A without reading it, and only the oldest read it.
+  it("reads the affaire's analysed requests and their units in one statement, whatever their number", async () => {
+    const later = Array.from({ length: 40 }, (_, index) => ({
+      id: `aaaaaaaa-0000-4000-8000-0000000002${String(index).padStart(2, "0")}`, plans: [A_BEFORE],
+      states: { [A_BEFORE.id]: "failed" } }));
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY, C_COPY], confirmed: [A_BEFORE.id, B_COPY.id, C_COPY.id],
+      requests: [...later, { id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: later[0].id, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+    expect((history.launched[0].p_manifest as AnyTakeoffLaunchManifest).coverage.plans_omitted.map(({ id }) => id).sort())
+      .toEqual([A_BEFORE.id, B_COPY.id].sort());
+    expect(history.fake.queries.filter(({ table }) => table === "takeoff_launch_requests")).toHaveLength(1);
+    expect(history.fake.rpcCalls.filter(({ fn }) => fn === "read_takeoff_launch_request_units")).toEqual([]);
+  });
+
+  // The analysis read A0; the same command was recorded when A's current copy was A1, and is retried after A2 replaced
+  // it: its receipt is found under that identity, one of those the chain of replacements went through.
+  it("answers a relaunch recorded against a copy replaced since, after a second replacement, by its receipt", async () => {
+    const A0: Copy = { ...A_BEFORE, recordedAt: "2026-11-10T08:00:00.000Z" };
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000Z" };
+    const A2: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000057", name: "plan-a.pdf", document: PIECE_A, generation: "generation-3",
+      recordedAt: "2026-11-14T08:00:00.000Z" };
+    const history = affaireHistory({ copies: [A2, B_COPY], confirmed: [A2.id, B_COPY.id], formerCopies: [A1],
+      requests: [{ id: FIRST_REQUEST, plans: [A0, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A0.id}` },
+      receipt: (ids) => (ids?.length === 1 && ids[0] === A1.id
+        ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b3" }], error: null }
+        : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).resolves.toEqual({ outcome: "replayed", requestId: SECOND_REQUEST,
+      jobId: "aaaaaaaa-0000-4000-8000-0000000000b3" });
+    expect(history.launched).toEqual([]);
+    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+  });
+
+  // A grouped analysis read A and B; A has no working copy now. The relaunch of that group is not admitted: the member is
+  // told why, by name, and offered B, which a command naming it then reads alone.
+  it.each([["was removed from the dossier", true, "removed"], ["has no copy for now", false, "copy_missing"]] as const)(
+    "offers the other plans of an analysis whose plan A %s", async (_case, removed, reason) => {
+      const history = affaireHistory({ copies: [B_COPY], confirmed: [B_COPY.id], requests: [], removedPieces: removed ? [PIECE_A] : [],
+        predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A_BEFORE, B_COPY] } });
+      await expect(history.runFromDialogue()).resolves.toEqual({ outcome: "plans_to_choose", requestId: null, jobId: null,
+        choice: { withoutCopy: [{ name: "plan-a.pdf", reason }], remaining: [{ id: B_COPY.id, name: "plan-b.pdf" }] } });
+      expect(history.launched).toEqual([]);
+      await expect(history.run([B_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+      expect(history.launched[0]).toMatchObject({ p_plan_file_ids: [B_COPY.id], p_predecessor_job_id: JOB_OF_A });
+    });
+
+  // Review of fix round 1. Request 1 read A and B; B left the dossier; a later grouped analysis read A alone. A command
+  // reading C never records B as read before: it is no longer a plan of the plan set, and the dossier is not told
+  // « retiré » again for a removal the later analysis already sealed.
+  it("never sets aside as read before a plan that is no longer in the plan set", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, C_COPY], confirmed: [A_BEFORE.id, C_COPY.id], removedPieces: [PIECE_B],
+      requests: [{ id: SECOND_REQUEST, plans: [A_BEFORE], grouped: true }, { id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: SECOND_REQUEST, unitKey: "grouped" } });
+    await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual([expect.objectContaining({ id: A_BEFORE.id, reason: "not_requested" })]);
+    expect(describeDossierChangeSinceAnalysis(manifest, history.rows, history.documents)).toBeNull();
+  });
+
+  // A revision the member set aside in the confirmed preparation stays set aside, even when an earlier analysis read it.
+  it("keeps a revision the member set aside as set aside, though an earlier analysis read it", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY, C_COPY], confirmed: [B_COPY.id, C_COPY.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([{ id: A_BEFORE.id, name: "plan-a.pdf", reason: "alternate" },
+      expect.objectContaining({ id: B_COPY.id, reason: "not_requested" })]));
+    expect(manifest.coverage.plans_omitted).toHaveLength(2);
+  });
+
+  // A grouped analysis read A, B and C; A has no copy now and C's current copy is not in the member's confirmed options:
+  // the member is asked to confirm the options first, never offered B alone without being told about C.
+  it("asks to confirm the options before offering the other plans when one of them is not in the confirmed preparation", async () => {
+    const C_AFTER: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000058", name: "plan-c.pdf", document: PIECE_C, generation: "generation-2" };
+    const history = affaireHistory({ copies: [B_COPY, C_AFTER], confirmed: [B_COPY.id], requests: [], removedPieces: [PIECE_A],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A_BEFORE, B_COPY, C_COPY] } });
+    await expect(history.runFromDialogue()).rejects.toMatchObject({ status: 422,
+      message: "Ce plan ne fait pas partie de la préparation confirmée : confirmez les options du métré avec ce plan, puis relancez." });
+    expect(history.launched).toEqual([]);
+  });
+
+  // The current-copy reader is asked only about the copies the plan set holds: a deleted copy of the piece is never current.
+  it("asks the current-copy reader only about copies the plan set holds", async () => {
+    const A_GONE: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000059", name: "plan-a.pdf", document: PIECE_A, generation: "generation-0" };
+    const history = affaireHistory({ copies: [A_AFTER, B_COPY], confirmed: [A_AFTER.id, B_COPY.id], formerCopies: [A_GONE],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "admitted" });
+    const asked = history.fake.rpcCalls.filter(({ fn }) => fn === "read_takeoff_plan_location_source")
+      .map(({ args }) => (args as { p_plan_file_id: string }).p_plan_file_id).sort();
+    expect(asked).toEqual([A_BEFORE.id, A_AFTER.id].sort());
+  });
+
+  // A conflict under the key: only the identities the command can have had after the analysis it replaces are tried, one
+  // per copy recorded since (two copies recorded at once included), never the copies recorded before it.
+  it("tries, on a conflict, only the identities a relaunch can have had since its analysis", async () => {
+    const A_EARLIER: Copy = { id: "aaaaaaaa-0000-4000-8000-00000000005a", name: "plan-a.pdf", document: PIECE_A, generation: "generation-0",
+      recordedAt: "2026-11-01T08:00:00.000Z" };
+    const A0: Copy = { ...A_BEFORE, recordedAt: "2026-11-10T08:00:00.000Z" };
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000Z" };
+    const A1_TWIN: Copy = { id: "aaaaaaaa-0000-4000-8000-00000000005b", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000Z" };
+    const history = affaireHistory({ copies: [A1, B_COPY], confirmed: [A1.id, B_COPY.id], formerCopies: [A_EARLIER, A1_TWIN],
+      requests: [{ id: FIRST_REQUEST, plans: [A0, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A0.id}` },
+      receipt: () => ({ data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).rejects.toMatchObject({ status: 409 });
+    expect(history.replays.map((replay) => (replay as { p_plan_file_ids: string[] }).p_plan_file_ids)).toEqual(
+      [[A0.id], [A1_TWIN.id], [A1.id]]);
+  });
+
+  // The copies recorded since are counted per piece: A's replacement recorded before B's own copy is still an identity
+  // of the relaunch of a grouped analysis of A and B.
+  it("finds a grouped relaunch's receipt under a replacement recorded before another plan's copy", async () => {
+    const A0: Copy = { ...A_BEFORE, recordedAt: "2026-11-10T08:00:00.000Z" };
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000Z" };
+    const B_LATER: Copy = { ...B_COPY, recordedAt: "2026-11-15T08:00:00.000Z" };
+    const history = affaireHistory({ copies: [A1, B_LATER], confirmed: [A1.id, B_LATER.id], requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A0, B_LATER] },
+      receipt: (ids) => (ids?.join() === [A1.id, B_LATER.id].sort().join()
+        ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b4" }], error: null }
+        : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "replayed", jobId: "aaaaaaaa-0000-4000-8000-0000000000b4" });
+  });
+
+  // Closing round. A0 is still in the plan set and in the confirmed options after its dossier generation changed, and
+  // its replacement is not available yet: the reader calls A0 stale, so it is never read; it is offered as a plan
+  // without copy.
+  it("never admits a copy the reader calls stale when its replacement is unavailable", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY], confirmed: [A_BEFORE.id, B_COPY.id], stale: [A_BEFORE.id], requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A_BEFORE, B_COPY] } });
+    await expect(history.runFromDialogue()).resolves.toEqual({ outcome: "plans_to_choose", requestId: null, jobId: null,
+      choice: { withoutCopy: [{ name: "plan-a.pdf", reason: "copy_missing" }], remaining: [{ id: B_COPY.id, name: "plan-b.pdf" }] } });
+    expect(history.launched).toEqual([]);
+  });
+
+  // An earlier grouped analysis read upload U, whose metadata names piece A (its manifest, sealed before the recorded
+  // source decided identity, says so): U's reading is its own, and a command reading A keeps it as read before.
+  it("never lets a historical upload naming a dossier piece in its metadata stand in for that piece", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, UPLOAD_A, C_COPY], confirmed: [A_BEFORE.id, UPLOAD_A.id, C_COPY.id],
+      requests: [{ id: FIRST_REQUEST, plans: [UPLOAD_A], grouped: true }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: "grouped" } });
+    await expect(history.run([A_BEFORE.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([{ id: UPLOAD_A.id, name: "plan-a-envoi.pdf",
+      reason: "not_requested", intake_document_id: null, generation: null }]));
+  });
+
+  // The copies are ordered by the database's own times, below the millisecond: A1 was recorded before B1 within the same
+  // millisecond, so the relaunch recorded between them read A1 and B0.
+  it("finds a relaunch's receipt under copies recorded within the same millisecond, in the database's order", async () => {
+    const A0: Copy = { ...A_BEFORE, recordedAt: "2026-11-10T08:00:00.000000+00:00" };
+    const B0: Copy = { ...B_COPY, recordedAt: "2026-11-10T08:00:00.000200+00:00" };
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000100+00:00" };
+    const B1: Copy = { id: "aaaaaaaa-0000-4000-8000-00000000005c", name: "plan-b.pdf", document: PIECE_B, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000900+00:00" };
+    const history = affaireHistory({ copies: [A1, B1], confirmed: [A1.id, B1.id], requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A0, B0] },
+      receipt: (ids) => (ids?.join() === [A1.id, B0.id].sort().join()
+        ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b5" }], error: null }
+        : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "replayed", jobId: "aaaaaaaa-0000-4000-8000-0000000000b5" });
+  });
+
+  // The registry's history of a piece is read a page at a time: the copy holding the receipt is the newest of more than a
+  // thousand recorded since the analysis.
+  it("finds a relaunch's receipt past the first thousand copies of its plan", async () => {
+    const A0: Copy = { ...A_BEFORE, recordedAt: new Date(Date.UTC(2026, 10, 10)).toISOString() };
+    const former = Array.from({ length: 1001 }, (_, index): Copy => ({ id: `aaaaaaaa-0000-4000-9100-${String(index).padStart(12, "0")}`,
+      name: "plan-a.pdf", document: PIECE_A, generation: `generation-h${index}`,
+      recordedAt: new Date(Date.UTC(2026, 10, 11) + index * 1000).toISOString() }));
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: new Date(Date.UTC(2026, 10, 12)).toISOString() };
+    const history = affaireHistory({ copies: [A1], confirmed: [A1.id], formerCopies: former, requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A0] },
+      receipt: (ids) => (ids?.join() === A1.id
+        ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b6" }], error: null }
+        : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "replayed", jobId: "aaaaaaaa-0000-4000-8000-0000000000b6" });
   });
 
   it("refuses plans named one by one before one analysis per plan is active", async () => {

@@ -187,7 +187,9 @@ export type ItemListProposalView = {
   added: ItemListViewPoste[];
   removed: ItemListViewPoste[];
   changes: Array<{ previous: ItemListViewPoste; current: ItemListViewPoste; moved: boolean; measurementChanged: boolean;
-    referenceChanged: boolean; targetChanged: boolean }>;
+    referenceChanged: boolean; targetChanged: boolean;
+    /** The notes of the DPGF row changed: their digests differ (neither digest nor text is sent to readers). */
+    notesChanged: boolean }>;
   continuities: Array<{ previousItemId: string; nextItemId: string; ambiguous: boolean }>;
 };
 
@@ -224,7 +226,8 @@ function proposalView(proposal: ReturnType<typeof proposeItemListRevision>, base
     changes: proposal.comparison.changes.filter((change) => change.moved || change.measurementChanged || change.referenceChanged
       || change.targetChanged).map(({ previous, current, moved, measurementChanged, referenceChanged, targetChanged }) =>
       ({ previous: forReaders(previous), current: forReaders(current), moved, measurementChanged, referenceChanged,
-        targetChanged })),
+        targetChanged, notesChanged: previous.origin.kind === "dpgf" && current.origin.kind === "dpgf"
+          && previous.origin.measurementNotesDigest !== current.origin.measurementNotesDigest })),
     continuities: proposal.comparison.continuities,
   };
 }
@@ -385,6 +388,22 @@ async function recordedByIntent(client: Client, scope: PosteListScope, intentKey
 const replay = (row: { id: string; revision: number; content_sha256: string }): Recorded =>
   ({ revisionId: row.id, revision: row.revision, contentSha256: row.content_sha256, replayed: true });
 
+/**
+ * A read a gesture makes of its list, or of what it writes, that failed (the count of a paged read changed while another
+ * call wrote the list, among others): this very gesture, recorded meanwhile by a concurrent call (a double click), is the
+ * answer; any other failure stands as it was.
+ */
+async function readOrReceipt<T>(read: () => Promise<T>, receipt: () => Promise<Recorded | null>):
+  Promise<{ value: T; receipt?: never } | { receipt: Recorded; value?: never }> {
+  try {
+    return { value: await read() };
+  } catch (error) {
+    const recorded = await receipt();
+    if (recorded) return { receipt: recorded };
+    throw error;
+  }
+}
+
 function intentConflict(): never {
   throw conflict("Cette action a déjà été enregistrée avec un autre contenu : rechargez la liste des postes.", undefined,
     "TAKEOFF_ITEM_LIST_INTENT_CONFLICT");
@@ -438,10 +457,17 @@ export async function acceptItemListProposal(projectId: string, input: {
   const gestureSha256 = acceptanceGesture(input);
   const earlier = await recordedByIntent(service, scope, input.intentKey, gestureSha256);
   if (earlier) return earlier;
-  const [sources, stored] = await Promise.all([resolveItemListSources(scope, service), readStoredItemList(service, scope)]);
+  const read = await readOrReceipt(() => Promise.all([resolveItemListSources(scope, service), readStoredItemList(service, scope)]),
+    () => recordedByIntent(service, scope, input.intentKey, gestureSha256));
+  if (read.receipt) return read.receipt;
+  const [sources, stored] = read.value;
   const drafts = sourceDrafts(sources);
   const current = stored?.revision ?? null;
   if ((stored?.row.revision ?? 0) !== input.expectedRevision || !drafts) {
+    // The list moved since the gesture's receipt was looked for: this very gesture, recorded meanwhile by a concurrent
+    // call (a double click), is the answer; any other change is a conflict.
+    const concurrent = await recordedByIntent(service, scope, input.intentKey, gestureSha256);
+    if (concurrent) return concurrent;
     throw conflict("La liste des postes a changé depuis votre lecture : rechargez-la.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
   const proposal = proposeItemListRevision({ scope, current, sourceDrafts: drafts, registeredKeys: stored?.registeredKeys });
@@ -488,30 +514,41 @@ export async function addItemListPoste(projectId: string, input: ItemListAdditio
   const replayedAddition = () => recordedByIntent(service, scope, input.intentKey, gestureSha256);
   const earlier = await replayedAddition();
   if (earlier) return earlier;
-  let stored = await readStoredItemList(service, scope);
+  const read = await readOrReceipt(() => readStoredItemList(service, scope), replayedAddition);
+  if (read.receipt) return read.receipt;
+  let stored = read.value;
   // A first list this same gesture recorded (a double click on an affaire without a list) is its own, not a change.
   const ownFirst = input.expectedRevision === 0 && stored?.history.some(({ intent_key }) =>
     intent_key === derivedIntent(input.intentKey, "initial"));
   if ((stored?.row.revision ?? 0) !== input.expectedRevision && !ownFirst) {
+    // The list moved since the receipt was looked for: this very gesture, recorded meanwhile by a concurrent call (a
+    // double click), is the answer; any other change is a conflict.
+    const concurrent = await replayedAddition();
+    if (concurrent) return concurrent;
     throw conflict("La liste des postes a changé depuis votre lecture : rechargez-la.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
   if (!stored) {
     const sources = await resolveItemListSources(scope, service);
     const first = proposeItemListRevision({ scope, current: null, sourceDrafts: sourceDrafts(sources) ?? [] });
-    stored = await recordFirstList(service, scope, { actor: context.userId, intentKey: derivedIntent(input.intentKey, "initial"),
-      sources: sourcesSummary(sources), revision: first.candidate });
+    const recorded = await readOrReceipt(() => recordFirstList(service, scope, { actor: context.userId,
+      intentKey: derivedIntent(input.intentKey, "initial"), sources: sourcesSummary(sources), revision: first.candidate }),
+    replayedAddition);
+    if (recorded.receipt) return recorded.receipt;
+    stored = recorded.value;
   }
   const section = input.sectionOfItemId
     ? stored.revision.items.find(({ id }) => id === input.sectionOfItemId)?.sections ?? null : null;
   if (input.sectionOfItemId && !section) {
     throw conflict("La section choisie n’est plus dans la liste : rechargez-la.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
-  const next = withAddedItem(stored.revision, {
-    intentId: input.intentKey, addedBy: context.userId, addedAt: new Date().toISOString(), label: input.label,
-    expectedUnit: input.expectedUnit, measurementBasis: input.measurementBasis, qualifiers: input.qualifiers,
-    sectionPath: section,
-  });
   try {
+    // Built here, inside the recovery: the list read may already hold this gesture's item, recorded by a concurrent call
+    // (a double click) after this one looked for its receipt; its origin is then refused as a second definition.
+    const next = withAddedItem(stored.revision, {
+      intentId: input.intentKey, addedBy: context.userId, addedAt: new Date().toISOString(), label: input.label,
+      expectedUnit: input.expectedUnit, measurementBasis: input.measurementBasis, qualifiers: input.qualifiers,
+      sectionPath: section,
+    });
     return await recordItemListRevision(service, {
       scope, actor: context.userId, expectedRevision: stored.row.revision, intentKey: input.intentKey, gestureSha256,
       cause: "item_added",

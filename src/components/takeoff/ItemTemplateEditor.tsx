@@ -96,6 +96,13 @@ export function ItemTemplateEditor({ templateKey, published, draft }: Props) {
   });
   const discard = () => run(async () => {
     await send("DELETE", `${base}/draft`, { expected_token: token });
+    // The draft is gone: the editor starts again from the published version, as a reload would show it (the page keeps
+    // the same key when the draft discarded was saved here: it was not there when the page was read).
+    setDefinition(published.definition);
+    setSaved(JSON.stringify(published.definition));
+    setRevision(0);
+    setToken(null);
+    intent.current = crypto.randomUUID();
     router.refresh();
   });
 

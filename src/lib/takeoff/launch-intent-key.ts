@@ -14,6 +14,8 @@ export type TakeoffLaunchCommand = {
   predecessorJobId: string | null;
   planSetId: string;
   preparationRevision: number;
+  /** The plans the member chose to read (a command that names them); none for the plans of the analysis it replaces. */
+  planFileIds?: string[];
 };
 
 type Entry = { outstanding: TakeoffLaunchCommand | null; settled: string[] };
@@ -85,8 +87,10 @@ function toCommand(value: unknown): TakeoffLaunchCommand | null {
   return entry && typeof entry.intentKey === "string" && UUID.test(entry.intentKey) && typeof entry.planSetId === "string"
     && (entry.predecessorJobId === null || typeof entry.predecessorJobId === "string")
     && typeof entry.preparationRevision === "number" && Number.isInteger(entry.preparationRevision)
+    && (entry.planFileIds === undefined || (Array.isArray(entry.planFileIds) && entry.planFileIds.length > 0
+      && entry.planFileIds.every((id) => typeof id === "string" && UUID.test(id))))
     ? { intentKey: entry.intentKey, predecessorJobId: entry.predecessorJobId, planSetId: entry.planSetId,
-      preparationRevision: entry.preparationRevision }
+      preparationRevision: entry.preparationRevision, ...(entry.planFileIds ? { planFileIds: [...entry.planFileIds] } : {}) }
     : null;
 }
 
@@ -113,6 +117,13 @@ function writeEntry(storage: Storage | null, name: string, entry: Entry) {
   } catch {
     // Nothing kept: the next click is a new command.
   }
+}
+
+/** Whether a command is the one described: the same analysis replaced, plan set, revision and chosen plans. */
+export function isSameTakeoffLaunch(command: TakeoffLaunchCommand, content: Omit<TakeoffLaunchCommand, "intentKey">) {
+  const plans = (ids: string[] | undefined) => [...(ids ?? [])].map((id) => id.toLowerCase()).sort().join();
+  return command.predecessorJobId === content.predecessorJobId && command.planSetId === content.planSetId
+    && command.preparationRevision === content.preparationRevision && plans(command.planFileIds) === plans(content.planFileIds);
 }
 
 /** The member's command on this affaire whose answer is unknown, if any: it is sent again before anything new. */
