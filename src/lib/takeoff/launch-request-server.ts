@@ -219,7 +219,8 @@ export async function assumeTakeoffLaunchRequest(input: {
 /**
  * The payer notice of the brief's confirmation, for the member whose subscription the analysis will use: its text and
  * the digest the confirmation carries back (the member, both cut-offs and the subscription and settings it was shown
- * with on this Mac). None when the member may not pay, before both cut-offs or with the module off.
+ * with on this Mac). None when the member may not pay, before both cut-offs or with the module off. A read that fails
+ * throws: it is never taken for « no notice ».
  */
 export async function readAutomaticTakeoffPayerNotice(context: Context, project: { id: string }, host?: string | null) {
   const service = createServiceRoleClient();
@@ -229,8 +230,22 @@ export async function readAutomaticTakeoffPayerNotice(context: Context, project:
     p_tenant_id: context.tenantId, p_project_id: project.id, p_actor: context.userId,
     p_selection: (subscription.selection ?? null) as unknown as Json, p_module_default: takeoffModuleDefault(),
   });
-  if (error || typeof data !== "string") return null;
+  if (error) databaseError(error, "Impossible de vérifier quel forfait ChatGPT le métré utilisera.");
+  if (typeof data !== "string") return null;
   return { message: TAKEOFF_AUTOMATIC_PAYER_NOTICE, digest: data };
+}
+
+/**
+ * The one rule of the notice the confirmation dialog shows, read when it opens: only for a brief to confirm, read now
+ * under the member's own session, then as readAutomaticTakeoffPayerNotice gives it. The dialog sends back the digest of
+ * what it showed; a brief that reached the page after its render is read here, not taken from that render.
+ */
+export async function readBriefConfirmationPayerNotice(context: Context, project: { id: string }, host?: string | null) {
+  const { data, error } = await context.supabase.from("affaire_briefs").select("status")
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).maybeSingle();
+  if (error) databaseError(error, "Impossible de lire le brief de l’affaire.");
+  if ((data as { status?: string } | null)?.status !== "a_confirmer") return null;
+  return readAutomaticTakeoffPayerNotice(context, project, host);
 }
 
 // The Mac's loop: evaluate the requests whose mandate it holds, then admit them.
@@ -1129,15 +1144,4 @@ export function describeDossierChangeSinceAnalysis(manifest: AnyTakeoffLaunchMan
   });
   const removed = known.filter((plan) => !currentIds.has(plan.plan_file_id)).map((plan) => ({ id: plan.plan_file_id, name: plan.name }));
   return added.length || replaced.length || removed.length ? { added, replaced, removed } : null;
-}
-
-/** The notice of who pays for the affaire's page: nothing for a reader, nothing before the activation, never an error. */
-export async function readAffaireAutomaticTakeoffPayerNotice(projectId: string) {
-  try {
-    const { requireAffaireAccess } = await import("@/lib/affaires/access-server");
-    const [{ context, project }, { headers }] = await Promise.all([requireAffaireAccess(projectId, "read"), import("next/headers")]);
-    return await readAutomaticTakeoffPayerNotice(context, project, (await headers()).get("host"));
-  } catch {
-    return null;
-  }
 }

@@ -19,7 +19,7 @@ import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
   assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
-  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readDossierChangeSinceAnalysis,
+  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readBriefConfirmationPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
@@ -770,6 +770,41 @@ describe("readAutomaticTakeoffPayerNotice", () => {
     gesture({ mayPay: false });
     expect(await readAutomaticTakeoffPayerNotice(member("director"), { id: PROJECT })).toBeNull();
     expect(readChatGptStore).not.toHaveBeenCalled();
+  });
+
+  // The dialog reads the notice when it opens: a read that fails must be told apart from a notice there is none of.
+  it("fails, instead of answering « no notice », when the database cannot read it", async () => {
+    vi.mocked(createServiceRoleClient).mockReturnValue(createSupabaseFake({ rpc: {
+      takeoff_payer_may_launch: () => ({ data: true, error: null }),
+      takeoff_payer_notice: () => ({ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }),
+    } }).client as never);
+    await expect(readAutomaticTakeoffPayerNotice(member("engineer"), { id: PROJECT }, "127.0.0.1:3000")).rejects.toThrow();
+  });
+});
+
+describe("readBriefConfirmationPayerNotice", () => {
+  // The member's own session reads the brief as it is now: the notice is for a brief to confirm, as the page's render had it.
+  const reader = (brief: { data: unknown; error: unknown }) => ({ userId: PAYER, tenantId: TENANT, tenantRole: "engineer",
+    supabase: createSupabaseFake({ tables: { affaire_briefs: () => brief } }).client }) as never;
+
+  it("gives the notice for a brief to confirm, read now", async () => {
+    const { calls } = gesture();
+    expect(await readBriefConfirmationPayerNotice(reader({ data: { status: "a_confirmer" }, error: null }), { id: PROJECT }, "127.0.0.1:3000"))
+      .toEqual({ message: "Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.", digest: NOTICE });
+    expect(calls("notice")).toEqual([expect.objectContaining({ p_actor: PAYER, p_project_id: PROJECT })]);
+  });
+
+  it.each([["already confirmed", { status: "confirme" }], ["not written yet", null]])("gives none for a brief %s", async (_case, row) => {
+    const { calls } = gesture();
+    expect(await readBriefConfirmationPayerNotice(reader({ data: row, error: null }), { id: PROJECT }, "127.0.0.1:3000")).toBeNull();
+    expect(calls("notice")).toEqual([]);
+  });
+
+  it("fails when the brief cannot be read", async () => {
+    const { calls } = gesture();
+    await expect(readBriefConfirmationPayerNotice(reader({ data: null, error: { code: "08006", message: "connection failure" } }),
+      { id: PROJECT }, "127.0.0.1:3000")).rejects.toThrow();
+    expect(calls("notice")).toEqual([]);
   });
 });
 

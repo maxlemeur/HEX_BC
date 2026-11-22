@@ -61,7 +61,7 @@ import {
   FinancialSummaryCard,
   VersionTimelineCard,
 } from "./AffaireHubSections";
-import { getAffaireDossierState } from "@/lib/affaires/intake";
+import { getAffaireDossierState, isAffaireIntakeBriefAwaited } from "@/lib/affaires/intake";
 import type { AffaireTakeoffZoneData } from "@/lib/takeoff/affaire-takeoff-zone";
 import type { CockpitCommandPreference, CockpitIntent, CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
@@ -88,7 +88,7 @@ import { materialRequestsHref } from "@/components/material-requests/format";
 import { AffaireDossierOverview, AffaireWorkbench, affaireSectionFromLocation, type AffaireWorkbenchSection } from "./AffaireWorkbench";
 import { buildAffaireJourney } from "./AffaireJourneyPanel.model";
 import { IntakeUploadFeedback, useIntakeUploadFeedback } from "./IntakeUploadFeedback";
-import { useAffaireDossier } from "./useAffaireDossier";
+import { useAffaireDossier, useDossierPoll } from "./useAffaireDossier";
 import { useHubCockpitSuggestions, type HubCockpitInput } from "./useHubCockpitSuggestions";
 import "./AffaireWorkbench.css";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
@@ -157,8 +157,6 @@ type AffaireHubProps = {
   liveDossier?: boolean;
   /** Kept for the page's callers; the hub no longer keys anything per member in the browser. */
   viewerProfileId?: string | null;
-  /** The notice of who pays, shown in the brief's confirmation to the member the automatic takeoff will charge. */
-  automaticTakeoffPayerNotice?: { message: string; digest: string } | null;
   /** The takeoff's zone as the server read it for this member; null when that read failed. */
   takeoffZone?: AffaireTakeoffZoneData | null;
   /** A link asked for the takeoff's options (`metreOptions=1`, former launch links), and the plan set it named. */
@@ -477,7 +475,6 @@ export function AffaireHub({
   cockpitSuggestions: serverCockpitSuggestions,
   cockpitPreferences,
   liveDossier = true,
-  automaticTakeoffPayerNotice = null,
   takeoffZone = null,
   takeoffOptionsRequested = false,
   takeoffOptionsPlanSetId = null,
@@ -490,6 +487,9 @@ export function AffaireHub({
   // navigation.
   const dossier = useAffaireDossier(summary.project.id, { workspace: serverIntakeWorkspace, plansSummary: serverPlansSummary }, { plans: takeoffEnabled, live: liveDossier });
   const intakeWorkspace = dossier.workspace;
+  // The first brief is written after its pieces' analysis: the page follows the dossier until it shows (two minutes at
+  // most), so a member who stays on the affaire can confirm it there.
+  useDossierPoll(isAffaireIntakeBriefAwaited(intakeWorkspace), dossier.reload, { intervalMs: 4000, maxMs: 120_000 });
   const plansSummary = dossier.plansSummary;
   const plansError = dossier.plansFromRead ? undefined : sectionErrors?.plansSummary;
   // Over a read, the suggestions follow the dossier on screen, computed as the server does.
@@ -1314,7 +1314,6 @@ export function AffaireHub({
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
                     hasPlans={Boolean(intakeWorkspace && !intakeWorkspace.missingPieces.some((piece) => piece.code === "missing_plans"))}
                     isReadOnly={isReadOnlyReview}
-                    payerNotice={automaticTakeoffPayerNotice}
                     onOpenDocuments={openDocuments}
                     onBackToDossier={() => {
                       selectSection("dossier");

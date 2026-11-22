@@ -216,6 +216,18 @@ export async function updateAffaireBrief(input: {
   } as const;
 }
 
+/**
+ * Who pays for the affaire's automatic takeoff, read when the brief's confirmation dialog opens, for this member and the
+ * brief as it is now (readBriefConfirmationPayerNotice). Throws when it cannot be read: the dialog then says so.
+ */
+export async function readAffaireBriefPayerNotice(input: { projectId: string }) {
+  const { context, project } = await requireAffaireAccess(input.projectId, "read");
+  const [{ readBriefConfirmationPayerNotice }, { headers }] = await Promise.all([
+    import("@/lib/takeoff/launch-request-server"), import("next/headers"),
+  ]);
+  return readBriefConfirmationPayerNotice(context, project, (await headers()).get("host"));
+}
+
 export async function confirmAffaireBrief(input: { projectId: string; expectedUpdatedAt: string; payerNotice?: string | null }) {
   // The brief is completed by every reader of the affaire, a director included: read access is enough.
   const { context, project } = await requireAffaireAccess(input.projectId, "read");

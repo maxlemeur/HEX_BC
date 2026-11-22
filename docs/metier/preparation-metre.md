@@ -115,12 +115,23 @@ la base en garantit l’unicité et l’admission (migration
 - **Qui paie.** Le membre enregistré comme ayant confirmé le brief, s’il peut
   lancer un métré sur l’affaire (administrateur, ou ingénieur propriétaire de
   l’affaire). Il en est averti dans la confirmation : « Une fois les plans prêts,
-  le métré utilisera votre forfait ChatGPT et les réglages de Mon profil. » Le
-  mandat n’est payable que si la confirmation porte cette mention telle qu’elle a
-  été montrée (ce membre, ce forfait et ces réglages, cette activation) ; un
-  formulaire ouvert avant l’activation ou montré sans la mention confirme le brief
-  et n’engage personne (« Métré non démarré — la confirmation du dossier n’a
-  engagé aucun forfait ChatGPT »). Le mandat porte sur cette demande, cette
+  le métré utilisera votre forfait ChatGPT et les réglages de Mon profil. » La
+  fenêtre « Confirmer ce brief ? » lit cette mention à son ouverture, pour ce
+  membre et le brief tel qu’il est alors (la même règle pour tout appelant :
+  seulement un brief à confirmer, un membre qui peut payer, l’activation en
+  place), et non sur la page affichée avant l’arrivée du brief. La page de
+  l’affaire relit le dossier jusqu’à ce que son premier brief, écrit après
+  l’analyse des pièces, s’affiche (deux minutes au plus) : un membre resté sur
+  l’affaire pendant l’analyse le voit arriver, le confirme et voit la mention.
+  Pendant la lecture,
+  la fenêtre l’indique et « Oui, confirmer » attend. Si la lecture échoue, elle
+  dit qu’elle n’a pas pu vérifier le forfait, propose « Réessayer » et laisse
+  confirmer sans démarrer d’analyse. Le mandat n’est payable que si la
+  confirmation porte cette mention telle que cette fenêtre l’a montrée (ce membre,
+  ce forfait et ces réglages, cette activation) ; une fenêtre ouverte avant
+  l’activation, montrée sans la mention ou dont la lecture a échoué confirme le
+  brief et n’engage personne (« Métré non démarré — la confirmation du dossier
+  n’a engagé aucun forfait ChatGPT »). Le mandat porte sur cette demande, cette
   affaire, ce membre, la sélection de son profil, la connexion ChatGPT en cours et
   le Mac du geste ; une déconnexion ou une reconnexion le retire (« partage
   révoqué ») quel que soit l’état du dossier, jusqu’au geste du payeur. Un lecteur qui confirme ne paie pas : « Métré non
