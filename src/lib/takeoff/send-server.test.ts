@@ -91,6 +91,16 @@ const OTHER_JOB = "40000000-0000-4000-8000-000000000002";
 const PLAN_FILE = "a0000000-0000-4000-8000-0000000000f1";
 const LOCATION = "b0000000-0000-4000-8000-0000000000c1";
 /** The context of a grouped or standalone analysis: no peer, no location; its stamps all the same. */
+// The manifests a request is sealed with (src/lib/takeoff/launch-request.ts): lot 2's grouped unit (format 1), and one
+// unit per plan (format 2).
+const GROUPED_MANIFEST = { format_version: 1, intent: "initial", order: { kind: "free_extraction", version: 1, list: null },
+  units: [{ key: "grouped", plans: ["70000000-0000-4000-8000-000000000001"] }],
+  plans: [{ entry_key: "70000000-0000-4000-8000-000000000001", name: "plan.pdf", logical_id: "70000000-0000-4000-8000-000000000001",
+    intake_document_id: null, plan_file_id: "70000000-0000-4000-8000-000000000001", generation: null }],
+  references: [], coverage: { plans_retained: 1, plans_omitted: [], references_omitted: [] },
+  preparation: { revision: 1, rule_version: 1 }, budget: { tokens: 400000, cost_cents: 2500 } };
+const PLAN_MANIFEST = { ...GROUPED_MANIFEST, format_version: 2,
+  units: [{ key: "plan:70000000-0000-4000-8000-000000000001", ordinal: 1, plans: ["70000000-0000-4000-8000-000000000001"] }] };
 const NO_CONTEXT = { peers: [], plans: [], stamps: { peers: "1".repeat(32), locations: "2".repeat(32) }, display: null };
 const OUTCOME = { format_version: 1, engine: 3, sections_created: [], parts: [],
   lines: [{ change: "created", ref: null, section: "new", title: "Lavabo", unit: "u", quantity: 3, quantity_before: null,
@@ -136,10 +146,10 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   /** The affaire's other takeoffs, as the service reads them (eq filters applied); none read when undefined. */
   twins?: Array<Record<string, unknown>>;
   /**
-   * The format of the job's launch request as the service reads it (its manifest): 2, a request of one analysis per plan,
-   * by default when the context names one; 1, lot 2's grouped request.
+   * The manifest the job's launch request was sealed with, as the database holds it: a request of one analysis per plan
+   * (format 2) by default when the context names one; lot 2's grouped request (format 1) otherwise.
    */
-  requestFormat?: number;
+  requestManifest?: Record<string, unknown>;
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
@@ -212,11 +222,15 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
       // The member's membership and the tenant as the database holds them now.
       tenant_memberships: () => ({ data: { role: membership.role }, error: null }),
       tenants: () => ({ data: { is_active: true }, error: null }),
-      // The job's launch request, by its identifier: the format its manifest was sealed with.
-      takeoff_launch_requests: (query: { filters: Array<{ column: string; value: unknown }> }) => {
-        const format = options.requestFormat ?? (options.context?.display ? 2 : undefined);
+      // The job's launch request, by its identifier, its manifest projected as PostgREST projects the server's select
+      // (`format_version:manifest->>format_version`: the manifest's own field, as text).
+      takeoff_launch_requests: (query: { columns: string | null; filters: Array<{ column: string; value: unknown }> }) => {
+        const manifest: Record<string, unknown> | undefined = options.requestManifest ?? (options.context?.display ? PLAN_MANIFEST : undefined);
         const asked = query.filters.find((filter) => filter.column === "id")?.value;
-        return { data: format !== undefined && asked === REQUEST ? { format_version: String(format) } : null, error: null };
+        if (!manifest || asked !== REQUEST) return { data: null, error: null };
+        const field = /(\w+):manifest->>(\w+)/.exec(query.columns ?? "");
+        return { data: field ? { [field[1]]: manifest[field[2]] === undefined ? null : String(manifest[field[2]]) } : { id: REQUEST, manifest },
+          error: null };
       },
     },
     rpc: {
@@ -326,10 +340,10 @@ describe("previewTakeoffSend — one analysis per plan", () => {
   // The grouped analysis of a request of format 1 (lot 2), not a standalone one: its request's manifest says so, and this
   // server reads it. Its preview has no plan scope at all (the key is absent, the shape a page of the previous version
   // reads), even from an evaluation whose context would name one. Red before: the server took the scope from the
-  // evaluation alone (fix round 2, point 5).
+  // evaluation alone (fix round 2, point 5; the manifest itself since fix round 3, point 6).
   it("previews a grouped analysis of a request as lot 2 does: no plan scope, by its request's format", async () => {
     const context = planContext([{ plan_name: "plan-c.pdf", state: "queued" }]);
-    const fake = setUp([], { job: { launch_request_id: REQUEST, launch_unit_key: "grouped" }, requestFormat: 1, context });
+    const fake = setUp([], { job: { launch_request_id: REQUEST, launch_unit_key: "grouped" }, requestManifest: GROUPED_MANIFEST, context });
     const preview = await previewTakeoffSend(JOB, {});
     expect(preview.blocked).toBeNull();
     expect(preview).not.toHaveProperty("plan_scope");
@@ -338,7 +352,7 @@ describe("previewTakeoffSend — one analysis per plan", () => {
   });
 
   it("names the scope of a unit of a request of one analysis per plan", async () => {
-    setUp([], { job: { launch_request_id: REQUEST, launch_unit_key: `plan:${PLAN_FILE}` }, requestFormat: 2,
+    setUp([], { job: { launch_request_id: REQUEST, launch_unit_key: `plan:${PLAN_FILE}` }, requestManifest: PLAN_MANIFEST,
       context: planContext([{ plan_name: "plan-c.pdf", state: "queued" }]) });
     expect((await previewTakeoffSend(JOB, {})).plan_scope).toMatchObject({ request_id: REQUEST, plan_name: "plan-a.pdf" });
   });

@@ -17,15 +17,15 @@ export const takeoffReviewContextResponseSchema = z.object({
     lot: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
   })),
   /**
-   * Lot 3: for an analysis of one plan that was sent, what its send compared that changed since (a peer's
-   * lines, a peer read again, a location or a copy of a plan revision), with the lines it sent; null otherwise. Absent
-   * from a server before it (optional).
+   * Lot 3: for an analysis of one plan that was sent, what its send compared that changed since (a peer's lines, a
+   * peer read again or removed, a plan read during the send, a location or a copy of a plan revision), with the lines it
+   * sent; null otherwise. Absent from a server before it (optional).
    */
   send_context: z.object({
     changed: z.boolean(),
     sent_at: z.string(),
-    changes: z.array(z.object({ reason: z.enum(["peer_changed", "peer_replaced", "location_changed", "copy_changed"]),
-      plan_name: z.string().nullable() })),
+    changes: z.array(z.object({ reason: z.enum(["peer_changed", "peer_read_again", "peer_removed", "peer_appeared",
+      "location_changed", "copy_changed"]), plan_name: z.string().nullable() })),
     item_ids: z.array(z.string().uuid()),
   }).nullable().optional(),
 }).refine((context) => context.version_id !== null

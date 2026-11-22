@@ -99979,7 +99979,9 @@
                               "type": "string",
                               "enum": [
                                 "peer_changed",
-                                "peer_replaced",
+                                "peer_read_again",
+                                "peer_removed",
+                                "peer_appeared",
                                 "location_changed",
                                 "copy_changed"
                               ]

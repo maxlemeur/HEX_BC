@@ -11,11 +11,14 @@ type SendContext = NonNullable<TakeoffReviewContext["send_context"]>;
 /** The mark of a line sent whose plan's comparison changed since the send (lot 3, migration C). */
 export const SEND_CONTEXT_CHANGED_LABEL = "Contexte modifié depuis l’envoi : à revoir";
 
+// One wording per reason: « relu » only when a reading of that plan happened (fix round 3, point 5).
 const CHANGE_LABELS: Record<SendContext["changes"][number]["reason"], (plan: string) => string> = {
   peer_changed: (plan) => `les lignes de ${plan}, avec lesquelles ce plan a été comparé, ont changé`,
-  peer_replaced: (plan) => `${plan}, avec lequel ce plan a été comparé, a été relu`,
+  peer_read_again: (plan) => `${plan}, avec lequel ce plan a été comparé, a été relu depuis`,
+  peer_removed: (plan) => `la lecture de ${plan} avec laquelle ce plan a été comparé n’existe plus`,
+  peer_appeared: (plan) => `${plan} a été lu pendant l’envoi de ce plan, sans lui être comparé`,
   location_changed: (plan) => `la localisation de ${plan} a été corrigée`,
-  copy_changed: (plan) => `${plan} n’est plus la copie actuelle du dossier`,
+  copy_changed: (plan) => `la copie de ${plan} dans le dossier a changé (remplacée, écartée ou réservée pour suppression)`,
 };
 
 /** The sent lines of this plan that the change concerns, by their identifiers (the receipt's parts). */
@@ -24,9 +27,10 @@ export function sendContextChangedItemIds(context: SendContext | null | undefine
 }
 
 /**
- * Lot 3: what the send of this plan compared that changed since — a plan read beside it whose lines changed or that was
- * read again, a location corrected, a plan copy replaced. The send did not see it (it committed after the send read its
- * context, or later): the lines sent stay as they are, and are to be reviewed.
+ * Lot 3: what the send of this plan compared that changed since — a plan read beside it whose lines changed, that was read
+ * again or whose reading no longer exists, a plan read during the send without being compared, a location corrected, a
+ * plan copy replaced. The send did not see it (it committed after the send read its context, or later): the lines sent
+ * stay as they are, and are to be reviewed.
  */
 export function TakeoffSendContextNotice({ context, items, className }: Readonly<{ context: SendContext | null | undefined;
   /** The takeoff's lines: those sent are named in the notice. */

@@ -18,13 +18,17 @@ describe("TakeoffSendContextNotice", () => {
   it("names each change since the send and the lines it concerns, which stay as sent", () => {
     const context = { changed: true, sent_at: "2026-11-22T10:00:00Z", item_ids: LINES, changes: [
       { reason: "location_changed" as const, plan_name: "plan-b.pdf" },
-      { reason: "peer_replaced" as const, plan_name: "plan-c.pdf" },
+      { reason: "peer_read_again" as const, plan_name: "plan-c.pdf" },
+      { reason: "peer_appeared" as const, plan_name: "plan-d.pdf" },
+      { reason: "copy_changed" as const, plan_name: "plan-e.pdf" },
     ] };
     render(<TakeoffSendContextNotice context={context} />);
     const notice = screen.getByRole("region", { name: SEND_CONTEXT_CHANGED_LABEL });
     expect(within(notice).getByText(/2 lignes envoyées sont concernées\. Elles restent telles qu’envoyées\./)).toBeInTheDocument();
     expect(within(within(notice).getByRole("list", { name: "Changements depuis l’envoi" })).getAllByRole("listitem").map((item) => item.textContent))
-      .toEqual(["la localisation de « plan-b.pdf » a été corrigée", "« plan-c.pdf », avec lequel ce plan a été comparé, a été relu"]);
+      .toEqual(["la localisation de « plan-b.pdf » a été corrigée", "« plan-c.pdf », avec lequel ce plan a été comparé, a été relu depuis",
+        "« plan-d.pdf » a été lu pendant l’envoi de ce plan, sans lui être comparé",
+        "la copie de « plan-e.pdf » dans le dossier a changé (remplacée, écartée ou réservée pour suppression)"]);
     expect([...sendContextChangedItemIds(context)]).toEqual(LINES);
   });
 });
