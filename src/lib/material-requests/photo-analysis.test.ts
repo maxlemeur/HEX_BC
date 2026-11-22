@@ -133,10 +133,11 @@ describe("draftsFromPhotoAnswer", () => {
 
   it("writes no character the database refuses, and never cuts inside one", () => {
     const [draft] = drafts([
-      { texte: `collier\u0000 inox\u0007\n2e ligne ${"😀".repeat(300)}`, type: `collier \ud83d`, matiere: "inox\u0000 316L" },
+      { texte: `collier\u0000 inox\u0007\n2e ligne. ${"😀".repeat(300)}`, type: `collier \ud83d`, matiere: "inox\u0000 316L" },
     ]);
-    expect(draft.original_text).toMatch(/^collier inox 2e ligne (?:😀)+$/u);
-    expect(draft.original_text!.length).toBeLessThanOrEqual(500);
+    // 23 characters, then emoji of two code units each: the bound of 500 falls inside one, which is left out whole.
+    expect(draft.original_text).toMatch(/^collier inox 2e ligne\. (?:😀)+$/u);
+    expect(draft.original_text).toHaveLength(499);
     expect(draft).toMatchObject({ product_type: "collier", material: "inox 316L" });
     expect(JSON.stringify(draft)).not.toMatch(/\\u0000|\\ud83d(?!\\ude00)/);
   });

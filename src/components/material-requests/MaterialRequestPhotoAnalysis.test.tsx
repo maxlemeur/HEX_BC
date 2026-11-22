@@ -314,6 +314,60 @@ describe("AI reading of the photos of a material request", () => {
     expect(readings()).toHaveLength(1);
   });
 
+  it("replaces nothing when a correction typed during the reading could not be saved (5)", async () => {
+    let releaseReading: (reply: Reply) => void = () => undefined;
+    let releaseSave: (reply: Reply) => void = () => undefined;
+    const reading = new Promise<Reply>((resolve) => {
+      releaseReading = resolve;
+    });
+    const save = new Promise<Reply>((resolve) => {
+      releaseSave = resolve;
+    });
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [analysisOf(FILE_1)]: () => reading,
+      [`PATCH ${BASE}/lines/${LINE_A}`]: () => save,
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+    await user.click(within(original).getByRole("button", { name: "Remplacer la ligne" }));
+    await within(original).findByText(/Lecture de la photo/);
+    await user.click(within(original).getByRole("button", { name: "Fermer" }));
+    const quantity = screen.getByLabelText("Quantité, ligne 1");
+    await user.clear(quantity);
+    await user.type(quantity, "25{Enter}");
+    await waitFor(() => expect(writes().some((call) => call.method === "PATCH")).toBe(true));
+    // The photo answers while the save is on its way; the save is then refused: the line reads as before, and the
+    // quantity typed is still on screen, unsaved.
+    releaseReading(read(FILE_1, SHEET_1));
+    releaseSave({ status: 500, error: { code: "INTERNAL_ERROR", message: "Enregistrement impossible." } });
+
+    await user.click(screen.getByRole("button", { name: "Voir l’original" }));
+    const reopened = await screen.findByRole("dialog", { name: "Original de la demande" });
+    expect(await within(reopened).findByRole("alert")).toHaveTextContent("Les lignes ont changé pendant la lecture : rien n’a été remplacé.");
+    expect(writes().some((call) => call.path === `${BASE}/lines/replace`)).toBe(false);
+  });
+
+  it("does not offer a replacement while a change of a line is not saved (4)", async () => {
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { status: 500, error: { code: "INTERNAL_ERROR", message: "Enregistrement impossible." } },
+    });
+    await user.click(within(original).getByRole("button", { name: "Fermer" }));
+    const quantity = screen.getByLabelText("Quantité, ligne 1");
+    await user.clear(quantity);
+    await user.type(quantity, "25{Enter}");
+    await waitFor(() => expect(writes().some((call) => call.method === "PATCH")).toBe(true));
+
+    await user.click(screen.getByRole("button", { name: "Voir l’original" }));
+    const reopened = await screen.findByRole("dialog", { name: "Original de la demande" });
+    await user.click(within(reopened).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+
+    expect(await within(reopened).findByRole("button", { name: "Remplacer la ligne" })).toBeDisabled();
+    expect(within(reopened).getByText(/Une modification de ligne n’est pas enregistrée/)).toBeVisible();
+    expect(within(reopened).getByRole("button", { name: "Ajouter à la suite" })).toBeEnabled();
+  });
+
   it("creates nothing once the office stops the reading (7)", async () => {
     const { user, original } = await openOriginal({
       [`GET ${BASE}`]: { data: detail({}) },

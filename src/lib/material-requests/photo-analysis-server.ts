@@ -78,13 +78,15 @@ const FAILURE_MESSAGES: Record<string, string> = {
   PROVIDER_ERROR:
     "ChatGPT n’a pas terminé la lecture de cette photo. Relancez-la ; si cela se répète, vérifiez la connexion ChatGPT dans Mon profil.",
 };
-/** The plan's token could not be renewed, or the sign-in is otherwise broken: only a reconnection helps. */
+/** The plan's token could not be renewed: only a reconnection helps (an unreachable provider is tried again). */
 const RECONNECT_MESSAGE = "L’accès ChatGPT n’a pas pu être renouvelé. Reconnectez votre forfait dans Mon profil.";
 
 /** Only this module's sentences and a closed reason cross: nothing the provider or the runtime said. */
 function readingFailure(error: unknown): ApiError {
   if (error instanceof StructuredAiError && ACCESS_CODES.has(error.code)) return unavailable(error.message, "unavailable");
-  if (error instanceof Error && error.name === "ChatGptSignInError") return unavailable(RECONNECT_MESSAGE, "unavailable");
+  if (error instanceof Error && error.name === "ChatGptSignInError" && (error as { reason?: unknown }).reason === "renewal") {
+    return unavailable(RECONNECT_MESSAGE, "unavailable");
+  }
   const reason = error instanceof StructuredAiError
     ? (error.code in FAILURE_MESSAGES ? error.code : "PROVIDER_ERROR")
     : error instanceof Error && error.name === "TimeoutError"

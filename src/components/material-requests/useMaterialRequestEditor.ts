@@ -194,10 +194,12 @@ export type MaterialRequestEditorApi = {
   /**
    * Splits the message again: every line shown gives way to these drafts, in one request. The server refuses
    * while a line is validated or in a quote, or once the lines are no longer those shown (read again then).
-   * `replacedIds`: the lines the office saw when it chose, for a replacement decided some time before it is written
-   * (the AI reading of the photos); the lines shown at the call otherwise.
+   * `seen`: the lines the office saw when it chose, for a replacement decided some time before it is written (the AI
+   * reading of the photos): their ids, and their content as `JSON.stringify` gave it. The replacement is then refused,
+   * with REPLACED_LINES_CHANGED and nothing sent, unless at its turn in the queue of writes the lines still read the
+   * same and no change typed on one is unsaved: what the office did meanwhile is never thrown away.
    */
-  replaceLines: (lines: MaterialRequestLineInput[], replacedIds?: readonly string[]) => Promise<SaveResult>;
+  replaceLines: (lines: MaterialRequestLineInput[], seen?: { ids: readonly string[]; content: string }) => Promise<SaveResult>;
   removeLine: (lineId: string) => Promise<SaveResult>;
   applyToLines: (ids: string[], patch: BulkUpdateMaterialRequestLinesInput["patch"]) => Promise<SaveResult>;
   validateLines: (ids: string[]) => Promise<SaveResult>;
@@ -303,6 +305,10 @@ function applyArticleLink(
 type ProposalsRead = { status: "loading" | "ready" | "error"; lines: Record<string, MaterialRequestArticleCandidate[]> };
 
 type SupplierProposalsRead = { status: SupplierProposalsStatus } & LineSupplierProposals;
+
+/** A replacement decided before a reading, refused because the lines are no longer the ones the office saw. */
+export const REPLACED_LINES_CHANGED =
+  "Les lignes ont changé pendant la lecture : rien n’a été remplacé. Relancez l’analyse pour choisir à nouveau.";
 
 /** Said beside a line whose supplier was set meanwhile (another tab, another session): the retain left it alone. */
 export const SUPPLIER_ALREADY_SET = "La ligne avait déjà un fournisseur : non modifiée.";
@@ -654,11 +660,23 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           return { ok: false, message: materialRequestErrorMessage(error, "Les lignes n’ont pas pu être ajoutées.") };
         }
       },
-      replaceLines: async (lines: MaterialRequestLineInput[], replacedIds?: readonly string[]): Promise<SaveResult> => {
+      replaceLines: async (
+        lines: MaterialRequestLineInput[],
+        seen?: { ids: readonly string[]; content: string },
+      ): Promise<SaveResult> => {
         // The lines as shown at the gesture: the server replaces those and no other.
-        const replaced_ids = replacedIds ? [...replacedIds] : (latest.current?.lines ?? []).map((line) => line.id);
+        const replaced_ids = seen ? [...seen.ids] : (latest.current?.lines ?? []).map((line) => line.id);
         try {
-          const all = await enqueue(() => replaceMaterialRequestLines(projectId, requestId, { replaced_ids, lines }));
+          const all = await enqueue(async () => {
+            // At this write's turn every earlier write was answered and applied: a line corrected, linked or given a
+            // supplier since the choice reads differently, and a change that could not be saved is still held.
+            if (seen && (
+              JSON.stringify(latest.current?.lines ?? []) !== seen.content
+              || [...lineWrites.current.values()].some((writes) => writes.pending > 0 || writes.failed.size > 0)
+            )) return null;
+            return replaceMaterialRequestLines(projectId, requestId, { replaced_ids, lines });
+          });
+          if (all === null) return { ok: false, message: REPLACED_LINES_CHANGED };
           // What was said of the former lines is said of lines that no longer exist.
           lineWrites.current.clear();
           publishLineChanges();

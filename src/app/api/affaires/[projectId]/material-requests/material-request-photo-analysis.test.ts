@@ -262,6 +262,7 @@ describe("POST material request photo analysis", () => {
     ["an answer that is not JSON", new SyntaxError("Unexpected token < in JSON"), "INVALID_ANSWER"],
     ["an answer that is not the one asked for", z.object({ lignes: z.array(z.string()) }).safeParse({ lignes: "aborted" }).error, "INVALID_ANSWER"],
     ["a failure of the provider", new StructuredAiError("AI_PROVIDER_FAILED", "message du fournisseur", 500), "PROVIDER_ERROR"],
+    ["a provider that cannot be reached to renew the access", new ChatGptSignInError("network"), "PROVIDER_ERROR"],
     ["an unexpected failure", new Error("secret-provider-payload sk-fictif"), "PROVIDER_ERROR"],
   ])("answers 503 with a reason and a fixed sentence on %s", async (_label, failure, reason) => {
     const fake = seed(OWNER, "engineer");

@@ -235,14 +235,11 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
   /** What each photo gave, by photo and angle, until lines are created from it. */
   const read = useRef(new Map<string, MaterialRequestLineInput[]>());
   const reading = useRef<AbortController | null>(null);
-  /**
-   * The lines as the screen shows them now, and whether a change typed on one is not saved: a reading takes minutes,
-   * and the office may go on working on the lines meanwhile.
-   */
-  const shown = useRef({ lines, unsaved: editor.lineChanges.size > 0 });
+  /** How many lines the screen shows now, for the room left under the cap: a reading takes minutes. */
+  const shown = useRef(lines.length);
   useEffect(() => {
-    shown.current = { lines, unsaved: editor.lineChanges.size > 0 };
-  }, [lines, editor.lineChanges]);
+    shown.current = lines.length;
+  }, [lines.length]);
   useEffect(() => () => reading.current?.abort(), []);
   /** The control that held the focus is gone (the choice, « Arrêter »): the focus goes back to the reading's button. */
   const trigger = useRef<HTMLButtonElement>(null);
@@ -307,15 +304,7 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
       setNotice(`Aucun article lu sur ${several ? "les photos" : "la photo"} : saisissez les lignes à la main.`);
       return;
     }
-    const { lines: current, unsaved } = shown.current;
-    // A line added, removed, corrected or linked during the reading, or a correction not saved yet: replacing would
-    // throw that work away without the office having chosen it.
-    if (mode === "replace" && (unsaved || JSON.stringify(current) !== seen)) {
-      setRun(null);
-      setError({ message: `Les lignes ont changé pendant la lecture : rien n’a été remplacé. Relancez l’analyse pour choisir à nouveau. ${READ_KEPT}`, profile: false });
-      return;
-    }
-    const room = mode === "replace" ? MATERIAL_REQUEST_MAX_LINES : MATERIAL_REQUEST_MAX_LINES - current.length;
+    const room = mode === "replace" ? MATERIAL_REQUEST_MAX_LINES : MATERIAL_REQUEST_MAX_LINES - shown.current;
     const created = drafts.slice(0, Math.max(room, 0));
     if (created.length === 0) {
       setRun(null);
@@ -323,8 +312,12 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
       return;
     }
     setRun({ step: "writing" });
-    // The server replaces the lines of the choice and no other: one added since is refused there too.
-    const result = mode === "replace" ? await editor.replaceLines(created, expected) : await editor.addLines(created);
+    // A replacement holds for the drafts as the office saw them when it chose: a line added, removed, corrected or
+    // linked during the reading, or a correction not saved, refuses it (the editor checks at the write's own turn,
+    // the server the ids), and nothing the office did meanwhile is thrown away.
+    const result = mode === "replace"
+      ? await editor.replaceLines(created, { ids: expected, content: seen })
+      : await editor.addLines(created);
     setRun(null);
     if (!result.ok) {
       setError({ message: `${result.message} ${READ_KEPT}`, profile: false });
@@ -415,7 +408,8 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
               <Button type="button" size="sm" autoFocus onClick={() => void start("add")}>
                 Ajouter à la suite
               </Button>
-              <Button type="button" variant="danger" size="sm" onClick={() => void start("replace")}>
+              {/* A change still on its way, or refused, would be refused again after the whole reading. */}
+              <Button type="button" variant="danger" size="sm" disabled={editor.lineChanges.size > 0} onClick={() => void start("replace")}>
                 {lines.length > 1 ? `Remplacer les ${lines.length} lignes` : "Remplacer la ligne"}
               </Button>
               <Button
@@ -430,6 +424,12 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
                 Annuler
               </Button>
             </div>
+            {editor.lineChanges.size > 0 ? (
+              <p className="mt-2">
+                Une modification de ligne n’est pas enregistrée : le remplacement attend qu’elle le soit, ou qu’elle soit
+                abandonnée.
+              </p>
+            ) : null}
           </AlertDescription>
         </Alert>
       ) : null}
