@@ -138,6 +138,114 @@ n’est pas posée, une demande scelle l’extraction libre, comme avant. Une fo
 activée, une DPGF à préparer suspend l’admission avec un motif. Le Mac du mandat
 réessaie alors seul.
 
+**Lecture d’un plan contre la liste.** Avec le second ordre de mesure, chaque plan
+d’une analyse plan par plan est lu contre la liste que sa demande a scellée. Tant
+que l’analyse plan par plan n’est pas activée, une demande reste groupée et scelle
+l’extraction libre, quelle que soit l’activation du second ordre : une liste n’est
+jamais scellée sur une analyse groupée. Un job qui lirait plusieurs plans contre
+une liste s’arrêterait d’ailleurs avant tout appel, sans rien dépenser.
+
+Le second ordre de mesure ne peut pas être activé avant la livraison de la
+publication des réponses par poste : jusque-là, un job du second ordre s’arrête dès
+sa prise en charge, avant de lire son plan et avant tout appel, sans rien dépenser.
+Les règles qui suivent décrivent la lecture telle qu’elle s’appliquera alors.
+
+Le serveur découpe le
+plan comme la lecture détaillée (au-delà de 15 pages, des fragments de 10 pages
+dont 2 en recouvrement) et la liste en lots d’au plus 40 postes et 64 Kio : chaque
+appel joint un fragment et demande un lot. Le modèle reçoit pour chaque poste une clé
+opaque (`P0001`…), son libellé, son unité attendue, sa base de mesure, ses précisions
+(réseau, matière, diamètre) et ses sections, en entier : ce qui distingue deux postes
+n’est jamais coupé, un poste très long est demandé seul. Il ne reçoit jamais un
+identifiant, un prix, la quantité de référence de la DPGF ni une quantité du devis.
+Du cadrage, il reçoit seulement ce qui dit comment mesurer : l’objectif, le
+périmètre et ses restrictions, l’unité, la base et les déductions, les questions des
+réserves et leurs réponses telles que les membres les ont écrites ; jamais un
+identifiant, une personne ni la référence d’une pièce. Seul le CCTP est joint comme
+pièce de référence : la DPGF décrit déjà les postes, et son chiffre ne prouve pas la
+lecture du plan. Une liste sans aucun poste (une DPGF faite seulement de lignes de
+structure) ne demande rien : la demande scelle l’extraction libre.
+
+Chaque poste reçoit une réponse par plan :
+
+- **Mesuré** : au moins une observation chiffrée sur une page du plan ; la quantité
+  est la somme de ses apports.
+- **Incertain** : un motif (indice ambigu, quantité partielle, échelle manquante,
+  diamètre illisible, estimation…), avec si possible une page candidate et une valeur
+  candidate, qui ne comptent jamais comme une mesure.
+- **Non trouvé** : toutes les pages cherchées sans indice ; la quantité reste vide
+  (« — »), jamais 0.
+
+Une réponse manquante, un poste qui n’était pas demandé, deux réponses pour un même
+poste, une page hors du fragment joint ou une page ni cherchée ni déclarée illisible
+arrêtent l’analyse du plan (« Extraction incomplète sur ce document. ») : rien n’est
+compté comme non trouvé à sa place. Une quantité est conservée à trois décimales,
+comme le métré la garde ; une valeur qui n’est plus positive une fois arrondie n’est
+pas une mesure. Chaque observation dit si elle compte un objet ou une zone distincts, ou
+si elle relit un objet déjà relevé sur la même page, et si elle est sur la base
+demandée : seules les observations que le modèle déclare distinctes s’additionnent ;
+deux lectures que rien ne distingue (même page, même indice, même valeur) rendent la
+réponse incertaine et ne s’additionnent jamais. Une mesure déclarée hors de la base
+demandée par le poste, ou dont la base écrite en est une autre, une mesure à l’échelle
+sans base écrite, ou des mesures sur deux bases différentes rendent la réponse
+incertaine ; sa valeur candidate n’additionne alors que les lectures sur la base
+demandée, ou n’en donne aucune. La lecture se fie à ces déclarations du modèle : deux
+observations d’un même poste sur une page, d’indices ou de valeurs différents,
+déclarées distinctes, s’additionnent (deux pièces de 12 m² comme une pièce lue deux
+fois), et une mesure déclarée sur la base demandée est prise comme telle ; aucune
+règle de la fusion ne les distingue. C’est la justesse de la lecture, que le
+chiffreur contrôle dans le tableau des postes. Chaque page appartient à un seul
+fragment : la lecture d’une page de recouvrement par l’autre fragment n’est jamais
+ajoutée, et si le total qu’il y lit diffère de celui du fragment propriétaire (de plus
+de 1 % pour une longueur ou une surface, de quoi que ce soit pour toute autre unité),
+la réponse devient incertaine. Une page illisible rend la réponse incertaine : elle ne
+prouve ni une absence ni un total. Une unité lue différente de celle du poste, ou un
+comptage non entier d’un poste compté à l’unité (sur la valeur lue, avant tout
+arrondi), rend aussi la réponse incertaine. La lecture vectorielle d’un réseau se
+rattache au poste de même réseau, matière et diamètre : elle confirme la mesure (écart
+d’au plus 1 %) ou rend la réponse incertaine. Celle de la surface d’un local se
+rattache au poste mesuré en m² dont le libellé nomme ce local ; comme elle ne dit pas
+ce que le poste mesure (une faïence murale n’est pas le sol de la pièce), elle ne
+change jamais une réponse mesurée et lui reste jointe pour le chiffreur. L’une comme
+l’autre reste une indication à vérifier quand le modèle n’a rien trouvé, et un simple
+candidat quand plusieurs postes peuvent la revendiquer. Elle ne s’ajoute jamais à la
+mesure. Un ouvrage du plan absent de la liste est signalé
+avec le résultat (« POSTE_HORS_LISTE »), sans créer de poste.
+
+Sur l’affaire, tant qu’un plan attendu n’est pas lu, le total d’un poste reste
+partiel et son absence n’est jamais certifiée. Quand tous ses plans sont lus, un
+plan incertain le rend « À vérifier », sinon une mesure le rend « Mesuré », et
+seulement des plans tous cherchés sans indice le rendent « Non trouvé ».
+
+**Bornes d’une lecture contre la liste.** Avant son admission, la demande entière
+est bornée : les appels prévus (fragments × lots, plus ceux de la classification des
+groupes vectoriels quand elle est active, 40 au plus par plan et 200 par demande),
+la taille de leurs réponses et le budget. Chaque appel réserve 30 000 jetons et ne
+démarre que si la part de son plan et la demande gardent un solde positif. Avant son
+premier appel payant, le job refait ce compte sur la demande entière, avec les
+réglages qu’il utilisera réellement : au-delà, il s’arrête avec la même raison, sans
+rien dépenser. Au-delà, la demande n’est pas admise : « Métré non démarré — les plans …
+dépassent les limites d’une lecture contre la liste des postes », avec les appels
+prévus et le budget. Rien n’est échantillonné ; réduire les plans ou les pages lus
+permet de la relancer.
+
+**Réponses enregistrées et leur publication.** Les réponses d’un plan sont enregistrées
+(`supabase/migrations/20261122080845_takeoff_item_answers.sql`) avec les pages cherchées
+et celles qui n’ont pas pu être lues, qui couvrent ensemble toutes les pages lues du
+plan, leurs motifs dans l’ordre (le premier est le motif principal) et le plan tel que
+la demande l’a scellé (sa copie, son identité, sa génération, l’empreinte de son
+fichier). Une réponse non trouvée n’a aucune observation. Chaque observation garde son
+rôle : un apport (compté), un candidat ou une alternative (jamais additionnée). Chaque
+apport d’une réponse mesurée est une ligne de la revue des quantités, et seuls les
+apports le sont ; une lecture vectorielle n’est jamais un apport. Le Mac publie les
+réponses d’un plan en une fois, sous son bail, avec le résultat et la fin de
+l’analyse : une réponse qui manque, un poste étranger, une page hors du plan, une
+quantité qui n’est pas la somme de ses apports sont refusés et rien n’est écrit ;
+l’analyse ne peut pas se terminer en succès autrement. Une nouvelle lecture du même
+poste sur le même plan remplace la précédente, qui reste consultable. Tous les lecteurs
+de l’affaire lisent les réponses, et voient « en lecture » un poste dont le plan est en
+cours d’analyse ; personne ne les modifie. La revue de ces réponses s’enregistre à part.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses

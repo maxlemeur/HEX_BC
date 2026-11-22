@@ -1,9 +1,13 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { AlertTriangleIcon, ChevronDownIcon, PlusIcon, XIcon } from "lucide-react";
+import { AlertTriangleIcon, ChevronDownIcon, XIcon } from "lucide-react";
 
-import { fetchApi } from "@/components/catalogue/api";
+import {
+  NewSupplyTypeButton,
+  NewSupplyTypePanel,
+  useSupplyTypeCreation,
+} from "@/components/catalogue/SupplyTypeCreation";
 import { ProductAliases } from "@/components/products/ProductAliases";
 import { PRODUCT_PACKAGINGS_UNIT_NOTICE_ID, ProductPackagings } from "@/components/products/ProductPackagings";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
@@ -216,11 +220,15 @@ export function ProductFormModal({
   );
   const [submitIntent, setSubmitIntent] = useState<"save" | "validate">("save");
   const [createdSupplyTypes, setCreatedSupplyTypes] = useState<ProductSupplyType[]>([]);
-  const [isSupplyTypeCreationOpen, setIsSupplyTypeCreationOpen] = useState(false);
-  const [newSupplyTypeName, setNewSupplyTypeName] = useState("");
-  const [supplyTypeError, setSupplyTypeError] = useState<string | null>(null);
-  const [isCreatingSupplyType, setIsCreatingSupplyType] = useState(false);
   const supplyTypeSelectRef = useRef<HTMLSelectElement>(null);
+  const supplyTypeCreation = useSupplyTypeCreation({
+    selectRef: supplyTypeSelectRef,
+    onCreated: (item) => {
+      setCreatedSupplyTypes((current) => [...current, item]);
+      setField("supply_type_id", item.id);
+      onSupplyTypeCreated?.(item);
+    },
+  });
 
   const title = useMemo(
     () => (isEditing ? "Modifier le produit" : "Ajouter un produit"),
@@ -301,33 +309,6 @@ export function ProductFormModal({
       supply_type_id: form.supply_type_id || null,
       ...(wantsValidation ? { catalogue_status: "validated" as const } : {}),
     });
-  }
-
-  async function createSupplyType() {
-    const name = newSupplyTypeName.trim();
-    if (!name || isCreatingSupplyType) return;
-
-    setIsCreatingSupplyType(true);
-    setSupplyTypeError(null);
-    try {
-      const { item } = await fetchApi<{ item: ProductSupplyType }>("/api/catalogue/supply-types", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      setCreatedSupplyTypes((current) => [...current, item]);
-      setField("supply_type_id", item.id);
-      setNewSupplyTypeName("");
-      setIsSupplyTypeCreationOpen(false);
-      onSupplyTypeCreated?.(item);
-      supplyTypeSelectRef.current?.focus();
-    } catch (error) {
-      setSupplyTypeError(
-        error instanceof Error ? error.message : "Création du type de fourniture impossible.",
-      );
-    } finally {
-      setIsCreatingSupplyType(false);
-    }
   }
 
   function setField<K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) {
@@ -478,21 +459,7 @@ export function ProductFormModal({
                         </option>
                       ))}
                     </NativeSelect>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="lg"
-                      className="shrink-0"
-                      leftIcon={<PlusIcon aria-hidden="true" />}
-                      aria-expanded={isSupplyTypeCreationOpen}
-                      aria-controls="product-supply-type-creation"
-                      onClick={() => {
-                        setSupplyTypeError(null);
-                        setIsSupplyTypeCreationOpen((current) => !current);
-                      }}
-                    >
-                      Nouveau type
-                    </Button>
+                    <NewSupplyTypeButton creation={supplyTypeCreation} idPrefix="product" />
                   </div>
                   {supplyTypeOptions.length === 0 ? (
                     <FieldDescription id="product-supply-type-empty-hint" className="text-xs">
@@ -502,56 +469,7 @@ export function ProductFormModal({
                   {blocksValidation("supply_type_id") ? (
                     <ValidationHint field="supply_type_id" />
                   ) : null}
-                  {isSupplyTypeCreationOpen ? (
-                    <div
-                      id="product-supply-type-creation"
-                      className="flex flex-col gap-2 rounded-lg border border-border bg-surface-subtle p-3"
-                    >
-                      <FieldLabel htmlFor="product-new-supply-type">
-                        Nom du nouveau type de fourniture
-                      </FieldLabel>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          id="product-new-supply-type"
-                          autoFocus
-                          autoComplete="off"
-                          maxLength={80}
-                          placeholder="Ex. Tuyauterie inox"
-                          aria-invalid={supplyTypeError ? true : undefined}
-                          aria-describedby={describedBy(
-                            supplyTypeError && "product-new-supply-type-error",
-                          )}
-                          value={newSupplyTypeName}
-                          onChange={(event) => setNewSupplyTypeName(event.target.value)}
-                          onKeyDown={(event) => {
-                            // Enter creates the type; it must never submit the article form around it.
-                            if (event.key !== "Enter") return;
-                            event.preventDefault();
-                            void createSupplyType();
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          size="lg"
-                          className="shrink-0"
-                          loading={isCreatingSupplyType}
-                          disabled={newSupplyTypeName.trim().length === 0}
-                          onClick={() => void createSupplyType()}
-                        >
-                          Créer
-                        </Button>
-                      </div>
-                      {supplyTypeError ? (
-                        <p
-                          id="product-new-supply-type-error"
-                          role="alert"
-                          className="text-xs font-medium text-danger"
-                        >
-                          {supplyTypeError}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
+                  <NewSupplyTypePanel creation={supplyTypeCreation} idPrefix="product" />
                 </div>
               </div>
             </fieldset>

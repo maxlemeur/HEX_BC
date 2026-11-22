@@ -8,6 +8,7 @@ import {
   type TakeoffLaunchRequestState,
 } from "@/lib/takeoff/launch-request";
 import { describeTakeoffLaunchAction, type TakeoffLaunchAction } from "@/lib/takeoff/operator-state";
+import type { PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 import { isTakeoffVisibleJobInFlight, type TakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 
 /**
@@ -39,6 +40,8 @@ export type AffaireTakeoffZoneRequest = {
   mandateRevision: number;
   reason: TakeoffLaunchReason | null;
   pieces: TakeoffLaunchPiece[];
+  /** Lot 4: the bounds of a reading against the list of items, when they refused the request. */
+  readingBounds?: PosteReadingBoundsFacts | null;
   hasPayer: boolean;
   payerIsViewer: boolean;
   createdAt: string;
@@ -190,7 +193,7 @@ type RequestState = Pick<AffaireTakeoffZoneModel, "tone" | "status" | "message" 
 
 function describeRequest(request: AffaireTakeoffZoneRequest): RequestState {
   const facts: string[] = [];
-  const reasonText = request.reason ? describeTakeoffLaunchReason(request.reason, request.pieces) : null;
+  const reasonText = request.reason ? describeTakeoffLaunchReason(request.reason, request.pieces, request.readingBounds ?? null) : null;
   switch (request.state) {
     case "evaluating":
       facts.push(`Demande enregistrée le ${formatTakeoffCompletionDate(request.createdAt)}`);
