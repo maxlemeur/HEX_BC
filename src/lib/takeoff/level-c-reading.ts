@@ -60,15 +60,16 @@ type ProcessLevelCAggregate = {
   providerMeta: Record<string, unknown>;
 };
 
-export async function processLevelCChunks(input: {
+/**
+ * The checks of a detailed reading before its first paid call, the same for both measuring orders: a PDF, its page count
+ * (a corrupt file named as such), the per-job budget within what its request has left, the plan set's page limit, and
+ * the page counts recorded on the plan files.
+ */
+export async function prepareLevelCReading(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
   sourceFile: DownloadedTakeoffFile;
-  call: StructuredCall;
-  schemaVersion: string;
-  model: string;
-  promptVersion: string;
-}): Promise<ProcessLevelCAggregate> {
+}) {
   if (!isPdfMimeType(input.sourceFile.mimeType)) {
     throw new TakeoffError({
       code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
@@ -106,24 +107,24 @@ export async function processLevelCChunks(input: {
   }
 
   // The per-job budget of the detailed reading, within what the job's launch request has left over its attempts.
-  const levelCProcessingConfig = boundTakeoffAttemptByRequest(await getTakeoffLevelCProcessingConfigForTenant(
+  const config = boundTakeoffAttemptByRequest(await getTakeoffLevelCProcessingConfigForTenant(
     input.job.tenant_id,
     {
       supabase: input.supabase,
     }
   ), await readTakeoffRequestBudget(input.job), input.job.id);
 
-  if (pageCount > levelCProcessingConfig.maxPdfPages) {
+  if (pageCount > config.maxPdfPages) {
     throw new TakeoffError({
       status: 413,
       code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
-      message: `Le PDF contient ${pageCount} pages et depasse la limite de ${levelCProcessingConfig.maxPdfPages} pages.`,
+      message: `Le PDF contient ${pageCount} pages et depasse la limite de ${config.maxPdfPages} pages.`,
       retryable: false,
       jobId: input.job.id,
       level: TAKEOFF_LEVEL_C,
       details: {
         page_count: pageCount,
-        max_pdf_pages: levelCProcessingConfig.maxPdfPages,
+        max_pdf_pages: config.maxPdfPages,
       },
     });
   }
@@ -135,6 +136,19 @@ export async function processLevelCChunks(input: {
     fallbackSourceFilePath: input.job.source_file_path,
     fallbackPageCount: pageCount,
   });
+  return { pageCount, config };
+}
+
+export async function processLevelCChunks(input: {
+  supabase: Supabase;
+  job: TakeoffJobProcessingRow;
+  sourceFile: DownloadedTakeoffFile;
+  call: StructuredCall;
+  schemaVersion: string;
+  model: string;
+  promptVersion: string;
+}): Promise<ProcessLevelCAggregate> {
+  const { pageCount, config: levelCProcessingConfig } = await prepareLevelCReading(input);
 
   const chunks = buildPdfChunks(pageCount, {
     thresholdPages: levelCProcessingConfig.thresholdPages,

@@ -44,6 +44,10 @@ import type {
  *     are not on screen; or it hides that there is something to check; or its « Vérifier » button links
  *     instead of opening the proposals, or the proposals it opens do not show that candidate's warnings with
  *     a working link; or unfolding the row no longer shows the warnings beside a direct « Rattacher ».
+ * 17. (TI-690, the owner's walk) a missing supply type sends the office to the catalogue, losing the article form;
+ *     or the type created from the form is not selected, or its Enter submits the article; or a refused name is
+ *     thrown away or silent; or a member who may not create a type (only administrators may) is offered a button
+ *     the server refuses, or is told to create one where they cannot.
  */
 
 vi.mock("@/lib/material-requests/source-text", () => ({ splitSourceText: vi.fn() }));
@@ -217,14 +221,14 @@ function candidateReads(): Call[] {
   return calls.filter((call) => call.method === "GET" && call.path === `${BASE}/candidates`);
 }
 
-async function openEditor(routes: Record<string, Route>) {
+async function openEditor(routes: Record<string, Route>, access: { canCreateSupplyType?: boolean } = {}) {
   mockApi({
     "GET /api/material-request-technicians": { data: { items: [] } },
     [`GET ${BASE}/quotes`]: { data: { items: [] } },
     ...routes,
   });
   const user = userEvent.setup();
-  render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
+  render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} {...access} />);
   await screen.findByRole("heading", { name: "Lignes" });
   return user;
 }
@@ -559,13 +563,13 @@ describe("linking request lines to catalogue articles", () => {
       },
     };
 
-    async function openCreation(routes: Record<string, Route>) {
+    async function openCreation(routes: Record<string, Route>, access: { canCreateSupplyType?: boolean } = {}) {
       const user = await openEditor({
         [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
         [`GET ${BASE}/candidates`]: { data: { lines: { [LINE_A]: [] } } },
         "GET /api/catalogue/supply-types": supplyTypes,
         ...routes,
-      });
+      }, access);
       await user.click(await screen.findByRole("button", { name: "Chercher ou créer l’article, ligne 1" }));
       const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
       await user.click(within(panel).getByRole("button", { name: "Créer l’article" }));
@@ -638,7 +642,106 @@ describe("linking request lines to catalogue articles", () => {
       expect(screen.getByRole("button", { name: "Chercher ou créer l’article, ligne 1", hidden: true })).toBeInTheDocument();
     });
 
-    it("says there is no supply type yet and points to the catalogue (11)", async () => {
+    it("lets an administrator create a supply type in place, selected at once, and the article uses it (17)", async () => {
+      const SUPPLY_NEW = "5c5c5c5c-5c5c-45c5-85c5-5c5c5c5c5c5c";
+      const { user, panel } = await openCreation(
+        {
+          "POST /api/catalogue/supply-types": { status: 201, data: { item: { id: SUPPLY_NEW, code: "SUPPORTAGE", name: "Supportage" } } },
+          [`POST ${BASE}/lines/${LINE_A}/article`]: {
+            status: 201,
+            data: { line: linked(line(), created, "created"), article: created, alias_learned: null },
+          },
+        },
+        { canCreateSupplyType: true },
+      );
+      await user.type(within(panel).getByLabelText("Désignation"), "Tige acier M10 longue");
+
+      const open = within(panel).getByRole("button", { name: "Nouveau type" });
+      expect(open).toHaveAttribute("aria-expanded", "false");
+      await user.click(open);
+      const name = within(panel).getByLabelText("Nom du nouveau type de fourniture");
+      expect(name).toHaveFocus();
+      await user.type(name, "  Supportage {Enter}");
+
+      const select = within(panel).getByLabelText("Type de fourniture *");
+      await waitFor(() => expect(select).toHaveValue(SUPPLY_NEW));
+      expect(select).toHaveDisplayValue("Supportage");
+      expect(select).toHaveFocus();
+      expect(within(panel).queryByLabelText("Nom du nouveau type de fourniture")).not.toBeInTheDocument();
+      // Enter created the type only: the article was neither sent nor its typed values lost.
+      expect(writes()).toEqual([{ method: "POST", path: "/api/catalogue/supply-types", body: { name: "Supportage" } }]);
+      expect(screen.getByRole("dialog", { name: "Article de la ligne" })).toBeInTheDocument();
+      expect(within(panel).getByLabelText("Désignation")).toHaveValue("Tige acier M10 longue");
+
+      await user.click(within(panel).getByRole("button", { name: "Créer et rattacher" }));
+      await waitFor(() => expect(writes()).toHaveLength(2));
+      expect(writes()[1]).toEqual({
+        method: "POST",
+        path: `${BASE}/lines/${LINE_A}/article`,
+        body: {
+          product_type: "Tige",
+          material: "Acier",
+          dimensions: "M10",
+          unit: "u",
+          designation: "Tige acier M10 longue",
+          supply_type_id: SUPPLY_NEW,
+        },
+      });
+    });
+
+    it("keeps the name typed and shows the server's sentence when the supply type is refused (17)", async () => {
+      const { user, panel } = await openCreation(
+        {
+          "POST /api/catalogue/supply-types": {
+            status: 409,
+            error: { code: "CONFLICT", message: "Ce type de fourniture existe déjà : « Fixation »." },
+          },
+        },
+        { canCreateSupplyType: true },
+      );
+      await user.selectOptions(within(panel).getByLabelText("Type de fourniture *"), "Robinetterie");
+
+      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
+      const name = within(panel).getByLabelText("Nom du nouveau type de fourniture");
+      await user.type(name, "fixations");
+      await user.click(within(panel).getByRole("button", { name: "Créer" }));
+
+      expect(await within(panel).findByRole("alert")).toHaveTextContent("Ce type de fourniture existe déjà : « Fixation ».");
+      expect(name).toHaveValue("fixations");
+      expect(name).toHaveAccessibleDescription("Ce type de fourniture existe déjà : « Fixation ».");
+      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveValue(SUPPLY_B);
+      expect(writes()).toHaveLength(1);
+    });
+
+    it("files a created supply type in the list's alphabetical order, as the catalogue lists them (17)", async () => {
+      const SUPPLY_NEW = "5c5c5c5c-5c5c-45c5-85c5-5c5c5c5c5c5c";
+      const { user, panel } = await openCreation(
+        { "POST /api/catalogue/supply-types": { status: 201, data: { item: { id: SUPPLY_NEW, code: "CABLAGE", name: "Câblage" } } } },
+        { canCreateSupplyType: true },
+      );
+
+      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
+      await user.type(within(panel).getByLabelText("Nom du nouveau type de fourniture"), "Câblage{Enter}");
+
+      const select = within(panel).getByLabelText("Type de fourniture *");
+      await waitFor(() => expect(select).toHaveValue(SUPPLY_NEW));
+      expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+        "Choisir…",
+        "Câblage",
+        "Fixation",
+        "Robinetterie",
+      ]);
+    });
+
+    it("offers no supply type creation to a member who is not an administrator (17)", async () => {
+      const { panel } = await openCreation({});
+
+      expect(within(panel).queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+      expect(within(panel).queryByLabelText("Nom du nouveau type de fourniture")).not.toBeInTheDocument();
+      expect(within(panel).getByLabelText("Type de fourniture *")).toBeEnabled();
+    });
+
+    it("says there is no supply type yet and that an administrator creates one (11, 17)", async () => {
       const user = await openEditor({
         [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
         [`GET ${BASE}/candidates`]: { data: { lines: { [LINE_A]: [] } } },
@@ -648,9 +751,43 @@ describe("linking request lines to catalogue articles", () => {
       const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
       await user.click(within(panel).getByRole("button", { name: "Créer l’article" }));
 
-      expect(await within(panel).findByText(/Aucun type de fourniture n’existe encore/)).toBeVisible();
-      expect(within(panel).getByRole("link", { name: "Ouvrir le catalogue" })).toHaveAttribute("href", "/dashboard/products");
+      expect(
+        await within(panel).findByText("Aucun type de fourniture n’existe encore : un administrateur peut en créer un."),
+      ).toBeVisible();
+      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveAccessibleDescription(
+        "Aucun type de fourniture n’existe encore : un administrateur peut en créer un.",
+      );
+      expect(within(panel).queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+      expect(within(panel).queryByRole("link", { name: "Ouvrir le catalogue" })).not.toBeInTheDocument();
       expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeDisabled();
+    });
+
+    it("lets an administrator create the first supply type from an empty list (11, 17)", async () => {
+      const SUPPLY_NEW = "5c5c5c5c-5c5c-45c5-85c5-5c5c5c5c5c5c";
+      const user = await openEditor(
+        {
+          [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+          [`GET ${BASE}/candidates`]: { data: { lines: { [LINE_A]: [] } } },
+          "GET /api/catalogue/supply-types": { data: { items: [] } },
+          "POST /api/catalogue/supply-types": { status: 201, data: { item: { id: SUPPLY_NEW, code: "FIXATION", name: "Fixation" } } },
+        },
+        { canCreateSupplyType: true },
+      );
+      await user.click(await screen.findByRole("button", { name: "Chercher ou créer l’article, ligne 1" }));
+      const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
+      await user.click(within(panel).getByRole("button", { name: "Créer l’article" }));
+
+      expect(await within(panel).findByText("Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type ».")).toBeVisible();
+      expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeDisabled();
+      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
+      await user.type(within(panel).getByLabelText("Nom du nouveau type de fourniture"), "Fixation");
+      await user.click(within(panel).getByRole("button", { name: "Créer" }));
+
+      await waitFor(() => expect(within(panel).getByLabelText("Type de fourniture *")).toHaveValue(SUPPLY_NEW));
+      // Disabled while the list was empty, the select is enabled in time to take the focus back.
+      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveFocus();
+      expect(within(panel).queryByText(/Aucun type de fourniture n’existe encore/)).not.toBeInTheDocument();
+      expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeEnabled();
     });
   });
 

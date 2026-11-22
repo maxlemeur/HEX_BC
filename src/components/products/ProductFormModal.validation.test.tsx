@@ -277,6 +277,7 @@ describe("ProductFormModal, supply type", () => {
 
     await waitFor(() => expect(select).toHaveValue(CREATED_SUPPLY_TYPE.id));
     expect(select).toHaveDisplayValue("Supportage");
+    expect(select).toHaveFocus();
     expect(screen.queryByLabelText("Nom du nouveau type de fourniture")).not.toBeInTheDocument();
     expect(supplyTypeCreationCalls()).toHaveLength(1);
     const [, init] = supplyTypeCreationCalls()[0];

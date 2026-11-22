@@ -7,6 +7,10 @@ contract take precedence over historical reports and procedures.
 
 - Start with Git status and affected code, tests and configuration. Read history,
   skills and installed API docs when relevant; reuse unchanged references.
+- When a skill says to start a subagent, treat it as permission, not as an
+  order: do lookups yourself, and delegate only independent parallel work and
+  the review described below. Where a skill's delivery steps differ from this
+  file, this file wins.
 - `main` is protected: it only moves through a pull request whose required
   checks (`quality-gate`, `army-critical`, `army-takeoff`, `army-calc-v3`,
   `smoke`, `rls-matrix`) are green, and a direct push is refused. Work on a
@@ -20,17 +24,29 @@ contract take precedence over historical reports and procedures.
   request and its automatic merge without repeated approval. Keep implementation
   focused. Analysis-only requests end with findings. Ask only for a missing
   decision or an action outside the authorized scope.
-- Deployment, activation (a flag, a row in an activation table), access changes
-  and destructive actions require the explicit go of the owner, the person who
-  gave the current request. So does merging a pull request you were not asked to
-  deliver (someone else's, Dependabot, a release). Tool permissions alone do not
-  provide it.
+- Deployment, activation in production or the shared database (a flag, a row in
+  an activation table), access changes and destructive actions require the
+  explicit go of the owner, the person who gave the current request. So does
+  merging a pull request you were not asked to deliver (someone else's,
+  Dependabot, a release). Tool permissions alone do not provide it.
+  - An access change is a change of tenant membership or roles, of repository
+    or Supabase collaborators, or of keys, or a policy or grant that widens who
+    reads or writes existing data.
+  - A destructive action is deleting or overwriting data in the shared database
+    or its storage, dropping a column or table, a force-push, or deleting a
+    branch, worktree or file that holds work not on `main`.
+  - Removing your own temporary worktrees, scratch files, owned local stacks
+    and merged branches needs no go. Where a session refuses `rm`, use
+    `git worktree remove` for a worktree and `git clean -f -- <path>` for a
+    file in a checkout.
 - Shared migrations carry a standing go (owner, 2026-11-22): once a migration is
-  on `main` through a reviewed pull request, activates nothing and removes
-  nothing (no deleted row, dropped column or table), apply it to the shared
-  database without asking, by the [Supabase runbook](supabase/README.md), and
-  publish its receipt. Quote this rule as the go in the brief of the agent that
-  applies. Any other migration waits for an explicit go.
+  on `main` through a reviewed pull request, activates nothing, removes nothing
+  (no deleted row, dropped column or table) and widens no access to existing
+  data, apply it to the shared database without asking, by the
+  [Supabase runbook](supabase/README.md), and publish its receipt. The policies
+  and grants it sets on objects it creates are covered. If another agent
+  applies it, quote this rule in its brief. Any other migration waits for an
+  explicit go.
 
 ## Product and data contracts
 
@@ -79,7 +95,7 @@ contract take precedence over historical reports and procedures.
   journeys need no model; assert business values, persistence, rights and downloads.
 - Use isolated tests only for real failures E2E cannot expose reliably (SQL/RLS,
   parsers, races, recovery, calculations). Identify relevant failure modes and
-  write new isolated tests before implementation changes, never afterwards.
+  write new isolated tests before the implementation change they cover.
   Avoid source-text tests and mocks that mirror implementation. Preserve useful
   existing coverage; do not remove it to get green.
 
@@ -144,7 +160,9 @@ contract take precedence over historical reports and procedures.
   secrets. The runner owns and destroys its ephemeral stack; never bypass guards
   or point it at shared credentials.
 - The shared Supabase is also production's. Run writing campaigns on owned stacks.
-  An authorized shared check uses only the designated E2E account and tenant
+  `execute_sql` on the shared project only reads, unless the owner's go names
+  the statement to run. A shared check the owner asked for in the current
+  request uses only the designated E2E account and tenant
   « ARMY TesterArmy QA »; never create another account/tenant. Use existing authorized
   credentials or ask the owner if missing. Before a shared run, read the
   [write acknowledgement](e2e/README.md#démarrer-un-parcours-local) and
@@ -164,8 +182,9 @@ contract take precedence over historical reports and procedures.
 
 ## Review and delivery
 
-- Use an independent read-only reviewer for substantial changes, especially money,
-  authorization, migrations, concurrency, public contracts or cross-module behavior.
+- Use an independent read-only reviewer when the diff touches money,
+  authorization, migrations, concurrency or a public contract, or spans modules.
+  Documentation, visual-only, test-only and single-module fixes need none.
   Give it a stable diff, the contract, consumers and actual check results.
   Two rounds at most: one full reading, then one check of the fixes. A finding
   blocks when it loses or corrupts data, widens a right, changes an amount or

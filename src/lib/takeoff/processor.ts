@@ -21,6 +21,10 @@ import {
   type LevelCChunkMetric,
 } from "@/lib/takeoff/level-c-chunk-metrics";
 import { processLevelCChunks, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
+import { POSTE_EXCHANGE_PROMPT_VERSION } from "@/lib/takeoff/poste-exchange";
+import {
+  readTakeoffItemListOrder, takeoffItemListReadingNotDelivered, type TakeoffItemListOrder,
+} from "@/lib/takeoff/poste-reading-job-server";
 import { assertPdfResultIsInterpretable } from "@/lib/takeoff/pdf-reading-guards";
 import { logCompletedAuditEvent, logFailedAuditEvent, logProcessingAuditEvent } from "@/lib/takeoff/processing-audit";
 import {
@@ -202,7 +206,7 @@ async function processTakeoffLevel(
   const context = await resolveContext(options);
   const resolveProvider = options.resolveProvider ?? resolveLocalTakeoffProvider;
   const now = options.now ?? (() => new Date());
-  const promptVersion = getTakeoffPromptVersion(level);
+  let promptVersion: string = getTakeoffPromptVersion(level);
   const processingStartedAt = now();
   let model = UNRESOLVED_LOCAL_MODEL;
 
@@ -260,6 +264,13 @@ async function processTakeoffLevel(
       () => job?.processing_lease_token ?? null) }; }
     catch (error) { resolved = { error }; }
     if ("provider" in resolved) model = resolved.provider.model;
+    // Lot 4: the measuring order before the claim (no read for a job without a request), so that the claim records the
+    // prompt the job reads with; a failed read ends the job once claimed, as a provider that cannot be resolved does.
+    let itemList: { order: TakeoffItemListOrder | null } | { error: unknown } = { order: null };
+    if (level === TAKEOFF_LEVEL_C) {
+      try { itemList = { order: await readTakeoffItemListOrder(context.supabase, job) }; } catch (error) { itemList = { error }; }
+    }
+    if ("order" in itemList && itemList.order) promptVersion = POSTE_EXCHANGE_PROMPT_VERSION;
 
     job = await markJobAsProcessing({
       supabase: context.supabase,
@@ -275,6 +286,10 @@ async function processTakeoffLevel(
     if (job.processing_lease_token) heldSlot = { hostId, leaseToken: job.processing_lease_token };
     // Even preflight failures must become visible, terminal job failures.
     if ("error" in resolved) throw resolved.error;
+    if ("error" in itemList) throw itemList.error;
+    // Until the publication of a plan's answers is delivered (lot 4 PR 3c), a job of the second order stops here, claimed,
+    // before its plan is read and before any paid call.
+    if (itemList.order) throw takeoffItemListReadingNotDelivered(normalizedJobId);
     const localProvider = resolved.provider;
     const call: StructuredCall = async <T>(providerOptions: StructuredCallOptions<T>) => {
       await assertProviderTenantActive();
@@ -299,6 +314,23 @@ async function processTakeoffLevel(
     const schemaVersion = toNonEmptyString(job.schema_version) ?? "v1";
 
     if (level === TAKEOFF_LEVEL_C) {
+      // TI-662: vector reading of the original pages accompanies level C by default. Groups are classified
+      // with MERGEONE_TAKEOFF_DECISIONS=1 by the creator's plan (TI-704 option B); each call checked like a provider
+      // call (active tenant, lease).
+      // A plan's unit reads its share of the dossier's vector pages; any other job, the pages of a grouped analysis.
+      const claimed = job;
+      const unit = readTakeoffLaunchUnit(claimed.preparation_snapshot);
+      const readVectors = async () => isTakeoffVectorReadingEnabled()
+        ? await readTakeoffVectorPages(sourceFile, {
+          onPage: renewProcessingLease, context: { jobId: claimed.id, tenantId: claimed.tenant_id },
+          ...(unit ? { maxPages: unit.vectorPages } : {}),
+          decisions: takeoffVectorLocalGroupsHook({ jobId: claimed.id, tenantId: claimed.tenant_id, userId: claimed.created_by ?? null,
+            provider: localProvider, beforeCall: async () => {
+              await assertProviderTenantActive();
+              await renewProcessingLease();
+            } }),
+        })
+        : [];
       const levelCResult = await processLevelCChunks({
         supabase: context.supabase,
         job,
@@ -320,22 +352,7 @@ async function processTakeoffLevel(
         providerMeta: levelCResult.providerMeta,
       });
 
-      // TI-662: vector reading of the original pages accompanies level C by default. Groups are classified
-      // with MERGEONE_TAKEOFF_DECISIONS=1 by the creator's plan (TI-704 option B); each call checked like a provider
-      // call (active tenant, lease).
-      // A plan's unit reads its share of the dossier's vector pages; any other job, the pages of a grouped analysis.
-      const unit = readTakeoffLaunchUnit(job.preparation_snapshot);
-      const vectorOutcomes = isTakeoffVectorReadingEnabled()
-        ? await readTakeoffVectorPages(sourceFile, {
-          onPage: renewProcessingLease, context: { jobId: job.id, tenantId: job.tenant_id },
-          ...(unit ? { maxPages: unit.vectorPages } : {}),
-          decisions: takeoffVectorLocalGroupsHook({ jobId: job.id, tenantId: job.tenant_id, userId: job.created_by ?? null, provider: localProvider,
-            beforeCall: async () => {
-              await assertProviderTenantActive();
-              await renewProcessingLease();
-            } }),
-        })
-        : [];
+      const vectorOutcomes = await readVectors();
       await renewProcessingLease();
       const completedAt = now();
       const totalDurationMs = Math.max(
