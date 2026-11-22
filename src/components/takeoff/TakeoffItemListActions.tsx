@@ -21,11 +21,23 @@ function pairingText({ previousLabel, previousFacts, nextLabel, nextFacts, ambig
     + (ambiguous ? " (plusieurs rapprochements possibles)" : "");
 }
 
-async function post(url: string, body: unknown): Promise<string | null> {
-  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+/**
+ * The server's answer to a gesture: none when it recorded it, its refusal (`refused`, the gesture is decided), or no
+ * answer at all (`unanswered`: a network failure, the gesture may have been recorded; sent again with the same key, it
+ * is replayed, never recorded twice).
+ */
+type PostFailure = { kind: "refused" | "unanswered"; message: string };
+
+async function post(url: string, body: unknown, unanswered: string): Promise<PostFailure | null> {
+  let response: Response;
+  try {
+    response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    return { kind: "unanswered", message: unanswered };
+  }
   if (response.ok) return null;
   const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-  return payload?.error?.message ?? "La liste des postes n’a pas pu être enregistrée.";
+  return { kind: "refused", message: payload?.error?.message ?? "La liste des postes n’a pas pu être enregistrée." };
 }
 
 /**
@@ -44,18 +56,23 @@ export function TakeoffItemListProposalForm({ projectId, expectedRevision, diges
   const submit = async () => {
     setPending(true);
     setError(null);
-    const failure = await post(`/api/affaires/${projectId}/takeoff/item-list/revisions`, {
-      expected_revision: expectedRevision, proposal_digest: digest, intent_key: intent.current,
-      continuities: continuities.filter((continuity) => accepted.has(key(continuity)))
-        .map(({ previousItemId, nextItemId }) => ({ previous_item_id: previousItemId, next_item_id: nextItemId })),
-    });
-    setPending(false);
-    if (failure) {
-      setError(failure);
-      intent.current = crypto.randomUUID();
-      return;
+    try {
+      const failure = await post(`/api/affaires/${projectId}/takeoff/item-list/revisions`, {
+        expected_revision: expectedRevision, proposal_digest: digest, intent_key: intent.current,
+        continuities: continuities.filter((continuity) => accepted.has(key(continuity)))
+          .map(({ previousItemId, nextItemId }) => ({ previous_item_id: previousItemId, next_item_id: nextItemId })),
+      }, "La réponse du serveur n’est pas arrivée. Vérifiez votre connexion puis réessayez : la révision ne sera pas "
+        + "enregistrée deux fois.");
+      if (failure) {
+        setError(failure.message);
+        // A refusal decides the gesture: the next click is another one. Without an answer, the same gesture is sent again.
+        if (failure.kind === "refused") intent.current = crypto.randomUUID();
+        return;
+      }
+      router.refresh();
+    } finally {
+      setPending(false);
     }
-    router.refresh();
   };
   return (
     <div className="space-y-3">
@@ -100,20 +117,25 @@ export function TakeoffItemListAddForm({ projectId, expectedRevision, sections }
     const text = (name: string) => String(data.get(name) ?? "").trim();
     setPending(true);
     setError(null);
-    const failure = await post(`/api/affaires/${projectId}/takeoff/item-list/items`, {
-      expected_revision: expectedRevision, intent_key: intent.current, label: text("label"),
-      expected_unit: text("unit") || null, measurement_basis: text("basis") || null,
-      qualifiers: Object.fromEntries(["network", "material", "diameter"].flatMap((name) => text(name) ? [[name, text(name)]] : [])),
-      section_of_item_id: text("section") || null,
-    });
-    setPending(false);
-    if (failure) {
-      setError(failure);
-      return;
+    try {
+      const failure = await post(`/api/affaires/${projectId}/takeoff/item-list/items`, {
+        expected_revision: expectedRevision, intent_key: intent.current, label: text("label"),
+        expected_unit: text("unit") || null, measurement_basis: text("basis") || null,
+        qualifiers: Object.fromEntries(["network", "material", "diameter"].flatMap((name) => text(name) ? [[name, text(name)]] : [])),
+        section_of_item_id: text("section") || null,
+      }, "La réponse du serveur n’est pas arrivée. Vérifiez votre connexion puis réessayez : le poste ne sera pas ajouté "
+        + "deux fois.");
+      // What was typed stays, and the same gesture is sent again by the next click.
+      if (failure) {
+        setError(failure.message);
+        return;
+      }
+      intent.current = crypto.randomUUID();
+      form.reset();
+      router.refresh();
+    } finally {
+      setPending(false);
     }
-    intent.current = crypto.randomUUID();
-    form.reset();
-    router.refresh();
   };
   return (
     <form
