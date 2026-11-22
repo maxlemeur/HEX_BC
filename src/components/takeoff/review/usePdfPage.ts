@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 
-import { pdfCanvasScale, type PdfPageFailure, type PdfPageSize } from "@/lib/takeoff/pdf-page-geometry";
+import { pdfCanvasPixels, pdfCanvasScale, type PdfPageFailure, type PdfPageSize } from "@/lib/takeoff/pdf-page-geometry";
 
 export type { PdfPageFailure } from "@/lib/takeoff/pdf-page-geometry";
 
@@ -121,6 +121,8 @@ export function usePdfPage({ source, page, scale, canvas }: {
   useEffect(() => {
     setShown(null);
     setPageFailure(null);
+    // The render of the previous page was cancelled with it: nothing renders until this page is read.
+    setRendering(false);
     // A document loaded for the previous source answers nothing once another is requested.
     if (!loaded || loaded.key !== key || page === null) return;
     let active = true;
@@ -131,6 +133,7 @@ export function usePdfPage({ source, page, scale, canvas }: {
     }).catch(() => {
       if (!active) return;
       clear(canvas.current);
+      setRendering(false);
       setPageFailure("page_missing");
     });
     return () => {
@@ -149,10 +152,12 @@ export function usePdfPage({ source, page, scale, canvas }: {
     setPageFailure(null);
     setRendering(true);
     try {
-      const viewport = shown.page.getViewport({ scale: backing });
-      // Rounded down: the canvas never exceeds the pixel ceiling the scale was chosen under.
-      element.width = Math.max(1, Math.floor(viewport.width));
-      element.height = Math.max(1, Math.floor(viewport.height));
+      const wanted = shown.page.getViewport({ scale: backing });
+      // Rounded down and bounded: the canvas never exceeds the pixel ceiling, a sliver of a page included.
+      const pixels = pdfCanvasPixels(wanted.width, wanted.height);
+      const viewport = pixels.ratio < 1 ? shown.page.getViewport({ scale: backing * pixels.ratio }) : wanted;
+      element.width = pixels.width;
+      element.height = pixels.height;
       element.style.width = `${shown.size.width * scale}px`;
       element.style.height = `${shown.size.height * scale}px`;
       task = shown.page.render({ canvas: element, viewport });
@@ -181,7 +186,8 @@ export function usePdfPage({ source, page, scale, canvas }: {
     size: current?.size ?? null,
     pageCount: document?.document.numPages ?? null,
     loading: opening || (document !== null && page !== null && current === null && pageFailure === null),
-    rendering,
+    // A failure never coexists with a render in progress.
+    rendering: rendering && sourceFailure === null && pageFailure === null,
     failure: sourceFailure ?? pageFailure,
   };
 }

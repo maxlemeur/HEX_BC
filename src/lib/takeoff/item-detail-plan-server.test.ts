@@ -32,6 +32,8 @@ const DELETED_PIECE = "50000000-0000-4000-8000-00000000000f";
 const COPY_A = "60000000-0000-4000-8000-00000000000a";
 const COPY_B = "60000000-0000-4000-8000-00000000000b";
 const UPLOAD = "60000000-0000-4000-8000-00000000000c";
+const FOREIGN_COPY = "60000000-0000-4000-8000-00000000000d";
+const FOREIGN_PIECE = "50000000-0000-4000-8000-0000000000ff";
 const DIGEST = "a".repeat(64);
 const STAMP = "2026-11-19T08:00:00.000Z";
 
@@ -87,12 +89,17 @@ type Copy = {
   hidden?: boolean;
   /** The copy's row is gone (only its recorded source remains). */
   gone?: boolean;
+  /** A dossier copy whose piece belongs to another affaire: its source was never recorded here. */
+  foreignPiece?: string;
 };
 
 function planFileRow(copy: Copy) {
   return { id: copy.id, created_at: STAMP, updated_at: STAMP, tenant_id: TENANT, plan_set_id: SET, file_path: pathOf(copy.id),
     file_name: `${copy.id}.pdf`, file_type: "application/pdf", file_size_bytes: 1000, page_count: 9, file_hash: null,
-    metadata: copy.generation ? { intake_generation: copy.generation } : {}, created_by: null };
+    metadata: {
+      ...(copy.piece || copy.foreignPiece ? { source: "affaire-intake", intake_document_id: copy.piece ?? copy.foreignPiece } : {}),
+      ...(copy.generation ? { intake_generation: copy.generation } : {}),
+    }, created_by: null };
 }
 
 const pieces = [
@@ -102,9 +109,15 @@ const pieces = [
     deleted_at: null, deletion_token: null },
   { id: DELETED_PIECE, tenant_id: TENANT, project_id: PROJECT, file_name: "Plan supprimé.pdf", document_kind: "plans",
     upload_status: "uploaded", deleted_at: STAMP, deletion_token: null },
+  { id: FOREIGN_PIECE, tenant_id: TENANT, project_id: OTHER_PROJECT, file_name: "Plan d’une autre affaire.pdf", document_kind: "plans",
+    upload_status: "uploaded", deleted_at: null, deletion_token: null },
 ];
 
-function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missing" }) {
+/**
+ * The rows of both sessions. `signing`: what Storage answers the member's signing request (ok, an answer shaped as a
+ * missing object, an explicit denial, or no answer at all); `stored`: whether the object exists, as the service sees it.
+ */
+function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missing" | "denied" | "transport"; stored?: boolean }) {
   const jobs = [
     { id: JOB, tenant_id: TENANT, project_id: PROJECT, plan_set_id: SET, estimate_version_id: null, status: "succeeded",
       completed_at: "2026-11-20T11:00:00.000Z", preparation_snapshot: snapshot([{ id: COPY_A, name: "Plan RDC indice A.pdf", pages: [7, 2] }]) },
@@ -129,15 +142,26 @@ function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missin
       return copy ? [{ source_kind: copy.piece ? "intake_document" : "plan_file", source_id: copy.piece ?? copy.id,
         plan_file_id: copy.id, current_copy: copy.current, can_write: false }] : [];
     },
-  }, (url) => (input.signing === "missing"
-    ? new Response(JSON.stringify({ statusCode: "404", error: "not_found", message: "Object not found" }), { status: 400 })
-    : new Response(JSON.stringify({ signedURL: `${url.pathname.replace("/storage/v1", "")}?token=fictional` }), { status: 200 })));
+  }, (url) => {
+    if (input.signing === "transport") throw new TypeError("fetch failed");
+    if (input.signing === "missing") {
+      return new Response(JSON.stringify({ statusCode: "404", error: "not_found", message: "Object not found" }), { status: 400 });
+    }
+    if (input.signing === "denied") {
+      return new Response(JSON.stringify({ statusCode: "403", error: "Unauthorized", message: "new row violates row-level security policy" }),
+        { status: 400 });
+    }
+    return new Response(JSON.stringify({ signedURL: `${url.pathname.replace("/storage/v1", "")}?token=fictional` }), { status: 200 });
+  });
   const sources = createInMemoryRestApi({
     plan_sets: [set],
     plan_files: present.map(planFileRow),
-    takeoff_plan_location_sources: input.copies.map((copy) => ({ plan_file_id: copy.id, tenant_id: TENANT, plan_set_id: SET,
-      project_id: PROJECT, source_kind: copy.piece ? "intake_document" : "plan_file", source_id: copy.piece ?? copy.id, recorded_at: STAMP })),
-  });
+    takeoff_plan_location_sources: input.copies.filter((copy) => !copy.foreignPiece).map((copy) => ({ plan_file_id: copy.id,
+      tenant_id: TENANT, plan_set_id: SET, project_id: PROJECT, source_kind: copy.piece ? "intake_document" : "plan_file",
+      source_id: copy.piece ?? copy.id, recorded_at: STAMP })),
+  }, {}, (url) => (input.stored === false
+    ? new Response(JSON.stringify({ statusCode: "404", error: "not_found", message: "Object not found" }), { status: 400 })
+    : new Response(JSON.stringify({ id: "o", name: url.pathname, size: 1000 }), { status: 200 })));
   access.member = member.client;
   service.current = sources.client;
   return member;
@@ -162,6 +186,35 @@ describe("resolveItemDetailPlan, the rights of the routes that serve the bytes",
     access.disabled = true;
     expect(await failure(reading(JOB, PIECE))).toEqual({ status: 403, code: "TAKEOFF_MODULE_DISABLED" });
     expect(await failure(dossier(PIECE))).toEqual({ status: 403, code: "TAKEOFF_MODULE_DISABLED" });
+  });
+
+  // Review of PR 2 (written before the fix): a hidden sealed copy still gave its generation from the service's row.
+  it("returns nothing of a sealed copy the member may not read but « not available to you »", async () => {
+    stage({ copies: [{ id: COPY_A, current: true, generation: "1", piece: PIECE, hidden: true }] });
+    expect(await reading(JOB, PIECE)).toMatchObject({ plan: { generation: null }, document: { kind: "unavailable", reason: "not_available_to_you" } });
+  });
+
+  // Review of PR 2 (written before the fix): an explicit signing denial was a 500, an answer shaped as a missing object
+  // was « no copy » even for an object Storage hides from the member.
+  it("says why a current copy cannot be signed: not available to you, missing bytes, or a failure to retry", async () => {
+    const copies = [{ id: COPY_A, current: true, piece: PIECE }];
+    stage({ copies, signing: "denied" });
+    expect((await dossier(PIECE)).document).toEqual({ kind: "unavailable", reason: "not_available_to_you" });
+    stage({ copies, signing: "missing", stored: true });
+    expect((await dossier(PIECE)).document).toEqual({ kind: "unavailable", reason: "not_available_to_you" });
+    stage({ copies, signing: "missing", stored: false });
+    expect((await dossier(PIECE)).document).toEqual({ kind: "unavailable", reason: "copy_missing" });
+    stage({ copies, signing: "transport" });
+    expect(await failure(dossier(PIECE))).toEqual({ status: 503, code: "TAKEOFF_ITEM_DETAIL_PLAN_RETRY" });
+  });
+
+  // Review of PR 2 (written before the fix): a copy whose dossier piece belongs to another affaire was read as an upload
+  // and named, while its piece was not found.
+  it("confirms nothing of a copy whose dossier piece belongs to another affaire, by the copy or by its piece", async () => {
+    stage({ copies: [{ id: FOREIGN_COPY, current: true, foreignPiece: FOREIGN_PIECE }] });
+    expect(await failure(dossier(FOREIGN_COPY))).toEqual({ status: 404, code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND" });
+    expect(await failure(dossier(FOREIGN_PIECE))).toEqual({ status: 404, code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND" });
+    expect(await failure(piece(FOREIGN_PIECE))).toEqual({ status: 404, code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND" });
   });
 
   it("says « not available to you », apart from « no copy », for a current copy the plan centre does not serve this member", async () => {
@@ -231,8 +284,8 @@ describe("resolveItemDetailPlan, a plan of the dossier", () => {
       document: { kind: "unavailable", reason: "several_copies" } });
     stage({ copies: [{ id: COPY_A, current: false, piece: PIECE }] });
     expect(await dossier(PIECE)).toMatchObject({ plan: { planFileId: null }, document: { kind: "unavailable", reason: "no_current_copy" } });
-    stage({ copies: [{ id: COPY_A, current: true, piece: PIECE }], signing: "missing" });
-    expect((await dossier(PIECE)).document).toEqual({ kind: "unavailable", reason: "no_current_copy" });
+    stage({ copies: [{ id: COPY_A, current: true, piece: PIECE }], signing: "missing", stored: false });
+    expect((await dossier(PIECE)).document).toEqual({ kind: "unavailable", reason: "copy_missing" });
   });
 
   it("names a plan of the dossier with no copy yet, and finds nothing for a key foreign to it or a deleted piece", async () => {

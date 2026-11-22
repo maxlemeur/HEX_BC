@@ -43,7 +43,8 @@ const SOURCE_URL_TTL_SECONDS = 60 * 10;
  * plan is not one of its sealed, confirmed plans.
  */
 export async function checkAttestedTakeoffPlan(supabase: AuthenticatedTakeoffContext["supabase"], tenantId: string, jobId: string,
-  fileId: string): Promise<{ ok: true; filePath: string; contentHash: string } | { ok: false; reason: "not_attested" | "copy_unreadable" }> {
+  fileId: string): Promise<{ ok: true; filePath: string; contentHash: string; generation: string | null }
+  | { ok: false; reason: "not_attested" | "copy_unreadable" }> {
   const { data: job, error } = await supabase.from("takeoff_jobs").select("plan_set_id,preparation_snapshot,estimate_version_id")
     .eq("id", jobId).eq("tenant_id", tenantId).maybeSingle();
   if (error) readError(jobId, "Impossible de lire le métré du plan.", error);
@@ -61,13 +62,16 @@ export async function checkAttestedTakeoffPlan(supabase: AuthenticatedTakeoffCon
   const source = snapshot?.preparation.sources.find(candidate => candidate.document_id === fileId
     && candidate.plan_set_id === job.plan_set_id && candidate.kind === "plan" && candidate.active && candidate.confirmed);
   if (!source?.content_hash || !source.file_path) return { ok: false, reason: "not_attested" };
-  const { data: file, error: fileError } = await supabase.from("plan_files").select("file_path,file_name")
+  const { data: file, error: fileError } = await supabase.from("plan_files").select("file_path,file_name,metadata")
     .eq("id", fileId).eq("tenant_id", tenantId).eq("plan_set_id", job.plan_set_id).maybeSingle();
   if (fileError) readError(jobId, "Impossible de lire le plan du métré.", fileError);
   if (!file || file.file_path !== source.file_path || file.file_path !== buildPlanFileStoragePath({
     tenantId, setId: job.plan_set_id, fileId, fileName: sanitizePlanPdfFilename(file.file_name),
   })) return { ok: false, reason: "copy_unreadable" };
-  return { ok: true, filePath: file.file_path, contentHash: source.content_hash };
+  // The copy's own generation, as the member reads its row: never a date, nothing for a copy they may not read.
+  const generation = (file.metadata && typeof file.metadata === "object" ? file.metadata as Record<string, unknown> : {}).intake_generation;
+  return { ok: true, filePath: file.file_path, contentHash: source.content_hash,
+    generation: typeof generation === "string" || typeof generation === "number" ? String(generation) : null };
 }
 
 export async function readAttestedTakeoffPlan(jobId: string, fileId: string): Promise<ArrayBuffer> {

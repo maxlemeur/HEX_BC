@@ -5350,7 +5350,7 @@
           "Takeoff"
         ],
         "summary": "Résoudre le plan affiché par le détail d’un poste",
-        "description": "Lecteurs de l’affaire. Une résolution par plan et par lecture, jamais par poste ni par repère. Avec une lecture (une analyse de cette affaire que le membre lit), la copie que cette analyse a scellée pour ce plan, son empreinte et ses pages, même remplacée depuis : ses octets sont ceux qu’elle a attestés (vérifiés à chaque demande), sinon l’original est dit indisponible, jamais remplacé par une copie plus récente. Sans lecture, le plan retenu au dossier : l’unique copie actuelle de sa pièce, telle que le lecteur de localisation la décide pour le membre, signée pour lui par la lecture du centre de plans au moment de la demande ; une génération nommée doit l’être encore. Mêmes droits que les routes qui servent les octets : module Métré actif pour le tenant, et une copie que ces routes ne serviraient pas à ce membre est dite « non accessible », à part de « aucune copie ». source ne nomme qu’une pièce du dossier. Une analyse d’une autre affaire, un plan que cette lecture n’a pas lu, un plan étranger au dossier ou une pièce supprimée est introuvable. Rien n’est gardé : chaque ouverture d’un plan le résout de nouveau. N’écrit rien, ne lance rien.",
+        "description": "Lecteurs de l’affaire. Une résolution par plan et par lecture, jamais par poste ni par repère. Avec une lecture (une analyse de cette affaire que le membre lit), la copie que cette analyse a scellée pour ce plan, son empreinte et ses pages, même remplacée depuis : ses octets sont ceux qu’elle a attestés (vérifiés à chaque demande), sinon l’original est dit indisponible, jamais remplacé par une copie plus récente. Sans lecture, le plan retenu au dossier : l’unique copie actuelle de sa pièce, telle que le lecteur de localisation la décide pour le membre, signée pour lui par la lecture du centre de plans au moment de la demande ; une génération nommée doit l’être encore. Mêmes droits que les routes qui servent les octets : module Métré actif pour le tenant, et une copie que ces routes ne serviraient pas à ce membre (sa ligne, sa signature) est dite « non accessible », à part de « aucune copie » ; des octets absents du stockage sont dits absents. Les copies du dossier sont celles que les sources enregistrées pour l’affaire désignent : une copie d’une pièce d’une autre affaire est introuvable, par la copie comme par la pièce. source ne nomme qu’une pièce du dossier. Une analyse d’une autre affaire, un plan que cette lecture n’a pas lu, un plan étranger au dossier ou une pièce supprimée est introuvable. Rien n’est gardé : chaque ouverture d’un plan le résout de nouveau. N’écrit rien, ne lance rien.",
         "parameters": [
           {
             "name": "projectId",
@@ -5475,6 +5475,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Le stockage n’a pas répondu à la signature du plan : réessayer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
                 }
               }
             }
@@ -41465,7 +41475,8 @@
                           "no_current_copy",
                           "several_copies",
                           "generation_replaced",
-                          "not_available_to_you"
+                          "not_available_to_you",
+                          "copy_missing"
                         ]
                       }
                     },

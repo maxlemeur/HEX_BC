@@ -29,6 +29,8 @@ export const ITEM_DETAIL_PLAN_UNAVAILABLE = [
   "generation_replaced",
   /** A copy exists, but the route that serves its bytes does not serve them to this member. */
   "not_available_to_you",
+  /** The dossier's current copy has no bytes in storage. */
+  "copy_missing",
 ] as const;
 export type ItemDetailPlanUnavailable = (typeof ITEM_DETAIL_PLAN_UNAVAILABLE)[number];
 

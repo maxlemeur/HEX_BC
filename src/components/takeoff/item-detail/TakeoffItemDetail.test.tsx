@@ -281,7 +281,8 @@ describe("TakeoffItemDetail, the states of an item", () => {
 describe("TakeoffItemDetail, one reader, one member", () => {
   it("starts from nothing when its reader changes while it stays shown", async () => {
     const first = fixtureItemDetailReader({ lines });
-    const second = fixtureItemDetailReader({ lines: [], canReview: false });
+    // The other member reads the same item under another name, and may not review it.
+    const second = fixtureItemDetailReader({ lines: [{ ...basinLine, label: "Lavabo (autre membre)" }], canReview: false });
     const onGesture = vi.fn();
     const { rerender } = render(<Page initial={address({})} reader={first.reader} onBack={vi.fn()} onGesture={onGesture} />);
     await settle();
@@ -289,9 +290,12 @@ describe("TakeoffItemDetail, one reader, one member", () => {
     rerender(<Page initial={address({})} reader={second.reader} onBack={vi.fn()} onGesture={onGesture} />);
     await settle();
     expect(second.calls.queue).toEqual([{ kind: "focus", itemId: ITEMS.basin }]);
+    expect(second.calls.plans).toEqual([{ planKey: PLAN_RDC, jobId: JOB_RDC, source: null }]);
     expect(screen.queryByText("Lavabo céramique")).toBeNull();
-    expect(screen.getByText("Ce poste est introuvable dans la liste de l’affaire.")).toBeTruthy();
+    expect(selected()).toContain("Lavabo (autre membre)");
+    fireEvent.keyDown(list(), { key: "v" });
     expect(onGesture).not.toHaveBeenCalled();
+    expect(screen.getByTestId("poste-detail-notice").textContent).toBe("Un opérateur du métré de l’affaire peut revoir ce poste.");
   });
 
   it("resolves a dossier plan again each time it is opened, never keeping a copy or an absence", async () => {
@@ -329,6 +333,7 @@ describe("TakeoffItemDetail, navigation", () => {
     fireEvent.keyDown(list(), { key: "ArrowDown" });
     await settle();
     expect(selected()).toContain("Poste ajouté 2");
+    expect(here()).toBe(`${TAKEOFF}?${TABLE}&poste=${ITEMS.extra(1)}`);
     expect(calls.queue).toEqual([{ kind: "focus", itemId: ITEMS.basin }, { kind: "page", offset: 2 }]);
     fireEvent.keyDown(list(), { key: "ArrowUp" });
     await settle();

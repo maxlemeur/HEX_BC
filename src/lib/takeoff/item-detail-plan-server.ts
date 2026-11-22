@@ -4,15 +4,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { ApiError } from "@/lib/http/api-error";
+import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { mapSupabaseError, notFound, unprocessableEntity } from "@/lib/http/api-response";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { ItemDetailPlanRequest, ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
 import { getAuthenticatedTakeoffContext, type AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
-import { getPlanFileDetail } from "@/lib/takeoff/plans";
+import { createPlanFileDownloadUrl, getPlanFileDetail, getStorageErrorStatus, isMissingStorageObjectError } from "@/lib/takeoff/plans";
 import { parsePreparationSnapshot } from "@/lib/takeoff/preparation-source-loader";
-import { recordedPlanPieces } from "@/lib/takeoff/relaunch-plan-copies-server";
+import { recordedCopySources, recordedPlanPieces } from "@/lib/takeoff/relaunch-plan-copies-server";
 import { checkAttestedTakeoffPlan } from "@/lib/takeoff/vectors/read-server";
 import type { Database } from "@/types/database";
 
@@ -26,9 +27,13 @@ import type { Database } from "@/types/database";
  * - without one, the plan retained in the dossier: the one current copy of its piece (or the copy uploaded to the plan
  *   set), as the plan-location reader decides it for the member, signed by the plan centre's own read (getPlanFileDetail)
  *   at this request; a generation named must still be the copy's;
- * - a copy that exists but that the plan centre does not serve this member is « not available to you », apart from « no
- *   copy »; a job of another affaire, a plan that reading did not read, a key foreign to the dossier or a piece its own
- *   read hides (deleted, reserved for deletion) is not found. `source` names a piece of the dossier only.
+ * - a copy that exists but that the plan centre does not serve this member (its row, its signature) is « not available
+ *   to you », apart from « no copy »; a copy whose bytes are gone is said so; a signature Storage did not answer is a
+ *   failure to retry, never an absence;
+ * - which copies are the dossier's is decided by the sources recorded for this affaire (takeoff_plan_location_sources):
+ *   a copy of a piece, an upload to the plan set, or neither (a copy of another affaire's piece), which is not found by
+ *   its copy as by its piece; a job of another affaire, a plan that reading did not read, a key foreign to the dossier
+ *   or a piece its own read hides (deleted, reserved for deletion) is not found. `source` names a piece only.
  * Copies and their recorded sources are listed by the service after these checks, as the relaunch does; nothing of a copy
  * the member may not read is returned but its existence.
  */
@@ -52,6 +57,8 @@ function readFailure(error: { code?: string; message: string }, message: string)
 }
 
 const notInDossier = () => notFound("Ce plan est introuvable dans le dossier de l’affaire.", undefined, "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND");
+const retryLater = () => new ApiError({ status: 503, code: "TAKEOFF_ITEM_DETAIL_PLAN_RETRY",
+  message: "Le plan n’a pas pu être obtenu pour le moment : réessayez." });
 
 export async function resolveItemDetailPlan(projectId: string, request: ItemDetailPlanRequest): Promise<ItemDetailPlanView> {
   if (request.source && (request.jobId || request.planKey)) {
@@ -93,12 +100,11 @@ async function readingPlan(context: Context, projectId: string, jobId: string, k
   const source = matching[0]!;
   const fileId = source.document_id.toLowerCase();
 
-  // The one rule of the attested bytes' route, then the copy's own row (for its generation, and to tell a copy the plan
-  // centre hides from this member from a copy gone).
+  // The one rule of the attested bytes' route (with the generation of the copy as the member reads it), then whether the
+  // copy's row still exists, to tell a copy the plan centre hides from this member from a copy gone.
   const [attested, { data: copy, error: copyError }] = await Promise.all([
     checkAttestedTakeoffPlan(context.supabase, context.tenantId, jobId, source.document_id),
-    service.from("plan_files").select("id, plan_set_id, file_name, page_count, metadata")
-      .eq("tenant_id", context.tenantId).eq("id", fileId).maybeSingle(),
+    service.from("plan_files").select("id").eq("tenant_id", context.tenantId).eq("id", fileId).maybeSingle(),
   ]);
   if (copyError) readFailure(copyError, "Impossible de lire le plan de cette lecture.");
   const document: ItemDetailPlanView["document"] = matching.length > 1 ? { kind: "unavailable", reason: "several_copies" }
@@ -109,7 +115,7 @@ async function readingPlan(context: Context, projectId: string, jobId: string, k
       key: logical(source.document_id),
       name: source.document_name,
       planFileId: fileId,
-      generation: pieces.has(fileId) ? generationOf(copy as FileRow | null) : null,
+      generation: attested.ok && pieces.has(fileId) ? attested.generation : null,
       contentSha256: source.content_hash?.toLowerCase() ?? null,
       pageCount: source.page_count,
       pagesRead: [...source.pages].sort((left, right) => left - right),
@@ -139,12 +145,17 @@ async function affaireCopies(service: Service, context: Context, projectId: stri
     .eq("tenant_id", context.tenantId).in("plan_set_id", setIds)) : { data: [], error: null };
   if (files.error) readFailure(files.error, "Impossible de lire les plans de l’affaire.");
   const rows = ((files.data ?? []) as FileRow[]).map((row) => ({ ...row, id: row.id.toLowerCase(), plan_set_id: row.plan_set_id.toLowerCase() }));
+  // The source recorded for each copy in this affaire: its piece, itself (an upload), or nothing (another affaire's piece).
+  const recorded = await recordedCopySources(service, context.tenantId, projectId, rows.map((row) => row.id));
   const pieces = new Map<string, string>();
-  for (const setId of setIds) {
-    const ids = rows.filter((row) => row.plan_set_id === setId).map((row) => row.id);
-    for (const [file, piece] of await recordedPlanPieces(service, context.tenantId, setId, ids)) pieces.set(file, piece);
+  const uploads = new Set<string>();
+  for (const row of rows) {
+    const source = recorded.get(row.id);
+    const intake = metadataOf(row.metadata).source === "affaire-intake";
+    if (source?.kind === "intake_document" && intake) pieces.set(row.id, source.id);
+    else if (source?.kind === "plan_file" && source.id === row.id && !intake) uploads.add(row.id);
   }
-  return { rows, pieces };
+  return { rows: rows.filter((row) => pieces.has(row.id) || uploads.has(row.id)), pieces };
 }
 
 const unavailable = (key: string, name: string, reason: Extract<ItemDetailPlanView["document"], { kind: "unavailable" }>["reason"],
@@ -197,24 +208,43 @@ async function dossierPlan(context: Context, projectId: string, input: { key: st
   if (current.length === 0) return unavailable(planKey, planName, "no_current_copy");
   if (current.length > 1) return unavailable(planKey, planName, "several_copies");
   const shown = current[0]!;
-  if (input.generation !== null && generationOf(shown) !== input.generation) return unavailable(planKey, planName, "generation_replaced");
 
-  // The plan centre's own read signs the copy for this member at this request: what it refuses is not available to them.
-  let url: string | null;
+  // The plan centre's own read (its row, under the member's session), then its signature for this member at this request.
+  let file: { file_path: string; file_name: string };
   try {
-    const detail = await getPlanFileDetail({ setId: shown.plan_set_id, fileId: shown.id, includeDownloadUrl: true });
-    url = (detail.plan_file as { download_url?: string | null }).download_url ?? null;
+    file = (await getPlanFileDetail({ setId: shown.plan_set_id, fileId: shown.id })).plan_file;
   } catch (error) {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
       return unavailable(planKey, planName, "not_available_to_you");
     }
     throw error;
   }
-  if (!url) return unavailable(planKey, planName, "no_current_copy");
+  // Compared once the member may read the copy: a hidden copy tells nothing of its generation.
+  if (input.generation !== null && generationOf(shown) !== input.generation) return unavailable(planKey, planName, "generation_replaced");
+  const signed = await signForMember(context, service, file);
+  if ("reason" in signed) return unavailable(planKey, planName, signed.reason);
+  const url = signed.url;
   return {
     plan: { key: planKey, name: planName, planFileId: shown.id, generation: pieces.has(shown.id) ? generationOf(shown) : null,
       contentSha256: null, pageCount: shown.page_count, pagesRead: [] },
     reading: null,
     document: { kind: "dossier", planSetId: shown.plan_set_id, planFileId: shown.id, url },
   };
+}
+
+/**
+ * The plan centre's signature of a copy for this member. A denial, or an answer shaped as a missing object, is decided by
+ * whether the object exists (the service's view): an existing object the member's session cannot sign is not available
+ * to them, a missing one is said missing; Storage that did not answer is a failure to retry, never an absence.
+ */
+async function signForMember(context: Context, service: Service, file: { file_path: string; file_name: string },
+  ): Promise<{ url: string } | { reason: "not_available_to_you" | "copy_missing" }> {
+  const { data, error } = await createPlanFileDownloadUrl(context.supabase, file);
+  if (!error && data?.signedUrl) return { url: data.signedUrl };
+  const status = getStorageErrorStatus(error);
+  if (status === null || status >= 500) throw retryLater();
+  const { error: infoError } = await service.storage.from(PLAN_FILES_BUCKET).info(file.file_path);
+  if (!infoError) return { reason: "not_available_to_you" };
+  if (isMissingStorageObjectError(infoError)) return { reason: "copy_missing" };
+  throw retryLater();
 }

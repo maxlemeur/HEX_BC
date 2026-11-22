@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   PDF_MAX_CANVAS_PIXELS,
   normalizePdfRotation,
+  pdfCanvasPixels,
   pdfCanvasScale,
   pdfPointToVisible,
   screenPointToVisible,
@@ -73,6 +74,22 @@ describe("pdfCanvasScale", () => {
   it("draws nothing for a page without area or a zero scale", () => {
     expect(pdfCanvasScale({ width: 0, height: 500 }, 1, 1)).toBe(0);
     expect(pdfCanvasScale(a0, 0, 1)).toBe(0);
+  });
+});
+
+describe("pdfCanvasPixels", () => {
+  // Review of PR 2 (written before the fix): the short side of a sliver floored to zero and raised to one let the long
+  // side pass the ceiling.
+  it("never gives a canvas over the ceiling, for any finite viewport, and says how much to scale down", () => {
+    for (const [width, height] of [[0.0005, 18_317_868], [18_317_868, 0.4], [4_870.9, 3_444.6], [0.2, 0.3], [5_000, 5_000],
+      [1, 16_777_217], [Number.NaN, 10], [Number.POSITIVE_INFINITY, 1]]) {
+      const pixels = pdfCanvasPixels(width, height);
+      expect(pixels.width * pixels.height, `${width} × ${height}`).toBeLessThanOrEqual(PDF_MAX_CANVAS_PIXELS);
+      expect(pixels.width).toBeGreaterThanOrEqual(1);
+      expect(pixels.height).toBeGreaterThanOrEqual(1);
+    }
+    expect(pdfCanvasPixels(4_870.9, 3_444.6)).toEqual({ width: 4_870, height: 3_444, ratio: 1 });
+    expect(pdfCanvasPixels(0.0005, 18_317_868)).toEqual({ width: 1, height: PDF_MAX_CANVAS_PIXELS, ratio: PDF_MAX_CANVAS_PIXELS / 18_317_868 });
   });
 });
 

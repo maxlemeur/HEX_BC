@@ -109,6 +109,7 @@ export const ITEM_DETAIL_PLAN_UNAVAILABLE_LABELS: Record<ItemDetailPlanUnavailab
   several_copies: "Plusieurs copies de ce plan sont actuelles : choisissez-la dans les plans de l’affaire.",
   generation_replaced: "Cette version du plan a été remplacée dans le dossier.",
   not_available_to_you: "Ce plan n’est pas accessible avec vos droits.",
+  copy_missing: "Le fichier de ce plan est introuvable dans le stockage.",
 };
 
 export const ITEM_DETAIL_PAGE_FAILURE_LABELS: Record<PdfPageFailure, string> = {
@@ -124,6 +125,7 @@ export function itemDetailPlanErrorLabel(code: string | null, status: number | n
     case "TAKEOFF_ITEM_DETAIL_READING_NOT_FOUND": return "Cette lecture est introuvable sur cette affaire.";
     case "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND": return "Ce plan est introuvable pour ce poste.";
     case "TAKEOFF_ITEM_DETAIL_ADDRESS_INVALID": return "Ce lien ne désigne pas un plan de cette affaire.";
+    case "TAKEOFF_ITEM_DETAIL_PLAN_RETRY": return "Le plan n’a pas pu être obtenu pour le moment : réessayez.";
     default:
       if (status === 401) return "Votre session a expiré : reconnectez-vous.";
       if (status === 403) return "Vous n’avez pas accès à ce plan.";

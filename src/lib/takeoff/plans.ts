@@ -402,7 +402,7 @@ function assertCanonicalPlanFileStoragePath(planFile: PlanFile) {
   return canonicalPath;
 }
 
-function getStorageErrorStatus(error: unknown): number | null {
+export function getStorageErrorStatus(error: unknown): number | null {
   if (!error || typeof error !== "object") {
     return null;
   }
@@ -423,7 +423,7 @@ function getStorageErrorStatus(error: unknown): number | null {
   return null;
 }
 
-function isMissingStorageObjectError(error: unknown): boolean {
+export function isMissingStorageObjectError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
   }
@@ -1309,6 +1309,15 @@ export async function createPlanFile(setId: string, input: CreatePlanFileInput) 
   };
 }
 
+/** The plan centre's short signed address of a plan file, made with the caller's session (the bucket's rules apply). */
+export function createPlanFileDownloadUrl(supabase: Supabase, planFile: { file_path: string; file_name: string }) {
+  return supabase.storage
+    .from(PLAN_FILES_BUCKET)
+    .createSignedUrl(planFile.file_path, PLAN_FILE_DOWNLOAD_SIGNED_URL_TTL_SECONDS, {
+      download: planFile.file_name,
+    });
+}
+
 export async function getPlanFileDetail(input: {
   setId: string;
   fileId: string;
@@ -1333,11 +1342,7 @@ export async function getPlanFileDetail(input: {
     };
   }
 
-  const { data: signedData, error: signedError } = await supabase.storage
-    .from(PLAN_FILES_BUCKET)
-    .createSignedUrl(planFile.file_path, PLAN_FILE_DOWNLOAD_SIGNED_URL_TTL_SECONDS, {
-      download: planFile.file_name,
-    });
+  const { data: signedData, error: signedError } = await createPlanFileDownloadUrl(supabase, planFile);
 
   if (signedError && isMissingStorageObjectError(signedError)) {
     return {

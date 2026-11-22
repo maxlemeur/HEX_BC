@@ -40,6 +40,24 @@ export function pdfCanvasScale(size: PdfPageSize, screenScale: number, devicePix
 }
 
 /**
+ * The pixels of a page's canvas for a viewport of `width` × `height` (its backing scale applied): each side rounded down,
+ * at least one pixel, and never more than the ceiling in all, for any finite viewport. A sliver whose short side is
+ * raised to one pixel has its long side bounded; `ratio` (at most 1) is then what the backing scale is multiplied by, so
+ * that the page drawn fits the canvas instead of being cut.
+ */
+export function pdfCanvasPixels(width: number, height: number): { width: number; height: number; ratio: number } {
+  const side = (value: number) => (Number.isFinite(value) && value > 0 ? value : 0);
+  const [w, h] = [side(width), side(height)];
+  const pixels = { width: Math.max(1, Math.floor(w)), height: Math.max(1, Math.floor(h)), ratio: 1 };
+  if (pixels.width * pixels.height <= PDF_MAX_CANVAS_PIXELS) return pixels;
+  const ratio = pixels.width === 1 ? PDF_MAX_CANVAS_PIXELS / h
+    : pixels.height === 1 ? PDF_MAX_CANVAS_PIXELS / w : Math.sqrt(PDF_MAX_CANVAS_PIXELS / (w * h));
+  const bounded = { width: Math.max(1, Math.floor(w * ratio)), height: Math.max(1, Math.floor(h * ratio)), ratio };
+  return bounded.width * bounded.height <= PDF_MAX_CANVAS_PIXELS ? bounded
+    : { width: Math.min(bounded.width, PDF_MAX_CANVAS_PIXELS), height: 1, ratio };
+}
+
+/**
  * A point of the page's PDF user space (y upwards from its view box's bottom) on the visible page, normalised: the view
  * box's top-left corner after the page's rotation is (0, 0). `viewBox` is pdf.js's `page.view` ([x0, y0, x1, y1]).
  */

@@ -186,9 +186,11 @@ export function TakeoffVectorViewer({ jobId, planSetId, focusItemIds, fill = fal
   const sourceKey = attestedUrl ?? planFileId ?? uploadUrl;
   const unavailable = attestedPlan ? "Le plan d’origine n’est plus disponible ; la géométrie reste visible." : null;
   // The page's plan, from its plan file (signed for the member), the attested bytes of a takeoff of an affaire, or the
-  // job's upload: one source per page, drawn by the review's page reader.
+  // job's upload: one source per page, drawn by the review's page reader. Its key holds everything its address is made
+  // from (as the load's dependencies did before the reader was extracted): a plan set known after the first render, or
+  // a takeoff found attested, loads the plan again.
   const pdfSource = useMemo<PdfPageSource | null>(() => (hasPage ? {
-    key: sourceKey ?? "none",
+    key: JSON.stringify([sourceKey, attestedPlan, attestedUrl, planFileId, planSetId, uploadUrl]),
     url: () => (!attestedPlan && planFileId && planSetId
       ? readJson(`/api/takeoff/plan-sets/${encodeURIComponent(planSetId)}/files/${encodeURIComponent(planFileId)}?include_download_url=true`)
         .then((body) => (body.data as { plan_file?: { download_url?: string | null } } | undefined)?.plan_file?.download_url ?? null)

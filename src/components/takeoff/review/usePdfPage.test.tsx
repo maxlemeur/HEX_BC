@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { getDocument, documents } = vi.hoisted(() => ({
   getDocument: vi.fn(),
-  documents: new Map<string, { pages: number; rotated?: Set<number>; held?: boolean }>(),
+  documents: new Map<string, { pages: number; rotated?: Set<number>; held?: boolean; size?: { width: number; height: number } }>(),
 }));
 vi.mock("pdfjs-dist", () => ({ getDocument, GlobalWorkerOptions: {} }));
 
@@ -32,8 +32,10 @@ function stubPdfjs() {
         numPages: document.pages,
         getPage: (number: number) => (number > document.pages ? Promise.reject(new Error("Invalid page request."))
           : Promise.resolve({
-            getViewport: ({ scale }: { scale: number }) => (document.rotated?.has(number)
-              ? { width: A3.height * scale, height: A3.width * scale } : { width: A3.width * scale, height: A3.height * scale }),
+            getViewport: ({ scale }: { scale: number }) => (document.size
+              ? { width: document.size.width * scale, height: document.size.height * scale }
+              : document.rotated?.has(number)
+                ? { width: A3.height * scale, height: A3.width * scale } : { width: A3.width * scale, height: A3.height * scale }),
             render: () => {
               let release: () => void = () => undefined;
               let reject: (error: Error) => void = () => undefined;
@@ -164,6 +166,31 @@ describe("usePdfPage", () => {
     expect(renders).toHaveLength(1);
     expect([canvas().width, canvas().height]).toEqual([0, 0]);
     expect(state).toMatchObject({ failure: "unavailable", rendering: false, size: null, pageCount: null, loading: false });
+  });
+
+  // Review of PR 2 (written before the fix): a crop of 0.0005 × 10,000 points gave a 1 × 18,317,868 canvas (the short side
+  // floored to zero, then raised to one).
+  it("stays under the pixel ceiling for a page cropped to a sliver", async () => {
+    documents.set("https://files.test/sliver.pdf", { pages: 1, size: { width: 0.0005, height: 10_000 } });
+    stubPdfjs();
+    render(<Reader source={sourceOf("https://files.test/sliver.pdf")} page={1} scale={2_000} />);
+    await settle();
+    expect(canvas().width * canvas().height).toBeLessThanOrEqual(PDF_MAX_CANVAS_PIXELS);
+    expect(canvas().width * canvas().height).toBeGreaterThan(0);
+  });
+
+  // Review of PR 2 (written before the fix): a page change that cancelled a pending render, to a page the plan does not
+  // have, reported « page_missing » with « rendering » still true.
+  it("never reports a failure with a render in progress", async () => {
+    documents.set("https://files.test/a.pdf", { pages: 2, held: true });
+    stubPdfjs();
+    const { rerender } = render(<Reader source={sourceOf("https://files.test/a.pdf")} page={1} scale={1} />);
+    await settle();
+    expect(state?.rendering).toBe(true);
+    rerender(<Reader source={sourceOf("https://files.test/a.pdf")} page={5} scale={1} />);
+    await settle();
+    expect(renders[0]!.cancelled).toBe(true);
+    expect(state).toMatchObject({ failure: "page_missing", rendering: false });
   });
 
   it("clears the canvas and says so for bytes without an address, then for a page the plan does not have", async () => {

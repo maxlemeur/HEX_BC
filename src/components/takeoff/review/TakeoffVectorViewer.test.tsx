@@ -131,6 +131,28 @@ describe("TakeoffVectorViewer, page changes (review of PR #147)", () => {
   });
 });
 
+// Review of PR 2 (lot 5), written before the fix: once its page reader was extracted, the viewer loaded a page's plan
+// only when the file changed. Mounted before its plan set was known, then given it (same file, same page), it made no
+// signing request and left an empty canvas with « n'est pas disponible », where main signs, opens and draws the plan.
+describe("TakeoffVectorViewer, the plan set given after the first render", () => {
+  it("signs, opens and draws the page's plan once its plan set is known", async () => {
+    documents.set("https://files.test/a.pdf", { pages: 1, failing: new Set() });
+    stubPdfjs();
+    const pages = [page(1, FILE_A, 1, "a.pdf")];
+    stubFetch({ pages, source_download_url: null }, { [FILE_A]: "https://files.test/a.pdf" });
+    const { container, rerender } = render(<TakeoffVectorViewer jobId={JOB} planSetId={null} />);
+    await settle();
+    const signing = () => (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter(([url]) => String(url).includes("/files/")).length;
+    expect(signing()).toBe(0);
+    rerender(<TakeoffVectorViewer jobId={JOB} planSetId={PLAN_SET} />);
+    await settle();
+    expect(signing()).toBe(1);
+    expect(rendered.at(-1)).toEqual({ url: "https://files.test/a.pdf", page: 1 });
+    expect(container.querySelector("canvas")!.width).toBeGreaterThan(0);
+    expect(warning()).toBeNull();
+  });
+});
+
 describe("TakeoffVectorViewer, class sources and Decisions (TI-662 L3d)", () => {
   const group = (id: string, cls: string | null, source: string | null, confidence: number | null, extra: Record<string, unknown> = {}) => ({
     id, class: cls, source, confidence, candidates: [], length_pt: 100, near_white: false, colors: ["#ff00ff"], ...extra,

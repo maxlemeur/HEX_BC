@@ -1869,11 +1869,14 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   « Plan d'origine indisponible », jamais la copie actuelle à sa place. Sans lecture, c'est
   l'unique copie actuelle de la pièce du dossier, signée pour le membre au moment où le plan
   s'ouvre ; plusieurs copies actuelles, aucune, ou une génération remplacée sont dites, sans
-  rien dessiner, et une copie que le centre de plans ne sert pas à ce membre est « non
-  accessible avec vos droits », à part de « aucune copie ». Rien n'est gardé d'une ouverture
-  à l'autre. Une analyse d'une autre affaire, un plan que la lecture n'a pas lu, un plan
-  étranger au dossier ou une pièce supprimée est introuvable ; `source` ne nomme qu'une
-  pièce du dossier. « Vérifiés » ne se dit qu'une fois les octets servis. La page s'affiche
+  rien dessiner, et une copie que le centre de plans ne sert pas à ce membre (sa ligne, sa
+  signature) est « non accessible avec vos droits », à part de « aucune copie » ; des octets
+  absents du stockage sont dits absents, une signature sans réponse est à réessayer. Les
+  copies du dossier sont celles que les sources enregistrées pour l'affaire désignent : une
+  copie d'une pièce d'une autre affaire est introuvable, par la copie comme par la pièce.
+  Rien n'est gardé d'une ouverture à l'autre. Une analyse d'une autre affaire, un plan que la
+  lecture n'a pas lu, un plan étranger au dossier ou une pièce supprimée est introuvable ;
+  `source` ne nomme qu'une pièce du dossier. « Vérifiés » ne se dit qu'une fois les octets servis. La page s'affiche
   avec ou sans lecture vectorielle (plan scanné).
 - **Filtres** (TI-701, D13), lus sur les lignes de la revue ciblée
   ([`targeted-review-filters.ts`](../../src/lib/takeoff/targeted-review-filters.ts)) :
