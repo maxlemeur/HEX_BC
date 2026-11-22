@@ -372,6 +372,7 @@
     "20261122030312_takeoff_partial_send.sql": "7893a5f2523e6fdc6a39740918aabb6e963124d0cc78edf1bf167e40f16d36e9",
     "20261122080845_takeoff_item_answers.sql": "edc30c089ed080fa1c80eec44b1b1728c48e8f6ec6289f0012f3f02c4aff3a4d",
     "20261122092341_product_packagings.sql": "493d46cf320322c8cd2e77c87fe55daadbf61d73f8b5339e308978ebacaef20c",
+    "20261122093228_material_request_message_templates.sql": "2d9fc87c12d90c2cae7ea0b1c5aac62ce770924cd2501e1f9b79d0a5d2a5e0ac",
     "20261122114433_takeoff_count_marks.sql": "769acd117087f084c18aa20541c1b904a8ed51c9be0f2fb7c288333ffd1f7ec2"
   }
 }

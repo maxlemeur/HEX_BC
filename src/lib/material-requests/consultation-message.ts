@@ -125,6 +125,36 @@ function competitionDesignation(line: ConsultationLine): string {
   return [head, ...extras].join(", ");
 }
 
+/** What a delivery place says in the message, or null when it is unknown. */
+export function consultationDeliveryText(place: MaterialRequestDeliveryPlace | null): string | null {
+  return place ? DELIVERY[place] : null;
+}
+
+/** A name as the message writes it: spaces folded, null when blank. */
+export function consultationText(value: string | null | undefined): string | null {
+  return text(value);
+}
+
+/**
+ * The parts of a line a member's template writes (consultation-template.ts), by the rules of itemOf: in the
+ * competition variant, the reference-free designation and never a reference; with references, the supplier's
+ * reference and the short name beside it when the template writes that reference, the full designation otherwise.
+ */
+export function consultationLineParts(
+  line: ConsultationLine,
+  options: { withReferences: boolean; writesReference: boolean },
+): { quantity: string | null; designation: string; reference: string | null } {
+  if (!options.withReferences) {
+    return { quantity: quantityOf(line), designation: competitionDesignation(line), reference: null };
+  }
+  const sku = text(line.supplierSku);
+  return {
+    quantity: quantityOf(line),
+    designation: sku && options.writesReference ? name(line) : fullDesignation(line),
+    reference: sku,
+  };
+}
+
 function itemOf(line: ConsultationLine, withReferences: boolean): string {
   const sku = withReferences ? text(line.supplierSku) : null;
   const what = !withReferences

@@ -24,7 +24,10 @@ import {
  *     way to create one;
  *  9. a created supply type is not selected, or the next save does not send its id;
  * 10. a refused creation (name already taken) hides the server's sentence or wipes what was typed;
- * 11. creating a supply type submits or closes the article form, or resets its other fields.
+ * 11. creating a supply type submits or closes the article form, or resets its other fields;
+ * 12. a member who is not an administrator is offered « Nouveau type », which the server refuses
+ *     (`createSupplyType` is admin-only), or is told to use it when the tenant has no type yet; a form
+ *     opened without the flag offers it too.
  */
 
 const SUPPLY_TYPES: ProductSupplyType[] = [
@@ -87,9 +90,13 @@ function supplyTypeCreationCalls() {
 type RenderOptions = {
   product: ProductRecord | null;
   supplyTypes?: ProductSupplyType[];
+  /** An administrator's form unless said otherwise; `undefined` renders it without the flag. */
+  canCreateSupplyType?: boolean;
 };
 
-function renderForm({ product, supplyTypes = SUPPLY_TYPES }: RenderOptions) {
+function renderForm(options: RenderOptions) {
+  const { product, supplyTypes = SUPPLY_TYPES } = options;
+  const canCreateSupplyType = "canCreateSupplyType" in options ? options.canCreateSupplyType : true;
   const onSubmit = vi.fn<(payload: ProductPayload) => Promise<void>>().mockResolvedValue(undefined);
   const onOpenChange = vi.fn();
   render(
@@ -99,6 +106,7 @@ function renderForm({ product, supplyTypes = SUPPLY_TYPES }: RenderOptions) {
       isSaving={false}
       error={null}
       supplyTypes={supplyTypes}
+      canCreateSupplyType={canCreateSupplyType}
       onOpenChange={onOpenChange}
       onSubmit={onSubmit}
     />,
@@ -333,5 +341,44 @@ describe("ProductFormModal, supply type", () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Désignation *")).toHaveValue("Collier isophonique M8");
+  });
+
+  it("offers a member who is not an administrator the supply types without « Nouveau type »", async () => {
+    const user = userEvent.setup({ delay: null });
+    const { onSubmit } = renderForm({ product: buildProduct(), canCreateSupplyType: false });
+
+    expect(screen.queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+    const select = screen.getByLabelText("Type de fourniture");
+    await user.selectOptions(select, "Robinetterie");
+    await user.click(saveButton());
+    expect(await submittedPayload(onSubmit)).toMatchObject({ supply_type_id: SUPPLY_TYPES[0].id });
+    expect(supplyTypeCreationCalls()).toHaveLength(0);
+  });
+
+  it("tells a member who is not an administrator that an administrator creates the first supply type", () => {
+    renderForm({ product: buildProduct({ supply_type_id: null }), supplyTypes: [], canCreateSupplyType: false });
+
+    expect(screen.queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Type de fourniture")).toHaveAccessibleDescription(
+      expect.stringContaining("Aucun type de fourniture n’existe encore : un administrateur peut en créer un."),
+    );
+  });
+
+  it("does not offer « Nouveau type » when the form is opened without the flag", () => {
+    renderForm({ product: buildProduct({ supply_type_id: null }), supplyTypes: [], canCreateSupplyType: undefined });
+
+    expect(screen.queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Type de fourniture")).toHaveAccessibleDescription(
+      expect.stringContaining("un administrateur peut en créer un"),
+    );
+  });
+
+  it("tells an administrator to create the first supply type with « Nouveau type »", () => {
+    renderForm({ product: buildProduct({ supply_type_id: null }), supplyTypes: [] });
+
+    expect(screen.getByRole("button", { name: "Nouveau type" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Type de fourniture")).toHaveAccessibleDescription(
+      expect.stringContaining("Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type »."),
+    );
   });
 });

@@ -250,6 +250,10 @@ select throws_ok($$insert into public.material_request_quotes (request_id, suppl
     values ('a9300000-0000-4000-8000-000000000601', 'a9300000-0000-4000-8000-000000000304', false, repeat('x', 262145))$$,
   '23514', null, '2 the message holds 262 144 characters at most');
 select lives_ok($$insert into public.material_request_quotes (request_id, supplier_id, with_references, message)
+    values ('a9300000-0000-4000-8000-000000000602', 'a9300000-0000-4000-8000-000000000304', false, repeat('x', 262144))$$,
+  '2 (TI-691, consultation templates) a message of exactly 262 144 characters is kept');
+delete from public.material_request_quotes where request_id = 'a9300000-0000-4000-8000-000000000602';
+select lives_ok($$insert into public.material_request_quotes (request_id, supplier_id, with_references, message)
     values ('a9300000-0000-4000-8000-000000000602', 'a9300000-0000-4000-8000-000000000304', false,
       (select string_agg('- 999999,999 ' || repeat('u', 20) || ' ' || repeat('d', 500) || ', ' || repeat('n', 80) || ', '
         || repeat('m', 120) || ', ' || repeat('p', 120), chr(10)) from generate_series(1, 300)) || chr(10) || repeat('a', 2000))$$,

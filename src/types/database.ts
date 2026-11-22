@@ -139,12 +139,15 @@ type RefineRpc<Rpc, NullableNames> = Rpc extends { Args: infer Args; Returns: in
 type CompatibleRow<K, Row> = K extends "estimate_items" ? Omit<Row, "k_fo_manual"> & { k_fo_manual?: boolean | null } : K extends "estimate_template_items" ? Omit<Row, "k_fo_manual" | "kit_metier"> & { k_fo_manual?: boolean | null; kit_metier?: boolean } : Row;
 
 // The job scope trigger derives project_id for clients with a version. The packaging trigger gives a sale packaging
-// its article's tenant and unit, its label key and its position, whatever the client sends.
+// its article's tenant and unit, its label key and its position, whatever the client sends. The trigger of a member's
+// consultation message template (TI-691) sets its tenant and member: a client never sends them.
 type ProductPackagingDerivedColumns = "tenant_id" | "unit" | "label_key" | "position";
 type CompatibleInsert<K, Insert> = K extends "takeoff_jobs"
   ? Omit<Insert, "project_id"> & { project_id?: string }
   : K extends "product_packagings"
     ? Omit<Insert, ProductPackagingDerivedColumns> & Partial<Pick<Insert, Extract<keyof Insert, ProductPackagingDerivedColumns>>>
+    : K extends "material_request_message_templates"
+      ? Omit<Insert, "tenant_id" | "user_id"> & { tenant_id?: never; user_id?: never }
     : Insert;
 
 export type Database = Omit<GeneratedDatabase, "public"> & {
