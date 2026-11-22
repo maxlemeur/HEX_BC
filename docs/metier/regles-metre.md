@@ -1859,6 +1859,16 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   au centre le plan et sa lecture vectorielle, la ligne en évidence ; à droite ses raisons
   et ses décisions. La revue complète y renvoie (« Revue ciblée · N lignes »), comme le
   panneau des lignes bloquées de l'écran « Envoyer au tableau de chiffrage ».
+- **Plan d'un poste** (lot 5, détail d'un poste ; aucun écran ne l'ouvre encore) : le plan
+  montré est résolu par le serveur dans l'affaire que le membre lit
+  (`GET /api/affaires/<affaire>/takeoff/item-detail/plan`). Pour une lecture, c'est la copie
+  que cette analyse a scellée, même remplacée depuis, servie par ses octets attestés
+  (empreinte vérifiée à chaque demande) ; une analyse lancée sur une version et jamais
+  envoyée n'a rien attesté : « Plan d'origine indisponible », jamais la copie actuelle à sa
+  place. Sans lecture, c'est l'unique copie actuelle de la pièce du dossier ; plusieurs
+  copies actuelles, aucune, ou une génération remplacée sont dites, sans rien dessiner. Une
+  analyse d'une autre affaire, un plan que la lecture n'a pas lu ou un plan étranger au
+  dossier est introuvable. La page s'affiche avec ou sans lecture vectorielle (plan scanné).
 - **Filtres** (TI-701, D13), lus sur les lignes de la revue ciblée
   ([`targeted-review-filters.ts`](../../src/lib/takeoff/targeted-review-filters.ts)) :
   - **vue**, un seul choix : « À revoir » (toutes), « Blocages » (les lignes que le garde
