@@ -378,12 +378,18 @@ select diag(format('claim: %s; recovery: %s', coalesce(nullif(split_part(claim_e
   coalesce(nullif(split_part(recovery_error, E'\n', 1), ''), 'OK'))) from m3_cycle;
 select ok((claim_error like '%deadlock detected%') <> (recovery_error like '%deadlock detected%'), 'PostgreSQL rolls back one side whole')
 from m3_cycle;
-select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'the claim''s transaction ends');
+-- The claim's transaction ends as its caller ends it: committed when it won, rolled back when it was the victim.
+select is(extensions.dblink_exec('race_a', case when claim_error like '%deadlock detected%' then 'rollback' else 'commit' end),
+  case when claim_error like '%deadlock detected%' then 'ROLLBACK' else 'COMMIT' end, 'the claim''s transaction ends')
+from m3_cycle;
+-- Whichever side PostgreSQL rolls back, the winner's write stands, as it wrote it: the recovery's closure of the retry as
+-- not started, or the claim's attempt under its own lease.
 select ok(case when (select claim_error like '%deadlock detected%' from m3_cycle)
     then (select status::text = 'failed' and analysis_outcome::text = 'failure' and error_code = 'TAKEOFF_WORKER_NOT_STARTED'
       from public.takeoff_jobs where id = pg_temp.overdue())
-    else (select status::text = 'failed' and analysis_outcome is null from public.takeoff_jobs where id = pg_temp.overdue()) end,
-  'and the other''s write stands: the recovery closes the retry as not started when the claim is the one rolled back');
+    else (select status::text = 'processing' and analysis_outcome is null and processing_lease_token = pg_temp.f(972)
+      and processing_lease_expires_at > clock_timestamp() from public.takeoff_jobs where id = pg_temp.overdue()) end,
+  'and the winner''s write stands: the recovery''s closure as not started, or the claim''s attempt under its lease');
 
 -- 8. A retry outside any request claimed through the slot, against a command naming it.
 create function pg_temp.retry() returns uuid language sql immutable as $$ select pg_temp.f(2201) $$;
