@@ -698,4 +698,31 @@ describe("suppliers of request lines", () => {
     expect(writes().map((call) => call.path)).toEqual(["/api/suppliers"]);
     expect(screen.queryByRole("link", { name: /^Compléter la fiche/ })).not.toBeInTheDocument();
   });
+
+  it("keeps a supplier chosen while a creation travels, instead of the one created (10)", async () => {
+    const DELTA = "f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4";
+    let answer: (reply: Reply) => void = () => undefined;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: null }),
+      "POST /api/suppliers": () => new Promise<Reply>((resolve) => { answer = resolve; }),
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: line({ supplier_id: BETA }) } },
+    });
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
+    await user.type(screen.getByLabelText("Fournisseur, ligne 1"), "Quincaillerie Delta");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    await pickSupplier(user, "Fournisseur, ligne 1", "Comptoir Bêta");
+    await waitFor(() => expect(writes().filter((call) => call.method === "PATCH")).toHaveLength(1));
+    answer({ status: 201, data: { item: { id: DELTA, name: "Quincaillerie Delta" } } });
+    // The creation is answered and listed before the line is read again: a write it caused would have left by then.
+    const group = screen.getByLabelText("Fournisseur, ligne 1").closest<HTMLElement>('[data-slot="combobox"]');
+    await user.click(within(group as HTMLElement).getByRole("button", { name: "Afficher les suggestions" }));
+    expect(await screen.findByRole("option", { name: "Quincaillerie Delta" })).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta"));
+    expect(writes().filter((call) => call.method === "PATCH")).toEqual([
+      { method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: BETA } },
+    ]);
+  });
 });

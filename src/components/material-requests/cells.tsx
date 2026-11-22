@@ -436,7 +436,11 @@ export function ChoiceCell({
     onUnsavedChange?.(unsaved);
   }, [onUnsavedChange, unsaved]);
 
+  /** Counts the choices made: a creation that answers after a later choice does not replace it. */
+  const gestures = useRef(0);
+
   const choose = async (next: string) => {
+    gestures.current += 1;
     setPending(next);
     setFailed(null);
     setNotCreated(null);
@@ -451,8 +455,11 @@ export function ChoiceCell({
     if (!create || creating) return;
     setCreating(true);
     setNotCreated(null);
+    const asked = gestures.current;
     const created = await create.run(name);
     setCreating(false);
+    // The field stays usable while the creation travels: what was chosen meanwhile is the office's last word.
+    if (gestures.current !== asked) return;
     if (created.ok) await choose(created.value);
     else setNotCreated(created.message);
   };
