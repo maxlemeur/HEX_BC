@@ -619,6 +619,8 @@ select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.
   'its reading of the replaced copy is no longer compared, whatever the preparation names (red before: it stayed C''s peer)');
 select ok(pg_temp.context(pg_temp.c()) #> '{display,never_read}' ? 'plan-e.pdf',
   'and the new copy is named never read at once, though no manifest or preparation names it yet (fix round 2, point 6; red before: it vanished)');
+select ok(pg_temp.context(pg_temp.f(1304)) #> '{display,never_read}' ? 'plan-e.pdf',
+  'also for a plan of the request that read the replaced copy (A2''s, with E''s first copy): only a reading of the current copy covers it (fix round 3, point 4; red before: excluded by its piece)');
 -- The preparation confirmed again, on the new copy.
 set local session_replication_role = replica;
 update public.takeoff_preparations set confirmed_snapshot = jsonb_set(confirmed_snapshot, '{preparation,sources}',
@@ -642,6 +644,45 @@ from public.takeoff_jobs j where j.id = pg_temp.c();
 set local session_replication_role = origin;
 select is(pg_temp.context(pg_temp.f(1307)) -> 'peers', '[]'::jsonb, 'an analysis outside a request of one plan per job has no peer');
 select is(pg_temp.context(pg_temp.f(1307)) -> 'display', 'null'::jsonb, 'and no plan scope');
+
+-- Fix round 3, point 3: what the previous application pays. The check table has no foreign key (no internal trigger on a
+-- deletion of a job or a version) and is read or written only by a send of an analysis of one plan. An analysis launched
+-- outside any request, sent by a command without a context (the previous server's) onto V1, and a job deleted: neither
+-- scans, inserts into nor deletes from the check table. Red before: the send deleted from it unconditionally, and its
+-- foreign keys cascaded each deletion of a job or a version into it.
+select is((select count(*)::integer from pg_constraint where conrelid = 'private.takeoff_plan_send_checks'::regclass and contype = 'f'), 0,
+  'the check table has no foreign key');
+set local session_replication_role = replica;
+insert into public.takeoff_jobs
+select (jsonb_populate_record(null::public.takeoff_jobs, to_jsonb(j) || jsonb_build_object('id', pg_temp.f(1309),
+  'launch_request_id', null, 'launch_unit_key', null, 'status', 'completed', 'estimate_version_id', null,
+  'analysis_completion_event_id', null, 'created_at', now() + interval '3 minutes'))).*
+from public.takeoff_jobs j where j.id = pg_temp.a();
+insert into public.takeoff_results (id, tenant_id, job_id) values (pg_temp.f(2309), pg_temp.f(10), pg_temp.f(1309));
+insert into public.takeoff_items (id, tenant_id, job_id, result_id, designation, quantity, unit, evidence, source_file_name, source_page,
+  confidence, metadata)
+values (pg_temp.f(2391), pg_temp.f(10), pg_temp.f(1309), pg_temp.f(2309), 'Robinet de puisage fictif', 2, 'u', 'Repère fictif',
+  'plan-a.pdf', 9, 0.95, jsonb_build_object('source_document', jsonb_build_object('kind', 'plan_file', 'plan_file_id', pg_temp.f(101))));
+set local session_replication_role = origin;
+create temp table checks_seen as
+select 'before'::text as moment, seq_scan, coalesce(idx_scan, 0) as idx_scan, n_tup_ins, n_tup_del
+from pg_stat_xact_user_tables where relid = 'private.takeoff_plan_send_checks'::regclass;
+insert into commands values ('standalone', pg_temp.command(609, pg_temp.f(1309), jsonb_build_object('kind', 'existing_draft',
+  'version_id', pg_temp.f(705)), jsonb_build_object('kind', 'existing', 'id', pg_temp.f(715)), null));
+select pg_temp.sign_in(1);
+set local role authenticated;
+insert into shown select 'standalone', pg_temp.preview('standalone') -> 'outcome';
+select is((pg_temp.confirm('standalone', (select outcome from shown where name = 'standalone')) ->> 'replayed'), 'false',
+  'an analysis outside any request is sent onto V1 by a command without a context (the previous server''s)');
+reset role;
+select is((select estimate_version_id from public.takeoff_jobs where id = pg_temp.f(1309)), pg_temp.f(705), 'it is on V1');
+delete from public.takeoff_jobs where id = pg_temp.f(1307);
+insert into checks_seen
+select 'after', seq_scan, coalesce(idx_scan, 0), n_tup_ins, n_tup_del
+from pg_stat_xact_user_tables where relid = 'private.takeoff_plan_send_checks'::regclass;
+select is((select jsonb_agg(to_jsonb(seen) - 'moment' order by moment desc) from checks_seen as seen) -> 0,
+  (select jsonb_agg(to_jsonb(seen) - 'moment' order by moment desc) from checks_seen as seen) -> 1,
+  'its preview, its send and a job''s deletion neither read nor write the check table');
 
 select * from finish();
 rollback;

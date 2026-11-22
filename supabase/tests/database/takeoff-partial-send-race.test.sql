@@ -29,6 +29,10 @@
 --    deadlock.
 -- 11. (fix round 2, point 4) A reread naming an analysis launched outside any request while that analysis's send holds
 --    the affaire: the reread waits on the affaire before the analysis's key share, so the send takes the analysis.
+-- 12. (fix round 3, point 1) A preview on an existing draft of a unit of the affaire's closed automatic request, while a
+--    reread names that unit: the reread takes the unit's key share (it has ended) before the automatic request.
+-- 13. (fix round 3, point 2) A plan with no peer sent while another plan's first reading ends (with lines, or none): the
+--    plan read during the send is named; one read after the send is not.
 -- Written before the migration: red on 2c5424215 (public.read_takeoff_send_context does not exist). All values are
 -- fictional.
 begin;
@@ -52,7 +56,7 @@ create temp table race_connection as select format('host=%s port=%s dbname=%s us
 select is(extensions.dblink_connect(session.name, (select connection from race_connection)), 'OK', format('%s connected', session.name))
 from (values ('race_setup'), ('race_stage'), ('race_a'), ('race_b'), ('race_c')) as session(name);
 
--- One engineer; affaires 20 to 28, each with three plans (A, B, C) of one plan set.
+-- One engineer; affaires 20 to 30, each with three plans (A, B, C) of one plan set.
 select is(extensions.dblink_exec('race_setup', $setup$
 begin;
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
@@ -64,23 +68,23 @@ update public.feature_flags set enabled = true where flag_key = 'TAKEOFF_MODULE_
   from public.tenant_memberships m where m.user_id = 'd5c60000-0000-4000-8000-000000000001' and m.is_default);
 insert into public.estimate_projects (id, tenant_id, user_id, name, is_archived)
 select ('d5c60000-0000-4000-8000-0000000000' || (20 + n))::uuid, m.tenant_id, m.user_id, 'Envoi par plan en concurrence ' || n || ' (fictive)', false
-from public.tenant_memberships m cross join generate_series(0, 8) as n
+from public.tenant_memberships m cross join generate_series(0, 10) as n
 where m.user_id = 'd5c60000-0000-4000-8000-000000000001' and m.is_default;
 insert into public.affaire_intake_uploads (id, project_id, created_by, status)
 select ('d5c60000-0000-4000-8000-0000000000' || (30 + n))::uuid, ('d5c60000-0000-4000-8000-0000000000' || (20 + n))::uuid,
-  'd5c60000-0000-4000-8000-000000000001', 'ready' from generate_series(0, 8) as n;
+  'd5c60000-0000-4000-8000-000000000001', 'ready' from generate_series(0, 10) as n;
 insert into public.affaire_briefs (id, project_id, upload_id, status, summary, project_object, confirmed_at, confirmed_by)
 select ('d5c60000-0000-4000-8000-0000000000' || (60 + n))::uuid, ('d5c60000-0000-4000-8000-0000000000' || (20 + n))::uuid,
   ('d5c60000-0000-4000-8000-0000000000' || (30 + n))::uuid, 'confirme', 'Résumé fictif', 'Objet fictif', now(),
-  'd5c60000-0000-4000-8000-000000000001' from generate_series(0, 8) as n;
+  'd5c60000-0000-4000-8000-000000000001' from generate_series(0, 10) as n;
 insert into public.plan_sets (id, tenant_id, project_id, name)
 select ('d5c60000-0000-4000-8000-0000000000' || (40 + n))::uuid, p.tenant_id, p.id, 'Plans du dossier'
-from generate_series(0, 8) as n join public.estimate_projects p on p.id = ('d5c60000-0000-4000-8000-0000000000' || (20 + n))::uuid;
+from generate_series(0, 10) as n join public.estimate_projects p on p.id = ('d5c60000-0000-4000-8000-0000000000' || (20 + n))::uuid;
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 select ('d5c60000-0000-4000-8000-000000000' || (100 + 10 * n + k))::uuid, s.tenant_id, s.id, 'plan-' || chr(96 + k) || '.pdf',
   concat_ws('/', s.tenant_id, s.id, ('d5c60000-0000-4000-8000-000000000' || (100 + 10 * n + k))::uuid, 'plan-' || chr(96 + k) || '.pdf'),
   'application/pdf', 8, 1
-from generate_series(0, 8) as n cross join generate_series(1, 3) as k
+from generate_series(0, 10) as n cross join generate_series(1, 3) as k
 join public.plan_sets s on s.id = ('d5c60000-0000-4000-8000-0000000000' || (40 + n))::uuid;
 -- The import of affaire 21's DPGF, finished and not yet linked to an affaire.
 insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode)
@@ -90,7 +94,7 @@ insert into private.takeoff_launch_activation (active_from) values (now() - inte
 insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 hour');
 insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 hour');
 commit;
-$setup$), 'COMMIT', 'nine affaires of three plans each, with the activations');
+$setup$), 'COMMIT', 'eleven affaires of three plans each, with the activations');
 
 create function pg_temp.tenant() returns uuid language sql stable as $$
   select tenant_id from public.estimate_projects where id = pg_temp.f(20)
@@ -146,7 +150,7 @@ select is(extensions.dblink_exec('race_setup', (select format($prep$begin;
     updated_by) values %s;
   commit;$prep$, string_agg(format('(%L, %L, 1, %L::jsonb, %L::jsonb, now(), %L, %L)', pg_temp.tenant(), pg_temp.f(project),
     pg_temp.snapshot(project) -> 'preparation', pg_temp.snapshot(project), pg_temp.f(1), pg_temp.f(1)), ', '))
-  from generate_series(20, 28) as project)), 'COMMIT', 'each affaire''s preparation confirmed');
+  from generate_series(20, 30) as project)), 'COMMIT', 'each affaire''s preparation confirmed');
 select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_sql(project)) as x(outcome text)), 'admitted',
   format('affaire %s: a request of three plans, one analysis per plan', project))
 from generate_series(20, 23) as project;
@@ -545,6 +549,16 @@ select is((select count(*)::integer from extensions.dblink_get_result('race_a', 
 select is(pg_temp.drift(28, 1) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'peer_changed', 'plan_name', 'plan-b.pdf')),
   'read afterwards, A''s lines are flagged: B''s lines changed after the send compared them');
 select is(pg_temp.drift(28, 1) -> 'item_ids', pg_temp.sent_lines(28, 1), 'the flag names the lines A sent');
+-- B's copy reserved for deletion afterwards (B still a peer in A's receipt, not sent): the flag names B's copy, and never
+-- says B was read again, for no reading happened (fix round 3, point 5; red before: « peer_replaced » beside it).
+select is(extensions.dblink_exec('race_setup', format($reserved$begin;
+  set local session_replication_role = replica;
+  update public.plan_files set metadata = metadata || '{"intake_cleanup_pending": "true"}'::jsonb where id = %L;
+  commit;$reserved$, pg_temp.plan_file(28, 2))), 'COMMIT', 'B''s plan file is reserved for deletion');
+select is(pg_temp.drift(28, 1) -> 'changes', jsonb_build_array(
+    jsonb_build_object('reason', 'peer_changed', 'plan_name', 'plan-b.pdf'),
+    jsonb_build_object('reason', 'copy_changed', 'plan_name', 'plan-b.pdf')),
+  'A''s lines name B''s lines changed and B''s copy no longer current, nothing else');
 
 -- 8. Affaire 26: B, read (a peer of A), is read again by another request (B2, its own request, outside A's); B2's reading
 -- ends with no line after A's send read its context and before it commits. The end waits for nothing the send holds
@@ -585,8 +599,9 @@ select ok(pg_temp.answered('race_a'), 'A''s send goes on');
 select is((select x.replayed from extensions.dblink_get_result('race_a', false) as x(replayed text)), 'false', 'A is sent');
 select is(extensions.dblink_error_message('race_a'), 'OK', 'A''s send without error');
 select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(replayed text)), 0, 'A''s send is done');
-select is(pg_temp.drift(26, 1) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'peer_replaced', 'plan_name', 'plan-b.pdf')),
+select is(pg_temp.drift(26, 1) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'peer_read_again', 'plan_name', 'plan-b.pdf')),
   'read afterwards, A''s lines are flagged: B was read again after the send compared it');
+select is(pg_temp.drift(26, 1) -> 'item_ids', pg_temp.sent_lines(26, 1), 'the flag names the lines A sent (fix round 3, point 6)');
 
 -- 9. Fix round 1, point 3: a reread naming A while A's send is in flight. The send holds the affaire, A, the affaire's
 -- context, then A's request (and the affaire FOR UPDATE once it created the first draft); the reread takes the affaire,
@@ -717,6 +732,162 @@ select is((select x.outcome from extensions.dblink_get_result('race_b', false) a
 select is(extensions.dblink_error_message('race_b'), 'OK', 'the reread without error');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text)), 0, 'the reread is done');
 select is((select estimate_version_id from public.takeoff_jobs where id = pg_temp.f(5239)), pg_temp.f(742), 'the analysis is on V1');
+
+-- 12. Fix round 3, point 1: affaire 27, B — a unit of the affaire's closed automatic request (case 10), read, not sent — is
+-- previewed onto V1 (an existing draft: the preview takes the affaire shared) while a reread names B. The preview holds
+-- B's row, then waits (a session holds a mapping rule, which the preview reads after B's row): the worst moment. The
+-- reread takes the affaire shared too, then B's key share (B has ended), before the affaire's command key and its
+-- automatic request: it waits for the preview holding neither. The session lets go; the preview links and applies B (its
+-- second update's foreign-key check takes a key share of the automatic request's row, free) and rolls back; the reread
+-- is admitted. Red before: the reread skipped B's key share (B belongs to a request), held the automatic request (FOR
+-- UPDATE) when its request's foreign key waited for B, and the preview, asking for that request's row, deadlocked with it.
+select is(extensions.dblink_exec('race_setup', format($prepare$begin;
+  set local session_replication_role = replica;
+  update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now()
+  where launch_request_id = (select id from public.takeoff_launch_requests where intent_key = %1$L);
+  update public.takeoff_launch_requests set state = 'closed', outcome = 'canceled', closed_at = now(),
+    completion_event_id = gen_random_uuid(), units_canceled = 3 where intent_key = %1$L;
+  insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+  values (%2$L, %3$L, %4$L, now() + interval '30 minutes', gen_random_uuid());
+  insert into public.takeoff_mapping_rules (id, tenant_id, name, match_pattern, match_type, action, action_params, priority, is_active)
+  values (%5$L, %4$L, 'Règle fictive inactive', 'zzz fictif', 'exact', 'rename', '{"designation":"zzz"}', 999, false);
+  -- A new day for the member: the admission ledgers of the launches above are set aside (their limit is not this file's).
+  delete from public.takeoff_job_admissions where tenant_id = %4$L;
+  delete from public.takeoff_processing_admissions where tenant_id = %4$L;
+  commit;$prepare$, pg_temp.f(5270), pg_temp.f(791), pg_temp.f(1), pg_temp.tenant(), pg_temp.f(5299))), 'COMMIT',
+  'affaire 27: case 10''s reread closed, V1''s draft lock held, an inactive mapping rule of the tenant');
+create temp table preview_27b as select pg_temp.command(697, pg_temp.unit(27, 2), 797, 897, pg_temp.f(791))
+  || jsonb_build_object('request_id', gen_random_uuid()) as body;
+select pg_temp.stage((select body from preview_27b));
+select is(extensions.dblink_exec('race_setup', 'begin'), 'BEGIN', 'a session starts');
+select is((select x.held from extensions.dblink('race_setup', format('select id::text from public.takeoff_mapping_rules where id = %L for update',
+    pg_temp.f(5299))) as x(held text)), pg_temp.f(5299)::text, 'and holds the mapping rule, which a preview reads after its takeoff''s row');
+select is(extensions.dblink_send_query('race_a', format('select (public.send_takeoff_job(%L::jsonb) -> ''outcome'')::text',
+    pg_temp.request((select body from preview_27b)))), 1, 'B is previewed onto V1');
+select ok(pg_temp.waits_for('race_a', 'race_setup'), 'the preview holds B''s row, and waits for the mapping rule');
+select is(extensions.dblink_send_query('race_b', pg_temp.launch_sql(27, pg_temp.unit(27, 2), 5290, 5300)), 1, 'a reread naming B is commanded');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the reread waits for the preview, on B''s row');
+select is((select x.free from extensions.dblink('race_stage', format($free$select count(*)::integer from (select 1
+    from public.takeoff_launch_requests r where r.project_id = %L and r.origin = 'automatic' for update skip locked) as free_row$free$,
+    pg_temp.f(27))) as x(free integer)), 1, 'holding no automatic request: the preview can take its key share');
+select ok((select pg_catalog.pg_try_advisory_lock(pg_catalog.hashtextextended('takeoff-launch:' || pg_temp.f(27)::text, 0))),
+  'nor the affaire''s command key');
+select ok((select pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended('takeoff-launch:' || pg_temp.f(27)::text, 0))), 'given back');
+select is(extensions.dblink_exec('race_setup', 'commit'), 'COMMIT', 'the mapping rule is let go');
+select ok(pg_temp.answered('race_a'), 'the preview goes on: it links and applies B, then rolls back');
+select ok((select x.outcome from extensions.dblink_get_result('race_a', false) as x(outcome text)) is not null,
+  'and shows its outcome: no deadlock');
+select is(extensions.dblink_error_message('race_a'), 'OK', 'the preview without error');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(outcome text)), 0, 'the preview is done');
+select ok(pg_temp.answered('race_b'), 'the reread goes on');
+select is((select x.outcome from extensions.dblink_get_result('race_b', false) as x(outcome text)), 'admitted',
+  'and is admitted: a request naming B');
+select is(extensions.dblink_error_message('race_b'), 'OK', 'the reread without error');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text)), 0, 'the reread is done');
+select is((select estimate_version_id from public.takeoff_jobs where id = pg_temp.unit(27, 2)), null::uuid,
+  'B is not sent: a preview writes nothing');
+select is(extensions.dblink_exec('race_setup', format($close$begin;
+  set local session_replication_role = replica;
+  update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now()
+  where launch_request_id = (select id from public.takeoff_launch_requests where intent_key = %1$L);
+  update public.takeoff_launch_requests set state = 'closed', outcome = 'canceled', closed_at = now(),
+    completion_event_id = gen_random_uuid(), units_canceled = 3 where intent_key = %1$L;
+  commit;$close$, pg_temp.f(5290))), 'COMMIT', 'that reread closed (the member''s admission limit)');
+
+-- 13. Fix round 3, point 2: affaires 29 (with lines) and 30 (none): A read, its request closed (B and C set aside): A has
+-- no peer. C is read by another request (C2, its first successful reading) and ends after A's send read its context and
+-- before A commits (a session holds the affaire: the send waits to create its first draft). A is sent; read afterwards,
+-- its lines are flagged: C became a peer during the send. A plan read after A's commit (B2) is not flagged: its own send
+-- compares it with A. Red before: the flag walked only the peers recorded, none here.
+create function pg_temp.lone_plan(p_project integer) returns void language plpgsql as $$
+begin
+  perform extensions.dblink_exec('race_setup', format($day$begin; delete from public.takeoff_job_admissions where tenant_id = %1$L;
+    delete from public.takeoff_processing_admissions where tenant_id = %1$L; commit;$day$, pg_temp.tenant()));
+  perform x.outcome from extensions.dblink('race_setup', pg_temp.launch_sql(p_project)) as x(outcome text);
+  perform extensions.dblink_exec('race_setup', pg_temp.read_sql(pg_temp.unit(p_project, 1), 3));
+  perform extensions.dblink_exec('race_setup', format($close$begin;
+    set local session_replication_role = replica;
+    update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now()
+    where id in (%1$L, %2$L);
+    update public.takeoff_launch_requests set state = 'closed', outcome = 'partial', closed_at = now(),
+      completion_event_id = gen_random_uuid(), units_succeeded = 1, units_canceled = 2 where project_id = %3$L;
+    commit;$close$, pg_temp.unit(p_project, 2), pg_temp.unit(p_project, 3), pg_temp.f(p_project)));
+end;
+$$;
+-- Another request reading plan k of the affaire again (its own, closed), its job processing under a lease.
+create function pg_temp.rereading_sql(p_project integer, p_k integer, p_request integer, p_job integer, p_token integer)
+returns text language sql stable as $$
+  select format($rereading$begin;
+  set local session_replication_role = replica;
+  insert into public.takeoff_launch_requests
+  select (jsonb_populate_record(null::public.takeoff_launch_requests, to_jsonb(r) || jsonb_build_object('id', %1$L, 'intent_key', %2$L,
+    'state', 'closed', 'outcome', 'success', 'closed_at', now(), 'completion_event_id', gen_random_uuid()))).*
+  from public.takeoff_launch_requests r where r.id = (select first.id from public.takeoff_launch_requests first
+    where first.project_id = %3$L and first.origin = 'manual' order by first.created_at, first.id limit 1);
+  insert into public.takeoff_jobs
+  select (jsonb_populate_record(null::public.takeoff_jobs, to_jsonb(j) || jsonb_build_object('id', %4$L, 'launch_request_id', %1$L,
+    'status', 'processing', 'started_at', now(), 'processing_lease_token', %5$L, 'processing_lease_expires_at', now() + interval '30 minutes',
+    'completed_at', null, 'analysis_outcome', null, 'analysis_finished_at', null, 'analysis_completion_event_id', null,
+    'created_at', now() + interval '1 minute'))).*
+  from public.takeoff_jobs j where j.id = %6$L;
+  commit;$rereading$, pg_temp.f(p_request), pg_temp.f(p_request + 1), pg_temp.f(p_project), pg_temp.f(p_job), pg_temp.f(p_token),
+    pg_temp.unit(p_project, p_k))
+$$;
+create function pg_temp.peer_appears(p_project integer, p_command integer, p_with_lines boolean) returns setof text language plpgsql as $$
+declare
+  ended boolean;
+begin
+  perform pg_temp.lone_plan(p_project);
+  perform extensions.dblink_exec('race_setup', pg_temp.rereading_sql(p_project, 3, 6000 + 10 * p_project, 6003 + 10 * p_project,
+    900 + p_project));
+  insert into commands values (p_project || 'A', pg_temp.confirmed(pg_temp.command(p_command, pg_temp.unit(p_project, 1),
+    p_command + 100, p_command + 200)));
+  return next format('A''s context, before: %s', pg_temp.context_peers(p_project));
+  perform extensions.dblink_exec('race_setup', 'begin');
+  perform x.held from extensions.dblink('race_setup', format('select id::text from public.estimate_projects where id = %L for key share',
+    pg_temp.f(p_project))) as x(held text);
+  perform extensions.dblink_send_query('race_a', pg_temp.send_sql((select body from commands where name = p_project || 'A')));
+  return next format('the send waits to create its first draft: %s', pg_temp.waits_for('race_a', 'race_setup')::text);
+  perform extensions.dblink_send_query('race_b', case when p_with_lines
+    then pg_temp.end_sql(pg_temp.f(6003 + 10 * p_project), 900 + p_project, 1)
+    else pg_temp.empty_end_sql(pg_temp.f(6003 + 10 * p_project), 900 + p_project) end);
+  return next format('C2''s end waits for nothing the send holds: %s', pg_temp.answered('race_b')::text);
+  select x.ended into ended from extensions.dblink_get_result('race_b', false) as x(ended boolean);
+  return next format('C2 read: %s, %s', ended::text, extensions.dblink_error_message('race_b'));
+  perform x.ended from extensions.dblink_get_result('race_b', false) as x(ended boolean);
+  perform extensions.dblink_exec('race_setup', 'commit');
+  return next format('the send goes on: %s', pg_temp.answered('race_a')::text);
+  return next format('A sent: %s, %s', (select x.replayed from extensions.dblink_get_result('race_a', false) as x(replayed text)),
+    extensions.dblink_error_message('race_a'));
+  perform x.replayed from extensions.dblink_get_result('race_a', false) as x(replayed text);
+end;
+$$;
+create function pg_temp.context_peers(p_project integer) returns jsonb language sql stable as $$
+  select public.read_takeoff_send_context(pg_temp.tenant(), pg_temp.f(p_project), pg_temp.unit(p_project, 1), null) -> 'peers'
+$$;
+select results_eq($$select * from pg_temp.peer_appears(29, 698, true)$$, $$values
+  ('A''s context, before: []'::text), ('the send waits to create its first draft: true'), ('C2''s end waits for nothing the send holds: true'),
+  ('C2 read: true, OK'), ('the send goes on: true'), ('A sent: false, OK')$$,
+  'affaire 29: A, with no peer, is sent while C''s first reading ends with a line');
+select is(pg_temp.drift(29, 1) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'peer_appeared', 'plan_name', 'plan-c.pdf')),
+  'read afterwards, A''s lines are flagged: C became a peer during the send');
+select is(pg_temp.drift(29, 1) -> 'item_ids', pg_temp.sent_lines(29, 1), 'the flag names the lines A sent');
+select results_eq($$select * from pg_temp.peer_appears(30, 699, false)$$, $$values
+  ('A''s context, before: []'::text), ('the send waits to create its first draft: true'), ('C2''s end waits for nothing the send holds: true'),
+  ('C2 read: true, OK'), ('the send goes on: true'), ('A sent: false, OK')$$,
+  'affaire 30: A, with no peer, is sent while C''s first reading ends with no line');
+select is(pg_temp.drift(30, 1) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'peer_appeared', 'plan_name', 'plan-c.pdf')),
+  'read afterwards, A''s lines are flagged: C, read without a line, became a peer during the send');
+select is(pg_temp.drift(30, 1) -> 'item_ids', pg_temp.sent_lines(30, 1), 'the flag names the lines A sent');
+-- After A's commit, B is read for the first time (B2, another request): not a change of what A's send could compare.
+select is(extensions.dblink_exec('race_setup', pg_temp.rereading_sql(30, 2, 6320, 6323, 940)), 'COMMIT', 'B is being read, after A''s send');
+select is((select x.ended from extensions.dblink('race_setup', pg_temp.end_sql(pg_temp.f(6323), 940, 2)) as x(ended boolean)), true,
+  'and its reading ends');
+select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(public.read_takeoff_send_context(pg_temp.tenant(), pg_temp.f(30),
+    pg_temp.unit(30, 1), (select estimate_version_id from public.takeoff_jobs where id = pg_temp.unit(30, 1))) -> 'peers') as peer)
+    @> to_jsonb(pg_temp.f(6323)::text), true, 'B2 is a peer of A now');
+select is(pg_temp.drift(30, 1) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'peer_appeared', 'plan_name', 'plan-c.pdf')),
+  'A''s flag is unchanged: a plan read after A''s send is its own send''s business');
 
 -- Clean the committed synthetic fixtures of this disposable database, as the other race files do.
 select is(extensions.dblink_exec('race_setup', $cleanup$
