@@ -214,6 +214,65 @@ describe("TakeoffItemTable", () => {
       { kind: "items", itemIds: [fixtureItemId(1), fixtureItemId(2)] });
   });
 
+  // A completion applies only to what started it: the refresh of a selection after a stale refusal lands on a selection
+  // the member cleared meanwhile, which it must leave empty (POSTE-REVUE01's « 6 postes sélectionnés »).
+  it("keeps a selection cleared while its refresh after a stale refusal is still on its way, and says it was refreshed only once it was", async () => {
+    renderTable();
+    await screen.findByRole("row", { name: /WC/ });
+    tick("WC");
+    tick("Évier");
+    client.sendItemReviewCommand.mockRejectedValue(new TakeoffApiError("Des postes ont changé.", 409,
+      { stale: [{ itemId: fixtureItemId(1), label: "WC" }] }, "TAKEOFF_ITEM_REVIEW_STALE"));
+    let release: (value: Awaited<ReturnType<typeof client.fetchFrozenItemSelection>>) => void = () => {};
+    client.fetchFrozenItemSelection.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Accepter les mesurés sans anomalie (1)" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Accepter 1 poste" }));
+    const notice = await screen.findByTestId("poste-notice");
+    expect(notice).toHaveTextContent("Rien n’a été appliqué : WC a changé depuis la sélection.");
+    // The refresh is on its way: nothing says it happened yet.
+    expect(notice).not.toHaveTextContent("rafraîchie");
+    await waitFor(() => expect(client.fetchFrozenItemSelection).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Vider la sélection" }));
+    expect(screen.getByTestId("poste-selection-count")).toHaveTextContent("0 poste sélectionné");
+    await act(async () => {
+      release(freezeFrom(table())(FIXTURE_ITEM_PROJECT, { kind: "affaire" }, { kind: "items", itemIds: [fixtureItemId(1), fixtureItemId(2)] }) as never);
+    });
+    // The refresh landed on a selection the member had cleared: it stays as the member left it.
+    expect(screen.getByTestId("poste-selection-count")).toHaveTextContent("0 poste sélectionné");
+    expect(screen.getByTestId("poste-notice")).not.toHaveTextContent("rafraîchie");
+    tick("Baignoire");
+    expect(screen.getByTestId("poste-selection-count")).toHaveTextContent("1 poste sélectionné");
+  });
+
+  it("says the selection was refreshed once its refresh after a stale refusal applied", async () => {
+    renderTable();
+    await screen.findByRole("row", { name: /WC/ });
+    tick("WC");
+    tick("Évier");
+    client.sendItemReviewCommand.mockRejectedValue(new TakeoffApiError("Des postes ont changé.", 409,
+      { stale: [{ itemId: fixtureItemId(1), label: "WC" }] }, "TAKEOFF_ITEM_REVIEW_STALE"));
+    fireEvent.click(screen.getByRole("button", { name: "Accepter les mesurés sans anomalie (1)" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Accepter 1 poste" }));
+    await waitFor(() => expect(screen.getByTestId("poste-notice")).toHaveTextContent(
+      "Rien n’a été appliqué : WC a changé depuis la sélection. La sélection a été rafraîchie : vérifiez-la, puis confirmez de nouveau."));
+    expect(screen.getByTestId("poste-selection-count")).toHaveTextContent("2 postes sélectionnés");
+  });
+
+  // « Tous les résultats du filtre » follows the same rule.
+  it("keeps a selection the member changed while « tous les résultats du filtre » was on its way", async () => {
+    renderTable();
+    await screen.findByRole("row", { name: /WC/ });
+    let release: (value: Awaited<ReturnType<typeof client.fetchFrozenItemSelection>>) => void = () => {};
+    client.fetchFrozenItemSelection.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: /Sélectionner les \d+ résultats du filtre/ }));
+    await waitFor(() => expect(client.fetchFrozenItemSelection).toHaveBeenCalledTimes(1));
+    tick("WC");
+    await act(async () => {
+      release(freezeFrom(table())(FIXTURE_ITEM_PROJECT, { kind: "affaire" }, { kind: "filter" }) as never);
+    });
+    expect(screen.getByTestId("poste-selection-count")).toHaveTextContent("1 poste sélectionné");
+  });
+
   it("sets the selection aside with one reason chosen once, confirmed by Enter, a note required for « Autre »", async () => {
     client.sendItemReviewCommand.mockResolvedValue({ outcome: "applied", applied: [{ itemId: fixtureItemId(3), label: "Baignoire", answers: 2 }],
       skipped: [{ itemId: fixtureItemId(5), label: "Receveur de douche", reason: "no_answer" }] });

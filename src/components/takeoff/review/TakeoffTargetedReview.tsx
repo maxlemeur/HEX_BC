@@ -1,5 +1,6 @@
 "use client";
 
+import { useItemListSend } from "@/components/takeoff/item-send/useItemListSend";
 import { TakeoffUnmeasuredQuantities, takeoffUnmeasuredQuantityMessages } from "@/components/takeoff/review/TakeoffUnmeasuredQuantities";
 
 import { isUnselectedVectorReading } from "@/lib/takeoff/vectors/alternatives";
@@ -137,8 +138,10 @@ function parseQuantity(text: string) {
   return Number.isFinite(value) && value > 0 ? Math.round(value * 1000) / 1000 : null;
 }
 
-export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = true }: Readonly<{
+export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = true, viewerKey = "" }: Readonly<{
   jobId: string; versionId: string | null; projectId: string; canEdit?: boolean;
+  /** The member and their tenant: the activity of this analysis's request is theirs alone. */
+  viewerKey?: string;
 }>) {
   const toast = useToast();
   const searchParams = useSearchParams();
@@ -470,6 +473,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
     setJob((previous) => (previous ? { ...previous, status: "applied" } : previous));
   }, []);
   const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
+  // A plan read against the list of items is sent item by item (lot 4): today's send refuses it, so it is not offered.
+  const itemListSend = useItemListSend({ projectId, jobId, viewerKey, onSent: handleApplied });
+  // Opened before the job was known as read against the list: today's send, which refuses it, is closed.
+  useEffect(() => { if (itemListSend.itemList) setWizardOpen(false); }, [itemListSend.itemList]);
 
   const included = items.filter((item) => !item.is_excluded);
   const applyBlocker = !canEdit ? "Ce métré est accessible en lecture seule."
@@ -502,6 +509,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
 
   return (
     <div ref={rootRef} tabIndex={-1} className="flex h-full min-h-0 flex-col bg-surface-subtle focus:outline-none max-xl:overflow-y-auto">
+      {itemListSend.element}
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 max-sm:h-auto max-sm:min-h-11 max-sm:flex-wrap max-sm:gap-y-1 max-sm:py-2">
         <h1 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Target aria-hidden="true" className="size-4 text-primary" />
@@ -600,7 +608,10 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
               <p className="text-[11px] text-muted-foreground">
                 <Kbd>↑</Kbd><Kbd>↓</Kbd> ligne · <Kbd>E</Kbd> exclure · <Kbd>F2</Kbd> corriger · <Kbd>V</Kbd> accepter · <Kbd>Échap</Kbd> annuler
               </p>
-              <Button className="w-full" size="lg" disabled={applyBlocker !== null} onClick={() => { apply.setError(null); setWizardOpen(true); }}>
+              <Button className="w-full" size="lg" disabled={applyBlocker !== null} onClick={() => {
+                if (itemListSend.itemList) { itemListSend.open(); return; }
+                apply.setError(null); setWizardOpen(true);
+              }}>
                 Envoyer au tableau de chiffrage
               </Button>
               <p role="status" className="text-xs text-muted-foreground">

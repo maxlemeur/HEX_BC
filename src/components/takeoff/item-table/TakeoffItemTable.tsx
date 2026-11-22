@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -63,6 +64,30 @@ import {
   SetAsideDialog,
 } from "./ItemTableGestureDialogs";
 import { ItemTableLineDetail } from "./ItemTableLineDetail";
+import { useCompletions, type Completion } from "@/components/takeoff/item-detail/useCompletions";
+
+const TakeoffItemSendDialog = dynamic(
+  () => import("@/components/takeoff/item-send/TakeoffItemSendDialog").then((module) => module.TakeoffItemSendDialog),
+  { ssr: false },
+);
+const readingDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+/**
+ * In a plan's scope, the analyses of that plan whose answers the page shows (usually one; a new measure of some items
+ * adds another), each sent or not: a plan read against the list is sent to the estimate from here, one analysis at a time.
+ */
+function planSends(lines: readonly ItemTableResponseLine[], planKey: string) {
+  const jobs = new Map<string, { jobId: string; sent: boolean; readAt: string }>();
+  for (const line of lines) {
+    for (const reading of line.readings) {
+      if (reading.planKey !== planKey || !reading.answer) continue;
+      const known = jobs.get(reading.answer.jobId);
+      jobs.set(reading.answer.jobId, { jobId: reading.answer.jobId, sent: (known?.sent ?? true) && reading.sent,
+        readAt: reading.answer.readAt });
+    }
+  }
+  return [...jobs.values()].sort((left, right) => left.readAt.localeCompare(right.readAt));
+}
 
 /**
  * The table of items of an affaire's takeoff: a line per item of the list, with its state, its observed quantity, the
@@ -142,6 +167,20 @@ function resultNotice(result: ItemReviewResult, done: string): Notice {
   const left = result.skipped.slice(0, 5).map(({ label, reason }) => `${label} (${ITEM_INELIGIBILITY_LABELS[reason]})`).join(", ");
   return { tone: result.applied.length ? "success" : "info",
     text: `${applied}. Laissés : ${left}${result.skipped.length > 5 ? ` et ${result.skipped.length - 5} autres` : ""}.` };
+}
+
+// Each selection the member holds is one value: a completion started for it applies only while it is still the one held
+// (a tick, « Vider la sélection », a read-back or another completion makes another).
+const selectionTokens = new WeakMap<ItemSelection, string>();
+let selectionCount = 0;
+function selectionToken(value: ItemSelection) {
+  let token = selectionTokens.get(value);
+  if (!token) {
+    selectionCount += 1;
+    token = String(selectionCount);
+    selectionTokens.set(value, token);
+  }
+  return token;
 }
 
 export function TakeoffItemTable({ projectId, viewerKey, signature }: {
@@ -241,6 +280,16 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
+  // The send belongs to the plan's scope it was opened from: another scope (a filter, the browser's history) closes it.
+  const [sending, setSending] = useState<{ jobId: string; planName: string; scope: string } | null>(null);
+
+  // The table's completions (useCompletions, the detail's one rule): each is addressed to what started it — the screen (the
+  // member, the affaire, the scope) and the selection held, or the selection with its filter — and changes what is shown
+  // only if that is still what is shown; a selection cleared or changed meanwhile stays as the member left it.
+  const screenKey = `${viewerKey}|${projectId}|${scopeKey}`;
+  const filterKey = JSON.stringify(address.filter);
+  const forSelection = useCompletions({ screen: screenKey, item: selectionToken(selection) });
+  const forFilter = useCompletions({ screen: screenKey, item: selectionToken(selection), reading: filterKey });
 
   const navigate = useCallback((partial: Partial<ItemTableAddress>) => {
     const next = withItemTableParams(searchParams.toString(), itemTableAddressParams(partial, PREFIX));
@@ -274,24 +323,33 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     return quantity !== null && unit ? [{ itemId, label: draft.line.label, quantity, unit, target: draft.line.targets }] : [];
   });
 
+  /** The selection read again as it is stored now: applied only to the selection it was read for, if still held. */
   const refreshSelection = useCallback(async (current: ItemSelection) => {
     const ids = Object.keys(current.items);
-    if (!ids.length) return;
+    if (!ids.length) return false;
+    const completion = forSelection({ screen: screenKey, item: selectionToken(current) });
     try {
       const frozen = await fetchFrozenItemSelection(projectId, current.scope, { kind: "items", itemIds: ids });
+      if (!completion.current()) return false;
       updateSelection(withFrozenSelection(current, frozen));
+      return true;
     } catch (caught) {
-      withdrawOnRefusal(caught);
+      if (completion.ownScreen()) withdrawOnRefusal(caught);
+      return false;
     }
-  }, [projectId, updateSelection, withdrawOnRefusal]);
+  }, [projectId, updateSelection, withdrawOnRefusal, forSelection, screenKey]);
 
   const failure = useCallback(async (caught: unknown, current: ItemSelection) => {
     const stale = itemReviewStaleLines(caught);
     if (stale) {
       const names = stale.slice(0, 5).map(({ label: name }) => name ?? "un poste retiré").join(", ");
       const verb = stale.length > 1 ? "ont changé" : "a changé";
-      setNotice({ tone: "danger", text: `Rien n’a été appliqué : ${names}${stale.length > 5 ? ` et ${stale.length - 5} autres` : ""} ${verb} depuis la sélection. La sélection a été rafraîchie : vérifiez-la, puis confirmez de nouveau.` });
-      await refreshSelection(current);
+      const changed = `Rien n’a été appliqué : ${names}${stale.length > 5 ? ` et ${stale.length - 5} autres` : ""} ${verb} depuis la sélection.`;
+      setNotice({ tone: "danger", text: changed });
+      // Said refreshed once it is, and only if the selection was still the one refused.
+      if (await refreshSelection(current)) {
+        setNotice({ tone: "danger", text: `${changed} La sélection a été rafraîchie : vérifiez-la, puis confirmez de nouveau.` });
+      }
       await readDraftTargets(Object.keys(drafts));
       void refresh();
       return;
@@ -299,27 +357,32 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     setNotice({ tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible d’enregistrer la décision sur les postes." });
   }, [refreshSelection, readDraftTargets, drafts, refresh]);
 
-  const runCommand = useCallback(async (command: ItemReviewCommand, done: string, onApplied?: (result: ItemReviewResult) => void) => {
+  const runCommand = useCallback(async (command: ItemReviewCommand, done: string,
+    onApplied?: (result: ItemReviewResult, started: ItemSelection, completion: Completion) => void) => {
     setBusy(true);
+    const started = selection;
+    const completion = forSelection({ screen: screenKey, item: selectionToken(started) });
     try {
       const result = await sendItemReviewCommand(projectId, command);
-      setNotice(resultNotice(result, done));
-      onApplied?.(result);
+      if (completion.ownScreen()) setNotice(resultNotice(result, done));
+      onApplied?.(result, started, completion);
       setDialog(null);
       void refresh();
     } catch (caught) {
       setDialog(null);
-      await failure(caught, selection);
+      await failure(caught, started);
     } finally {
       setBusy(false);
     }
-  }, [projectId, refresh, failure, selection]);
+  }, [projectId, refresh, failure, selection, forSelection, screenKey]);
 
-  const dropApplied = useCallback((result: ItemReviewResult) => {
-    const items = { ...selection.items };
+  /** The items a command applied leave the selection it was sent from, if the member still holds it. */
+  const dropApplied = useCallback((result: ItemReviewResult, started: ItemSelection, completion: Completion) => {
+    if (!completion.current()) return;
+    const items = { ...started.items };
     for (const { itemId } of result.applied) delete items[itemId];
-    updateSelection({ ...selection, items });
-  }, [selection, updateSelection]);
+    updateSelection({ ...started, items });
+  }, [updateSelection]);
 
   const base = (intentKey: string) => ({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: intentKey, scope: selection.scope,
     targets: selectedTargets(selection) });
@@ -355,16 +418,20 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     }
   }, [dialog, preview.value, projectId, selection, updateSelection, failure]);
 
+  // « Tous les résultats du filtre »: applied only if the member still holds the selection and the filter it was asked for.
   const selectFilter = useCallback(async () => {
+    const completion = forFilter({ screen: screenKey, item: selectionToken(selection), reading: filterKey });
     try {
       const frozen = await fetchFrozenItemSelection(projectId, address.scope, { kind: "filter", filter: address.filter });
+      if (!completion.current()) return;
       updateSelection(withFrozenSelection(emptyItemSelection(address.scope), frozen));
       setNotice({ tone: "info", text: `${formatItemCount(frozen.count, "poste sélectionné", "postes sélectionnés")}, sur toutes les pages du filtre.` });
     } catch (caught) {
-      if (withdrawOnRefusal(caught)) return;
+      if (completion.ownScreen() && withdrawOnRefusal(caught)) return;
+      if (!completion.current()) return;
       setNotice({ tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible de sélectionner les résultats du filtre." });
     }
-  }, [projectId, address.scope, address.filter, updateSelection, withdrawOnRefusal]);
+  }, [projectId, address.scope, address.filter, updateSelection, withdrawOnRefusal, forFilter, screenKey, selection, filterKey]);
 
   const setDraft = (line: ItemTableResponseLine, change: Partial<Draft>) => setDrafts((current) => {
     const previous = current[line.itemId] ?? { quantity: "", unit: "", line };
@@ -387,6 +454,9 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   );
 
   const pageLines = data?.page.lines ?? [];
+  const planScope = address.scope.kind === "plan" ? address.scope : null;
+  const planName = planScope ? plans.find(({ key: planKey }) => planKey === planScope.planKey)?.name ?? "choisi" : null;
+  const sends = planScope ? planSends(pageLines, planScope.planKey) : [];
   const allOnPage = pageLines.length > 0 && pageLines.every(({ itemId }) => itemId in selection.items);
   const hasFilter = Object.keys(address.filter).length > 0 || address.scope.kind === "plan";
   const columns = canReview ? 14 : 11;
@@ -493,6 +563,22 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
             ) : (
               <p className="text-sm text-muted-foreground">Un opérateur du métré de l’affaire peut revoir ces postes.</p>
             )}
+
+            {planScope && sends.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2" data-testid="poste-plan-send">
+                {sends.every(({ sent }) => sent) ? (
+                  <p className="text-sm" data-testid="poste-plan-sent">
+                    Plan « {planName} » envoyé au devis : ses postes ne se modifient plus en bloc.
+                  </p>
+                ) : null}
+                {canReview ? sends.filter(({ sent }) => !sent).map((send) => (
+                  <Button key={send.jobId} size="sm" variant="secondary"
+                    onClick={() => setSending({ jobId: send.jobId, planName: planName ?? "", scope: scopeKey })}>
+                    Envoyer ce plan au devis{sends.length > 1 ? ` (lecture du ${readingDate.format(new Date(send.readAt))})` : ""}
+                  </Button>
+                )) : null}
+              </div>
+            ) : null}
 
             {notice ? (
               <p className={`text-sm ${notice.tone === "danger" ? "text-danger" : notice.tone === "success" ? "text-success" : ""}`}
@@ -725,6 +811,11 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
             for (const { itemId } of result.applied) delete copy[itemId];
             return copy;
           }))} />
+      ) : null}
+      {/* Withdrawn on the freshest read of the table: another scope, the right gone, or its plan now sent. */}
+      {sending && sending.scope === scopeKey && canReview && !sends.some((send) => send.jobId === sending.jobId && send.sent) ? (
+        <TakeoffItemSendDialog open jobId={sending.jobId} planName={sending.planName} viewerKey={viewerKey}
+          onOpenChange={(open) => { if (!open) setSending(null); }} onSent={() => void refresh()} />
       ) : null}
       {dialog?.gesture === "remeasure" ? (
         <RemeasureDialog scopeLabel={label} busy={busy} preview={preview.value} loadError={preview.error}

@@ -9,6 +9,8 @@ export type ToastPayload = {
   description?: string;
   variant?: ToastVariant;
   durationMs?: number;
+  /** A link the notice offers, where what it reports can be seen (a line written while the member was elsewhere). */
+  action?: { label: string; href: string };
 };
 export type PendingToast = ToastPayload & { id: string };
 export type ToastController = {

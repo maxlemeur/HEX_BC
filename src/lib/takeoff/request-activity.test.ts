@@ -248,6 +248,23 @@ describe("buildTakeoffRequestActivity: what each member sees and may do", () => 
     expect(describeTakeoffRequestActivityCoverage(view)).toBe("2 plans lus sur 2");
   });
 
+  it("offers the send by item only for a plan read against the list, read to its end and not sent, to a member who writes it", () => {
+    const listManifest = parseTakeoffRequestManifest({ ...perPlanManifest, order_kind: "item_list" });
+    const jobsOf = [memberJob("a", { status: "completed", item_count: 2 }),
+      memberJob("b", { status: "applied", estimate_version_id: "70000000-0000-4000-8000-000000000001", item_count: 2 }),
+      memberJob("c", { status: "processing" })];
+    const build = (manifest: ReturnType<typeof parseTakeoffRequestManifest>, writesItems: boolean) => buildTakeoffRequestActivity({
+      request: request(), units: units([unit("a", 1, success), unit("b", 2, success), unit("c", 3, { state: "running" })]), manifest,
+      jobs: jobsOf, viewer: operator, now: NOW, visible: "all", writesItems });
+    const listed = build(listManifest, true);
+    expect(listed.order).toBe("item_list");
+    expect(listed.jobs.map((job) => [job.jobId, job.canSendItems])).toEqual([[JOB("a"), true], [JOB("b"), false], [JOB("c"), false]]);
+    // A member who does not write the affaire sees none; a plan of today's formats keeps today's send, from its review.
+    expect(build(listManifest, false).jobs.some((job) => job.canSendItems)).toBe(false);
+    const free = build(parseTakeoffRequestManifest(perPlanManifest), true);
+    expect([free.order, free.jobs.some((job) => job.canSendItems)]).toEqual(["free", false]);
+  });
+
   it("never exposes the Mac, the profile or the provider of an analysis", () => {
     expect(JSON.stringify(activity(list, jobs))).not.toContain(THIS_MAC);
     expect(Object.keys(activity(list, jobs).jobs[0])).not.toContain("executionHostId");

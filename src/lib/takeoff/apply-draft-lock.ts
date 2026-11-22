@@ -5,6 +5,13 @@ export type EnsureTakeoffApplyDraftLockResult = {
   acquired: boolean;
   shouldRelease: boolean;
   errorMessage: string | null;
+  /**
+   * An acquisition was sent, whatever its answer: a lost answer may still have granted the lease, which is then the
+   * caller's to release (the lease send by item tracks it). False when the lease was renewed or refused before that.
+   */
+  acquireAttempted?: boolean;
+  /** Another member holds the draft (the message names them); otherwise a refusal is an error to try again. */
+  lockedByOther?: boolean;
 };
 
 function resolveLockedByOtherMessage(holderName: string | null | undefined) {
@@ -32,6 +39,7 @@ export async function ensureTakeoffApplyDraftLock(
       acquired: false,
       shouldRelease: false,
       errorMessage: resolveLockedByOtherMessage(renewResult.lock?.holderName),
+      lockedByOther: true,
     };
   } catch (renewError) {
     if (!isEstimateApiError(renewError) || renewError.status !== 404) {
@@ -55,6 +63,7 @@ export async function ensureTakeoffApplyDraftLock(
         acquired: true,
         shouldRelease: true,
         errorMessage: null,
+        acquireAttempted: true,
       };
     }
 
@@ -62,6 +71,8 @@ export async function ensureTakeoffApplyDraftLock(
       acquired: false,
       shouldRelease: false,
       errorMessage: resolveLockedByOtherMessage(acquireResult.lock?.holderName),
+      acquireAttempted: true,
+      lockedByOther: true,
     };
   } catch (acquireError) {
     return {
@@ -71,6 +82,7 @@ export async function ensureTakeoffApplyDraftLock(
         acquireError instanceof Error
           ? acquireError.message
           : "Impossible d'acquérir le verrou de brouillon.",
+      acquireAttempted: true,
     };
   }
 }

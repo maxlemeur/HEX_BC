@@ -17,6 +17,7 @@ import {
   type ItemSendPreviewRequest,
   type ItemSendPreviewResponse,
 } from "@/lib/takeoff/item-send-contracts";
+import { takeoffItemSendLandingHref } from "@/lib/takeoff/apply-landing";
 import { readItemSendEarlierState, readItemSendFacts } from "@/lib/takeoff/item-send-facts-server";
 import {
   itemSendCanonical,
@@ -444,10 +445,13 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
   const shown = { plan: { key: plan.logical_id, name: plan.name }, list: { revision_id: list.revision_id, revision: list.revision },
     projectId: job.project_id };
 
-  // A takeoff already sent or not finished gets its reason: nothing of the affaire's estimates is read for it.
+  // A takeoff already sent or not finished gets its reason: nothing of the affaire's estimates is read for it. A plan already
+  // sent by item gives the way to what it wrote (its receipt's landing), also to a screen that lost the answer.
   if (jobFacts.sent || job.status !== "completed") {
     const blocked = planTakeoffItemSend({ ...base, destination: { kind: "unresolved", reason: "choose_destination" } });
-    return only(respond(jobId, shown, blocked, { destinations: [], destination: null, label: null, versionCreated: false }, new Map(), null));
+    const landing = blocked.blocker?.reason === "already_sent" ? await readSentLanding(ctx, jobId) : null;
+    return only(respond(jobId, shown, blocked, { destinations: [], destination: null, label: null, versionCreated: false }, new Map(), null,
+      landing));
   }
 
   const versions = await readVersions(service, ctx.tenantId, job.project_id, jobId);
@@ -535,11 +539,24 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
     blocker: computed.blocker?.reason ?? null };
 }
 
+/** Where a plan already sent by item landed: the first line its receipt wrote, in its version's editor; null without one. */
+async function readSentLanding(ctx: Context, jobId: string): Promise<string | null> {
+  const { data, error } = await ctx.supabase.from("takeoff_item_send_receipts" as never)
+    .select("version_id, result" as never).eq("tenant_id" as never, ctx.tenantId as never).eq("job_id" as never, jobId as never)
+    .order("created_at" as never).limit(1);
+  if (error) failed(error, "Impossible de lire l’envoi déjà fait de ce plan.", jobId);
+  const receipt = ((data ?? []) as Array<{ version_id: string | null; result: { focus_item_id?: unknown; version_id?: unknown } | null }>)[0];
+  const version = receipt?.version_id ?? (typeof receipt?.result?.version_id === "string" ? receipt.result.version_id : null);
+  if (!version) return null;
+  const focus = typeof receipt?.result?.focus_item_id === "string" ? receipt.result.focus_item_id : null;
+  return takeoffItemSendLandingHref(version, { lines_written: focus ? [focus] : [], sections_created: [] });
+}
+
 function respond(jobId: string, shown: { plan: { key: string; name: string }; list: { revision_id: string; revision: number }; projectId: string },
   computed: ReturnType<typeof planTakeoffItemSend>, chosen: {
     destinations: ItemSendPreviewResponse["destinations"]; destination: ItemSendPreviewResponse["destination"]; label: string | null;
     versionCreated: boolean;
-  }, assemblies: ReadonlyMap<string, string>, digest: string | null): ItemSendPreviewResponse {
+  }, assemblies: ReadonlyMap<string, string>, digest: string | null, landing: string | null = null): ItemSendPreviewResponse {
   // The first line written in document order, when it exists already; a line to create is named once created.
   const first = computed.targets[0];
   return {
@@ -553,7 +570,8 @@ function respond(jobId: string, shown: { plan: { key: string; name: string }; li
     engine: computed.engine,
     breakdown: computed.breakdown,
     blocked: computed.blocker ? { reason: computed.blocker.reason, message: BLOCKER_MESSAGES[computed.blocker.reason],
-      href: computed.blocker.reason === "dpgf_import_required" ? `/dashboard/affaires/${encodeURIComponent(shown.projectId)}#intake` : null } : null,
+      href: computed.blocker.reason === "dpgf_import_required" ? `/dashboard/affaires/${encodeURIComponent(shown.projectId)}#intake`
+        : computed.blocker.reason === "already_sent" ? landing : null } : null,
     sections: computed.sections.map((section) => ({ key: section.key, title: section.title, parent_key: section.parentKey, depth: section.depth,
       homonym_in_draft: section.homonymInDraft })),
     lines: computed.targets.map((target) => ({

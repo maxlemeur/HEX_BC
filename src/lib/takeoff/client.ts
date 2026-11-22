@@ -7,6 +7,14 @@ import {
   type TakeoffSendRequest,
   type TakeoffSendResponse,
 } from "@/lib/takeoff/send-contracts";
+import {
+  itemSendConfirmResponseSchema,
+  itemSendPreviewResponseSchema,
+  type ItemSendConfirmRequest,
+  type ItemSendConfirmResponse,
+  type ItemSendPreviewRequest,
+  type ItemSendPreviewResponse,
+} from "@/lib/takeoff/item-send-contracts";
 import { parseTakeoffResponse } from "@/lib/takeoff/response-contracts";
 import { parseTakeoffJobCompareResponse } from "@/lib/takeoff/compare-response-contracts";
 import { parseTakeoffItemBatchPatchResponse } from "@/lib/takeoff/item-response-contracts";
@@ -603,6 +611,29 @@ export async function sendTakeoffJobToEstimate(jobId: string, payload: TakeoffSe
     true
   );
   return validateTakeoffResponse(jobId, () => parseTakeoffResponse(takeoffSendResponseSchema, response));
+}
+
+/** Lot 4, PR 5c: the read-only preview of the send of one plan's retained items to an engine 3 draft; writes nothing. */
+export async function previewTakeoffItemSend(jobId: string, payload: ItemSendPreviewRequest,
+  options?: { signal?: AbortSignal }): Promise<ItemSendPreviewResponse> {
+  const response = await requestTakeoffJson<unknown>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/item-send/preview`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: options?.signal },
+    "Impossible de calculer l’aperçu de l’envoi des postes.",
+    true
+  );
+  return validateTakeoffResponse(jobId, () => parseTakeoffResponse(itemSendPreviewResponseSchema, response));
+}
+
+/** Lot 4, PR 5c: confirms the plan the preview showed (its digest); the same intention key replayed returns its receipt. */
+export async function confirmTakeoffItemSend(jobId: string, payload: ItemSendConfirmRequest): Promise<ItemSendConfirmResponse> {
+  const response = await requestTakeoffJson<unknown>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/item-send/confirm`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+    "Impossible d’envoyer les postes de ce plan au devis.",
+    true
+  );
+  return validateTakeoffResponse(jobId, () => parseTakeoffResponse(itemSendConfirmResponseSchema, response));
 }
 
 export async function previewTakeoffConversion(
