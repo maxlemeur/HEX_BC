@@ -77,7 +77,8 @@ les nouvelles entrées avec `supabase:manifest:add`.
 ## Appliquer sur une base partagée
 
 L'application distante exige une autorisation propre, distincte du commit et
-du déploiement. Vérifier le projet cible sans afficher ses secrets, lire son
+du déploiement ; [AGENTS.md](../AGENTS.md) dit quelles migrations la reçoivent
+d'avance. Vérifier le projet cible sans afficher ses secrets, lire son
 historique de migrations et comparer aux fichiers du checkout à publier.
 Puis appliquer uniquement les migrations manquantes autorisées dans l'ordre,
 avec leur SQL exact ; contrôler ensuite l'historique, les objets ciblés et les
