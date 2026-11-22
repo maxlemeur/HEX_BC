@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ItemDetailQueue, chooseItemDetailPlan, itemDetailOpeningPage, itemDetailPagesOfInterest, type ItemDetailQueuePage } from "@/lib/takeoff/item-detail";
+import {
+  ItemDetailQueue, chooseItemDetailPlan, itemDetailGestureOffer, itemDetailOpeningPage, itemDetailPagesOfInterest, type ItemDetailQueuePage,
+} from "@/lib/takeoff/item-detail";
 import { ItemDetailPlanError, createItemDetailReader } from "@/lib/takeoff/item-detail-client";
 import { isItemDetailFieldTarget, itemDetailKeyAction } from "@/lib/takeoff/item-detail-keys";
 import {
-  DETAIL_PROJECT, JOB_EARLIER, JOB_RDC, PLAN_R1, PLAN_RDC, PLAN_SCAN, basinLine, notFoundLine, planViews, toMeasureLine,
+  DETAIL_PROJECT, ITEMS, JOB_EARLIER, JOB_RDC, PLAN_R1, PLAN_RDC, PLAN_SCAN, basinLine, notFoundLine, planViews, toMeasureLine,
 } from "@/lib/takeoff/item-detail.test-fixtures";
 
 // The pure parts of the detail of an item (lot 5), written with them: the plan it opens, the page, the frozen queue across
@@ -18,10 +20,38 @@ describe("chooseItemDetailPlan", () => {
     expect(chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_R1 })).toMatchObject({ kind: "reading", planKey: PLAN_R1, current: true });
     expect(chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_RDC, jobId: JOB_EARLIER }))
       .toMatchObject({ kind: "reading", jobId: JOB_EARLIER, current: false });
-    expect(chooseItemDetailPlan(toMeasureLine, none)).toEqual({ kind: "dossier", planKey: PLAN_R1, planName: null, reading: null });
+    expect(chooseItemDetailPlan(toMeasureLine, none)).toEqual({ kind: "dossier", planKey: PLAN_RDC, planName: null, reading: null });
+    // A reading named is one the item has: another item's job on a plan this item shares is not this item's reading.
+    expect(chooseItemDetailPlan(toMeasureLine, { ...none, planKey: PLAN_RDC, jobId: JOB_RDC })).toEqual({ kind: "mismatch" });
     expect(chooseItemDetailPlan(toMeasureLine, { ...none, source: { documentId: PLAN_R1, generation: "2" } }))
       .toEqual({ kind: "source", documentId: PLAN_R1, generation: "2" });
     expect(chooseItemDetailPlan({ ...toMeasureLine, remeasurePlans: [] }, none)).toEqual({ kind: "none" });
+  });
+});
+
+// Review of #483 (written before the fix): an old dossier bookmark over a plan the item has since been measured on opened
+// the dossier's current copy, said no analysis read the item, and offered its gestures.
+describe("chooseItemDetailPlan, a dossier piece the item was measured on", () => {
+  it("opens the item's sealed reading of that plan, never the dossier's copy as if it were unread", () => {
+    expect(chooseItemDetailPlan(basinLine, { ...none, source: { documentId: PLAN_RDC, generation: "2" } }))
+      .toMatchObject({ kind: "reading", planKey: PLAN_RDC, jobId: JOB_RDC, current: true });
+  });
+});
+
+// Review of #483 (written before the fix): the keys asked for a gesture on an earlier reading, where the buttons offered
+// none. One rule decides what is offered; the buttons, the keys and the confirmations read it.
+describe("itemDetailGestureOffer", () => {
+  const current = chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_RDC, jobId: JOB_RDC });
+  const earlier = chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_RDC, jobId: JOB_EARLIER });
+  const offer = (input: Partial<Parameters<typeof itemDetailGestureOffer>[0]>, gesture: Parameters<typeof itemDetailGestureOffer>[1]) =>
+    itemDetailGestureOffer({ line: basinLine, choice: current, canReview: true, ...input }, gesture);
+
+  it("offers a gesture to an operator, on the current state of the item, where its line admits it", () => {
+    expect(offer({}, "set_aside")).toEqual({ offered: true });
+    expect(offer({ canReview: false }, "set_aside")).toEqual({ offered: false, reason: "reader" });
+    expect(offer({ choice: earlier }, "set_aside")).toEqual({ offered: false, reason: "earlier_reading" });
+    expect(offer({ choice: { kind: "mismatch" } }, "set_aside")).toEqual({ offered: false, reason: "not_shown" });
+    expect(offer({}, "enter_quantity")).toEqual({ offered: false, reason: "ineligible", ineligibility: basinLine.eligibility.enter_quantity.reason });
   });
 });
 
@@ -63,8 +93,9 @@ describe("itemDetailOpeningPage and itemDetailPagesOfInterest", () => {
 
 describe("ItemDetailQueue", () => {
   const page = (offset: number, ids: string[], total: number): ItemDetailQueuePage => ({
-    lines: ids.map((id, index) => ({ ...basinLine, itemId: id, position: offset + index })), total, offset, limit: 2, canReview: true,
-    names: {}, plans: [],
+    page: { lines: ids.map((id, index) => ({ ...basinLine, itemId: id, position: offset + index })), total, offset, limit: 2,
+      focusFound: false },
+    canReview: true, names: {}, plans: [],
   });
 
   it("finds the neighbours across a page boundary, asking for the page to read first", () => {
@@ -132,19 +163,19 @@ describe("createItemDetailReader", () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: view }), { status: 200 }));
     vi.stubGlobal("fetch", fetch);
     const reader = createItemDetailReader({ projectId: DETAIL_PROJECT, table });
-    const request = { planKey: PLAN_RDC, jobId: JOB_RDC, source: null };
+    const request = { itemId: ITEMS.basin, planKey: PLAN_RDC, jobId: JOB_RDC, source: null };
     expect(await reader.resolvePlan(request)).toEqual(view);
     await reader.resolvePlan(request);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(String((fetch.mock.calls as unknown[][])[0]![0])).toBe(
-      `/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?plan=${PLAN_RDC}&lecture=${JOB_RDC}`);
+      `/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?poste=${ITEMS.basin}&plan=${PLAN_RDC}&lecture=${JOB_RDC}`);
   });
 
   it("refuses by the code and status of the answer, never with its text", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: false, error: { code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND",
       message: "texte de la base" } }), { status: 404 })));
     const reader = createItemDetailReader({ projectId: DETAIL_PROJECT, table });
-    await expect(reader.resolvePlan({ planKey: PLAN_R1, jobId: null, source: null }))
+    await expect(reader.resolvePlan({ itemId: ITEMS.basin, planKey: PLAN_R1, jobId: null, source: null }))
       .rejects.toEqual(new ItemDetailPlanError("TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND", 404));
   });
 });

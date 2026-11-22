@@ -273,12 +273,11 @@ armyTest("NUMNAV01 invalid estimate numbers release focus without saving and rec
       expect([saved.unit_price_ht_cents, saved.k_fo, saved.line_total_ht_cents])
         .toEqual([line.unit_price_ht_cents, line.k_fo, line.line_total_ht_cents]);
     };
-    for (const token of ["", "1.250", "12x"]) {
+    for (const token of ["1.250", "12x"]) {
       await price.fill(token);
       await price.press("Tab");
       await expect(price).toHaveAttribute("aria-invalid", "true");
       await expect.poll(activeLabel).not.toBe(priceLabel);
-      if (token === "") await recordEvidence(army, "numeric-empty-draft-navigation", { screenshot: await app.screenshot("numeric-empty-draft-navigation") });
       await screen.getByTestId("estimate-editor-insert-button", { visible: true }).click();
       await expect(screen.getByTestId("estimate-editor-insert-button", { visible: true })).toHaveAttribute("aria-expanded", "true");
       await screen.getByTestId("estimate-editor-insert-button", { visible: true }).click();
@@ -287,6 +286,20 @@ armyTest("NUMNAV01 invalid estimate numbers release focus without saving and rec
       await price.press("Tab");
       await expect(price).not.toHaveAttribute("aria-invalid", "true");
     }
+    // Owner decision 2026-11-22: an emptied price is 0 €, as Suppr on the cell and the mobile field. Refusing it kept
+    // the stored price behind an empty cell, so the line still showed a sale price built on it.
+    await price.fill("");
+    await price.press("Tab");
+    await expect(price).not.toHaveAttribute("aria-invalid", "true");
+    await saveLineEditsWithShortcut(ui, draft.versionId, title, army);
+    await expect.poll(async () => (await savedLine()).unit_price_ht_cents).toBe(0);
+    await expect(price).toHaveValue(/^0,00$|^0\.00$/);
+    await recordEvidence(army, "numeric-empty-price-zero", { saved: await savedLine(), screenshot: await app.screenshot("numeric-empty-price-zero") });
+    await price.fill("100,00");
+    await price.press("Tab");
+    await saveLineEditsWithShortcut(ui, draft.versionId, title, army);
+    await expect.poll(async () => { const saved = await savedLine(); return [saved.unit_price_ht_cents, saved.line_total_ht_cents]; })
+      .toEqual([line.unit_price_ht_cents, line.line_total_ht_cents]);
     await coefficient.fill("1,2,3");
     await coefficient.press("Tab");
     await expect(coefficient).toHaveAttribute("aria-invalid", "true");

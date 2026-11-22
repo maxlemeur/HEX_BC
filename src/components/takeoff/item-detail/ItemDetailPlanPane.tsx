@@ -31,6 +31,8 @@ export type ItemDetailPlanResolution =
   | { state: "ready"; view: ItemDetailPlanView };
 
 type View = { zoom: number; offset: { x: number; y: number } };
+/** A reading that ran to its end: a failed or stopped job also records when it ended, never when it read the plan. */
+const READ_TO_THE_END = new Set(["completed", "applied"]);
 const FITTED: View = { zoom: 1, offset: { x: 0, y: 0 } };
 
 /**
@@ -171,7 +173,7 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
               ))}
             </NativeSelect>
             <span className="whitespace-nowrap text-xs text-muted-foreground">{pageCount ? `sur ${pageCount}` : ""}</span>
-            <Button size="icon-xs" variant="ghost" aria-label="Page suivante" disabled={pageCount !== null && page >= pageCount}
+            <Button size="icon-xs" variant="ghost" aria-label="Page suivante" disabled={pageCount === null || page >= pageCount}
               onClick={() => onPage(page + 1)}>
               <ChevronRight className="size-4" />
             </Button>
@@ -211,7 +213,8 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
               {view && unavailable ? (
                 <p className="text-xs text-muted-foreground">
                   {view.plan.name}{view.plan.generation ? ` · génération ${view.plan.generation}` : ""}
-                  {view.reading?.finishedAt ? ` · lu le ${formatItemDetailDate(view.reading.finishedAt)}` : ""}
+                  {view.reading?.finishedAt && READ_TO_THE_END.has(view.reading.status)
+                    ? ` · lu le ${formatItemDetailDate(view.reading.finishedAt)}` : ""}
                 </p>
               ) : null}
             </div>
