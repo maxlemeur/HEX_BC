@@ -1170,8 +1170,15 @@ insert into plans select 'omission_page_mismatch', jsonb_set(jsonb_set(jsonb_set
     '{targets,0,replaces}', '[]'), '{targets,0,quantity_after}', '4'), payload from plans where name = 'covered';
 insert into plans select 'edited_summary', jsonb_set(jsonb_set(body, '{page_contributions,0,observation_ids}', '[]'),
     '{page_contributions,0,target_keys}', '[]'), payload from plans where name = 'covered';
+-- The quantity added is the stored parts', each sent once: page 7's part listed twice, page 2's left out unsaid, would
+-- add page 7 twice (4 where 3 is due).
+insert into plans values ('doubled', pg_temp.fourth(pg_temp.parts_on(pg_temp.job(20, 4), 300, 7)
+  || pg_temp.parts_on(pg_temp.job(20, 4), 300, 7), pg_temp.replaced_on(7), 4, 'use_retained', '[]'::jsonb));
 select pg_temp.sign_in(1);
 set local role authenticated;
+select is(pg_temp.refusal($$select pg_temp.send(770, 'doubled')$$),
+  '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE item_changed',
+  'a part the plan lists twice is never added twice: each stored part is sent once, its quantity read from the stored row');
 select is(pg_temp.refusal($$select pg_temp.send(770, 'omission_page_mismatch')$$),
   '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE item_changed',
   'closing 1: a part left out is read with its stored pages, never the plan''s: 4 is never written where 3 is due');

@@ -1327,8 +1327,9 @@ les mêmes choix et le même plan ; autrement c'est un conflit ou un refus. Un a
 **Frontière de confiance.** La base ne prend du plan rien qui change un montant : chaque part, sa
 quantité, son unité et ses pages, l'identité quantitative, ce qui est remplacé, l'effet des
 décisions de pages et les pages écrites sont relus ou recalculés depuis les réponses, décisions,
-saisies, lignes, cibles et parts enregistrées — les pages d'une part laissée de côté comprises, et
-le résumé de chaque page (ses postes, ses cibles, ses observations) comparé en entier. Le plan a une
+saisies, lignes, cibles et parts enregistrées — les pages d'une part laissée de côté comprises, la
+quantité ajoutée prise des parts enregistrées, chacune nommée une seule fois, et le résumé de chaque
+page (ses postes, ses cibles, ses observations) comparé en entier. Le plan a une
 seule forme, celle que le planificateur écrit : une clé manquante ou inconnue le refuse, et les plans
 du planificateur passent par la vérification de la base dans les tests. L'identité se compare sous
 une seule forme des deux côtés, quelle que soit la langue de la base (décomposition de compatibilité,

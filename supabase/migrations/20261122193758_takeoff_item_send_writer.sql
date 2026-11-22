@@ -1947,12 +1947,21 @@ begin
         detail = pg_catalog.jsonb_build_object('reason', 'mapping_changed', 'item_id', target ->> 'item_id')::text;
     end if;
     -- The item's stored parts now: each part the plan sends is one of them, exactly (its unit compared by its canonical
-    -- code), and the others are the ones the plan holds or leaves out by page.
+    -- code), each named once, and the others are the ones the plan holds or leaves out by page, each named once.
     select pg_catalog.count(*)::integer into stored_count from pg_catalog.jsonb_array_elements(job_parts) as stored(value)
     where stored.value ->> 'item_id' = target ->> 'item_id';
     select pg_catalog.count(*)::integer into listed_count from pg_catalog.jsonb_array_elements(plan -> 'parts_not_sent') as listed(value)
     where listed.value ->> 'item_id' = target ->> 'item_id' and listed.value ->> 'reason' in ('page_held', 'left_out');
     if stored_count = 0 or stored_count <> pg_catalog.jsonb_array_length(target -> 'contributions') + listed_count
+      or (select pg_catalog.count(distinct pg_catalog.jsonb_build_array(c.value -> 'kind', c.value -> 'answer_id',
+          case when c.value ->> 'kind' = 'entered' then 'null'::jsonb else c.value -> 'observation_ids' end))
+        from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value))
+        <> pg_catalog.jsonb_array_length(target -> 'contributions')
+      or (select pg_catalog.count(distinct pg_catalog.jsonb_build_array(listed.value -> 'kind',
+          case when listed.value ->> 'kind' = 'entered' then 'null'::jsonb else listed.value -> 'observation_ids' end))
+        from pg_catalog.jsonb_array_elements(plan -> 'parts_not_sent') as listed(value)
+        where listed.value ->> 'item_id' = target ->> 'item_id' and listed.value ->> 'reason' in ('page_held', 'left_out'))
+        <> listed_count
       or exists (select 1 from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value)
         where (select pg_catalog.count(*) from pg_catalog.jsonb_array_elements(job_parts) as stored(value)
           where stored.value ->> 'item_id' = target ->> 'item_id' and stored.value ->> 'answer_id' = c.value ->> 'answer_id'
@@ -2067,7 +2076,13 @@ begin
         where d.value ->> 'decision' = 'replace' and d.value ->> 'page' is not null
       order by 1);
 
-    added := (select pg_catalog.sum((c.value ->> 'quantity')::numeric) from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value));
+    -- What the plan adds: the stored quantity of each part it sends (the plan's copy was only compared above).
+    added := (select pg_catalog.sum((stored.value ->> 'quantity')::numeric)
+      from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value)
+      join pg_catalog.jsonb_array_elements(job_parts) as stored(value) on stored.value ->> 'item_id' = target ->> 'item_id'
+        and stored.value ->> 'answer_id' = c.value ->> 'answer_id' and stored.value ->> 'kind' = c.value ->> 'kind'
+        and (stored.value ->> 'kind' = 'entered'
+          or pg_catalog.jsonb_build_array(stored.value -> 'observation_id') = c.value -> 'observation_ids'));
     factor := private.takeoff_item_send_length_factor(target ->> 'unit_code');
     target_replaced := '{}'::uuid[];
     live_target_id := null;
