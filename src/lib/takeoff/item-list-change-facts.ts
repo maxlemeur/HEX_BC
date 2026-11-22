@@ -58,8 +58,15 @@ export function itemListChangedFacts(change: { previous: Poste; current: Poste; 
     === JSON.stringify(current.sections.map(({ id, title, order }) => [id, title, order]));
   if (!sameSections) {
     const [before, after] = [sectionPath(previous) || "Sans section", sectionPath(current) || "Sans section"];
+    const [placedBefore, placedAfter] = [locatedSectionPath(previous, options.sourceFormat), locatedSectionPath(current, options.sourceFormat)];
+    const template = (item: Poste) => (item.origin.kind === "template" ? item.origin.version : null);
     if (before !== after) compare("Section", before, after);
-    else compare("Section", locatedSectionPath(previous, options.sourceFormat), locatedSectionPath(current, options.sourceFormat));
+    else if (placedBefore !== placedAfter) compare("Section", placedBefore, placedAfter);
+    // Same title at the same place: a template's families by the version each side was read from, else the new one named
+    // as another section of that name (never a change left unsaid).
+    else if (template(previous) !== null && template(current) !== null && template(previous) !== template(current)) {
+      compare("Section", `${before} (gabarit, version ${template(previous)})`, `${after} (gabarit, version ${template(current)})`);
+    } else compare("Section", placedBefore, `${placedAfter.replace(/\)$/, "")}, autre section du même nom)`);
   }
   compare("Référence de la ligne DPGF", dpgf(previous)?.reference ?? "aucune", dpgf(current)?.reference ?? "aucune");
   if (change.notesChanged) facts.push("Notes de la ligne de la DPGF modifiées");

@@ -52,6 +52,21 @@ describe("what a proposal tells of a changed item", () => {
       .toEqual(["Section : Plomberie → Eaux usées"]);
   });
 
+  // A template line kept its identifier and moved to another family of the same title, at the same position: the two
+  // families are told apart by the template version each side was read from.
+  it("tells apart two template families of the same title and position", () => {
+    const line = (version: number, familyId: string) => row({
+      origin: { kind: "template", templateId: "plomberie", version, familyId, lineId: "lavabo" },
+      sections: [{ id: familyId, title: "Appareils sanitaires", order: 2 }] });
+    expect(facts(line(1, "appareils"), line(2, "appareils-sanitaires")))
+      .toEqual(["Section : Appareils sanitaires (gabarit, version 1) → Appareils sanitaires (gabarit, version 2)"]);
+    // Two DPGF sections of one title on the same row of two imports: still told apart.
+    const imported = (importId: string, section: string) => row({ origin: { ...row().origin, importId } as ItemListViewPoste["origin"],
+      sections: [{ id: section, title: "Plomberie", order: 2 }] });
+    expect(facts(imported("import-a", SECTION_SANITAIRES), imported("import-b", SECTION_CHAUFFERIE)))
+      .toEqual(["Section : Plomberie (ligne importée 3) → Plomberie (ligne importée 3, autre section du même nom)"]);
+  });
+
   it("agrees the absence of a value with its fact, and names a change of notes or of place", () => {
     expect(facts(row({ qualifiers: { material: "Cuivre" } }), row())).toEqual(["Matière : Cuivre → aucune"]);
     expect(facts(row({ qualifiers: { network: "EF" } }), row())).toEqual(["Réseau : EF → aucun"]);

@@ -89,7 +89,8 @@ s’ouvrent avant d’accepter. Un poste modifié nomme chaque fait qui change, 
 valeur avant et après : l’unité dans laquelle chaque côté se mesure (la sienne, sinon
 celle lue sur la ligne DPGF, même non reconnue, sinon « à préciser »), base de
 mesure, chaque discriminant, référence quantitative, section (deux sections de même
-titre distinguées par leur ligne dans la DPGF), référence de la ligne DPGF ; un
+titre distinguées par leur ligne dans la DPGF, deux familles du gabarit par leur
+version), référence de la ligne DPGF ; un
 changement des notes de la ligne est signalé, avec les autres, sans leur texte, un
 changement de place aussi. Un rapprochement montre, des deux côtés, ce qui distingue
 deux homonymes : la section et l’origine (ligne, page, référence, version du
