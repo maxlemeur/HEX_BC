@@ -713,6 +713,26 @@ describe("linking request lines to catalogue articles", () => {
       expect(writes()).toHaveLength(1);
     });
 
+    it("files a created supply type in the list's alphabetical order, as the catalogue lists them (17)", async () => {
+      const SUPPLY_NEW = "5c5c5c5c-5c5c-45c5-85c5-5c5c5c5c5c5c";
+      const { user, panel } = await openCreation(
+        { "POST /api/catalogue/supply-types": { status: 201, data: { item: { id: SUPPLY_NEW, code: "CABLAGE", name: "Câblage" } } } },
+        { canCreateSupplyType: true },
+      );
+
+      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
+      await user.type(within(panel).getByLabelText("Nom du nouveau type de fourniture"), "Câblage{Enter}");
+
+      const select = within(panel).getByLabelText("Type de fourniture *");
+      await waitFor(() => expect(select).toHaveValue(SUPPLY_NEW));
+      expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+        "Choisir…",
+        "Câblage",
+        "Fixation",
+        "Robinetterie",
+      ]);
+    });
+
     it("offers no supply type creation to a member who is not an administrator (17)", async () => {
       const { panel } = await openCreation({});
 

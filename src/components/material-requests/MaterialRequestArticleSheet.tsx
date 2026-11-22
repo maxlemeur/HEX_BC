@@ -135,7 +135,17 @@ function ArticleCreationForm({
   const supplyTypeCreation = useSupplyTypeCreation({
     selectRef: supplySelectRef,
     onCreated: (item) => {
-      setSupplyTypes((current) => (current.status === "ready" ? { status: "ready", items: [...current.items, item] } : current));
+      // Filed by name, as the catalogue lists them; a type already listed is not shown twice.
+      setSupplyTypes((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              items: [...current.items.filter((known) => known.id !== item.id), item].sort((left, right) =>
+                left.name.localeCompare(right.name, "fr"),
+              ),
+            }
+          : current,
+      );
       setFields((current) => ({ ...current, supply_type_id: item.id }));
     },
   });
