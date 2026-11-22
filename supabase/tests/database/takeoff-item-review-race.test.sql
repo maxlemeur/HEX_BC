@@ -1,4 +1,4 @@
--- Lot 4, B2 (20261122100758_takeoff_item_review_decisions.sql): the review command of the table of items across sessions.
+-- Lot 4, B2 (20261122125722_takeoff_item_review_decisions.sql): the review command of the table of items across sessions.
 -- 1. Two tabs accept the same item at once (two intention keys): the second waits for the affaire's review, then
 --    answers stale; the item is accepted once and its row verified once.
 -- 2. The same command sent twice at once (a lost answer sent again while the first one still commits): the second

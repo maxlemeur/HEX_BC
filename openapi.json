@@ -6055,6 +6055,125 @@
         }
       }
     },
+    "/api/affaires/{projectId}/takeoff/items/{itemId}/history": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire l’historique de revue d’un poste du métré",
+        "description": "Lecteurs de l’affaire. Les événements du journal de revue d’un poste (acceptation, écart, réintégration, saisie, inclusion et leurs effets sur les lignes), du plus récent au plus ancien, page par page, avec les auteurs.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemHistoryProjectIdParameter"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "description": "Poste de la liste.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemHistoryItemIdParameter"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Rang du premier événement (0 : le plus récent).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemHistoryOffsetParameter"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Événements par page (20 par défaut).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemHistoryLimitParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Une page de l’historique.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffItemHistoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/takeoff/items/remeasure": {
       "post": {
         "tags": [
@@ -43914,6 +44033,40 @@
                                                 }
                                               ],
                                               "description": "La ligne de l’analyse qu’une contribution est : ce que la revue ciblée corrige."
+                                            },
+                                            "row": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "quantity": {
+                                                      "type": "number"
+                                                    },
+                                                    "unit": {
+                                                      "type": "string",
+                                                      "minLength": 1,
+                                                      "maxLength": 16
+                                                    },
+                                                    "isVerified": {
+                                                      "type": "boolean"
+                                                    },
+                                                    "isExcluded": {
+                                                      "type": "boolean"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "quantity",
+                                                    "unit",
+                                                    "isVerified",
+                                                    "isExcluded"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "null"
+                                                }
+                                              ],
+                                              "description": "Cette ligne telle qu’elle est revue : ce qu’une acceptation vérifie et ce que le tableau retient."
                                             }
                                           },
                                           "required": [
@@ -43925,7 +44078,8 @@
                                             "evidence",
                                             "confidence",
                                             "method",
-                                            "takeoffItemId"
+                                            "takeoffItemId",
+                                            "row"
                                           ],
                                           "additionalProperties": false
                                         }
@@ -43963,13 +44117,11 @@
                                           "type": "string",
                                           "enum": [
                                             "hypothesis",
-                                            "source_choice",
                                             "low_confidence",
                                             "missing_evidence",
                                             "rule_failed",
                                             "rules_stale",
                                             "alert",
-                                            "page_decision",
                                             "unit_mismatch"
                                           ]
                                         }
@@ -44206,6 +44358,10 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "sent": {
+                                "type": "boolean",
+                                "description": "Le plan de la réponse est envoyé au devis : aucun geste en bloc n’écrit ses lignes."
                               }
                             },
                             "required": [
@@ -44215,7 +44371,8 @@
                               "unit",
                               "answer",
                               "decision",
-                              "entry"
+                              "entry",
+                              "sent"
                             ],
                             "additionalProperties": false
                           }
@@ -44308,7 +44465,8 @@
                                         "not_entry_state",
                                         "no_entry_to_include",
                                         "reading",
-                                        "no_plan"
+                                        "no_plan",
+                                        "sent"
                                       ]
                                     },
                                     {
@@ -44347,7 +44505,8 @@
                                         "not_entry_state",
                                         "no_entry_to_include",
                                         "reading",
-                                        "no_plan"
+                                        "no_plan",
+                                        "sent"
                                       ]
                                     },
                                     {
@@ -44386,7 +44545,8 @@
                                         "not_entry_state",
                                         "no_entry_to_include",
                                         "reading",
-                                        "no_plan"
+                                        "no_plan",
+                                        "sent"
                                       ]
                                     },
                                     {
@@ -44425,7 +44585,8 @@
                                         "not_entry_state",
                                         "no_entry_to_include",
                                         "reading",
-                                        "no_plan"
+                                        "no_plan",
+                                        "sent"
                                       ]
                                     },
                                     {
@@ -44464,7 +44625,8 @@
                                         "not_entry_state",
                                         "no_entry_to_include",
                                         "reading",
-                                        "no_plan"
+                                        "no_plan",
+                                        "sent"
                                       ]
                                     },
                                     {
@@ -44503,7 +44665,8 @@
                                         "not_entry_state",
                                         "no_entry_to_include",
                                         "reading",
-                                        "no_plan"
+                                        "no_plan",
+                                        "sent"
                                       ]
                                     },
                                     {
@@ -45199,6 +45362,40 @@
                                           }
                                         ],
                                         "description": "La ligne de l’analyse qu’une contribution est : ce que la revue ciblée corrige."
+                                      },
+                                      "row": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "quantity": {
+                                                "type": "number"
+                                              },
+                                              "unit": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 16
+                                              },
+                                              "isVerified": {
+                                                "type": "boolean"
+                                              },
+                                              "isExcluded": {
+                                                "type": "boolean"
+                                              }
+                                            },
+                                            "required": [
+                                              "quantity",
+                                              "unit",
+                                              "isVerified",
+                                              "isExcluded"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Cette ligne telle qu’elle est revue : ce qu’une acceptation vérifie et ce que le tableau retient."
                                       }
                                     },
                                     "required": [
@@ -45210,7 +45407,8 @@
                                       "evidence",
                                       "confidence",
                                       "method",
-                                      "takeoffItemId"
+                                      "takeoffItemId",
+                                      "row"
                                     ],
                                     "additionalProperties": false
                                   }
@@ -45248,13 +45446,11 @@
                                     "type": "string",
                                     "enum": [
                                       "hypothesis",
-                                      "source_choice",
                                       "low_confidence",
                                       "missing_evidence",
                                       "rule_failed",
                                       "rules_stale",
                                       "alert",
-                                      "page_decision",
                                       "unit_mismatch"
                                     ]
                                   }
@@ -45491,6 +45687,10 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "sent": {
+                          "type": "boolean",
+                          "description": "Le plan de la réponse est envoyé au devis : aucun geste en bloc n’écrit ses lignes."
                         }
                       },
                       "required": [
@@ -45500,7 +45700,8 @@
                         "unit",
                         "answer",
                         "decision",
-                        "entry"
+                        "entry",
+                        "sent"
                       ],
                       "additionalProperties": false
                     }
@@ -45593,7 +45794,8 @@
                                   "not_entry_state",
                                   "no_entry_to_include",
                                   "reading",
-                                  "no_plan"
+                                  "no_plan",
+                                  "sent"
                                 ]
                               },
                               {
@@ -45632,7 +45834,8 @@
                                   "not_entry_state",
                                   "no_entry_to_include",
                                   "reading",
-                                  "no_plan"
+                                  "no_plan",
+                                  "sent"
                                 ]
                               },
                               {
@@ -45671,7 +45874,8 @@
                                   "not_entry_state",
                                   "no_entry_to_include",
                                   "reading",
-                                  "no_plan"
+                                  "no_plan",
+                                  "sent"
                                 ]
                               },
                               {
@@ -45710,7 +45914,8 @@
                                   "not_entry_state",
                                   "no_entry_to_include",
                                   "reading",
-                                  "no_plan"
+                                  "no_plan",
+                                  "sent"
                                 ]
                               },
                               {
@@ -45749,7 +45954,8 @@
                                   "not_entry_state",
                                   "no_entry_to_include",
                                   "reading",
-                                  "no_plan"
+                                  "no_plan",
+                                  "sent"
                                 ]
                               },
                               {
@@ -45788,7 +45994,8 @@
                                   "not_entry_state",
                                   "no_entry_to_include",
                                   "reading",
-                                  "no_plan"
+                                  "no_plan",
+                                  "sent"
                                 ]
                               },
                               {
@@ -45901,6 +46108,186 @@
               "canReview",
               "line",
               "plans",
+              "names"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "GetAffaireTakeoffItemHistoryProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffItemHistoryItemIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffItemHistoryOffsetParameter": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "GetAffaireTakeoffItemHistoryLimitParameter": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "ApiTakeoffItemHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "itemId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "event": {
+                      "type": "string",
+                      "enum": [
+                        "accepted",
+                        "set_aside",
+                        "reinstated",
+                        "entered",
+                        "entry_included",
+                        "row_verified",
+                        "row_excluded",
+                        "row_restored"
+                      ]
+                    },
+                    "planKey": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200,
+                          "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "takeoffItemId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "before": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "after": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "actorId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "event",
+                    "planKey",
+                    "takeoffItemId",
+                    "before",
+                    "after",
+                    "actorId",
+                    "at"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "names": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Noms des membres auteurs des événements affichés."
+              }
+            },
+            "required": [
+              "projectId",
+              "itemId",
+              "events",
+              "offset",
+              "limit",
+              "hasMore",
               "names"
             ],
             "additionalProperties": false
@@ -46084,7 +46471,6 @@
         ],
         "additionalProperties": false
       },
-      "ApiGenericErrorResponse": {},
       "PreviewAffaireTakeoffItemRemeasureProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -46322,7 +46708,8 @@
                         "not_entry_state",
                         "no_entry_to_include",
                         "reading",
-                        "no_plan"
+                        "no_plan",
+                        "sent"
                       ]
                     }
                   },
@@ -47119,7 +47506,8 @@
                         "not_entry_state",
                         "no_entry_to_include",
                         "reading",
-                        "no_plan"
+                        "no_plan",
+                        "sent"
                       ]
                     }
                   },
