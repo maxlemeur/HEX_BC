@@ -113,6 +113,10 @@ armyTest(
     }, army);
     ownEstimate(army, ids);
     const base = `/api/affaires/${ids.projectId}/material-requests`;
+    // TI-691: today's message is asserted first; a template left by an interrupted run would change it. The member's
+    // own is removed; the company's, when the session may remove it.
+    expect((await apiRequest(browser, "DELETE", "/api/consultation-message-templates/personal")).status).toBe(200);
+    expect([200, 403]).toContain((await apiRequest(browser, "DELETE", "/api/consultation-message-templates/company")).status);
 
     // Invented suppliers and articles: the elbow's reference at Alpha is known, the tee's is not.
     const supplier = async (name: string) => {
@@ -126,6 +130,9 @@ armyTest(
     const betaName = `${army.runPrefix} Comptoir Bêta`;
     const alpha = await supplier(alphaName);
     const beta = await supplier(betaName);
+    // A second competitor, for the template's {fournisseur} in each competitor's own message (TI-691).
+    const gammaName = `${army.runPrefix} Dépôt Gamma`;
+    await supplier(gammaName);
     const supplyType = await apiRequest<Envelope<{ item: { id: string } }>>(
       browser, "POST", "/api/catalogue/supply-types", { name: `${army.runPrefix} inox` },
     );
@@ -242,11 +249,84 @@ armyTest(
     const copied = (await copies()).texts[1];
     expect(copied).toBe(competition);
     for (const reference of [sku, elbowReference, teeReference, "réf."]) expect(copied).not.toContain(reference);
+    // TI-691: the office retouches the competitor's text before sending it; what is recorded is the text shown.
+    const betaMessage = screen.getByLabel(`Message pour ${betaName}`, { exact: true });
+    const betaRetouched = `${competition}\nRéponse souhaitée avant vendredi.`;
+    await betaMessage.fill(betaRetouched);
+    await expect(betaMessage).toHaveValue(betaRetouched);
     await screen.getByRole("button", `Consultation envoyée à ${betaName}`, { exact: true }).tap();
     const betaCard = screen.getByRole("article", `Devis ${betaName}`, { exact: true });
     await expect(betaCard).toBeVisible({ timeout: 30_000 });
     const betaQuote = (await quotes()).find((quote) => quote.supplier_id === beta)!;
-    expect([betaQuote.status, betaQuote.with_references, betaQuote.message]).toEqual(["requested", false, competition]);
+    expect([betaQuote.status, betaQuote.with_references, betaQuote.message]).toEqual(["requested", false, betaRetouched]);
+
+    // TI-691: the member shapes their own message in « Mon profil », then retouches it before copying: the text
+    // copied is the one shown. Their template is removed at the end, so the session's next journeys get today's.
+    // The page is left below: what the browser answered to the copies so far is kept for the evidence.
+    const copyOutcomes = [...(await copies()).outcomes];
+    const templates = "/api/consultation-message-templates";
+    const quoteButton = (name: string) =>
+      screen.getByRole("button", new RegExp(`^Consulter le devis ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} du `));
+    const personalTemplate = {
+      message_template: "Bonjour {fournisseur},\n{lignes}\n{livraison}",
+      line_template: "{ligne}. {quantité} {désignation}[ (réf. {référence})]",
+    };
+    try {
+      await browser.goto("/dashboard/profile#message-consultation", { waitUntil: "domcontentloaded" });
+      const messageTemplate = screen.getByLabel("Modèle du message", { exact: true });
+      await expect(messageTemplate).toBeVisible({ timeout: 60_000 });
+      await messageTemplate.fill(personalTemplate.message_template);
+      await screen.getByLabel("Modèle de chaque ligne", { exact: true }).fill(personalTemplate.line_template);
+      await screen.getByRole("button", "Enregistrer le modèle", { exact: true }).tap();
+      await expect(screen.getByText("Modèle enregistré. Il s’applique aux prochains messages.", { exact: true })).toBeVisible({ timeout: 30_000 });
+      const stored = await apiRequest<Envelope<{ personal: typeof personalTemplate | null }>>(browser, "GET", templates);
+      expect(stored.body.data.personal).toEqual(personalTemplate);
+
+      await browser.goto(page, { waitUntil: "domcontentloaded" });
+      await openStep(2);
+      await quoteButton(alphaName).tap({ timeout: 60_000 });
+      const shaped = [
+        `Bonjour ${alphaName},`,
+        `1. 10 u Coude 90° (réf. ${sku})`,
+        "2. 4 u Té égal, DN 50, Inox 316L",
+        "Livraison : chantier",
+      ].join("\n");
+      const alphaMessage = screen.getByLabel(`Message pour ${alphaName}`, { exact: true });
+      await expect(alphaMessage).toHaveValue(shaped, { timeout: 60_000 });
+      const retouched = `${shaped}\nMerci d’avance !`;
+      await alphaMessage.fill(retouched);
+      await expect(screen.getByRole("button", "Rétablir le texte généré", { exact: true })).toBeVisible();
+      const retouchCopies = await observeCopies(browser);
+      await screen.getByRole("button", `Copier le message pour ${alphaName}`, { exact: true }).tap();
+      await expect.poll(async () => (await retouchCopies()).texts, { timeout: 15_000 }).toEqual([retouched]);
+      copyOutcomes.push(...(await retouchCopies()).outcomes);
+      await screen.getByRole("button", "Rétablir le texte généré", { exact: true }).tap();
+      await expect(alphaMessage).toHaveValue(shaped);
+      // The consultations recorded before the template keep their text.
+      const recorded = await quotes();
+      expect(recorded.find((quote) => quote.supplier_id === alpha)!.message).toBe(withReferences);
+      expect(recorded.find((quote) => quote.supplier_id === beta)!.message).toBe(betaRetouched);
+
+      // Each competitor's message names that competitor ({fournisseur}), without any reference.
+      await screen.getByRole("button", `Mettre en concurrence les lignes de ${alphaName}`, { exact: true }).tap();
+      for (const name of [betaName, gammaName]) {
+        await screen.getByLabel("Ajouter un fournisseur", { exact: true }).fill(name);
+        await screen.getByRole("option", name, { exact: true }).tap();
+      }
+      const competing = (name: string) => [
+        `Bonjour ${name},`,
+        "1. 10 u Coude 90°, DN 50, Inox 316L",
+        "2. 4 u Té égal, DN 50, Inox 316L",
+        "Livraison : chantier",
+      ].join("\n");
+      await expect(screen.getByLabel(`Message pour ${betaName}`, { exact: true })).toHaveValue(competing(betaName));
+      await expect(screen.getByLabel(`Message pour ${gammaName}`, { exact: true })).toHaveValue(competing(gammaName));
+    } finally {
+      const reset = await apiRequest<Envelope<{ personal: null }>>(browser, "DELETE", `${templates}/personal`);
+      expect(reset.status).toBe(200);
+    }
+    await quoteButton(betaName).tap({ timeout: 60_000 });
+    await expect(betaCard).toBeVisible({ timeout: 30_000 });
 
     // The competitor answers with a PDF: stored as dropped, with its quote, never among the originals.
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
@@ -354,7 +434,7 @@ armyTest(
       ...ids, requestId, suppliers: { alpha, beta }, elbow, tee, lineIds,
       quotes: final.map((quote) => ({ id: quote.id, supplier_id: quote.supplier_id, status: quote.status, with_references: quote.with_references })),
       pdf: { id: storedPdf.id, byte_size: storedPdf.byte_size, sha256: storedSha[1] },
-      copies: (await copies()).outcomes,
+      copies: copyOutcomes,
       lines: priced.map((line) => ({
         id: line.id, supplier_id: line.supplier_id, unit_price_ht_cents: line.unit_price_ht_cents, price_per: line.price_per,
       })),

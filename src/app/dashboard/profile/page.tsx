@@ -9,6 +9,7 @@ import { useUserContext } from "@/lib/auth/user-context";
 import { AiAccessCard } from "@/components/ai/AiAccessCard";
 import {GoogleDriveConnectionCard} from "@/components/affaires/GoogleDriveConnectionCard";
 import { DecisionsCapabilityCard } from "@/components/ai/DecisionsCapabilityCard";
+import { ConsultationTemplateSettings } from "@/components/material-requests/ConsultationTemplateSettings";
 import { LoadingState } from "@/components/layout/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { PageSection } from "@/components/layout/page-section";
@@ -336,6 +337,9 @@ export default function ProfilePage() {
           <AiAccessCard />
           <DecisionsCapabilityCard />
         </div>
+      </div>
+      <div className="mt-6">
+        <ConsultationTemplateSettings />
       </div>
     </div>
   );
