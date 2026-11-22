@@ -100,6 +100,9 @@ describe("ChatGPT plan inference", () => {
     ["no total", { input_tokens: 12000 }],
     ["a total of zero", { input_tokens: 0, output_tokens: 0, total_tokens: 0 }],
     ["a total below its parts", { input_tokens: 12000, output_tokens: 300, total_tokens: 100 }],
+    // A total is at least each part given, alone or together.
+    ["a total below its only input", { total_tokens: 1, input_tokens: 12000 }],
+    ["a total below its only output", { total_tokens: 1, output_tokens: 300 }],
     ["a total that is not a whole number", { total_tokens: 12.5 }],
   ])("passes on a usage with %s as not trusted", async (_case, usage) => {
     const beforeSend = vi.fn(async () => ({ key: "call:1" }));
@@ -111,6 +114,19 @@ describe("ChatGPT plan inference", () => {
       { profileId: "profile-a", model: "account-model", beforeSend, onUsage, onUnknownUsage });
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ trusted: false }), { key: "call:1" });
     expect(onUnknownUsage).not.toHaveBeenCalled();
+  });
+  // A call that answered without its usage, and whose unknown usage could not be told: its caller stops there, with that
+  // error (its ledger makes no further paid call); a failed call still throws its own error.
+  it("stops a call that answered without its usage when its unknown usage cannot be told", async () => {
+    const untold = new Error("Le registre de consommation est indisponible.");
+    const schema = z.object({ amount: z.number() });
+    const selection = { profileId: "profile-a", model: "account-model", beforeSend: vi.fn(async () => ({ key: "call:1" })),
+      onUsage: vi.fn().mockResolvedValue(undefined), onUnknownUsage: vi.fn().mockRejectedValue(untold) };
+    vi.stubGlobal("fetch", vi.fn(async () => stream([{ type: "response.completed", response: { status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text: '{"amount":2}' }] }] } }])));
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema }, selection)).rejects.toBe(untold);
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    await expect(callLocalChatGptStructured(owner, { prompt: "Extract", schema }, selection)).rejects.toThrow("fetch failed");
   });
   it("stops with the recording's own error when a call's usage cannot be recorded, whatever the answer", async () => {
     const unrecorded = new Error("Le registre de consommation est indisponible.");

@@ -116,6 +116,18 @@ describe("createTakeoffCallLedger", () => {
     await expect(ledger.beforePaidCall("pdf")).rejects.toMatchObject({ code: "TAKEOFF_REQUEST_BUDGET_EXHAUSTED" });
   });
 
+  // A call whose unknown usage could not be told: this attempt makes no further paid call (nothing reserved, nothing sent),
+  // and the failure stops it.
+  it("stops the attempt when a call's unknown usage cannot be recorded, before any further paid call", async () => {
+    const ledger = createTakeoffCallLedger({ id: "job", launch_request_id: "request" }, () => "lease");
+    const call = await ledger.beforePaidCall("vector_group");
+    answers.push({ data: null, error: { code: "XX000", message: "registre indisponible" } });
+    await expect(ledger.recordUnknownUsage(call)).rejects.toMatchObject({ code: "TAKEOFF_USAGE_UNRECORDED", retryable: false });
+    rpc.mockClear();
+    await expect(ledger.beforePaidCall("pdf")).rejects.toMatchObject({ code: "TAKEOFF_USAGE_UNRECORDED", retryable: false });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it("stops a process whose lease was taken over, and the job when a usage cannot be recorded", async () => {
     answers.push({ data: null, error: { code: "42501", message: "TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED" } });
     const ledger = createTakeoffCallLedger({ id: "job", launch_request_id: "request" }, () => "lease");

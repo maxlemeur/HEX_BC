@@ -30,7 +30,10 @@ export type TakeoffPaidCallLedger = {
    * otherwise a reserved call stays held as unknown); a failure to record stops the job.
    */
   recordPaidUsage(call: TakeoffPaidCall, usage: { totalTokens: number; costCents: number; trusted?: boolean }): Promise<void>;
-  /** The call ended without a known usage (no answer, or one without its usage): it stays held as unknown. */
+  /**
+   * The call ended without a known usage (no answer, or one without its usage): it stays held as unknown. A failure to
+   * record it stops the attempt: it throws, and every later call of the attempt is refused before anything is reserved.
+   */
   recordUnknownUsage(call: TakeoffPaidCall): Promise<void>;
 };
 
@@ -66,6 +69,8 @@ type Row = { outcome: string; reason: string | null };
 export function createTakeoffCallLedger(job: { id: string; launch_request_id?: string | null }, lease: () => string | null): TakeoffPaidCallLedger {
   const service = () => createServiceRoleClient();
   let calls = 0;
+  // A call whose unknown usage could not be told: this attempt makes no further paid call.
+  let halted: TakeoffError | null = null;
   // The calls of this attempt in flight: a call that waits for the balance they hold waits for one of them to end.
   const inFlight = new Map<string, { done: Promise<void>; end: () => void }>();
   const end = (call: TakeoffPaidCall) => {
@@ -77,10 +82,16 @@ export function createTakeoffCallLedger(job: { id: string; launch_request_id?: s
   const recordUnknownUsage = async (call: TakeoffPaidCall) => {
     if (!call) return;
     try {
-      // Best effort: a reservation still open when its attempt ends is held as unknown by the database anyway.
       const { error } = await service().rpc("record_takeoff_launch_call_unknown", {
         p_job_id: job.id, p_lease_token: lease() ?? "", p_call_key: call.key });
-      if (error) console.error("takeoff.paid_call.unknown_unrecorded", { jobId: job.id, call: call.key });
+      if (error) {
+        // The reservation stays outstanding: the database counts it as unknown once this attempt's lease ends, and this
+        // attempt stops here, with no further paid call.
+        console.error("takeoff.paid_call.unknown_unrecorded", { jobId: job.id, call: call.key });
+        halted = new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false, jobId: job.id,
+          message: "La consommation inconnue d’un appel ChatGPT n’a pas pu être enregistrée : l’analyse s’arrête avant tout autre appel." });
+        throw halted;
+      }
     } finally {
       end(call);
     }
@@ -88,6 +99,7 @@ export function createTakeoffCallLedger(job: { id: string; launch_request_id?: s
 
   return {
     async beforePaidCall(branch) {
+      if (halted) throw halted;
       const key = `call:${++calls}`;
       for (let waits = 0; ; waits += 1) {
         const token = lease();

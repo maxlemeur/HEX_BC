@@ -7,7 +7,10 @@ vi.mock("@/lib/ai/chatgpt-local-inference", async (importOriginal) => ({
 }));
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
-import { assertLocalChatGptOverride, callLocalChatGptStructured, LocalChatGptOverrideUnavailableError } from "@/lib/ai/chatgpt-local-inference";
+import {
+  assertLocalChatGptOverride, callLocalChatGptStructured, LocalChatGptConnectionWithdrawnError, LocalChatGptOverrideUnavailableError,
+} from "@/lib/ai/chatgpt-local-inference";
+import { TakeoffError } from "@/lib/takeoff/errors";
 import { ChatGptSignInError } from "@/lib/ai/chatgpt-sign-in-errors";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { GROUP_LOCAL_MODEL_PROMPT_VERSION } from "@/lib/takeoff/vectors/group-local-model";
@@ -121,6 +124,16 @@ describe("the local plan's request (localGroupsCall, TI-704 option B)", () => {
     const failed = await call(REQUEST).catch((caught: unknown) => caught);
     expect(failed).toBeInstanceOf(StructuredAiError);
     expect(failed).not.toBeInstanceOf(LocalGroupsStop);
+  });
+
+  // A connection withdrawn or renewed since the job's confirmation (the exact error the inference throws for it) is the
+  // job's own terminal refusal, as for its PDF reading: the plan stops, never falls back to the rules.
+  it("refuses the job when its pinned connection was withdrawn, with the error the inference throws", async () => {
+    const call = await localGroupsCall(OWNER, PINNED);
+    vi.mocked(callLocalChatGptStructured).mockRejectedValueOnce(new LocalChatGptConnectionWithdrawnError());
+    const refused = await call(REQUEST).catch((caught: unknown) => caught);
+    expect(refused).toBeInstanceOf(TakeoffError);
+    expect(refused).toMatchObject({ code: "AI_PROVIDER", retryable: false, details: { reason: "CHATGPT_ACCESS_REVOKED" } });
   });
 
   it("sends the measured model with the job's pinned profile, and reads a malformed answer group by group with its tokens", async () => {

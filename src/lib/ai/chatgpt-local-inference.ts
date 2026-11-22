@@ -154,14 +154,16 @@ export type ChatGptUsageRecorder = (usage: { totalTokens: number; costCents: num
 
 /**
  * The total a response's usage states, when it can settle a paid call: `total_tokens` given as a whole number above zero,
- * and not below `input_tokens` plus `output_tokens` when both are given. Anything else (a usage without its total, a total
- * of zero or below its parts) leaves the call's consumption unknown.
+ * not below each of `input_tokens` and `output_tokens` given, nor below their sum when both are. Anything else (a usage
+ * without its total, a total of zero or below a part) leaves the call's consumption unknown.
  */
 export function trustedChatGptUsageTotal(raw: unknown): number | null {
   const usage = raw as { total_tokens?: unknown; input_tokens?: unknown; output_tokens?: unknown } | null | undefined;
   const total = usage?.total_tokens;
   if (typeof total !== "number" || !Number.isSafeInteger(total) || total <= 0) return null;
   const { input_tokens: input, output_tokens: output } = usage!;
+  if (typeof input === "number" && total < input) return null;
+  if (typeof output === "number" && total < output) return null;
   if (typeof input === "number" && typeof output === "number" && total < input + output) return null;
   return total;
 }
@@ -339,10 +341,17 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
   let usageRecorded = false;
   const recordUsage: ChatGptUsageRecorder | undefined = selection?.onUsage
     ? async (usage) => { usageRecorded = true; await selection.onUsage!(usage, paid); } : undefined;
-  // A call sent that never told its usage stays held in its request's ledger, never credited back; telling it never
-  // hides the call's own outcome.
-  const usageUnknown = async () => {
-    if (!usageRecorded && selection?.onUnknownUsage) await selection.onUnknownUsage(paid).catch(() => undefined);
+  // A call sent that never told its usage stays held in its request's ledger, never credited back. Telling it never hides
+  // a failed call's own outcome; a call that answered without its usage, whose telling failed, stops its caller with that
+  // failure (its ledger makes no further paid call).
+  const usageUnknown = async (): Promise<{ error: unknown } | null> => {
+    if (usageRecorded || !selection?.onUnknownUsage) return null;
+    try {
+      await selection.onUnknownUsage(paid);
+      return null;
+    } catch (error) {
+      return { error };
+    }
   };
   const request: RequestInit = {
     method: "POST", headers: { authorization: `Bearer ${credential.accessToken}`, "content-type": "application/json" },
@@ -365,7 +374,8 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
     await usageUnknown();
     throw error;
   }
-  await usageUnknown();
+  const untold = await usageUnknown();
+  if (untold) throw untold.error;
   const { text, usage } = answer;
   const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
   const tokenUsage = { inputTokens: usage.input_tokens, outputTokens: Math.max(0, usage.output_tokens - reasoningTokens), reasoningTokens, totalTokens: usage.total_tokens };

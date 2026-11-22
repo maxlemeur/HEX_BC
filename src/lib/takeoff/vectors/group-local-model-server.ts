@@ -2,13 +2,14 @@ import "server-only";
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import {
-  assertLocalChatGptOverride, callLocalChatGptStructured, LocalChatGptOverrideUnavailableError, type LocalChatGptOverride, type LocalChatGptRawResult,
+  assertLocalChatGptOverride, callLocalChatGptStructured, LocalChatGptConnectionWithdrawnError, LocalChatGptOverrideUnavailableError,
+  type LocalChatGptOverride, type LocalChatGptRawResult,
 } from "@/lib/ai/chatgpt-local-inference";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { ChatGptSignInError } from "@/lib/ai/chatgpt-sign-in-errors";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
-import { TakeoffError } from "@/lib/takeoff/errors";
+import { takeoffChatGptConnectionWithdrawn, TakeoffError } from "@/lib/takeoff/errors";
 import type { VectorPageExtraction } from "@/lib/takeoff/vectors/extraction";
 import { decisionBatches, selectDecisionCandidates } from "@/lib/takeoff/vectors/group-decisions";
 import {
@@ -139,6 +140,9 @@ export async function localGroupsCall(owner: ChatGptOwner, selection?: LocalGrou
         context: { promptVersion: GROUP_LOCAL_MODEL_PROMPT_VERSION },
       }, pinned, override, { returnRawOnSchemaError: true });
     } catch (error) {
+      // A connection withdrawn or renewed since the job's confirmation is the job's own terminal refusal: its plan stops,
+      // as on its PDF reading, never falls back to the rules.
+      if (error instanceof LocalChatGptConnectionWithdrawnError) throw takeoffChatGptConnectionWithdrawn();
       throw planStop(error) ?? error;
     }
     if (result.schemaError === null) return { data: localModelEntries(result.data), totalTokens: result.tokenCount };

@@ -7,7 +7,7 @@ import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnable
 import { callLocalChatGptStructured, LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-local-inference";
 import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
-import { assertTakeoffJobUsesLocalProvider, TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { assertTakeoffJobUsesLocalProvider, takeoffChatGptConnectionWithdrawn, TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { StructuredCall, StructuredCallOptions } from "@/lib/ai/structured-call";
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
@@ -116,11 +116,7 @@ export async function getTakeoffExecutionSelection(supabase: ServerSupabaseClien
 }
 
 /** Why a job's pinned connection cannot pay: the revocation reason a launch request names (CHATGPT_ACCESS_REVOKED). */
-function connectionWithdrawn(jobId?: string) {
-  return new TakeoffError({ status: 409, code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId,
-    details: { provider: "chatgpt", reason: "CHATGPT_ACCESS_REVOKED" },
-    message: "La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation de ce métré. Reconnectez votre forfait ChatGPT dans Mon profil, puis relancez le métré." });
-}
+const connectionWithdrawn = takeoffChatGptConnectionWithdrawn;
 
 export function assertPinnedTakeoffSelection(snapshot: unknown, userId: string, actual: TakeoffExecutionSelection) {
   if (!snapshot || typeof snapshot !== "object" || !("execution_selection" in snapshot)) return false;

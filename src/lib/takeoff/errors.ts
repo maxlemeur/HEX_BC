@@ -444,6 +444,16 @@ export class TakeoffError extends ApiError {
   }
 }
 
+/**
+ * A takeoff call whose pinned ChatGPT connection was withdrawn or renewed since its confirmation: the job's own terminal
+ * refusal, whichever of its calls met it (its PDF reading or a question on its vector groups).
+ */
+export function takeoffChatGptConnectionWithdrawn(jobId?: string) {
+  return new TakeoffError({ status: 409, code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId,
+    details: { provider: "chatgpt", reason: "CHATGPT_ACCESS_REVOKED" },
+    message: "La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation de ce métré. Reconnectez votre forfait ChatGPT dans Mon profil, puis relancez le métré." });
+}
+
 /** Execution ownership is immutable in the database; historical results remain readable. */
 export function assertTakeoffJobUsesLocalProvider<T extends { execution_provider?: string | null }>(
   job: T,
