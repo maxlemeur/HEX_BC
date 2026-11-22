@@ -33,8 +33,8 @@ export const posteNotFound = (entry: Pick<PosteScriptEntry, "key" | "owned">): P
 export const posteMeasured = (entry: Pick<PosteScriptEntry, "key" | "owned">, observations: Array<{ page: number; quantity: number;
   unit?: string }>): PosteExchangeAnswer => ({
   post_id: entry.key, outcome: "measured", searched_pages: entry.owned, reason_code: null, reason_text: null,
-  observations: observations.map(({ page, quantity, unit }) => ({ page, quantity, unit: unit ?? "u", evidence: "symboles relevés",
-    method: "symbol_count", confidence: 0.9, measurement_basis: null })),
+  observations: observations.map(({ page, quantity, unit }) => ({ page, quantity, unit: unit ?? "u", evidence: `symboles relevés page ${page}`,
+    method: "symbol_count", confidence: 0.9, measurement_basis: null, counts_as: "distinct", basis_as_requested: false })),
 });
 
 export type ControlledPosteCall = StructuredCall & {

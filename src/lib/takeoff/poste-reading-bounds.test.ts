@@ -15,7 +15,8 @@ import {
   takeoffPlanWeights,
   type TakeoffLaunchOrder,
 } from "@/lib/takeoff/launch-request";
-import { posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import { planPosteBatches, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import type { Poste } from "@/lib/takeoff/poste-list";
 import {
   boundPosteReadingRequest,
   POSTE_READING_LIMITS,
@@ -36,8 +37,16 @@ function units(pages: number[], requestTokens = TAKEOFF_C_MAX_TOTAL_TOKENS_DEFAU
     pages: count, budgetTokens: shares[index].tokens }));
 }
 
+/** `count` items of the list, of this label. */
+function postes(count: number, label = (index: number) => `Poste ${index}`): Poste[] {
+  return Array.from({ length: count }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, label: label(index),
+    expectedUnit: "u", measurementBasis: null, qualifiers: {}, sections: [], synonyms: [], referenceQuantity: null,
+    origin: { kind: "manual", intentId: `i-${index}`, addedBy: "u", addedAt: "2026-11-22T08:00:00.000Z", addedInRevision: 1 } }));
+}
+const batchesOf = (items: readonly Poste[]) => planPosteBatches(items).map((batch) => batch.length);
+
 const bound = (items: number, pages: number[], requestTokens = TAKEOFF_C_MAX_TOTAL_TOKENS_DEFAULT) => boundPosteReadingRequest({
-  items, units: units(pages, requestTokens), requestBudgetTokens: requestTokens, chunking: CHUNKING,
+  batches: batchesOf(postes(items)), units: units(pages, requestTokens), requestBudgetTokens: requestTokens, chunking: CHUNKING,
   estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
 
 describe("boundPosteReadingRequest", () => {
@@ -48,6 +57,27 @@ describe("boundPosteReadingRequest", () => {
     expect(bounds.calls).toBe(12);
     expect(bounds.tokens).toBe(12 * TAKEOFF_PAID_CALL_ESTIMATE_TOKENS);
     expect(bounds.units[1].answerBytes).toBe(3 * posteExchangeOutputMaxBytes(40, 12));
+  });
+
+  // Fix round, point 6: the batches are the reading's own, sized by the items' bytes (a long item is never cut).
+  it("counts the batches the reading makes from its items, long items in more of them", () => {
+    const long = postes(40, (index) => `${"Fourniture et pose de canalisation cuivre écroui ".repeat(80)} ${index}`);
+    const bounds = boundPosteReadingRequest({ batches: batchesOf(long), units: units([12]), requestBudgetTokens: 400_000, chunking: CHUNKING,
+      estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
+    expect(bounds.items).toBe(40);
+    expect(bounds.calls).toBe(batchesOf(long).length);
+    expect(bounds.calls).toBeGreaterThan(1);
+  });
+
+  // Fix round, point 8: every paid call of a plan counts, the vector classifier's included.
+  it("counts the vector classifier's calls of each plan", () => {
+    const counted = boundPosteReadingRequest({ batches: batchesOf(postes(40)), units: units([12]).map((unit) => ({ ...unit, vectorCalls: 12 })),
+      requestBudgetTokens: 400_000, chunking: CHUNKING, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
+    expect(counted).toMatchObject({ ok: true, calls: 13 });
+    const over = boundPosteReadingRequest({ batches: batchesOf(postes(40)), units: units([12]).map((unit) => ({ ...unit, vectorCalls: 40 })),
+      requestBudgetTokens: 400_000, chunking: CHUNKING, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
+    expect(over).toMatchObject({ ok: false, calls: 41 });
+    expect(over.units[0].exceeded).toEqual(["calls", "budget"]);
   });
 
   it("admits a request whose every call can start: its plan's share and the request still positive before it", () => {
@@ -116,7 +146,8 @@ function manifest(plans: Array<{ pages?: number[]; count: number | null }>, orde
     omittedReferences: [], preparationRevision: 1, budget: { tokens: TAKEOFF_C_MAX_TOTAL_TOKENS_DEFAULT, cost_cents: 2_500 }, order });
 }
 const fromManifest = (sealed: Parameters<typeof posteReadingBoundsOfManifest>[0]) =>
-  posteReadingBoundsOfManifest(sealed, CHUNKING, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS);
+  posteReadingBoundsOfManifest(sealed, CHUNKING, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS,
+    postes(sealed.order.kind === "item_list" ? sealed.order.list.item_count : 0));
 
 describe("posteReadingBoundsOfManifest", () => {
   it("bounds only a request that seals a list of items", () => {
@@ -134,6 +165,16 @@ describe("posteReadingBoundsOfManifest", () => {
       [sealed.units[0].key, 4, 8, []], [sealed.units[1].key, 1, 2, ["budget"]]]);
     expect(bounds).toMatchObject({ ok: false, plans: 2, calls: 10, exceeded: [], pieces: [{ id: sealed.plans[1].plan_file_id,
       name: "Plan 2" }] });
+  });
+
+  it("refuses to bound a manifest with items other than the list it sealed", () => {
+    expect(() => posteReadingBoundsOfManifest(manifest([{ count: 20 }]), CHUNKING, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, postes(119))).toThrow();
+  });
+
+  it("counts each plan's vector classifier calls from its share of the vector pages", () => {
+    const sealed = splitTakeoffLaunchManifest(manifest([{ count: 12 }]));
+    const bounds = posteReadingBoundsOfManifest(sealed, CHUNKING, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, postes(120), (pages) => pages)!;
+    expect(bounds.calls).toBe(3 + sealed.units[0].vector_pages);
   });
 
   it("bounds a grouped analysis as one unit holding every plan", () => {

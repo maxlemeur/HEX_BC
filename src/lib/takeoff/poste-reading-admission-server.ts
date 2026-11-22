@@ -4,7 +4,9 @@ import type { TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
 import { describeTakeoffLaunchReason, type AnyTakeoffLaunchManifest, type TakeoffLaunchPiece } from "@/lib/takeoff/launch-request";
+import type { Poste } from "@/lib/takeoff/poste-list";
 import { posteReadingBoundsOfManifest, posteReadingRefusal } from "@/lib/takeoff/poste-reading-bounds";
+import { takeoffVectorGroupCallsBound } from "@/lib/takeoff/vectors/worker-server";
 import { posteReadingBoundsDetails, type PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 
 /**
@@ -19,10 +21,15 @@ export type TakeoffItemListReadingRefusal = {
   readingBounds: PosteReadingBoundsFacts;
 };
 
+/**
+ * `items`: the sealed revision's items (their batches are counted by their bytes); each unit also counts the calls its
+ * vector classifier may make (`takeoffVectorGroupCallsBound`), as the worker counts them before its first paid call.
+ */
 export async function itemListReadingRefusal(manifest: AnyTakeoffLaunchManifest,
-  chunking: () => Promise<TakeoffChunkingRuntimeConfig>): Promise<TakeoffItemListReadingRefusal | null> {
+  chunking: () => Promise<TakeoffChunkingRuntimeConfig>, items: readonly Poste[]): Promise<TakeoffItemListReadingRefusal | null> {
   if (manifest.order.kind !== "item_list") return null;
-  const bounds = posteReadingBoundsOfManifest(manifest, await chunking(), TAKEOFF_PAID_CALL_ESTIMATE_TOKENS);
+  const bounds = posteReadingBoundsOfManifest(manifest, await chunking(), TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, items,
+    takeoffVectorGroupCallsBound);
   const refusal = bounds ? posteReadingRefusal(bounds) : null;
   return bounds && refusal ? { state: "blocked", ...refusal, readingBounds: bounds } : null;
 }

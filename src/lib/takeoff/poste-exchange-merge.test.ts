@@ -18,8 +18,9 @@ import {
 } from "@/lib/takeoff/poste-exchange-merge";
 import type { Poste } from "@/lib/takeoff/poste-list";
 
-function poste(id: string, label: string, expectedUnit: string | null = "u", qualifiers: Poste["qualifiers"] = {}): Poste {
-  return { id, label, expectedUnit, measurementBasis: null, qualifiers, sections: [], synonyms: [], referenceQuantity: null,
+function poste(id: string, label: string, expectedUnit: string | null = "u", qualifiers: Poste["qualifiers"] = {},
+  measurementBasis: string | null = null): Poste {
+  return { id, label, expectedUnit, measurementBasis, qualifiers, sections: [], synonyms: [], referenceQuantity: null,
     origin: { kind: "manual", intentId: `intent-${id}`, addedBy: "u-1", addedAt: "2026-11-22T08:00:00.000Z", addedInRevision: 1 } };
 }
 
@@ -39,11 +40,15 @@ type Options = { items?: Poste[]; unreadable?: (call: PosteExchangeCall) => numb
 const notFound = (key: string, pages: number[]): PosteExchangeAnswer => ({ post_id: key, outcome: "not_found",
   searched_pages: pages, reason_code: "NO_INDICATION", reason_text: "Aucun indice sur les pages lues.", observations: [] });
 const observation = (page: number, quantity: number | null, unit: string | null = "u") => ({
-  page, evidence: "symboles relevés sur la page", method: "symbol_count" as const, confidence: 0.9, quantity, unit, measurement_basis: null });
-const measured = (key: string, pages: number[], observations: Array<{ page: number; quantity: number; unit?: string }>): PosteExchangeAnswer => ({
+  page, evidence: "symboles relevés sur la page", method: "symbol_count" as const, confidence: 0.9, quantity, unit, measurement_basis: null,
+  counts_as: "distinct" as const, basis_as_requested: false });
+type Reading = { page: number; quantity: number; unit?: string; countsAs?: "distinct" | "same_object"; evidence?: string;
+  method?: "symbol_count" | "scaled_measure" | "annotation"; basis?: string | null; asRequested?: boolean };
+const measured = (key: string, pages: number[], observations: Reading[]): PosteExchangeAnswer => ({
   post_id: key, outcome: "measured", searched_pages: pages, reason_code: null, reason_text: null,
   observations: observations.map((entry) => ({ ...observation(entry.page, entry.quantity, entry.unit ?? "u"), quantity: entry.quantity,
-    unit: entry.unit ?? "u" })),
+    unit: entry.unit ?? "u", counts_as: entry.countsAs ?? "distinct", evidence: entry.evidence ?? "symboles relevés sur la page",
+    method: entry.method ?? "symbol_count", measurement_basis: entry.basis ?? null, basis_as_requested: entry.asRequested ?? false })),
 });
 
 /** The plan read as the worker reads it: the calls planned, each answered, validated, then mapped back to the plan. */
@@ -196,7 +201,7 @@ describe("mergePosteReadings", () => {
       if (key === "P0002") return measured(key, local.pages, [{ page: 3, quantity: 4, unit: "ml" }]);
       return notFound(key, local.pages);
     }, { items });
-    const vector = (key: string, designation: string, quantity: number): PosteVectorReading => ({ key, page: 23, kind: "network",
+    const vector = (key: string, designation: string, quantity: number): PosteVectorReading => ({ key, page: 23, kind: "network", room: null,
       designation, quantity, unit: "ml", confidence: 0.9, evidence: "Lecture vectorielle : 4 tronçons d’axe." });
     const vectorReadings = [vector("v-ef", "EF cuivre DN 22", 12.52), vector("v-recs", "RECS cuivre DN 16", 9),
       vector("v-ecs", "ECS cuivre DN 18", 20), vector("v-gaz", "GAZ cuivre DN 22", 3)];
@@ -219,7 +224,7 @@ describe("mergePosteReadings", () => {
     const fragments = read((call, key, local) => fragmentOf(call) === 1 && key === "P0001"
       ? measured(key, local.pages, [{ page: 1, quantity: 7, unit: "ml" }]) : notFound(key, local.pages), { items: [first, second] });
     const { answers } = mergePosteReadings({ items: [first, second], planPages: PLAN_PAGES, fragments, vectorReadings: [
-      { key: "v-1", page: 21, kind: "network", designation: "EF cuivre DN 22", quantity: 30, unit: "ml", confidence: 0.9, evidence: "axe" }] });
+      { key: "v-1", page: 21, kind: "network", room: null, designation: "EF cuivre DN 22", quantity: 30, unit: "ml", confidence: 0.9, evidence: "axe" }] });
 
     expect(answerOf(answers, first)).toMatchObject({ outcome: "measured", quantity: { value: 7, unit: "ml" } });
     expect(roles(answerOf(answers, first))).toEqual([[21, 7, "contribution", "model"], [21, 30, "candidate", "vector"]]);
@@ -246,6 +251,108 @@ describe("mergePosteReadings", () => {
         expect(answer.quantity).toBeNull();
       }
     }
+  });
+
+  // Fix round, point 1: two readings of one object on one page are never added.
+  describe("readings of one object", () => {
+    const sol = poste("00000000-0000-4000-8000-000000000011", "Revêtement de sol", "m2");
+    const area = (page: number, quantity: number, extra: Partial<Reading> = {}): Reading => ({ page, quantity, unit: "m2",
+      method: "annotation", evidence: "surface imprimée dans la cuisine", ...extra });
+    const run = (readings: Reading[]) => answerOf(mergePosteReadings({ items: [sol], planPages: PLAN_PAGES,
+      fragments: read((call, key, local) => fragmentOf(call) === 1 ? measured(key, local.pages, readings) : notFound(key, local.pages),
+        { items: [sol] }) }).answers, sol);
+
+    it("adds only distinct readings: a second reading of the same 12 m² is an alternative", () => {
+      const answer = run([area(2, 12), area(2, 12, { countsAs: "same_object", evidence: "cote du local, même surface", method: "scaled_measure" })]);
+      expect(answer).toMatchObject({ outcome: "measured", quantity: { value: 12, unit: "m2" } });
+      expect(roles(answer)).toEqual([[22, 12, "contribution", "model"], [22, 12, "alternative", "model"]]);
+    });
+
+    it("keeps two readings it cannot tell apart as candidates, never a sum", () => {
+      const answer = run([area(2, 12), area(2, 12)]);
+      expect(answer).toMatchObject({ outcome: "uncertain", quantity: null, candidate: { value: 12, unit: "m2" } });
+      expect(answer.reasons.map((reason) => reason.code)).toEqual(["DUPLICATE_READING"]);
+      expect(roles(answer)).toEqual([[22, 12, "candidate", "model"], [22, 12, "candidate", "model"]]);
+    });
+
+    it("makes uncertain a reading of an object nobody observed, and two readings of one object that differ", () => {
+      expect(run([area(2, 12, { countsAs: "same_object" })]).reasons.map((reason) => reason.code)).toEqual(["SAME_OBJECT_UNCLEAR"]);
+      expect(run([area(2, 12), area(2, 14, { countsAs: "same_object", evidence: "contour" })])).toMatchObject({ outcome: "uncertain",
+        candidate: { value: 12, unit: "m2" } });
+    });
+  });
+
+  // Fix round, point 2: a sum never mixes the bases of a measure.
+  it("adds only measures on the item's requested basis, and refuses an unstated basis of a scaled measure", () => {
+    const net = poste("00000000-0000-4000-8000-000000000012", "Chape", "m2", {}, "surface nette");
+    const free = poste("00000000-0000-4000-8000-000000000013", "Isolant", "m2");
+    const pieces = poste("00000000-0000-4000-8000-000000000014", "Siphon de sol", "u", {}, "à l’unité posée");
+    const items = [net, free, pieces];
+    const fragments = read((call, key, local) => {
+      const fragment = fragmentOf(call);
+      if (key === "P0001" && fragment === 1) return measured(key, local.pages, [{ page: 1, quantity: 12, unit: "m2", asRequested: true }]);
+      if (key === "P0001" && fragment === 2) return measured(key, local.pages, [{ page: 1, quantity: 14, unit: "m2", basis: "surface brute" }]);
+      if (key === "P0002" && fragment === 1) return measured(key, local.pages, [{ page: 1, quantity: 10, unit: "m2", method: "scaled_measure" }]);
+      if (key === "P0003" && fragment === 1) return measured(key, local.pages, [{ page: 1, quantity: 2 }]);
+      return notFound(key, local.pages);
+    }, { items });
+    const { answers } = mergePosteReadings({ items, planPages: PLAN_PAGES, fragments });
+
+    expect(answerOf(answers, net)).toMatchObject({ outcome: "uncertain", quantity: null });
+    expect(answerOf(answers, net).reasons.map((reason) => reason.code)).toEqual(["BASIS_MISMATCH"]);
+    expect(answerOf(answers, free).reasons.map((reason) => reason.code)).toEqual(["BASIS_UNSTATED"]);
+    // A count does not depend on a basis.
+    expect(answerOf(answers, pieces)).toMatchObject({ outcome: "measured", quantity: { value: 2, unit: "u" } });
+
+    const mixed = read((call, key, local) => {
+      const fragment = fragmentOf(call);
+      if (key === "P0002" && fragment === 1) return measured(key, local.pages, [{ page: 1, quantity: 12, unit: "m2", basis: "nette" }]);
+      if (key === "P0002" && fragment === 2) return measured(key, local.pages, [{ page: 1, quantity: 14, unit: "m2", basis: "brute" }]);
+      return notFound(key, local.pages);
+    }, { items });
+    expect(answerOf(mergePosteReadings({ items, planPages: PLAN_PAGES, fragments: mixed }).answers, free).reasons
+      .map((reason) => reason.code)).toEqual(["BASIS_MISMATCH"]);
+  });
+
+  // Fix round, point 3: whole pieces agree exactly; the tolerance is for lengths and surfaces.
+  it("asks an overlap reading of whole pieces to agree exactly, and of a length within 1 %", () => {
+    const pipe = poste("00000000-0000-4000-8000-000000000015", "Tube PER", "ml");
+    const fragments = read((call, key, local) => {
+      const fragment = fragmentOf(call);
+      if (key === "P0001" && fragment === 1) return measured(key, local.pages, [{ page: 5, quantity: 101 }]);
+      if (key === "P0001" && fragment === 2) return measured(key, local.pages, [{ page: 1, quantity: 100 }]);
+      if (key === "P0002" && fragment === 1) return measured(key, local.pages, [{ page: 5, quantity: 100.5, unit: "ml" }]);
+      if (key === "P0002" && fragment === 2) return measured(key, local.pages, [{ page: 1, quantity: 100, unit: "ml" }]);
+      return notFound(key, local.pages);
+    }, { items: [LAVABO, pipe] });
+    const { answers } = mergePosteReadings({ items: [LAVABO, pipe], planPages: PLAN_PAGES, fragments });
+    expect(answerOf(answers, LAVABO)).toMatchObject({ outcome: "uncertain", quantity: null });
+    expect(answerOf(answers, LAVABO).reasons.map((reason) => reason.code)).toEqual(["READINGS_DISAGREE"]);
+    expect(answerOf(answers, pipe)).toMatchObject({ outcome: "measured", quantity: { value: 100, unit: "ml" } });
+  });
+
+  // Fix round, point 4: an absence is never certified against a matching reading of the same plan.
+  it("attaches the vector surface of a room to its item: a « not found » becomes an indication to check", () => {
+    const kitchen = poste("00000000-0000-4000-8000-000000000016", "Surface cuisine", "m2");
+    const fragments = read((_call, key, local) => notFound(key, local.pages), { items: [kitchen] });
+    const reading = mergePosteReadings({ items: [kitchen], planPages: PLAN_PAGES, fragments, vectorReadings: [
+      { key: "v-cuisine", page: 24, kind: "surface", room: "Cuisine", designation: "Surface « Cuisine »", quantity: 12, unit: "m2",
+        confidence: 0.9, evidence: "Aire du polygone fermé (12 points)." },
+      { key: "v-sejour", page: 24, kind: "surface", room: "Séjour", designation: "Surface « Séjour »", quantity: 30, unit: "m2",
+        confidence: 0.9, evidence: "Aire du polygone fermé (9 points)." }] });
+    expect(answerOf(reading.answers, kitchen)).toMatchObject({ outcome: "uncertain", candidate: { value: 12, unit: "m2" } });
+    expect(answerOf(reading.answers, kitchen).reasons.map((reason) => reason.code)).toEqual(["VECTOR_ONLY"]);
+    expect(roles(answerOf(reading.answers, kitchen))).toEqual([[24, 12, "candidate", "vector"]]);
+    expect(reading.unattachedVectorReadings).toEqual(["v-sejour"]);
+  });
+
+  // Fix round, point 5: a total at the stored precision.
+  it("adds measures at the stored precision", () => {
+    const pipe = poste("00000000-0000-4000-8000-000000000017", "Tube PER", "ml");
+    const fragments = read((call, key, local) => fragmentOf(call) === 3 ? notFound(key, local.pages)
+      : measured(key, local.pages, [{ page: 1, quantity: fragmentOf(call) === 1 ? 0.1 : 0.2, unit: "ml" }]), { items: [pipe] });
+    expect(answerOf(mergePosteReadings({ items: [pipe], planPages: PLAN_PAGES, fragments }).answers, pipe).quantity)
+      .toEqual({ value: 0.3, unit: "ml" });
   });
 
   it("keeps every observation read and traces each to its call", () => {

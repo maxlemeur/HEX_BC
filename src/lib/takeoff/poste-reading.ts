@@ -196,6 +196,7 @@ export function posteVectorReadings(outcomes: readonly VectorPageOutcome[], plan
     && outcome.document.plan_file_id === planFileId)
     .flatMap((outcome) => outcome.items.map((record, index) => ({
       key: posteVectorKey(planFileId, outcome.page, index), page: outcome.page, kind: record.geometry.kind,
+      room: record.room?.label ?? null,
       designation: record.item.designation, quantity: record.item.quantity, unit: record.item.unit, confidence: record.item.confidence,
       evidence: record.item.evidence,
     })));

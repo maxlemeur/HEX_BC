@@ -152,13 +152,19 @@ Les règles qui suivent décrivent la lecture telle qu’elle s’appliquera alo
 
 Le serveur découpe le
 plan comme la lecture détaillée (au-delà de 15 pages, des fragments de 10 pages
-dont 2 en recouvrement) et la liste en lots de 40 postes : chaque appel joint un
-fragment et demande un lot. Le modèle reçoit pour chaque poste une clé opaque
-(`P0001`…), son libellé, son unité attendue, sa base de mesure, ses précisions
-(réseau, matière, diamètre) et ses sections ; jamais un identifiant, un prix, la
-quantité de référence de la DPGF ni une quantité du devis. Seul le CCTP est joint
-comme pièce de référence : la DPGF décrit déjà les postes, et son chiffre ne prouve
-pas la lecture du plan.
+dont 2 en recouvrement) et la liste en lots d’au plus 40 postes et 64 Kio : chaque
+appel joint un fragment et demande un lot. Le modèle reçoit pour chaque poste une clé
+opaque (`P0001`…), son libellé, son unité attendue, sa base de mesure, ses précisions
+(réseau, matière, diamètre) et ses sections, en entier : ce qui distingue deux postes
+n’est jamais coupé, un poste très long est demandé seul. Il ne reçoit jamais un
+identifiant, un prix, la quantité de référence de la DPGF ni une quantité du devis.
+Du cadrage, il reçoit seulement ce qui dit comment mesurer : l’objectif, le
+périmètre et ses restrictions, l’unité, la base et les déductions, les questions des
+réserves et leurs réponses telles que les membres les ont écrites ; jamais un
+identifiant, une personne ni la référence d’une pièce. Seul le CCTP est joint comme
+pièce de référence : la DPGF décrit déjà les postes, et son chiffre ne prouve pas la
+lecture du plan. Une liste sans aucun poste (une DPGF faite seulement de lignes de
+structure) ne demande rien : la demande scelle l’extraction libre.
 
 Chaque poste reçoit une réponse par plan :
 
@@ -173,13 +179,23 @@ Chaque poste reçoit une réponse par plan :
 Une réponse manquante, un poste qui n’était pas demandé, deux réponses pour un même
 poste, une page hors du fragment joint ou une page ni cherchée ni déclarée illisible
 arrêtent l’analyse du plan (« Extraction incomplète sur ce document. ») : rien n’est
-compté comme non trouvé à sa place. Chaque page appartient à un seul fragment : la
-lecture d’une page de recouvrement par l’autre fragment n’est jamais ajoutée, et si
-les deux lectures diffèrent, la réponse devient incertaine. Une page illisible rend
+compté comme non trouvé à sa place. Une quantité est lue à trois décimales, comme le
+métré la conserve ; une valeur qui n’est plus positive une fois arrondie n’est pas
+une mesure. Chaque observation dit si elle compte un objet ou une zone distincts, ou
+si elle relit un objet déjà relevé sur la même page : seules les observations
+distinctes s’additionnent ; deux lectures que rien ne distingue (même page, même
+indice, même valeur) rendent la réponse incertaine et ne s’additionnent jamais. Une
+mesure qui n’est pas sur la base demandée par le poste, une mesure à l’échelle sans
+base déclarée, ou des mesures sur deux bases différentes rendent la réponse incertaine.
+Chaque page appartient à un seul fragment : la lecture d’une page de recouvrement par
+l’autre fragment n’est jamais ajoutée, et si les deux lectures diffèrent (au compte
+près pour des pièces, de plus de 1 % pour une longueur ou une surface), la réponse
+devient incertaine. Une page illisible rend
 la réponse incertaine : elle ne prouve ni une absence ni un total. Une unité lue
 différente de celle du poste, ou un comptage non entier d’un poste compté à l’unité,
 rend aussi la réponse incertaine. La lecture vectorielle d’un réseau se rattache au
-poste de même réseau, matière et diamètre ; elle confirme la mesure (écart d’au plus
+poste de même réseau, matière et diamètre, celle de la surface d’un local au poste
+mesuré en m² dont le libellé nomme ce local ; elle confirme la mesure (écart d’au plus
 1 %) ou rend la réponse incertaine, reste une indication à vérifier quand le modèle
 n’a rien trouvé, et un simple candidat quand plusieurs postes peuvent la revendiquer.
 Elle ne s’ajoute jamais à la mesure. Un ouvrage du plan absent de la liste est signalé
@@ -191,10 +207,12 @@ plan incertain le rend « À vérifier », sinon une mesure le rend « Mesuré �
 seulement des plans tous cherchés sans indice le rendent « Non trouvé ».
 
 **Bornes d’une lecture contre la liste.** Avant son admission, la demande entière
-est bornée : les appels prévus (fragments × lots, 40 au plus par plan et 200 par
-demande), la taille de leurs réponses et le budget. Chaque appel réserve 30 000
-jetons et ne démarre que si la part de son plan et la demande gardent un solde
-positif. Au-delà, la demande n’est pas admise : « Métré non démarré — les plans …
+est bornée : les appels prévus (fragments × lots, plus ceux de la classification des
+groupes vectoriels quand elle est active, 40 au plus par plan et 200 par demande),
+la taille de leurs réponses et le budget. Chaque appel réserve 30 000 jetons et ne
+démarre que si la part de son plan et la demande gardent un solde positif. Avant son
+premier appel payant, le job refait ce compte avec les réglages qu’il utilisera
+réellement : au-delà, il s’arrête avec la même raison, sans rien dépenser. Au-delà, la demande n’est pas admise : « Métré non démarré — les plans …
 dépassent les limites d’une lecture contre la liste des postes », avec les appels
 prévus et le budget. Rien n’est échantillonné ; réduire les plans ou les pages lus
 permet de la relancer.

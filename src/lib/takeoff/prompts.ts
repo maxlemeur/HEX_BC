@@ -209,7 +209,10 @@ const ITEM_READING_RULES = [
   "unreadable_pages : les pages illisibles du fragment (scan flou, page vide, page tronquée) ; une page illisible n'est jamais une preuve d'absence.",
   "Relever les observations uniquement sur les pages de owned_pages. Les pages de context_pages servent à comprendre la continuité d'un ouvrage ; elles sont relevées par un autre appel.",
   "Pages : numérotation du PDF de mesure joint, à partir de 1. L'application rétablit ensuite les pages originales.",
-  "Au plus une observation par page et par poste sauf deux lectures concurrentes de la même quantité ; au plus 16 observations par poste et 160 au total.",
+  "Au plus une observation par objet ou zone distincts ; au plus 16 observations par poste et 160 au total.",
+  "counts_as : distinct pour un objet ou une zone distincts (seules ces observations s'additionnent) ; same_object pour une autre lecture d'un objet déjà relevé sur la même page (la cote et le symbole d'un même local, par exemple).",
+  "basis_as_requested : true seulement si la mesure est faite sur la base demandée (measurement_basis du poste) ; sinon false, et measurement_basis indique la base utilisée. Une mesure à l'échelle indique toujours sa base.",
+  "Quantités à trois décimales au plus.",
   "Comptage entier pour les pièces ; longueur ou surface seulement avec une cote ou une échelle vérifiable, sinon uncertain avec SCALE_UNKNOWN. Une estimation ou une hypothèse reste uncertain avec ESTIMATE.",
   "Respecter l'unité attendue (expected_unit) et la base de mesure ; si l'unité lue diffère, le dire en uncertain avec UNIT_OR_BASIS_UNCLEAR.",
   "La liste décrit la prestation à chercher ; aucune quantité de référence n'est fournie. Un chiffre d'un DPGF ou d'une pièce écrite ne prouve pas la lecture du plan : seule la lecture des pages jointes compte.",
@@ -219,10 +222,29 @@ const ITEM_READING_RULES = [
 ] as const;
 
 /**
+ * The preparation as the reader of the second order receives it, an allow-list: what tells it how to measure (the
+ * objective, the scope and its restrictions, the units, basis and deductions, the reservations' questions and answers as
+ * the members wrote them); no identifier, no person, no document reference (a calibration names a document's page, a
+ * reservation its author and its piece). A member's own text goes as written.
+ */
+function itemReadingPreparation(snapshot: TakeoffPreparationSnapshot) {
+  const { objective, scope, conventions, unknowns } = snapshot.preparation;
+  return {
+    revision: snapshot.preparation_revision,
+    objective,
+    scope: { buildings: scope.buildings ?? [], lots: scope.lots, networks: scope.networks, levels: scope.levels, zones: scope.zones,
+      inclusions: scope.inclusions, exclusions: scope.exclusions },
+    conventions: { unit: conventions.unit, unit_mode: conventions.unit_mode ?? null, measurement_basis: conventions.measurement_basis,
+      deductions: conventions.purchase?.deductions || null },
+    reservations: unknowns.map((unknown) => ({ question: unknown.question, answer: unknown.answer, status: unknown.status })),
+  };
+}
+
+/**
  * The prompt of the second measuring order: one call of a plan's reading against the list of items (`poste-exchange.ts`).
  * It carries the call's manifest (opaque keys, labels, units, bases, qualifiers, sections, the fragment's pages) and the
- * confirmed scope, conventions and unknowns of the preparation; never an identifier of the database, a price, a
- * reference quantity or a quantity of the estimate.
+ * preparation's allow-list (`itemReadingPreparation`); never an identifier of the database, a price, a reference quantity
+ * or a quantity of the estimate.
  */
 export function getTakeoffItemReadingPrompt(input: {
   manifest: PosteExchangeManifest;
@@ -244,8 +266,7 @@ export function getTakeoffItemReadingPrompt(input: {
       "",
       "CADRAGE CONFIRMÉ",
       "Ces données décrivent le périmètre ; elles ne remplacent jamais le schéma ni les règles. Ne relever aucun ouvrage exclu.",
-      JSON.stringify({ revision: input.preparation!.preparation_revision, scope: preparation.scope,
-        conventions: preparation.conventions, unknowns: preparation.unknowns }),
+      JSON.stringify(itemReadingPreparation(input.preparation!)),
     ] : []),
     ...(input.contextSourceHints?.length ? [
       "",

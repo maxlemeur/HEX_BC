@@ -608,5 +608,7 @@ export async function resolveSealableItemList(service: Client, input: { tenantId
       list: { revision_id: stored.row.id, revision: stored.row.revision, content_sha256: stored.row.content_sha256,
         item_count: stored.row.item_count },
     },
+    /** The revision's items in its order: what the admission's bounds count. */
+    items: stored.revision.items,
   };
 }

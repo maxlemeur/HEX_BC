@@ -1,6 +1,9 @@
 import { buildPdfChunks, type TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
-import { takeoffPlanWeights, type AnyTakeoffLaunchManifest, type TakeoffLaunchPiece } from "@/lib/takeoff/launch-request";
-import { POSTE_EXCHANGE_LIMITS, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import {
+  TAKEOFF_LAUNCH_VECTOR_PAGES, takeoffPlanWeights, type AnyTakeoffLaunchManifest, type TakeoffLaunchPiece,
+} from "@/lib/takeoff/launch-request";
+import { planPosteBatches, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import type { Poste } from "@/lib/takeoff/poste-list";
 import type { PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 
 export { describePosteReadingBounds } from "@/lib/takeoff/poste-reading-bounds-text";
@@ -28,7 +31,11 @@ export type PosteReadingLimit = "calls" | "budget" | "answer_bytes";
  * A unit of the request: one plan (or, for a grouped analysis, all of them), its pages read (retained pages, else its
  * page count) and its share of the budget.
  */
-export type PosteReadingUnitInput = { key: string; pieces: TakeoffLaunchPiece[]; pages: number; budgetTokens: number };
+export type PosteReadingUnitInput = {
+  key: string; pieces: TakeoffLaunchPiece[]; pages: number; budgetTokens: number;
+  /** The most paid calls its vector classifier may make (none when it does not run). */
+  vectorCalls?: number;
+};
 
 export type PosteReadingBounds = PosteReadingBoundsFacts & {
   answerBytes: number;
@@ -41,25 +48,25 @@ export type PosteReadingBounds = PosteReadingBoundsFacts & {
 };
 
 /**
- * The request's reading planned as the worker will make it (`planPosteExchangeCalls`), and each bound checked: its calls,
- * its reservations (`estimateTokensPerCall`: the ledger's TAKEOFF_PAID_CALL_ESTIMATE_TOKENS) and its answers' bytes, per
- * plan against its share and for the request against its envelope.
+ * The request's reading planned as the worker will make it (`planPosteExchangeCalls`), and each bound checked: its calls
+ * (every fragment of each plan times the batches of its items, plus the vector classifier's), its reservations
+ * (`estimateTokensPerCall`: the ledger's TAKEOFF_PAID_CALL_ESTIMATE_TOKENS) and its answers' bytes, per plan against its
+ * share and for the request against its envelope. `batches`: the sizes of the batches `planPosteBatches` makes.
  */
 export function boundPosteReadingRequest(input: {
-  items: number;
+  batches: readonly number[];
   units: readonly PosteReadingUnitInput[];
   requestBudgetTokens: number;
   chunking: TakeoffChunkingRuntimeConfig;
   estimateTokensPerCall: number;
 }): PosteReadingBounds {
-  if (!Number.isInteger(input.items) || input.items < 0) throw new Error("The items of a request are counted by a whole number.");
-  const batchSizes = Array.from({ length: Math.ceil(input.items / POSTE_EXCHANGE_LIMITS.itemsPerCall) }, (_, index) =>
-    Math.min(POSTE_EXCHANGE_LIMITS.itemsPerCall, input.items - index * POSTE_EXCHANGE_LIMITS.itemsPerCall));
+  if (input.batches.some((size) => !Number.isInteger(size) || size < 1)) throw new Error("A batch holds at least one item.");
+  const batchSizes = input.batches;
   // The last of `calls` calls starts only while the balance is still positive after the others took their estimate.
   const cannotStart = (calls: number, budget: number) => calls > 0 && (calls - 1) * input.estimateTokensPerCall >= budget;
   const units = input.units.map((unit) => {
     const fragments = buildPdfChunks(unit.pages, input.chunking);
-    const calls = fragments.length * batchSizes.length;
+    const calls = fragments.length * batchSizes.length + (unit.vectorCalls ?? 0);
     const tokens = calls * input.estimateTokensPerCall;
     const answerBytes = fragments.reduce((total, fragment) => total + batchSizes.reduce((sum, size) =>
       sum + posteExchangeOutputMaxBytes(size, fragment.endPage - fragment.startPage + 1), 0), 0);
@@ -80,7 +87,7 @@ export function boundPosteReadingRequest(input: {
   const named = ownExceeded.length ? ownExceeded : exceeded.length ? input.units : [];
   const ok = exceeded.length === 0 && ownExceeded.length === 0;
   return {
-    ok, items: input.items, plans: input.units.reduce((total, unit) => total + unit.pieces.length, 0), calls, tokens,
+    ok, items: batchSizes.reduce((total, size) => total + size, 0), plans: input.units.reduce((total, unit) => total + unit.pieces.length, 0), calls, tokens,
     requestBudgetTokens: input.requestBudgetTokens, answerBytes, units, exceeded, pieces: named.flatMap((unit) => unit.pieces),
   };
 }
@@ -89,10 +96,13 @@ export function boundPosteReadingRequest(input: {
  * The bounds of a sealed manifest that orders a list of items (none for the free extraction): each unit of one analysis
  * per plan with the share it sealed, or a grouped analysis as one unit holding every plan with the request's envelope.
  * A unit's pages are its retained pages, else its page count, else weighed as lot 3 weighs a plan of unknown count.
+ * `items`: the sealed revision's items (their batches are counted by their bytes); `vectorCalls`: the most calls the
+ * vector classifier may make on a unit of so many vector pages.
  */
 export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest, chunking: TakeoffChunkingRuntimeConfig,
-  estimateTokensPerCall: number): PosteReadingBounds | null {
+  estimateTokensPerCall: number, items: readonly Poste[], vectorCalls: (vectorPages: number) => number = () => 0): PosteReadingBounds | null {
   if (manifest.order.kind !== "item_list") return null;
+  if (items.length !== manifest.order.list.item_count) throw new Error("The items bounded are not the list the manifest sealed.");
   const pagesOf = new Map(manifest.plans.map((plan, index) => [plan.entry_key, takeoffPlanWeights(manifest.plans)[index]]));
   const piece = (entryKey: string) => {
     const plan = manifest.plans.find((entry) => entry.entry_key === entryKey);
@@ -100,11 +110,11 @@ export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest,
   };
   const units: PosteReadingUnitInput[] = manifest.format_version === 2
     ? manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: unit.budget.tokens,
-      pages: unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0) }))
+      pages: unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0), vectorCalls: vectorCalls(unit.vector_pages) }))
     : manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: manifest.budget.tokens,
-      pages: unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0) }));
-  return boundPosteReadingRequest({ items: manifest.order.list.item_count, units, requestBudgetTokens: manifest.budget.tokens,
-    chunking, estimateTokensPerCall });
+      pages: unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0), vectorCalls: vectorCalls(TAKEOFF_LAUNCH_VECTOR_PAGES) }));
+  return boundPosteReadingRequest({ batches: planPosteBatches(items).map((batch) => batch.length), units,
+    requestBudgetTokens: manifest.budget.tokens, chunking, estimateTokensPerCall });
 }
 
 /** The refusal of a request past its bounds: the plans to restrict, with the launch reason the member already reads. */

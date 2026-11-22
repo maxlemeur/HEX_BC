@@ -10,6 +10,10 @@ vi.mock("@/lib/takeoff/level-c-reading", async (importOriginal) => ({
       maxCostCents: 2_500 } })),
 }));
 vi.mock("@/lib/takeoff/processing-audit", () => ({ logCompletedAuditEvent: vi.fn() }));
+// The vector classifier's calls as its own bound counts them (its conditions are environment flags): none unless a case says.
+vi.mock("@/lib/takeoff/vectors/worker-server", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/takeoff/vectors/worker-server")>(), takeoffVectorGroupCallsBound: vi.fn(() => 0),
+}));
 vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ isTakeoffRulesEnabled: () => true, recomputeTakeoffRulesQuietly: vi.fn() }));
 vi.mock("@/lib/takeoff/poste-publication-server", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/poste-publication-server")>(), publishTakeoffItemAnswers: vi.fn(),
@@ -28,7 +32,8 @@ import { finishPlanReading, posteVectorReadings, readPlanAgainstItemList } from 
 import { processItemListLevelC, readTakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
 import { controlledPosteCall, posteMeasured, posteNotFound } from "@/lib/takeoff/poste-reading.test-fixtures";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
-import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
+import { takeoffVectorGroupCallsBound, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
+import { prepareLevelCReading } from "@/lib/takeoff/level-c-reading";
 
 const TENANT = "aaaaaaaa-0000-4000-8000-000000000010";
 const PROJECT = "aaaaaaaa-0000-4000-8000-000000000020";
@@ -115,7 +120,8 @@ const script = controlledPosteCall((entry) => {
   if (entry.label === "Distribution EF") return posteMeasured(entry, [{ page: 3, quantity: 12.5, unit: "ml" }]);
   if (entry.label.startsWith("Vanne")) return { post_id: entry.key, outcome: "uncertain", searched_pages: entry.owned,
     reason_code: "QUALIFIER_UNREADABLE", reason_text: "Le diamètre n’est pas lisible.", observations: [{ page: 4, evidence: "vanne sans cote",
-      method: "symbol_count", confidence: 0.4, quantity: 1, unit: "u", measurement_basis: null }] };
+      method: "symbol_count", confidence: 0.4, quantity: 1, unit: "u", measurement_basis: null, counts_as: "distinct",
+      basis_as_requested: false }] };
   return posteNotFound(entry);
 }, { alter: (output) => ({ ...output, unlisted_findings: [{ page: 1, designation: "Siphon de sol", evidence: "symbole SdS" }] }) });
 
@@ -302,10 +308,37 @@ describe("processItemListLevelC", () => {
     expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });
 
+  // Fix round, point 11: the reads of the entries are counted first, so that a test of none of them cannot pass.
   it("reads a plan's sealed list again on each attempt, never another revision", async () => {
     const fake = database();
     await run({ supabase: fake.client as never });
-    expect(fake.queries.filter((query) => query.table === "takeoff_list_revision_entries")
-      .every((query) => query.filters.some((filter) => filter.column === "revision_id" && filter.value === REVISION))).toBe(true);
+    const reads = fake.queries.filter((query) => query.table === "takeoff_list_revision_entries");
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((query) => query.filters.some((filter) => filter.column === "revision_id" && filter.value === REVISION))).toBe(true);
+  });
+
+  // Fix round, point 8: before its first paid call, the worker plans the reading it is about to make with the settings it
+  // will use, counts every paid call (the vector classifier's included), and stops beyond the bounds with nothing spent.
+  it("stops before any paid call when its own plan passes its share of the budget", async () => {
+    const call = controlledPosteCall();
+    const readVectors = vi.fn(async () => vectorOutcomes());
+    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 4, config: { thresholdPages: 1, chunkSizePages: 2, overlapPages: 1,
+      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 } });
+    const thin = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 4,
+      budget: { tokens: 30_000, cost_cents: 2_500 } } } });
+    await expect(run({ call, job: thin, readVectors })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
+      retryable: false, message: expect.stringContaining("Lecture de 4 postes sur 1 plan : 3 appels prévus") });
+    expect(call.received).toEqual([]);
+    expect(readVectors).not.toHaveBeenCalled();
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
+  it("counts its vector classifier's calls against the ceiling of a plan", async () => {
+    const call = controlledPosteCall();
+    vi.mocked(takeoffVectorGroupCallsBound).mockReturnValueOnce(40);
+    await expect(run({ call })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      message: expect.stringContaining("41 appels prévus") });
+    expect(vi.mocked(takeoffVectorGroupCallsBound)).toHaveBeenCalledWith(4);
+    expect(call.received).toEqual([]);
   });
 });

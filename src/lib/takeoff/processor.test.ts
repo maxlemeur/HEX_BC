@@ -3527,9 +3527,11 @@ describe("an attempt of the second measuring order", () => {
       message: expect.stringContaining("avant tout appel") });
     expect(mock.state.job).toMatchObject({ status: "failed", error_code: "TAKEOFF_LEVEL_UNSUPPORTED", next_retry_at: null,
       prompt_version: "takeoff-c-postes-v1" });
+    // Neither the PDF reader nor the vector reading and its classifier is invoked.
     expect(call).not.toHaveBeenCalled();
     expect(processItemListLevelC).not.toHaveBeenCalled();
     expect(readTakeoffVectorPages).not.toHaveBeenCalled();
+    expect(takeoffVectorLocalGroupsHook).not.toHaveBeenCalled();
   });
 
   it("ends a job whose measuring order cannot be read once it is claimed, with that prompt unknown to it", async () => {

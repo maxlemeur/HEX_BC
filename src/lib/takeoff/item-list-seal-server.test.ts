@@ -14,7 +14,7 @@ describe("the measuring order a launch request seals", () => {
   it("seals the free extraction while one analysis per plan is not active, reading nothing", async () => {
     const fake = createSupabaseFake({});
     await expect(sealedMeasuringOrder(fake.client as never, { ...input, perPlan: false }))
-      .resolves.toEqual({ order: { kind: "free_extraction", version: 1, list: null } });
+      .resolves.toEqual({ order: { kind: "free_extraction", version: 1, list: null }, items: [] });
     expect(fake.rpcCalls).toEqual([]);
   });
 
@@ -22,7 +22,7 @@ describe("the measuring order a launch request seals", () => {
     // Every table or function without a handler throws: the inactive path reads only the activation.
     const fake = createSupabaseFake({ rpc: { takeoff_item_list_order_is_active: () => ({ data: false, error: null }) } });
     await expect(sealedMeasuringOrder(fake.client as never, input))
-      .resolves.toEqual({ order: { kind: "free_extraction", version: 1, list: null } });
+      .resolves.toEqual({ order: { kind: "free_extraction", version: 1, list: null }, items: [] });
   });
 
   it("suspends the admission while the affaire's DPGF is to prepare", async () => {
@@ -57,7 +57,26 @@ describe("the measuring order a launch request seals", () => {
         takeoff_list_item_sources: none,
       },
     });
-    await expect(sealedMeasuringOrder(fake.client as never, input)).resolves.toEqual({ order: { kind: "item_list", version: 2,
+    const sealed = await sealedMeasuringOrder(fake.client as never, input);
+    expect(sealed).toMatchObject({ order: { kind: "item_list", version: 2,
       list: { revision_id: "revision-1", revision: 1, content_sha256: "a".repeat(64), item_count: 23 } } });
+    // The items it sealed, in order, for the bounds of the admission.
+    expect("items" in sealed && sealed.items.map((item) => item.id)).toEqual(entries.map((entry) => entry.item_id));
+  });
+
+  // Fix round, point 9: a revision with no item (a DPGF of structural rows only) asks nothing: the free extraction.
+  it("seals the free extraction for a list without any item", async () => {
+    const empty = { id: "revision-0", revision: 1, cause: "initial", sources: {}, item_count: 0, content_sha256: "b".repeat(64),
+      created_by: "payer", created_at: "2026-11-21T00:00:00Z", intent_key: "k", tenant_id: "tenant", project_id: "project" };
+    const fake = createSupabaseFake({
+      rpc: { takeoff_item_list_order_is_active: () => ({ data: true, error: null }) },
+      tables: {
+        dpgf_imports: none, affaire_intake_documents: none, takeoff_item_template_versions: none,
+        takeoff_list_revisions: (query: FakeQuery) => servedRows([empty], query),
+        takeoff_list_revision_entries: none, takeoff_list_item_sources: none,
+      },
+    });
+    await expect(sealedMeasuringOrder(fake.client as never, input)).resolves.toEqual({
+      order: { kind: "free_extraction", version: 1, list: null }, items: [] });
   });
 });

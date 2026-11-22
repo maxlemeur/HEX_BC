@@ -4,7 +4,11 @@ import type { StructuredCall } from "@/lib/ai/structured-call";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { readSealedItemListItems } from "@/lib/takeoff/item-list-server";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
-import { readTakeoffLaunchUnit } from "@/lib/takeoff/launch-request";
+import type { TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
+import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
+import { describeTakeoffLaunchReason, readTakeoffLaunchUnit } from "@/lib/takeoff/launch-request";
+import { planPosteBatches } from "@/lib/takeoff/poste-exchange";
+import { boundPosteReadingRequest } from "@/lib/takeoff/poste-reading-bounds";
 import { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
 import { prepareLevelCReading, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
 import type { Poste } from "@/lib/takeoff/poste-list";
@@ -14,7 +18,7 @@ import { logCompletedAuditEvent } from "@/lib/takeoff/processing-audit";
 import { TAKEOFF_LEVEL_C, type Supabase } from "@/lib/takeoff/processing-context";
 import { refreshTakeoffRulesAfterResult } from "@/lib/takeoff/result-finalization";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
-import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
+import { takeoffVectorGroupCallsBound, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 
 /**
  * The worker's side of the second measuring order (lot 4): a job of one analysis per plan whose request sealed the
@@ -65,6 +69,29 @@ export function takeoffItemListReadingNotDelivered(jobId: string) {
     message: "La lecture contre la liste des postes n’est pas encore disponible : l’analyse s’arrête avant tout appel, sans rien dépenser." });
 }
 
+/**
+ * Before its first paid call, the reading the worker is about to make, planned with the settings it will use (the
+ * tenant's fragmenting and the attempt's budget within what its request has left, which may differ from the admission's),
+ * every paid call counted (each fragment times each batch of the items, and its vector classifier's), within the same
+ * bounds as its admission: the ceiling of a plan, its share of the request, the request's balance. Beyond them it stops
+ * with the bounds' own reason, nothing spent.
+ */
+function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { items: readonly Poste[]; pageCount: number;
+  config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
+  const unit = readTakeoffLaunchUnit(job.preparation_snapshot)!;
+  const bounds = boundPosteReadingRequest({ batches: planPosteBatches(input.items).map((batch) => batch.length),
+    units: [{ key: unit.key, pieces: [{ id: input.planFile.plan_file_id, name: input.fileName }], pages: input.pageCount,
+      budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: takeoffVectorGroupCallsBound(unit.vectorPages) }],
+    requestBudgetTokens: input.config.maxTotalTokens, chunking: input.config, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
+  if (bounds.ok) return;
+  const exceeded = [...bounds.exceeded, ...bounds.units.flatMap((entry) => entry.exceeded)];
+  throw new TakeoffError({ status: 422, retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_C,
+    code: exceeded.includes("calls") || exceeded.includes("answer_bytes") ? TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE
+      : TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
+    message: describeTakeoffLaunchReason("PLAN_SET_TOO_LARGE", bounds.pieces, bounds),
+    details: { calls: bounds.calls, tokens: bounds.tokens, budget_tokens: bounds.requestBudgetTokens, exceeded } });
+}
+
 export type ProcessItemListResult = {
   jobId: string; resultId: string; status: "completed"; itemsCount: number; warningsCount: number; tokenCount: number;
   costCents: number; durationMs: number; tablesCount: number; chunksCount: number; pageCount: number;
@@ -105,7 +132,7 @@ export async function processItemListLevelC(input: {
       message: "La lecture contre la liste des postes se fait plan par plan : une analyse groupée ne la lit pas." });
   }
   const planFile = unitPlanFile(job, sourceFile);
-  const { config } = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile });
+  const { config, pageCount } = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile });
   if (!job.project_id) throw failure(job.id, "L’affaire de cette analyse est introuvable.");
   let items: Poste[];
   try {
@@ -114,6 +141,7 @@ export async function processItemListLevelC(input: {
   } catch {
     throw failure(job.id, "La liste des postes scellée par cette analyse n’a pas pu être lue.");
   }
+  assertReadingWithinBounds(job, { items, pageCount, config, planFile, fileName: sourceFile.fileName });
   // Each context file with its kind (the reading keeps the CCTP only); a file whose kind is not known is never attached.
   const references: PosteReadingReference[] = (sourceFile.contextFiles ?? []).map((file, index) => ({ ...file,
     ...(sourceFile.contextReferences?.[index] ?? { kind: "other" as const, name: "Pièce", revision: null }) }));

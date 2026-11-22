@@ -105,6 +105,10 @@ const REASON_TEXTS: Record<PosteReasonCode, string> = {
   READINGS_DISAGREE: "Deux lectures du même endroit ne concordent pas.",
   PAGES_UNREADABLE: "Pages illisibles : la lecture ne couvre pas tout le plan.",
   VECTOR_ONLY: "Trouvé par la lecture vectorielle seule : à vérifier.",
+  DUPLICATE_READING: "Deux lectures de la même page que rien ne distingue : comptées une fois, à vérifier.",
+  SAME_OBJECT_UNCLEAR: "Une lecture renvoie à un objet que la page ne relève pas, ou à plusieurs.",
+  BASIS_MISMATCH: "Mesure sur une autre base que celle du poste, ou sur deux bases.",
+  BASIS_UNSTATED: "Base de la mesure non précisée.",
 };
 
 /** The reason of an answer, as the table and its detail show it. */

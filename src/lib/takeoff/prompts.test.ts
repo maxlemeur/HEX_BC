@@ -62,6 +62,25 @@ describe("getTakeoffItemReadingPrompt (second measuring order)", () => {
     expect(prompt).toMatch(/ne prouve pas la lecture du plan/u);
   });
 
+  // Fix round, point 7: the preparation goes out as an allow-list: how to measure, never an identifier, a person or a document.
+  it("sends what tells the reader how to measure, and no identifier, person or document reference of the preparation", () => {
+    const snapshot = confirmedPreparationFixture();
+    snapshot.preparation.objective = "measure_all";
+    snapshot.preparation.scope.networks = ["EF", "ECS"];
+    snapshot.preparation.conventions.calibration = { document_id: "doc-calibration-secret", page: 2, reference_length: 5,
+      reference_unit: "m", measured_span: 120, measured_span_unit: "pdf_points" };
+    snapshot.preparation.conventions.purchase = { deductions: "Déduire les trémies", waste_percent: 5, rounding: "au mètre", packaging: "" };
+    snapshot.preparation.unknowns = [{ id: "unknown-secret-id", question: "Le bouclage ECS est-il compris ?", impact: "reservation",
+      status: "answered", answer: "Oui, jusqu’aux nourrices.", responsible: "Camille Exemple", source_document_id: "doc-reservation-secret",
+      page: 3 }];
+    const sent = getTakeoffItemReadingPrompt({ manifest: call.manifest, sourceHint: "Plan RDC.pdf", preparation: snapshot });
+
+    for (const hidden of ["doc-calibration-secret", "doc-reservation-secret", "unknown-secret-id", "Camille Exemple", "fixture-document",
+      "Quantités fictives.csv", "11111111-1111-4111-8111-111111111111"]) expect(sent).not.toContain(hidden);
+    for (const shown of ["measure_all", "EF", "Quantités documentaires du dossier fictif", "Variantes non retenues", "Déduire les trémies",
+      "Le bouclage ECS est-il compris ?", "Oui, jusqu’aux nourrices."]) expect(sent).toContain(shown);
+  });
+
   it("leaves the prompt of the first format as it was", () => {
     expect(getTakeoffPrompt("C", { preparation: confirmedPreparationFixture() })).not.toMatch(/post_id|MANIFESTE|owned_pages/);
   });

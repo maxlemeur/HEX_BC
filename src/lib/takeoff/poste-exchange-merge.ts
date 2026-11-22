@@ -1,5 +1,6 @@
 import {
   PosteExchangeRefusal,
+  posteStoredQuantity,
   type PosteAnswerOutcome,
   type PosteExchangeCall,
   type PosteExchangeOutput,
@@ -17,7 +18,8 @@ import { MEASUREMENT_UNITS, normalizeMeasurementUnit } from "@/lib/units/normali
  */
 
 /** Why the worker changed or confirmed an answer after the model's reading. */
-export const POSTE_WORKER_REASONS = ["UNIT_MISMATCH", "NON_INTEGER_COUNT", "READINGS_DISAGREE", "PAGES_UNREADABLE", "VECTOR_ONLY"] as const;
+export const POSTE_WORKER_REASONS = ["UNIT_MISMATCH", "NON_INTEGER_COUNT", "READINGS_DISAGREE", "PAGES_UNREADABLE", "VECTOR_ONLY",
+  "DUPLICATE_READING", "SAME_OBJECT_UNCLEAR", "BASIS_MISMATCH", "BASIS_UNSTATED"] as const;
 export type PosteWorkerReason = (typeof POSTE_WORKER_REASONS)[number];
 export type PosteReasonCode = PosteModelReason | PosteWorkerReason;
 
@@ -28,8 +30,8 @@ export const POSTE_MERGED_CHUNK = "plan";
  * contribution: a positive quantity of a measured reading on a page its fragment owns, counted in a measured answer's total
  * (an answer that is not measured has none: its positive readings are candidates);
  * candidate: an indication (a page, a candidate value) that is not a measure; alternative: another reading of an object
- * already read (an overlap page read by the fragment that does not own it, the vector reading of a network the model
- * measured): kept, never added.
+ * already read (a reading the model declared of an object it already observed, an overlap page read by the fragment that
+ * does not own it, the vector reading of an object the model measured): kept, never added.
  */
 export type PosteObservationRole = "contribution" | "candidate" | "alternative";
 
@@ -42,6 +44,10 @@ export type PosteReadingObservation = {
   quantity: number | null;
   unit: string | null;
   measurementBasis: string | null;
+  /** The model's declaration (none for the vector reading): a distinct object or zone, or another reading of one. */
+  countsAs: "distinct" | "same_object" | null;
+  /** The model says the measure is on the item's requested basis. */
+  basisAsRequested: boolean;
   role: PosteObservationRole;
   source: "model" | "vector";
   /** The call it came from (`f1-b2`); null for the vector reading. */
@@ -86,20 +92,25 @@ export type PosteFragmentReading = {
     observations: Array<{
       page: number; evidence: string; method: PosteObservationMethod; confidence: number;
       quantity: number | null; unit: string | null; measurementBasis: string | null;
+      countsAs: "distinct" | "same_object"; basisAsRequested: boolean;
     }>;
   }>;
   unlistedFindings: Array<{ page: number; designation: string; evidence: string }>;
   warnings: Array<{ code: string; message: string; severity: "info" | "warning" | "error" }>;
 };
 
-/** An item as the merge reads it: what decides the unit and the vector readings it may receive. */
-export type PosteReadingItem = { id: string; label: string; expectedUnit: string | null; qualifiers: PosteQualifiers };
+/** An item as the merge reads it: what decides its unit, its basis and the vector readings it may receive. */
+export type PosteReadingItem = {
+  id: string; label: string; expectedUnit: string | null; measurementBasis: string | null; qualifiers: PosteQualifiers;
+};
 
 /** A quantity of the vector reading of one of the plan's original pages (vectors/items.ts), as the merge reads it. */
 export type PosteVectorReading = {
   key: string;
   page: number;
   kind: "network" | "insulation" | "surface";
+  /** A surface's room, as printed in it (vectors/persistence.ts); none for a network. */
+  room: string | null;
   designation: string;
   quantity: number;
   unit: string;
@@ -137,6 +148,7 @@ export function remapPosteFragmentReading(call: PosteExchangeCall, output: Poste
         observations: response.observations.map((entry) => ({
           page: original(entry.page), evidence: entry.evidence, method: entry.method, confidence: entry.confidence,
           quantity: entry.quantity, unit: entry.unit, measurementBasis: entry.measurement_basis,
+          countsAs: entry.counts_as, basisAsRequested: entry.basis_as_requested,
         })),
       };
     }),
@@ -145,13 +157,17 @@ export function remapPosteFragmentReading(call: PosteExchangeCall, output: Poste
   };
 }
 
-/** Two readings of one object agree within this share (the gap the DPGF comparison also tolerates). */
+/** Two readings of a length or a surface agree within this share (the gap the DPGF comparison also tolerates). */
 const AGREEMENT = 0.01;
-const agree = (left: number, right: number) => Math.abs(left - right) <= AGREEMENT * Math.max(Math.abs(left), Math.abs(right)) + 1e-9;
-const sum = (values: readonly number[]) => Number(values.reduce((total, value) => total + value, 0).toFixed(6));
-const sorted = (values: Iterable<number>) => [...new Set(values)].sort((left, right) => left - right);
-const unitCode = (unit: string | null) => normalizeMeasurementUnit(unit).unitCode;
 const COUNT_UNITS = new Set(MEASUREMENT_UNITS.filter((unit) => unit.dimension === "count").map((unit) => unit.code));
+const unitCode = (unit: string | null) => normalizeMeasurementUnit(unit).unitCode;
+/** Whole pieces agree exactly; a length or a surface within 1 %. */
+const agree = (left: number, right: number, unit: string | null) => COUNT_UNITS.has(unit ?? "")
+  ? left === right : Math.abs(left - right) <= AGREEMENT * Math.max(Math.abs(left), Math.abs(right)) + 1e-9;
+const sum = (values: readonly number[]) => posteStoredQuantity(values.reduce((total, value) => total + value, 0));
+const sorted = (values: Iterable<number>) => [...new Set(values)].sort((left, right) => left - right);
+/** A text compared without case, accents, punctuation or repeated spaces. */
+const folded = (value: string) => value.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 /** The one unit of these observations' quantities, or null when they have none or several. */
 function oneUnitTotal(observations: readonly PosteReadingObservation[]) {
@@ -162,9 +178,16 @@ function oneUnitTotal(observations: readonly PosteReadingObservation[]) {
   return { value: sum(counted.map((entry) => entry.quantity!)), unit };
 }
 
-/** The item a vector reading measures: the same network, material and size as the item's own words, in a length. */
+/**
+ * The item a vector reading measures: a network or its insulation of the same network, material and size as the item's
+ * own words, in a length; a room's surface whose name the item's label holds, in an area.
+ */
 function vectorMatches(item: PosteReadingItem, reading: PosteVectorReading) {
-  if (reading.kind === "surface" || !item.expectedUnit) return false;
+  if (!item.expectedUnit) return false;
+  if (reading.kind === "surface") {
+    const room = reading.room ? folded(reading.room) : "";
+    return unitCode(item.expectedUnit) === "m2" && room.length > 0 && ` ${folded(item.label)} `.includes(` ${room} `);
+  }
   const words = [item.label, item.qualifiers.network, item.qualifiers.material, item.qualifiers.diameter].filter(Boolean).join(" ");
   return haveComparableQuantities({ designation: words, unit: item.expectedUnit, quantity: 1 },
     { designation: reading.designation, unit: reading.unit, quantity: reading.quantity });
@@ -214,26 +237,47 @@ function mergeItem(item: PosteReadingItem, allFragments: readonly PosteFragmentR
       draft.modelReasons.push({ code: answer.reasonCode!, by: "model", text: answer.reasonText, chunkId: fragment.chunkId });
     }
     for (const entry of answer.observations) {
+      // Only a distinct object of a measured reading, on a page its fragment owns, counts; another reading of an object
+      // already observed, or of an overlap page, is an alternative.
       const role: PosteObservationRole = !owned.has(entry.page) ? "alternative"
-        : answer.outcome === "measured" ? "contribution" : "candidate";
+        : answer.outcome !== "measured" ? "candidate" : entry.countsAs === "distinct" ? "contribution" : "alternative";
       draft.observations.push({ ...entry, role, source: "model", chunkId: fragment.chunkId, vectorKey: null });
     }
   }
   if (uncertain) draft.outcome = "uncertain";
   else if (draft.observations.some((entry) => entry.role === "contribution")) draft.outcome = "measured";
+  const flag = (code: PosteWorkerReason, chunkId: string | null) => {
+    if (!draft.workerReasons.some((reason) => reason.code === code)) draft.workerReasons.push(worker(code, chunkId));
+  };
+
+  // A reading declared of an object already observed repeats exactly one distinct reading of its page, and agrees with it.
+  for (const repeat of draft.observations.filter((entry) => entry.countsAs === "same_object" && entry.role === "alternative"
+    && ownerOf.get(entry.page) === entry.chunkId)) {
+    const repeated = draft.observations.filter((entry) => entry.role === "contribution" && entry.page === repeat.page
+      && entry.chunkId === repeat.chunkId);
+    if (repeated.length !== 1) flag("SAME_OBJECT_UNCLEAR", repeat.chunkId);
+    else if (repeat.quantity !== null && (unitCode(repeat.unit) !== unitCode(repeated[0].unit)
+      || !agree(repeated[0].quantity!, repeat.quantity, unitCode(repeat.unit)))) flag("READINGS_DISAGREE", repeat.chunkId);
+  }
+  // Two distinct readings of one page that nothing tells apart (same evidence, same quantity): never added.
+  const seen = new Set<string>();
+  for (const entry of draft.observations.filter((observation) => observation.role === "contribution")) {
+    const key = `${entry.chunkId}|${entry.page}|${folded(entry.evidence)}|${entry.quantity}|${unitCode(entry.unit)}`;
+    if (seen.has(key)) flag("DUPLICATE_READING", entry.chunkId);
+    seen.add(key);
+  }
 
   // An overlap page read by a fragment that does not own it: its reading must match the owner's, else both are kept and
   // the answer is uncertain.
-  for (const alternative of draft.observations.filter((entry) => entry.role === "alternative")) {
+  for (const alternative of draft.observations.filter((entry) => entry.role === "alternative"
+    && ownerOf.get(entry.page) !== entry.chunkId)) {
     const owner = ownerOf.get(alternative.page);
     const ownerReadings = draft.observations.filter((entry) => entry.role !== "alternative" && entry.source === "model"
       && entry.page === alternative.page && entry.chunkId === owner);
     const ownerTotal = oneUnitTotal(ownerReadings);
     const differs = !ownerReadings.length || (alternative.quantity !== null && (!ownerTotal
-      || ownerTotal.unit !== unitCode(alternative.unit) || !agree(ownerTotal.value, alternative.quantity)));
-    if (differs && !draft.workerReasons.some((reason) => reason.code === "READINGS_DISAGREE")) {
-      draft.workerReasons.push(worker("READINGS_DISAGREE", alternative.chunkId));
-    }
+      || ownerTotal.unit !== unitCode(alternative.unit) || !agree(ownerTotal.value, alternative.quantity, ownerTotal.unit)));
+    if (differs) flag("READINGS_DISAGREE", alternative.chunkId);
   }
   return draft;
 }
@@ -259,9 +303,10 @@ function attachVectorReadings(drafts: readonly Draft[], readings: readonly Poste
         && entry.page === reading.page);
       const modelTotal = oneUnitTotal(modelOnPage);
       const unique = matched.length === 1;
-      const corroborates = unique && modelTotal !== null && modelTotal.unit === unitCode(reading.unit) && agree(modelTotal.value, reading.quantity);
+      const corroborates = unique && modelTotal !== null && modelTotal.unit === unitCode(reading.unit)
+        && agree(modelTotal.value, reading.quantity, modelTotal.unit);
       draft.observations.push({ page: reading.page, evidence: reading.evidence, method: "vector_reading", confidence: reading.confidence,
-        quantity: reading.quantity, unit: reading.unit, measurementBasis: null,
+        quantity: reading.quantity, unit: reading.unit, measurementBasis: null, countsAs: null, basisAsRequested: false,
         role: unique && draft.outcome === "measured" ? "alternative" : "candidate", source: "vector", chunkId: null, vectorKey: reading.key });
       if (draft.outcome === "not_found") {
         draft.outcome = "uncertain";
@@ -276,18 +321,44 @@ function attachVectorReadings(drafts: readonly Draft[], readings: readonly Poste
 }
 
 /**
- * The answer of a draft: the unit and the coverage checked, its total or its candidate value (the model's indications,
- * else a vector reading only this item matches; a reading other items may claim suggests no value).
+ * What makes a sum of measures mix bases (a count has none): on an item that names its basis, a measure the model does
+ * not say is on it; on an item that names none, a scaled measure that states none, or measures stated on two bases.
+ */
+function basisReason(item: PosteReadingItem, contributions: readonly PosteReadingObservation[]): PosteWorkerReason | null {
+  const measures = contributions.filter((entry) => !COUNT_UNITS.has(unitCode(entry.unit) ?? ""));
+  if (!measures.length) return null;
+  if (item.measurementBasis) return measures.every((entry) => entry.basisAsRequested) ? null : "BASIS_MISMATCH";
+  if (measures.some((entry) => entry.method === "scaled_measure" && !entry.measurementBasis)) return "BASIS_UNSTATED";
+  const stated = new Set(measures.flatMap((entry) => entry.measurementBasis ? [folded(entry.measurementBasis)] : []));
+  return stated.size > 1 ? "BASIS_MISMATCH" : null;
+}
+
+/** The candidate value of an uncertain answer: each distinct reading once (two readings nothing tells apart count once). */
+function candidateTotal(observations: readonly PosteReadingObservation[]) {
+  const once = new Map<string, PosteReadingObservation>();
+  for (const entry of observations) {
+    if (entry.countsAs === "same_object") continue;
+    once.set(`${entry.source}|${entry.page}|${folded(entry.evidence)}|${entry.quantity}|${unitCode(entry.unit)}`, entry);
+  }
+  return oneUnitTotal([...once.values()]);
+}
+
+/**
+ * The answer of a draft: the unit, the basis and the coverage checked, its total or its candidate value (the model's
+ * indications, else a vector reading only this item matches; a reading other items may claim suggests no value).
  */
 function finalize(draft: Draft, sharedVectorReadings: ReadonlySet<string>): PostePlanAnswer {
   const contributions = draft.observations.filter((entry) => entry.role === "contribution");
   if (draft.outcome === "measured" || contributions.length) {
     const expected = unitCode(draft.item.expectedUnit);
     const units = new Set(contributions.map((entry) => unitCode(entry.unit)));
+    const basis = basisReason(draft.item, contributions);
     if (units.has(null) || units.size > 1 || (expected !== null && [...units].some((unit) => unit !== expected))) {
       draft.workerReasons.push(worker("UNIT_MISMATCH"));
     } else if (contributions.some((entry) => COUNT_UNITS.has(unitCode(entry.unit) ?? "") && !Number.isInteger(entry.quantity))) {
       draft.workerReasons.push(worker("NON_INTEGER_COUNT"));
+    } else if (basis) {
+      draft.workerReasons.push(worker(basis));
     }
   }
   if (draft.unreadable.size) draft.workerReasons.push(worker("PAGES_UNREADABLE"));
@@ -303,7 +374,7 @@ function finalize(draft: Draft, sharedVectorReadings: ReadonlySet<string>): Post
   const vectorIndications = draft.observations.filter((entry) => entry.source === "vector" && entry.role === "candidate"
     && !sharedVectorReadings.has(entry.vectorKey ?? ""));
   const candidate = draft.outcome !== "uncertain" ? null
-    : oneUnitTotal(modelIndications.some((entry) => entry.quantity !== null) ? modelIndications : vectorIndications);
+    : candidateTotal(modelIndications.some((entry) => entry.quantity !== null) ? modelIndications : vectorIndications);
   return {
     itemId: draft.item.id, outcome: draft.outcome, reasons, searchedPages: sorted(draft.searched), unreadablePages: sorted(draft.unreadable),
     observations: draft.observations, quantity: measured, candidate,

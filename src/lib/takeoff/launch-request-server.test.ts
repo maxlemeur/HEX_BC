@@ -63,7 +63,8 @@ vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
 // A command reads its member's subscription as pinned at the confirmation (its own tests: chatgpt-takeoff.test.ts).
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>()), getConfirmedTakeoffExecutionOwner: vi.fn() }));
-vi.mock("@/lib/pdf/page-render-server", () => ({ renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
+vi.mock("@/lib/pdf/page-render-server", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/pdf/page-render-server")>(),
+  renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
 // The measuring order a command seals (lot 4): the real reading (the second order not active, the free extraction) unless a
 // case answers otherwise.
 vi.mock("@/lib/takeoff/item-list-seal-server", async (importOriginal) => {
@@ -194,6 +195,14 @@ function itemListOrder(items: number) {
     content_sha256: "e".repeat(64), item_count: items } };
 }
 
+/** The seal of such a list: its order and its items, as `sealedMeasuringOrder` hands them to the bounds. */
+function itemListSeal(items: number) {
+  return { order: itemListOrder(items), items: Array.from({ length: items }, (_, index) => ({
+    id: `bbbbbbbb-0000-4000-8000-${String(index).padStart(12, "0")}`, label: `Poste fictif ${index}`, expectedUnit: "u",
+    measurementBasis: null, qualifiers: {}, sections: [], synonyms: [], referenceQuantity: null,
+    origin: { kind: "manual" as const, intentId: `i-${index}`, addedBy: PAYER, addedAt: "2026-11-22T08:00:00.000Z", addedInRevision: 1 } })) };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(isLocalChatGptEnabled).mockReturnValue(true);
@@ -294,7 +303,7 @@ describe("evaluateTakeoffLaunchRequests", () => {
   // budget lets start. The member is asked to reduce the scope; nothing is admitted, nothing is sampled.
   it("refuses, naming the plan, a request whose reading against the list passes its bounds, and admits nothing", async () => {
     const { admitted, recorded } = dossier({ perPlan: true });
-    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(1_700) });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
     const [result] = await evaluateTakeoffLaunchRequests();
     expect(result).toMatchObject({ requestId: REQUEST, outcome: "blocked", reason: "PLAN_SET_TOO_LARGE", jobId: null });
     expect(admitted).toEqual([]);
@@ -305,7 +314,7 @@ describe("evaluateTakeoffLaunchRequests", () => {
 
   it("admits a request whose reading against the list stays within its bounds, its list sealed", async () => {
     const { admitted } = dossier({ perPlan: true });
-    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(120) });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(120));
     const [result] = await evaluateTakeoffLaunchRequests();
     expect(result).toMatchObject({ outcome: "admitted" });
     expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 2, order: itemListOrder(120) });
@@ -1053,7 +1062,7 @@ describe("launchTakeoffRelaunch", () => {
   it("seals the list of items in a command of plans once the second order is active, and refuses it while the list is to prepare", async () => {
     const list = { kind: "item_list" as const, version: 2 as const, list: { revision_id: "aaaaaaaa-0000-4000-8000-0000000000f1",
       revision: 3, content_sha256: "e".repeat(64), item_count: 12 } };
-    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: list });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: list, items: itemListSeal(12).items });
     const sealed = planCommand({ a: 3, b: 3 });
     await expect(sealed.run([PLAN_FILE])).resolves.toMatchObject({ outcome: "admitted" });
     expect(sealed.launched[0].p_manifest).toMatchObject({ format_version: 2, order: list });
@@ -1066,7 +1075,7 @@ describe("launchTakeoffRelaunch", () => {
   });
 
   it("refuses a command of plans whose reading against the list passes its bounds, before any unit is admitted", async () => {
-    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(1_700) });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
     const sealed = planCommand({ a: 3, b: 3 });
     await expect(sealed.run([PLAN_FILE])).rejects.toMatchObject({ status: 422, message: "Métré non démarré — les plans « plan-a.pdf » "
       + "dépassent les limites d’une lecture contre la liste des postes. Lecture de 1\u202f700 postes sur 1 plan : 43 appels prévus, "

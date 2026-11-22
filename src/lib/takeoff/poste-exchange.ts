@@ -18,20 +18,19 @@ export const POSTE_EXCHANGE_SCHEMA_VERSION = "v2";
 export const POSTE_EXCHANGE_PROMPT_VERSION = "takeoff-c-postes-v1";
 
 /**
- * The bounds of one call. A batch holds at most `itemsPerCall` items; an answer at most `observationsPerAnswer`
+ * The bounds of one call. A batch holds at most `itemsPerCall` items and `batchBytes` of their entries (an item longer than
+ * that is asked alone, whole: what tells two items apart is never cut); an answer at most `observationsPerAnswer`
  * observations (about one per page of a fragment) and the whole answer at most `observationsPerCall`; the texts are short
  * (the evidence and the reason are one sentence). `pages` is the most pages a fragment can hold (the tenant's PDF page
- * limit). Starting values, to measure on the bench before the second order is activated.
+ * limit). A quantity is read at the stored precision (`takeoff_items.quantity`, three decimals, below 10⁹). Starting
+ * values, to measure on the bench before the second order is activated.
  */
 export const POSTE_EXCHANGE_LIMITS = {
   itemsPerCall: 40,
+  batchBytes: 64 * 1024,
   pages: 200,
-  labelChars: 600,
-  qualifierChars: 120,
-  basisChars: 80,
-  sectionTitles: 8,
-  sectionTitleChars: 120,
-  unitChars: 16,
+  basisChars: 120,
+  unitChars: 32,
   evidenceChars: 160,
   reasonChars: 160,
   observationsPerAnswer: 16,
@@ -42,7 +41,23 @@ export const POSTE_EXCHANGE_LIMITS = {
   warningChars: 300,
   /** A quantity read on a plan stays below this: a larger figure is not a reading. */
   quantity: 1_000_000_000,
+  quantityDecimals: 3,
 } as const;
+
+/**
+ * A quantity at the stored precision, rounded half up on its decimal writing (as the database rounds the number it is
+ * given): 1.2345 is 1.235, 0.0000004 is 0.
+ */
+export function posteStoredQuantity(value: number) {
+  const shift = (written: number, by: number) => {
+    const [mantissa, exponent = "0"] = String(written).split("e");
+    return Number(`${mantissa}e${Number(exponent) + by}`);
+  };
+  return shift(Math.round(shift(value, POSTE_EXCHANGE_LIMITS.quantityDecimals)), -POSTE_EXCHANGE_LIMITS.quantityDecimals);
+}
+
+/** How an observation counts: a distinct object or zone, or another reading of one already observed on its page. */
+export const POSTE_OBSERVATION_COUNTS = ["distinct", "same_object"] as const;
 
 /** How the model read an observation; the worker adds `vector_reading` for the vector reading of the original PDF. */
 export const POSTE_OBSERVATION_METHODS = ["symbol_count", "table_reading", "annotation", "scaled_measure", "other"] as const;
@@ -63,20 +78,28 @@ export type PosteAnswerOutcome = (typeof POSTE_ANSWER_OUTCOMES)[number];
 const L = POSTE_EXCHANGE_LIMITS;
 const page = z.number().int().min(1).max(L.pages);
 const pages = z.array(page).max(L.pages);
-const text = (max: number) => z.string().trim().min(1).max(max);
+/** A text on one line (control characters become spaces), then bounded. */
+const text = (max: number) => z.string().transform((value) => value.replace(/[\p{Cc}\s]+/gu, " ").trim())
+  .pipe(z.string().min(1).max(max));
 const confidence = z.number().finite().min(0).max(1);
 const itemKey = z.string().regex(/^P\d{4,5}$/);
-const quantity = z.number().finite().gt(0).lt(L.quantity);
+/** A positive quantity once at the stored precision: a figure that rounds to nothing is not a measure. */
+const quantity = z.number().finite().transform(posteStoredQuantity).pipe(z.number().gt(0).lt(L.quantity));
+/**
+ * What an observation counts (a distinct object or zone, or another reading of one already observed: only distinct ones
+ * add up), and whether it is on the item's requested basis (when the item names one).
+ */
+const counting = { counts_as: z.enum(POSTE_OBSERVATION_COUNTS), basis_as_requested: z.boolean() };
 
 /** An observation of a measured answer: a page of the fragment, a positive quantity and its unit. */
 const measuredObservation = z.object({
   page, evidence: text(L.evidenceChars), method: z.enum(POSTE_OBSERVATION_METHODS), confidence,
-  quantity, unit: text(L.unitChars), measurement_basis: text(L.basisChars).nullable(),
+  quantity, unit: text(L.unitChars), measurement_basis: text(L.basisChars).nullable(), ...counting,
 }).strict();
 /** An indication of an uncertain answer: a page candidate, with a candidate value when the model has one. */
 const indication = z.object({
   page, evidence: text(L.evidenceChars), method: z.enum(POSTE_OBSERVATION_METHODS), confidence,
-  quantity: quantity.nullable(), unit: text(L.unitChars).nullable(), measurement_basis: text(L.basisChars).nullable(),
+  quantity: quantity.nullable(), unit: text(L.unitChars).nullable(), measurement_basis: text(L.basisChars).nullable(), ...counting,
 }).strict();
 
 export const PosteExchangeAnswerSchema = z.discriminatedUnion("outcome", [
@@ -179,20 +202,47 @@ export function posteExchangeChunkId(fragmentIndex: number, batchIndex: number) 
   return `f${fragmentIndex + 1}-b${batchIndex + 1}`;
 }
 
-/** A requested item as the model reads it: its texts on one line and bounded, nothing else of the stored entry. */
+/** Never cut: a stored text goes whole (its own bounds are the list's), only put on one line. */
+const whole = (value: string | null | undefined, fallback = "") => promptLine(value, Number.MAX_SAFE_INTEGER, fallback);
+
+/**
+ * A requested item as the model reads it: its texts whole and on one line (what tells two items apart is never cut),
+ * nothing else of the stored entry.
+ */
 export function posteExchangeRequestedItem(key: string, item: Poste): PosteExchangeRequestedItem {
   const qualifiers = Object.fromEntries(Object.entries(item.qualifiers ?? {})
-    .map(([name, value]) => [name, promptLine(value, L.qualifierChars)])
+    .map(([name, value]) => [name, whole(value)])
     .filter(([, value]) => value)) as PosteQualifiers;
   return {
     post_id: key,
-    label: promptLine(item.label, L.labelChars, "(sans libellé)"),
-    expected_unit: promptLine(item.expectedUnit, L.unitChars) || null,
-    measurement_basis: promptLine(item.measurementBasis, L.basisChars) || null,
+    label: whole(item.label, "(sans libellé)"),
+    expected_unit: whole(item.expectedUnit) || null,
+    measurement_basis: whole(item.measurementBasis) || null,
     qualifiers,
-    section: item.sections.slice(0, L.sectionTitles).map((section) => promptLine(section.title, L.sectionTitleChars))
-      .filter(Boolean),
+    section: item.sections.map((section) => whole(section.title)).filter(Boolean),
   };
+}
+
+/**
+ * The batches of a plan's items, in the list's order: at most `itemsPerCall` items and `batchBytes` of their entries each;
+ * an item longer than that is asked alone. The admission's bounds count the same batches.
+ */
+export function planPosteBatches<T extends Poste>(items: readonly T[]): T[][] {
+  const batches: T[][] = [];
+  let current: T[] = [];
+  let bytes = 2;
+  items.forEach((item, position) => {
+    const size = Buffer.byteLength(JSON.stringify(posteExchangeRequestedItem(posteExchangeKey(position), item)), "utf8") + 1;
+    if (current.length && (current.length >= L.itemsPerCall || bytes + size > L.batchBytes)) {
+      batches.push(current);
+      current = [];
+      bytes = 2;
+    }
+    current.push(item);
+    bytes += size;
+  });
+  if (current.length) batches.push(current);
+  return batches;
 }
 
 const range = (first: number, last: number) =>
@@ -213,9 +263,8 @@ export function planPosteExchangeCalls(input: {
   if (input.fragments.length === 0 || input.fragments.length !== input.ownedPages.length) {
     throw new Error("Each fragment of the plan needs its owned pages.");
   }
-  const keyed = input.items.map((item, position) => ({ key: posteExchangeKey(position), item }));
-  const batches: Array<typeof keyed> = [];
-  for (let start = 0; start < keyed.length; start += L.itemsPerCall) batches.push(keyed.slice(start, start + L.itemsPerCall));
+  let position = 0;
+  const batches = planPosteBatches(input.items).map((batch) => batch.map((item) => ({ key: posteExchangeKey(position++), item })));
   const calls: PosteExchangeCall[] = [];
   input.fragments.forEach((fragment, fragmentIndex) => {
     const offset = fragment.startPage - 1;
@@ -247,10 +296,12 @@ export function planPosteExchangeCalls(input: {
  * its bound in two-byte characters, every list full, the longest numbers. What the bounds of a request are measured on.
  */
 export function posteExchangeWorstCaseOutput(items: number, fragmentPages: number): PosteExchangeOutput {
-  const long = (chars: number) => "é".repeat(chars);
+  // Three bytes for each character (a text holds no control character once read, and « " » or « \\ » take two).
+  const long = (chars: number) => "€".repeat(chars);
   const pagesList = range(L.pages - fragmentPages + 1, L.pages);
   const observation = { page: L.pages, evidence: long(L.evidenceChars), method: "scaled_measure" as const,
-    confidence: 1.2345678901234567e-7, quantity: 999_999_999.9999999, unit: long(L.unitChars), measurement_basis: long(L.basisChars) };
+    confidence: 1.2345678901234567e-7, quantity: 999_999_999.999, unit: long(L.unitChars), measurement_basis: long(L.basisChars),
+    counts_as: "same_object" as const, basis_as_requested: false };
   let left = L.observationsPerCall;
   const responses = Array.from({ length: items }, () => {
     const count = Math.min(L.observationsPerAnswer, left);
