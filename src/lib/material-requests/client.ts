@@ -44,6 +44,7 @@ import type {
   RetainLineSuppliersResult,
 } from "./supplier-contracts";
 import type { AffaireSupplyCost } from "./supply-cost-contracts";
+import type { ConsultationTemplateRecord, ConsultationTemplates } from "./consultation-template-contracts";
 
 /**
  * Browser-side calls of the material request screens (TI-690). Each function is one HTTP request and
@@ -660,4 +661,39 @@ export async function fetchTechnicianRequestHistory(
     signal,
   );
   return items;
+}
+
+// TI-691: the consultation message templates of the caller (their own) and of their company.
+const CONSULTATION_TEMPLATES = "/api/consultation-message-templates";
+
+export function fetchConsultationTemplates(signal?: AbortSignal): Promise<ConsultationTemplates> {
+  return read<ConsultationTemplates>(CONSULTATION_TEMPLATES, "Le modèle de message n’a pas pu être lu.", signal);
+}
+
+export async function savePersonalConsultationTemplate(template: ConsultationTemplateRecord): Promise<ConsultationTemplateRecord> {
+  const { personal } = await write<{ personal: ConsultationTemplateRecord }>(
+    `${CONSULTATION_TEMPLATES}/personal`,
+    "PUT",
+    template,
+    "Votre modèle n’a pas pu être enregistré.",
+  );
+  return personal;
+}
+
+export async function resetPersonalConsultationTemplate(): Promise<void> {
+  await write(`${CONSULTATION_TEMPLATES}/personal`, "DELETE", undefined, "Le modèle par défaut n’a pas pu être rétabli.");
+}
+
+export async function saveCompanyConsultationTemplate(template: ConsultationTemplateRecord): Promise<ConsultationTemplateRecord> {
+  const { company } = await write<{ company: ConsultationTemplateRecord }>(
+    `${CONSULTATION_TEMPLATES}/company`,
+    "PUT",
+    template,
+    "Le modèle de l’entreprise n’a pas pu être enregistré.",
+  );
+  return company;
+}
+
+export async function resetCompanyConsultationTemplate(): Promise<void> {
+  await write(`${CONSULTATION_TEMPLATES}/company`, "DELETE", undefined, "Le message d’origine n’a pas pu être rétabli.");
 }
