@@ -177,20 +177,21 @@ export function resolveHistoricalReviewLink(link: TakeoffReviewHrefInput, matche
   return { kind: "choice", historicalHref, options: unique.map((match) => ({ itemId: match.itemId, href: href(match) })) };
 }
 
-/** A stand-in item, so that a plan request is read by the address's rules: the request names no item. */
+/** A stand-in item, so that a plan request naming no item (the dossier's plan) is read by the address's rules. */
 const PLAN_REQUEST_ITEM = "00000000-0000-4000-8000-000000000000";
 
 /**
  * The plan a detail asks the server to resolve (GET …/takeoff/item-detail/plan), read from the same parameters as the
- * detail's address: a plan and its reading, a plan of the dossier, or a dossier piece and its generation. Null when the
- * combination is invalid by the address's own rules.
+ * detail's address: a plan and its reading, a plan of the dossier, or a dossier piece and its generation, and the item
+ * shown (`poste`), required with a reading. Null when the combination is invalid by the address's own rules.
  */
-export function readItemDetailPlanRequest(params: Params): { planKey: string | null; jobId: string | null;
+export function readItemDetailPlanRequest(params: Params): { itemId: string | null; planKey: string | null; jobId: string | null;
   source: { documentId: string; generation: string | null } | null } | null {
-  const read = readItemDetailAddress({ getAll: (name) => (name === P.itemId ? [PLAN_REQUEST_ITEM] : params.getAll(name)) });
+  const named = params.getAll(P.itemId).length > 0;
+  const read = readItemDetailAddress(named ? params : { getAll: (name) => (name === P.itemId ? [PLAN_REQUEST_ITEM] : params.getAll(name)) });
   if (read.kind !== "detail") return null;
   const { planKey, jobId, source } = read.address;
   if (!planKey && !source) return null;
-  if (jobId && !planKey) return null;
-  return { planKey, jobId, source };
+  if (jobId && (!planKey || !named)) return null;
+  return { itemId: named ? read.address.itemId : null, planKey, jobId, source };
 }

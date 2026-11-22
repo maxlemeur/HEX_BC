@@ -42,6 +42,7 @@ const READ_TIMEOUT_MS = 10_000;
 
 const planQuery = (request: ItemDetailPlanRequest) => {
   const query = new URLSearchParams();
+  if (request.itemId) query.set(P.itemId, request.itemId);
   if (request.source) {
     query.set(P.sourceId, request.source.documentId);
     if (request.source.generation) query.set(P.generation, request.source.generation);
@@ -83,8 +84,11 @@ export function createItemDetailReader(input: { projectId: string; table: ItemDe
 
 /**
  * The table of items as the detail reads it: the table's own routes (lot 4), in the scope, filter and page size of the
- * table's address, so that the queue is the table's pages in its order. An item outside the filter is read alone (its
- * route answers 404 when the list does not hold it: the detail then says the item is not found).
+ * table's address, so that the queue is the table's pages in its order. One item (outside the filter, or read again after
+ * a decision) is read in the table's scope without its filters, so that its totals, eligibility and revisions are those
+ * the table's command checks in that scope: alone on the affaire (its route answers 404 when the list does not hold it),
+ * on the table's page that holds it in a plan's scope (the route of one item reads the affaire only). Null when the item
+ * is not in the list, or not in the plan's scope: the detail then says it is not found.
  */
 export function itemTableDetailSource(projectId: string, address: ItemTableAddress): ItemDetailTableSource {
   const pageOf = (read: ItemTableResponse) => ({ page: read.page, canReview: read.canReview, names: read.names, plans: read.plans });
@@ -94,6 +98,11 @@ export function itemTableDetailSource(projectId: string, address: ItemTableAddre
         ? { ...address, offset: 0, focusItemId: request.itemId } : { ...address, offset: request.offset, focusItemId: null }));
     },
     async readLine(itemId) {
+      if (address.scope.kind === "plan") {
+        const read = await fetchItemTable(projectId, { ...address, filter: {}, offset: 0, focusItemId: itemId });
+        const line = read.page.lines.find((entry) => entry.itemId === itemId);
+        return line ? { line, canReview: read.canReview, names: read.names, plans: read.plans } : null;
+      }
       try {
         const read = await fetchItemLine(projectId, itemId);
         return { line: read.line, canReview: read.canReview, names: read.names, plans: read.plans };

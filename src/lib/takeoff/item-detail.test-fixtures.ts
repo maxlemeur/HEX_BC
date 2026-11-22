@@ -123,7 +123,9 @@ export type FixtureReaderCalls = { queue: ItemDetailQueueRequest[]; lines: strin
 /**
  * A reader over fictional lines: the table's pages of `limit` lines in its order, the item asked found on its page, an
  * item outside the filter read alone, plans from `views` (read at each resolution, so that a test can change what the
- * server would answer), a page of the queue held until released.
+ * server would answer), a page of the queue held until released. A reading is resolved for an item only when its job
+ * answered that item on that plan, as the server proves it: its current answer, or an earlier reading in `earlier` (by
+ * default the basin's reading of the ground floor by an earlier job).
  */
 export function fixtureItemDetailReader(input: {
   items?: ItemTablePoste[];
@@ -134,11 +136,13 @@ export function fixtureItemDetailReader(input: {
   canReview?: boolean;
   views?: Record<string, ItemDetailPlanView>;
   holdPages?: Promise<void>;
+  earlier?: Array<{ itemId: string; planKey: string; jobId: string }>;
 }): { reader: ItemDetailReader; calls: FixtureReaderCalls } {
   const items = input.items ?? DETAIL_ITEMS;
   const readings = input.readings ?? DETAIL_READINGS;
   const limit = input.limit ?? 50;
   const views = input.views ?? planViews();
+  const earlier = input.earlier ?? [{ itemId: ITEMS.basin, planKey: PLAN_RDC, jobId: JOB_EARLIER }];
   const calls: FixtureReaderCalls = { queue: [], lines: [], plans: [] };
   const table = (request: { offset?: number; focusItemId?: string | null }) => {
     const read = fixtureItemTable({ items, readings, entries: input.entries, plans: DETAIL_PLANS, limit, canReview: input.canReview,
@@ -163,6 +167,15 @@ export function fixtureItemDetailReader(input: {
     },
     async resolvePlan(request) {
       calls.plans.push(request);
+      if (request.jobId) {
+        const read = readings.some((reading) => reading.itemId === request.itemId && reading.planKey === request.planKey
+          && reading.answer?.jobId === request.jobId)
+          || earlier.some((entry) => entry.itemId === request.itemId && entry.planKey === request.planKey && entry.jobId === request.jobId);
+        if (!read) {
+          const { ItemDetailPlanError } = await import("@/lib/takeoff/item-detail-client");
+          throw new ItemDetailPlanError("TAKEOFF_ITEM_DETAIL_READING_NOT_FOUND", 404);
+        }
+      }
       const view = views[`${request.jobId ?? ""}:${request.planKey ?? request.source?.documentId ?? ""}`];
       if (!view) {
         const { ItemDetailPlanError } = await import("@/lib/takeoff/item-detail-client");

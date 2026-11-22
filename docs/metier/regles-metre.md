@@ -387,7 +387,9 @@ tableau, son détail, son historique et ses dialogues, quoi qu’ils aient montr
 **Détail du poste sur son plan** (lot 5). « Détail », sur la ligne d’un poste, ouvre ce
 poste sur la page Métrés elle-même (`?poste=…&plan=…&lecture=…`, les paramètres du tableau
 gardés) : le plan sur lequel le tableau est filtré quand le poste y a une lecture ou doit y
-être mesuré, sinon le premier plan qui a répondu, sinon le plan du dossier à mesurer. À
+être mesuré, sinon le premier plan qui a répondu, sinon le plan du dossier à mesurer. Une
+adresse qui nomme une pièce du dossier (`source`) sur laquelle le poste a depuis été lu ouvre
+la lecture scellée de ce plan, jamais la copie actuelle comme un plan que personne n’a lu. À
 gauche les postes du tableau dans son ordre et son filtre, figés à l’ouverture ; au centre la
 page du plan, dessinée depuis les octets que la lecture a scellés (ou la copie actuelle du
 dossier pour un poste jamais mesuré) ; à droite la preuve, l’état, la source, les décisions,
@@ -396,13 +398,23 @@ ou d’un plan à l’autre remplace l’adresse sans ajouter d’entrée à l�
 le retour du navigateur ferme le détail. « Revenir aux postes » (ou Échap) rend le tableau
 avec son filtre et sa page, sur le dernier poste montré, le clavier sur son « Détail ». Le
 détail lit les routes du tableau, dans sa portée et son filtre, avec les mêmes droits : tout
-lecteur de l’affaire le voit, seul un opérateur du métré de l’affaire décide, et une lecture
-refusée le retire comme elle retire le tableau. Ses gestes (accepter, écarter, saisir une
-quantité, inclure une hypothèse) passent par les confirmations du tableau et sa seule
-commande, sur ce poste dans la portée du tableau ; la base les décide de nouveau, et un poste
-changé depuis son affichage n’est pas modifié, il est relu. Un plan déjà envoyé au devis se
-consulte sans aucun geste. Une lecture antérieure (un ancien favori) montre son plan sans la
-preuve, les décisions, les saisies ni l’historique de la lecture actuelle.
+lecteur de l’affaire le voit, seul un opérateur du métré de l’affaire décide (le droit que
+donne la dernière lecture), et une lecture refusée le retire comme elle retire le tableau ;
+un poste que la liste (ou le plan de la portée) ne tient plus n’est plus montré. Un poste est
+relu dans la portée du tableau, sans ses filtres, et reste relu tant que le détail est
+ouvert. Une seule règle dit quels gestes sont offerts, lue par les boutons, les touches et
+les confirmations : aucun sur une lecture antérieure ni pour un lecteur. Ses gestes
+(accepter, écarter, saisir une quantité, inclure une hypothèse, envoyée aussitôt sans
+confirmation comme dans le tableau) passent par les confirmations du tableau et sa seule
+commande, sur ce poste dans la portée du tableau ; une confirmation nomme le poste et tombe
+dès que le poste, la lecture, la portée ou le membre montrés changent. La base décide de
+nouveau : elle compare les révisions des réponses, de leurs décisions et des saisies que la
+commande nomme et, si l’une a changé, n’applique rien (le poste est alors relu) ; une ligne
+revue sans changement de ces révisions reste jugée sur ce qui est enregistré, sous son
+verrou. Un plan déjà envoyé au devis se consulte sans aucun geste. Une lecture antérieure
+(un ancien favori) n’est ouverte que si cette analyse a répondu pour ce poste sur ce plan ;
+elle montre son plan sans la preuve, les décisions, les saisies ni l’historique de la
+lecture actuelle, dont elle ouvre la lecture dans « Plans du poste ».
 
 ## Contrat actuel de contrôle ciblé — TI-681
 

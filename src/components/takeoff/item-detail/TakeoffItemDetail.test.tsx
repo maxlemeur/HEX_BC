@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
+import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The second depth of the review (lot 5): the detail of an item on its plan, on lines built as the table of items builds
@@ -97,8 +98,12 @@ function open(initial: ItemDetailAddress, options: Parameters<typeof fixtureItem
   const onGesture = vi.fn();
   const onRefused = vi.fn(() => true);
   let set: (address: ItemDetailAddress) => void = () => undefined;
-  const view = render(<Page initial={initial} reader={reader} onBack={onBack} onGesture={onGesture} onRefused={onRefused}
-    setter={(value) => { set = value; }} />);
+  // A cache of the journal's reads of its own: each test reads the journal its stub serves.
+  const view = render(
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <Page initial={initial} reader={reader} onBack={onBack} onGesture={onGesture} onRefused={onRefused}
+        setter={(value) => { set = value; }} />
+    </SWRConfig>);
   return { ...view, reader, calls, onBack, onGesture, onRefused, setAddress: (next: ItemDetailAddress) => act(() => set(next)) };
 }
 
@@ -143,7 +148,7 @@ describe("TakeoffItemDetail, the states of an item", () => {
   it("opens a measured item on its first observation's page, with its evidence, its journal and its other plan", async () => {
     const { calls } = open(address({}));
     await settle();
-    expect(calls.plans).toEqual([{ planKey: PLAN_RDC, jobId: JOB_RDC, source: null }]);
+    expect(calls.plans).toEqual([{ itemId: ITEMS.basin, planKey: PLAN_RDC, jobId: JOB_RDC, source: null }]);
     expect(rendered.at(-1)).toEqual({ url: attested(JOB_RDC, COPY_RDC), page: 2 });
     expect(screen.getByText("Poste 1 sur 5")).toBeTruthy();
     const rows = within(evidence().getByRole("table", { name: "Observations" })).getAllByRole("row").slice(1).map((row) => row.textContent);
@@ -170,7 +175,7 @@ describe("TakeoffItemDetail, the states of an item", () => {
   it("opens an item never measured on the plan the dossier retains, by its signed address", async () => {
     const { calls } = open(address({ itemId: ITEMS.toMeasure }));
     await settle();
-    expect(calls.plans).toEqual([{ planKey: PLAN_RDC, jobId: null, source: null }]);
+    expect(calls.plans).toEqual([{ itemId: ITEMS.toMeasure, planKey: PLAN_RDC, jobId: null, source: null }]);
     expect(loads).toEqual([`https://files.test/dossier/${COPY_RDC}.pdf`]);
     expect(evidence().getByText(/À mesurer : aucune analyse n’a encore lu ce poste sur ce plan/)).toBeTruthy();
     expect(within(evidence().getByRole("list", { name: "Plans du poste" })).getAllByRole("button").map((button) => button.textContent))
@@ -180,7 +185,7 @@ describe("TakeoffItemDetail, the states of an item", () => {
   it("draws a scanned plan read without any vector page", async () => {
     const { calls } = open(address({ itemId: ITEMS.scan }));
     await settle();
-    expect(calls.plans).toEqual([{ planKey: PLAN_SCAN, jobId: JOB_SCAN, source: null }]);
+    expect(calls.plans).toEqual([{ itemId: ITEMS.scan, planKey: PLAN_SCAN, jobId: JOB_SCAN, source: null }]);
     expect(rendered.at(-1)).toEqual({ url: attested(JOB_SCAN, "53333333-3333-4333-8333-333333333333"), page: 2 });
     expect(evidence().getByText("Valeur candidate (non mesurée) : 4 u")).toBeTruthy();
     expect(fetches.filter((url) => url.includes("/vector-pages"))).toEqual([]);
@@ -255,11 +260,27 @@ describe("TakeoffItemDetail, the states of an item", () => {
   it("opens an earlier reading of an old bookmark on that reading's plan, never with the current reading's evidence", async () => {
     const { calls } = open(address({ planKey: PLAN_RDC, jobId: JOB_EARLIER, page: 2 }));
     await settle();
-    expect(calls.plans).toEqual([{ planKey: PLAN_RDC, jobId: JOB_EARLIER, source: null }]);
+    expect(calls.plans).toEqual([{ itemId: ITEMS.basin, planKey: PLAN_RDC, jobId: JOB_EARLIER, source: null }]);
     expect(evidence().getByText(/Lecture antérieure du poste sur ce plan/)).toBeTruthy();
     expect(evidence().queryByRole("table", { name: "Observations" })).toBeNull();
     expect(evidence().queryByText(/Accepté par/)).toBeNull();
     expect(evidence().getByText("Les décisions portent sur la lecture actuelle de ce plan.")).toBeTruthy();
+  });
+
+  // Review of #483 (written before the fix): « Plans du poste » compared the plan only, so under an earlier reading the
+  // current reading of the same plan counted as shown and could not be opened.
+  it("opens the current reading of the plan from an old bookmark's earlier reading", async () => {
+    const { calls } = open(address({ planKey: PLAN_RDC, jobId: JOB_EARLIER, page: 2 }));
+    await settle();
+    const plans = within(evidence().getByRole("list", { name: "Plans du poste" }));
+    const rdc = plans.getByRole("button", { name: /^Plan RDC/ });
+    expect(rdc.getAttribute("aria-current")).toBeNull();
+    fireEvent.click(rdc);
+    await settle();
+    expect(new URLSearchParams(window.location.search).get("lecture")).toBe(JOB_RDC);
+    expect(calls.plans.at(-1)).toEqual({ itemId: ITEMS.basin, planKey: PLAN_RDC, jobId: JOB_RDC, source: null });
+    expect(evidence().queryByText(/Lecture antérieure du poste sur ce plan/)).toBeNull();
+    expect(evidence().getByRole("table", { name: "Observations" })).toBeTruthy();
   });
 
   // Before the detail is opened to members (review of #465): a later manual entry and the current journal were shown
@@ -366,6 +387,31 @@ describe("TakeoffItemDetail, the states of an item", () => {
 });
 
 describe("TakeoffItemDetail, one reader, one member", () => {
+  // Review of #483 (written before the fix): the older events loaded for one item stayed under the next item shown.
+  it("shows under an item only its own journal, older events included", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      const url = new URL(String(input), "https://app.test");
+      const item = /\/items\/([^/]+)\/history/.exec(url.pathname)?.[1] ?? null;
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      const at = "2026-11-21T10:00:00.000Z";
+      const events = item !== ITEMS.basin ? [] : offset === 0
+        ? [{ id: 2, event: "accepted", planKey: PLAN_RDC, takeoffItemId: null, before: null, after: { kind: "accepted" }, actorId: MEMBER, at }]
+        : [{ id: 1, event: "set_aside", planKey: PLAN_RDC, takeoffItemId: null, before: null, after: { reason: "duplicate" }, actorId: MEMBER, at }];
+      return new Response(JSON.stringify({ ok: true, data: { projectId: DETAIL_PROJECT, itemId: item, events, offset, limit: 20,
+        hasMore: item === ITEMS.basin && offset === 0, names: { [MEMBER]: MEMBER_NAME } } }), { status: 200 });
+    }));
+    open(address({}));
+    await settle();
+    fireEvent.click(evidence().getByRole("button", { name: "Événements plus anciens" }));
+    await settle();
+    expect(evidence().getByText(/Écarté : doublon/)).toBeTruthy();
+    fireEvent.keyDown(list(), { key: "ArrowDown" });
+    await settle();
+    expect(selected()).not.toContain("Lavabo céramique");
+    expect(evidence().getByText("Aucune décision n’a encore été prise sur ce poste.")).toBeTruthy();
+    expect(evidence().queryByText(/Écarté : doublon/)).toBeNull();
+  });
+
   it("starts from nothing when its reader changes while it stays shown", async () => {
     const first = fixtureItemDetailReader({});
     // The other member reads the same item under another name, and may not review it.
@@ -378,7 +424,7 @@ describe("TakeoffItemDetail, one reader, one member", () => {
     rerender(<Page initial={address({})} reader={second.reader} onBack={vi.fn()} onGesture={onGesture} />);
     await settle();
     expect(second.calls.queue).toEqual([{ kind: "focus", itemId: ITEMS.basin }]);
-    expect(second.calls.plans).toEqual([{ planKey: PLAN_RDC, jobId: JOB_RDC, source: null }]);
+    expect(second.calls.plans).toEqual([{ itemId: ITEMS.basin, planKey: PLAN_RDC, jobId: JOB_RDC, source: null }]);
     expect(selected()).toContain("Lavabo (autre membre)");
     fireEvent.keyDown(list(), { key: "v" });
     expect(onGesture).not.toHaveBeenCalled();
@@ -572,7 +618,7 @@ describe("TakeoffItemDetail, the keyboard of the list", () => {
     const { onGesture } = open(address({}));
     await settle();
     fireEvent.keyDown(list(), { key: "e" });
-    expect(onGesture).toHaveBeenLastCalledWith({ gesture: "set_aside", line: basinLine, initial: null });
+    expect(onGesture).toHaveBeenLastCalledWith({ gesture: "set_aside", line: basinLine, initial: null, key: expect.stringContaining(ITEMS.basin) });
     fireEvent.keyDown(list(), { key: "F2" });
     expect(onGesture).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("poste-detail-notice").textContent).toMatch(/^« Saisir une quantité » ne s’applique pas à ce poste : /);
@@ -588,7 +634,7 @@ describe("TakeoffItemDetail, the keyboard of the list", () => {
     const { onGesture } = open(address({ itemId: ITEMS.notFound }));
     await settle();
     fireEvent.keyDown(list(), { key: "7", shiftKey: true });
-    expect(onGesture).toHaveBeenLastCalledWith({ gesture: "enter_quantity", line: notFoundLine, initial: "7" });
+    expect(onGesture).toHaveBeenLastCalledWith({ gesture: "enter_quantity", line: notFoundLine, initial: "7", key: expect.stringContaining(ITEMS.notFound) });
   });
 
   it("does nothing with a modifier or Shift, during a composition, for a member who cannot review, or for a key that would spend", async () => {
@@ -611,5 +657,46 @@ describe("TakeoffItemDetail, the keyboard of the list", () => {
     fireEvent.keyDown(list(), { key: "v" });
     expect(reader.onGesture).not.toHaveBeenCalled();
     expect(screen.getByTestId("poste-detail-notice").textContent).toBe("Un opérateur du métré de l’affaire peut revoir ce poste.");
+  });
+});
+
+// Review of #483, first independent review (its cases, written before the fixes and kept as written; the reading of
+// JOB_EARLIER is said to be the other item's alone).
+describe("TakeoffItemDetail, review of #483", () => {
+  it("refuses a job which measured only another item on the same already-read plan", async () => {
+    const readings = DETAIL_READINGS.map((r) => r.itemId === ITEMS.notFound && r.answer ? { ...r, answer: { ...r.answer, jobId: JOB_EARLIER } } : r);
+    open(address({ itemId: ITEMS.basin, jobId: JOB_EARLIER, planKey: PLAN_RDC }), { readings, earlier: [] });
+    await settle();
+    expect(screen.queryByText(MISMATCH) !== null).toBe(true);
+    expect(screen.queryByRole("complementary", { name: "Preuve et décisions du poste" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Décider du poste" })).toBeNull();
+  });
+
+  it("withdraws after the next page of a queue refuses the read", async () => {
+    const { reader, onRefused } = open(address({ itemId: ITEMS.basin }), { limit: 1 });
+    await settle();
+    const original = reader.readQueue;
+    reader.readQueue = async (r) => { if (r.kind === "page") throw new TakeoffApiError("Accès refusé", 403, null, "FORBIDDEN"); return original(r); };
+    fireEvent.keyDown(list(), { key: "ArrowDown" });
+    await settle();
+    expect(onRefused).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns on Escape once Enter has moved focus to evidence", async () => {
+    const { onBack } = open(address({}));
+    await settle();
+    fireEvent.keyDown(list(), { key: "Enter" });
+    await settle();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  // One rule offers a gesture, read by the buttons and the keys: none under an earlier reading.
+  it("asks for no gesture by key under an earlier reading, and says why", async () => {
+    const { onGesture } = open(address({ planKey: PLAN_RDC, jobId: JOB_EARLIER, page: 2 }));
+    await settle();
+    for (const key of ["v", "e", "F2", "3"]) fireEvent.keyDown(list(), { key });
+    expect(onGesture).not.toHaveBeenCalled();
+    expect(screen.getByTestId("poste-detail-notice").textContent).toBe("Les décisions portent sur la lecture actuelle de ce plan.");
   });
 });

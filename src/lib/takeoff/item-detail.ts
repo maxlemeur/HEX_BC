@@ -47,12 +47,15 @@ export function itemDetailPlanKeys(line: ItemDetailLine): Set<string> {
  * opens the old reading's plan, without its evidence until answers are readable by their identity), else the first plan
  * that answered, else the first plan asked, else the first plan a new measure would read (« À mesurer »). Every
  * identifier named is checked to be the item's: a plan or a piece of another item, an answer that is not the reading's,
- * or an observation that is not the answer's is a mismatch.
+ * or an observation that is not the answer's is a mismatch. A dossier piece the item has since been read on opens the
+ * item's sealed reading of that plan: an old dossier bookmark never shows today's copy as a plan nobody read.
  */
 export function chooseItemDetailPlan(line: ItemDetailLine, address: DetailIdentifiers): ItemDetailPlanChoice {
   const plans = itemDetailPlanKeys(line);
   if (address.source) {
     if (!plans.has(address.source.documentId) || address.answerId || address.observationId) return { kind: "mismatch" };
+    const read = fromReading(line.readings.find((reading) => reading.planKey === address.source!.documentId) ?? null);
+    if (read) return withEvidence(read, { ...address, source: null });
     return { kind: "source", documentId: address.source.documentId, generation: address.source.generation };
   }
   if (address.planKey && !plans.has(address.planKey)) return { kind: "mismatch" };
@@ -88,6 +91,28 @@ function withEvidence(choice: ItemDetailPlanChoice, address: DetailIdentifiers):
   // An observation is shown on its page: an address that names it with another page has two meanings.
   if (observation && address.page != null && observation.page !== null && observation.page !== address.page) return { kind: "mismatch" };
   return { ...choice, observationId: address.observationId ?? null };
+}
+
+/** The gestures the detail asks for (its buttons and its keys); the table's command decides them again. */
+export type ItemDetailOfferedGesture = Extract<ItemDetailGesture, "accept_measured" | "set_aside" | "include_entry" | "enter_quantity">;
+
+export type ItemDetailGestureOffer =
+  | { offered: true }
+  | { offered: false; reason: "reader" | "not_shown" | "earlier_reading" }
+  | { offered: false; reason: "ineligible"; ineligibility: ItemDetailLine["eligibility"][ItemDetailGesture]["reason"] };
+
+/**
+ * Whether a review gesture is offered on what the detail shows: to an operator of the affaire's takeoff (`canReview`, the
+ * latest read's), on the item's current state (never under an earlier reading, nor where nothing of the item is shown),
+ * where its line admits it. The one rule the buttons, the keys and the confirmations read; the server decides again.
+ */
+export function itemDetailGestureOffer(input: { line: ItemDetailLine; choice: ItemDetailPlanChoice; canReview: boolean },
+  gesture: ItemDetailOfferedGesture): ItemDetailGestureOffer {
+  if (!input.canReview) return { offered: false, reason: "reader" };
+  if (input.choice.kind === "mismatch") return { offered: false, reason: "not_shown" };
+  if (input.choice.kind === "reading" && !input.choice.current) return { offered: false, reason: "earlier_reading" };
+  const eligibility = input.line.eligibility[gesture];
+  return eligibility.eligible ? { offered: true } : { offered: false, reason: "ineligible", ineligibility: eligibility.reason };
 }
 
 function fromReading(reading: ItemDetailReading | null): ItemDetailPlanChoice | null {

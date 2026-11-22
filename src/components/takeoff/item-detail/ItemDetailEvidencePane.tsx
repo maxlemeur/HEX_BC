@@ -7,8 +7,14 @@ import { ItemTableHistory } from "@/components/takeoff/item-table/ItemTableHisto
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
-import type { ItemDetailEntry, ItemDetailLine, ItemDetailObservation, ItemDetailPlanChoice } from "@/lib/takeoff/item-detail";
-import type { ItemDetailKeyGesture } from "@/lib/takeoff/item-detail-keys";
+import type {
+  ItemDetailEntry,
+  ItemDetailGestureOffer,
+  ItemDetailLine,
+  ItemDetailObservation,
+  ItemDetailOfferedGesture,
+  ItemDetailPlanChoice,
+} from "@/lib/takeoff/item-detail";
 import {
   ITEM_DETAIL_GESTURE_LABELS,
   ITEM_DETAIL_OUTCOME_LABELS,
@@ -51,24 +57,26 @@ type Props = {
   onObservation: (observation: ItemDetailObservation) => void;
   onPlan: (planKey: string, jobId: string | null) => void;
   /**
-   * The member's rights on the item, as the table reads them: an operator of the affaire's takeoff is offered the gestures
-   * the line admits (the same as the list's keys), a reader none. The page confirms and sends them by the table's command.
+   * What is offered on what is shown (the detail's one rule, the keys' too): an operator of the affaire's takeoff is
+   * offered the gestures the line admits on its current state, a reader none. The page confirms and sends them by the
+   * table's command.
    */
-  decide: { canReview: boolean; onGesture: (gesture: ItemDetailKeyGesture) => void };
+  decide: { offer: (gesture: ItemDetailOfferedGesture) => ItemDetailGestureOffer; onGesture: (gesture: ItemDetailOfferedGesture) => void };
 };
 
 /** The gestures offered as buttons, in the order of the list's keys (V, E, F2, I). */
-const PANE_GESTURES = ["accept_measured", "set_aside", "enter_quantity", "include_entry"] as const satisfies readonly ItemDetailKeyGesture[];
+const PANE_GESTURES = ["accept_measured", "set_aside", "enter_quantity", "include_entry"] as const satisfies readonly ItemDetailOfferedGesture[];
 
 function DecisionButtons({ line, decide }: { line: ItemDetailLine; decide: Props["decide"] }) {
-  if (!decide.canReview) {
+  const offers = PANE_GESTURES.map((gesture) => ({ gesture, offer: decide.offer(gesture) }));
+  if (offers.some(({ offer }) => !offer.offered && offer.reason === "reader")) {
     return (
       <p className="text-xs text-muted-foreground" data-testid="poste-detail-read-only">
         Lecture seule : un opérateur du métré de l’affaire décide de ce poste.
       </p>
     );
   }
-  const open = PANE_GESTURES.filter((gesture) => line.eligibility[gesture].eligible);
+  const open = offers.filter(({ offer }) => offer.offered).map(({ gesture }) => gesture);
   if (!open.length) {
     const reason = line.eligibility.accept_measured.reason ?? line.eligibility.set_aside.reason;
     return <p className="text-xs text-muted-foreground">Aucune décision ne s’applique à ce poste : {itemDetailIneligibilityLabel(reason)}.</p>;
@@ -272,7 +280,8 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
 
       <Section title="Historique">
         {earlier ? <p className="text-xs text-muted-foreground">L’historique porte sur la lecture actuelle du poste.</p> : (
-          <ItemTableHistory key={historyVersion} projectId={projectId} itemId={line.itemId} version={historyVersion} onRefused={onRefused}
+          <ItemTableHistory key={`${line.itemId}:${historyVersion}`} projectId={projectId} itemId={line.itemId} version={historyVersion}
+            onRefused={onRefused}
             plans={Object.fromEntries(line.readings.map(({ planKey, planName }) => [planKey, planName]))} />
         )}
       </Section>
@@ -280,7 +289,8 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
       <Section title="Plans du poste">
         <ul aria-label="Plans du poste" className="space-y-1">
           {line.readings.map((entry) => {
-            const shown = shownPlan === entry.planKey;
+            // The reading shown, not only its plan: from an earlier reading, its plan's current reading opens.
+            const shown = shownPlan === entry.planKey && !earlier;
             return (
               <li key={entry.planKey}>
                 <Button variant={shown ? "secondary" : "ghost"} size="xs" aria-current={shown ? "true" : undefined}

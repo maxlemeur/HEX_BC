@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { TakeoffItemDetail, type ItemDetailGestureRequest } from "@/components/takeoff/item-detail/TakeoffItemDetail";
+import { TakeoffItemDetail, type ItemDetailGestureRequest, type ItemDetailShown } from "@/components/takeoff/item-detail/TakeoffItemDetail";
 import { AcceptMeasuredDialog, EntryDialog, SetAsideDialog } from "@/components/takeoff/item-table/ItemTableGestureDialogs";
 import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActivity";
 import { Alert } from "@/components/ui/alert";
@@ -37,11 +37,21 @@ import { TAKEOFF_ITEM_UNIT_MAX_LENGTH } from "@/lib/takeoff/types";
  * affaire sees it, only an operator of the affaire's takeoff decides; the server decides each gesture again). A refused
  * read withdraws it, as the table withdraws itself. A decision goes through the table's own confirmations and its one
  * command (POST …/takeoff/items/review), on this one item in the table's scope: never a second writer.
+ *
+ * A confirmation belongs to what opened it: the item and the reading shown (`key`), the member and the table's scope. It
+ * is dropped as soon as any of them changes or the gesture is no longer offered on it, and its command is built, when the
+ * member confirms, from the item as the detail shows it then, named in the dialog.
  */
 
-type Pending =
-  | { gesture: "accept_measured" | "set_aside"; line: ItemDetailLine; intentKey: string }
-  | { gesture: "enter_quantity"; line: ItemDetailLine; intentKey: string; value: { quantity: number; unit: string } | null; initial: string };
+type Pending = {
+  gesture: "accept_measured" | "set_aside" | "enter_quantity";
+  intentKey: string;
+  key: string;
+  viewerKey: string;
+  scopeKey: string;
+  value: { quantity: number; unit: string } | null;
+  initial: string;
+};
 
 type Notice = { tone: "success" | "info" | "danger"; text: string };
 
@@ -120,7 +130,16 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
     return refused;
   }, []);
   const [version, setVersion] = useState(0);
+  const [shown, setShown] = useState<ItemDetailShown | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
+  const scopeKey = JSON.stringify(tableAddress.scope);
+  // The confirmation open now: the one asked on what is shown, by this member, in this scope, for a gesture still offered.
+  const active = useMemo(() => (pending && shown && pending.key === shown.key && pending.viewerKey === viewerKey
+    && pending.scopeKey === scopeKey && shown.offered.includes(pending.gesture) ? { ...pending, line: shown.line } : null),
+  [pending, shown, viewerKey, scopeKey]);
+  useEffect(() => {
+    if (pending && !active) setPending(null);
+  }, [pending, active]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -147,14 +166,15 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
     scope: tableAddress.scope, targets: [line.targets] });
   const onGesture = (request: ItemDetailGestureRequest) => {
     setNotice(null);
+    // Asked on what is shown now, and offered on it: otherwise nothing is opened nor sent.
+    if (!shown || request.key !== shown.key || !shown.offered.includes(request.gesture)) return;
     if (request.gesture === "include_entry") {
       void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: newIntent(), scope: tableAddress.scope,
-        gesture: "include_entry", targets: [request.line.targets] }, "inclus");
+        gesture: "include_entry", targets: [shown.line.targets] }, "inclus");
       return;
     }
-    setPending(request.gesture === "enter_quantity"
-      ? { gesture: "enter_quantity", line: request.line, intentKey: newIntent(), value: null, initial: request.initial ?? "" }
-      : { gesture: request.gesture, line: request.line, intentKey: newIntent() });
+    setPending({ gesture: request.gesture, intentKey: newIntent(), key: shown.key, viewerKey, scopeKey, value: null,
+      initial: request.initial ?? "" });
   };
 
   if (refusal) {
@@ -175,10 +195,11 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       </div>
     );
   }
-  // The command's scope is the table's (the whole affaire, or the plan it is filtered on), named as the table names it.
+  // The item confirmed, and the command's scope: the table's (the whole affaire, or the plan it is filtered on), named as
+  // the table names it.
   const scope = tableAddress.scope;
-  const scopeLabel = scope.kind === "affaire" ? "Portée : toute l’affaire"
-    : `Portée : plan « ${pending?.line.readings.find(({ planKey }) => planKey === scope.planKey)?.planName ?? "choisi"} »`;
+  const scopeLabel = `« ${active?.line.label ?? ""} » · ${scope.kind === "affaire" ? "Portée : toute l’affaire"
+    : `Portée : plan « ${active?.line.readings.find(({ planKey }) => planKey === scope.planKey)?.planName ?? "choisi"} »`}`;
 
   return (
     <div className="space-y-2">
@@ -191,26 +212,26 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       {/* A move inside replaces the address natively (history.replaceState), which the router's search parameters follow:
           no navigation, no server render per arrow. */}
       <TakeoffItemDetail projectId={projectId} address={detail.address} reader={reader} tableQuery={query} onBack={back}
-        onGesture={onGesture} onRefused={withdrawOnRefusal} version={version} />
-      {pending?.gesture === "accept_measured" ? (
+        onGesture={onGesture} onRefused={withdrawOnRefusal} version={version} onShown={setShown} />
+      {active?.gesture === "accept_measured" ? (
         <AcceptMeasuredDialog scopeLabel={scopeLabel} busy={busy} total={1} eligible={1} onClose={() => setPending(null)}
-          onConfirm={() => void runCommand({ ...base(pending.line, pending.intentKey), gesture: "accept_measured" }, "accepté")} />
+          onConfirm={() => void runCommand({ ...base(active.line, active.intentKey), gesture: "accept_measured" }, "accepté")} />
       ) : null}
-      {pending?.gesture === "set_aside" ? (
-        <SetAsideDialog scopeLabel={scopeLabel} busy={busy} total={1} eligible={1} answers={pending.line.targets.answers.length}
+      {active?.gesture === "set_aside" ? (
+        <SetAsideDialog scopeLabel={scopeLabel} busy={busy} total={1} eligible={1} answers={active.line.targets.answers.length}
           onClose={() => setPending(null)}
-          onConfirm={(reason: ItemSetAsideReason, note: string | null) => void runCommand({ ...base(pending.line, pending.intentKey),
+          onConfirm={(reason: ItemSetAsideReason, note: string | null) => void runCommand({ ...base(active.line, active.intentKey),
             gesture: "set_aside", reason, ...(note ? { note } : {}) }, "écarté")} />
       ) : null}
-      {pending?.gesture === "enter_quantity" && !pending.value ? (
-        <EntryValueDialog line={pending.line} initial={pending.initial} onClose={() => setPending(null)}
-          onConfirm={(value) => setPending({ ...pending, value })} />
+      {active?.gesture === "enter_quantity" && !active.value ? (
+        <EntryValueDialog line={active.line} initial={active.initial} onClose={() => setPending(null)}
+          onConfirm={(value) => setPending({ ...pending!, value })} />
       ) : null}
-      {pending?.gesture === "enter_quantity" && pending.value ? (
+      {active?.gesture === "enter_quantity" && active.value ? (
         <EntryDialog scopeLabel={scopeLabel} busy={busy} onClose={() => setPending(null)}
-          values={[{ itemId: pending.line.itemId, label: pending.line.label, ...pending.value }]}
-          onConfirm={(entry: QuantityEntry) => void runCommand({ ...base(pending.line, pending.intentKey), gesture: "enter_quantity",
-            values: [{ item_id: pending.line.itemId, quantity: pending.value!.quantity, unit: pending.value!.unit }], entry }, "saisi")} />
+          values={[{ itemId: active.line.itemId, label: active.line.label, ...active.value }]}
+          onConfirm={(entry: QuantityEntry) => void runCommand({ ...base(active.line, active.intentKey), gesture: "enter_quantity",
+            values: [{ item_id: active.line.itemId, quantity: active.value!.quantity, unit: active.value!.unit }], entry }, "saisi")} />
       ) : null}
     </div>
   );

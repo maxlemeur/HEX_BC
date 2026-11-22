@@ -16,6 +16,16 @@ export const ITEM_DETAIL_OUTCOME_LABELS = { measured: "Mesuré", uncertain: "Inc
 
 export const itemDetailIneligibilityLabel = (reason: ItemIneligibility | null) =>
   (reason ? ITEM_INELIGIBILITY_LABELS[reason] : null) ?? "ne s’applique pas";
+/** Why the detail does not offer a gesture, in French, as the keys say it. */
+export function itemDetailGestureRefusalLabel(gesture: keyof typeof ITEM_DETAIL_GESTURE_LABELS,
+  offer: { offered: false; reason: "reader" | "not_shown" | "earlier_reading" | "ineligible"; ineligibility?: ItemIneligibility | null }) {
+  switch (offer.reason) {
+    case "reader": return "Un opérateur du métré de l’affaire peut revoir ce poste.";
+    case "earlier_reading": return "Les décisions portent sur la lecture actuelle de ce plan.";
+    case "not_shown": return "Ce lien ne désigne pas une lecture de ce poste.";
+    case "ineligible": return `« ${ITEM_DETAIL_GESTURE_LABELS[gesture]} » ne s’applique pas à ce poste : ${itemDetailIneligibilityLabel(offer.ineligibility ?? null)}.`;
+  }
+}
 export const itemDetailCategoryLabel = (category: string) =>
   (QUANTITY_ENTRY_CATEGORIES as Record<string, string>)[category] ?? "Saisie";
 

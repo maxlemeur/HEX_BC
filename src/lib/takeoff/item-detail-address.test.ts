@@ -6,6 +6,7 @@ import {
   itemTablePageOffset,
   itemTableReturnHref,
   readItemDetailAddress,
+  readItemDetailPlanRequest,
   resolveHistoricalReviewLink,
   type ItemDetailAddress,
 } from "@/lib/takeoff/item-detail-address";
@@ -103,6 +104,19 @@ describe("itemDetailHref and itemTableReturnHref", () => {
     expect(itemTableReturnHref(PROJECT, open, { itemId: OTHER_ITEM, offset: itemTablePageOffset(3, 25) }))
       .toBe(`${TAKEOFF}?postePlan=${PIECE}&posteState=measured&posteLimit=25&tab=jobs&posteFocus=${OTHER_ITEM}`);
     expect(itemTableReturnHref(PROJECT, `poste=${ITEM}&plan=p`, null)).toBe(TAKEOFF);
+  });
+});
+
+// Review of #483 (written before the fix): the plan route resolved a reading without the item, so a job that read only
+// another item on the plan was shown as this item's earlier reading. A reading is asked for an item.
+describe("readItemDetailPlanRequest", () => {
+  it("reads the item a reading is asked for, and refuses a reading asked for no item", () => {
+    expect(readItemDetailPlanRequest(new URLSearchParams(`poste=${ITEM}&plan=${PIECE}&lecture=${JOB}`)))
+      .toEqual({ itemId: ITEM, planKey: PIECE, jobId: JOB, source: null });
+    expect(readItemDetailPlanRequest(new URLSearchParams(`plan=${PIECE}&lecture=${JOB}`))).toBeNull();
+    expect(readItemDetailPlanRequest(new URLSearchParams(`plan=${PIECE}`))).toEqual({ itemId: null, planKey: PIECE, jobId: null, source: null });
+    expect(readItemDetailPlanRequest(new URLSearchParams(`poste=${ITEM}&source=${PIECE}`)))
+      .toEqual({ itemId: ITEM, planKey: null, jobId: null, source: { documentId: PIECE, generation: null } });
   });
 });
 

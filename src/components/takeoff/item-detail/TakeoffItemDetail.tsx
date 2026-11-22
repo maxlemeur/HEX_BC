@@ -20,18 +20,16 @@ import {
   ItemDetailQueue,
   chooseItemDetailPlan,
   itemDetailChoiceAddress,
+  itemDetailGestureOffer,
   itemDetailOpeningPage,
   itemDetailPagesOfInterest,
   type ItemDetailLine,
   type ItemDetailLineRead,
+  type ItemDetailOfferedGesture,
   type ItemDetailPlanChoice,
 } from "@/lib/takeoff/item-detail";
 import { isItemDetailFieldTarget, itemDetailKeyAction, type ItemDetailKeyGesture } from "@/lib/takeoff/item-detail-keys";
-import {
-  ITEM_DETAIL_GESTURE_LABELS,
-  itemDetailIneligibilityLabel,
-  itemDetailPlanErrorLabel,
-} from "@/lib/takeoff/item-detail-labels";
+import { itemDetailGestureRefusalLabel, itemDetailPlanErrorLabel } from "@/lib/takeoff/item-detail-labels";
 import { ITEM_STATE_LABELS, formatItemQuantity } from "@/lib/takeoff/item-table-labels";
 
 /**
@@ -48,7 +46,16 @@ import { ITEM_STATE_LABELS, formatItemQuantity } from "@/lib/takeoff/item-table-
  * Everything the detail shows belongs to its reader, one per member and affaire: a new reader starts from nothing.
  */
 
-export type ItemDetailGestureRequest = { gesture: ItemDetailKeyGesture; line: ItemDetailLine; initial: string | null };
+/** A gesture asked on what the detail shows (`key`: the item and the reading shown when it was asked). */
+export type ItemDetailGestureRequest = { gesture: ItemDetailKeyGesture; line: ItemDetailLine; initial: string | null; key: string };
+
+/**
+ * What the detail shows, for the page that confirms its gestures: the item and its reading (`key`), the item's line as
+ * last read, and the gestures the one rule offers on it now. Null while nothing of an item is shown.
+ */
+export type ItemDetailShown = { key: string; line: ItemDetailLine; offered: readonly ItemDetailOfferedGesture[] };
+
+const OFFERED_GESTURES = ["accept_measured", "set_aside", "enter_quantity", "include_entry"] as const satisfies readonly ItemDetailOfferedGesture[];
 
 type Props = {
   projectId: string;
@@ -67,6 +74,8 @@ type Props = {
   onRefused?: (caught: unknown) => boolean;
   /** Changes after a decision of the page on the item shown: its line and its journal are read again, nothing moves. */
   version?: number;
+  /** Told what the detail shows each time it changes (another item, reading, line read again or right). */
+  onShown?: (shown: ItemDetailShown | null) => void;
 };
 
 type Load = { state: "loading" } | { state: "ready" } | { state: "missing" } | { state: "error" };
@@ -91,11 +100,12 @@ const choiceKey = (choice: ItemDetailPlanChoice) => (choice.kind === "reading" ?
   : choice.kind === "dossier" ? `d:${choice.planKey}` : choice.kind === "source" ? `s:${choice.documentId}:${choice.generation ?? ""}`
     : choice.kind);
 
-function planRequest(choice: ItemDetailPlanChoice): ItemDetailPlanRequest | null {
+/** The plan to resolve for the item shown: a reading is resolved only for an item its analysis answered on that plan. */
+function planRequest(choice: ItemDetailPlanChoice, itemId: string): ItemDetailPlanRequest | null {
   switch (choice.kind) {
-    case "reading": return { planKey: choice.planKey, jobId: choice.jobId, source: null };
-    case "dossier": return { planKey: choice.planKey, jobId: null, source: null };
-    case "source": return { planKey: null, jobId: null, source: { documentId: choice.documentId, generation: choice.generation } };
+    case "reading": return { itemId, planKey: choice.planKey, jobId: choice.jobId, source: null };
+    case "dossier": return { itemId, planKey: choice.planKey, jobId: null, source: null };
+    case "source": return { itemId, planKey: null, jobId: null, source: { documentId: choice.documentId, generation: choice.generation } };
     default: return null;
   }
 }
@@ -103,7 +113,7 @@ function planRequest(choice: ItemDetailPlanChoice): ItemDetailPlanRequest | null
 const neverRefused = () => false;
 
 function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGesture, onAddressChange, onRefused = neverRefused,
-  version = 0 }: Props) {
+  version = 0, onShown }: Props) {
   const queue = useMemo(() => new ItemDetailQueue(), []);
   const [revision, setRevision] = useState(0);
   const [load, setLoad] = useState<Load>({ state: "loading" });
@@ -118,6 +128,8 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   const evidence = useRef<HTMLHeadingElement>(null);
   /** Changes with each navigation the member asks for: a move still waiting for a page does not act after another. */
   const navigation = useRef(0);
+  /** The member's right to decide, as the latest read of the table answered it (a page, an item read alone or again). */
+  const [rights, setRights] = useState<boolean | null>(null);
 
   // The queue: the table's page that holds the item, as the table filtered it; an item outside the filter (a link of the
   // radar) is read alone and shown beside it. Read once per item not yet in the queue.
@@ -130,6 +142,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     void reader.readQueue({ kind: "focus", itemId }).then(async (page) => {
       if (!active) return;
       queue.add(page);
+      setRights(page.canReview);
       setAnchor(page.page.offset);
       if (page.page.focusFound && queue.find(itemId)) {
         setOutside(null);
@@ -139,6 +152,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
       }
       const alone = await reader.readLine(itemId);
       if (!active) return;
+      if (alone) setRights(alone.canReview);
       setOutside(alone);
       setLoad({ state: alone ? "ready" : "missing" });
       setRevision((value) => value + 1);
@@ -153,14 +167,17 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId, queue, reader]);
 
-  // After a decision of the page, the item shown is read again alone and replaces its line where it stands: the queue's
-  // order and the page shown do not move.
-  const [refreshed, setRefreshed] = useState<{ version: number; line: ItemDetailLine } | null>(null);
+  // After a decision of the page, the item shown is read again in the table's scope and replaces its line where it stands,
+  // kept by item: the queue's membership, its order and the page shown do not move. An item no longer in the list (or in
+  // the plan's scope) is cleared of what was read of it; the right read with it governs the gestures.
+  const [fresh, setFresh] = useState<Record<string, ItemDetailLine | null>>({});
   useEffect(() => {
     if (version === 0) return;
     let active = true;
     void reader.readLine(itemId).then((read) => {
-      if (active && read) setRefreshed({ version, line: read.line });
+      if (!active) return;
+      setFresh((current) => ({ ...current, [itemId]: read?.line ?? null }));
+      if (read) setRights(read.canReview);
     }).catch((caught: unknown) => {
       if (active) onRefused(caught);
     });
@@ -171,9 +188,10 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
   const read = found?.page.page.lines[found.index] ?? (outside?.line.itemId === itemId ? outside.line : null);
-  const line = refreshed && refreshed.line.itemId === itemId ? refreshed.line : read;
+  const gone = fresh[itemId] === null;
+  const line = itemId in fresh ? fresh[itemId] ?? null : read;
   const context = found?.page ?? (anchor !== null ? queue.page(anchor) : null);
-  const canReview = found ? found.page.canReview : outside?.canReview ?? false;
+  const canReview = rights ?? false;
   // A notice belongs to the item it was said for.
   const [noticeFor, setNoticeFor] = useState(itemId);
   if (noticeFor !== itemId) {
@@ -184,12 +202,15 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   const planNames = useMemo(() => Object.fromEntries((context?.plans ?? []).map(({ key, name }) => [key, name])), [context]);
   const position = queue.position(itemId);
 
-  const choice = useMemo<ItemDetailPlanChoice>(() => (line ? chooseItemDetailPlan(line, address) : { kind: "none" }), [line, address]);
+  const chosen = useMemo<ItemDetailPlanChoice>(() => (line ? chooseItemDetailPlan(line, address) : { kind: "none" }), [line, address]);
   // A plan is resolved again each time it is opened (another plan, reading or piece), never for a page turned or an item
   // shown on the same plan: the request is read when the plan changes, not followed.
-  const key = choiceKey(choice);
+  const key = `${itemId}|${choiceKey(chosen)}`;
   const request = useRef<ItemDetailPlanRequest | null>(null);
-  request.current = planRequest(choice);
+  request.current = planRequest(chosen, itemId);
+  /** The reading the server refused for this item (its analysis did not answer it on that plan): shown as a mismatch. */
+  const [refusedReading, setRefusedReading] = useState<string | null>(null);
+  const choice = useMemo<ItemDetailPlanChoice>(() => (refusedReading === key ? { kind: "mismatch" } : chosen), [chosen, key, refusedReading]);
   // The page's latest handler of a refusal, without resolving the plan again when it changes.
   const planRefused = useEffectEvent((failure: ItemDetailPlanError) => onRefused(failure));
   const [resolved, setResolved] = useState<{ key: string; resolution: ItemDetailPlanResolution }>({ key: "", resolution: { state: "none" } });
@@ -206,6 +227,11 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     }).catch((error: unknown) => {
       if (!active) return;
       const failure = error instanceof ItemDetailPlanError ? error : new ItemDetailPlanError(null, null);
+      if (failure.code === "TAKEOFF_ITEM_DETAIL_READING_NOT_FOUND") {
+        setRefusedReading(key);
+        setResolved({ key, resolution: { state: "none" } });
+        return;
+      }
       // The affaire itself refused (rights, session, the affaire gone): the page withdraws the detail.
       if (failure.status === 401 || failure.status === 403 || (failure.status === 404 && failure.code === "NOT_FOUND")) {
         planRefused(failure);
@@ -271,16 +297,18 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
         // The member went back or elsewhere meanwhile, or another address arrived: the move is dropped.
         if (!mounted.current || navigation.current !== asked || latestAddress.current !== from) return;
         queue.add(page);
+        setRights(page.canReview);
         setRevision((value) => value + 1);
-      } catch {
-        if (mounted.current && navigation.current === asked) setNotice("La page suivante des postes n’a pas pu être lue.");
+      } catch (caught) {
+        if (!mounted.current || onRefused(caught)) return;
+        if (navigation.current === asked) setNotice("La page suivante des postes n’a pas pu être lue.");
         return;
       }
       next = queue.neighbour(itemId, step);
     }
     if (next && "itemId" in next) openItem(next.itemId);
     else setNotice(step > 0 ? "Dernier poste de la sélection." : "Premier poste de la sélection.");
-  }, [context, itemId, openItem, queue, reader]);
+  }, [context, itemId, onRefused, openItem, queue, reader]);
 
   const back = useCallback(() => {
     navigation.current += 1;
@@ -289,20 +317,37 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
       : { itemId, offset: itemTablePageOffset(index, context?.page.limit ?? 0) }));
   }, [context, itemId, onBack, position, projectId, tableQuery]);
 
+  // What is offered on what is shown: the one rule the buttons, the keys and the page's confirmations read.
+  const offer = useCallback((requested: ItemDetailOfferedGesture) =>
+    itemDetailGestureOffer({ line: line!, choice, canReview: canReview && Boolean(onGesture) }, requested), [canReview, choice, line, onGesture]);
   const gesture = useCallback((requested: ItemDetailKeyGesture, initial: string | null) => {
     if (!line) return;
-    const label = ITEM_DETAIL_GESTURE_LABELS[requested];
-    if (!canReview || !onGesture) {
-      setNotice("Un opérateur du métré de l’affaire peut revoir ce poste.");
+    const offered = offer(requested);
+    if (!offered.offered) {
+      setNotice(itemDetailGestureRefusalLabel(requested, offered));
       return;
     }
-    const eligibility = line.eligibility[requested];
-    if (!eligibility.eligible) {
-      setNotice(`« ${label} » ne s’applique pas à ce poste : ${itemDetailIneligibilityLabel(eligibility.reason)}.`);
-      return;
-    }
-    onGesture({ gesture: requested, line, initial });
-  }, [canReview, line, onGesture]);
+    onGesture!({ gesture: requested, line, initial, key });
+  }, [key, line, offer, onGesture]);
+
+  // The page is told what is shown and what it offers, so that a confirmation never outlives what opened it.
+  const offeredNow = line && !gone && choice.kind !== "mismatch" && load.state === "ready"
+    ? OFFERED_GESTURES.filter((requested) => offer(requested).offered) : null;
+  const offeredKey = offeredNow?.join(",") ?? null;
+  const tellShown = useEffectEvent((shown: ItemDetailShown | null) => onShown?.(shown));
+  useEffect(() => {
+    tellShown(line && offeredNow ? { key, line, offered: offeredNow } : null);
+    // `offeredKey` stands for the gestures offered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, line, offeredKey]);
+  useEffect(() => () => tellShown(null), []);
+
+  const onEvidenceKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape" || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.nativeEvent.isComposing
+      || isItemDetailFieldTarget(event.target)) return;
+    event.preventDefault();
+    back();
+  };
 
   const onListKey = (event: ReactKeyboardEvent<HTMLUListElement>) => {
     const action = itemDetailKeyAction({ key: event.key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey,
@@ -350,7 +395,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
       </p>
       {notice ? <p className="shrink-0 border-b border-border bg-surface px-3 py-1 text-xs text-foreground-secondary" data-testid="poste-detail-notice">{notice}</p> : null}
 
-      {load.state === "missing" ? (
+      {load.state === "missing" || gone ? (
         <div className="p-4"><Alert variant="danger">Ce poste est introuvable dans la liste de l’affaire.</Alert></div>
       ) : load.state === "error" ? (
         <div className="p-4"><Alert variant="danger">Les postes du métré n’ont pas pu être lus. Revenez aux postes puis réessayez.</Alert></div>
@@ -385,13 +430,14 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
           <ItemDetailPlanPane resolution={line ? resolution : { state: "loading" }} page={opening.page} requestedMissing={opening.requestedMissing}
             pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page, observationId: null })} onDocumentState={setDocumentState}
             emptyMessage="Aucun plan n’est associé à ce poste pour le moment." />
-          <div data-testid="poste-detail-evidence-panel" data-narrow-collapsed={String(!panels.evidence)}
+          {/* Escape comes back to the table from the evidence too (its heading takes the focus with Enter). */}
+          <div data-testid="poste-detail-evidence-panel" data-narrow-collapsed={String(!panels.evidence)} onKeyDown={onEvidenceKey}
             className={cn("w-[24rem] shrink-0 border-l border-border max-lg:w-full max-lg:border-l-0 max-lg:border-t", !panels.evidence && "max-lg:hidden")}>
             {line ? (
               <ItemDetailEvidencePane ref={evidence} projectId={projectId} line={line} choice={choice} plan={view}
                 documentState={documentState} names={names} planNames={planNames} outsideFilter={!found && outside !== null}
                 historyVersion={version} onRefused={onRefused}
-                decide={{ canReview: canReview && Boolean(onGesture), onGesture: (requested) => gesture(requested, null) }}
+                decide={{ offer, onGesture: (requested) => gesture(requested, null) }}
                 onObservation={(observation) => go({ page: observation.page, observationId: observation.observationId,
                   answerId: answer?.answerId ?? null })}
                 onPlan={(planKey, jobId) => go({ planKey, jobId, page: null, source: null, answerId: null, observationId: null })} />

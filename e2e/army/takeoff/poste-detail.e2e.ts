@@ -147,6 +147,8 @@ insert into public.tenant_memberships (tenant_id, user_id, role, is_default) val
 
       await recordEvidence(army, "POSTE-DETAIL01", { projectId: seeded.projectId, sentProjectId: sent.projectId,
         decisions: await readOwnedDecisions(seeded.projectId), screenshots: shots,
-        boundary: "Owned stack; fictional PDF and answers seeded by the database's functions; no AI call, no e-mail." });
+        boundary: "Owned stack; fictional PDF and answers seeded by the database's functions; no AI call, no e-mail. The sent "
+          + "plan is a job whose status the seed sets to applied (triggers off for that write), with no send receipt: the send "
+          + "itself is another pull request's." });
     });
 });

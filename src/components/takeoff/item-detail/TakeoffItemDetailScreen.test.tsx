@@ -1,4 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The detail of an item as the affaire's takeoff page shows it, on the table of items' reads and command (lot 5, the
@@ -32,20 +34,36 @@ vi.mock("@/lib/takeoff/item-table-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/item-table-client")>(), ...client,
 }));
 
-let searchParams = new URLSearchParams();
 const replace = vi.hoisted(() => vi.fn());
-vi.mock("next/navigation", () => ({
-  usePathname: () => "/dashboard/affaires/project/takeoff",
-  useRouter: () => ({ replace }),
-  useSearchParams: () => searchParams,
-}));
+// The address as Next gives it: the page's search parameters follow `history.replaceState` (Next patches it so).
+const address = vi.hoisted(() => {
+  const listeners = new Set<() => void>();
+  return { listeners, subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); } };
+});
+vi.mock("next/navigation", async () => {
+  const { useMemo, useSyncExternalStore } = await import("react");
+  return {
+    usePathname: () => "/dashboard/affaires/project/takeoff",
+    useRouter: () => ({ replace }),
+    useSearchParams: () => {
+      const search = useSyncExternalStore(address.subscribe, () => window.location.search);
+      return useMemo(() => new URLSearchParams(search), [search]);
+    },
+  };
+});
+const replaceState = window.history.replaceState.bind(window.history);
+window.history.replaceState = (data: unknown, unused: string, url?: string | URL | null) => {
+  replaceState(data, unused, url);
+  for (const listener of address.listeners) listener();
+};
 
 import { TakeoffItemDetailScreen } from "@/components/takeoff/item-detail/TakeoffItemDetailScreen";
 import { TakeoffApiError } from "@/lib/takeoff/client-http";
 import { takeoffItemDetailHref } from "@/lib/takeoff/review-href";
 import type { ItemTableAddress } from "@/lib/takeoff/item-table-query";
 import {
-  DETAIL_ITEMS, DETAIL_PLANS, DETAIL_PROJECT, DETAIL_READINGS, ITEMS, JOB_R1, JOB_RDC, PLAN_R1, PLAN_RDC, detailReadings, planViews,
+  DETAIL_ITEMS, DETAIL_PLANS, DETAIL_PROJECT, DETAIL_READINGS, ITEMS, JOB_EARLIER, JOB_R1, JOB_RDC, PLAN_R1, PLAN_RDC, detailReadings,
+  planViews,
 } from "@/lib/takeoff/item-detail.test-fixtures";
 import { fixtureItemTable } from "@/lib/takeoff/item-table.test-fixtures";
 import type { ItemReadingInput } from "@/lib/takeoff/item-table";
@@ -86,12 +104,16 @@ afterEach(() => {
 });
 
 const TABLE = "posteState=measured&posteState=not_found&tab=jobs";
+function FreshCache({ children }: { children: ReactNode }) {
+  return <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>{children}</SWRConfig>;
+}
+
 function open(item: string, plan: string | null, job: string | null, table = TABLE) {
   const href = takeoffItemDetailHref({ projectId: DETAIL_PROJECT, itemId: item, planKey: plan, jobId: job, from: table });
   const url = new URL(href, "https://app.test");
   window.history.replaceState(null, "", `${url.pathname}${url.search}`);
-  searchParams = new URLSearchParams(url.search);
-  return render(<TakeoffItemDetailScreen projectId={DETAIL_PROJECT} viewerKey="tenant:member" />);
+  // A cache of the journal's reads of its own, kept while the screen is rendered again.
+  return render(<TakeoffItemDetailScreen projectId={DETAIL_PROJECT} viewerKey="tenant:member" />, { wrapper: FreshCache });
 }
 
 async function settle() {
@@ -110,7 +132,7 @@ describe("TakeoffItemDetailScreen, the decisions", () => {
     fireEvent.click(evidence().getByRole("button", { name: "Accepter" }));
     expect(client.sendItemReviewCommand).not.toHaveBeenCalled();
     expect(dialog().getByText(/Portée : plan « Plan R\+1 »/)).toBeTruthy();
-    const linesBefore = client.fetchItemLine.mock.calls.length;
+    const tableReads = client.fetchItemTable.mock.calls.length;
     fireEvent.click(dialog().getByRole("button", { name: "Accepter 1 poste" }));
     await settle();
     const homonym = tableOf({ scope: { kind: "plan", planKey: PLAN_R1 } }).page.lines.find(({ itemId }) => itemId === ITEMS.homonym)!;
@@ -120,8 +142,11 @@ describe("TakeoffItemDetailScreen, the decisions", () => {
       targets: [homonym.targets], gesture: "accept_measured",
     });
     expect(screen.getByTestId("poste-detail-decision").textContent).toBe("Poste accepté.");
-    // The item is read again (its line and its journal), the member stays on it.
-    expect(client.fetchItemLine.mock.calls.length).toBeGreaterThan(linesBefore);
+    // The item is read again (its line and its journal) in the table's plan, without its filters; the member stays on it.
+    expect(client.fetchItemTable.mock.calls.length).toBeGreaterThan(tableReads);
+    expect(client.fetchItemTable).toHaveBeenLastCalledWith(DETAIL_PROJECT, expect.objectContaining({
+      scope: { kind: "plan", planKey: PLAN_R1 }, filter: {}, focusItemId: ITEMS.homonym }));
+    expect(client.fetchItemLine).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
 
@@ -161,6 +186,65 @@ describe("TakeoffItemDetailScreen, the decisions", () => {
     await settle();
     expect(screen.getByTestId("poste-detail-decision").textContent).toMatch(/^Rien n’a été appliqué : le poste a changé/);
     expect(client.fetchItemLine.mock.calls.length).toBeGreaterThan(linesBefore);
+  });
+});
+
+describe("TakeoffItemDetailScreen, the item read again after a decision", () => {
+  const stale = () => new TakeoffApiError("La sélection a changé.", 409,
+    { stale: [{ itemId: ITEMS.basin, label: "Lavabo céramique" }] }, "TAKEOFF_ITEM_REVIEW_STALE");
+  const setAside = async () => {
+    fireEvent.click(evidence().getByRole("button", { name: "Écarter" }));
+    fireEvent.click(dialog().getByRole("radio", { name: "Doublon" }));
+    fireEvent.click(dialog().getByRole("button", { name: "Écarter 1 poste" }));
+    await settle();
+  };
+
+  // Review of #483 (written before the fix): read again alone, the item came back with every plan of the affaire while
+  // the commands stayed in the table's plan, so the next one named answers outside it and was refused as stale.
+  it("reads the item again in the table's scope, so that the next command names only that scope's answers", async () => {
+    client.sendItemReviewCommand.mockRejectedValueOnce(stale()).mockResolvedValueOnce({ outcome: "applied", applied: [], skipped: [] });
+    open(ITEMS.basin, PLAN_RDC, JOB_RDC, `postePlan=${PLAN_RDC}&posteState=measured&tab=jobs`);
+    await settle();
+    await setAside();
+    await setAside();
+    const scoped = tableOf({ scope: { kind: "plan", planKey: PLAN_RDC } }).page.lines.find(({ itemId }) => itemId === ITEMS.basin)!;
+    expect(scoped.targets.answers).toHaveLength(1);
+    expect(client.sendItemReviewCommand).toHaveBeenCalledTimes(2);
+    for (const [, command] of client.sendItemReviewCommand.mock.calls) {
+      expect(command).toMatchObject({ scope: { kind: "plan", planKey: PLAN_RDC }, targets: [scoped.targets] });
+    }
+    // Read again without the table's filters: an item the filter no longer keeps stays decidable.
+    expect(client.fetchItemTable).toHaveBeenLastCalledWith(DETAIL_PROJECT, expect.objectContaining({
+      scope: { kind: "plan", planKey: PLAN_RDC }, filter: {}, focusItemId: ITEMS.basin }));
+  });
+
+  // Review of #483 (written before the fix): one item read again at a time, so after deciding B, A came back as first read
+  // (its old decision, its old revisions) and its next command was refused as stale.
+  it("keeps each item read again after its decision, the queue's order unchanged", async () => {
+    const setAsideOf = (itemId: string) => (readings: ItemReadingInput[]) => readings.map((reading) => reading.itemId === itemId
+      && reading.answer ? { ...reading, decisionRevision: reading.decisionRevision + 1, decision: { kind: "set_aside" as const,
+        revision: reading.decisionRevision + 1, reason: "duplicate" as const, note: null, actorId: reading.answer.jobId, at: "2026-11-22T09:00:00.000Z" } }
+      : reading);
+    client.sendItemReviewCommand.mockImplementation(async (_project: string, command: { targets: Array<{ itemId: string }> }) => {
+      scenario = { ...scenario, readings: setAsideOf(command.targets[0]!.itemId)(scenario.readings) };
+      return { outcome: "applied", applied: [{ itemId: command.targets[0]!.itemId, label: "x", answers: 1 }], skipped: [] };
+    });
+    open(ITEMS.basin, PLAN_RDC, JOB_RDC);
+    await settle();
+    const options = () => within(screen.getByRole("listbox", { name: "Postes" })).getAllByRole("option");
+    const order = options().map((option) => option.textContent);
+    await setAside();
+    expect(evidence().getByText(/^Écarté \(Doublon\)/)).toBeTruthy();
+    fireEvent.click(options().find((option) => option.textContent?.startsWith("Siphon de sol"))!);
+    await settle();
+    await setAside();
+    expect(evidence().getByText(/^Écarté \(Doublon\)/)).toBeTruthy();
+    fireEvent.click(options()[0]!);
+    await settle();
+    expect(evidence().getByRole("heading", { name: "Lavabo céramique" })).toBeTruthy();
+    expect(evidence().getByText(/^Écarté \(Doublon\)/)).toBeTruthy();
+    expect(evidence().queryByText(/^Accepté/)).toBeNull();
+    expect(options().map((option) => option.textContent)).toEqual(order);
   });
 });
 
@@ -218,5 +302,132 @@ describe("TakeoffItemDetailScreen, the way back", () => {
       `/dashboard/affaires/${DETAIL_PROJECT}/takeoff?posteState=measured&posteState=not_found&tab=jobs&posteFocus=${ITEMS.notFound}`,
       { scroll: false });
     expect(plansAsked.every((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`))).toBe(true);
+  });
+});
+
+// Review of #483, first independent review: its cases, written before the fixes. The page's address moves as Next moves it
+// (`go`: history.replaceState, which the search parameters follow) where the review set the mocked parameters and
+// rendered again; the assertions are the review's.
+describe("TakeoffItemDetailScreen, review of #483", () => {
+  const go = (href: string) => act(() => {
+    const url = new URL(href, "https://app.test");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  });
+  const setAside = async () => {
+    fireEvent.click(evidence().getByRole("button", { name: "Écarter" }));
+    fireEvent.click(dialog().getByRole("radio", { name: "Doublon" }));
+    fireEvent.click(dialog().getByRole("button", { name: "Écarter 1 poste" }));
+    await settle();
+  };
+
+  it("keeps the refreshed target in the table scope after a stale refusal", async () => {
+    client.sendItemReviewCommand.mockRejectedValue(new TakeoffApiError("stale", 409, { stale: [{ itemId: ITEMS.basin, label: "Lavabo" }] },
+      "TAKEOFF_ITEM_REVIEW_STALE"));
+    open(ITEMS.basin, PLAN_R1, JOB_R1, "postePlan=" + PLAN_R1);
+    await settle();
+    scenario.readings = scenario.readings.map((r) => r.itemId === ITEMS.basin && r.planKey === PLAN_R1 ? { ...r, decisionRevision: r.decisionRevision + 1 } : r);
+    await setAside(); await setAside();
+    expect(client.sendItemReviewCommand.mock.calls.map((args) => args[1].targets[0].answers.length)).toEqual([1, 1]);
+  });
+
+  it("withdraws a line that went missing on the stale reread", async () => {
+    client.sendItemReviewCommand.mockRejectedValue(new TakeoffApiError("stale", 409, { stale: [{ itemId: ITEMS.basin, label: "Lavabo" }] },
+      "TAKEOFF_ITEM_REVIEW_STALE"));
+    client.fetchItemLine.mockRejectedValue(new TakeoffApiError("introuvable", 404, null, "NOT_FOUND"));
+    open(ITEMS.basin, PLAN_R1, JOB_R1);
+    await settle(); await setAside();
+    expect(screen.queryByRole("group", { name: "Décider du poste" }) === null).toBe(true);
+  });
+
+  it("applies the latest canReview when refreshing a line", async () => {
+    client.sendItemReviewCommand.mockResolvedValue({ applied: [], skipped: [] });
+    open(ITEMS.basin, PLAN_R1, JOB_R1);
+    await settle(); scenario.canReview = false; await setAside();
+    expect(screen.queryByRole("group", { name: "Décider du poste" }) === null).toBe(true);
+  });
+
+  it("offers no keyboard decision under a historical reading", async () => {
+    open(ITEMS.basin, PLAN_RDC, JOB_EARLIER);
+    await settle();
+    expect(evidence().getByText(/Lecture antérieure du poste/)).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "e" });
+    const activeDialog = screen.queryByRole("dialog");
+    if (activeDialog) {
+      fireEvent.click(dialog().getByRole("radio", { name: "Doublon" }));
+      fireEvent.click(dialog().getByRole("button", { name: "Écarter 1 poste" }));
+      await settle();
+    }
+    expect(client.sendItemReviewCommand.mock.calls.map((args) => args[1].targets[0].answers.map((a: { answerId: string }) => a.answerId))).toEqual([]);
+  });
+
+  it("keeps older journal pages with the item they belong to", async () => {
+    client.fetchItemHistory.mockImplementation(async (projectId: string, itemId: string, { offset }: { offset: number }) => ({
+      projectId, itemId, offset, limit: 20, hasMore: itemId === ITEMS.basin && offset === 0, names: {},
+      events: offset ? [{ id: 123, event: "set_aside", at: "2026-11-21T10:00:00.000Z", actorId: "operator", planKey: null,
+        after: { reason: "duplicate", note: "Basin journal only" } }] : [],
+    }));
+    open(ITEMS.basin, PLAN_RDC, JOB_RDC);
+    await settle();
+    fireEvent.click(evidence().getByRole("button", { name: "Événements plus anciens" }));
+    await settle();
+    expect(evidence().getByText(/Basin journal only/)).toBeTruthy();
+    go(takeoffItemDetailHref({ projectId: DETAIL_PROJECT, itemId: ITEMS.notFound, planKey: PLAN_RDC, jobId: JOB_RDC, from: TABLE }));
+    await settle();
+    expect(evidence().getByRole("heading", { name: "Siphon de sol" })).toBeTruthy();
+    expect(evidence().queryByText(/Basin journal only/) === null).toBe(true);
+  });
+
+  it("closes an operator's pending dialog when the screen receives a reader identity", async () => {
+    const wrapper = open(ITEMS.homonym, PLAN_R1, JOB_R1);
+    await settle();
+    fireEvent.click(evidence().getByRole("button", { name: "Accepter" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    scenario.canReview = false;
+    wrapper.rerender(<TakeoffItemDetailScreen projectId={DETAIL_PROJECT} viewerKey="tenant:reader" />);
+    await settle();
+    expect(screen.queryByRole("dialog") === null).toBe(true);
+  });
+
+  it("keeps an old dossier bookmark from presenting today's decision against replacement bytes", async () => {
+    go(takeoffItemDetailHref({ projectId: DETAIL_PROJECT, itemId: ITEMS.basin, source: { documentId: PLAN_RDC, generation: null } }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, data: planViews()[":" + PLAN_RDC] }), { status: 200 })));
+    render(<TakeoffItemDetailScreen projectId={DETAIL_PROJECT} viewerKey="tenant:member" />);
+    await settle();
+    const offered = evidence().queryByRole("button", { name: "Écarter" }) !== null;
+    expect({ saidUnread: evidence().queryByText(/aucune analyse n’a encore lu ce poste sur ce plan/) !== null, offered })
+      .not.toEqual({ saidUnread: true, offered: true });
+  });
+
+  it("invalidates a pending confirmation when another item address arrives", async () => {
+    open(ITEMS.basin, PLAN_R1, JOB_R1);
+    await settle();
+    fireEvent.click(evidence().getByRole("button", { name: "Écarter" }));
+    fireEvent.click(dialog().getByRole("radio", { name: "Doublon" }));
+    go(takeoffItemDetailHref({ projectId: DETAIL_PROJECT, itemId: ITEMS.notFound, planKey: PLAN_RDC, jobId: JOB_RDC, from: TABLE }));
+    await settle();
+    expect(screen.getByText("Siphon de sol", { selector: "h2" })).toBeTruthy();
+    const ok = screen.queryByRole("button", { name: "Écarter 1 poste" });
+    if (ok) { fireEvent.click(ok); await settle(); }
+    expect(client.sendItemReviewCommand.mock.calls.map((args) => args[1].targets[0].itemId)).toEqual([]);
+  });
+
+  it("retains the fresh decision on A after reviewing B and returning to A", async () => {
+    client.sendItemReviewCommand.mockImplementation(async (_project: string, cmd: { targets: Array<{ itemId: string }> }) => {
+      const id = cmd.targets[0]!.itemId;
+      scenario.readings = scenario.readings.map((r) => r.itemId === id ? { ...r, decisionRevision: r.decisionRevision + 1,
+        decision: { kind: "set_aside" as const, reason: "duplicate" as const, note: null, actorId: "operator", at: "2026-11-22T10:00:00Z",
+          revision: r.decisionRevision + 1 } } : r);
+      return { applied: [{ itemId: id }], skipped: [] };
+    });
+    open(ITEMS.basin, PLAN_RDC, JOB_RDC);
+    const show = async (itemId: string) => {
+      go(takeoffItemDetailHref({ projectId: DETAIL_PROJECT, itemId, planKey: PLAN_RDC, jobId: JOB_RDC, from: TABLE }));
+      await settle();
+    };
+    await settle(); await setAside();
+    expect(evidence().queryByRole("button", { name: "Écarter" })).toBeNull();
+    await show(ITEMS.notFound); await setAside();
+    await show(ITEMS.basin);
+    expect(evidence().queryByRole("button", { name: "Écarter" }) === null).toBe(true);
   });
 });
