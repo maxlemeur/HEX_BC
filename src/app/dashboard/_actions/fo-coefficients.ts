@@ -37,66 +37,87 @@ export async function readFoCoefficientSettings() {
   };
 }
 
-export async function saveFoCoefficientSetting(input: {
-  supplyTypeId: string;
-  scope: "company" | "personal";
-  coefficient: number | null;
-}) {
-  const parsed = z
-    .object({
-      supplyTypeId: z.uuid(),
-      scope: z.enum(["company", "personal"]),
-      coefficient: z.number().min(0).max(999999999.999).nullable(),
-    })
-    .parse(input);
-  if (
-    parsed.coefficient !== null &&
-    Number(parsed.coefficient.toFixed(6)) !== parsed.coefficient
-  ) {
-    throw new Error("Le K FO accepte six décimales au maximum.");
+const coefficientChangeSchema = z.object({
+  supplyTypeId: z.uuid(),
+  scope: z.enum(["company", "personal"]),
+  coefficient: z.number().min(0).max(999999999.999).nullable(),
+});
+
+export type FoCoefficientChange = z.infer<typeof coefficientChangeSchema>;
+
+/**
+ * Saves the cells edited in the K FO table. Every change is checked before the first write; the
+ * writes are idempotent, so a request that fails part-way is retried with the same changes.
+ */
+export async function saveFoCoefficientSettings(input: FoCoefficientChange[]) {
+  const changes = z.array(coefficientChangeSchema).min(1).max(500).parse(input);
+  const keys = new Set(changes.map((c) => `${c.scope}:${c.supplyTypeId}`));
+  if (keys.size !== changes.length)
+    throw new Error("Un coefficient est modifié deux fois.");
+  for (const change of changes) {
+    if (
+      change.coefficient !== null &&
+      Number(change.coefficient.toFixed(6)) !== change.coefficient
+    )
+      throw new Error("Le K FO accepte six décimales au maximum.");
+    if (change.scope === "company" && change.coefficient === null)
+      throw new Error("La base entreprise doit être renseignée.");
   }
   const { supabase, tenantId, userId, isTenantAdmin } =
     await getAuthenticatedTenantContext();
-  const type = await supabase
+  const company = changes.filter((c) => c.scope === "company");
+  const personal = changes.filter((c) => c.scope === "personal");
+  if (company.length > 0 && !isTenantAdmin)
+    throw new Error("La base entreprise est réservée aux administrateurs.");
+  const ids = [...new Set(changes.map((c) => c.supplyTypeId))];
+  const types = await supabase
     .from("supply_types")
     .select("id")
-    .eq("id", parsed.supplyTypeId)
     .eq("tenant_id", tenantId)
-    .single();
-  if (type.error || !type.data)
+    .in("id", ids);
+  if (types.error || (types.data ?? []).length !== ids.length)
     throw new Error("Type de fourniture introuvable.");
-  if (parsed.scope === "company") {
-    if (!isTenantAdmin)
-      throw new Error("La base entreprise est réservée aux administrateurs.");
-    if (parsed.coefficient === null)
-      throw new Error("La base entreprise doit être renseignée.");
+
+  for (const change of company) {
     const result = await supabase
       .from("supply_types")
-      .update({ default_fo_provision: parsed.coefficient })
-      .eq("id", parsed.supplyTypeId)
+      .update({ default_fo_provision: change.coefficient as number })
+      .eq("id", change.supplyTypeId)
       .eq("tenant_id", tenantId);
     if (result.error)
       throw new Error("Impossible d'enregistrer la base entreprise.");
-  } else {
-    const result =
-      parsed.coefficient === null
-        ? await supabase
-            .from("estimate_fo_preferences")
-            .delete()
-            .eq("tenant_id", tenantId)
-            .eq("user_id", userId)
-            .eq("supply_type_id", parsed.supplyTypeId)
-        : await supabase.from("estimate_fo_preferences").upsert(
-            {
-              tenant_id: tenantId,
-              user_id: userId,
-              supply_type_id: parsed.supplyTypeId,
-              coefficient: parsed.coefficient,
-            },
-            { onConflict: "tenant_id,user_id,supply_type_id" },
-          );
+  }
+  const upserts = personal.flatMap((c) =>
+    c.coefficient === null
+      ? []
+      : [
+          {
+            tenant_id: tenantId,
+            user_id: userId,
+            supply_type_id: c.supplyTypeId,
+            coefficient: c.coefficient,
+          },
+        ],
+  );
+  if (upserts.length > 0) {
+    const result = await supabase
+      .from("estimate_fo_preferences")
+      .upsert(upserts, { onConflict: "tenant_id,user_id,supply_type_id" });
     if (result.error)
-      throw new Error("Impossible d'enregistrer votre préférence.");
+      throw new Error("Impossible d'enregistrer vos préférences.");
+  }
+  const cleared = personal
+    .filter((c) => c.coefficient === null)
+    .map((c) => c.supplyTypeId);
+  if (cleared.length > 0) {
+    const result = await supabase
+      .from("estimate_fo_preferences")
+      .delete()
+      .eq("tenant_id", tenantId)
+      .eq("user_id", userId)
+      .in("supply_type_id", cleared);
+    if (result.error)
+      throw new Error("Impossible d'enregistrer vos préférences.");
   }
   return readFoCoefficientSettings();
 }

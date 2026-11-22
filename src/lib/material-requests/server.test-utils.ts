@@ -83,6 +83,7 @@ const TECHNICIAN_NAME_KEY = (row: FakeRow) => `${row.tenant_id}|${String(row.nam
 /** Unique keys the routes may hit; null: the row holds no key (a product without reference). */
 const UNIQUE_KEYS: Record<string, (row: FakeRow) => string | null> = {
   material_request_technicians: TECHNICIAN_NAME_KEY,
+  material_request_message_templates: (row) => `${row.tenant_id}|${row.user_id}`,
   product_aliases: (row) => `${row.tenant_id}|${row.product_id}|${row.alias_key}`,
   product_packagings: (row) => `${row.product_id}|${packagingKey(String(row.label), Number(row.quantity))}`,
   products: (row) => (row.reference ? `${row.tenant_id}|${String(row.reference).trim().toLowerCase()}` : null),
@@ -165,6 +166,11 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
       const parent = parentOf("material_requests", row.request_id);
       // Like the database: a new original is not stored yet, whatever the client sends.
       return { tenant_id: parent?.tenant_id ?? null, project_id: parent?.project_id ?? null, rotation: 0, ...row, stored_at: null, removed_at: null };
+    }
+    if (table === "material_request_message_templates") {
+      // The template trigger (TI-691): the caller's active tenant and the caller, whatever was sent.
+      const membership = (tables.tenant_memberships ?? []).find((entry) => entry.user_id === options.userId);
+      return { ...row, tenant_id: membership?.tenant_id ?? null, user_id: options.userId, updated_at: row.created_at };
     }
     if (table === "material_request_technicians") {
       // The column's default: the active tenant of the caller.
