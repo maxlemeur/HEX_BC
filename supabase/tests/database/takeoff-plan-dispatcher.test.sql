@@ -933,13 +933,19 @@ select results_eq($$select r.state, r.item_list_revision_id from private.seal_ta
 select results_eq($$select r.state, r.item_list_revision_id from private.seal_takeoff_launch_request(pg_temp.waiting(2170),
     pg_temp.grouped(pg_temp.free_order()), pg_temp.snapshot(2170), 0) r$$, $$values ('admitted'::text, null::uuid)$$,
   'format 1, the free extraction: admitted, no list recorded');
+-- Format 1 never seals a list once activated either (20261122113611_takeoff_item_answers_before_activation.sql): its
+-- grouped job could never publish answers, plan by plan. Until then these three were a stale admission, a refusal and an
+-- admission recording the list.
 select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2180), pg_temp.grouped(pg_temp.item_order(pg_temp.f(2181))),
-    pg_temp.snapshot(2180), 0)$$, '40001', 'TAKEOFF_LAUNCH_DOSSIER_CHANGED', 'format 1, a stale revision: the admission is stale');
+    pg_temp.snapshot(2180), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'format 1, a stale revision: refused');
 select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2180), pg_temp.grouped(pg_temp.item_order(pg_temp.f(2143))),
     pg_temp.snapshot(2180), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'format 1, another affaire''s revision: refused');
+select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2180),
+    pg_temp.grouped(pg_temp.item_order(pg_temp.f(2183))), pg_temp.snapshot(2180), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID',
+  'format 1, the latest revision: refused, a list is read plan by plan');
 select results_eq($$select r.state, r.item_list_revision_id from private.seal_takeoff_launch_request(pg_temp.waiting(2180),
-    pg_temp.grouped(pg_temp.item_order(pg_temp.f(2183))), pg_temp.snapshot(2180), 0) r$$, $$values ('admitted'::text, pg_temp.f(2183))$$,
-  'format 1, the latest revision: admitted, its list recorded on the request');
+    pg_temp.grouped(pg_temp.free_order()), pg_temp.snapshot(2180), 0) r$$, $$values ('admitted'::text, null::uuid)$$,
+  'format 1 of that affaire still seals the free extraction');
 -- A's own rules keep their place beside the order: a grouped manifest of two units is refused whatever its order. Its
 -- request waits for its seal and the manifest is valid but for its count of units (each operand of `||` in parentheses:
 -- `->` and `||` bind alike, left to right), so that the count alone refuses it.

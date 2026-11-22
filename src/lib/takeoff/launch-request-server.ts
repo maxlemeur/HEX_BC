@@ -105,6 +105,10 @@ function launchError(error: { code?: string; message: string }, fallback: string
     // Lot 4: the list of items changed while the command was sealed (once the second order is activated).
     case "TAKEOFF_LAUNCH_DOSSIER_CHANGED":
       throw refusal(409, TakeoffErrorCode.CONFLICT, "La liste des postes a changé pendant la relance : relancez l’analyse.");
+    // Lot 4: a plan read against the list must have its page count known at the seal, before any call is paid.
+    case "TAKEOFF_LAUNCH_PLAN_PAGES_UNKNOWN":
+      throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR,
+        "Le nombre de pages d’un plan n’a pas pu être lu : vérifiez que son PDF s’ouvre, puis relancez la lecture contre la liste des postes.");
   }
   // Two operations of one affaire that crossed in the database and were rolled back (a deadlock, a serialization
   // failure): nothing was recorded, the same command may be sent again.
