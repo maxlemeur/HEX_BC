@@ -479,6 +479,19 @@ describe("confirmTakeoffItemSend", () => {
     expect(written).toEqual([]);
   });
 
+  // The copy of a draft fed by item (#500) meets the landing of #499: a copy's receipt names no job, so a plan already sent
+  // lands on the version its send wrote, never on a copy of it, even one whose receipt would come first.
+  it("lands a plan already sent on its send's version, never on a copy's receipt", async () => {
+    const { receipt } = await committedReceipt();
+    const copyReceipt = { id: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd", tenant_id: TENANT, request_id: null, command_kind: "copy", job_id: null,
+      project_id: PROJECT, version_id: OTHER_VERSION, actor_id: MEMBER, write_plan: {}, created_at: "2026-11-22T00:00:00.000Z",
+      result: { version_id: OTHER_VERSION, copied_from_receipt_id: receipt.id, source_job_id: JOB } };
+    setUp({ receipts: [copyReceipt, { ...receipt, created_at: "2026-11-22T01:00:00.000Z" }], sent: true });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(preview.blocked).toEqual({ reason: "already_sent", message: "Les postes de ce plan ont déjà été envoyés au devis.",
+      href: `/dashboard/estimates/${VERSION}/edit?focusItemId=${LINE}` });
+  });
+
   it("replays only the same choices, of the same author, still allowed to write (closing 9)", async () => {
     const { preview, receipt } = await committedReceipt();
     setUp({ receipts: [receipt] });
