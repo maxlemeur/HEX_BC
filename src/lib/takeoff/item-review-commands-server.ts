@@ -8,11 +8,12 @@ import { headers } from "next/headers";
 import { readLocalChatGptSubscription, type LocalChatGptSubscriptionIssue } from "@/lib/ai/chatgpt-takeoff";
 import { requireAffaireAccess, type AffaireAccess } from "@/lib/affaires/access-server";
 import { ApiError, conflict, forbidden, mapSupabaseError, unprocessableEntity } from "@/lib/http/api-response";
+import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { noteLength } from "@/lib/takeoff/rules/verification";
 import { asRecord } from "@/lib/value-guards";
 import type { Database } from "@/types/database";
 import { quantityEntryError } from "./quantity-entry";
-import { ITEM_INELIGIBILITIES, planItemReviewCommand, type ItemIneligibility, type ItemTableScope } from "./item-table";
+import { ITEM_INELIGIBILITIES, planItemReviewCommand, type ItemIneligibility, type ItemTableLine, type ItemTableScope } from "./item-table";
 import {
   ITEM_SET_ASIDE_NOTE,
   type ItemRemeasureCommand,
@@ -95,6 +96,31 @@ function reviewFailure(error: { message?: string }): never {
 
 const isIneligibility = (value: unknown): value is ItemIneligibility => (ITEM_INELIGIBILITIES as readonly unknown[]).includes(value);
 
+/**
+ * A set aside or a reinstatement changed the exclusion of positive rows, which the rules read: their rules (and their
+ * peers') wait for the server, and are computed again now, as a member's save of a row does (item-patch-server.ts), for
+ * the version of a job sent, or else the job. Best effort: a failed computation leaves them waiting, as it does there.
+ */
+async function refreshRulesOfRows(access: AffaireAccess, lines: readonly ItemTableLine[], applied: ReadonlySet<string>) {
+  const jobIds = [...new Set(lines.filter(({ itemId }) => applied.has(itemId)).flatMap(({ readings }) => readings
+    .flatMap(({ answer }) => answer?.observations.some(({ role, takeoffItemId }) => role === "contribution" && takeoffItemId)
+      ? [answer.jobId] : [])))];
+  if (!jobIds.length) return;
+  const { data, error } = await (access.context.supabase as unknown as Client).from("takeoff_jobs")
+    .select("id, estimate_version_id, project_id").eq("tenant_id", access.context.tenantId).in("id", jobIds);
+  if (error) return;
+  const tenantId = access.context.tenantId;
+  const versions = [...new Set((data ?? []).flatMap(({ estimate_version_id }) => estimate_version_id ? [estimate_version_id] : []))];
+  for (const estimateVersionId of versions.sort()) {
+    await recomputeTakeoffRulesQuietly({ tenantId, estimateVersionId, context: "item_review" });
+  }
+  for (const job of [...(data ?? [])].sort((left, right) => left.id.localeCompare(right.id))) {
+    if (job.estimate_version_id === null && job.project_id) {
+      await recomputeTakeoffRulesQuietly({ tenantId, jobId: job.id, projectId: job.project_id, context: "item_review" });
+    }
+  }
+}
+
 export async function runItemReviewCommand(projectId: string, command: ItemReviewCommand): Promise<ItemReviewResult> {
   assertCommandShape(command);
   const access = await requireReviewer(projectId);
@@ -135,6 +161,9 @@ export async function runItemReviewCommand(projectId: string, command: ItemRevie
     const row = asRecord(entry) ?? {};
     return isIneligibility(row.reason) ? [{ itemId: String(row.item_id), label: String(row.label ?? "Poste"), reason: row.reason }] : [];
   }) : [];
+  if (answer.replayed !== true && (command.gesture === "set_aside" || command.gesture === "reinstate") && applied.length) {
+    await refreshRulesOfRows(access, lines, new Set(applied.map(({ itemId }) => itemId)));
+  }
   return { outcome: answer.replayed === true ? "replayed" : "applied", applied, skipped: left };
 }
 

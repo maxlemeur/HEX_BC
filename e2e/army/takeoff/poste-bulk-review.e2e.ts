@@ -9,8 +9,8 @@ import { describe, expect, nativeTest as test } from "./native-ui";
 
 // Lot 4, the table of items and its bulk gestures (migration …_takeoff_item_review_decisions.sql), on the owned stack:
 // an affaire whose plan was read against its list of 30 items and published (item-table-support.ts). A member selects
-// lines across two pages, accepts the measured items without anomaly, sets four items aside with one reason, enters two
-// absences with their own values and one category, and meets a stale selection that applies nothing. Fictional values.
+// lines across two pages, accepts the measured items without anomaly, meets a stale selection that applies nothing,
+// sets four items aside with one reason and enters two absences with their own values and one category. Fictional values.
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local"], timeout: 240_000 };
 const label = (index: number) => `Appareil ${String(index + 1).padStart(2, "0")}`;
@@ -59,10 +59,26 @@ describe("Tableau des postes", () => {
         id: seeded.rowIds[index], is_verified: true, verified_by: owner.userId })));
       expect(rows.get(seeded.rowIds[20]!)).toMatchObject({ is_verified: false });
 
-      // The selection left stays for the tab after a reload.
+      // The selection left stays for the tab after a reload, on the page the address keeps.
       await ui.browser.reload();
       await waitForHydration(ui.browser);
       await expect(count).toContainText("3 postes sélectionnés");
+      await expect(row(26)).toBeVisible();
+      await screen.getByRole("button", "Vider la sélection", { exact: true }).click();
+
+      // A stale selection: another tab accepts one of its items meanwhile; nothing of the selection is applied. (Before
+      // the set aside below: the rules of a plan's rows then wait for the server, which cannot read the fictional plan.)
+      // The decisions still to take come first: these items are on the first page.
+      await screen.getByRole("button", "Page précédente", { exact: true }).click();
+      await expect(row(0)).toBeVisible();
+      for (const index of [2, 3]) await tick(index);
+      await acceptElsewhere(owner, seeded.projectId, item(3));
+      await screen.getByRole("button", "Accepter les mesurés sans anomalie (2)", { exact: true }).click();
+      await screen.getByRole("button", "Accepter 2 postes", { exact: true }).click();
+      await expect(notice).toContainText(`Rien n’a été appliqué : ${label(3)} a changé depuis la sélection.`);
+      const afterStale = await readOwnedDecisions(seeded.projectId);
+      expect(afterStale.find(({ item_id }) => item_id === item(2))).toBeUndefined();
+      expect(afterStale.find(({ item_id }) => item_id === item(3))).toMatchObject({ kind: "accepted" });
       await screen.getByRole("button", "Vider la sélection", { exact: true }).click();
 
       // Four items set aside with one reason chosen once, two without any positive row, confirmed by Enter.
@@ -80,18 +96,19 @@ describe("Tableau des postes", () => {
         expect(excluded.get(seeded.rowIds[index]!)).toMatchObject({ is_excluded: true,
           exclusion_reason: "Écarté dans le tableau des postes : doublon" });
       }
-      // Four decisions and two rows, each journaled.
-      expect(await countOwnedReviewEvents(seeded.projectId)).toBe(2 * 2 + 4 + 2);
+      // Each effect journaled: the two acceptances and the other tab's (a decision and a row each), then four decisions
+      // and two rows.
+      expect(await countOwnedReviewEvents(seeded.projectId)).toBe(2 * 2 + 2 + 4 + 2);
 
       // Two absences entered, each with its own value, under one category; the model's raw answers stay as read.
       await screen.getByRole("textbox", `Quantité saisie pour « ${label(24)} »`, { exact: true }).fill("2");
       await screen.getByRole("textbox", `Quantité saisie pour « ${label(25)} »`, { exact: true }).fill("3");
       await screen.getByRole("button", "Enregistrer les saisies (2)", { exact: true }).click();
       const entry = screen.getByRole("dialog");
-      await entry.getByRole("combobox", "Ce qui fonde ces quantités", { exact: true }).selectOption("hypothesis");
+      await entry.getByRole("combobox", "Ce qui fonde ces quantités", { exact: true }).selectOption({ value: "hypothesis" });
       await entry.getByRole("textbox", "Ce qui est supposé (obligatoire)", { exact: true }).fill("court");
       await expect(entry.getByRole("button", "Enregistrer", { exact: true })).toBeDisabled();
-      await entry.getByRole("combobox", "Ce qui fonde ces quantités", { exact: true }).selectOption("site_survey");
+      await entry.getByRole("combobox", "Ce qui fonde ces quantités", { exact: true }).selectOption({ value: "site_survey" });
       await entry.getByRole("button", "Enregistrer", { exact: true }).click();
       await expect(notice).toContainText("2 postes saisis.");
       expect((await readOwnedEntries(seeded.projectId)).map(({ item_id, quantity, unit, category, included }) =>
@@ -101,19 +118,9 @@ describe("Tableau des postes", () => {
       expect([24, 25].map((index) => answers.get(item(index)))).toEqual([24, 25].map((index) =>
         expect.objectContaining({ item_id: item(index), outcome: "not_found", quantity: null })));
 
-      // A stale selection: another tab accepts one of its items meanwhile; nothing of the selection is applied.
-      for (const index of [2, 3]) await tick(index);
-      await acceptElsewhere(owner, seeded.projectId, item(3));
-      await screen.getByRole("button", "Accepter les mesurés sans anomalie (2)", { exact: true }).click();
-      await screen.getByRole("button", "Accepter 2 postes", { exact: true }).click();
-      await expect(notice).toContainText(`Rien n’a été appliqué : ${label(3)} a changé depuis la sélection.`);
-      const afterStale = await readOwnedDecisions(seeded.projectId);
-      expect(afterStale.find(({ item_id }) => item_id === item(2))).toBeUndefined();
-      expect(afterStale.find(({ item_id }) => item_id === item(3))).toMatchObject({ kind: "accepted" });
-
       // No gesture forces anything.
       await expect(screen.getByRole("button", /forc/i)).toHaveCount(0);
-      await recordEvidence(army, "POSTE-REVUE01", { projectId: seeded.projectId, decisions: afterStale,
+      await recordEvidence(army, "POSTE-REVUE01", { projectId: seeded.projectId, decisions: await readOwnedDecisions(seeded.projectId),
         entries: await readOwnedEntries(seeded.projectId) });
     });
 });

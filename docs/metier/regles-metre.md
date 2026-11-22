@@ -310,11 +310,12 @@ effet est journalisé, poste par poste et ligne par ligne.
   au devis.
 - **Écarter la sélection** : un motif choisi une fois (hors périmètre, doublon, erreur
   de lecture, autre avec une note), écrit sur chaque lecture concernée, y compris sans
-  quantité. Les lignes positives sont exclues avec ce motif, leur vérification retirée,
-  leurs règles à recalculer. Un poste qu’aucun plan n’a lu n’a rien à écarter. Une
-  réintégration rend à chaque ligne ce qu’elle était (une hypothèse reste exclue comme
-  elle est arrivée) et garde la trace. Une ligne d’une analyse déjà envoyée n’est pas
-  modifiée.
+  quantité. Les lignes positives sont exclues avec ce motif et leur vérification est
+  retirée ; leurs règles et celles des lignes voisines sont recalculées aussitôt, comme
+  après une correction dans la revue ciblée. Un poste qu’aucun plan n’a lu n’a rien à
+  écarter. Une réintégration rend à chaque ligne ce qu’elle était (une hypothèse reste
+  exclue comme elle est arrivée) et garde la trace. Une ligne d’une analyse déjà envoyée
+  n’est pas modifiée.
 - **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
   qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
   postes ; un effort ponctuel peut être choisi sans changer le profil. Un seul poste

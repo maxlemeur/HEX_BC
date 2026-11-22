@@ -6,9 +6,11 @@ vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }
 vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ readLocalChatGptSubscription: vi.fn() }));
 vi.mock("./launch-request-server", () => ({ readAffaireTakeoffLaunchState: vi.fn() }));
 vi.mock("./item-table-server", () => ({ loadItemLines: vi.fn(), itemReviewerRight: vi.fn() }));
+vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn(async () => ({ lines: 1, skipped: 0 })) }));
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { readLocalChatGptSubscription } from "@/lib/ai/chatgpt-takeoff";
+import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { buildItemLines, type ItemReviewTarget, type ItemTableRow } from "./item-table";
 import type { ItemReviewCommand } from "./item-table-contracts";
 import { FIXTURE_PLANS, fixtureAnswer, fixtureItemId, fixturePoste, fixtureReading } from "./item-table.test-fixtures";
@@ -20,6 +22,8 @@ const PROJECT = "11111111-1111-4111-8111-111111111111";
 const MEMBER = "22222222-2222-4222-8222-222222222222";
 const TENANT = "77777777-7777-4777-8777-777777777777";
 const INTENT = "66666666-6666-4666-8666-666666666666";
+const JOB = "33333333-3333-4333-8333-333333333333";
+const VERSION = "88888888-8888-4888-8888-888888888888";
 
 const rows = (): ItemTableRow[] => [
   { item: fixturePoste(1, "WC"), state: "measured", decision: "pending", entry: null,
@@ -33,9 +37,12 @@ let lines = buildItemLines(rows(), { plans: FIXTURE_PLANS, scope: { kind: "affai
 const targetsOf = (ids: number[]) => lines.filter(({ itemId }) => ids.map(fixtureItemId).includes(itemId)).map(({ targets }) => targets);
 
 const review = vi.fn();
+let jobs: Array<{ id: string; estimate_version_id: string | null; project_id: string }> = [];
 const access = { context: { userId: MEMBER, tenantId: TENANT, supabase: {
   rpc: review,
-  from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { full_name: "Léa Martin" }, error: null }) }) }) }),
+  from: (table: string) => table === "takeoff_jobs"
+    ? { select: () => ({ eq: () => ({ in: async () => ({ data: jobs, error: null }) }) }) }
+    : { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { full_name: "Léa Martin" }, error: null }) }) }) },
 } }, project: { id: PROJECT } };
 
 function command(gesture: ItemReviewCommand["gesture"], targets: ItemReviewTarget[], extra: Record<string, unknown> = {}) {
@@ -48,6 +55,7 @@ async function refusal(promise: Promise<unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  jobs = [{ id: JOB, estimate_version_id: null, project_id: PROJECT }];
   lines = buildItemLines(rows(), { plans: FIXTURE_PLANS, scope: { kind: "affaire" } });
   vi.mocked(requireAffaireAccess).mockResolvedValue(access as never);
   vi.mocked(itemReviewerRight).mockResolvedValue(true);
@@ -130,6 +138,28 @@ describe("runItemReviewCommand", () => {
       entry: { category: "site_survey" } });
     await runItemReviewCommand(PROJECT, command("set_aside", targetsOf([2]), { reason: "other", note: " Prévu au lot chauffage " }));
     expect(review.mock.calls[1][1].p_command).toMatchObject({ reason: "other", note: "Prévu au lot chauffage" });
+  });
+
+  it("computes the rules of the rows a set aside or a reinstatement wrote again, as a member's save of a row does", async () => {
+    const applied = (itemId: string, replayed = false) => review.mockResolvedValueOnce({ data: { outcome: "applied",
+      applied: [{ item_id: itemId, answers: 1 }], skipped: [], replayed }, error: null });
+    applied(fixtureItemId(1));
+    await runItemReviewCommand(PROJECT, command("set_aside", targetsOf([1]), { reason: "duplicate" }));
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledWith({ tenantId: TENANT, jobId: JOB, projectId: PROJECT, context: "item_review" });
+    jobs = [{ id: JOB, estimate_version_id: VERSION, project_id: PROJECT }];
+    applied(fixtureItemId(1));
+    await runItemReviewCommand(PROJECT, command("reinstate", targetsOf([1])));
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenLastCalledWith({ tenantId: TENANT, estimateVersionId: VERSION, context: "item_review" });
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(2);
+
+    // An acceptance writes no rule input; a replay writes nothing now; an item without a positive row has no rule.
+    applied(fixtureItemId(1));
+    await runItemReviewCommand(PROJECT, command("accept_measured", targetsOf([1])));
+    applied(fixtureItemId(1), true);
+    await runItemReviewCommand(PROJECT, command("set_aside", targetsOf([1]), { reason: "duplicate" }));
+    applied(fixtureItemId(2));
+    await runItemReviewCommand(PROJECT, command("set_aside", targetsOf([2]), { reason: "duplicate" }));
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(2);
   });
 });
 

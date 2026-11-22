@@ -75,7 +75,7 @@ values ('${ids.plan}', '${owner.tenantId}', '${ids.planSet}', 'plan-1.pdf', ${te
 -- The list as its write function stores it (its digest is fictional: the seal compares it with itself).
 set local session_replication_role = replica;
 insert into public.takeoff_list_items (id, tenant_id, project_id, origin_kind, created_in_revision, created_by)
-select item.id, '${owner.tenantId}', '${ids.project}', 'manual', 1, '${owner.userId}'
+select item.id::uuid, '${owner.tenantId}', '${ids.project}', 'manual', 1, '${owner.userId}'
 from jsonb_array_elements_text(${literal(itemIds)}) as item(id);
 insert into public.takeoff_list_revisions (id, tenant_id, project_id, revision, cause, sources, item_count, content_sha256, gesture_sha256,
   intent_key, created_by)
