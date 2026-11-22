@@ -31,6 +31,8 @@ import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material
  *     linked or unlinked, supplier chosen, removed or retained, supplier named on the request changed);
  *  8. a validated line cannot get its supplier, or is shown back in draft once it has one;
  *  9. an address that is not a web address is turned into a link.
+ * 10. a supplier the catalogue does not know cannot be given to a line without leaving the request; or its
+ *     creation sets nothing on the line, adds a second supplier of a name that exists, or fails in silence.
  * (Independent review of delivery 1: 3 « skipped », 4 readers read the references, 6 per-article reads,
  * 7 refresh after retains, 1 technician's supplier still to confirm.)
  */
@@ -642,5 +644,58 @@ describe("suppliers of request lines", () => {
 
     expect(await screen.findByText("Négoce Alpha · fournisseur du type Inox")).toBeVisible();
     expect(screen.queryByText("Fournisseurs proposés indisponibles.")).not.toBeInTheDocument();
+  });
+
+  it("creates a supplier named in the field, gives it to the line and leads to its sheet (10)", async () => {
+    const DELTA = "f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4";
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: null }),
+      "POST /api/suppliers": { status: 201, data: { item: { id: DELTA, name: "Quincaillerie Delta" } } },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: line({ supplier_id: DELTA }) } },
+    });
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
+
+    await user.type(screen.getByLabelText("Fournisseur, ligne 1"), "  Quincaillerie Delta ");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Quincaillerie Delta"));
+    expect(writes()).toEqual([
+      { method: "POST", path: "/api/suppliers", body: { action: "create", item: { name: "Quincaillerie Delta" } } },
+      { method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: DELTA } },
+    ]);
+    // Only its name is known: the rest of its sheet is one link away, without losing the request.
+    const sheet = await screen.findByRole("link", { name: "Compléter la fiche de Quincaillerie Delta" });
+    expect(sheet).toHaveAttribute("href", `/dashboard/suppliers?fiche=${DELTA}`);
+    expect(sheet).toHaveAttribute("target", "_blank");
+  });
+
+  it("offers no creation for a name the list already holds, whatever its case and accents (10)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: null }),
+    });
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
+
+    await user.type(screen.getByLabelText("Fournisseur, ligne 1"), "negoce ALPHA");
+
+    expect(await screen.findByRole("option", { name: "Négoce Alpha" })).toBeVisible();
+    expect(screen.queryByRole("option", { name: /^Créer le fournisseur/ })).not.toBeInTheDocument();
+  });
+
+  it("says so and leaves the line as it was when the creation is refused (10)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: null }),
+      "POST /api/suppliers": { status: 403, error: { code: "FORBIDDEN", message: "Vous ne pouvez pas ajouter de fournisseur." } },
+    });
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
+
+    await user.type(screen.getByLabelText("Fournisseur, ligne 1"), "Quincaillerie Delta");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Vous ne pouvez pas ajouter de fournisseur.");
+    expect(writes().map((call) => call.path)).toEqual(["/api/suppliers"]);
+    expect(screen.queryByRole("link", { name: /^Compléter la fiche/ })).not.toBeInTheDocument();
   });
 });

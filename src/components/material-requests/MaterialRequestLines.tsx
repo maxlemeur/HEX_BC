@@ -430,6 +430,7 @@ export function MaterialRequestLines({
         onChooseTypeSupplier={chooseTypeSupplier}
         canEditCatalogue={canEditCatalogue}
         onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
+        onCreateSupplier={editor.createSupplier}
         ordered={orderedLine?.(line.id) ?? null}
         orderStatusKnown={orderStatusKnown}
       />
