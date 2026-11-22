@@ -384,6 +384,26 @@ lue juste avant. L’historique ouvert est relu avec le tableau. Toute lecture d
 refusée (le tableau, l’historique d’un poste, tous les résultats d’un filtre) retire le
 tableau, son détail, son historique et ses dialogues, quoi qu’ils aient montré avant.
 
+**Détail du poste sur son plan** (lot 5). « Détail », sur la ligne d’un poste, ouvre ce
+poste sur la page Métrés elle-même (`?poste=…&plan=…&lecture=…`, les paramètres du tableau
+gardés) : le plan sur lequel le tableau est filtré quand le poste y a une lecture ou doit y
+être mesuré, sinon le premier plan qui a répondu, sinon le plan du dossier à mesurer. À
+gauche les postes du tableau dans son ordre et son filtre, figés à l’ouverture ; au centre la
+page du plan, dessinée depuis les octets que la lecture a scellés (ou la copie actuelle du
+dossier pour un poste jamais mesuré) ; à droite la preuve, l’état, la source, les décisions,
+l’historique et les autres plans du poste. Passer d’un poste à l’autre, d’une page à l’autre
+ou d’un plan à l’autre remplace l’adresse sans ajouter d’entrée à l’historique du navigateur ;
+le retour du navigateur ferme le détail. « Revenir aux postes » (ou Échap) rend le tableau
+avec son filtre et sa page, sur le dernier poste montré, le clavier sur son « Détail ». Le
+détail lit les routes du tableau, dans sa portée et son filtre, avec les mêmes droits : tout
+lecteur de l’affaire le voit, seul un opérateur du métré de l’affaire décide, et une lecture
+refusée le retire comme elle retire le tableau. Ses gestes (accepter, écarter, saisir une
+quantité, inclure une hypothèse) passent par les confirmations du tableau et sa seule
+commande, sur ce poste dans la portée du tableau ; la base les décide de nouveau, et un poste
+changé depuis son affichage n’est pas modifié, il est relu. Un plan déjà envoyé au devis se
+consulte sans aucun geste. Une lecture antérieure (un ancien favori) montre son plan sans la
+preuve, les décisions, les saisies ni l’historique de la lecture actuelle.
+
 ## Contrat actuel de contrôle ciblé — TI-681
 
 Les avertissements de quantité, y compris une confiance faible, recommandent un
@@ -2167,7 +2187,7 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   au centre le plan et sa lecture vectorielle, la ligne en évidence ; à droite ses raisons
   et ses décisions. La revue complète y renvoie (« Revue ciblée · N lignes »), comme le
   panneau des lignes bloquées de l'écran « Envoyer au tableau de chiffrage ».
-- **Plan d'un poste** (lot 5, détail d'un poste ; aucun écran ne l'ouvre encore) : le plan
+- **Plan d'un poste** (lot 5, détail d'un poste, ouvert depuis le tableau des postes) : le plan
   montré est résolu par le serveur dans l'affaire que le membre lit
   (`GET /api/affaires/<affaire>/takeoff/item-detail/plan`), avec les droits des routes qui
   en servent les octets (module Métré actif pour le tenant, règle du centre de plans). Pour

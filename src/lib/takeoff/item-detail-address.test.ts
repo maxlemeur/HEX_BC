@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   itemDetailHref,
+  itemTableLineDetailHref,
   itemTablePageOffset,
   itemTableReturnHref,
   readItemDetailAddress,
   resolveHistoricalReviewLink,
   type ItemDetailAddress,
 } from "@/lib/takeoff/item-detail-address";
+import {
+  DETAIL_PROJECT, ITEMS, JOB_R1, JOB_RDC, PLAN_R1, PLAN_RDC, PLAN_SCAN, basinLine, toMeasureLine,
+} from "@/lib/takeoff/item-detail.test-fixtures";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 
 // The address of the detail of an item (lot 5) lives on the affaire's takeoff page beside the table's own parameters
@@ -95,10 +99,30 @@ describe("itemDetailHref and itemTableReturnHref", () => {
   it("comes back to the table with its filter and page size, the item shown in focus on the page that holds it", () => {
     const open = new URL(itemDetailHref(PROJECT, detail({ planKey: PIECE, jobId: JOB, page: 7 }), table), "https://app.test").search;
     expect(itemTableReturnHref(PROJECT, open, { itemId: OTHER_ITEM, offset: itemTablePageOffset(57, 25) }))
-      .toBe(`${TAKEOFF}?postePlan=${PIECE}&posteState=measured&posteLimit=25&posteOffset=50&posteFocus=${OTHER_ITEM}&tab=jobs`);
+      .toBe(`${TAKEOFF}?postePlan=${PIECE}&posteState=measured&posteLimit=25&tab=jobs&posteOffset=50&posteFocus=${OTHER_ITEM}`);
     expect(itemTableReturnHref(PROJECT, open, { itemId: OTHER_ITEM, offset: itemTablePageOffset(3, 25) }))
-      .toBe(`${TAKEOFF}?postePlan=${PIECE}&posteState=measured&posteLimit=25&posteFocus=${OTHER_ITEM}&tab=jobs`);
+      .toBe(`${TAKEOFF}?postePlan=${PIECE}&posteState=measured&posteLimit=25&tab=jobs&posteFocus=${OTHER_ITEM}`);
     expect(itemTableReturnHref(PROJECT, `poste=${ITEM}&plan=p`, null)).toBe(TAKEOFF);
+  });
+});
+
+describe("itemTableLineDetailHref", () => {
+  const takeoff = `/dashboard/affaires/${DETAIL_PROJECT}/takeoff`;
+
+  it("opens a line on the plan the table is filtered on, else on its first plan that answered, else on the dossier's", () => {
+    expect(itemTableLineDetailHref(DETAIL_PROJECT, basinLine, "posteState=measured&tab=jobs"))
+      .toBe(`${takeoff}?posteState=measured&tab=jobs&poste=${ITEMS.basin}&plan=${PLAN_RDC}&lecture=${JOB_RDC}`);
+    expect(itemTableLineDetailHref(DETAIL_PROJECT, basinLine, `postePlan=${PLAN_R1}`))
+      .toBe(`${takeoff}?postePlan=${PLAN_R1}&poste=${ITEMS.basin}&plan=${PLAN_R1}&lecture=${JOB_R1}`);
+    // Never measured: the plan filtered on when the item is to be measured there, else the detail opens the dossier's.
+    expect(itemTableLineDetailHref(DETAIL_PROJECT, toMeasureLine, `postePlan=${PLAN_SCAN}`))
+      .toBe(`${takeoff}?postePlan=${PLAN_SCAN}&poste=${ITEMS.toMeasure}&plan=${PLAN_SCAN}`);
+    expect(itemTableLineDetailHref(DETAIL_PROJECT, toMeasureLine, "")).toBe(`${takeoff}?poste=${ITEMS.toMeasure}`);
+    // Every address it writes opens a detail.
+    for (const href of [itemTableLineDetailHref(DETAIL_PROJECT, basinLine, `postePlan=${PLAN_R1}`),
+      itemTableLineDetailHref(DETAIL_PROJECT, toMeasureLine, "")]) {
+      expect(read(new URL(href, "https://app.test").search).kind).toBe("detail");
+    }
   });
 });
 

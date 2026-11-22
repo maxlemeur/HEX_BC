@@ -18,7 +18,9 @@ describe("chooseItemDetailPlan", () => {
     expect(chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_R1 })).toMatchObject({ kind: "reading", planKey: PLAN_R1, current: true });
     expect(chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_RDC, jobId: JOB_EARLIER }))
       .toMatchObject({ kind: "reading", jobId: JOB_EARLIER, current: false });
-    expect(chooseItemDetailPlan(toMeasureLine, none)).toEqual({ kind: "dossier", planKey: PLAN_R1, planName: null, reading: null });
+    expect(chooseItemDetailPlan(toMeasureLine, none)).toEqual({ kind: "dossier", planKey: PLAN_RDC, planName: null, reading: null });
+    // A reading named is one the item has: another item's job on a plan this item shares is not this item's reading.
+    expect(chooseItemDetailPlan(toMeasureLine, { ...none, planKey: PLAN_RDC, jobId: JOB_RDC })).toEqual({ kind: "mismatch" });
     expect(chooseItemDetailPlan(toMeasureLine, { ...none, source: { documentId: PLAN_R1, generation: "2" } }))
       .toEqual({ kind: "source", documentId: PLAN_R1, generation: "2" });
     expect(chooseItemDetailPlan({ ...toMeasureLine, remeasurePlans: [] }, none)).toEqual({ kind: "none" });
@@ -63,8 +65,9 @@ describe("itemDetailOpeningPage and itemDetailPagesOfInterest", () => {
 
 describe("ItemDetailQueue", () => {
   const page = (offset: number, ids: string[], total: number): ItemDetailQueuePage => ({
-    lines: ids.map((id, index) => ({ ...basinLine, itemId: id, position: offset + index })), total, offset, limit: 2, canReview: true,
-    names: {}, plans: [],
+    page: { lines: ids.map((id, index) => ({ ...basinLine, itemId: id, position: offset + index })), total, offset, limit: 2,
+      focusFound: false },
+    canReview: true, names: {}, plans: [],
   });
 
   it("finds the neighbours across a page boundary, asking for the page to read first", () => {
